@@ -19,7 +19,24 @@ export type ReviewContent =
         correctOptionId?: string;
       }>;
     }
-  | { kind: 'CODING'; prompt: string; language?: string; testCases?: Array<{ input?: unknown; expected?: unknown }> }
+  | {
+      kind: 'CODING';
+      multi?: boolean;
+      prompt?: string;
+      language?: string;
+      testCases?: Array<{ input?: unknown; expected?: unknown }>;
+      items?: Array<{
+        id: string;
+        index: number;
+        title?: string;
+        prompt: string;
+        sampleInput?: string;
+        sampleOutput?: string;
+        expectedAnswer?: string;
+        marks?: number | null;
+        testCases?: Array<{ input?: unknown; expected?: unknown }>;
+      }>;
+    }
   | { kind: 'ESSAY'; prompt: string; minWords?: number | null; maxWords?: number | null }
   | { kind: 'VIDEO'; prompt: string; maxDurationSeconds?: number | null };
 
@@ -85,6 +102,50 @@ function ReviewQuestionAnswer({ row }: { row: AssessmentResult }) {
   }
 
   if (type === 'CODING' && content?.kind === 'CODING') {
+    if (content.multi && content.items?.length) {
+      return (
+        <div className="space-y-3">
+          {content.items.map((q) => {
+            const candidateCode = String(answers[q.id] ?? '').trim();
+            return (
+              <div key={q.id} className="rounded-md border border-slate-200 bg-white p-2 space-y-2">
+                <p className="text-xs font-medium text-slate-800">
+                  {q.index}. {q.title || 'Coding question'}
+                </p>
+                <AnswerBlock label="Problem">{q.prompt}</AnswerBlock>
+                {q.sampleInput || q.sampleOutput ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {q.sampleInput ? (
+                      <AnswerBlock label="Sample input">{q.sampleInput}</AnswerBlock>
+                    ) : null}
+                    {q.sampleOutput ? (
+                      <AnswerBlock label="Sample output">{q.sampleOutput}</AnswerBlock>
+                    ) : null}
+                  </div>
+                ) : null}
+                {q.testCases?.length ? (
+                  <ul className="text-[11px] text-slate-600 space-y-1">
+                    {q.testCases.map((tc, i) => (
+                      <li key={i}>
+                        Test {i + 1}: input {String(tc.input ?? '—')} → expected{' '}
+                        {String(tc.expected ?? '—')}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <AnswerBlock label="Candidate answer">
+                  {candidateCode || '(No code submitted)'}
+                </AnswerBlock>
+                {q.expectedAnswer ? (
+                  <AnswerBlock label="Expected answer (reference)">{q.expectedAnswer}</AnswerBlock>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-2">
         <AnswerBlock label="Question / problem">
@@ -143,9 +204,10 @@ function extractAnswerText(row: AssessmentResult): string {
   if (typeof answers.essay === 'string') return answers.essay;
   if (typeof answers.code === 'string') return answers.code;
   if (typeof answers.videoNote === 'string') return answers.videoNote;
-  const mcqKeys = Object.keys(answers).filter((k) => !k.startsWith('_'));
-  if (mcqKeys.length) {
-    return mcqKeys.map((k) => `${k}: ${String(answers[k] ?? '—')}`).join('\n');
+  const textKeys = Object.keys(answers).filter((k) => !k.startsWith('_'));
+  const hasLongValues = textKeys.some((k) => String(answers[k] ?? '').includes('\n') || String(answers[k] ?? '').length > 40);
+  if (textKeys.length && hasLongValues) {
+    return textKeys.map((k) => `${k}:\n${String(answers[k] ?? '—')}`).join('\n\n');
   }
   return '';
 }

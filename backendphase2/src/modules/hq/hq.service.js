@@ -10,6 +10,7 @@ import {
 } from '../setting/recruitmentMode.service.js';
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { hqLeadsService } from './hq-leads.service.js';
+import { hqCompaniesService } from './hq-companies.service.js';
 
 function normalizePlanInput(raw) {
   if (!raw) return null;
@@ -245,5 +246,50 @@ export const hqService = {
   async createLead(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqLeadsService.createLead(data, reqUser);
+  },
+
+  async updateLead(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.updateLead(id, data, reqUser);
+  },
+
+  async addLeadFollowUp(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.addFollowUp(id, data, reqUser);
+  },
+
+  async addLeadRemark(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.addRemark(id, data, reqUser);
+  },
+
+  async convertLeadToCompany(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.convertToCompany(id, reqUser);
+  },
+
+  async listCompanies(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.listCompanies();
+  },
+
+  async createCompany(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.createCompany(data, reqUser);
+  },
+
+  async updateCompany(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.updateCompany(id, data, reqUser);
+  },
+
+  async addCompanyFollowUp(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.addFollowUp(id, data, reqUser);
+  },
+
+  async addCompanyRemark(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.addRemark(id, data, reqUser);
   },
 };

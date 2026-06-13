@@ -3,72 +3,46 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
-import { defaultNextFollowUpLocal } from '@/app/hq/leads/hqLeadsData';
+import {
+  defaultNextFollowUpLocal,
+  HQ_COMPANY_INDUSTRY_OPTIONS,
+  HQ_COMPANY_MODULE_OPTIONS,
+  HQ_COMPANY_SOURCE_OPTIONS,
+} from '@/app/hq/company/hqCompaniesData';
 
-export type CreateHqLeadFormValues = {
-  contactName: string;
+export type CreateHqCompanyFormValues = {
   companyName: string;
+  primaryContactName: string;
   email: string;
   phone: string;
+  website: string;
   industry: string;
   country: string;
   expectedUsers: string;
   estimatedDealValue: string;
-  leadOwner: string;
-  leadSource: string;
+  accountOwner: string;
+  companySource: string;
   nextFollowUpAt: string;
   interestedModules: string[];
   initialNotes: string;
 };
 
-const EMPTY_FORM: CreateHqLeadFormValues = {
-  contactName: '',
+const EMPTY_FORM: CreateHqCompanyFormValues = {
   companyName: '',
+  primaryContactName: '',
   email: '',
   phone: '',
+  website: '',
   industry: '',
   country: '',
   expectedUsers: '',
   estimatedDealValue: '',
-  leadOwner: '',
-  leadSource: '',
+  accountOwner: '',
+  companySource: '',
   nextFollowUpAt: '',
   interestedModules: [],
   initialNotes: '',
 };
-
-const INDUSTRY_OPTIONS = [
-  'IT Services',
-  'Manufacturing',
-  'Technology',
-  'Consulting',
-  'Media',
-  'Security',
-  'Real Estate',
-  'Healthcare',
-  'Staffing',
-  'Design',
-  'Agriculture',
-  'Other',
-];
-
-const LEAD_SOURCE_OPTIONS = [
-  'Referral',
-  'Website',
-  'LinkedIn',
-  'Cold Outreach',
-  'Event',
-  'Partner',
-  'Other',
-];
-
-const MODULE_OPTIONS = [
-  'Recruitment',
-  'Payroll',
-  'Time & Attendance',
-  'Employee Management',
-  'Performance',
-];
 
 const INPUT_CLASS =
   'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-200';
@@ -82,16 +56,16 @@ function FieldLabel({ children, required }: { children: React.ReactNode; require
   );
 }
 
-export function CreateHqLeadModal({
+export function CreateHqCompanyModal({
   open,
   onClose,
   onCreate,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreate: (values: CreateHqLeadFormValues) => Promise<void>;
+  onCreate: (values: CreateHqCompanyFormValues) => Promise<void>;
 }) {
-  const [form, setForm] = useState<CreateHqLeadFormValues>(EMPTY_FORM);
+  const [form, setForm] = useState<CreateHqCompanyFormValues>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -126,16 +100,16 @@ export function CreateHqLeadModal({
     e.preventDefault();
     setError(null);
 
-    if (!form.contactName.trim() || !form.companyName.trim() || !form.email.trim()) {
-      setError('Contact name, company name, and email are required.');
+    if (!form.companyName.trim() || !form.primaryContactName.trim() || !form.email.trim()) {
+      setError('Company name, primary contact, and email are required.');
       return;
     }
     if (!form.industry || !form.country.trim() || !form.expectedUsers.trim() || !form.estimatedDealValue.trim()) {
       setError('Please fill in all required fields.');
       return;
     }
-    if (!form.leadOwner.trim() || !form.leadSource) {
-      setError('Lead owner and lead source are required.');
+    if (!form.accountOwner.trim() || !form.companySource) {
+      setError('Account owner and company source are required.');
       return;
     }
     if (!form.nextFollowUpAt.trim()) {
@@ -152,7 +126,7 @@ export function CreateHqLeadModal({
       await onCreate(form);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create lead');
+      setError(err instanceof Error ? err.message : 'Failed to create company');
     } finally {
       setSubmitting(false);
     }
@@ -170,16 +144,16 @@ export function CreateHqLeadModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="create-hq-lead-title"
+        aria-labelledby="create-hq-company-title"
         className="relative my-4 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl"
       >
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5 sm:px-8">
           <div>
-            <h2 id="create-hq-lead-title" className="text-2xl font-bold text-slate-900">
-              Create New Lead
+            <h2 id="create-hq-company-title" className="text-2xl font-bold text-slate-900">
+              Create New Company
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Enter the details of the prospective client below to add them to your CRM.
+              Enter company details below to add them to your CRM pipeline.
             </p>
           </div>
           <button
@@ -201,15 +175,6 @@ export function CreateHqLeadModal({
 
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
-              <FieldLabel required>Contact Name</FieldLabel>
-              <input
-                className={INPUT_CLASS}
-                placeholder="e.g. John Doe"
-                value={form.contactName}
-                onChange={(e) => setForm({ ...form, contactName: e.target.value })}
-              />
-            </div>
-            <div>
               <FieldLabel required>Company Name</FieldLabel>
               <input
                 className={INPUT_CLASS}
@@ -219,11 +184,20 @@ export function CreateHqLeadModal({
               />
             </div>
             <div>
+              <FieldLabel required>Primary Contact</FieldLabel>
+              <input
+                className={INPUT_CLASS}
+                placeholder="e.g. John Doe"
+                value={form.primaryContactName}
+                onChange={(e) => setForm({ ...form, primaryContactName: e.target.value })}
+              />
+            </div>
+            <div>
               <FieldLabel required>Email</FieldLabel>
               <input
                 type="email"
                 className={INPUT_CLASS}
-                placeholder="john@example.com"
+                placeholder="contact@example.com"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
@@ -238,6 +212,16 @@ export function CreateHqLeadModal({
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
               />
             </div>
+            <div className="sm:col-span-2">
+              <FieldLabel>Website</FieldLabel>
+              <input
+                type="url"
+                className={INPUT_CLASS}
+                placeholder="https://example.com"
+                value={form.website}
+                onChange={(e) => setForm({ ...form, website: e.target.value })}
+              />
+            </div>
             <div>
               <FieldLabel required>Industry</FieldLabel>
               <div className="relative">
@@ -247,7 +231,7 @@ export function CreateHqLeadModal({
                   onChange={(e) => setForm({ ...form, industry: e.target.value })}
                 >
                   <option value="">Select industry</option>
-                  {INDUSTRY_OPTIONS.map((opt) => (
+                  {HQ_COMPANY_INDUSTRY_OPTIONS.map((opt) => (
                     <option key={opt} value={opt}>
                       {opt}
                     </option>
@@ -288,24 +272,24 @@ export function CreateHqLeadModal({
               />
             </div>
             <div>
-              <FieldLabel required>Lead Owner</FieldLabel>
+              <FieldLabel required>Account Owner</FieldLabel>
               <input
                 className={INPUT_CLASS}
                 placeholder="e.g. Jane Admin"
-                value={form.leadOwner}
-                onChange={(e) => setForm({ ...form, leadOwner: e.target.value })}
+                value={form.accountOwner}
+                onChange={(e) => setForm({ ...form, accountOwner: e.target.value })}
               />
             </div>
             <div>
-              <FieldLabel required>Lead Source</FieldLabel>
+              <FieldLabel required>Company Source</FieldLabel>
               <div className="relative">
                 <select
                   className={`${INPUT_CLASS} appearance-none pr-10`}
-                  value={form.leadSource}
-                  onChange={(e) => setForm({ ...form, leadSource: e.target.value })}
+                  value={form.companySource}
+                  onChange={(e) => setForm({ ...form, companySource: e.target.value })}
                 >
                   <option value="">Select source</option>
-                  {LEAD_SOURCE_OPTIONS.map((opt) => (
+                  {HQ_COMPANY_SOURCE_OPTIONS.map((opt) => (
                     <option key={opt} value={opt}>
                       {opt}
                     </option>
@@ -328,7 +312,7 @@ export function CreateHqLeadModal({
           <div className="mt-6 border-t border-slate-100 pt-6">
             <FieldLabel required>Interested Modules (Select one or more)</FieldLabel>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {MODULE_OPTIONS.map((module) => {
+              {HQ_COMPANY_MODULE_OPTIONS.map((module) => {
                 const checked = form.interestedModules.includes(module);
                 return (
                   <label
@@ -364,7 +348,7 @@ export function CreateHqLeadModal({
               Cancel
             </HqSecondaryButton>
             <HqPrimaryButton type="submit" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create Lead'}
+              {submitting ? 'Creating…' : 'Create Company'}
             </HqPrimaryButton>
           </div>
         </form>

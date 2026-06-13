@@ -4,45 +4,46 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarClock, ChevronDown, LayoutGrid, MessageSquare, Pencil, X } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
-import { apiHqAddLeadFollowUp, apiHqAddLeadRemark } from '@/lib/api';
+import { apiHqAddCompanyFollowUp, apiHqAddCompanyRemark } from '@/lib/api';
 import {
-  HQ_LEAD_FOLLOW_UP_TYPES,
-  HQ_LEAD_INDUSTRY_OPTIONS,
-  HQ_LEAD_MODULE_OPTIONS,
-  HQ_LEAD_SOURCE_OPTIONS,
-  HQ_LEAD_STAGE_LABELS,
-  HQ_LEAD_STAGE_STYLES,
-  HQ_LEAD_TABS,
   defaultNextFollowUpLocal,
   formatNextFollowUpDisplay,
+  HQ_COMPANY_FOLLOW_UP_TYPES,
+  HQ_COMPANY_INDUSTRY_OPTIONS,
+  HQ_COMPANY_MODULE_OPTIONS,
+  HQ_COMPANY_SOURCE_OPTIONS,
+  HQ_COMPANY_STATUS_LABELS,
+  HQ_COMPANY_STATUS_STYLES,
+  HQ_COMPANY_TABS,
   toDatetimeLocalValue,
-  type HqLeadDrawerTab,
-  type HqLeadRow,
-  type HqLeadScore,
-  type HqLeadStage,
-} from '@/app/hq/leads/hqLeadsData';
+  type HqCompanyDrawerTab,
+  type HqCompanyRow,
+  type HqCompanyScore,
+  type HqCompanyStatus,
+} from '@/app/hq/company/hqCompaniesData';
 
-const DRAWER_TABS: { id: HqLeadDrawerTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const DRAWER_TABS: { id: HqCompanyDrawerTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'details', label: 'Details', icon: LayoutGrid },
   { id: 'followup', label: 'Follow-up', icon: CalendarClock },
   { id: 'remarks', label: 'Remarks', icon: MessageSquare },
 ];
 
-export type EditHqLeadFormValues = {
-  contactName: string;
+export type EditHqCompanyFormValues = {
   companyName: string;
+  primaryContactName: string;
   email: string;
   phone: string;
+  website: string;
   industry: string;
   country: string;
   expectedUsers: string;
   estimatedDealValue: string;
-  leadOwner: string;
-  leadSource: string;
+  accountOwner: string;
+  companySource: string;
   nextFollowUpAt: string;
   interestedModules: string[];
   initialNotes: string;
-  stage: HqLeadStage;
+  status: HqCompanyStatus;
 };
 
 const VALUE_CLASS =
@@ -51,23 +52,23 @@ const VALUE_CLASS =
 const INPUT_CLASS =
   'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-200';
 
-function leadToFormValues(lead: HqLeadRow): EditHqLeadFormValues {
+function companyToFormValues(company: HqCompanyRow): EditHqCompanyFormValues {
   return {
-    contactName: lead.name,
-    companyName: lead.company,
-    email: lead.email || '',
-    phone: lead.phone || '',
-    industry: lead.industry,
-    country: lead.country || '',
-    expectedUsers: String(lead.users ?? ''),
-    estimatedDealValue: String(lead.estimatedDealValue ?? ''),
-    leadOwner: lead.owner,
-    leadSource: lead.leadSource || '',
-    nextFollowUpAt:
-      toDatetimeLocalValue(lead.nextFollowUpAt) || defaultNextFollowUpLocal(),
-    interestedModules: [...(lead.interestedModules ?? [])],
-    initialNotes: lead.initialNotes || '',
-    stage: lead.stage,
+    companyName: company.name,
+    primaryContactName: company.contact,
+    email: company.email || '',
+    phone: company.phone || '',
+    website: company.website || '',
+    industry: company.industry,
+    country: company.country || '',
+    expectedUsers: String(company.users ?? ''),
+    estimatedDealValue: String(company.estimatedDealValue ?? ''),
+    accountOwner: company.owner,
+    companySource: company.companySource || '',
+    nextFollowUpAt: toDatetimeLocalValue(company.nextFollowUpAt) || defaultNextFollowUpLocal(),
+    interestedModules: [...(company.interestedModules ?? [])],
+    initialNotes: company.initialNotes || '',
+    status: company.status,
   };
 }
 
@@ -88,7 +89,7 @@ function DetailValue({ value, placeholder = '—' }: { value?: string | number |
   return <div className={VALUE_CLASS}>{text}</div>;
 }
 
-function ScoreBadge({ score }: { score: HqLeadScore }) {
+function ScoreBadge({ score }: { score: HqCompanyScore }) {
   if (score === 'Hot') {
     return (
       <span className="inline-flex rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-700 ring-1 ring-rose-200">
@@ -110,11 +111,11 @@ function ScoreBadge({ score }: { score: HqLeadScore }) {
   );
 }
 
-function StageBadge({ stage }: { stage: HqLeadStage }) {
-  const label = HQ_LEAD_STAGE_LABELS[stage].toUpperCase();
+function StatusBadge({ status }: { status: HqCompanyStatus }) {
+  const label = HQ_COMPANY_STATUS_LABELS[status].toUpperCase();
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${HQ_LEAD_STAGE_STYLES[stage]}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${HQ_COMPANY_STATUS_STYLES[status]}`}
     >
       {label}
     </span>
@@ -125,28 +126,25 @@ function formatCreatedAt(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-export function HqLeadDetailDrawer({
+export function HqCompanyDetailDrawer({
   open,
-  lead,
+  company,
   onClose,
   onSave,
-  onLeadUpdated,
+  onCompanyUpdated,
 }: {
   open: boolean;
-  lead: HqLeadRow | null;
+  company: HqCompanyRow | null;
   onClose: () => void;
-  onSave: (leadId: string, values: EditHqLeadFormValues) => Promise<void>;
-  onLeadUpdated: (lead: HqLeadRow) => void;
+  onSave: (companyId: string, values: EditHqCompanyFormValues) => Promise<void>;
+  onCompanyUpdated: (company: HqCompanyRow) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<HqLeadDrawerTab>('details');
+  const [activeTab, setActiveTab] = useState<HqCompanyDrawerTab>('details');
   const [isEditing, setIsEditing] = useState(false);
-  const [form, setForm] = useState<EditHqLeadFormValues | null>(null);
+  const [form, setForm] = useState<EditHqCompanyFormValues | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -160,7 +158,7 @@ export function HqLeadDetailDrawer({
   const [remarkSubmitting, setRemarkSubmitting] = useState(false);
   const [tabError, setTabError] = useState<string | null>(null);
 
-  const leadId = lead?.id ?? null;
+  const companyId = company?.id ?? null;
 
   useEffect(() => {
     setMounted(true);
@@ -177,8 +175,8 @@ export function HqLeadDetailDrawer({
   }, [open]);
 
   useEffect(() => {
-    if (!open || !lead) return;
-    setForm(leadToFormValues(lead));
+    if (!open || !company) return;
+    setForm(companyToFormValues(company));
     setIsEditing(false);
     setActiveTab('details');
     setError(null);
@@ -186,16 +184,16 @@ export function HqLeadDetailDrawer({
     setSubmitting(false);
     setFollowUpForm({
       type: 'Call',
-      scheduledAt: toDatetimeLocalValue(lead.nextFollowUpAt) || defaultNextFollowUpLocal(),
+      scheduledAt: toDatetimeLocalValue(company.nextFollowUpAt) || defaultNextFollowUpLocal(),
       notes: '',
     });
     setRemarkText('');
-  }, [open, leadId]);
+  }, [open, companyId]);
 
   useEffect(() => {
-    if (!lead || isEditing) return;
-    setForm(leadToFormValues(lead));
-  }, [lead, isEditing]);
+    if (!company || isEditing) return;
+    setForm(companyToFormValues(company));
+  }, [company, isEditing]);
 
   useEffect(() => {
     if (!open) return;
@@ -205,7 +203,7 @@ export function HqLeadDetailDrawer({
       if (e.key === 'Escape') {
         if (isEditing) {
           setIsEditing(false);
-          if (lead) setForm(leadToFormValues(lead));
+          if (company) setForm(companyToFormValues(company));
           setError(null);
         } else {
           onClose();
@@ -217,11 +215,11 @@ export function HqLeadDetailDrawer({
       document.body.style.overflow = prev;
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [open, onClose, isEditing, lead]);
+  }, [open, onClose, isEditing, company]);
 
-  if (!mounted || !open || !lead || !form) return null;
+  if (!mounted || !open || !company || !form) return null;
 
-  const selectedModules = new Set(isEditing ? form.interestedModules : (lead.interestedModules ?? []));
+  const selectedModules = new Set(isEditing ? form.interestedModules : (company.interestedModules ?? []));
 
   const toggleModule = (module: string) => {
     setForm((prev) => {
@@ -236,14 +234,14 @@ export function HqLeadDetailDrawer({
   };
 
   const handleCancelEdit = () => {
-    setForm(leadToFormValues(lead));
+    setForm(companyToFormValues(company));
     setError(null);
     setIsEditing(false);
   };
 
-  const handleTabChange = (tab: HqLeadDrawerTab) => {
+  const handleTabChange = (tab: HqCompanyDrawerTab) => {
     if (isEditing) {
-      setForm(leadToFormValues(lead));
+      setForm(companyToFormValues(company));
       setIsEditing(false);
       setError(null);
     }
@@ -260,10 +258,10 @@ export function HqLeadDetailDrawer({
     }
     setFollowUpSubmitting(true);
     try {
-      const result = await apiHqAddLeadFollowUp(lead.id, followUpForm);
-      const updated = result.data?.lead;
+      const result = await apiHqAddCompanyFollowUp(company.id, followUpForm);
+      const updated = result.data?.company;
       if (updated) {
-        onLeadUpdated(updated);
+        onCompanyUpdated(updated);
         setFollowUpForm({
           type: 'Call',
           scheduledAt: toDatetimeLocalValue(updated.nextFollowUpAt) || defaultNextFollowUpLocal(),
@@ -286,10 +284,10 @@ export function HqLeadDetailDrawer({
     }
     setRemarkSubmitting(true);
     try {
-      const result = await apiHqAddLeadRemark(lead.id, { text: remarkText.trim() });
-      const updated = result.data?.lead;
+      const result = await apiHqAddCompanyRemark(company.id, { text: remarkText.trim() });
+      const updated = result.data?.company;
       if (updated) {
-        onLeadUpdated(updated);
+        onCompanyUpdated(updated);
         setRemarkText('');
       }
     } catch (err) {
@@ -303,16 +301,16 @@ export function HqLeadDetailDrawer({
     e?.preventDefault();
     setError(null);
 
-    if (!form.contactName.trim() || !form.companyName.trim() || !form.email.trim()) {
-      setError('Contact name, company name, and email are required.');
+    if (!form.companyName.trim() || !form.primaryContactName.trim() || !form.email.trim()) {
+      setError('Company name, primary contact, and email are required.');
       return;
     }
     if (!form.industry || !form.country.trim() || !form.expectedUsers.trim() || !form.estimatedDealValue.trim()) {
       setError('Please fill in all required fields.');
       return;
     }
-    if (!form.leadOwner.trim() || !form.leadSource) {
-      setError('Lead owner and lead source are required.');
+    if (!form.accountOwner.trim() || !form.companySource) {
+      setError('Account owner and company source are required.');
       return;
     }
     if (!form.nextFollowUpAt.trim()) {
@@ -326,10 +324,10 @@ export function HqLeadDetailDrawer({
 
     setSubmitting(true);
     try {
-      await onSave(lead.id, form);
+      await onSave(company.id, form);
       setIsEditing(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update lead');
+      setError(err instanceof Error ? err.message : 'Failed to update company');
     } finally {
       setSubmitting(false);
     }
@@ -339,7 +337,7 @@ export function HqLeadDetailDrawer({
     <div className="fixed inset-0 z-[1200]">
       <button
         type="button"
-        aria-label="Close lead drawer backdrop"
+        aria-label="Close company drawer backdrop"
         className="absolute inset-0 z-0 bg-slate-900/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
@@ -347,37 +345,37 @@ export function HqLeadDetailDrawer({
       <aside
         role="dialog"
         aria-modal="true"
-        aria-labelledby="hq-lead-detail-title"
+        aria-labelledby="hq-company-detail-title"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         className="absolute right-0 top-0 z-10 flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl pointer-events-auto"
       >
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
           <div>
-            <h2 id="hq-lead-detail-title" className="text-2xl font-bold text-slate-900">
+            <h2 id="hq-company-detail-title" className="text-2xl font-bold text-slate-900">
               {activeTab === 'followup'
                 ? 'Follow-up'
                 : activeTab === 'remarks'
                   ? 'Remarks'
                   : isEditing
-                    ? 'Edit Lead'
-                    : 'Lead Details'}
+                    ? 'Edit Company'
+                    : 'Company Details'}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               {activeTab === 'followup'
-                ? `Schedule and track follow-ups for ${lead.name}.`
+                ? `Schedule and track follow-ups for ${company.name}.`
                 : activeTab === 'remarks'
-                  ? `Add internal remarks and notes for ${lead.name}.`
+                  ? `Add internal remarks and notes for ${company.name}.`
                   : isEditing
-                    ? 'Update the prospective client details below and save to your CRM.'
-                    : `Full CRM profile for ${lead.name} at ${lead.company}.`}
+                    ? 'Update company details below and save to your CRM.'
+                    : `Full CRM profile for ${company.name}.`}
             </p>
             {!isEditing ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <StageBadge stage={lead.stage} />
-                <ScoreBadge score={lead.score} />
+                <StatusBadge status={company.status} />
+                <ScoreBadge score={company.score} />
                 <span className="text-xs text-slate-500">
-                  Next follow-up: {formatNextFollowUpDisplay(lead.nextFollowUpAt) || lead.nextFollowUp}
+                  Next follow-up: {formatNextFollowUpDisplay(company.nextFollowUpAt) || company.nextFollowUp}
                 </span>
               </div>
             ) : null}
@@ -398,9 +396,9 @@ export function HqLeadDetailDrawer({
             const selected = activeTab === tab.id;
             const count =
               tab.id === 'followup'
-                ? (lead.followUps?.length ?? 0)
+                ? (company.followUps?.length ?? 0)
                 : tab.id === 'remarks'
-                  ? (lead.remarks?.length ?? 0)
+                  ? (company.remarks?.length ?? 0)
                   : 0;
             return (
               <button
@@ -440,274 +438,287 @@ export function HqLeadDetailDrawer({
 
             {activeTab === 'details' ? (
               <div className="space-y-6">
-            <div className="grid gap-5 sm:grid-cols-2">
-              <div>
-                <FieldLabel required={isEditing}>Contact Name</FieldLabel>
-                {isEditing ? (
-                  <input
-                    className={INPUT_CLASS}
-                    value={form.contactName}
-                    onChange={(e) => setForm({ ...form, contactName: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue value={lead.name} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Company Name</FieldLabel>
-                {isEditing ? (
-                  <input
-                    className={INPUT_CLASS}
-                    value={form.companyName}
-                    onChange={(e) => setForm({ ...form, companyName: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue value={lead.company} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Email</FieldLabel>
-                {isEditing ? (
-                  <input
-                    type="email"
-                    className={INPUT_CLASS}
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue value={lead.email} />
-                )}
-              </div>
-              <div>
-                <FieldLabel>Phone</FieldLabel>
-                {isEditing ? (
-                  <input
-                    type="tel"
-                    className={INPUT_CLASS}
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue value={lead.phone} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Industry</FieldLabel>
-                {isEditing ? (
-                  <div className="relative">
-                    <select
-                      className={`${INPUT_CLASS} appearance-none pr-10`}
-                      value={form.industry}
-                      onChange={(e) => setForm({ ...form, industry: e.target.value })}
-                    >
-                      <option value="">Select industry</option>
-                      {HQ_LEAD_INDUSTRY_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div>
+                    <FieldLabel required={isEditing}>Company Name</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        className={INPUT_CLASS}
+                        value={form.companyName}
+                        onChange={(e) => setForm({ ...form, companyName: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue value={company.name} />
+                    )}
                   </div>
-                ) : (
-                  <DetailValue value={lead.industry} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Country</FieldLabel>
-                {isEditing ? (
-                  <input
-                    className={INPUT_CLASS}
-                    value={form.country}
-                    onChange={(e) => setForm({ ...form, country: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue value={lead.country} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Expected Users</FieldLabel>
-                {isEditing ? (
-                  <input
-                    type="number"
-                    min={1}
-                    className={INPUT_CLASS}
-                    value={form.expectedUsers}
-                    onChange={(e) => setForm({ ...form, expectedUsers: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue value={lead.users} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Estimated Deal Value ($)</FieldLabel>
-                {isEditing ? (
-                  <input
-                    type="number"
-                    min={0}
-                    className={INPUT_CLASS}
-                    value={form.estimatedDealValue}
-                    onChange={(e) => setForm({ ...form, estimatedDealValue: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue
-                    value={
-                      lead.estimatedDealValue !== undefined && lead.estimatedDealValue !== null
-                        ? lead.estimatedDealValue.toLocaleString()
-                        : undefined
-                    }
-                  />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Lead Owner</FieldLabel>
-                {isEditing ? (
-                  <input
-                    className={INPUT_CLASS}
-                    value={form.leadOwner}
-                    onChange={(e) => setForm({ ...form, leadOwner: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue value={lead.owner} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Lead Source</FieldLabel>
-                {isEditing ? (
-                  <div className="relative">
-                    <select
-                      className={`${INPUT_CLASS} appearance-none pr-10`}
-                      value={form.leadSource}
-                      onChange={(e) => setForm({ ...form, leadSource: e.target.value })}
-                    >
-                      <option value="">Select source</option>
-                      {HQ_LEAD_SOURCE_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <div>
+                    <FieldLabel required={isEditing}>Primary Contact</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        className={INPUT_CLASS}
+                        value={form.primaryContactName}
+                        onChange={(e) => setForm({ ...form, primaryContactName: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue value={company.contact} />
+                    )}
                   </div>
-                ) : (
-                  <DetailValue value={lead.leadSource} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Stage</FieldLabel>
-                {isEditing ? (
-                  <div className="relative">
-                    <select
-                      className={`${INPUT_CLASS} appearance-none pr-10`}
-                      value={form.stage}
-                      onChange={(e) => setForm({ ...form, stage: e.target.value as HqLeadStage })}
-                    >
-                      {HQ_LEAD_TABS.filter((tab) => tab.id !== 'all').map((tab) => (
-                        <option key={tab.id} value={tab.id}>
-                          {tab.label}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <div>
+                    <FieldLabel required={isEditing}>Email</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        type="email"
+                        className={INPUT_CLASS}
+                        value={form.email}
+                        onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue value={company.email} />
+                    )}
                   </div>
-                ) : (
-                  <div className="pt-1">
-                    <StageBadge stage={lead.stage} />
+                  <div>
+                    <FieldLabel>Phone</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        type="tel"
+                        className={INPUT_CLASS}
+                        value={form.phone}
+                        onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue value={company.phone} />
+                    )}
                   </div>
-                )}
-              </div>
-              <div className="sm:col-span-2">
-                <FieldLabel required={isEditing}>Next Follow-up (Date & Time)</FieldLabel>
-                {isEditing ? (
-                  <input
-                    type="datetime-local"
-                    className={INPUT_CLASS}
-                    value={form.nextFollowUpAt}
-                    onChange={(e) => setForm({ ...form, nextFollowUpAt: e.target.value })}
-                  />
-                ) : (
-                  <DetailValue
-                    value={formatNextFollowUpDisplay(lead.nextFollowUpAt) || lead.nextFollowUp}
-                  />
-                )}
-              </div>
-              {!isEditing ? (
-                <div>
-                  <FieldLabel>Created</FieldLabel>
-                  <DetailValue value={formatCreatedAt(lead.createdAt)} />
-                </div>
-              ) : null}
-            </div>
-
-            <div className="mt-6 border-t border-slate-100 pt-6">
-              <FieldLabel required={isEditing}>Interested Modules</FieldLabel>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {HQ_LEAD_MODULE_OPTIONS.map((module) => {
-                  const checked = selectedModules.has(module);
-                  if (isEditing) {
-                    return (
-                      <label
-                        key={module}
-                        className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleModule(module)}
-                          className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-300"
-                        />
-                        {module}
-                      </label>
-                    );
-                  }
-                  return (
-                    <div
-                      key={module}
-                      className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm ${
-                        checked
-                          ? 'border-slate-300 bg-slate-100 text-slate-900'
-                          : 'border-slate-100 bg-slate-50/40 text-slate-400'
-                      }`}
-                    >
-                      <span
-                        className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] font-bold ${
-                          checked
-                            ? 'border-slate-900 bg-slate-900 text-white'
-                            : 'border-slate-200 bg-white text-transparent'
-                        }`}
-                        aria-hidden
-                      >
-                        ✓
-                      </span>
-                      {module}
+                  <div className="sm:col-span-2">
+                    <FieldLabel>Website</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        type="url"
+                        className={INPUT_CLASS}
+                        value={form.website}
+                        onChange={(e) => setForm({ ...form, website: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue value={company.website} />
+                    )}
+                  </div>
+                  <div>
+                    <FieldLabel required={isEditing}>Industry</FieldLabel>
+                    {isEditing ? (
+                      <div className="relative">
+                        <select
+                          className={`${INPUT_CLASS} appearance-none pr-10`}
+                          value={form.industry}
+                          onChange={(e) => setForm({ ...form, industry: e.target.value })}
+                        >
+                          <option value="">Select industry</option>
+                          {HQ_COMPANY_INDUSTRY_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      </div>
+                    ) : (
+                      <DetailValue value={company.industry} />
+                    )}
+                  </div>
+                  <div>
+                    <FieldLabel required={isEditing}>Country</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        className={INPUT_CLASS}
+                        value={form.country}
+                        onChange={(e) => setForm({ ...form, country: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue value={company.country} />
+                    )}
+                  </div>
+                  <div>
+                    <FieldLabel required={isEditing}>Expected Users</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        min={1}
+                        className={INPUT_CLASS}
+                        value={form.expectedUsers}
+                        onChange={(e) => setForm({ ...form, expectedUsers: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue value={company.users} />
+                    )}
+                  </div>
+                  <div>
+                    <FieldLabel required={isEditing}>Estimated Deal Value ($)</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        min={0}
+                        className={INPUT_CLASS}
+                        value={form.estimatedDealValue}
+                        onChange={(e) => setForm({ ...form, estimatedDealValue: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue
+                        value={
+                          company.estimatedDealValue !== undefined && company.estimatedDealValue !== null
+                            ? company.estimatedDealValue.toLocaleString()
+                            : undefined
+                        }
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <FieldLabel required={isEditing}>Account Owner</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        className={INPUT_CLASS}
+                        value={form.accountOwner}
+                        onChange={(e) => setForm({ ...form, accountOwner: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue value={company.owner} />
+                    )}
+                  </div>
+                  <div>
+                    <FieldLabel required={isEditing}>Company Source</FieldLabel>
+                    {isEditing ? (
+                      <div className="relative">
+                        <select
+                          className={`${INPUT_CLASS} appearance-none pr-10`}
+                          value={form.companySource}
+                          onChange={(e) => setForm({ ...form, companySource: e.target.value })}
+                        >
+                          <option value="">Select source</option>
+                          {HQ_COMPANY_SOURCE_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      </div>
+                    ) : (
+                      <DetailValue value={company.companySource} />
+                    )}
+                  </div>
+                  <div>
+                    <FieldLabel required={isEditing}>Status</FieldLabel>
+                    {isEditing ? (
+                      <div className="relative">
+                        <select
+                          className={`${INPUT_CLASS} appearance-none pr-10`}
+                          value={form.status}
+                          onChange={(e) => setForm({ ...form, status: e.target.value as HqCompanyStatus })}
+                        >
+                          {HQ_COMPANY_TABS.filter((tab) => tab.id !== 'all').map((tab) => (
+                            <option key={tab.id} value={tab.id}>
+                              {tab.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      </div>
+                    ) : (
+                      <div className="pt-1">
+                        <StatusBadge status={company.status} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <FieldLabel required={isEditing}>Next Follow-up (Date & Time)</FieldLabel>
+                    {isEditing ? (
+                      <input
+                        type="datetime-local"
+                        className={INPUT_CLASS}
+                        value={form.nextFollowUpAt}
+                        onChange={(e) => setForm({ ...form, nextFollowUpAt: e.target.value })}
+                      />
+                    ) : (
+                      <DetailValue
+                        value={formatNextFollowUpDisplay(company.nextFollowUpAt) || company.nextFollowUp}
+                      />
+                    )}
+                  </div>
+                  {!isEditing ? (
+                    <div>
+                      <FieldLabel>Created</FieldLabel>
+                      <DetailValue value={formatCreatedAt(company.createdAt)} />
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mt-6 border-t border-slate-100 pt-6">
-              <FieldLabel>Initial Notes</FieldLabel>
-              {isEditing ? (
-                <textarea
-                  rows={4}
-                  className={`${INPUT_CLASS} min-h-[100px] resize-y`}
-                  value={form.initialNotes}
-                  onChange={(e) => setForm({ ...form, initialNotes: e.target.value })}
-                />
-              ) : (
-                <div className={`${VALUE_CLASS} min-h-[100px] whitespace-pre-wrap`}>
-                  {lead.initialNotes?.trim() ? lead.initialNotes : '—'}
+                  ) : null}
                 </div>
-              )}
-            </div>
+
+                <div className="mt-6 border-t border-slate-100 pt-6">
+                  <FieldLabel required={isEditing}>Interested Modules</FieldLabel>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {HQ_COMPANY_MODULE_OPTIONS.map((module) => {
+                      const checked = selectedModules.has(module);
+                      if (isEditing) {
+                        return (
+                          <label
+                            key={module}
+                            className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleModule(module)}
+                              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-300"
+                            />
+                            {module}
+                          </label>
+                        );
+                      }
+                      return (
+                        <div
+                          key={module}
+                          className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm ${
+                            checked
+                              ? 'border-slate-300 bg-slate-100 text-slate-900'
+                              : 'border-slate-100 bg-slate-50/40 text-slate-400'
+                          }`}
+                        >
+                          <span
+                            className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] font-bold ${
+                              checked
+                                ? 'border-slate-900 bg-slate-900 text-white'
+                                : 'border-slate-200 bg-white text-transparent'
+                            }`}
+                            aria-hidden
+                          >
+                            ✓
+                          </span>
+                          {module}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-6 border-t border-slate-100 pt-6">
+                  <FieldLabel>Initial Notes</FieldLabel>
+                  {isEditing ? (
+                    <textarea
+                      rows={4}
+                      className={`${INPUT_CLASS} min-h-[100px] resize-y`}
+                      value={form.initialNotes}
+                      onChange={(e) => setForm({ ...form, initialNotes: e.target.value })}
+                    />
+                  ) : (
+                    <div className={`${VALUE_CLASS} min-h-[100px] whitespace-pre-wrap`}>
+                      {company.initialNotes?.trim() ? company.initialNotes : '—'}
+                    </div>
+                  )}
+                </div>
               </div>
             ) : activeTab === 'followup' ? (
               <div className="space-y-6">
                 <section className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Next scheduled</p>
                   <p className="mt-2 text-sm font-semibold text-slate-900">
-                    {formatNextFollowUpDisplay(lead.nextFollowUpAt) || lead.nextFollowUp || '—'}
+                    {formatNextFollowUpDisplay(company.nextFollowUpAt) || company.nextFollowUp || '—'}
                   </p>
                 </section>
 
@@ -723,7 +734,7 @@ export function HqLeadDetailDrawer({
                             value={followUpForm.type}
                             onChange={(e) => setFollowUpForm({ ...followUpForm, type: e.target.value })}
                           >
-                            {HQ_LEAD_FOLLOW_UP_TYPES.map((type) => (
+                            {HQ_COMPANY_FOLLOW_UP_TYPES.map((type) => (
                               <option key={type} value={type}>
                                 {type}
                               </option>
@@ -764,13 +775,13 @@ export function HqLeadDetailDrawer({
 
                 <section>
                   <h3 className="mb-3 text-sm font-bold text-slate-900">Follow-up History</h3>
-                  {(lead.followUps?.length ?? 0) === 0 ? (
+                  {(company.followUps?.length ?? 0) === 0 ? (
                     <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
                       No follow-ups scheduled yet.
                     </p>
                   ) : (
                     <div className="space-y-3">
-                      {lead.followUps?.map((item) => (
+                      {company.followUps?.map((item) => (
                         <div
                           key={item.id}
                           className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -802,7 +813,7 @@ export function HqLeadDetailDrawer({
                     <textarea
                       rows={4}
                       className={`${INPUT_CLASS} min-h-[100px] resize-y`}
-                      placeholder="Write an internal remark about this lead..."
+                      placeholder="Write an internal remark about this company..."
                       value={remarkText}
                       onChange={(e) => setRemarkText(e.target.value)}
                     />
@@ -816,13 +827,13 @@ export function HqLeadDetailDrawer({
 
                 <section>
                   <h3 className="mb-3 text-sm font-bold text-slate-900">Remarks History</h3>
-                  {(lead.remarks?.length ?? 0) === 0 ? (
+                  {(company.remarks?.length ?? 0) === 0 ? (
                     <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
                       No remarks yet.
                     </p>
                   ) : (
                     <div className="space-y-3">
-                      {lead.remarks?.map((item) => (
+                      {company.remarks?.map((item) => (
                         <div
                           key={item.id}
                           className="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
@@ -866,7 +877,7 @@ export function HqLeadDetailDrawer({
                     }}
                   >
                     <Pencil className="h-4 w-4" />
-                    Edit Lead
+                    Edit Company
                   </HqPrimaryButton>
                 ) : null}
               </>

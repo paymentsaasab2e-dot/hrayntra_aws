@@ -56,6 +56,87 @@ export const hqController = {
     }
   },
 
+  async updateLead(req, res) {
+    try {
+      const result = await hqService.updateLead(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Lead updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async addLeadFollowUp(req, res) {
+    try {
+      const result = await hqService.addLeadFollowUp(req.params.id, req.body, req.user);
+      sendResponse(res, 201, 'Follow-up scheduled', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async addLeadRemark(req, res) {
+    try {
+      const result = await hqService.addLeadRemark(req.params.id, req.body, req.user);
+      sendResponse(res, 201, 'Remark added', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async convertLeadToCompany(req, res) {
+    try {
+      const result = await hqService.convertLeadToCompany(req.params.id, req.user);
+      sendResponse(res, 201, 'Lead converted to company', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listCompanies(req, res) {
+    try {
+      const result = await hqService.listCompanies(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async createCompany(req, res) {
+    try {
+      const result = await hqService.createCompany(req.body, req.user);
+      sendResponse(res, 201, 'Company created', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateCompany(req, res) {
+    try {
+      const result = await hqService.updateCompany(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Company updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async addCompanyFollowUp(req, res) {
+    try {
+      const result = await hqService.addCompanyFollowUp(req.params.id, req.body, req.user);
+      sendResponse(res, 201, 'Follow-up scheduled', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async addCompanyRemark(req, res) {
+    try {
+      const result = await hqService.addCompanyRemark(req.params.id, req.body, req.user);
+      sendResponse(res, 201, 'Remark added', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async deleteTenant(req, res) {
     try {
       // Accept email via body, URL params, or query — the HQ UI uses the

@@ -35,10 +35,25 @@ export interface CodingTestCase {
   expected: string;
 }
 
+export interface CodingQuestion {
+  id: string;
+  title: string;
+  prompt: string;
+  sampleInput?: string;
+  sampleOutput?: string;
+  /** Reference solution — hidden from candidates, shown to recruiters. */
+  expectedAnswer?: string;
+  testCases: CodingTestCase[];
+  marks?: number;
+}
+
 export interface CodingAssessmentConfig {
   language: string;
+  /** Legacy single-problem prompt (used when `questions` is empty). */
   prompt: string;
   testCases: CodingTestCase[];
+  /** Multi-question coding assessment (5 questions when AI-generated). */
+  questions?: CodingQuestion[];
   allowedAttempts: number;
   /** Total marks for manual grading (default 100). */
   totalMarks?: number;
@@ -199,6 +214,11 @@ export function sumMcqQuestionMarks(questions: McqQuestion[]): number {
   return questions.reduce((sum, q) => sum + Math.max(1, Number(q.marks) || 1), 0);
 }
 
+export function sumCodingQuestionMarks(questions: CodingQuestion[]): number {
+  if (!Array.isArray(questions) || !questions.length) return 0;
+  return questions.reduce((sum, q) => sum + Math.max(1, Number(q.marks) || 1), 0);
+}
+
 export function computeAssessmentTotalMarks(
   type: PreScreenAssessmentType,
   config: AssessmentConfig,
@@ -206,6 +226,11 @@ export function computeAssessmentTotalMarks(
   if (type === 'MCQ') {
     const sum = sumMcqQuestionMarks((config as McqAssessmentConfig).questions || []);
     return Math.max(1, sum || defaultTotalMarksForType(type));
+  }
+  if (type === 'CODING') {
+    const coding = config as CodingAssessmentConfig;
+    const qSum = sumCodingQuestionMarks(coding.questions || []);
+    if (qSum > 0) return qSum;
   }
   const raw = Number((config as { totalMarks?: number }).totalMarks);
   return Math.max(1, Number.isFinite(raw) && raw > 0 ? raw : defaultTotalMarksForType(type));
@@ -293,19 +318,43 @@ export function parseAssessmentConfig(
   if (type === 'CODING') {
     const testCases = Array.isArray(c.testCases) ? c.testCases : [];
     const languages = Array.isArray(c.languages) ? c.languages : [];
+    const questions = Array.isArray(c.questions) ? c.questions : [];
+    const parsedTestCases = testCases.map((tc, ti) => {
+      const row = tc && typeof tc === 'object' ? (tc as Record<string, unknown>) : {};
+      return {
+        id: String(row.id || newId('tc')),
+        input: String(row.input ?? ''),
+        expected: String(row.expected ?? ''),
+      };
+    });
+    const parsedQuestions: CodingQuestion[] = questions.map((q, qi) => {
+      const row = q && typeof q === 'object' ? (q as Record<string, unknown>) : {};
+      const qTestCases = Array.isArray(row.testCases) ? row.testCases : [];
+      return {
+        id: String(row.id || newId('cq')),
+        title: String(row.title || `Question ${qi + 1}`),
+        prompt: String(row.prompt || ''),
+        sampleInput: String(row.sampleInput ?? ''),
+        sampleOutput: String(row.sampleOutput ?? ''),
+        expectedAnswer: String(row.expectedAnswer ?? ''),
+        marks: Math.max(1, Number(row.marks) || 20),
+        testCases: qTestCases.map((tc, ti) => {
+          const t = tc && typeof tc === 'object' ? (tc as Record<string, unknown>) : {};
+          return {
+            id: String(t.id || newId('tc')),
+            input: String(t.input ?? ''),
+            expected: String(t.expected ?? ''),
+          };
+        }),
+      };
+    });
     return {
       language: String(c.language || languages[0] || 'javascript'),
       prompt: String(c.prompt || ''),
       allowedAttempts: Math.max(1, Number(c.allowedAttempts) || 1),
       totalMarks: Math.max(1, Number(c.totalMarks) || defaultTotalMarksForType('CODING')),
-      testCases: testCases.map((tc, ti) => {
-        const row = tc && typeof tc === 'object' ? (tc as Record<string, unknown>) : {};
-        return {
-          id: String(row.id || newId('tc')),
-          input: String(row.input ?? ''),
-          expected: String(row.expected ?? ''),
-        };
-      }),
+      testCases: parsedTestCases,
+      questions: parsedQuestions.length ? parsedQuestions : undefined,
       antiCheat: parseAntiCheat({ ...antiCheat, ...(c.antiCheat as object) }),
     };
   }

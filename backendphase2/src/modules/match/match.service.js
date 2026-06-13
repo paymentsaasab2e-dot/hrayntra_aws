@@ -379,11 +379,12 @@ function mapMatchRecord(match, activitiesByCandidateId) {
   const candidate = match.candidate;
   const job = match.job;
   const activities = activitiesByCandidateId.get(candidate.id) || [];
+  const evaluation = coerceEvaluationObject(match.evaluation);
   let explanation = buildExplanation(match, candidate, job);
   let score = Math.round(Number(match.score || 0));
 
-  if (match.evaluation && typeof match.evaluation === 'object') {
-    const ev = match.evaluation;
+  if (evaluation) {
+    const ev = evaluation;
     const final = Number(ev.finalScore ?? ev.merged?.finalScore ?? match.score) || 0;
     const p1 = ev.pass1?.score ?? 0;
     const p2 = ev.pass2?.score ?? 0;
@@ -424,7 +425,7 @@ function mapMatchRecord(match, activitiesByCandidateId) {
 
   const salary = parseSalary(candidate.salary);
   const displayStatus = deriveDisplayStatus(match, candidate, activities, job.id);
-  const isAppliedMatch = matchRepresentsJobApplication(match, candidate, job.id);
+  const isAppliedMatch = matchRepresentsJobApplication({ ...match, evaluation }, candidate, job.id);
 
   return {
     id: match.id,
@@ -468,19 +469,29 @@ function mapMatchRecord(match, activitiesByCandidateId) {
     submittedHistory: mapSubmittedHistory(activities, job.id),
     matchRating: null,
     isPhase1Candidate:
-      (match.evaluation &&
-        typeof match.evaluation === 'object' &&
-        match.evaluation.origin === 'phase1') ||
+      (evaluation && evaluation.origin === 'phase1') ||
       String(candidate.source || '').toLowerCase() === 'phase1',
-    isAppliedCandidate:
-      match.evaluation &&
-      typeof match.evaluation === 'object' &&
-      match.evaluation.origin === 'applied',
+    isAppliedCandidate: isAppliedMatch,
   };
 }
 
+function coerceEvaluationObject(evaluation) {
+  if (!evaluation) return null;
+  if (typeof evaluation === 'object') return evaluation;
+  if (typeof evaluation === 'string') {
+    try {
+      const parsed = JSON.parse(evaluation);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function isAppliedPipelineEvaluation(evaluation) {
-  return evaluation && typeof evaluation === 'object' && evaluation.origin === 'applied';
+  const ev = coerceEvaluationObject(evaluation);
+  return Boolean(ev && ev.origin === 'applied');
 }
 
 function matchRepresentsJobApplication(match, candidate, jobId) {
@@ -495,6 +506,47 @@ function matchRepresentsJobApplication(match, candidate, jobId) {
     ? candidate.assignedJobs.map((id) => String(id || '').trim()).filter(Boolean)
     : [];
   return Boolean(jobId && assigned.includes(String(jobId)) && ['REVIEWED', 'SUBMITTED'].includes(status));
+}
+
+/** One row per candidate — Applied tab prefers applied-origin; AI tab prefers ai-origin. */
+function dedupeMatchesByCandidateId(matches, { preferApplied = false } = {}) {
+  const bestByCandidate = new Map();
+
+  const originPriority = (match) => {
+    const ev = coerceEvaluationObject(match?.evaluation);
+    if (ev?.pending) return 0;
+    if (isAppliedPipelineEvaluation(ev)) return preferApplied ? 2 : 0;
+    return preferApplied ? 0 : 2;
+  };
+
+  const rank = (match) => ({
+    origin: originPriority(match),
+    score: Number(match?.score || 0),
+    updated: new Date(match?.updatedAt || match?.createdAt || 0).getTime(),
+  });
+
+  for (const match of matches) {
+    const candidateId = String(match?.candidateId || '').trim();
+    if (!candidateId) continue;
+
+    const existing = bestByCandidate.get(candidateId);
+    if (!existing) {
+      bestByCandidate.set(candidateId, match);
+      continue;
+    }
+
+    const nextRank = rank(match);
+    const prevRank = rank(existing);
+    const pickNext =
+      nextRank.origin > prevRank.origin ||
+      (nextRank.origin === prevRank.origin &&
+        (nextRank.score > prevRank.score ||
+          (nextRank.score === prevRank.score && nextRank.updated >= prevRank.updated)));
+
+    if (pickNext) bestByCandidate.set(candidateId, match);
+  }
+
+  return Array.from(bestByCandidate.values());
 }
 
 export const matchService = {
@@ -646,8 +698,52 @@ export const matchService = {
       match.__pipelineStageName = pipelineStageByCandidateId.get(match.candidateId) || null;
     }
 
-    if (source === 'ai') {
-      matches = matches.filter((match) => !isAppliedPipelineEvaluation(match.evaluation));
+    if (source === 'ai' && jobId) {
+      const pool = await loadMatchPipelineCandidatePool(req, String(jobId));
+      const poolById = new Map(pool.candidates.map((candidate) => [candidate.id, candidate]));
+      const poolIdSet = new Set(pool.candidates.map((candidate) => candidate.id));
+      matches = matches
+        .filter((match) => poolIdSet.has(match.candidateId))
+        .map((match) => {
+          const poolRow = poolById.get(match.candidateId);
+          if (poolRow) {
+            match.candidate = enrichSparseCandidateFromPool(match.candidate, poolRow);
+          }
+          return match;
+        });
+      const jobRow = await prisma.job.findFirst({
+        where: { id: String(jobId), isDeleted: { not: true } },
+        include: { client: { select: { companyName: true, logo: true } } },
+      });
+      const scoredIds = new Set(matches.map((match) => match.candidateId));
+      for (const candidate of pool.candidates) {
+        if (scoredIds.has(candidate.id)) continue;
+        if (!jobRow) continue;
+        const enrichedCandidate = enrichSparseCandidateFromPool(candidate, poolById.get(candidate.id));
+        matches.push({
+          id: `ai-pending-${candidate.id}`,
+          candidateId: candidate.id,
+          jobId: String(jobId),
+          score: 0,
+          status: 'NEW',
+          candidate: enrichedCandidate,
+          job: jobRow,
+          createdById: null,
+          evaluation: {
+            origin: 'ai',
+            pending: true,
+            suggestion: 'Run AI Matches to score this candidate for the job.',
+          },
+          createdBy: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+      matches = dedupeMatchesByCandidateId(matches, { preferApplied: false });
+      matches.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+      total = matches.length;
+    } else if (source === 'ai') {
+      matches = dedupeMatchesByCandidateId(matches, { preferApplied: false });
       total = matches.length;
     }
 
@@ -693,11 +789,15 @@ export const matchService = {
           updatedAt: new Date(),
         });
       }
+      matches = dedupeMatchesByCandidateId(matches, { preferApplied: true });
       matches.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
-      total = pool.candidates.length;
+      total = matches.length;
     }
 
-    const enrichedMatches = matches.map((match) => mapMatchRecord(match, activitiesByCandidateId));
+    let enrichedMatches = matches.map((match) => mapMatchRecord(match, activitiesByCandidateId));
+    if (source === 'applied' && jobId) {
+      enrichedMatches = enrichedMatches.map((row) => ({ ...row, isAppliedCandidate: true }));
+    }
 
     return formatPaginationResponse(enrichedMatches, page, limit, total);
   },

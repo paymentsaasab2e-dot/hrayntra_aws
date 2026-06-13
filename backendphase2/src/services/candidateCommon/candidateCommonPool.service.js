@@ -38,7 +38,7 @@ function normalizeCareerPreferences(preferences, candidate = {}) {
   return normalizePortalCareerPreferences(preferences, candidate);
 }
 
-function applyProfileSnapshotFields(mapped, row) {
+export function applyProfileSnapshotFields(mapped, row) {
   const snapshot = parseProfileSnapshot(row);
   if (!snapshot) return mapped;
   const mergedCareerPreferences =
@@ -63,8 +63,9 @@ function applyProfileSnapshotFields(mapped, row) {
   const languageNames = langRows.map((l) => String(l?.name || '').trim()).filter(Boolean);
 
   const cvWorkExperienceEntries =
-    mapped.cvWorkExperienceEntries ||
-    work.map((w) => ({
+    Array.isArray(mapped.cvWorkExperienceEntries) && mapped.cvWorkExperienceEntries.length
+      ? mapped.cvWorkExperienceEntries
+      : work.map((w) => ({
       title: w.jobTitle || w.title || null,
       jobTitle: w.jobTitle || w.title || null,
       company: w.company || w.companyName || null,
@@ -76,8 +77,9 @@ function applyProfileSnapshotFields(mapped, row) {
     }));
 
   const cvEducationEntries =
-    mapped.cvEducationEntries ||
-    edu.map((e) => ({
+    Array.isArray(mapped.cvEducationEntries) && mapped.cvEducationEntries.length
+      ? mapped.cvEducationEntries
+      : edu.map((e) => ({
       degree: e.degreeProgram || e.degree || null,
       institution: e.institutionName || e.institution || null,
       field: e.fieldOfStudy || e.field || null,

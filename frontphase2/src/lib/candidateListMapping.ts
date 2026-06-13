@@ -1,6 +1,25 @@
 import type { BackendCandidate } from './api';
 import { mapBackendStage } from './mapCandidateProfile';
 
+/** AI Matches scoring rows must not appear as assign/apply on the Candidates list. */
+function matchRepresentsCrmJobLink(match: {
+  evaluation?: { origin?: string; pending?: boolean } | null;
+  createdById?: string | null;
+}): boolean {
+  const ev = match?.evaluation;
+  if (ev && typeof ev === 'object') {
+    if (ev.pending) return false;
+    if (ev.origin === 'ai') return false;
+    if (ev.origin === 'applied') return true;
+  }
+  if (match?.createdById) return true;
+  return false;
+}
+
+function crmLinkedMatches(c: BackendCandidate) {
+  return (Array.isArray(c.matches) ? c.matches : []).filter((row) => matchRepresentsCrmJobLink(row));
+}
+
 export function candidateHasRealJobAssignment(c: BackendCandidate): boolean {
   if (c.isJobAppliedCandidate === true) return true;
   if (resolveCandidateAssignedJobTitles(c).length > 0) return true;
@@ -9,7 +28,7 @@ export function candidateHasRealJobAssignment(c: BackendCandidate): boolean {
   }
   if (Array.isArray(c.applications) && c.applications.length > 0) return true;
   if (Array.isArray(c.pipelineEntries) && c.pipelineEntries.length > 0) return true;
-  if (Array.isArray(c.matches) && c.matches.length > 0) return true;
+  if (crmLinkedMatches(c).length > 0) return true;
   return false;
 }
 
@@ -139,7 +158,7 @@ export function resolveCandidateAssignedJobTitles(c: BackendCandidate): string[]
     titles.push(label);
   };
 
-  for (const match of c.matches || []) {
+  for (const match of crmLinkedMatches(c)) {
     push(match.job?.title);
   }
   for (const app of c.applications || []) {

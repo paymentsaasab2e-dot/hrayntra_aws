@@ -103,10 +103,34 @@ const statusRank = {
   Rejected: 5,
 } as const;
 
+function isUnknownNoticePeriod(notice: string) {
+  const normalized = String(notice || '')
+    .trim()
+    .toLowerCase();
+  return !normalized || normalized === 'not shared' || normalized === 'unknown' || normalized === 'n/a';
+}
+
 function matchesNoticePeriod(candidateNotice: string, filterNotice: MatchFilters['noticePeriod']) {
   if (!filterNotice) return true;
+  if (isUnknownNoticePeriod(candidateNotice)) return true;
   if (filterNotice === 'Immediate') return candidateNotice.toLowerCase().includes('immediate');
   return candidateNotice.includes(filterNotice.replace('d', ''));
+}
+
+function dedupeMatchCandidates(rows: MatchCandidate[]): MatchCandidate[] {
+  const bestById = new Map<string, MatchCandidate>();
+  for (const row of rows) {
+    const existing = bestById.get(row.id);
+    if (!existing) {
+      bestById.set(row.id, row);
+      continue;
+    }
+    const preferRow =
+      (row.isAppliedCandidate && !existing.isAppliedCandidate) ||
+      (row.isAppliedCandidate === existing.isAppliedCandidate && row.score > existing.score);
+    if (preferRow) bestById.set(row.id, row);
+  }
+  return Array.from(bestById.values());
 }
 
 function unwrapCollection<T>(value: T[] | { data?: T[]; pagination?: any } | undefined | null): T[] {
@@ -421,7 +445,7 @@ export default function MatchesPage() {
         : Array.isArray(matchPayload?.data)
           ? matchPayload.data
           : [];
-      const mergedCandidates = matchRows.map(mapBackendMatch);
+      const mergedCandidates = dedupeMatchCandidates(matchRows.map(mapBackendMatch));
       setCandidates(mergedCandidates);
       setSavedMatches(
         mergedCandidates
@@ -503,16 +527,15 @@ export default function MatchesPage() {
         runPipeline: true,
         source: 'ai',
       });
-      const aiOnly = list.filter((c) => !c.isAppliedCandidate);
-      const sorted = [...aiOnly].sort((a, b) => b.score - a.score);
+      const sorted = [...list].sort((a, b) => b.score - a.score);
       const top = sorted[0];
-      const stats = computeAiTierStats(aiOnly);
-      const phase1Count = aiOnly.filter((c) => c.isPhase1Candidate).length;
+      const stats = computeAiTierStats(list);
+      const phase1Count = list.filter((c) => c.isPhase1Candidate).length;
       if (top) {
         const summary = AI_SCORE_TIERS.map((t) => `${t.label}: ${stats[t.id]}`).join(' · ');
         const phase1Note = phase1Count ? ` · ${phase1Count} Phase 1` : '';
         setToast(
-          `AI complete — ${aiOnly.length} scored. Top: ${top.name} (${top.score}%). ${summary}${phase1Note}`
+          `AI complete — ${list.length} scored. Top: ${top.name} (${top.score}%). ${summary}${phase1Note}`
         );
       } else {
         setToast('AI matching complete');
@@ -534,16 +557,15 @@ export default function MatchesPage() {
         runPipeline: true,
         source: 'applied',
       });
-      const appliedOnly = list.filter((c) => c.isAppliedCandidate);
-      const sorted = [...appliedOnly].sort((a, b) => b.score - a.score);
+      const sorted = [...list].sort((a, b) => b.score - a.score);
       const top = sorted[0];
       if (top && top.score > 0) {
         setToast(
-          `Applied matching complete — ${appliedOnly.length} candidate(s). Top: ${top.name} (${top.score}%).`
+          `Applied matching complete — ${list.length} candidate(s). Top: ${top.name} (${top.score}%).`
         );
-      } else if (appliedOnly.length) {
+      } else if (list.length) {
         setToast(
-          `${appliedOnly.length} applied candidate(s) loaded. Run AI Applied Matches to score them.`
+          `${list.length} applied candidate(s) loaded. Run AI Applied Matches to score them.`
         );
       } else {
         setToast('No candidates assigned to this job in your workspace yet.');
@@ -661,13 +683,6 @@ export default function MatchesPage() {
 
   const filteredCandidates = useMemo(() => {
     const list = candidates
-      .filter((candidate) =>
-        activeTab === 'manual'
-          ? candidate.isAppliedCandidate
-          : activeTab === 'ai'
-            ? !candidate.isAppliedCandidate
-            : true
-      )
       .filter((candidate) => candidate.score >= filters.skillMatch)
       .filter(
         (candidate) => candidate.experience >= filters.expMin && candidate.experience <= filters.expMax

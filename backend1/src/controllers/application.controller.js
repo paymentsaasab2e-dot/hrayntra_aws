@@ -74,8 +74,8 @@ function splitResponsibilities(value) {
 
 function formatApplicationStatus(status) {
   const statusMap = {
-    SUBMITTED: 'Submitted',
-    UNDER_REVIEW: 'Under Review',
+    SUBMITTED: 'Applied',
+    UNDER_REVIEW: 'Screening',
     SHORTLISTED: 'Shortlisted',
     ASSESSMENT: 'Assessment',
     INTERVIEW: 'Interview',
@@ -85,6 +85,54 @@ function formatApplicationStatus(status) {
   };
 
   return statusMap[status] || status || 'Submitted';
+}
+
+function normalizePipelineStageToken(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Applied / Submitted pipeline columns are behind a synced UNDER_REVIEW application row. */
+function isEarlyPipelineStageName(name) {
+  const n = normalizePipelineStageToken(name);
+  if (!n) return true;
+  return n.includes('applied') || n.includes('submit') || n === 'new';
+}
+
+/**
+ * Prefer CRM-synced `Application.status` when the stored pipeline entry is still
+ * on an early column (e.g. Applied) but the application enum already advanced.
+ */
+function pipelineStageAheadOfAppStatus(pipelineStageName, appStatus) {
+  const pipelineText = String(pipelineStageName || '').trim();
+  if (!pipelineText) return false;
+
+  const appU = String(appStatus || '').toUpperCase();
+  if (appU === 'UNDER_REVIEW') {
+    return !isEarlyPipelineStageName(pipelineText);
+  }
+  if (appU === 'SUBMITTED') {
+    return !isEarlyPipelineStageName(pipelineText);
+  }
+  return true;
+}
+
+function pipelineStageNamesEquivalent(stageA, stageB) {
+  const a = normalizePipelineStageToken(stageA);
+  const b = normalizePipelineStageToken(stageB);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (isEarlyPipelineStageName(a) && isEarlyPipelineStageName(b)) return true;
+  return false;
+}
+
+function pipelineStageAlreadyRepresented(stageName, existingNames = []) {
+  const target = String(stageName || '').trim();
+  if (!target) return true;
+  return existingNames.some((existing) => pipelineStageNamesEquivalent(existing, target));
 }
 
 /**
@@ -101,11 +149,20 @@ function deriveApplicationPipelineStage({
   matchStatus,
   timelineStatuses,
 }) {
-  const pipelineText = String(pipelineStageName || '').trim();
-  if (pipelineText) return pipelineText;
-
   const appU = String(appStatus || '').toUpperCase();
+  const pipelineText = String(pipelineStageName || '').trim();
+  if (pipelineText && pipelineStageAheadOfAppStatus(pipelineText, appStatus)) {
+    return pipelineText;
+  }
+
   if (appU === 'REJECTED') return 'Rejected';
+
+  if (appU === 'SUBMITTED' && pipelineText) {
+    const pipeNorm = normalizePipelineStageToken(pipelineText);
+    if (pipeNorm.includes('applied') || pipeNorm.includes('submit')) {
+      return pipeNorm.includes('applied') ? pipelineText : 'Applied';
+    }
+  }
 
   if (Array.isArray(timelineStatuses)) {
     const latest = [...timelineStatuses]
@@ -118,6 +175,8 @@ function deriveApplicationPipelineStage({
         ['INTERVIEW', 'SHORTLISTED', 'ASSESSMENT', 'FINAL_DECISION', 'SELECTED'].includes(s)
       );
     if (lastStrong) return formatApplicationStatus(lastStrong);
+    const lastUnderReview = [...latest].reverse().find((s) => s === 'UNDER_REVIEW');
+    if (lastUnderReview) return formatApplicationStatus(lastUnderReview);
   }
 
   if (appStatus) return formatApplicationStatus(appStatus);
@@ -131,15 +190,15 @@ function deriveApplicationPipelineStage({
       return 'Interview';
     }
     if (matchU === 'SHORTLISTED') return 'Shortlisted';
-    if (matchU === 'REVIEWED') return 'Under Review';
+    if (matchU === 'REVIEWED') return 'Screening';
   }
 
-  return 'Submitted';
+  return 'Applied';
 }
 
 function formatMatchStatus(status) {
   const statusMap = {
-    REVIEWED: 'Under Review',
+    REVIEWED: 'Screening',
     SHORTLISTED: 'Shortlisted',
     INTERVIEW: 'Interview',
     INTERVIEWING: 'Interview',
@@ -219,12 +278,29 @@ function resolveApplicationDisplayStatus({
       return 'Applied';
     }
     const pipelineStageText = String(pipelineStageName || '').trim();
-    if (pipelineStageText) return pipelineStageText;
+    if (pipelineStageText && pipelineStageAheadOfAppStatus(pipelineStageText, appStatus)) {
+      return pipelineStageText;
+    }
+    if (appU === 'SUBMITTED' && pipelineStageText && isEarlyPipelineStageName(pipelineStageText)) {
+      return normalizePipelineStageToken(pipelineStageText).includes('applied')
+        ? pipelineStageText
+        : formatApplicationStatus(appStatus);
+    }
+    if (Array.isArray(timelineStatuses)) {
+      const lastUnderReview = [...timelineStatuses]
+        .map((s) => String(s || '').toUpperCase())
+        .filter(Boolean)
+        .reverse()
+        .find((s) => s === 'UNDER_REVIEW');
+      if (lastUnderReview) return formatApplicationStatus(lastUnderReview);
+    }
     return formatApplicationStatus(appStatus) || 'Applied';
   }
 
   const pipelineStageText = String(pipelineStageName || '').trim();
-  if (pipelineStageText) return pipelineStageText;
+  if (pipelineStageText && pipelineStageAheadOfAppStatus(pipelineStageText, appStatus)) {
+    return pipelineStageText;
+  }
 
   const matchText = formatMatchStatus(matchStatus);
   if (matchText) return matchText;
@@ -1110,8 +1186,8 @@ async function getApplications(req, res) {
 
       // Format status
       const statusMap = {
-        SUBMITTED: 'Submitted',
-        UNDER_REVIEW: 'Under Review',
+        SUBMITTED: 'Applied',
+        UNDER_REVIEW: 'Screening',
         SHORTLISTED: 'Shortlisted',
         ASSESSMENT: 'Assessment',
         INTERVIEW: 'Interview',
@@ -1295,7 +1371,10 @@ async function getApplicationById(req, res) {
     });
     const currentStageNormalized = String(currentPipelineStageName || '').trim().toLowerCase();
     const pipelineStages = orderedPipelineStages.map((stage) => String(stage.name || '').trim()).filter(Boolean);
-    if (currentPipelineStageName && currentStageNormalized && !normalizedStageNames.has(currentStageNormalized)) {
+    if (
+      currentPipelineStageName &&
+      !pipelineStageAlreadyRepresented(currentPipelineStageName, pipelineStages)
+    ) {
       pipelineStages.push(String(currentPipelineStageName).trim());
     }
 

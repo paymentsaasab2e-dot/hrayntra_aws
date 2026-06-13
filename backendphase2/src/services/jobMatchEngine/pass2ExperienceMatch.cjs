@@ -66,6 +66,41 @@ function inferDomain(text) {
   return 'general';
 }
 
+function roleKeywordOverlap(jobTitle, workHistory) {
+  const jt = String(jobTitle || '').toLowerCase();
+  if (!jt) return 0;
+  const roleTerms = [
+    'node',
+    'nodejs',
+    'node.js',
+    'react',
+    'developer',
+    'engineer',
+    'full stack',
+    'fullstack',
+    'frontend',
+    'backend',
+    'javascript',
+    'typescript',
+    'python',
+    'java',
+    'software',
+    'web',
+  ];
+  const jobHits = roleTerms.filter((term) => jt.includes(term));
+  if (!jobHits.length) return 0;
+
+  const hist = Array.isArray(workHistory) ? workHistory : [];
+  let matches = 0;
+  for (const w of hist) {
+    const chunk = `${w?.title || ''} ${w?.company || ''} ${w?.description || ''}`.toLowerCase();
+    if (!chunk.trim()) continue;
+    if (jobHits.some((term) => chunk.includes(term))) matches += 1;
+  }
+  if (!hist.length) return 0;
+  return matches / hist.length;
+}
+
 function computePass2(
   candidateYears,
   candidateTitle,
@@ -107,6 +142,10 @@ function computePass2(
   const totalRoles = Math.max(1, hist.length);
   const domainMatchRatio = domainKey === 'general' ? 0.2 : matchingRoles / totalRoles;
   let domainScore = Math.round(domainMatchRatio * 25) + 5;
+  if (domainKey === 'general') {
+    const roleOverlap = roleKeywordOverlap(jobTitle, hist);
+    domainScore += Math.round(roleOverlap * 20);
+  }
   domainScore = Math.min(30, domainScore);
 
   const rawTotal = yearsScore + seniorityScore + domainScore;

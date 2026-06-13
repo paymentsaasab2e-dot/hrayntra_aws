@@ -82,6 +82,17 @@ router.get(
   requireAnyPermission(['jobs_read', 'view_jobs', 'candidates_read']),
   preScreenAssessmentController.getApplicationResults
 );
+router.get(
+  '/candidates/:candidateId/results',
+  requireAnyPermission([
+    'jobs_read',
+    'view_jobs',
+    'candidates_read',
+    'view_all_candidates',
+    'view_assigned_candidates',
+  ]),
+  preScreenAssessmentController.getCandidateResults
+);
 router.patch(
   '/sessions/:sessionId/grade',
   requireAnyPermission(['jobs_update', 'edit_job', 'jobs_read', 'view_jobs', 'candidates_read']),

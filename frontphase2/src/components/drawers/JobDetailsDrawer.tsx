@@ -912,12 +912,11 @@ export function JobDetailsDrawer({
         });
         const matchRows = unwrapMatchRows(response);
         const merged = matchRows.map(mapBackendMatch);
-        const aiOnly = merged.filter((row) => !row.isAppliedCandidate);
-        setAiMatchCandidates(aiOnly);
+        setAiMatchCandidates(merged);
         setAiSavedMatches(
-          aiOnly.filter((candidate) => Boolean(candidate.savedAt)).map((candidate) => candidate.id),
+          merged.filter((candidate) => Boolean(candidate.savedAt)).map((candidate) => candidate.id),
         );
-        return aiOnly;
+        return merged;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unable to load AI matches';
         setAiMatchesError(message);

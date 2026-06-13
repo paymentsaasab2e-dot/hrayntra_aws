@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ArrowDownUp,
+  ArrowRightLeft,
   Download,
-  MoreVertical,
   Plus,
   Search,
   SlidersHorizontal,
@@ -23,6 +24,7 @@ import {
 import {
   countLeadsByStage,
   HQ_LEAD_STAGE_LABELS,
+  HQ_LEAD_STAGE_STYLES,
   HQ_LEAD_TABS,
   type HqLeadRow,
   type HqLeadScore,
@@ -30,11 +32,14 @@ import {
 } from './hqLeadsData';
 import {
   apiHqCreateLead,
+  apiHqConvertLeadToCompany,
   apiHqListLeads,
+  apiHqUpdateLead,
   type HqLeadStats,
   type HqLeadStorageInfo,
 } from '@/lib/api';
 import type { CreateHqLeadFormValues } from '@/components/hq/CreateHqLeadModal';
+import type { EditHqLeadFormValues } from '@/components/hq/HqLeadDetailDrawer';
 
 function ScoreBadge({ score }: { score: HqLeadScore }) {
   if (score === 'Hot') {
@@ -60,18 +65,9 @@ function ScoreBadge({ score }: { score: HqLeadScore }) {
 
 function StageBadge({ stage }: { stage: HqLeadStage }) {
   const label = HQ_LEAD_STAGE_LABELS[stage].toUpperCase();
-  const styles: Record<HqLeadStage, string> = {
-    new: 'bg-sky-50 text-sky-700 ring-sky-200',
-    contacted: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
-    demo_scheduled: 'bg-violet-50 text-violet-700 ring-violet-200',
-    proposal_sent: 'bg-slate-100 text-slate-700 ring-slate-200',
-    negotiation: 'bg-amber-50 text-amber-800 ring-amber-200',
-    closed_won: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-    closed_lost: 'bg-rose-50 text-rose-700 ring-rose-200',
-  };
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${styles[stage]}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${HQ_LEAD_STAGE_STYLES[stage]}`}
     >
       {label}
     </span>
@@ -82,12 +78,13 @@ const EMPTY_STATS: HqLeadStats = {
   total: 0,
   newLeads: 0,
   followUpsToday: 0,
-  won: 0,
+  converted: 0,
   lost: 0,
-  winRate: 0,
+  conversionRate: 0,
 };
 
 export default function HqLeadsPage() {
+  const router = useRouter();
   const [leads, setLeads] = useState<HqLeadRow[]>([]);
   const [stats, setStats] = useState<HqLeadStats>(EMPTY_STATS);
   const [storage, setStorage] = useState<HqLeadStorageInfo | null>(null);
@@ -97,6 +94,8 @@ export default function HqLeadsPage() {
   const [search, setSearch] = useState('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<HqLeadRow | null>(null);
+  const [convertingLeadId, setConvertingLeadId] = useState<string | null>(null);
+  const [convertError, setConvertError] = useState<string | null>(null);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -138,6 +137,45 @@ export default function HqLeadsPage() {
     await loadLeads();
   };
 
+  const handleUpdateLead = async (leadId: string, values: EditHqLeadFormValues) => {
+    const result = await apiHqUpdateLead(leadId, values);
+    const updated = result.data?.lead;
+    if (updated) {
+      handleLeadUpdated(updated);
+    }
+    await loadLeads();
+  };
+
+  const handleLeadUpdated = (updated: HqLeadRow) => {
+    setSelectedLead(updated);
+    setLeads((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+  };
+
+  const handleConvertToCompany = async (lead: HqLeadRow) => {
+    if (lead.convertedToCompanyId) {
+      router.push(`/hq/company?company=${encodeURIComponent(lead.convertedToCompanyId)}`);
+      return;
+    }
+
+    setConvertError(null);
+    setConvertingLeadId(lead.id);
+    try {
+      const result = await apiHqConvertLeadToCompany(lead.id);
+      const companyId = result.data?.company?.id;
+      const updatedLead = result.data?.lead;
+      if (updatedLead) {
+        setLeads((prev) => prev.map((item) => (item.id === updatedLead.id ? updatedLead : item)));
+      }
+      if (companyId) {
+        router.push(`/hq/company?company=${encodeURIComponent(companyId)}`);
+      }
+    } catch (err) {
+      setConvertError(err instanceof Error ? err.message : 'Failed to convert lead to company');
+    } finally {
+      setConvertingLeadId(null);
+    }
+  };
+
   return (
     <HqPageMain>
       <CreateHqLeadModal
@@ -149,6 +187,8 @@ export default function HqLeadsPage() {
         open={!!selectedLead}
         lead={selectedLead}
         onClose={() => setSelectedLead(null)}
+        onSave={handleUpdateLead}
+        onLeadUpdated={handleLeadUpdated}
       />
       <HqPageContainer>
         <HqPageHeader
@@ -193,13 +233,26 @@ export default function HqLeadsPage() {
           </div>
         ) : null}
 
+        {convertError ? (
+          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {convertError}
+            <button
+              type="button"
+              onClick={() => setConvertError(null)}
+              className="ml-2 font-semibold underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
           <HqStatCard label="Total Leads" value={stats.total} />
           <HqStatCard label="New Leads" value={stats.newLeads} delta="+12%" active />
           <HqStatCard label="Follow-ups Today" value={stats.followUpsToday} />
-          <HqStatCard label="Converted (Won)" value={stats.won} />
+          <HqStatCard label="Converted" value={stats.converted} />
           <HqStatCard label="Closed (Lost)" value={stats.lost} />
-          <HqStatCard label="Win Rate" value={`${stats.winRate}%`} delta="+5%" />
+          <HqStatCard label="Conversion Rate" value={`${stats.conversionRate}%`} delta="+5%" />
         </section>
 
         <section className="mb-4 overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-sm">
@@ -263,7 +316,7 @@ export default function HqLeadsPage() {
                   <th className="px-4 py-3">Owner</th>
                   <th className="px-4 py-3">Stage</th>
                   <th className="px-4 py-3">Next Follow-up</th>
-                  <th className="w-10 px-4 py-3" />
+                  <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -301,17 +354,34 @@ export default function HqLeadsPage() {
                       </td>
                       <td className="px-4 py-3.5 text-slate-600">{lead.nextFollowUp}</td>
                       <td className="px-4 py-3.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedLead(lead);
-                          }}
-                          className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                          aria-label={`Actions for ${lead.name}`}
-                        >
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
+                        {lead.convertedToCompanyId ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(
+                                `/hq/company?company=${encodeURIComponent(lead.convertedToCompanyId!)}`
+                              );
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                            View Company
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={convertingLeadId === lead.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleConvertToCompany(lead);
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                            {convertingLeadId === lead.id ? 'Converting…' : 'Convert to Company'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))

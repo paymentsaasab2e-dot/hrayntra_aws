@@ -929,9 +929,9 @@ export type HqLeadStats = {
   total: number;
   newLeads: number;
   followUpsToday: number;
-  won: number;
+  converted: number;
   lost: number;
-  winRate: number;
+  conversionRate: number;
 };
 
 export type HqLeadApiRow = {
@@ -942,15 +942,9 @@ export type HqLeadApiRow = {
   score: 'Hot' | 'Warm' | 'Cold';
   users: number;
   owner: string;
-  stage:
-    | 'new'
-    | 'contacted'
-    | 'demo_scheduled'
-    | 'proposal_sent'
-    | 'negotiation'
-    | 'closed_won'
-    | 'closed_lost';
+  stage: 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
   nextFollowUp: string;
+  nextFollowUpAt?: string | null;
   email?: string;
   phone?: string;
   country?: string;
@@ -959,6 +953,26 @@ export type HqLeadApiRow = {
   interestedModules?: string[];
   initialNotes?: string;
   createdAt?: string | null;
+  followUps?: HqLeadFollowUp[];
+  remarks?: HqLeadRemark[];
+  convertedToCompanyId?: string | null;
+};
+
+export type HqLeadFollowUp = {
+  id: string;
+  type: string;
+  scheduledAt: string | null;
+  notes: string;
+  status: string;
+  createdAt: string | null;
+  createdByEmail?: string | null;
+};
+
+export type HqLeadRemark = {
+  id: string;
+  text: string;
+  createdAt: string | null;
+  createdByEmail?: string | null;
 };
 
 export async function apiHqListLeads() {
@@ -980,6 +994,7 @@ export async function apiHqCreateLead(body: {
   estimatedDealValue: string | number;
   leadOwner: string;
   leadSource: string;
+  nextFollowUpAt: string;
   interestedModules: string[];
   initialNotes?: string;
 }) {
@@ -987,6 +1002,171 @@ export async function apiHqCreateLead(body: {
     lead: HqLeadApiRow;
     storage: HqLeadStorageInfo;
   }>('/hq/leads', { method: 'POST', auth: true, body });
+}
+
+export async function apiHqUpdateLead(
+  leadId: string,
+  body: {
+    contactName: string;
+    companyName: string;
+    email: string;
+    phone?: string;
+    industry: string;
+    country: string;
+    expectedUsers: string | number;
+    estimatedDealValue: string | number;
+    leadOwner: string;
+    leadSource: string;
+    nextFollowUpAt: string;
+    interestedModules: string[];
+    initialNotes?: string;
+    stage: HqLeadApiRow['stage'];
+  }
+) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}`, { method: 'PUT', auth: true, body });
+}
+
+export async function apiHqAddLeadFollowUp(
+  leadId: string,
+  body: {
+    type: string;
+    scheduledAt: string;
+    notes?: string;
+  }
+) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/follow-ups`, { method: 'POST', auth: true, body });
+}
+
+export async function apiHqAddLeadRemark(leadId: string, body: { text: string }) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/remarks`, { method: 'POST', auth: true, body });
+}
+
+export async function apiHqConvertLeadToCompany(leadId: string) {
+  return apiFetch<{
+    company: HqCompanyApiRow;
+    lead: HqLeadApiRow;
+    alreadyConverted?: boolean;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/convert-to-company`, {
+    method: 'POST',
+    auth: true,
+    body: {},
+  });
+}
+
+export type HqCompanyApiRow = {
+  id: string;
+  name: string;
+  contact: string;
+  industry: string;
+  score: 'Hot' | 'Warm' | 'Cold';
+  users: number;
+  owner: string;
+  status: 'active' | 'inactive' | 'on_hold' | 'closed';
+  nextFollowUp: string;
+  nextFollowUpAt?: string | null;
+  email?: string;
+  phone?: string;
+  website?: string;
+  country?: string;
+  estimatedDealValue?: number;
+  companySource?: string;
+  interestedModules?: string[];
+  initialNotes?: string;
+  createdAt?: string | null;
+  followUps?: HqLeadFollowUp[];
+  remarks?: HqLeadRemark[];
+};
+
+export type HqCompanyStats = {
+  total: number;
+  active: number;
+  inactive: number;
+  onHold: number;
+  closed: number;
+  followUpsToday: number;
+};
+
+export async function apiHqListCompanies() {
+  return apiFetch<{
+    companies: HqCompanyApiRow[];
+    stats: HqCompanyStats;
+    storage: HqLeadStorageInfo;
+  }>('/hq/companies', { auth: true });
+}
+
+export async function apiHqCreateCompany(body: {
+  companyName: string;
+  primaryContactName: string;
+  email: string;
+  phone?: string;
+  website?: string;
+  industry: string;
+  country: string;
+  expectedUsers: string | number;
+  estimatedDealValue: string | number;
+  accountOwner: string;
+  companySource: string;
+  nextFollowUpAt: string;
+  interestedModules: string[];
+  initialNotes?: string;
+}) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    '/hq/companies',
+    { method: 'POST', auth: true, body }
+  );
+}
+
+export async function apiHqUpdateCompany(
+  companyId: string,
+  body: {
+    companyName: string;
+    primaryContactName: string;
+    email: string;
+    phone?: string;
+    website?: string;
+    industry: string;
+    country: string;
+    expectedUsers: string | number;
+    estimatedDealValue: string | number;
+    accountOwner: string;
+    companySource: string;
+    nextFollowUpAt: string;
+    interestedModules: string[];
+    initialNotes?: string;
+    status: HqCompanyApiRow['status'];
+  }
+) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}`,
+    { method: 'PUT', auth: true, body }
+  );
+}
+
+export async function apiHqAddCompanyFollowUp(
+  companyId: string,
+  body: { type: string; scheduledAt: string; notes?: string }
+) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/follow-ups`,
+    { method: 'POST', auth: true, body }
+  );
+}
+
+export async function apiHqAddCompanyRemark(companyId: string, body: { text: string }) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/remarks`,
+    { method: 'POST', auth: true, body }
+  );
 }
 
 export async function apiHqAssignTenantPlan(body: { email: string; plan: { name: string } }) {
@@ -2001,6 +2181,24 @@ export const generateMcqPreScreenAssessmentWithAi = async (payload: {
   });
 };
 
+export const generateCodingPreScreenAssessmentWithAi = async (payload: {
+  jobTitle: string;
+  skills?: string[];
+  jobDescription?: string;
+}) => {
+  return apiFetch<{
+    title: string;
+    type: 'CODING';
+    durationMinutes: number;
+    passScorePercent: number;
+    config: { questions?: unknown[]; language?: string; antiCheat?: unknown };
+  }>('/pre-screen-assessments/library/generate', {
+    method: 'POST',
+    body: { ...payload, type: 'CODING' },
+    auth: true,
+  });
+};
+
 export const updatePreScreenAssessment = async (id: string, payload: Record<string, unknown>) => {
   return apiFetch<Record<string, unknown>>(`/pre-screen-assessments/library/${id}`, {
     method: 'PATCH',
@@ -2035,6 +2233,25 @@ export const getApplicationAssessmentResults = async (applicationId: string) => 
   return apiFetch<unknown[]>(`/pre-screen-assessments/applications/${applicationId}/results`, {
     auth: true,
   });
+};
+
+export type CandidateAssessmentResultGroup = {
+  jobId: string;
+  jobTitle: string;
+  applicationId?: string | null;
+  results: Array<Record<string, unknown>>;
+};
+
+export const getCandidateAssessmentResults = async (
+  candidateId: string,
+  jobId?: string | null,
+) => {
+  const scopedJobId = String(jobId || '').trim();
+  const qs = scopedJobId ? `?jobId=${encodeURIComponent(scopedJobId)}` : '';
+  return apiFetch<CandidateAssessmentResultGroup[]>(
+    `/pre-screen-assessments/candidates/${encodeURIComponent(candidateId)}/results${qs}`,
+    { auth: true },
+  );
 };
 
 export const gradeAssessmentSession = async (
@@ -2240,8 +2457,11 @@ export interface BackendCandidate {
   extraData?: Record<string, unknown> | null;
   matches?: Array<{
     id: string;
+    jobId?: string;
     status?: string;
     score?: number;
+    createdById?: string | null;
+    evaluation?: { origin?: string; pending?: boolean } | null;
     job?: {
       id: string;
       title: string;

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Plus, Sparkles, Trash2 } from 'lucide-react';
-import { generateMcqPreScreenAssessmentWithAi } from '../../lib/api';
+import { generateCodingPreScreenAssessmentWithAi, generateMcqPreScreenAssessmentWithAi } from '../../lib/api';
 import { requestError } from '../../lib/appDialog';
 import { extractApiData } from '../../lib/mapCandidateProfile';
 import type { PreScreenAssessment, PreScreenAssessmentType } from '../../lib/preScreenAssessmentTypes';
@@ -10,6 +10,7 @@ import {
   CODING_LANGUAGES,
   type AssessmentConfig,
   type CodingAssessmentConfig,
+  type CodingQuestion,
   type EssayAssessmentConfig,
   type McqAssessmentConfig,
   type McqQuestion,
@@ -531,25 +532,188 @@ function McqEditor({
   );
 }
 
+const CODING_AI_QUESTION_COUNT = 5;
+const CODING_REVEAL_MS = 600;
+
 function CodingEditor({
   config,
   onChange,
   disabled,
+  jobTitle = '',
+  skills = [],
+  jobDescription = '',
+  onAssessmentMetaChange,
+  onAiBusyChange,
 }: {
   config: CodingAssessmentConfig;
   onChange: (c: CodingAssessmentConfig) => void;
   disabled?: boolean;
+  jobTitle?: string;
+  skills?: string[];
+  jobDescription?: string;
+  onAssessmentMetaChange?: (patch: {
+    title?: string;
+    durationMinutes?: number;
+    passScorePercent?: number;
+  }) => void;
+  onAiBusyChange?: (busy: boolean) => void;
 }) {
-  const patch = (p: Partial<CodingAssessmentConfig>) => onChange({ ...config, ...p });
+  const [aiPhase, setAiPhase] = useState<'idle' | 'loading' | 'revealing' | 'done'>('idle');
+  const [revealCount, setRevealCount] = useState(0);
+  const pendingQuestionsRef = useRef<CodingQuestion[]>([]);
+  const revealTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  const questions = config.questions || [];
+  const multiMode = questions.length > 0;
+
+  useEffect(() => {
+    onAiBusyChange?.(aiPhase === 'loading' || aiPhase === 'revealing');
+  }, [aiPhase, onAiBusyChange]);
+
+  useEffect(() => {
+    return () => {
+      if (revealTimerRef.current) clearInterval(revealTimerRef.current);
+    };
+  }, []);
+
+  const patch = (p: Partial<CodingAssessmentConfig>) => onChange({ ...configRef.current, ...p });
+
+  const updateQuestion = (index: number, patchQ: Partial<CodingQuestion>) => {
+    const next = (configRef.current.questions || []).map((q, i) =>
+      i === index ? { ...q, ...patchQ } : q,
+    );
+    patch({ questions: next, totalMarks: next.reduce((s, q) => s + (q.marks || 20), 0) });
+  };
+
+  const startReveal = (nextQuestions: CodingQuestion[], language: string) => {
+    if (revealTimerRef.current) clearInterval(revealTimerRef.current);
+    pendingQuestionsRef.current = nextQuestions;
+    setAiPhase('revealing');
+    setRevealCount(0);
+    patch({ questions: [], language, prompt: '', testCases: [] });
+
+    let index = 0;
+    revealTimerRef.current = setInterval(() => {
+      index += 1;
+      const slice = pendingQuestionsRef.current.slice(0, index);
+      patch({
+        questions: slice,
+        language,
+        prompt: '',
+        testCases: [],
+        totalMarks: slice.reduce((s, q) => s + (q.marks || 20), 0),
+      });
+      setRevealCount(index);
+      if (index >= nextQuestions.length) {
+        if (revealTimerRef.current) clearInterval(revealTimerRef.current);
+        revealTimerRef.current = null;
+        setAiPhase('done');
+      }
+    }, CODING_REVEAL_MS);
+  };
+
+  const generateWithAi = async () => {
+    const role = String(jobTitle || '').trim();
+    if (!role) {
+      void requestError('Enter a job title first so AI can tailor the coding questions.');
+      return;
+    }
+    if (revealTimerRef.current) clearInterval(revealTimerRef.current);
+
+    setAiPhase('loading');
+    setRevealCount(0);
+    try {
+      const res = await generateCodingPreScreenAssessmentWithAi({
+        jobTitle: role,
+        skills: Array.isArray(skills) ? skills.filter(Boolean) : [],
+        jobDescription: String(jobDescription || '').trim() || undefined,
+      });
+      const generated = extractApiData<{
+        title?: string;
+        durationMinutes?: number;
+        passScorePercent?: number;
+        config?: CodingAssessmentConfig;
+      }>(res);
+      const parsedConfig = parseAssessmentConfig('CODING', generated?.config) as CodingAssessmentConfig;
+      const nextQuestions = parsedConfig.questions || [];
+      if (!nextQuestions.length) {
+        throw new Error('AI did not return coding questions.');
+      }
+
+      onAssessmentMetaChange?.({
+        title: generated?.title,
+        durationMinutes: generated?.durationMinutes,
+        passScorePercent: generated?.passScorePercent,
+      });
+
+      startReveal(nextQuestions, parsedConfig.language || 'javascript');
+    } catch (err) {
+      setAiPhase('idle');
+      setRevealCount(0);
+      void requestError(
+        err instanceof Error ? err.message : 'Could not generate coding questions with AI.',
+      );
+    }
+  };
+
+  const aiBusy = aiPhase === 'loading' || aiPhase === 'revealing';
+  const statusLine =
+    aiPhase === 'loading'
+      ? `AI is generating ${CODING_AI_QUESTION_COUNT} coding challenges for “${jobTitle.trim()}”…`
+      : aiPhase === 'revealing'
+        ? `Showing question ${revealCount} of ${pendingQuestionsRef.current.length || CODING_AI_QUESTION_COUNT}…`
+        : aiPhase === 'done'
+          ? `${questions.length} coding questions ready — review and click Save assessment.`
+          : null;
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-800">
+          {multiMode ? 'Coding questions' : 'Coding challenge'}
+        </p>
+        <button
+          type="button"
+          disabled={disabled || aiBusy}
+          onClick={() => void generateWithAi()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-violet-300 bg-gradient-to-r from-violet-600 to-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50"
+        >
+          {aiPhase === 'loading' ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="size-3.5" />
+          )}
+          {aiPhase === 'loading' ? 'Generating…' : 'Generate with AI'}
+        </button>
+      </div>
+
+      {statusLine ? (
+        <div
+          className={`rounded-lg border px-3 py-2 text-xs ${
+            aiPhase === 'done'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-violet-200 bg-violet-50 text-violet-800'
+          }`}
+        >
+          {aiPhase !== 'done' ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Loader2 className="size-3 animate-spin shrink-0" />
+              {statusLine}
+            </span>
+          ) : (
+            statusLine
+          )}
+        </div>
+      ) : null}
+
       <div>
         <label className={labelClass}>Programming language</label>
         <select
           className={fieldClass}
           value={config.language}
-          disabled={disabled}
+          disabled={disabled || aiBusy}
           onChange={(e) => patch({ language: e.target.value })}
         >
           {CODING_LANGUAGES.map((l) => (
@@ -560,86 +724,282 @@ function CodingEditor({
         </select>
       </div>
 
-      <div>
-        <label className={labelClass}>Problem statement</label>
-        <textarea
-          className={`${fieldClass} min-h-[100px]`}
-          value={config.prompt}
-          disabled={disabled}
-          placeholder="Write a function to reverse a string"
-          onChange={(e) => patch({ prompt: e.target.value })}
-        />
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className={labelClass}>Test cases</label>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() =>
-              patch({
-                testCases: [...config.testCases, { id: newId('tc'), input: '', expected: '' }],
-              })
-            }
-            className="text-xs text-violet-600 font-semibold hover:underline"
-          >
-            + Add test case
-          </button>
-        </div>
-        <div className="space-y-3">
-          {config.testCases.map((tc, ti) => (
-            <div key={tc.id} className="rounded-lg border border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] text-slate-500">Input</label>
-                <input
-                  className={fieldClass}
-                  value={tc.input}
-                  disabled={disabled}
-                  placeholder='"hello"'
-                  onChange={(e) =>
-                    patch({
-                      testCases: config.testCases.map((t, i) =>
-                        i === ti ? { ...t, input: e.target.value } : t
-                      ),
-                    })
-                  }
-                />
-              </div>
-              <div className="flex gap-2 items-end">
-                <div className="flex-1">
-                  <label className="text-[11px] text-slate-500">Expected</label>
-                  <input
-                    className={fieldClass}
-                    value={tc.expected}
-                    disabled={disabled}
-                    placeholder='"olleh"'
-                    onChange={(e) =>
-                      patch({
-                        testCases: config.testCases.map((t, i) =>
-                          i === ti ? { ...t, expected: e.target.value } : t
-                        ),
-                      })
-                    }
-                  />
-                </div>
-                {config.testCases.length > 1 ? (
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() =>
-                      patch({ testCases: config.testCases.filter((_, i) => i !== ti) })
-                    }
-                    className="text-rose-500 p-2"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                ) : null}
+      {aiPhase === 'loading' ? (
+        <div className="space-y-2">
+          {Array.from({ length: CODING_AI_QUESTION_COUNT }).map((_, i) => (
+            <div
+              key={`coding-skeleton-${i}`}
+              className="rounded-xl border border-dashed border-violet-200 bg-violet-50/50 p-4 animate-pulse"
+            >
+              <div className="h-3 w-32 rounded bg-violet-200/80 mb-3" />
+              <div className="h-16 rounded bg-violet-100/80 mb-2" />
+              <div className="grid grid-cols-2 gap-2">
+                <div className="h-8 rounded bg-violet-100/60" />
+                <div className="h-8 rounded bg-violet-100/60" />
               </div>
             </div>
           ))}
         </div>
-      </div>
+      ) : null}
+
+      {multiMode
+        ? questions.map((q, qi) => (
+            <div
+              key={q.id}
+              className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300"
+            >
+              <p className="text-xs font-bold text-violet-700">
+                Question {qi + 1}
+                {q.title ? ` — ${q.title}` : ''}
+              </p>
+
+              <div>
+                <label className={labelClass}>Title</label>
+                <input
+                  className={fieldClass}
+                  value={q.title}
+                  disabled={disabled || aiBusy}
+                  onChange={(e) => updateQuestion(qi, { title: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className={labelClass}>Problem</label>
+                <textarea
+                  className={`${fieldClass} min-h-[80px]`}
+                  value={q.prompt}
+                  disabled={disabled || aiBusy}
+                  onChange={(e) => updateQuestion(qi, { prompt: e.target.value })}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Sample input</label>
+                  <textarea
+                    className={`${fieldClass} min-h-[60px] font-mono text-xs`}
+                    value={q.sampleInput || ''}
+                    disabled={disabled || aiBusy}
+                    onChange={(e) => updateQuestion(qi, { sampleInput: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Sample output</label>
+                  <textarea
+                    className={`${fieldClass} min-h-[60px] font-mono text-xs`}
+                    value={q.sampleOutput || ''}
+                    disabled={disabled || aiBusy}
+                    onChange={(e) => updateQuestion(qi, { sampleOutput: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Expected answer (hidden from candidates)</label>
+                <textarea
+                  className={`${fieldClass} min-h-[120px] font-mono text-xs`}
+                  value={q.expectedAnswer || ''}
+                  disabled={disabled || aiBusy}
+                  onChange={(e) => updateQuestion(qi, { expectedAnswer: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className={labelClass}>Test cases</label>
+                  <button
+                    type="button"
+                    disabled={disabled || aiBusy}
+                    onClick={() =>
+                      updateQuestion(qi, {
+                        testCases: [
+                          ...q.testCases,
+                          { id: newId('tc'), input: '', expected: '' },
+                        ],
+                      })
+                    }
+                    className="text-xs text-violet-600 font-semibold hover:underline"
+                  >
+                    + Add test case
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {q.testCases.map((tc, ti) => (
+                    <div
+                      key={tc.id}
+                      className="rounded-lg border border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2"
+                    >
+                      <div>
+                        <label className="text-[11px] text-slate-500">Input</label>
+                        <input
+                          className={fieldClass}
+                          value={tc.input}
+                          disabled={disabled || aiBusy}
+                          onChange={(e) =>
+                            updateQuestion(qi, {
+                              testCases: q.testCases.map((t, i) =>
+                                i === ti ? { ...t, input: e.target.value } : t,
+                              ),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="flex gap-2 items-end">
+                        <div className="flex-1">
+                          <label className="text-[11px] text-slate-500">Expected</label>
+                          <input
+                            className={fieldClass}
+                            value={tc.expected}
+                            disabled={disabled || aiBusy}
+                            onChange={(e) =>
+                              updateQuestion(qi, {
+                                testCases: q.testCases.map((t, i) =>
+                                  i === ti ? { ...t, expected: e.target.value } : t,
+                                ),
+                              })
+                            }
+                          />
+                        </div>
+                        {q.testCases.length > 1 ? (
+                          <button
+                            type="button"
+                            disabled={disabled || aiBusy}
+                            onClick={() =>
+                              updateQuestion(qi, {
+                                testCases: q.testCases.filter((_, i) => i !== ti),
+                              })
+                            }
+                            className="text-rose-500 p-2"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="max-w-xs">
+                <label className={labelClass}>Marks</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className={fieldClass}
+                  value={q.marks ?? 20}
+                  disabled={disabled || aiBusy}
+                  onChange={(e) =>
+                    updateQuestion(qi, { marks: Math.max(1, Number(e.target.value) || 1) })
+                  }
+                />
+              </div>
+            </div>
+          ))
+        : aiPhase !== 'loading' ? (
+            <>
+              <div>
+                <label className={labelClass}>Problem statement</label>
+                <textarea
+                  className={`${fieldClass} min-h-[100px]`}
+                  value={config.prompt}
+                  disabled={disabled}
+                  placeholder="Write a function to reverse a string"
+                  onChange={(e) => patch({ prompt: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className={labelClass}>Test cases</label>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      patch({
+                        testCases: [...config.testCases, { id: newId('tc'), input: '', expected: '' }],
+                      })
+                    }
+                    className="text-xs text-violet-600 font-semibold hover:underline"
+                  >
+                    + Add test case
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {config.testCases.map((tc, ti) => (
+                    <div
+                      key={tc.id}
+                      className="rounded-lg border border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2"
+                    >
+                      <div>
+                        <label className="text-[11px] text-slate-500">Input</label>
+                        <input
+                          className={fieldClass}
+                          value={tc.input}
+                          disabled={disabled}
+                          placeholder='"hello"'
+                          onChange={(e) =>
+                            patch({
+                              testCases: config.testCases.map((t, i) =>
+                                i === ti ? { ...t, input: e.target.value } : t,
+                              ),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="flex gap-2 items-end">
+                        <div className="flex-1">
+                          <label className="text-[11px] text-slate-500">Expected</label>
+                          <input
+                            className={fieldClass}
+                            value={tc.expected}
+                            disabled={disabled}
+                            placeholder='"olleh"'
+                            onChange={(e) =>
+                              patch({
+                                testCases: config.testCases.map((t, i) =>
+                                  i === ti ? { ...t, expected: e.target.value } : t,
+                                ),
+                              })
+                            }
+                          />
+                        </div>
+                        {config.testCases.length > 1 ? (
+                          <button
+                            type="button"
+                            disabled={disabled}
+                            onClick={() =>
+                              patch({ testCases: config.testCases.filter((_, i) => i !== ti) })
+                            }
+                            className="text-rose-500 p-2"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : null}
+
+      {aiPhase === 'revealing' && revealCount < CODING_AI_QUESTION_COUNT
+        ? Array.from({
+            length: Math.max(
+              0,
+              (pendingQuestionsRef.current.length || CODING_AI_QUESTION_COUNT) - revealCount,
+            ),
+          }).map((_, i) => (
+            <div
+              key={`coding-pending-${i}`}
+              className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-4 animate-pulse"
+            >
+              <div className="h-3 w-28 rounded bg-slate-200 mb-3" />
+              <div className="h-16 rounded bg-slate-100 mb-2" />
+            </div>
+          ))
+        : null}
 
       <div className="max-w-xs">
         <label className={labelClass}>Allowed attempts</label>
@@ -649,7 +1009,7 @@ function CodingEditor({
           max={5}
           className={fieldClass}
           value={config.allowedAttempts}
-          disabled={disabled}
+          disabled={disabled || aiBusy}
           onChange={(e) => patch({ allowedAttempts: Math.max(1, Number(e.target.value) || 1) })}
         />
       </div>
@@ -803,9 +1163,12 @@ export function AssessmentEditorPanel({
   jobDescription?: string;
 }) {
   const [mcqAiBusy, setMcqAiBusy] = useState(false);
+  const [codingAiBusy, setCodingAiBusy] = useState(false);
   const patchDraft = (p: Partial<AssessmentDraft>) => onChange({ ...draft, ...p });
   const patchConfig = (config: AssessmentConfig) => onChange({ ...draft, config });
-  const saveDisabled = Boolean(disabled || saving || (draft.type === 'MCQ' && mcqAiBusy));
+  const saveDisabled = Boolean(
+    disabled || saving || (draft.type === 'MCQ' && mcqAiBusy) || (draft.type === 'CODING' && codingAiBusy),
+  );
 
   const typeLabel =
     draft.type === 'MCQ'
@@ -835,7 +1198,7 @@ export function AssessmentEditorPanel({
             type="button"
             disabled={saveDisabled || !draft.title.trim()}
             onClick={onSave}
-            title={mcqAiBusy ? 'Wait for AI to finish generating questions' : undefined}
+            title={mcqAiBusy || codingAiBusy ? 'Wait for AI to finish generating questions' : undefined}
             className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
           >
             {saving ? <Loader2 className="size-3.5 animate-spin" /> : null}
@@ -872,6 +1235,11 @@ export function AssessmentEditorPanel({
         <CodingEditor
           config={draft.config as CodingAssessmentConfig}
           disabled={disabled}
+          jobTitle={jobTitle}
+          skills={skills}
+          jobDescription={jobDescription}
+          onAssessmentMetaChange={(meta) => patchDraft(meta)}
+          onAiBusyChange={setCodingAiBusy}
           onChange={(c) => patchConfig(c)}
         />
       ) : null}
@@ -899,7 +1267,7 @@ export function AssessmentEditorPanel({
           computeAssessmentTotalMarks(draft.type, draft.config),
           draft.passScorePercent,
         )}
-        totalMarksReadOnly={draft.type === 'MCQ'}
+        totalMarksReadOnly={draft.type === 'MCQ' || (draft.type === 'CODING' && !!(draft.config as CodingAssessmentConfig).questions?.length)}
         durationMinutes={draft.durationMinutes}
         disabled={disabled}
         showGrading

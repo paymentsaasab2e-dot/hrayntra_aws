@@ -1,9 +1,16 @@
-import { prisma, getActiveTenantDbName, getJobPortalPrismaClient } from '../../config/prisma.js';
+import {
+  prisma,
+  getActiveTenantDbName,
+  getJobPortalPrismaClient,
+  getCandidateCommonPrismaClient,
+} from '../../config/prisma.js';
 import {
   fetchCandidateCommonForMatchPipeline,
   fetchCandidateCommonForTenant,
   fetchCandidateCommonForCandidatesList,
   fetchCandidateCommonByCandidateId,
+  mapCandidateCommonRowToCandidate,
+  applyProfileSnapshotFields,
 } from '../../services/candidateCommon/candidateCommonPool.service.js';
 import {
   PIPELINE_STAGES,
@@ -16,6 +23,7 @@ import {
   applyResumeJsonToCandidate,
   batchHydrateCandidatesResumeFromPortal,
 } from '../../utils/candidateResumeHydrate.util.js';
+import { batchHydratePortalProfileSections } from '../../utils/portalProfileSectionsHydrate.util.js';
 import { persistCandidateCvProfileToTenant } from '../../utils/candidateCvPersist.util.js';
 import {
   mergeCandidateRecruiterExtraData,
@@ -70,7 +78,26 @@ async function getTenantJobIdSet() {
   return new Set(jobs.map((job) => String(job.id)));
 }
 
-/** All job ids linked to a candidate (assign, apply, pipeline, match). */
+/** AI pipeline scores only — must not count as assign/apply on the Candidates list. */
+function matchRepresentsCrmJobLink(match) {
+  if (!match) return false;
+  const ev = match.evaluation;
+  if (ev && typeof ev === 'object') {
+    if (ev.pending) return false;
+    if (ev.origin === 'ai') return false;
+    if (ev.origin === 'applied') return true;
+  }
+  if (match.createdById) return true;
+  return false;
+}
+
+function crmLinkedMatches(candidate) {
+  return (Array.isArray(candidate?.matches) ? candidate.matches : []).filter((row) =>
+    matchRepresentsCrmJobLink(row)
+  );
+}
+
+/** All job ids linked to a candidate (assign, apply, pipeline, CRM match — not AI-only scores). */
 function collectCandidateLinkedJobIds(candidate) {
   const ids = new Set();
   const push = (raw) => {
@@ -86,7 +113,7 @@ function collectCandidateLinkedJobIds(candidate) {
   for (const row of Array.isArray(candidate?.pipelineEntries) ? candidate.pipelineEntries : []) {
     push(row?.jobId);
   }
-  for (const row of Array.isArray(candidate?.matches) ? candidate.matches : []) {
+  for (const row of crmLinkedMatches(candidate)) {
     push(row?.jobId);
     push(row?.job?.id);
   }
@@ -146,7 +173,7 @@ function scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet) {
     : []
   ).filter((row) => allowed.has(String(row?.jobId || '').trim()));
   const matches = (Array.isArray(candidate.matches) ? candidate.matches : []).filter((row) =>
-    allowed.has(String(row?.jobId || row?.job?.id || '').trim())
+    allowed.has(String(row?.jobId || row?.job?.id || '').trim()) && matchRepresentsCrmJobLink(row)
   );
   const interviews = (Array.isArray(candidate.interviews) ? candidate.interviews : []).filter(
     (row) => allowed.has(String(row?.jobId || row?.job?.id || '').trim())
@@ -199,7 +226,7 @@ function candidateHasRealJobLink(candidate, tenantJobIdSet = null) {
   if (assigned.some((id) => String(id || '').trim())) return true;
   if (Array.isArray(row.applications) && row.applications.length > 0) return true;
   if (Array.isArray(row.pipelineEntries) && row.pipelineEntries.length > 0) return true;
-  if (Array.isArray(row.matches) && row.matches.length > 0) return true;
+  if (crmLinkedMatches(row).length > 0) return true;
   if (Array.isArray(row.interviews) && row.interviews.length > 0) return true;
   const titles = Array.isArray(row.assignedJobTitles) ? row.assignedJobTitles : [];
   if (titles.some((title) => String(title || '').trim())) return true;
@@ -512,7 +539,13 @@ const candidateListInclude = {
     take: 30,
   },
   matches: {
-    include: {
+    select: {
+      id: true,
+      jobId: true,
+      score: true,
+      status: true,
+      createdById: true,
+      evaluation: true,
       job: {
         select: {
           id: true,
@@ -1281,9 +1314,18 @@ async function materializeCandidateForMatch(poolRow, options = {}) {
   });
 
   if (existing && existing.isDeleted !== true) {
+    const updateData = { ...profileFields };
+    if (aiMatchOnly && matchingJobId && Array.isArray(existing.assignedJobs)) {
+      const trimmed = existing.assignedJobs
+        .map((id) => String(id || '').trim())
+        .filter((id) => id && id !== matchingJobId);
+      if (trimmed.length !== existing.assignedJobs.length) {
+        updateData.assignedJobs = trimmed;
+      }
+    }
     return prisma.candidate.update({
       where: { id: poolRow.id },
-      data: profileFields,
+      data: updateData,
     });
   }
 
@@ -1471,6 +1513,153 @@ async function getCandidateOrThrow(id, options = {}) {
 }
 
 /**
+ * Batch-load verified Phase 1 snapshots for match-pipeline enrichment (applied + AI pools).
+ */
+async function fetchCandidateCommonMappedByIds(candidateIds) {
+  const map = new Map();
+  if (!Array.isArray(candidateIds) || !candidateIds.length) return map;
+
+  let commonPrisma = null;
+  try {
+    commonPrisma = getCandidateCommonPrismaClient();
+  } catch {
+    commonPrisma = null;
+  }
+  if (!commonPrisma || !isTenantScopedRequest()) return map;
+
+  const ids = [...new Set(candidateIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return map;
+
+  try {
+    const rows = await commonPrisma.candidateCommon.findMany({
+      where: { candidateId: { in: ids }, isVerified: true },
+    });
+    for (const row of rows) {
+      const id = String(row.candidateId || '').trim();
+      if (!id) continue;
+      const mapped = mapCandidateCommonRowToCandidate(row);
+      if (mapped) map.set(id, mapped);
+    }
+  } catch (err) {
+    console.warn(
+      '[enrichCandidatesForMatchPipeline] candidatecommon batch fetch failed:',
+      err?.message || err
+    );
+  }
+
+  return map;
+}
+
+/**
+ * Normalize every pool row to the same full tenant CV profile before AI / Applied scoring.
+ * Both pipelines call this so Pass 1–4 see identical candidate data for the same person.
+ */
+async function enrichCandidatesForMatchPipeline(candidates) {
+  if (!Array.isArray(candidates) || !candidates.length) return [];
+
+  let portalClient = null;
+  try {
+    if (isTenantScopedRequest()) portalClient = getJobPortalPrismaClient();
+  } catch {
+    portalClient = null;
+  }
+
+  const ids = [...new Set(candidates.map((row) => String(row?.id || '').trim()).filter(Boolean))];
+  const [tenantRows, careerPrefsMap, commonById, editorRows] = await Promise.all([
+    ids.length
+      ? prisma.candidate.findMany({
+          where: { id: { in: ids }, isDeleted: { not: true } },
+        })
+      : [],
+    fetchCareerPreferencesForCandidates(ids),
+    fetchCandidateCommonMappedByIds(ids),
+    Promise.all(ids.map((id) => loadTenantEditorCvContentFields(id))),
+  ]);
+  const tenantById = new Map(tenantRows.map((row) => [row.id, row]));
+  const editorById = new Map(ids.map((id, index) => [id, editorRows[index]]));
+
+  const enriched = [];
+  for (const poolRow of candidates) {
+    const id = String(poolRow?.id || '').trim();
+    if (!id) continue;
+
+    const tenantRow = tenantById.get(id);
+    const commonRow = commonById.get(id);
+
+    let row;
+    if (commonRow && tenantRow) {
+      row = mergePortalAndTenantCandidateRow(commonRow, tenantRow);
+    } else if (commonRow) {
+      row = mergePortalAndTenantCandidateRow(commonRow, poolRow);
+    } else if (tenantRow) {
+      row = mergePortalAndTenantCandidateRow(poolRow, tenantRow);
+    } else {
+      row = { ...poolRow };
+    }
+
+    applyTenantEditorCvContentFields(row, editorById.get(id));
+
+    const tenantCvExtra = tenantRow?.extraData
+      ? pickRecruiterCvExtraFields(tenantRow.extraData)
+      : await loadTenantRecruiterCvExtra(id);
+    if (tenantCvExtra && Object.keys(tenantCvExtra).length) {
+      const prevExtra =
+        row.extraData && typeof row.extraData === 'object' && !Array.isArray(row.extraData)
+          ? row.extraData
+          : {};
+      row.extraData = mergeCandidateRecruiterExtraData(prevExtra, {
+        ...prevExtra,
+        ...tenantCvExtra,
+      });
+    }
+
+    const snap =
+      row.extraData?.phase1ProfileSnapshot &&
+      typeof row.extraData.phase1ProfileSnapshot === 'object'
+        ? row.extraData.phase1ProfileSnapshot
+        : null;
+    if (snap) {
+      applyProfileSnapshotFields(row, {
+        profileSnapshot: snap,
+        careerPreferences: row.careerPreferences,
+        recruiterLanguages: row.recruiterLanguages,
+        addressLine: row.address || row.addressLine,
+      });
+    }
+
+    enriched.push(row);
+  }
+
+  if (portalClient) {
+    try {
+      await Promise.all(
+        enriched.map((row) => hydratePhase1SnapshotPersonalInfoFromPortal(row, portalClient))
+      );
+      await batchHydratePortalProfileSections(enriched, portalClient);
+      await batchHydrateCandidatesResumeFromPortal(enriched, portalClient);
+    } catch (hydrateErr) {
+      console.warn(
+        '[enrichCandidatesForMatchPipeline] portal hydrate failed:',
+        hydrateErr?.message || hydrateErr
+      );
+    }
+  }
+
+  for (const row of enriched) {
+    const careerPrefs = careerPrefsMap.get(String(row.id || '').trim());
+    if (careerPrefs) mergeCareerPreferencesIntoCandidate(row, careerPrefs);
+
+    const computedExp = resolveCandidateListExperienceYears(row);
+    if (computedExp != null && Number.isFinite(computedExp)) {
+      row.experience = computedExp;
+      row.experienceYears = computedExp;
+    }
+  }
+
+  return enriched;
+}
+
+/**
  * Pool for AI match pipeline: tenant NEW/ACTIVE + candidatecommon (Phase 1 snapshots)
  * + optional job-portal merge. Excludes AI-rejected rows for this job.
  */
@@ -1499,7 +1688,6 @@ async function loadMatchPipelineCandidatePool(req, jobId) {
   const tenantCandidates = await prisma.candidate.findMany({
     where: {
       isDeleted: { not: true },
-      status: { in: ['NEW', 'ACTIVE'] },
     },
   });
 
@@ -1568,6 +1756,8 @@ async function loadMatchPipelineCandidatePool(req, jobId) {
     merged = merged.filter((c) => !rejectedIds.has(c.id));
   }
 
+  merged = await enrichCandidatesForMatchPipeline(merged);
+
   return {
     candidates: merged,
     tenantCount: tenantCandidates.length,
@@ -1584,7 +1774,7 @@ async function loadMatchPipelineCandidatePool(req, jobId) {
  * Ensure a scored candidate exists in the tenant DB before writing a Match row.
  * @returns {{ id: string, materialized: boolean } | null}
  */
-async function ensureCandidateMaterializedForMatch(candidateRow) {
+async function ensureCandidateMaterializedForMatch(candidateRow, options = {}) {
   if (!candidateRow?.id) return null;
   if (!isTenantScopedRequest()) return null;
 
@@ -1593,13 +1783,13 @@ async function ensureCandidateMaterializedForMatch(candidateRow) {
     select: { id: true, isDeleted: true },
   });
   if (existing?.isDeleted === true) {
-    const row = await materializeCandidateForMatch(candidateRow);
+    const row = await materializeCandidateForMatch(candidateRow, options);
     if (!row?.id) return null;
     return { id: row.id, materialized: true };
   }
   if (existing) return { id: existing.id, materialized: false };
 
-  const row = await materializeCandidateForMatch(candidateRow);
+  const row = await materializeCandidateForMatch(candidateRow, options);
   if (!row?.id) return null;
   return { id: row.id, materialized: true };
 }
@@ -1780,7 +1970,7 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
     }
   }
 
-  const candidates = Array.from(byId.values());
+  const candidates = await enrichCandidatesForMatchPipeline(Array.from(byId.values()));
 
   return {
     candidates,
@@ -2009,6 +2199,9 @@ async function loadTenantEditorCvContentFields(candidateId) {
         cvEducationEntries: true,
         skills: true,
         recruiterSkills: true,
+        languages: true,
+        recruiterLanguages: true,
+        cvPortfolioLinks: true,
         currentTitle: true,
         currentCompany: true,
         location: true,
@@ -2056,6 +2249,13 @@ function applyTenantEditorCvContentFields(candidate, tenantRow) {
   candidate.skills = Array.isArray(tenantRow.skills) ? tenantRow.skills : [];
   candidate.recruiterSkills = Array.isArray(tenantRow.recruiterSkills)
     ? tenantRow.recruiterSkills
+    : [];
+  candidate.languages = Array.isArray(tenantRow.languages) ? tenantRow.languages : [];
+  candidate.recruiterLanguages = Array.isArray(tenantRow.recruiterLanguages)
+    ? tenantRow.recruiterLanguages
+    : [];
+  candidate.cvPortfolioLinks = Array.isArray(tenantRow.cvPortfolioLinks)
+    ? tenantRow.cvPortfolioLinks
     : [];
   return candidate;
 }

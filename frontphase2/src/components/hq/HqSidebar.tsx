@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
+  Building,
   Building2,
   Database,
   LayoutDashboard,
@@ -17,7 +18,7 @@ import {
 export type HqNavTab = 'dashboard' | 'tenants' | 'provision' | 'plans' | 'bootstrap';
 
 export const HQ_NAV_ITEMS: {
-  id: HqNavTab | 'leads';
+  id: HqNavTab | 'leads' | 'company';
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -28,10 +29,12 @@ export const HQ_NAV_ITEMS: {
   { id: 'plans', label: 'Plans', href: '/hq?tab=plans', icon: Tag },
   { id: 'bootstrap', label: 'Local bootstrap', href: '/hq?tab=bootstrap', icon: Terminal },
   { id: 'leads', label: 'CRM Leads', href: '/hq/leads', icon: Target },
+  { id: 'company', label: 'Companies', href: '/hq/company', icon: Building },
 ];
 
 function isNavActive(pathname: string, tab: string | null, item: (typeof HQ_NAV_ITEMS)[number]) {
   if (item.id === 'leads') return pathname === '/hq/leads';
+  if (item.id === 'company') return pathname === '/hq/company';
   if (pathname !== '/hq') return false;
   if (item.id === 'dashboard') return !tab || tab === 'dashboard';
   return tab === item.id;

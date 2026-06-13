@@ -3,6 +3,7 @@ import { resolvePublicApplyTenant } from '../../middleware/tenant-context.middle
 import { runWithTenantContext } from '../../config/prisma.js';
 import { preScreenAssessmentService } from './assessment.service.js';
 import {
+  generateCodingAssessmentWithAi,
   generateMcqAssessmentWithAi,
   generatePreScreenAssessmentsWithAi,
 } from './assessmentAiGenerate.service.js';
@@ -46,6 +47,14 @@ export const preScreenAssessmentController = {
           jobDescription,
         });
         return sendResponse(res, 200, 'MCQ assessment generated', mcq);
+      }
+      if (String(type || '').toUpperCase() === 'CODING') {
+        const coding = await generateCodingAssessmentWithAi({
+          jobTitle,
+          skills,
+          jobDescription,
+        });
+        return sendResponse(res, 200, 'Coding assessment generated', coding);
       }
       const generated = await generatePreScreenAssessmentsWithAi({
         jobTitle,
@@ -196,6 +205,19 @@ export const preScreenAssessmentController = {
         req.params.applicationId
       );
       sendResponse(res, 200, 'Assessment results', results);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getCandidateResults(req, res) {
+    try {
+      const jobId = String(req.query?.jobId || '').trim() || undefined;
+      const results = await preScreenAssessmentService.getCandidateAssessmentResults(
+        req.params.candidateId,
+        { jobId }
+      );
+      sendResponse(res, 200, 'Candidate assessment results', results);
     } catch (error) {
       sendError(res, 500, error.message, error);
     }

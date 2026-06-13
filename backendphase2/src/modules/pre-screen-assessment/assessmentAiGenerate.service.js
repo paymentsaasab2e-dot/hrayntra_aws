@@ -140,6 +140,51 @@ function buildMcqConfig(rawMcq) {
   };
 }
 
+function buildCodingQuestionsConfig(rawCoding) {
+  const language = ['javascript', 'python', 'java', 'typescript', 'cpp'].includes(
+    String(rawCoding?.language || '').toLowerCase()
+  )
+    ? String(rawCoding.language).toLowerCase()
+    : 'javascript';
+
+  const questions = (Array.isArray(rawCoding?.questions) ? rawCoding.questions : [])
+    .slice(0, QUESTION_COUNT)
+    .map((q, qi) => {
+      const testCases = (Array.isArray(q?.testCases) ? q.testCases : []).map((tc) => ({
+        id: generateAssessmentId('tc'),
+        input: String(tc?.input ?? ''),
+        expected: String(tc?.expected ?? ''),
+      }));
+      return {
+        id: generateAssessmentId('cq'),
+        title: String(q?.title || `Question ${qi + 1}`).trim() || `Question ${qi + 1}`,
+        prompt: String(q?.prompt || '').trim() || `Coding challenge ${qi + 1}`,
+        sampleInput: String(q?.sampleInput ?? ''),
+        sampleOutput: String(q?.sampleOutput ?? ''),
+        expectedAnswer: String(q?.expectedAnswer ?? ''),
+        marks: Math.max(1, Math.min(20, Number(q?.marks) || 20)),
+        testCases,
+      };
+    });
+
+  const totalMarks = questions.reduce((sum, q) => sum + (q.marks || 20), 0) || 100;
+
+  return {
+    language,
+    languages: [language],
+    questions,
+    prompt: '',
+    testCases: [],
+    allowedAttempts: 1,
+    totalMarks,
+    antiCheat: defaultAntiCheat({
+      disableCopyPaste: true,
+      detectTabSwitch: true,
+      fullScreenRequired: true,
+    }),
+  };
+}
+
 function buildCodingConfig(rawCoding) {
   const base = defaultCodingConfig();
   const language = ['javascript', 'python', 'java', 'typescript', 'cpp'].includes(
@@ -288,6 +333,139 @@ export async function generateMcqAssessmentWithAi({
   });
 }
 
+const codingOnlyJsonSchema = {
+  name: 'pre_screen_coding_generate',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      title: { type: 'string' },
+      language: {
+        type: 'string',
+        enum: ['javascript', 'python', 'java', 'typescript', 'cpp'],
+      },
+      questions: {
+        type: 'array',
+        minItems: QUESTION_COUNT,
+        maxItems: QUESTION_COUNT,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string' },
+            prompt: { type: 'string' },
+            sampleInput: { type: 'string' },
+            sampleOutput: { type: 'string' },
+            expectedAnswer: { type: 'string' },
+            marks: { type: 'integer', minimum: 1, maximum: 20 },
+            testCases: {
+              type: 'array',
+              minItems: 2,
+              maxItems: 4,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  input: { type: 'string' },
+                  expected: { type: 'string' },
+                },
+                required: ['input', 'expected'],
+              },
+            },
+          },
+          required: [
+            'title',
+            'prompt',
+            'sampleInput',
+            'sampleOutput',
+            'expectedAnswer',
+            'testCases',
+            'marks',
+          ],
+        },
+      },
+    },
+    required: ['title', 'language', 'questions'],
+  },
+};
+
+export async function generateCodingAssessmentWithAi({
+  jobTitle,
+  skills = [],
+  jobDescription = '',
+} = {}) {
+  const role = String(jobTitle || '').trim();
+  if (!role) {
+    throw new Error('Job title is required to generate coding questions');
+  }
+  if (!hasLlmProvider()) {
+    throw new Error('AI is not configured. Set OPENAI_API_KEY on the server.');
+  }
+
+  const skillList = (Array.isArray(skills) ? skills : [])
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
+  const description = stripHtml(jobDescription).slice(0, 4000);
+
+  const promptParts = [
+    `Create a coding pre-screen assessment for the job role "${role}".`,
+    skillList.length ? `Key skills: ${skillList.join(', ')}.` : null,
+    description ? `Job context:\n${description}` : null,
+    `Return exactly ${QUESTION_COUNT} coding challenges appropriate for the role.`,
+    'Each challenge needs: title, problem statement, sample input, sample output, reference solution code (expectedAnswer), 2-4 test cases, and marks (1-20).',
+    'Challenges should be practical screening problems like string manipulation, arrays, validation logic, sorting, or data structures — similar to reverse string, find duplicates, valid parentheses, sort records, login validation.',
+    'expectedAnswer must be working code in the chosen language.',
+    'Test case input/expected must be string literals suitable for evaluation.',
+    'Choose the most appropriate programming language for the role.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const completion = await chatCompletionWithFallback(
+    {
+      model: env.OPENAI_CHAT_MODEL,
+      temperature: 0.35,
+      max_tokens: 4500,
+      response_format: {
+        type: 'json_schema',
+        json_schema: codingOnlyJsonSchema,
+      },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert technical recruiter creating coding pre-screen tests. Return only valid JSON matching the schema. Use realistic, role-specific problems with clear sample I/O and reference solutions.',
+        },
+        { role: 'user', content: promptParts },
+      ],
+    },
+    'pre-screen-coding-generate'
+  );
+
+  const raw = completion.choices?.[0]?.message?.content?.trim();
+  if (!raw) {
+    throw new Error('AI returned an empty response');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('AI returned invalid JSON');
+  }
+
+  const title = String(parsed?.title || '').trim() || `${role} — Coding Assessment`;
+
+  return normalizeAssessmentPayload({
+    title,
+    type: 'CODING',
+    durationMinutes: 60,
+    passScorePercent: 60,
+    config: buildCodingQuestionsConfig(parsed),
+  });
+}
+
 export async function generatePreScreenAssessmentsWithAi({
   jobTitle,
   skills = [],
@@ -371,7 +549,21 @@ export async function generatePreScreenAssessmentsWithAi({
     type: 'CODING',
     durationMinutes: 60,
     passScorePercent: 60,
-    config: buildCodingConfig(parsed?.coding),
+    config: buildCodingQuestionsConfig({
+      title: codingTitle,
+      language: parsed?.coding?.language,
+      questions: parsed?.coding?.questions || [
+        {
+          title: 'Coding Challenge',
+          prompt: parsed?.coding?.prompt,
+          sampleInput: parsed?.coding?.testCases?.[0]?.input || '',
+          sampleOutput: parsed?.coding?.testCases?.[0]?.expected || '',
+          expectedAnswer: '',
+          marks: 20,
+          testCases: parsed?.coding?.testCases || [],
+        },
+      ],
+    }),
   });
 
   return {

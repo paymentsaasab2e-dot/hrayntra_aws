@@ -5,10 +5,11 @@ import type { MatchCandidate } from '../components/matches/types';
 export function mapBackendMatch(match: BackendMatch): MatchCandidate {
   const rawMatchId = String(match.id || '');
   const pendingApplied = rawMatchId.startsWith('applied-pending-');
+  const pendingAi = rawMatchId.startsWith('ai-pending-');
   return {
     id: match.candidateId,
-    matchId: pendingApplied ? '' : rawMatchId,
-    isAppliedCandidate: Boolean(match.isAppliedCandidate),
+    matchId: pendingApplied || pendingAi ? '' : rawMatchId,
+    isAppliedCandidate: Boolean(match.isAppliedCandidate || pendingApplied),
     isPhase1Candidate: Boolean(match.isPhase1Candidate),
     name: match.name,
     photo: match.photo,

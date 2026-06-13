@@ -164,6 +164,26 @@ export function sanitizeConfigForCandidate(type, config) {
     };
   }
   if (upper === 'CODING') {
+    const questions = Array.isArray(c.questions) ? c.questions : [];
+    if (questions.length) {
+      return {
+        language: c.language,
+        allowedAttempts: c.allowedAttempts,
+        antiCheat: c.antiCheat,
+        questions: questions.map((q) => ({
+          id: q.id,
+          title: q.title,
+          prompt: q.prompt,
+          sampleInput: q.sampleInput,
+          sampleOutput: q.sampleOutput,
+          marks: q.marks,
+          testCases: (Array.isArray(q.testCases) ? q.testCases : []).map((tc) => ({
+            id: tc.id,
+            input: tc.input,
+          })),
+        })),
+      };
+    }
     const testCases = Array.isArray(c.testCases) ? c.testCases : [];
     return {
       ...c,

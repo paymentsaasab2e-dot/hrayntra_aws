@@ -65,6 +65,28 @@ function formatReviewContent(assessment) {
   }
 
   if (type === 'CODING') {
+    const questions = Array.isArray(config.questions) ? config.questions : [];
+    if (questions.length) {
+      return {
+        kind: 'CODING',
+        multi: true,
+        language: String(config.language || ''),
+        items: questions.map((q, index) => ({
+          id: q.id,
+          index: index + 1,
+          title: String(q.title || ''),
+          prompt: String(q.prompt || ''),
+          sampleInput: q.sampleInput ?? '',
+          sampleOutput: q.sampleOutput ?? '',
+          expectedAnswer: String(q.expectedAnswer || ''),
+          marks: q.marks ?? null,
+          testCases: (Array.isArray(q.testCases) ? q.testCases : []).map((tc) => ({
+            input: tc.input,
+            expected: tc.expected,
+          })),
+        })),
+      };
+    }
     return {
       kind: 'CODING',
       prompt: String(config.prompt || ''),
@@ -525,6 +547,72 @@ export const preScreenAssessmentService = {
       dedupedById.set(session.id, session);
     }
     return dedupeSessionsByAssessment(Array.from(dedupedById.values())).map(mapSessionToResult);
+  },
+
+  async getCandidateAssessmentResults(candidateId, { jobId } = {}) {
+    const candId = String(candidateId || '').trim();
+    if (!candId) return [];
+
+    const where = {
+      candidateId: candId,
+      status: { in: COMPLETED_SESSION_STATUSES },
+    };
+    const scopedJobId = String(jobId || '').trim();
+    if (scopedJobId) where.jobId = scopedJobId;
+
+    const sessions = await prisma.assessmentSession.findMany({
+      where,
+      include: {
+        jobAssessment: { include: { assessment: true } },
+        proctoringEvents: { orderBy: { occurredAt: 'asc' }, take: 50 },
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (!sessions.length) return [];
+
+    const jobIds = [...new Set(sessions.map((s) => String(s.jobId || '').trim()).filter(Boolean))];
+    const [applications, jobs] = await Promise.all([
+      jobIds.length
+        ? prisma.application.findMany({
+            where: { candidateId: candId, jobId: { in: jobIds } },
+            select: { id: true, jobId: true },
+          })
+        : [],
+      jobIds.length
+        ? prisma.job.findMany({
+            where: { id: { in: jobIds } },
+            select: { id: true, title: true },
+          })
+        : [],
+    ]);
+
+    const applicationIdByJobId = new Map(
+      applications.map((row) => [String(row.jobId || '').trim(), row.id])
+    );
+    const jobTitleById = new Map(jobs.map((row) => [row.id, row.title]));
+
+    const grouped = new Map();
+    for (const jobKey of jobIds) {
+      const jobSessions = sessions.filter((s) => String(s.jobId || '').trim() === jobKey);
+      grouped.set(jobKey, {
+        jobId: jobKey,
+        jobTitle: jobTitleById.get(jobKey) || 'Untitled job',
+        applicationId: applicationIdByJobId.get(jobKey) || null,
+        results: dedupeSessionsByAssessment(jobSessions).map(mapSessionToResult),
+      });
+    }
+
+    return Array.from(grouped.values()).sort((a, b) => {
+      const latest = (group) => {
+        const times = (group.results || [])
+          .map((row) => row.submittedAt || row.startedAt || '')
+          .filter(Boolean)
+          .map((value) => new Date(value).getTime())
+          .filter((value) => Number.isFinite(value));
+        return times.length ? Math.max(...times) : 0;
+      };
+      return latest(b) - latest(a);
+    });
   },
 
   async gradeSession(sessionId, { scorePercent, reviewNote, reviewedById } = {}) {

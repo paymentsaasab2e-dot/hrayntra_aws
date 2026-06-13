@@ -4,36 +4,30 @@
  * (same family as backend1 job-portal candidates).
  */
 
-function parseJsonArray(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
+const { parseJsonArray, extractSnapshotSections } = require('./matchCandidateProfile.cjs');
 
 function mapPhase2CandidateForPortalEngine(c) {
   if (!c) return null;
 
+  const snapshotSections = extractSnapshotSections(c.extraData);
   const cvWork = parseJsonArray(c.cvWorkExperienceEntries);
-  const workExperiences = cvWork
+  const workSource = cvWork.length ? cvWork : snapshotSections.work;
+  const workExperiences = workSource
     .map((e) => ({
       jobTitle: e.title || e.jobTitle || e.role || '',
       companyName: e.company || e.companyName || '',
-      workLocation: e.location || '',
+      workLocation: e.location || e.workLocation || '',
+      description: Array.isArray(e.responsibilities)
+        ? e.responsibilities.join(' ')
+        : String(e.description || e.keyResponsibilities || '').trim(),
     }))
     .filter((w) => w.jobTitle || w.companyName);
 
   const cvEd = parseJsonArray(c.cvEducationEntries);
-  const educations = cvEd
+  const eduSource = cvEd.length ? cvEd : snapshotSections.education;
+  const educations = eduSource
     .map((e) => ({
-      degree: e.degree || e.qualification || '',
+      degree: e.degree || e.qualification || e.program || '',
       fieldOfStudy: e.field || e.fieldOfStudy || e.major || '',
       institution: e.institution || e.school || e.university || '',
     }))
@@ -41,7 +35,25 @@ function mapPhase2CandidateForPortalEngine(c) {
 
   const skillList = [
     ...new Set(
-      [...(Array.isArray(c.skills) ? c.skills : []), ...(Array.isArray(c.recruiterSkills) ? c.recruiterSkills : [])]
+      [
+        ...(Array.isArray(c.skills) ? c.skills : []),
+        ...(Array.isArray(c.recruiterSkills) ? c.recruiterSkills : []),
+        ...(Array.isArray(c.certificationsList) ? c.certificationsList : []),
+        ...(Array.isArray(c.certifications) ? c.certifications : []),
+        ...snapshotSections.skills,
+      ]
+        .map((s) => String(s || '').trim())
+        .filter(Boolean)
+    ),
+  ];
+
+  const languageList = [
+    ...new Set(
+      [
+        ...(Array.isArray(c.languages) ? c.languages : []),
+        ...(Array.isArray(c.recruiterLanguages) ? c.recruiterLanguages : []),
+        ...snapshotSections.languages,
+      ]
         .map((s) => String(s || '').trim())
         .filter(Boolean)
     ),
@@ -51,6 +63,21 @@ function mapPhase2CandidateForPortalEngine(c) {
     c.careerPreferences && typeof c.careerPreferences === 'object' && !Array.isArray(c.careerPreferences)
       ? c.careerPreferences
       : null;
+
+  const extra =
+    c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData) ? c.extraData : {};
+  const snap =
+    extra.phase1ProfileSnapshot && typeof extra.phase1ProfileSnapshot === 'object'
+      ? extra.phase1ProfileSnapshot
+      : null;
+  const projectRows = parseJsonArray(snap?.projects || snap?.projectEntries);
+  const projectTechnologies = projectRows
+    .flatMap((p) => (Array.isArray(p?.technologies) ? p.technologies : []))
+    .map((t) => String(t || '').trim())
+    .filter(Boolean);
+  const projectTitles = projectRows
+    .map((p) => String(p?.title || p?.projectTitle || p?.name || '').trim())
+    .filter(Boolean);
 
   return {
     id: c.id,
@@ -66,6 +93,7 @@ function mapPhase2CandidateForPortalEngine(c) {
     portfolio: c.portfolio,
     experienceYears: c.experience ?? c.experienceYears,
     recruiterSkills: skillList,
+    recruiterLanguages: languageList,
     skills: [],
     certificationsList: Array.isArray(c.certificationsList) ? c.certificationsList : [],
     cvSummary: c.cvSummary || c.notes || c.recruiterNotes || null,
@@ -73,13 +101,20 @@ function mapPhase2CandidateForPortalEngine(c) {
     workExperiences,
     educations,
     certifications: [],
-    project: null,
+    project: projectRows.length
+      ? {
+          title: projectTitles[0] || null,
+          titles: projectTitles,
+          technologies: projectTechnologies,
+        }
+      : null,
     profile: {
       city: c.city,
       email: c.email,
       fullName: [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || null,
       totalExperience: c.experience ?? c.experienceYears,
       linkedinUrl: c.linkedIn,
+      portfolioUrl: c.portfolio || c.website || null,
     },
     careerPreferences: cp
       ? {
@@ -91,6 +126,8 @@ function mapPhase2CandidateForPortalEngine(c) {
           currentSalary: cp.currentSalary ?? null,
           availabilityToStart: cp.availabilityToStart || null,
           openToRelocation: Boolean(cp.openToRelocation),
+          currentRole: cp.currentRole || null,
+          currentLocation: cp.currentLocation || null,
         }
       : null,
     preferredLocation: c.preferredLocation || null,
