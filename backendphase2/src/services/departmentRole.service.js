@@ -184,18 +184,58 @@ export async function syncDepartmentRoles(departmentId, roles) {
   return applyDepartmentRoles(departmentId, roles);
 }
 
+async function loadDepartmentRankMaps(departmentId) {
+  const normalizedDeptId = idStr(departmentId);
+  const deptRoles = await departmentRoleDelegate().findMany({
+    where: { departmentId: normalizedDeptId },
+    select: {
+      roleId: true,
+      rank: true,
+      role: { select: { id: true, roleName: true } },
+    },
+  });
+
+  const rankByRoleId = new Map();
+  const rankByRoleName = new Map();
+
+  for (const row of deptRoles) {
+    const rank = Number(row.rank);
+    rankByRoleId.set(idStr(row.roleId), rank);
+    const roleName = String(row.role?.roleName || '').trim().toLowerCase();
+    if (roleName) rankByRoleName.set(roleName, rank);
+  }
+
+  return { deptRoles, rankByRoleId, rankByRoleName };
+}
+
+function resolveUserRankInDepartment(user, rankByRoleId, rankByRoleName) {
+  const roleId = idStr(user?.roleId || user?.role?.id || user?.systemRole?.id);
+  if (rankByRoleId.has(roleId)) return rankByRoleId.get(roleId);
+
+  const roleName = String(
+    user?.role?.roleName || user?.systemRole?.roleName || '',
+  )
+    .trim()
+    .toLowerCase();
+  if (roleName && rankByRoleName.has(roleName)) return rankByRoleName.get(roleName);
+
+  return null;
+}
+
 export async function getDepartmentRoleRank(departmentId, roleId) {
   if (!departmentId || !roleId) return null;
-  const row = await departmentRoleDelegate().findUnique({
-    where: {
-      departmentId_roleId: {
-        departmentId,
-        roleId,
-      },
-    },
-    select: { rank: true },
+  const { rankByRoleId, rankByRoleName } = await loadDepartmentRankMaps(departmentId);
+  const direct = rankByRoleId.get(idStr(roleId));
+  if (direct != null) return direct;
+
+  const roleRow = await prisma.systemRole.findUnique({
+    where: { id: idStr(roleId) },
+    select: { roleName: true },
   });
-  return row?.rank ?? null;
+  const roleName = String(roleRow?.roleName || '').trim().toLowerCase();
+  if (roleName && rankByRoleName.has(roleName)) return rankByRoleName.get(roleName);
+
+  return null;
 }
 
 export async function assertRoleAllowedInDepartment(departmentId, roleId) {
@@ -332,12 +372,7 @@ export async function listReportingManagerCandidates(departmentId, roleId, optio
   const normalizedRoleId = idStr(roleId);
   const normalizedDeptId = idStr(departmentId);
 
-  const deptRoles = await departmentRoleDelegate().findMany({
-    where: { departmentId: normalizedDeptId },
-    select: { roleId: true, rank: true },
-  });
-
-  const rankByRoleId = new Map(deptRoles.map((row) => [idStr(row.roleId), Number(row.rank)]));
+  const { deptRoles, rankByRoleId, rankByRoleName } = await loadDepartmentRankMaps(normalizedDeptId);
   let memberRank = rankByRoleId.get(normalizedRoleId);
 
   if (memberRank == null && normalizedRoleId) {
@@ -345,18 +380,9 @@ export async function listReportingManagerCandidates(departmentId, roleId, optio
       where: { id: normalizedRoleId },
       select: { roleName: true },
     });
-    if (roleRow?.roleName) {
-      const rolesWithName = await prisma.systemRole.findMany({
-        where: { roleName: roleRow.roleName },
-        select: { id: true },
-      });
-      for (const r of rolesWithName) {
-        const rank = rankByRoleId.get(idStr(r.id));
-        if (rank != null) {
-          memberRank = rank;
-          break;
-        }
-      }
+    const roleName = String(roleRow?.roleName || '').trim().toLowerCase();
+    if (roleName && rankByRoleName.has(roleName)) {
+      memberRank = rankByRoleName.get(roleName);
     }
   }
 
@@ -379,13 +405,15 @@ export async function listReportingManagerCandidates(departmentId, roleId, optio
 
   const superAdminNormalized = superAdmins.map(normalizeMemberRow);
 
+  const excludeFilter = excludeMemberId ? { id: { not: excludeMemberId } } : {};
+
   if (memberRank == null || deptRoles.length === 0) {
     const inDept = await prisma.user.findMany({
       where: {
         departmentId: normalizedDeptId,
         status: 'ACTIVE',
         isActive: true,
-        ...(excludeMemberId ? { id: { not: excludeMemberId } } : {}),
+        ...excludeFilter,
       },
       select: memberListSelect,
     });
@@ -393,34 +421,30 @@ export async function listReportingManagerCandidates(departmentId, roleId, optio
   }
 
   const memberRankNum = Number(memberRank);
-  const superiorRoleIds = deptRoles
-    .filter((row) => Number(row.rank) < memberRankNum)
-    .map((row) => row.roleId);
 
-  if (superiorRoleIds.length === 0) {
-    const topRoleIds = deptRoles.filter((row) => Number(row.rank) === 1).map((row) => row.roleId);
-    const topMembers =
-      topRoleIds.length > 0
-        ? await prisma.user.findMany({
-            where: {
-              departmentId: normalizedDeptId,
-              roleId: { in: topRoleIds },
-              status: 'ACTIVE',
-              isActive: true,
-              ...(excludeMemberId ? { id: { not: excludeMemberId } } : {}),
-            },
-            select: memberListSelect,
-          })
-        : [];
-    return mergeManagerLists(topMembers.map(normalizeMemberRow), superAdminNormalized);
-  }
+  const pickSuperiorsFromRows = (rows, preferSameDepartment = false) =>
+    rows
+      .map(normalizeMemberRow)
+      .filter((member) => {
+        if (member.role?.roleName === 'Super Admin') return false;
+        if (preferSameDepartment && idStr(member.departmentId || member.department?.id) !== normalizedDeptId) {
+          return false;
+        }
+        const userRank = resolveUserRankInDepartment(member, rankByRoleId, rankByRoleName);
+        return userRank != null && Number(userRank) < memberRankNum;
+      })
+      .sort((a, b) => {
+        const rankA = resolveUserRankInDepartment(a, rankByRoleId, rankByRoleName) ?? 99;
+        const rankB = resolveUserRankInDepartment(b, rankByRoleId, rankByRoleName) ?? 99;
+        if (rankA !== rankB) return rankA - rankB;
+        const aInDept = idStr(a.departmentId || a.department?.id) === normalizedDeptId ? 0 : 1;
+        const bInDept = idStr(b.departmentId || b.department?.id) === normalizedDeptId ? 0 : 1;
+        return aInDept - bInDept;
+      });
 
-  const excludeFilter = excludeMemberId ? { id: { not: excludeMemberId } } : {};
-
-  const inDeptSuperiors = await prisma.user.findMany({
+  const inDeptMembers = await prisma.user.findMany({
     where: {
       departmentId: normalizedDeptId,
-      roleId: { in: superiorRoleIds },
       status: 'ACTIVE',
       isActive: true,
       ...excludeFilter,
@@ -428,26 +452,19 @@ export async function listReportingManagerCandidates(departmentId, roleId, optio
     select: memberListSelect,
   });
 
-  let superiors = inDeptSuperiors.map(normalizeMemberRow);
+  let superiors = pickSuperiorsFromRows(inDeptMembers, true);
 
   if (superiors.length === 0) {
-    const orgSuperiors = await prisma.user.findMany({
+    const orgMembers = await prisma.user.findMany({
       where: {
-        roleId: { in: superiorRoleIds },
         status: 'ACTIVE',
         isActive: true,
         ...excludeFilter,
       },
       select: memberListSelect,
     });
-    superiors = orgSuperiors.map(normalizeMemberRow);
+    superiors = pickSuperiorsFromRows(orgMembers, false);
   }
-
-  superiors.sort((a, b) => {
-    const rankA = rankByRoleId.get(idStr(a.role?.id || a.roleId)) ?? 99;
-    const rankB = rankByRoleId.get(idStr(b.role?.id || b.roleId)) ?? 99;
-    return rankA - rankB;
-  });
 
   return mergeManagerLists(superiors, superAdminNormalized);
 }
@@ -462,4 +479,161 @@ export async function pickDefaultManagerFromCandidates(candidates) {
   }
   const superAdmin = candidates.find((m) => m.role?.roleName === 'Super Admin');
   return superAdmin?.id ?? candidates[0]?.id ?? findSuperAdminManagerId();
+}
+
+async function loadUserForRankCheck(userId) {
+  return prisma.user.findUnique({
+    where: { id: idStr(userId) },
+    select: {
+      id: true,
+      departmentId: true,
+      roleId: true,
+      status: true,
+      isActive: true,
+      firstName: true,
+      lastName: true,
+      name: true,
+      email: true,
+      systemRole: { select: { roleName: true } },
+      departmentRelation: { select: { id: true, name: true } },
+    },
+  });
+}
+
+function formatUserDisplayName(user) {
+  const parts = [user?.firstName, user?.lastName].filter(Boolean);
+  const joined = parts.join(' ').trim();
+  return String(user?.name || '').trim() || joined || String(user?.email || '').trim() || 'Team member';
+}
+
+export async function isDepartmentHeadUser(userId) {
+  const user = await loadUserForRankCheck(userId);
+  if (!user || user.status !== 'ACTIVE' || !user.isActive) return false;
+  if (user.systemRole?.roleName === 'Super Admin') return true;
+
+  const deptId = idStr(user.departmentId);
+  const roleId = idStr(user.roleId);
+  if (!deptId || !roleId) return false;
+
+  const rank = await getDepartmentRoleRank(deptId, roleId);
+  return rank === 1;
+}
+
+export async function canInitiateCrossDepartmentRequest(userId) {
+  return isDepartmentHeadUser(userId);
+}
+
+export async function findDepartmentHeadUser(departmentId) {
+  const deptId = idStr(departmentId);
+  if (!deptId) return null;
+
+  const headRole = await departmentRoleDelegate().findFirst({
+    where: { departmentId: deptId },
+    orderBy: { rank: 'asc' },
+    select: { roleId: true },
+  });
+  if (!headRole?.roleId) return null;
+
+  const headUser = await prisma.user.findFirst({
+    where: {
+      departmentId: deptId,
+      roleId: headRole.roleId,
+      status: 'ACTIVE',
+      isActive: true,
+    },
+    select: memberListSelect,
+    orderBy: { firstName: 'asc' },
+  });
+
+  return headUser ? normalizeMemberRow(headUser) : null;
+}
+
+export async function listCrossDepartmentTargetOptions(actorUserId, { forceLoadDepartments = false } = {}) {
+  const canInitiate = await canInitiateCrossDepartmentRequest(actorUserId);
+  const actor = await loadUserForRankCheck(actorUserId);
+  const actorDeptId = idStr(actor?.departmentId);
+
+  const ownDepartment = actorDeptId ? await loadOwnDepartmentOption(actorDeptId) : null;
+
+  if (!canInitiate && !forceLoadDepartments) {
+    return { canInitiate: false, departments: [], ownDepartment };
+  }
+
+  const departments = await loadCrossDepartmentTargetDepartments(actorDeptId);
+
+  return {
+    canInitiate,
+    ownDepartment,
+    departments,
+  };
+}
+
+async function loadCrossDepartmentTargetDepartments(actorDeptId) {
+  const departments = await prisma.department.findMany({
+    where: {
+      allowsCrossDepartmentRequests: true,
+      ...(actorDeptId ? { id: { not: actorDeptId } } : {}),
+    },
+    orderBy: { name: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      users: {
+        where: { status: 'ACTIVE', isActive: true },
+        select: memberListSelect,
+        orderBy: { firstName: 'asc' },
+      },
+      departmentRoles: {
+        orderBy: { rank: 'asc' },
+        select: { rank: true, roleId: true },
+      },
+    },
+  });
+
+  return departments.map((dept) => serializeCrossDepartmentOption(dept));
+}
+
+async function loadOwnDepartmentOption(departmentId) {
+  const deptId = idStr(departmentId);
+  if (!deptId) return null;
+
+  const dept = await prisma.department.findUnique({
+    where: { id: deptId },
+    select: {
+      id: true,
+      name: true,
+      users: {
+        where: { status: 'ACTIVE', isActive: true },
+        select: memberListSelect,
+        orderBy: { firstName: 'asc' },
+      },
+      departmentRoles: {
+        orderBy: { rank: 'asc' },
+        select: { rank: true, roleId: true },
+      },
+    },
+  });
+
+  return dept ? serializeCrossDepartmentOption(dept) : null;
+}
+
+function serializeCrossDepartmentOption(dept) {
+  return {
+    id: dept.id,
+    name: dept.name,
+    headRoleId: dept.departmentRoles[0]?.roleId || null,
+    members: dept.users.map((row) => {
+      const member = normalizeMemberRow(row);
+      return {
+        id: member.id,
+        name: formatUserDisplayName(member),
+        email: member.email,
+        roleId: member.roleId,
+        roleName: member.role?.roleName || null,
+        isDepartmentHead: dept.departmentRoles[0]?.roleId
+          ? idStr(member.roleId) === idStr(dept.departmentRoles[0].roleId)
+          : false,
+      };
+    }),
+  };
 }

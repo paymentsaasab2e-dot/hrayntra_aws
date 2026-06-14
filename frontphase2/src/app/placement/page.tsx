@@ -12,8 +12,10 @@ import { MarkFailedDrawer } from '../../components/placements/modals/MarkFailedD
 import { MarkJoinedDrawer } from '../../components/placements/modals/MarkJoinedDrawer';
 import { ScheduleJoiningDrawer } from '../../components/placements/modals/ScheduleJoiningDrawer';
 import { RequestReplacementDrawer } from '../../components/placements/modals/RequestReplacementDrawer';
+import { RejectOfferCandidateDrawer } from '../../components/placements/modals/RejectOfferCandidateDrawer';
 import { PlacementDetailsDrawer } from '../../components/drawers/PlacementDetailsDrawer';
 import { usePlacements } from '../../hooks/usePlacements';
+import { apiRejectCandidate } from '../../lib/api';
 import type { Placement, PlacementFilters } from '../../types/placement';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestConfirm } from '../../lib/appDialog';
@@ -95,6 +97,8 @@ function PlacementsPageContent() {
   const [failedMode, setFailedMode] = useState<'FAILED' | 'NO_SHOW'>('FAILED');
   const [replacementPlacement, setReplacementPlacement] = useState<Placement | null>(null);
   const [editingPlacement, setEditingPlacement] = useState<Placement | null>(null);
+  const [resendingPlacement, setResendingPlacement] = useState<Placement | null>(null);
+  const [rejectOfferPlacement, setRejectOfferPlacement] = useState<Placement | null>(null);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailPlacementId, setDetailPlacementId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
@@ -127,10 +131,39 @@ function PlacementsPageContent() {
     scheduleJoining,
     markFailed,
     requestReplacement,
+    undoPlacement,
+    resendPlacementOffer,
     deletePlacement,
     exportPlacements,
     refresh,
   } = usePlacements(apiFilters);
+
+  const handleRevertPlacement = async (
+    placement: Placement,
+    action: 'undo' | 'delete',
+  ) => {
+    const confirmMessage =
+      action === 'undo'
+        ? 'Undo this placement? The candidate will move back to Interviewing and appear on the Interviews page.'
+        : 'Delete this placement? The candidate will move back to Interviewing and appear on the Interviews page.';
+    if (!(await requestConfirm(confirmMessage))) return;
+
+    try {
+      if (action === 'undo') {
+        await undoPlacement(placement.id);
+        toast.success('Placement undone. Candidate moved back to Interviewing.');
+      } else {
+        await deletePlacement(placement.id);
+        toast.success('Placement deleted. Candidate moved back to Interviewing.');
+      }
+      if (detailPlacementId === placement.id) {
+        setDetailDrawerOpen(false);
+        setDetailPlacementId(null);
+      }
+    } catch (revertError: any) {
+      toast.error(revertError.message || 'Failed to revert placement');
+    }
+  };
 
   const editPlacementInitialValues = useMemo(
     () =>
@@ -153,6 +186,35 @@ function PlacementsPageContent() {
           }
         : undefined,
     [editingPlacement]
+  );
+
+  const resendPlacementInitialValues = useMemo(
+    () =>
+      resendingPlacement
+        ? {
+            candidateId: resendingPlacement.candidateId,
+            jobId: resendingPlacement.jobId,
+            companyId: resendingPlacement.clientId,
+            recruiterId: resendingPlacement.recruiterId || undefined,
+            offerSalary: resendingPlacement.salaryOffered != null ? String(resendingPlacement.salaryOffered) : '',
+            placementFee: resendingPlacement.placementFee != null ? String(resendingPlacement.placementFee) : '',
+            commissionPercentage:
+              resendingPlacement.commissionPercentage != null
+                ? String(resendingPlacement.commissionPercentage)
+                : '20',
+            currency: resendingPlacement.currency || 'USD',
+            offerDate: resendingPlacement.offerDate
+              ? String(resendingPlacement.offerDate).slice(0, 10)
+              : new Date().toISOString().slice(0, 10),
+            expectedJoiningDate: resendingPlacement.joiningDate
+              ? String(resendingPlacement.joiningDate).slice(0, 10)
+              : '',
+            employmentType: resendingPlacement.employmentType || 'PERMANENT',
+            status: 'OFFER_SENT' as const,
+            notes: resendingPlacement.notes || '',
+          }
+        : undefined,
+    [resendingPlacement]
   );
 
   useEffect(() => {
@@ -435,17 +497,14 @@ function PlacementsPageContent() {
                           onRequestReplacement={
                             canUpdatePlacement ? (placement) => setReplacementPlacement(placement) : undefined
                           }
+                          onUndo={
+                            canUpdatePlacement
+                              ? (placement) => handleRevertPlacement(placement, 'undo')
+                              : undefined
+                          }
                           onDelete={
                             canDeletePlacement
-                              ? async (placement) => {
-                                  if (!(await requestConfirm('Delete this placement?'))) return;
-                                  try {
-                                    await deletePlacement(placement.id);
-                                    toast.success('Placement deleted successfully');
-                                  } catch (deleteError: any) {
-                                    toast.error(deleteError.message || 'Failed to delete placement');
-                                  }
-                                }
+                              ? (placement) => handleRevertPlacement(placement, 'delete')
                               : undefined
                           }
                           onStatusChange={
@@ -468,6 +527,28 @@ function PlacementsPageContent() {
                           onScheduleJoining={
                             canUpdatePlacement
                               ? (placement) => setScheduleJoiningPlacement(placement)
+                              : undefined
+                          }
+                          onResendOffer={
+                            canUpdatePlacement
+                              ? (placement) => {
+                                  setResendingPlacement(placement);
+                                  if (detailPlacementId === placement.id) {
+                                    setDetailDrawerOpen(false);
+                                    setDetailPlacementId(null);
+                                  }
+                                }
+                              : undefined
+                          }
+                          onRejectOfferCandidate={
+                            canUpdatePlacement
+                              ? (placement) => {
+                                  setRejectOfferPlacement(placement);
+                                  if (detailPlacementId === placement.id) {
+                                    setDetailDrawerOpen(false);
+                                    setDetailPlacementId(null);
+                                  }
+                                }
                               : undefined
                           }
                           onPageChange={(page) => updateFilters({ page })}
@@ -537,6 +618,51 @@ function PlacementsPageContent() {
             toast.success('Placement updated successfully');
           } catch (submitError: any) {
             toast.error(submitError.message || 'Failed to update placement');
+          }
+        }}
+      />
+
+      <CreatePlacementDrawer
+        isOpen={canUpdatePlacement && Boolean(resendingPlacement)}
+        isSubmitting={submitting}
+        mode="resend"
+        currentUserId={currentUserId}
+        candidates={candidateOptions}
+        jobs={jobOptions}
+        recruiters={recruiterOptions}
+        initialValues={resendPlacementInitialValues}
+        onClose={() => setResendingPlacement(null)}
+        onSubmit={async (_payload, file) => {
+          if (!resendingPlacement) return;
+          try {
+            await resendPlacementOffer(resendingPlacement.id, file);
+            setResendingPlacement(null);
+            toast.success('Offer letter resent. Candidate can accept or reject on the portal.');
+          } catch (submitError: any) {
+            toast.error(submitError.message || 'Failed to resend offer letter');
+          }
+        }}
+      />
+
+      <RejectOfferCandidateDrawer
+        isOpen={canUpdatePlacement && Boolean(rejectOfferPlacement)}
+        placement={rejectOfferPlacement}
+        isSubmitting={submitting}
+        onClose={() => setRejectOfferPlacement(null)}
+        onSubmit={async ({ reason, feedback }) => {
+          if (!rejectOfferPlacement) return;
+          try {
+            await apiRejectCandidate(rejectOfferPlacement.candidateId, {
+              reason,
+              feedback,
+              sendEmail: false,
+              jobId: rejectOfferPlacement.jobId,
+            });
+            setRejectOfferPlacement(null);
+            await refresh();
+            toast.success('Candidate rejected');
+          } catch (submitError: any) {
+            toast.error(submitError.message || 'Failed to reject candidate');
           }
         }}
       />
@@ -628,6 +754,31 @@ function PlacementsPageContent() {
         }
         onScheduleJoining={
           canUpdatePlacement ? (placement) => setScheduleJoiningPlacement(placement) : undefined
+        }
+        onUndo={
+          canUpdatePlacement
+            ? async (placement) => {
+                await handleRevertPlacement(placement, 'undo');
+              }
+            : undefined
+        }
+        onResendOffer={
+          canUpdatePlacement
+            ? (placement) => {
+                setResendingPlacement(placement);
+                setDetailDrawerOpen(false);
+                setDetailPlacementId(null);
+              }
+            : undefined
+        }
+        onRejectOfferCandidate={
+          canUpdatePlacement
+            ? (placement) => {
+                setRejectOfferPlacement(placement);
+                setDetailDrawerOpen(false);
+                setDetailPlacementId(null);
+              }
+            : undefined
         }
         onClose={() => {
           setDetailDrawerOpen(false);

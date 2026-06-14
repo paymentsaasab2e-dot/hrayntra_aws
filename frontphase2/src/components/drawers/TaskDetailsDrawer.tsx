@@ -58,7 +58,7 @@ function cloudinaryViewableUrl(u: string) {
 }
 
 export type TaskType = 'Call' | 'Email' | 'Interview' | 'Follow-up' | 'Meeting' | 'Note';
-export type TaskStatus = 'Pending' | 'Completed' | 'Overdue';
+export type TaskStatus = 'Pending' | 'In Progress' | 'Awaiting Approval' | 'Completed' | 'Cancelled' | 'Overdue';
 
 export interface TaskAttachment {
   name: string;
@@ -76,8 +76,13 @@ export interface TaskForDrawer {
   priority: TaskPriority;
   status: TaskStatus;
   owner: { name: string; avatar: string };
-  assignedToId?: string; // Added to store assignee ID from backend
-  backendStatus?: 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'; // Store original backend status for edit form
+  assignedToId?: string;
+  createdById?: string;
+  participantIds?: string[];
+  completionApproverId?: string;
+  completionRequestedById?: string;
+  workflowStatus?: TaskStatus;
+  backendStatus?: 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'AWAITING_APPROVAL' | 'DONE' | 'CANCELLED';
   description?: string;
   reminder?: string;
   lastUpdated?: { by: string; at: string };
@@ -120,8 +125,14 @@ export interface TaskDetailsDrawerProps {
   onRequestEdit?: () => void;
   /** Called when exiting edit (Cancel or after Save) — parent should set mode to 'detail' */
   onExitEdit?: () => void;
-  /** Called when Mark Completed is clicked */
+  /** Called when Mark Completed / Submit for approval is clicked */
   onMarkCompleted?: (taskId: string) => void;
+  /** Called when approver accepts completion */
+  onApproveCompletion?: (taskId: string) => void;
+  /** Called when approver rejects completion */
+  onRejectCompletion?: (taskId: string, note?: string) => void;
+  /** Logged-in user id for approval actions */
+  currentUserId?: string;
   /** Called when Delete Task is clicked */
   onDelete?: (taskId: string) => void;
   /** Called when related entity card is clicked (e.g. navigate to candidate profile) */
@@ -144,9 +155,33 @@ const PRIORITY_STYLES: Record<TaskPriority, string> = {
 
 const STATUS_STYLES: Record<TaskStatus, string> = {
   Pending: 'bg-slate-100 text-slate-700',
+  'In Progress': 'bg-blue-100 text-blue-700',
+  'Awaiting Approval': 'bg-amber-100 text-amber-800',
   Completed: 'bg-emerald-100 text-emerald-700',
+  Cancelled: 'bg-slate-200 text-slate-500',
   Overdue: 'bg-red-100 text-red-700',
 };
+
+function taskRequiresApprovalSubmit(task: TaskForDrawer, currentUserId?: string): boolean {
+  if (!currentUserId || task.assignedToId !== currentUserId) return false;
+  if (
+    task.backendStatus === 'DONE' ||
+    task.backendStatus === 'AWAITING_APPROVAL' ||
+    task.backendStatus === 'CANCELLED'
+  ) {
+    return false;
+  }
+  const participants = task.participantIds || [];
+  const delegators = participants.filter(
+    (id) => id !== currentUserId && id !== task.createdById,
+  );
+  return delegators.length > 0;
+}
+
+function canApproveTaskCompletion(task: TaskForDrawer, currentUserId?: string): boolean {
+  if (!currentUserId || task.backendStatus !== 'AWAITING_APPROVAL') return false;
+  return task.completionApproverId === currentUserId;
+}
 
 function getEntitiesForRelatedTo(relatedTo: TaskRelatedTo): RelatedEntity[] {
   switch (relatedTo) {
@@ -191,6 +226,7 @@ function taskToFormValues(t: TaskForDrawer): TaskFormValues {
     'PENDING': 'Pending',
     'TODO': 'Pending',
     'IN_PROGRESS': 'In Progress',
+    'AWAITING_APPROVAL': 'In Progress',
     'DONE': 'Completed',
     'CANCELLED': 'Cancelled',
   };
@@ -203,8 +239,11 @@ function taskToFormValues(t: TaskForDrawer): TaskFormValues {
     // Fallback: map from TaskStatus (for backward compatibility)
     const statusMap: Record<TaskStatus, TaskEditStatus> = {
       'Pending': 'Pending',
+      'In Progress': 'In Progress',
+      'Awaiting Approval': 'In Progress',
       'Completed': 'Completed',
-      'Overdue': 'Pending', // Overdue tasks should show as Pending in edit
+      'Cancelled': 'Cancelled',
+      'Overdue': 'Pending',
     };
     editStatus = statusMap[t.status] || 'Pending';
   }
@@ -239,6 +278,9 @@ function taskToFormValues(t: TaskForDrawer): TaskFormValues {
   reminder: '',
   attachmentNames: '',
   notifyAssignee: true,
+  crossDepartmentRequest: false,
+  targetDepartmentId: '',
+  targetMemberId: '',
 };
 
 export function TaskDetailsDrawer({
@@ -258,6 +300,9 @@ export function TaskDetailsDrawer({
   onRequestEdit,
   onExitEdit,
   onMarkCompleted,
+  onApproveCompletion,
+  onRejectCompletion,
+  currentUserId,
   onDelete,
   onRelatedEntityClick,
   isLoading = false,
@@ -296,9 +341,33 @@ export function TaskDetailsDrawer({
   const [documentPreviewHtml, setDocumentPreviewHtml] = useState<string | null>(null);
   const [documentPreviewLoading, setDocumentPreviewLoading] = useState(false);
   const [documentPreviewError, setDocumentPreviewError] = useState<string | null>(null);
+  const [showRejectNote, setShowRejectNote] = useState(false);
+  const [rejectNote, setRejectNote] = useState('');
+  const [isRejecting, setIsRejecting] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+
+  const submitLabel = task && taskRequiresApprovalSubmit(task, currentUserId)
+    ? 'Submit for approval'
+    : 'Mark Completed';
+  const showSubmitAction = task
+    && task.backendStatus !== 'DONE'
+    && task.backendStatus !== 'AWAITING_APPROVAL'
+    && task.backendStatus !== 'CANCELLED';
+  const showApprovalActions = task && canApproveTaskCompletion(task, currentUserId);
+
+  const handleRejectCompletion = async () => {
+    if (!task) return;
+    setIsRejecting(true);
+    try {
+      await onRejectCompletion?.(task.id, rejectNote.trim() || undefined);
+      setShowRejectNote(false);
+      setRejectNote('');
+    } finally {
+      setIsRejecting(false);
+    }
+  };
 
   const editPrefillKey = useMemo(() => {
     if (mode !== 'edit' || !task) return '';
@@ -953,6 +1022,41 @@ export function TaskDetailsDrawer({
   const handleCreateTask = async () => {
     setIsSubmitting(true);
     try {
+      if (createForm.crossDepartmentRequest) {
+        const { createCrossDeptRequest } = await import('../../lib/api/teamApi');
+        const priority = (createForm.priority || 'Medium').toLowerCase() as 'low' | 'medium' | 'high';
+        const relatedTo = createForm.relatedTo && createForm.relatedTo !== 'Internal' ? createForm.relatedTo : undefined;
+        const linkedEntityId =
+          relatedTo && createForm.relatedEntityId ? createForm.relatedEntityId : undefined;
+
+        await createCrossDeptRequest({
+          subject: createForm.title.trim(),
+          description: createForm.description?.trim() || undefined,
+          priority,
+          workType: 'TASK',
+          targetDepartmentId: createForm.targetDepartmentId || '',
+          targetUserId: createForm.targetMemberId || undefined,
+          linkedEntityType: relatedTo,
+          linkedEntityId,
+          payload: {
+            dueDate: createForm.dueDate,
+            dueTime: createForm.dueTime || undefined,
+            reminder: createForm.reminder || undefined,
+            relatedTo: createForm.relatedTo || undefined,
+            priority: createForm.priority || 'Medium',
+            notifyAssignee: createForm.notifyAssignee,
+            attachmentNames: createForm.attachmentNames || undefined,
+          },
+        });
+
+        setToastMessage('Cross-department request sent for approval');
+        setShowSuccessToast(true);
+        setTimeout(() => setShowSuccessToast(false), 3000);
+        onCreateSuccess?.();
+        handleClose();
+        return;
+      }
+
       const { apiCreateTask, apiUploadTaskFiles } = await import('../../lib/api');
       
       // Create task first
@@ -1118,8 +1222,8 @@ export function TaskDetailsDrawer({
                       <button type="button" onClick={() => { onRequestEdit?.(); setShowMoreMenu(false); }} className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                         <Pencil size={14} /> Edit Task
                       </button>
-                      <button type="button" onClick={() => { task && onMarkCompleted?.(task.id); setShowMoreMenu(false); }} className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                        <CheckSquare size={14} /> Mark Completed
+                      <button type="button" onClick={() => { task && showSubmitAction && onMarkCompleted?.(task.id); setShowMoreMenu(false); }} className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50" disabled={!showSubmitAction}>
+                        <CheckSquare size={14} /> {submitLabel}
                       </button>
                       <button type="button" onClick={() => { task && onDelete?.(task.id); setShowMoreMenu(false); }} className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
                         <Trash2 size={14} /> Delete Task
@@ -1171,6 +1275,12 @@ export function TaskDetailsDrawer({
                   <div className="shrink-0 flex items-center gap-2 px-5 py-3 bg-red-50 border-b border-red-100 text-red-800">
                     <AlertCircle size={18} className="shrink-0" />
                     <span className="text-sm font-medium">This task is overdue.</span>
+                  </div>
+                )}
+                {task.status === 'Awaiting Approval' && (
+                  <div className="shrink-0 flex items-center gap-2 px-5 py-3 bg-amber-50 border-b border-amber-100 text-amber-900">
+                    <Clock size={18} className="shrink-0" />
+                    <span className="text-sm font-medium">This task is awaiting manager approval.</span>
                   </div>
                 )}
                 {task.status === 'Completed' && (
@@ -1499,16 +1609,77 @@ export function TaskDetailsDrawer({
 
                 {/* Sticky footer actions */}
                 {task && (
-                  <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex flex-wrap items-center justify-end gap-3">
+                  <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex flex-col gap-3">
+                    {showRejectNote && (
+                      <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3">
+                        <p className="text-xs font-semibold text-rose-800 mb-2">Rejection note (optional)</p>
+                        <textarea
+                          value={rejectNote}
+                          onChange={(e) => setRejectNote(e.target.value)}
+                          rows={2}
+                          placeholder="Tell the assignee what needs to change..."
+                          className="w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400 resize-y"
+                        />
+                        <div className="mt-2 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowRejectNote(false);
+                              setRejectNote('');
+                            }}
+                            className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-800"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleRejectCompletion()}
+                            disabled={isRejecting}
+                            className="px-4 py-1.5 text-sm font-medium text-white bg-rose-600 rounded-lg hover:bg-rose-700 disabled:opacity-50"
+                          >
+                            {isRejecting ? 'Rejecting…' : 'Confirm reject'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-3">
                     <button type="button" onClick={onRequestEdit} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50">
                       <Pencil size={14} /> Edit Task
                     </button>
-                    <button type="button" onClick={() => onMarkCompleted?.(task.id)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-xl hover:bg-emerald-700">
-                      <CheckSquare size={14} /> Mark Completed
-                    </button>
+                    {showApprovalActions ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onApproveCompletion?.(task.id)}
+                          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-xl hover:bg-emerald-700"
+                        >
+                          <CheckSquare size={14} /> Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowRejectNote(true)}
+                          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-xl hover:bg-rose-100"
+                        >
+                          <X size={14} /> Reject
+                        </button>
+                      </>
+                    ) : showSubmitAction ? (
+                      <button
+                        type="button"
+                        onClick={() => onMarkCompleted?.(task.id)}
+                        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white rounded-xl ${
+                          submitLabel === 'Submit for approval'
+                            ? 'bg-amber-600 hover:bg-amber-700'
+                            : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
+                      >
+                        <CheckSquare size={14} /> {submitLabel}
+                      </button>
+                    ) : null}
                     <button type="button" onClick={() => onDelete?.(task.id)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100">
                       <Trash2 size={14} /> Delete Task
                     </button>
+                    </div>
                   </div>
                 )}
               </>

@@ -27,6 +27,7 @@ import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildClientsCsvColumns, CLIENTS_EXPORT_COLUMNS } from '../../lib/export/clientsExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { ClientTable } from '../../components/ClientTable';
+import { ClientHandoffModal } from '../../components/team/ClientHandoffModal';
 import {
   ClientFilterDrawer,
   DEFAULT_CLIENT_FILTERS,
@@ -63,13 +64,14 @@ import {
   apiDeleteClient,
   apiUpdateClient,
   apiGetClientLeadStatusCatalog,
+  apiGetClientAssignableMembers,
   type BackendClient,
   type BackendUser,
   type UpdateClientData,
 } from '../../lib/api';
-import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useCanHandoffClient } from '../../hooks/useCanHandoffClient';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -330,9 +332,12 @@ export default function App() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { hasAnyPermission } = usePermissions();
+  const { hasAnyPermission, hasPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
   const canUpdateClient = hasAnyPermission(['clients_update']);
+  const canHandoffFromServer = useCanHandoffClient();
+  const canHandoffClient =
+    canHandoffFromServer || hasPermission('clients_handoff');
   const canOpenClientTrash = hasAnyPermission(['clients_delete']);
   const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState('all');
@@ -374,6 +379,7 @@ export default function App() {
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [handoffClient, setHandoffClient] = useState<Client | null>(null);
   const [clientStatusOptions, setClientStatusOptions] = useState<string[]>([
     ...DEFAULT_CLIENT_STATUS_LABELS,
   ]);
@@ -562,8 +568,15 @@ export default function App() {
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         if (!token) return;
-        const members = await getAllTeamMembersForAssign();
-        setTeamMembers(teamMembersToBackendUsers(members));
+        const response = await apiGetClientAssignableMembers();
+        const members = Array.isArray(response.data) ? response.data : [];
+        setTeamMembers(
+          members.map((member) => ({
+            id: member.id,
+            name: member.name || `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.email || 'User',
+            email: member.email,
+          })),
+        );
       } catch (err) {
         console.error('Failed to fetch users for bulk assignment:', err);
       }
@@ -1295,6 +1308,11 @@ export default function App() {
                       setClientIdForJob(client.id);
                       setShowCreateJobDrawer(true);
                     }}
+                    onHandoffClient={
+                      canHandoffClient
+                        ? (client) => setHandoffClient(client)
+                        : undefined
+                    }
                     clientNameSortOrder={clientNameSortOrder}
                     onToggleClientNameSortOrder={() => {
                       setClientNameSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
@@ -1322,6 +1340,13 @@ export default function App() {
             </div>
           )}
         </div>
+
+        <ClientHandoffModal
+          isOpen={Boolean(handoffClient)}
+          clientId={handoffClient?.id ?? null}
+          clientName={handoffClient?.name ?? 'Client'}
+          onClose={() => setHandoffClient(null)}
+        />
 
         <ClientDetailsDrawer
           client={selectedClient}

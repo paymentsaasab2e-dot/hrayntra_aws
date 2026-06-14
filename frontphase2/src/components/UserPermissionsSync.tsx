@@ -63,13 +63,5 @@ export function UserPermissionsSync() {
     };
   }, [pathname]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (!pathname) return;
-    if (pathname === '/apply' || pathname.startsWith('/apply/')) return;
-    if (pathname === '/client-review' || pathname.startsWith('/client-review/')) return;
-    void refreshLocalUserPermissions();
-  }, [pathname]);
-
   return null;
 }

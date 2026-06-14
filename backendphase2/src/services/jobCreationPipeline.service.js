@@ -63,7 +63,14 @@ function normalizeJobPipelineOutput(merged, clients = []) {
     maxExperience: Number.isFinite(Number(merged.maxExperience)) ? Number(merged.maxExperience) : 0,
     payRangeMin: String(merged.payRangeMin || '').trim(),
     payRangeMax: String(merged.payRangeMax || '').trim(),
-    salaryCurrency: String(merged.salaryCurrency || 'USD').trim() || 'USD',
+    salaryCurrency: (() => {
+      const raw = String(merged.salaryCurrency || '').trim();
+      if (raw && raw !== 'USD') return raw;
+      if (merged.country === 'India' || String(merged.nationality || '').toLowerCase().includes('indian')) {
+        return 'INR';
+      }
+      return raw || 'USD';
+    })(),
     salaryInput: String(merged.salaryInput || '').trim(),
     jobLocation: String(merged.jobLocation || '').trim(),
     jobLocationType: String(merged.jobLocationType || '').trim(),
@@ -74,22 +81,27 @@ function normalizeJobPipelineOutput(merged, clients = []) {
     jobSummary: String(merged.jobSummary || '').trim(),
     keyResponsibilitiesText: String(merged.keyResponsibilitiesText || '').trim(),
     qualificationsExperienceText: String(merged.qualificationsExperienceText || '').trim(),
+    candidateRequirementsText: String(merged.candidateRequirementsText || '').trim(),
     compensationBenefitsText: String(merged.compensationBenefitsText || '').trim(),
     educationalQualification: String(merged.educationalQualification || '').trim(),
     educationalSpecialization: String(merged.educationalSpecialization || '').trim(),
   };
 }
 
-async function extractJobStructuredWithAi(cleanedText, currentForm = {}) {
+async function extractJobStructuredWithAi(cleanedText, currentForm = {}, options = {}) {
   if (!hasLlmProvider()) {
     throw new Error('AI job creation pipeline is not configured');
   }
+
+  const sourceText = String(cleanedText || '').trim();
+  const isNaturalLanguagePrompt =
+    options.source === 'prompt' || (sourceText.length > 0 && sourceText.length < 2500);
 
   const completion = await chatCompletionWithFallback(
     {
       model: env.OPENAI_CHAT_MODEL,
       temperature: 0.2,
-      max_tokens: 2200,
+      max_tokens: 2800,
       response_format: {
         type: 'json_schema',
         json_schema: jobCreationJsonSchema,
@@ -97,15 +109,16 @@ async function extractJobStructuredWithAi(cleanedText, currentForm = {}) {
       messages: [
         {
           role: 'system',
-          content:
-            'You are an ATS job creation assistant. Extract job posting fields from document text for an Add Job form. Do not ask questions. Return only valid JSON matching the schema.',
+          content: isNaturalLanguagePrompt
+            ? 'You are an ATS job creation assistant. Extract ALL Add Job form fields from a recruiter\'s short instruction. Never invent location, salary, or country — use only what the user explicitly states. Generate rich description, skills, and responsibilities for the role. Return only valid JSON matching the schema.'
+            : 'You are an ATS job creation assistant. Extract job posting fields from document text for an Add Job form. Do not ask questions. Return only valid JSON matching the schema.',
         },
         {
           role: 'user',
           content: [
-            buildJobExtractionPromptInstructions(),
+            buildJobExtractionPromptInstructions(isNaturalLanguagePrompt),
             `Current form (preserve unless document overrides):\n${JSON.stringify(currentForm, null, 2)}`,
-            `Document text:\n${String(cleanedText || '').slice(0, TEXT_CAP)}`,
+            `${isNaturalLanguagePrompt ? 'Recruiter instruction' : 'Document text'}:\n${sourceText.slice(0, TEXT_CAP)}`,
           ].join('\n\n'),
         },
       ],
@@ -148,7 +161,9 @@ export async function processJobCreationPipeline(file, options = {}) {
   let aiError = null;
 
   try {
-    const aiResult = await extractJobStructuredWithAi(textStage.cleaned, currentForm);
+    const aiResult = await extractJobStructuredWithAi(textStage.cleaned, currentForm, {
+      source: 'document',
+    });
     ai = aiResult.parsed;
     usage = aiResult.usage;
     parseRoute = aiResult.provider || 'ai';
@@ -160,7 +175,9 @@ export async function processJobCreationPipeline(file, options = {}) {
   }
 
   logStageBanner(6, 'Validate + Merge');
-  const merged = enrichJobFieldsAfterMerge(mergeJobAiWithFallback(ai || {}, fallbackData));
+  const merged = enrichJobFieldsAfterMerge(
+    mergeJobAiWithFallback(ai || {}, fallbackData, textStage.cleaned),
+  );
   const normalized = normalizeJobPipelineOutput(merged, clients);
 
   logStageBanner(7, 'Response payload');
@@ -190,6 +207,72 @@ export async function processJobCreationPipeline(file, options = {}) {
     extractedTextLength: textStage.cleaned.length,
     jobParseMeta: {
       pipeline: JOB_CREATION_PIPELINE_NAME,
+      parseRoute,
+      aiError: aiError || undefined,
+      tokenUsage: usage || undefined,
+      elapsedMs: elapsed,
+    },
+  };
+}
+
+/**
+ * Extract full Add Job form fields from a natural-language or pasted-text prompt (no file upload).
+ * Uses regex safety net + OpenAI structured JSON (same schema as JD file pipeline).
+ */
+export async function processJobCreationFromPrompt(promptText, options = {}) {
+  const { currentForm = {}, clients = [] } = options;
+  const cleaned = String(promptText || '').trim();
+  const t0 = Date.now();
+
+  if (!cleaned) {
+    throw new Error('Job prompt is required');
+  }
+
+  logStageBanner(4, 'Regex Safety Net (job fields from prompt)');
+  const fallbackData = extractJobRegexFallback(cleaned);
+  logLines(logJobRegexFieldExtraction(fallbackData));
+
+  logStageBanner(5, 'AI Structured Extraction (job prompt)');
+  logLines(['Pipeline sections:', ...JOB_CREATION_PIPELINE_SECTIONS.map((s) => `  - ${s}`)]);
+
+  let ai = null;
+  let usage = null;
+  let parseRoute = 'regex-only';
+  let aiError = null;
+
+  try {
+    const aiResult = await extractJobStructuredWithAi(cleaned, currentForm, { source: 'prompt' });
+    ai = aiResult.parsed;
+    usage = aiResult.usage;
+    parseRoute = aiResult.provider || 'ai';
+    logLines(['AI returned valid JSON ✅', `jobTitle="${ai?.jobTitle || ''}"`]);
+  } catch (err) {
+    aiError = err?.message || String(err);
+    console.error(`[${JOB_CREATION_PIPELINE_NAME}] prompt AI stage failed:`, aiError);
+    logLines([`AI failed — using regex fallback only: ${aiError}`]);
+  }
+
+  logStageBanner(6, 'Validate + Merge');
+  const merged = enrichJobFieldsAfterMerge(mergeJobAiWithFallback(ai || {}, fallbackData, cleaned));
+  const normalized = normalizeJobPipelineOutput(merged, clients);
+
+  logStageBanner(7, 'Response payload (prompt)');
+  logLines([
+    `jobTitle: ${normalized.jobTitle}`,
+    `city: ${normalized.city || '—'}`,
+    `country: ${normalized.country}`,
+    `salary: ${normalized.salaryInput || '—'}`,
+    `currency: ${normalized.salaryCurrency || '—'}`,
+    `skills: ${normalized.skills.length}`,
+  ]);
+
+  const elapsed = Date.now() - t0;
+  return {
+    ...normalized,
+    extractedTextLength: cleaned.length,
+    jobParseMeta: {
+      pipeline: JOB_CREATION_PIPELINE_NAME,
+      source: 'prompt',
       parseRoute,
       aiError: aiError || undefined,
       tokenUsage: usage || undefined,

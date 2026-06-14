@@ -14,7 +14,6 @@ import {
 } from '../setting/alert-notify.helpers.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
-import { canViewAllClients } from '../../utils/permissionScope.js';
 import {
   applyAgreementTermsUpdateFields,
   buildAgreementTermsCreateFields,
@@ -23,6 +22,12 @@ import {
   applyPostServiceKycFormUpdateFields,
   buildPostServiceKycFormCreateFields,
 } from '../../utils/postServiceKycFormFields.js';
+import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
+import { applyMemberClientScope } from '../../services/clientMemberScope.service.js';
+import {
+  buildInitialParticipantIds,
+  stampVisibilityOnAssigneeChange,
+} from '../../services/memberVisibility.service.js';
 import {
   USER_BRIEF_SELECT,
   prepareListWithAuditMeta,
@@ -36,14 +41,6 @@ import { ENTITY_TYPES } from '../../services/activityService.js';
  * Recruiters / portal users: clients assigned to them, or they created/sourced (createdById).
  * Admins (canViewAllAssignments) and Super Admin “mine only” use other rules via mergeWhereWithScope.
  */
-function applyMemberClientScope(scopedWhere, req) {
-  if (canViewAllClients(req) || !req?.user?.id) {
-    return scopedWhere;
-  }
-  return mergeWhereWithScope(scopedWhere, {
-    OR: [{ assignedToId: req.user.id }, { createdById: req.user.id }],
-  });
-}
 
 /** Keep shared portal `clients` row in sync when CRM client name/logo changes (job cards use this). */
 async function mirrorClientRowToJobPortalDb(client) {
@@ -327,7 +324,7 @@ export const clientService = {
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let scopedWhere = mergeWhereWithScope(where, superAdminScope);
-    scopedWhere = applyMemberClientScope(scopedWhere, req);
+    scopedWhere = await applyMemberClientScope(scopedWhere, req);
 
     if (ids) {
       const idList = String(ids)
@@ -439,7 +436,7 @@ export const clientService = {
   async getById(id, req = null) {
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let scopedWhere = mergeWhereWithScope({ id }, scope);
-    scopedWhere = applyMemberClientScope(scopedWhere, req);
+    scopedWhere = await applyMemberClientScope(scopedWhere, req);
 
     const client = await prisma.client.findFirst({
       where: scopedWhere,
@@ -644,6 +641,10 @@ export const clientService = {
       status: data.status || 'ACTIVE',
       assignedToId: data.assignedToId || data.performedById || undefined,
       createdById: data.createdById || data.performedById || undefined,
+      participantIds: buildInitialParticipantIds(
+        data.createdById || data.performedById,
+        data.assignedToId || data.performedById,
+      ),
       address: data.address,
       companySize: data.companySize,
       hiringLocations: hiringLocationsValue,
@@ -692,6 +693,10 @@ export const clientService = {
     // Log data being stored
     dbLogger.logCreate('CLIENT', clientData);
 
+    if (data.performedById && clientData.assignedToId) {
+      await assertCanAssignCrm(data.performedById, clientData.assignedToId);
+    }
+
     const client = await prisma.client.create({
       data: clientData,
       include: {
@@ -729,7 +734,7 @@ export const clientService = {
   async update(id, data, req = null) {
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let accessWhere = mergeWhereWithScope({ id }, scope);
-    accessWhere = applyMemberClientScope(accessWhere, req);
+    accessWhere = await applyMemberClientScope(accessWhere, req);
     const allowed = await prisma.client.findFirst({
       where: accessWhere,
       select: { id: true },
@@ -756,6 +761,7 @@ export const clientService = {
         status: true,
         assignedToId: true,
         createdById: true,
+        participantIds: true,
         priority: true,
         sla: true,
         clientSince: true,
@@ -878,18 +884,18 @@ export const clientService = {
       }
     });
 
-    // First reassignment on legacy rows: record creator so assigner keeps list visibility after handoff
-    if (
-      data.performedById &&
-      !currentClient.createdById &&
-      data.assignedToId !== undefined &&
-      data.assignedToId !== currentClient.assignedToId
-    ) {
-      updateData.createdById = data.performedById;
-    }
+    stampVisibilityOnAssigneeChange({
+      updateData,
+      previous: currentClient,
+      performerId: data.performedById,
+    });
 
     // Log data being updated
     dbLogger.logUpdate('CLIENT', id, updateData);
+
+    if (data.performedById && data.assignedToId !== undefined && data.assignedToId) {
+      await assertCanAssignCrm(data.performedById, data.assignedToId);
+    }
 
     const updated = await prisma.client.update({
       where: { id },
@@ -972,7 +978,7 @@ export const clientService = {
     // restore from the Recycle Bin brings the full client back without surprises.
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let accessWhere = mergeWhereWithScope({ id }, scope);
-    accessWhere = applyMemberClientScope(accessWhere, req);
+    accessWhere = await applyMemberClientScope(accessWhere, req);
     const allowed = await prisma.client.findFirst({
       where: accessWhere,
       select: { id: true },
@@ -1020,7 +1026,7 @@ export const clientService = {
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let where = { isDeleted: true };
     where = mergeWhereWithScope(where, superAdminScope);
-    where = applyMemberClientScope(where, req);
+    where = await applyMemberClientScope(where, req);
 
     const [clients, total] = await Promise.all([
       prisma.client.findMany({

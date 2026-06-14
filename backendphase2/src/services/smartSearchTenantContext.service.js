@@ -6,7 +6,6 @@ import {
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../utils/superAdminScope.js';
 import {
   canViewAllAssignments,
-  canViewAllClients,
   hasAnyPermission,
 } from '../utils/permissionScope.js';
 import {
@@ -14,6 +13,10 @@ import {
   normalizeLeadsAiFiltersAgainstTenant,
   sanitizeMatchingLeadIds,
 } from './smartSearchLeadContext.service.js';
+import { buildClientsListScopeWhere } from './clientMemberScope.service.js';
+import { buildAssigneeVisibilityOr } from './memberVisibility.service.js';
+
+export { buildClientsListScopeWhere };
 
 export function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -108,7 +111,7 @@ function buildTenantMeta(tenantDbName, total, loaded, allRecordIds, totalKey, lo
 export function buildJobsListScopeWhere(req) {
   const where = {};
   if (!canViewAllAssignments(req) && req?.user?.id) {
-    where.OR = [{ assignedToId: req.user.id }, { createdById: req.user.id }];
+    where.OR = buildAssigneeVisibilityOr(req.user.id);
   }
   const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
   let scopedWhere = mergeWhereWithScope(where, superAdminScope);
@@ -226,32 +229,6 @@ export function normalizeJobsAiFiltersAgainstTenant(filters = {}, keywords = [],
 
 // —— Clients ——
 
-function applyMemberClientScope(scopedWhere, req) {
-  if (canViewAllClients(req) || !req?.user?.id) return scopedWhere;
-  return mergeWhereWithScope(scopedWhere, {
-    OR: [{ assignedToId: req.user.id }, { createdById: req.user.id }],
-  });
-}
-
-export function buildClientsListScopeWhere(req) {
-  let where = { isDeleted: { not: true } };
-  where = {
-    AND: [
-      where,
-      {
-        OR: [
-          { industry: { not: 'Workspace' } },
-          { companyName: { not: { endsWith: ' Workspace' } } },
-        ],
-      },
-    ],
-  };
-  const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
-  let scopedWhere = mergeWhereWithScope(where, superAdminScope);
-  scopedWhere = applyMemberClientScope(scopedWhere, req);
-  return scopedWhere;
-}
-
 function compactClientRowForAi(client, recruiterNameById = new Map()) {
   return {
     id: client.id,
@@ -269,7 +246,7 @@ function compactClientRowForAi(client, recruiterNameById = new Map()) {
 }
 
 export async function loadClientsTenantSearchContext(req) {
-  const where = buildClientsListScopeWhere(req);
+  const where = await buildClientsListScopeWhere(req);
   const tenantDbName = getActiveTenantDbName() || String(req?.user?.tenantDbName || '').trim();
   const totalClients = await prisma.client.count({ where });
 
@@ -368,7 +345,7 @@ export async function buildCandidateListScopeWhere(req) {
       select: { id: true },
     });
     const visibleJobIds = jobs.map((job) => job.id);
-    const visibilityOr = [{ createdById: userId }, { assignedToId: userId }];
+    const visibilityOr = buildAssigneeVisibilityOr(userId);
     if (visibleJobIds.length > 0) {
       visibilityOr.push({ assignedJobs: { hasSome: visibleJobIds } });
       visibilityOr.push({ applications: { some: { jobId: { in: visibleJobIds } } } });

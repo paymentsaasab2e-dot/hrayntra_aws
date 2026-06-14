@@ -12,6 +12,7 @@ import {
   personName,
 } from '../setting/alert-notify.helpers.js';
 import { canViewAllLeads } from '../../utils/permissionScope.js';
+import { stampLeadAssigneeVisibility } from '../../services/memberVisibility.service.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import {
   filterMeaningfulImportColumns,
@@ -28,6 +29,7 @@ import {
   resolveDirectorNameFromLeadContext,
   resolveDirectorSalutationFromLeadContext,
 } from '../../utils/directorOtherDetails.js';
+import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 
 function isValidObjectId(value) {
@@ -824,6 +826,12 @@ export const leadService = {
     // Log the received data in JSON format
     dbLogger.logCreate('Lead', leadData);
 
+    if (data.performedById && leadData.assignedToIds?.length) {
+      for (const assigneeId of leadData.assignedToIds) {
+        if (assigneeId) await assertCanAssignCrm(data.performedById, assigneeId);
+      }
+    }
+
     const lead = await prisma.lead.create({
       data: leadData,
       include: {
@@ -999,15 +1007,22 @@ export const leadService = {
       if (explicitPrimary && !next.includes(explicitPrimary)) next.unshift(explicitPrimary);
       updateData.assignedToIds = next;
       updateData.assignedToId = explicitPrimary ?? next[0] ?? null;
+      stampLeadAssigneeVisibility({
+        updateData,
+        previous: currentLead,
+        performerId: data.performedById || req?.user?.id,
+        nextPrimaryId: updateData.assignedToId,
+        nextIds: updateData.assignedToIds,
+      });
     } else if (data.assignedToId !== undefined || data.assignedToName !== undefined) {
       // Single-assignee legacy path — mirror into the list so reads stay in sync.
       updateData.assignedToId = resolvedAssignedToId ?? null;
-      const existing = Array.isArray(currentLead.assignedToIds) ? currentLead.assignedToIds : [];
-      if (resolvedAssignedToId) {
-        updateData.assignedToIds = [resolvedAssignedToId, ...existing.filter((id) => id !== resolvedAssignedToId)];
-      } else {
-        updateData.assignedToIds = [];
-      }
+      stampLeadAssigneeVisibility({
+        updateData,
+        previous: currentLead,
+        performerId: data.performedById || req?.user?.id,
+        nextPrimaryId: updateData.assignedToId,
+      });
     }
     if (data.convertedToClientId !== undefined) updateData.convertedToClientId = data.convertedToClientId || null;
     if (data.convertedToCandidateId !== undefined) updateData.convertedToCandidateId = data.convertedToCandidateId || null;
@@ -1095,6 +1110,17 @@ export const leadService = {
 
     // Log the update data in JSON format
     dbLogger.logUpdate('Lead', id, updateData);
+
+    if (data.performedById) {
+      const nextAssignees = updateData.assignedToIds?.length
+        ? updateData.assignedToIds
+        : updateData.assignedToId
+          ? [updateData.assignedToId]
+          : [];
+      for (const assigneeId of nextAssignees) {
+        if (assigneeId) await assertCanAssignCrm(data.performedById, assigneeId);
+      }
+    }
 
     const updated = await prisma.lead.update({
       where: { id },

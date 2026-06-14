@@ -1,8 +1,15 @@
 import type { AuditMeta } from '../../types/audit';
 
+export interface TaskAssignmentChain {
+  createdByName: string;
+  assignedToName: string;
+  delegatedToName: string | null;
+  isDelegated: boolean;
+}
+
 export type TaskRelatedTo = 'Candidate' | 'Job' | 'Client' | 'Interview' | 'Internal';
 export type TaskPriority = 'Low' | 'Medium' | 'High';
-export type TaskStatus = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled' | 'Overdue';
+export type TaskStatus = 'Pending' | 'In Progress' | 'Awaiting Approval' | 'Completed' | 'Cancelled' | 'Overdue';
 /** Status options for Edit Task form */
 export type TaskEditStatus = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled';
 export type TaskType = 'Call' | 'Email' | 'Interview' | 'Follow-up' | 'Meeting' | 'Note';
@@ -20,6 +27,10 @@ export interface TaskFormValues {
   attachmentNames: string;
   notifyAssignee: boolean;
   status?: TaskEditStatus;
+  /** Cross-department request (dept head only) */
+  crossDepartmentRequest?: boolean;
+  targetDepartmentId?: string;
+  targetMemberId?: string;
   _files?: File[]; // Internal: files to upload
 }
 
@@ -55,6 +66,10 @@ export interface Task {
   createdByName?: string;
   /** Raw workflow column (Jira-style) before overdue overlay */
   workflowStatus?: TaskStatus;
+  participantIds?: string[];
+  completionApproverId?: string;
+  completionRequestedById?: string;
+  assignmentChain?: TaskAssignmentChain;
   reminder?: string;
   notifyAssignee?: boolean;
   auditMeta?: AuditMeta;

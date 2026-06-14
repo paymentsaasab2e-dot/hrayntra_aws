@@ -1,7 +1,7 @@
 /** Route / nav access: any listed permission grants module access */
 export const MODULE_ACCESS_MAP: Record<string, string[]> = {
   Leads: ['leads_create', 'leads_read', 'leads_update', 'leads_delete', 'view_all_leads'],
-  Clients: ['clients_create', 'clients_read', 'clients_update', 'clients_delete', 'view_all_clients'],
+  Clients: ['clients_create', 'clients_read', 'clients_update', 'clients_delete', 'view_all_clients', 'clients_handoff'],
   Jobs: ['jobs_create', 'jobs_read', 'jobs_update', 'jobs_delete', 'assign_job', 'view_all_jobs', 'create_job', 'edit_job', 'delete_job', 'view_jobs'],
   Candidates: [
     'candidates_create', 'candidates_read', 'candidates_update', 'candidates_delete',
@@ -24,6 +24,9 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
     'view_team', 'add_team_member', 'edit_team_member', 'assign_roles', 'manage_roles',
     'generate_credentials', 'manage_commission', 'manage_targets', 'view_team_activity',
   ],
+  Request: [
+    'requests_create', 'requests_read', 'requests_update', 'requests_delete', 'view_all_requests',
+  ],
   System: [
     'manage_settings', 'access_integrations', 'export_data', 'view_activity_log',
     'recycle_bin_manage', 'view_dashboard',
@@ -45,6 +48,8 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/reports': MODULE_ACCESS_MAP.Reports,
   '/billing': MODULE_ACCESS_MAP.Billing,
   '/team': MODULE_ACCESS_MAP.Team,
+  '/request': MODULE_ACCESS_MAP.Request,
+  '/request/approval': MODULE_ACCESS_MAP.Request,
   '/inbox': MODULE_ACCESS_MAP.Inbox,
   '/calendar': MODULE_ACCESS_MAP.Calendar,
   '/activity-feed': ['view_activity_log', 'reports_read'],

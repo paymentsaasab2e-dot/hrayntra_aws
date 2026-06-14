@@ -2,6 +2,7 @@ import { clientService } from './client.service.js';
 import { clientNoteService } from './client-note.service.js';
 import { clientFileService } from './client-file.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
 import * as XLSX from 'xlsx';
 
 const CLIENT_IMPORT_FIELD_ALIASES = {
@@ -320,6 +321,15 @@ export const clientController = {
       sendResponse(res, 200, 'Client import duplicates checked successfully', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getAssignableMembers(req, res) {
+    try {
+      const members = await listCrmAssigneeCandidates(req.user.id);
+      sendResponse(res, 200, 'Assignable members retrieved', members);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
     }
   },
 };

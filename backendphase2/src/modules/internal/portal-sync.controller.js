@@ -3,6 +3,7 @@ import {
   applyPortalWithdrawSync,
   applyPlacementOfferResponse,
   backfillPortalJobTenantDbNames,
+  lookupPortalInterviewFeedback,
 } from './portal-sync.service.js';
 import { applyPortalTailoredCvSync } from './portal-tailored-cv.service.js';
 
@@ -39,14 +40,22 @@ export async function postSyncPortalApplication(req, res) {
  */
 export async function postPlacementOfferResponse(req, res) {
   try {
-    const { tenantDbName, candidateId, jobId, decision } = req.body || {};
+    const { tenantDbName, candidateId, jobId, decision, remark } = req.body || {};
     const placement = await applyPlacementOfferResponse({
       tenantDbName,
       candidateId,
       jobId,
       decision,
+      remark,
     });
-    return res.json({ success: true, data: { placementId: placement?.id, status: placement?.status } });
+    return res.json({
+      success: true,
+      data: {
+        placementId: placement?.id,
+        status: placement?.status,
+        candidateOfferRemark: placement?.candidateOfferRemark || null,
+      },
+    });
   } catch (error) {
     const message = String(error?.message || 'Offer response failed');
     const status = message.includes('not found') ? 404 : 400;
@@ -92,5 +101,23 @@ export async function postBackfillPortalJobTenants(req, res) {
   } catch (error) {
     const message = String(error?.message || 'Backfill failed');
     return res.status(400).json({ success: false, message });
+  }
+}
+
+export async function postPortalInterviewFeedbackLookup(req, res) {
+  try {
+    const { tenantDbName, candidateId, jobId, interviewIds, repairPortal } = req.body || {};
+    const data = await lookupPortalInterviewFeedback({
+      tenantDbName,
+      candidateId,
+      jobId,
+      interviewIds,
+      repairPortal: repairPortal !== false,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    const message = String(error?.message || 'Interview feedback lookup failed');
+    const status = message.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, message });
   }
 }

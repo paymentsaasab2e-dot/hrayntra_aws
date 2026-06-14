@@ -164,17 +164,21 @@ function deriveApplicationPipelineStage({
     }
   }
 
+  if (['INTERVIEW', 'SHORTLISTED', 'ASSESSMENT'].includes(appU)) {
+    return formatApplicationStatus(appStatus);
+  }
+
   if (Array.isArray(timelineStatuses)) {
     const latest = [...timelineStatuses]
       .map((s) => String(s || '').toUpperCase())
       .filter(Boolean);
-    if (latest.includes('REJECTED')) return 'Rejected';
     const lastStrong = [...latest]
       .reverse()
       .find((s) =>
         ['INTERVIEW', 'SHORTLISTED', 'ASSESSMENT', 'FINAL_DECISION', 'SELECTED'].includes(s)
       );
     if (lastStrong) return formatApplicationStatus(lastStrong);
+    if (latest.includes('REJECTED')) return 'Rejected';
     const lastUnderReview = [...latest].reverse().find((s) => s === 'UNDER_REVIEW');
     if (lastUnderReview) return formatApplicationStatus(lastUnderReview);
   }
@@ -244,6 +248,11 @@ function resolveApplicationDisplayStatus({
     return formatApplicationStatus('REJECTED');
   }
 
+  const strongApp = new Set(['INTERVIEW', 'FINAL_DECISION', 'SELECTED', 'SHORTLISTED', 'ASSESSMENT']);
+  if (appStatus && strongApp.has(appU)) {
+    return formatApplicationStatus(appStatus);
+  }
+
   if (Array.isArray(timelineStatuses)) {
     const rejectedInTimeline = timelineStatuses.some(
       (s) => String(s || '').toUpperCase() === 'REJECTED'
@@ -261,11 +270,6 @@ function resolveApplicationDisplayStatus({
   const pipeLower = String(pipelineStageName || '').trim().toLowerCase();
   if (pipeLower.includes('reject')) {
     return pipelineStageName.trim();
-  }
-
-  const strongApp = new Set(['INTERVIEW', 'FINAL_DECISION', 'SELECTED', 'REJECTED', 'SHORTLISTED', 'ASSESSMENT']);
-  if (appStatus && strongApp.has(appU)) {
-    return formatApplicationStatus(appStatus);
   }
 
   if (appU === 'SUBMITTED' || appU === 'UNDER_REVIEW') {
@@ -389,6 +393,45 @@ function parseInterviewDetailsFromDescription(description, title) {
     recruiterName = recruiterLine.replace(/^recruiter\s*:/i, '').trim() || null;
   }
 
+  let outcome = null;
+  const outcomeLine = text.split(/\r?\n/).find((l) => /^outcome\s*:/i.test(l.trim()));
+  if (outcomeLine) {
+    outcome = outcomeLine.replace(/^outcome\s*:/i, '').trim() || null;
+  }
+
+  let recommendationLabel = null;
+  const recommendationLine = text.split(/\r?\n/).find((l) => /^recommendation\s*:/i.test(l.trim()));
+  if (recommendationLine) {
+    recommendationLabel = recommendationLine.replace(/^recommendation\s*:/i, '').trim() || null;
+  }
+
+  let remark = null;
+  const remarkLine = text.split(/\r?\n/).find((l) => /^remark\s*:/i.test(l.trim()));
+  if (remarkLine) {
+    remark = remarkLine.replace(/^remark\s*:/i, '').trim() || null;
+  }
+
+  let overallRating = null;
+  const ratingLine = text.split(/\r?\n/).find((l) => /^overall rating\s*:/i.test(l.trim()));
+  if (ratingLine) {
+    const ratingMatch = ratingLine.match(/(\d+(?:\.\d+)?)\s*\/\s*5/i);
+    if (ratingMatch) overallRating = Number(ratingMatch[1]);
+  }
+
+  const technicalScore = parseCategoryScoreFromText(text, /^technical skills?\s*:/i);
+  const communicationScore = parseCategoryScoreFromText(text, /^communication\s*:/i);
+  const problemSolvingScore = parseCategoryScoreFromText(text, /^problem solving\s*:/i);
+  const cultureFitScore = parseCategoryScoreFromText(text, /^culture fit\s*:/i);
+  const experienceMatchScore = parseCategoryScoreFromText(text, /^experience match\s*:/i);
+  const strengths = parseInterviewTextField(text, 'Strengths');
+  const weaknesses = parseInterviewTextField(text, 'Weaknesses');
+
+  let explicitRound = null;
+  const roundLine = text.split(/\r?\n/).find((l) => /^round\s*:/i.test(l.trim()));
+  if (roundLine) {
+    explicitRound = roundLine.replace(/^round\s*:/i, '').trim() || null;
+  }
+
   return {
     meetingLink,
     location,
@@ -397,15 +440,331 @@ function parseInterviewDetailsFromDescription(description, title) {
     recruiterRound,
     interviewerNames,
     recruiterName,
+    outcome,
+    recommendationLabel,
+    remark,
+    overallRating,
+    technicalScore,
+    communicationScore,
+    problemSolvingScore,
+    cultureFitScore,
+    experienceMatchScore,
+    strengths,
+    weaknesses,
+    explicitRound,
   };
 }
 
-function buildInterviewRoundsFromTimeline(rawTimeline) {
+function interviewRoundLabelsEquivalent(a, b) {
+  const left = String(a || '').trim().toLowerCase();
+  const right = String(b || '').trim().toLowerCase();
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+function interviewRoundFeedbackRichness(round = {}) {
+  let score = 0;
+  if (round.technicalScore != null) score += 12;
+  if (round.communicationScore != null) score += 8;
+  if (round.problemSolvingScore != null) score += 8;
+  if (round.cultureFitScore != null) score += 8;
+  if (round.experienceMatchScore != null) score += 8;
+  if (round.overallRating != null || round.overallScore != null) score += 6;
+  if (round.strengths) score += 5;
+  if (round.weaknesses) score += 5;
+  if (round.recommendationLabel || round.outcome) score += 3;
+  if (round.comments || round.remark) score += 2;
+  return score;
+}
+
+function pickRichestInterviewOutcome(candidates = []) {
+  const list = (candidates || []).filter(Boolean);
+  if (!list.length) return null;
+  return [...list].sort(
+    (a, b) => interviewRoundFeedbackRichness(b) - interviewRoundFeedbackRichness(a)
+  )[0];
+}
+
+function parseCategoryScoreFromText(text, labelPattern) {
+  const line = String(text || '')
+    .split(/\r?\n/)
+    .find((entry) => labelPattern.test(entry.trim()));
+  if (!line) return null;
+  const match = line.match(/(\d+(?:\.\d+)?)\s*\/\s*5/i);
+  return match ? Number(match[1]) : null;
+}
+
+function parseInterviewTextField(text, label) {
+  const line = String(text || '')
+    .split(/\r?\n/)
+    .find((entry) => new RegExp(`^${label}\\s*:`, 'i').test(entry.trim()));
+  if (!line) return null;
+  const value = line.replace(new RegExp(`^${label}\\s*:`, 'i'), '').trim();
+  return value || null;
+}
+
+function findInterviewOutcomeMatchIndex(rounds, stored, allOutcomes = []) {
+  const roundLabel = stored?.roundLabel || null;
+  const interviewId = stored?.interviewId ? String(stored.interviewId) : null;
+
+  if (interviewId) {
+    const byInterviewId = rounds.findIndex(
+      (round) => round?.interviewId && String(round.interviewId) === interviewId
+    );
+    if (byInterviewId >= 0) return byInterviewId;
+  }
+
+  if (roundLabel) {
+    const byLabel = rounds.findIndex((round) =>
+      interviewRoundLabelsEquivalent(round.roundLabel, roundLabel)
+    );
+    if (byLabel >= 0) return byLabel;
+  }
+
+  if (rounds.length === 1) return 0;
+
+  const incompleteIdx = rounds.findIndex((round) => !round.isCompleted);
+  if (incompleteIdx >= 0 && allOutcomes.length === 1) return incompleteIdx;
+
+  return -1;
+}
+
+function mergePhase2OutcomesIntoPortal(storedOutcomes = [], phase2Outcomes = []) {
+  if (!phase2Outcomes.length) return storedOutcomes;
+  if (!storedOutcomes.length) return phase2Outcomes;
+
+  const next = storedOutcomes.map((stored) => {
+    const match = pickRichestInterviewOutcome(
+      phase2Outcomes.filter(
+        (entry) =>
+          (stored?.interviewId &&
+            String(entry?.interviewId || '') === String(stored.interviewId)) ||
+          interviewRoundLabelsEquivalent(stored?.roundLabel, entry?.roundLabel)
+      )
+    );
+    if (!match) return stored;
+    return {
+      ...stored,
+      ...match,
+      completedAt: match.completedAt || stored.completedAt || null,
+    };
+  });
+
+  for (const entry of phase2Outcomes) {
+    const exists = next.some(
+      (stored) =>
+        (entry?.interviewId &&
+          String(stored?.interviewId || '') === String(entry.interviewId)) ||
+        interviewRoundLabelsEquivalent(stored?.roundLabel, entry?.roundLabel)
+    );
+    if (!exists) next.push(entry);
+  }
+
+  return next;
+}
+
+function interviewOutcomeNeedsPhase2Backfill(outcome = {}) {
+  return (
+    outcome.technicalScore == null &&
+    outcome.communicationScore == null &&
+    outcome.problemSolvingScore == null &&
+    outcome.cultureFitScore == null &&
+    outcome.experienceMatchScore == null &&
+    !outcome.strengths &&
+    !outcome.weaknesses
+  );
+}
+
+async function fetchPhase2PortalInterviewFeedback({
+  tenantDbName,
+  candidateId,
+  jobId,
+  interviewIds = [],
+}) {
+  const base =
+    process.env.PHASE2_INTERNAL_API_URL ||
+    process.env.PHASE2_API_URL ||
+    process.env.PHASE2_BASE_URL ||
+    'http://localhost:5001';
+  const secret =
+    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+  const url = `${String(base).replace(/\/$/, '')}/api/v1/internal/portal-interview-feedback-lookup`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-phase2-portal-sync-secret': secret,
+    },
+    body: JSON.stringify({
+      tenantDbName,
+      candidateId,
+      jobId,
+      interviewIds,
+      repairPortal: true,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.warn('[Application] Phase2 interview feedback lookup failed:', res.status, text);
+    return [];
+  }
+
+  const payload = await res.json().catch(() => null);
+  return Array.isArray(payload?.data) ? payload.data : [];
+}
+
+async function enrichInterviewOutcomesForPortal({
+  interviewOutcomes,
+  candidateId,
+  jobId,
+  tenantDbName,
+}) {
+  const stored = Array.isArray(interviewOutcomes) ? interviewOutcomes : [];
+  const needsLookup =
+    !stored.length || stored.some((entry) => interviewOutcomeNeedsPhase2Backfill(entry));
+  if (!needsLookup || !tenantDbName || !candidateId || !jobId) {
+    return stored;
+  }
+
+  try {
+    const interviewIds = stored.map((entry) => entry?.interviewId).filter(Boolean);
+    const phase2Outcomes = await fetchPhase2PortalInterviewFeedback({
+      tenantDbName,
+      candidateId,
+      jobId,
+      interviewIds,
+    });
+    return mergePhase2OutcomesIntoPortal(stored, phase2Outcomes);
+  } catch (error) {
+    console.warn(
+      '[Application] Phase2 interview feedback enrich failed:',
+      error?.message || error
+    );
+    return stored;
+  }
+}
+
+function parseRejectionDescriptionText(description) {
+  const text = String(description || '').trim();
+  if (!text) return { reason: null, feedback: null };
+
+  const reasonLine = text.split(/\r?\n/).find((line) => /^reason\s*:/i.test(line.trim()));
+  const feedbackLine = text.split(/\r?\n/).find((line) => /^feedback\s*:/i.test(line.trim()));
+
+  if (reasonLine || feedbackLine) {
+    return {
+      reason: reasonLine ? reasonLine.replace(/^reason\s*:/i, '').trim() || null : null,
+      feedback: feedbackLine ? feedbackLine.replace(/^feedback\s*:/i, '').trim() || null : null,
+    };
+  }
+
+  const legacyParts = text.split(' — ').map((part) => part.trim()).filter(Boolean);
+  if (legacyParts.length >= 2) {
+    return {
+      reason: legacyParts[0] || null,
+      feedback: legacyParts.slice(1).join(' — ') || null,
+    };
+  }
+
+  return { reason: null, feedback: text };
+}
+
+function isRejectedTimelineEntry(row) {
+  const blob = `${row?.status || ''} ${row?.title || ''}`.toLowerCase();
+  return blob.includes('reject') || blob.includes('not selected');
+}
+
+function buildRejectionDetailsForApplication({
+  applicationStatus,
+  statusCode,
+  storedRejection = {},
+  rawTimeline = [],
+}) {
+  const status = String(applicationStatus || '').toLowerCase();
+  const code = String(statusCode || '').toUpperCase();
+  const looksRejected =
+    code === 'REJECTED' || (status.includes('reject') && !status.includes('offer'));
+
+  let reason = storedRejection.reason || null;
+  let feedback = storedRejection.feedback || null;
+  let sharedAt = storedRejection.sharedAt || null;
+
+  const rejectionRows = rawTimeline
+    .filter((row) => isRejectedTimelineEntry(row))
+    .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt));
+
+  const latest = rejectionRows[0];
+  if (latest) {
+    const parsed = parseRejectionDescriptionText(latest.description);
+    reason = reason || parsed.reason || null;
+    feedback = feedback || parsed.feedback || null;
+    sharedAt =
+      sharedAt ||
+      (latest.occurredAt ? new Date(latest.occurredAt).toISOString() : null);
+  }
+
+  if (!reason && !feedback) {
+    return null;
+  }
+
+  return {
+    reason,
+    feedback,
+    sharedAt,
+    title: latest?.title || 'Not selected',
+  };
+}
+
+function applyInterviewOutcomeToRound(round, outcomeEntry = {}) {
+  if (!outcomeEntry || typeof outcomeEntry !== 'object') return round;
+  return {
+    ...round,
+    isCompleted: true,
+    outcome: outcomeEntry.outcome || round.outcome || null,
+    recommendationLabel: outcomeEntry.recommendationLabel || round.recommendationLabel || null,
+    remark: outcomeEntry.remark || outcomeEntry.comments || round.remark || null,
+    comments: outcomeEntry.comments || outcomeEntry.remark || round.comments || null,
+    companyName: outcomeEntry.companyName || round.companyName || null,
+    technicalScore:
+      outcomeEntry.technicalScore != null ? Number(outcomeEntry.technicalScore) : round.technicalScore ?? null,
+    communicationScore:
+      outcomeEntry.communicationScore != null
+        ? Number(outcomeEntry.communicationScore)
+        : round.communicationScore ?? null,
+    problemSolvingScore:
+      outcomeEntry.problemSolvingScore != null
+        ? Number(outcomeEntry.problemSolvingScore)
+        : round.problemSolvingScore ?? null,
+    cultureFitScore:
+      outcomeEntry.cultureFitScore != null ? Number(outcomeEntry.cultureFitScore) : round.cultureFitScore ?? null,
+    experienceMatchScore:
+      outcomeEntry.experienceMatchScore != null
+        ? Number(outcomeEntry.experienceMatchScore)
+        : round.experienceMatchScore ?? null,
+    strengths: outcomeEntry.strengths ?? round.strengths ?? null,
+    weaknesses: outcomeEntry.weaknesses ?? round.weaknesses ?? null,
+    overallRating:
+      outcomeEntry.overallScore != null
+        ? Number(outcomeEntry.overallScore)
+        : outcomeEntry.overallRating != null
+          ? Number(outcomeEntry.overallRating)
+          : round.overallRating ?? null,
+    completedAt: outcomeEntry.completedAt || round.completedAt || null,
+  };
+}
+
+function buildInterviewRoundsFromTimeline(rawTimeline, interviewOutcomes = []) {
   const rows = (rawTimeline || [])
     .filter((item) => String(item?.status || '').toUpperCase() === 'INTERVIEW')
     .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
-  const total = rows.length;
-  return rows.map((item, index) => {
+
+  const scheduledRows = rows.filter((item) => !/interview completed/i.test(String(item.title || '')));
+  const completedRows = rows.filter((item) => /interview completed/i.test(String(item.title || '')));
+  const total = scheduledRows.length;
+
+  const rounds = scheduledRows.map((item, index) => {
     const parsed = parseInterviewDetailsFromDescription(item.description, item.title);
     const fromType = humanizeInterviewTypeLabel(parsed.interviewType);
     const fromRecruiter = humanizeInterviewTypeLabel(parsed.recruiterRound);
@@ -429,8 +788,148 @@ function buildInterviewRoundsFromTimeline(rawTimeline) {
       notes: item.description || null,
       interviewerNames: Array.isArray(parsed.interviewerNames) ? parsed.interviewerNames : [],
       recruiterName: parsed.recruiterName || null,
+      isCompleted: false,
+      outcome: null,
+      remark: null,
+      overallRating: null,
+      completedAt: null,
     };
   });
+
+  for (const item of completedRows) {
+    const parsed = parseInterviewDetailsFromDescription(item.description, item.title);
+    const titleRaw = String(item.title || '').trim();
+    const roundFromTitle = titleRaw.replace(/^interview completed\s*[—-]\s*/i, '').trim();
+    const roundLabel = parsed.explicitRound || roundFromTitle || parsed.recruiterRound || parsed.interviewType || null;
+    const outcomeEntry = {
+      outcome: parsed.outcome,
+      recommendationLabel: parsed.recommendationLabel,
+      remark: parsed.remark,
+      overallRating: parsed.overallRating,
+      technicalScore: parsed.technicalScore,
+      communicationScore: parsed.communicationScore,
+      problemSolvingScore: parsed.problemSolvingScore,
+      cultureFitScore: parsed.cultureFitScore,
+      experienceMatchScore: parsed.experienceMatchScore,
+      strengths: parsed.strengths,
+      weaknesses: parsed.weaknesses,
+      completedAt: item.occurredAt ? new Date(item.occurredAt).toISOString() : null,
+      roundLabel,
+    };
+
+    const matchIdx = rounds.findIndex((round) =>
+      interviewRoundLabelsEquivalent(round.roundLabel, roundLabel)
+    );
+    if (matchIdx >= 0) {
+      rounds[matchIdx] = applyInterviewOutcomeToRound(rounds[matchIdx], outcomeEntry);
+    } else {
+      rounds.push({
+        timelineId: item.id,
+        timelineTitle: titleRaw || 'Interview completed',
+        scheduledAt: item.occurredAt ? new Date(item.occurredAt).toISOString() : null,
+        roundLabel: roundLabel || 'Interview',
+        format: null,
+        meetingLink: null,
+        location: null,
+        notes: item.description || null,
+        interviewerNames: [],
+        recruiterName: null,
+        ...applyInterviewOutcomeToRound({}, outcomeEntry),
+      });
+    }
+  }
+
+  for (const stored of interviewOutcomes) {
+    const roundLabel = stored?.roundLabel || null;
+    if (!roundLabel && !stored?.interviewId) continue;
+    const matchIdx = findInterviewOutcomeMatchIndex(rounds, stored, interviewOutcomes);
+    const outcomeEntry = {
+      interviewId: stored.interviewId ? String(stored.interviewId) : null,
+      outcome: stored.outcome,
+      recommendationLabel: stored.recommendationLabel,
+      remark: stored.remark,
+      comments: stored.comments || stored.remark,
+      overallScore: stored.overallScore,
+      overallRating: stored.overallRating,
+      companyName: stored.companyName,
+      technicalScore: stored.technicalScore,
+      communicationScore: stored.communicationScore,
+      problemSolvingScore: stored.problemSolvingScore,
+      cultureFitScore: stored.cultureFitScore,
+      experienceMatchScore: stored.experienceMatchScore,
+      strengths: stored.strengths,
+      weaknesses: stored.weaknesses,
+      completedAt: stored.completedAt,
+      roundLabel: roundLabel || stored.roundLabel || 'Interview',
+    };
+    if (matchIdx >= 0) {
+      rounds[matchIdx] = applyInterviewOutcomeToRound(rounds[matchIdx], outcomeEntry);
+    } else {
+      rounds.push({
+        timelineId: null,
+        timelineTitle: `Interview completed — ${roundLabel}`,
+        scheduledAt: stored.completedAt || null,
+        roundLabel,
+        format: null,
+        meetingLink: null,
+        location: null,
+        notes: stored.remark || null,
+        interviewerNames: [],
+        recruiterName: null,
+        ...applyInterviewOutcomeToRound({}, outcomeEntry),
+      });
+    }
+  }
+
+  return reconcileInterviewRounds(rounds).sort((a, b) => {
+    const aTime = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+    const bTime = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+    return aTime - bTime;
+  });
+}
+
+/** Merge completed-only rounds onto scheduled rounds when labels differ (e.g. "Interviewing" vs "Technical round"). */
+function reconcileInterviewRounds(rounds) {
+  if (!Array.isArray(rounds) || rounds.length <= 1) return rounds || [];
+
+  const scheduled = rounds.filter((round) => !round.isCompleted);
+  const completed = rounds.filter((round) => round.isCompleted);
+  if (!completed.length) return rounds;
+
+  if (!scheduled.length) {
+    const sorted = [...completed].sort(
+      (a, b) => interviewRoundFeedbackRichness(b) - interviewRoundFeedbackRichness(a)
+    );
+    let merged = { ...sorted[0] };
+    for (let index = 1; index < sorted.length; index += 1) {
+      merged = applyInterviewOutcomeToRound(merged, sorted[index]);
+      merged.meetingLink = merged.meetingLink || sorted[index].meetingLink || null;
+      merged.scheduledAt = merged.scheduledAt || sorted[index].scheduledAt || null;
+      merged.roundLabel = merged.roundLabel || sorted[index].roundLabel || null;
+    }
+    return [merged];
+  }
+
+  const merged = scheduled.map((sched, index) => {
+    const labelMatch = completed.find((comp) =>
+      interviewRoundLabelsEquivalent(sched.roundLabel, comp.roundLabel)
+    );
+    const source = pickRichestInterviewOutcome([labelMatch, completed[index], ...completed]);
+    return source ? applyInterviewOutcomeToRound(sched, source) : sched;
+  });
+
+  for (const comp of completed) {
+    const alreadyMerged = merged.some(
+      (round) =>
+        round.isCompleted &&
+        interviewRoundLabelsEquivalent(round.roundLabel, comp.roundLabel)
+    );
+    if (!alreadyMerged && interviewRoundFeedbackRichness(comp) > 0) {
+      merged.push(comp);
+    }
+  }
+
+  return merged;
 }
 
 function formatSalaryText(job) {
@@ -1395,8 +1894,79 @@ async function getApplicationById(req, res) {
         ? 'REJECTED'
         : application.status;
     const rawTimeline = application.timeline || [];
-    const interviewRounds = buildInterviewRoundsFromTimeline(rawTimeline);
+
+    let offerLetterUrl = null;
+    let offerLetterFileName = null;
+    let offerLetterUploadedAt = null;
+    let offerDetailsText = application.offerDetails || null;
+    let placementId = null;
+    let placementStatus = null;
+    let offerResponse = null;
+    let offerRespondedAt = null;
+    let offerRejectionRemark = null;
+    let offerResentAt = null;
+    let interviewOutcomes = [];
+    let rejectionReason = null;
+    let rejectionFeedback = null;
+    let rejectionSharedAt = null;
+    let joiningDate = null;
+    let reportingToName = null;
+    let reportingToTitle = null;
+    let reportingToEmail = null;
+    let joiningNotes = null;
+    if (application.offerDetails) {
+      try {
+        const parsed = JSON.parse(application.offerDetails);
+        if (parsed && typeof parsed === 'object') {
+          offerLetterUrl = parsed.offerLetterUrl || null;
+          offerLetterFileName = parsed.offerLetterFileName || null;
+          offerLetterUploadedAt = parsed.offerLetterUploadedAt || null;
+          offerDetailsText = parsed.legacyOfferText || null;
+          placementId = parsed.placementId || null;
+          placementStatus = parsed.placementStatus || null;
+          offerResponse = parsed.offerResponse || null;
+          offerRespondedAt = parsed.offerRespondedAt || null;
+          offerRejectionRemark = parsed.offerRejectionRemark || null;
+          offerResentAt = parsed.offerResentAt || null;
+          interviewOutcomes = Array.isArray(parsed.interviewOutcomes) ? parsed.interviewOutcomes : [];
+          rejectionReason = parsed.rejectionReason || null;
+          rejectionFeedback = parsed.rejectionFeedback || null;
+          rejectionSharedAt = parsed.rejectionSharedAt || null;
+          joiningDate = parsed.joiningDate || null;
+          reportingToName = parsed.reportingToName || null;
+          reportingToTitle = parsed.reportingToTitle || null;
+          reportingToEmail = parsed.reportingToEmail || null;
+          joiningNotes = parsed.joiningNotes || null;
+        }
+      } catch {
+        offerDetailsText = application.offerDetails;
+      }
+    }
+
+    let tenantDbName = String(application.job?.tenantDbName || '').trim() || null;
+    if (!tenantDbName) {
+      tenantDbName = String(process.env.PHASE2_DEFAULT_TENANT_DB_NAME || '').trim() || null;
+    }
+
+    interviewOutcomes = await enrichInterviewOutcomesForPortal({
+      interviewOutcomes,
+      candidateId: application.candidateId,
+      jobId: application.jobId,
+      tenantDbName,
+    });
+
+    const interviewRounds = buildInterviewRoundsFromTimeline(rawTimeline, interviewOutcomes);
     const latestInterview = interviewRounds.length ? interviewRounds[interviewRounds.length - 1] : null;
+    const rejectionDetails = buildRejectionDetailsForApplication({
+      applicationStatus: statusLabel,
+      statusCode: responseStatusCode,
+      storedRejection: {
+        reason: rejectionReason,
+        feedback: rejectionFeedback,
+        sharedAt: rejectionSharedAt,
+      },
+      rawTimeline,
+    });
 
     const timeline = rawTimeline.map((item) => ({
       id: item.id,
@@ -1417,47 +1987,6 @@ async function getApplicationById(req, res) {
     console.log(
       `📦 DB fetch result: application-detail | applicationId=${applicationId} | status=${application.status} | timeline=${timeline.length} | communications=${communications.length} | elapsedMs=${Date.now() - startedAt}`
     );
-
-    // `offerDetails` is a String? column reused as a JSON blob to carry both
-    // legacy free-text *and* structured fields written by the CRM
-    // (e.g. offer-letter URL pushed from the recruiter's "Submit to Client"
-    // / Placement creation flow). Parse defensively so older free-text
-    // rows still render.
-    let offerLetterUrl = null;
-    let offerLetterFileName = null;
-    let offerLetterUploadedAt = null;
-    let offerDetailsText = application.offerDetails || null;
-    let placementId = null;
-    let placementStatus = null;
-    let offerResponse = null;
-    let offerRespondedAt = null;
-    let joiningDate = null;
-    let reportingToName = null;
-    let reportingToTitle = null;
-    let reportingToEmail = null;
-    let joiningNotes = null;
-    if (application.offerDetails) {
-      try {
-        const parsed = JSON.parse(application.offerDetails);
-        if (parsed && typeof parsed === 'object') {
-          offerLetterUrl = parsed.offerLetterUrl || null;
-          offerLetterFileName = parsed.offerLetterFileName || null;
-          offerLetterUploadedAt = parsed.offerLetterUploadedAt || null;
-          offerDetailsText = parsed.legacyOfferText || null;
-          placementId = parsed.placementId || null;
-          placementStatus = parsed.placementStatus || null;
-          offerResponse = parsed.offerResponse || null;
-          offerRespondedAt = parsed.offerRespondedAt || null;
-          joiningDate = parsed.joiningDate || null;
-          reportingToName = parsed.reportingToName || null;
-          reportingToTitle = parsed.reportingToTitle || null;
-          reportingToEmail = parsed.reportingToEmail || null;
-          joiningNotes = parsed.joiningNotes || null;
-        }
-      } catch {
-        offerDetailsText = application.offerDetails;
-      }
-    }
 
     return res.json({
       success: true,
@@ -1482,6 +2011,8 @@ async function getApplicationById(req, res) {
         placementStatus,
         offerResponse,
         offerRespondedAt,
+        offerRejectionRemark,
+        offerResentAt,
         joiningDate,
         reportingToName,
         reportingToTitle,
@@ -1490,6 +2021,7 @@ async function getApplicationById(req, res) {
         screeningAnswers: application.screeningAnswers || null,
         interviewRounds,
         interviewDetails: latestInterview,
+        rejectionDetails,
         job: {
           id: application.job.id,
           title: application.job.title,
@@ -1517,7 +2049,7 @@ async function getApplicationById(req, res) {
   }
 }
 
-async function syncPhase2PlacementOfferResponse(candidateId, jobId, decision) {
+async function syncPhase2PlacementOfferResponse(candidateId, jobId, decision, remark) {
   const base =
     process.env.PHASE2_INTERNAL_API_URL ||
     process.env.PHASE2_API_URL ||
@@ -1550,7 +2082,7 @@ async function syncPhase2PlacementOfferResponse(candidateId, jobId, decision) {
       'Content-Type': 'application/json',
       'x-phase2-portal-sync-secret': secret,
     },
-    body: JSON.stringify({ tenantDbName, candidateId, jobId, decision }),
+    body: JSON.stringify({ tenantDbName, candidateId, jobId, decision, remark: remark || undefined }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -1561,19 +2093,32 @@ async function syncPhase2PlacementOfferResponse(candidateId, jobId, decision) {
 
 /**
  * POST /api/applications/detail/:applicationId/offer-response
- * Body: { candidateId, decision: 'accept' | 'reject' }
+ * Body: { candidateId, decision: 'accept' | 'reject', remark?: string }
  */
 async function respondToOfferLetter(req, res) {
   try {
     const { applicationId } = req.params;
     const candidateId = String(req.body?.candidateId || '').trim();
     const decision = String(req.body?.decision || '').trim().toLowerCase();
+    const remark = String(req.body?.remark || '').trim();
 
     if (!applicationId || !candidateId) {
       return res.status(400).json({ success: false, message: 'applicationId and candidateId are required' });
     }
     if (!['accept', 'reject'].includes(decision)) {
       return res.status(400).json({ success: false, message: 'decision must be accept or reject' });
+    }
+    if (decision === 'reject' && !remark) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please share a brief reason for declining the offer',
+      });
+    }
+    if (decision === 'reject' && remark.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Remark must be 2000 characters or fewer',
+      });
     }
 
     const application = await prisma.application.findUnique({
@@ -1600,12 +2145,39 @@ async function respondToOfferLetter(req, res) {
       return res.status(400).json({ success: false, message: 'You have already responded to this offer' });
     }
 
-    const phase2 = await syncPhase2PlacementOfferResponse(candidateId, application.jobId, decision);
+    const phase2 = await syncPhase2PlacementOfferResponse(
+      candidateId,
+      application.jobId,
+      decision,
+      decision === 'reject' ? remark : undefined
+    );
+
+    const isAccept = decision === 'accept';
+    parsed.offerResponse = isAccept ? 'ACCEPTED' : 'REJECTED';
+    parsed.offerRespondedAt = new Date().toISOString();
+    parsed.placementStatus = isAccept ? 'OFFER_ACCEPTED' : 'OFFER_REJECTED';
+    if (!isAccept && remark) {
+      parsed.offerRejectionRemark = remark;
+    }
+    if (phase2?.data?.placementId) {
+      parsed.placementId = String(phase2.data.placementId);
+    }
+
+    await prisma.application.update({
+      where: { id: applicationId },
+      data: { offerDetails: JSON.stringify(parsed) },
+    });
 
     return res.json({
       success: true,
       message: decision === 'accept' ? 'Offer accepted successfully' : 'Offer declined',
-      data: phase2?.data || null,
+      data: {
+        ...(phase2?.data || {}),
+        offerResponse: parsed.offerResponse,
+        offerRespondedAt: parsed.offerRespondedAt,
+        placementStatus: parsed.placementStatus,
+        offerRejectionRemark: parsed.offerRejectionRemark || null,
+      },
     });
   } catch (error) {
     console.error('Error responding to offer:', error);

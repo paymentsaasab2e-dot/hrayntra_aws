@@ -93,6 +93,7 @@ export interface Placement {
   status: PlacementStatus;
   failureReason?: string | null;
   notes?: string | null;
+  candidateOfferRemark?: string | null;
   createdAt: string;
   updatedAt: string;
   auditMeta?: AuditMeta;

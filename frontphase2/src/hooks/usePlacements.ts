@@ -16,7 +16,9 @@ import {
   apiMarkPlacementFailed,
   apiMarkPlacementJoined,
   apiRequestPlacementReplacement,
+  apiResendPlacementOffer,
   apiSchedulePlacementJoining,
+  apiUndoPlacement,
 } from '../lib/api';
 import { PLACEMENT_FORM_JOBS_PARAMS } from '../lib/myJobsListParams';
 import type {
@@ -241,6 +243,24 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           await apiSchedulePlacementJoining(id, payload);
+          await fetchData();
+        } finally {
+          setSubmitting(false);
+        }
+      },
+      async undoPlacement(id: string) {
+        setSubmitting(true);
+        try {
+          await apiUndoPlacement(id);
+          await fetchData();
+        } finally {
+          setSubmitting(false);
+        }
+      },
+      async resendPlacementOffer(id: string, offerLetter?: File | null) {
+        setSubmitting(true);
+        try {
+          await apiResendPlacementOffer(id, offerLetter);
           await fetchData();
         } finally {
           setSubmitting(false);

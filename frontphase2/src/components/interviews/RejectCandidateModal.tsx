@@ -202,7 +202,7 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
                       <div className="min-w-0 pr-2">
                         <p className="text-sm font-medium text-slate-800">Share feedback with candidate</p>
                         <p className="mt-1 text-xs text-slate-500">
-                          When on, the feedback above appears on the candidate's job-portal application timeline. Internal records are kept either way.
+                          When on, the reject reason and feedback above appear on the candidate's job-portal application timeline. Internal records are kept either way.
                         </p>
                       </div>
                       <FormSwitch

@@ -21,6 +21,7 @@ import {
 } from '../app/Task&Activites/types';
 import { apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, apiGetTaskAssignableMembers, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
 import { clampDateToMinLocal, getLocalDateInputMinToday, getLocalTimeInputMinNow, isLocalDateTimeNotPast } from '../utils/dateInputConstraints';
+import { CrossDepartmentAssignSection } from './team/CrossDepartmentAssignSection';
 
 const DEFAULT_FORM_VALUES: TaskFormValues = {
   title: '',
@@ -130,7 +131,7 @@ export function TaskForm({
           if (mappedAssignees.length > 0) {
             setAssignees(mappedAssignees);
           }
-          if (mode === 'create' && !values.assigneeId) {
+          if (mode === 'create' && !values.assigneeId && !values.crossDepartmentRequest) {
             const raw = typeof window !== 'undefined' ? localStorage.getItem('currentUser') : null;
             if (raw) {
               try {
@@ -251,7 +252,11 @@ export function TaskForm({
     if (!values.title.trim()) return false;
     if (!values.relatedTo) return false;
     if (values.relatedTo !== 'Internal' && !values.relatedEntityId) return false;
-    if (!values.assigneeId) return false;
+    if (values.crossDepartmentRequest) {
+      if (!values.targetDepartmentId) return false;
+    } else if (!values.assigneeId) {
+      return false;
+    }
     if (!values.priority) return false;
     if (!values.dueDate) return false;
     if (mode === 'edit' && values.status === undefined) return false;
@@ -385,6 +390,24 @@ export function TaskForm({
           )}
         </div>
 
+        <CrossDepartmentAssignSection
+          enabled={Boolean(values.crossDepartmentRequest)}
+          onEnabledChange={(crossDepartmentRequest) =>
+            onChange({
+              ...values,
+              crossDepartmentRequest,
+              assigneeId: crossDepartmentRequest ? '' : values.assigneeId,
+              targetDepartmentId: crossDepartmentRequest ? values.targetDepartmentId : '',
+              targetMemberId: crossDepartmentRequest ? values.targetMemberId : '',
+            })
+          }
+          targetDepartmentId={values.targetDepartmentId || ''}
+          targetMemberId={values.targetMemberId || ''}
+          onDepartmentChange={(targetDepartmentId) => onChange({ ...values, targetDepartmentId })}
+          onMemberChange={(targetMemberId) => onChange({ ...values, targetMemberId })}
+        />
+
+        {!values.crossDepartmentRequest ? (
         <TaskAssignmentField
           value={values.assigneeId}
           onChange={(assigneeId) => onChange({ ...values, assigneeId })}
@@ -399,6 +422,7 @@ export function TaskForm({
           required
           searchLoading={loadingEntities}
         />
+        ) : null}
 
         {mode === 'edit' && (
           <div>
@@ -572,7 +596,17 @@ export function TaskForm({
           onClick={onSubmit}
           className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isSubmitting ? (mode === 'create' ? 'Creating...' : 'Saving...') : mode === 'create' ? 'Create Task' : 'Save Changes'}
+          {isSubmitting
+            ? values.crossDepartmentRequest && mode === 'create'
+              ? 'Sending...'
+              : mode === 'create'
+                ? 'Creating...'
+                : 'Saving...'
+            : values.crossDepartmentRequest && mode === 'create'
+              ? 'Send request'
+              : mode === 'create'
+                ? 'Create Task'
+                : 'Save Changes'}
         </button>
       </div>
     </div>

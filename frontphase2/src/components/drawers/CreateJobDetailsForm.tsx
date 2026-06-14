@@ -75,6 +75,13 @@ interface CreateJobDetailsFormProps {
   setSkillInput: (value: string) => void;
   onAddSkill: () => void;
   onRemoveSkill: (index: number) => void;
+  /** Standalone tenants use an internal workspace company — hide client picker. */
+  hideCompanyField?: boolean;
+  standaloneWorkspaceName?: string;
+  /** Standalone / request flow: job is owned by a Line Manager. */
+  useLineManagerPicker?: boolean;
+  lineManagerOptions?: BackendUser[];
+  loadingLineManagers?: boolean;
 }
 
 const inputClass =
@@ -230,10 +237,17 @@ export function CreateJobDetailsForm({
   setSkillInput,
   onAddSkill,
   onRemoveSkill,
+  hideCompanyField = false,
+  standaloneWorkspaceName,
+  useLineManagerPicker = false,
+  lineManagerOptions = [],
+  loadingLineManagers = false,
 }: CreateJobDetailsFormProps) {
+  const managerOptions = useLineManagerPicker ? lineManagerOptions : users;
+  const loadingManagerOptions = useLineManagerPicker ? loadingLineManagers : loadingUsers;
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
   const selectedRecruiter = users.find((u) => u.id === formData.assignedToId);
-  const selectedManager = users.find((u) => u.id === formData.managerId);
+  const selectedManager = managerOptions.find((u) => u.id === formData.managerId);
   const selectedContact =
     contacts.find((c) => c.id === formData.contactPersonId) ||
     contacts.find(
@@ -397,51 +411,102 @@ export function CreateJobDetailsForm({
         </select>
       </div>
 
-      <DropdownField
-        label="Client"
-        required
-        placeholder="Select client"
-        valueLabel={selectedCompany?.companyName}
-        openKey="company"
-        dropdownsOpen={dropdownsOpen}
-        setDropdownsOpen={setDropdownsOpen}
-        searchable
-        searchQuery={clientSearch}
-        onSearchQueryChange={setClientSearch}
-        searchPlaceholder="Search companies…"
-        labelAction={visibilityAction('client')}
-      >
-        {loadingClients ? (
-          <li className="px-4 py-2 text-sm text-slate-500">Loading…</li>
-        ) : clients.length === 0 ? (
-          <li className="px-4 py-2 text-sm text-slate-500">No companies found</li>
-        ) : filteredClients.length === 0 ? (
-          <li className="px-4 py-2 text-sm text-slate-500">No companies match your search</li>
-        ) : (
-          filteredClients.map((client) => (
-            <li key={client.id}>
-              <button
-                type="button"
-                onClick={() => {
-                  patchForm({
-                    companyId: client.id,
-                    contactPersonId: '',
-                    contactPersonName: '',
-                  });
-                  setClientSearch('');
-                  setDropdownsOpen((prev) => ({ ...prev, company: false }));
-                }}
-                className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                  formData.companyId === client.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                }`}
-              >
-                {client.companyName}
-              </button>
-            </li>
-          ))
-        )}
-      </DropdownField>
+      {hideCompanyField ? (
+        <div className="rounded-xl border border-indigo-100/80 bg-indigo-50/40 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700/70">
+            Organization
+          </p>
+          <p className="mt-1 text-sm font-medium text-slate-800">
+            {standaloneWorkspaceName || selectedCompany?.companyName || 'Your organization'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Standalone mode uses your internal workspace for hiring — no client selection needed.
+          </p>
+        </div>
+      ) : (
+        <DropdownField
+          label="Client"
+          required
+          placeholder="Select client"
+          valueLabel={selectedCompany?.companyName}
+          openKey="company"
+          dropdownsOpen={dropdownsOpen}
+          setDropdownsOpen={setDropdownsOpen}
+          searchable
+          searchQuery={clientSearch}
+          onSearchQueryChange={setClientSearch}
+          searchPlaceholder="Search companies…"
+          labelAction={visibilityAction('client')}
+        >
+          {loadingClients ? (
+            <li className="px-4 py-2 text-sm text-slate-500">Loading…</li>
+          ) : clients.length === 0 ? (
+            <li className="px-4 py-2 text-sm text-slate-500">No companies found</li>
+          ) : filteredClients.length === 0 ? (
+            <li className="px-4 py-2 text-sm text-slate-500">No companies match your search</li>
+          ) : (
+            filteredClients.map((client) => (
+              <li key={client.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    patchForm({
+                      companyId: client.id,
+                      contactPersonId: '',
+                      contactPersonName: '',
+                    });
+                    setClientSearch('');
+                    setDropdownsOpen((prev) => ({ ...prev, company: false }));
+                  }}
+                  className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                    formData.companyId === client.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
+                  }`}
+                >
+                  {client.companyName}
+                </button>
+              </li>
+            ))
+          )}
+        </DropdownField>
+      )}
 
+      {useLineManagerPicker ? (
+        <DropdownField
+          label="Line Manager"
+          required
+          placeholder="Select line manager"
+          valueLabel={selectedManager?.name}
+          openKey="manager"
+          dropdownsOpen={dropdownsOpen}
+          setDropdownsOpen={setDropdownsOpen}
+        >
+          {loadingManagerOptions ? (
+            <li className="px-4 py-2 text-sm text-slate-500">Loading line managers…</li>
+          ) : managerOptions.length === 0 ? (
+            <li className="px-4 py-2 text-sm text-slate-500">No line managers found</li>
+          ) : (
+            managerOptions.map((user) => (
+              <li key={user.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    patchForm({ managerId: user.id });
+                    setDropdownsOpen((prev) => ({ ...prev, manager: false }));
+                  }}
+                  className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                    formData.managerId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
+                  }`}
+                >
+                  <span className="block font-medium">{user.name}</span>
+                  <span className="block text-xs text-slate-500 truncate">{user.email}</span>
+                </button>
+              </li>
+            ))
+          )}
+        </DropdownField>
+      ) : null}
+
+      {!hideCompanyField ? (
       <DropdownField
         label="Contact Person (optional)"
         labelAction={visibilityAction('contactPerson')}
@@ -499,6 +564,7 @@ export function CreateJobDetailsForm({
           </>
         )}
       </DropdownField>
+      ) : null}
 
       <div>
         <FieldLabelRow label="No of Positions" required labelAction={visibilityAction('openings')} />
@@ -801,6 +867,7 @@ export function CreateJobDetailsForm({
         ) : null}
       </div>
 
+      {!useLineManagerPicker ? (
       <DropdownField
         label="Assign Manager"
         placeholder="Select manager"
@@ -809,7 +876,7 @@ export function CreateJobDetailsForm({
         dropdownsOpen={dropdownsOpen}
         setDropdownsOpen={setDropdownsOpen}
       >
-        {loadingUsers ? (
+        {loadingManagerOptions ? (
           <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
         ) : (
           <>
@@ -825,7 +892,7 @@ export function CreateJobDetailsForm({
                 Unassigned
               </button>
             </li>
-            {users.map((user) => (
+            {managerOptions.map((user) => (
               <li key={user.id}>
                 <button
                   type="button"
@@ -845,6 +912,7 @@ export function CreateJobDetailsForm({
           </>
         )}
       </DropdownField>
+      ) : null}
 
       <div>
         <label className={labelClass}>

@@ -4,6 +4,10 @@ import {
   PIPELINE_STAGES,
   resolveJobPipelineStageForRole,
   updateCandidateStage,
+  mapFeedbackRecommendationForPortal,
+  mapFeedbackRecommendationLabelForPortal,
+  resolveInterviewRoundLabelForPortal,
+  syncApplicationInterviewFeedback,
 } from '../stage/candidateStage.service.js';
 import { notifyJobPortalApplication } from '../setting/alert-notify.helpers.js';
 import { placementService } from '../placement/placement.service.js';
@@ -493,7 +497,13 @@ export async function applyPortalWithdrawSync({ tenantDbName, candidateId, jobId
 }
 
 /** Candidate accepted/declined offer on Phase 1 — update tenant placement row. */
-export async function applyPlacementOfferResponse({ tenantDbName, candidateId, jobId, decision }) {
+export async function applyPlacementOfferResponse({
+  tenantDbName,
+  candidateId,
+  jobId,
+  decision,
+  remark,
+}) {
   const tdb = String(tenantDbName || '').trim();
   if (!tdb) throw new Error('tenantDbName is required');
   const candId = String(candidateId || '').trim();
@@ -501,6 +511,124 @@ export async function applyPlacementOfferResponse({ tenantDbName, candidateId, j
   if (!candId || !jId) throw new Error('candidateId and jobId are required');
 
   return runWithTenantContext(tdb, async () =>
-    placementService.respondToPortalOffer({ candidateId: candId, jobId: jId, decision })
+    placementService.respondToPortalOffer({ candidateId: candId, jobId: jId, decision, remark })
   );
+}
+
+function mapInterviewFeedbackToPortalOutcome(feedback) {
+  const interview = feedback?.interview || {};
+  return {
+    interviewId: feedback.interviewId,
+    roundLabel: resolveInterviewRoundLabelForPortal(interview),
+    outcome: mapFeedbackRecommendationForPortal(feedback.recommendation),
+    recommendationLabel: mapFeedbackRecommendationLabelForPortal(feedback.recommendation),
+    remark: feedback.comments || null,
+    comments: feedback.comments || null,
+    overallScore: feedback.overallScore ?? null,
+    companyName: interview?.job?.client?.companyName || null,
+    technicalScore: feedback.technicalScore ?? null,
+    communicationScore: feedback.communicationScore ?? null,
+    problemSolvingScore: feedback.problemSolvingScore ?? null,
+    cultureFitScore: feedback.cultureFitScore ?? null,
+    experienceMatchScore: feedback.experienceMatchScore ?? null,
+    strengths: feedback.strengths || null,
+    weaknesses: feedback.weakness || null,
+    completedAt: feedback.createdAt ? new Date(feedback.createdAt).toISOString() : null,
+  };
+}
+
+/** Return full interview feedback for Phase 1 portal display; optionally repair portal offerDetails. */
+export async function lookupPortalInterviewFeedback({
+  tenantDbName,
+  candidateId,
+  jobId,
+  interviewIds = [],
+  repairPortal = true,
+}) {
+  const tdb = String(tenantDbName || '').trim();
+  const candId = String(candidateId || '').trim();
+  const jId = String(jobId || '').trim();
+  if (!tdb || !candId || !jId) {
+    throw new Error('tenantDbName, candidateId, and jobId are required');
+  }
+
+  const requestedIds = Array.isArray(interviewIds)
+    ? interviewIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+
+  const outcomes = await runWithTenantContext(tdb, async () => {
+    const where = {
+      interview: {
+        candidateId: candId,
+        jobId: jId,
+      },
+    };
+    if (requestedIds.length) {
+      where.interviewId = { in: requestedIds };
+    }
+
+    const rows = await prisma.interviewFeedback.findMany({
+      where,
+      include: {
+        interview: {
+          include: {
+            job: {
+              include: {
+                client: {
+                  select: { companyName: true },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const seen = new Set();
+    const mapped = [];
+    for (const row of rows) {
+      const key = String(row.interviewId || '');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      mapped.push(mapInterviewFeedbackToPortalOutcome(row));
+    }
+    return mapped;
+  });
+
+  if (repairPortal && outcomes.length) {
+    for (const outcome of outcomes) {
+      try {
+        await syncApplicationInterviewFeedback(candId, jId, {
+          interviewId: outcome.interviewId,
+          roundLabel: outcome.roundLabel,
+          recommendation:
+            String(outcome.recommendationLabel || '').toUpperCase() === 'PASS'
+              ? 'PASS'
+              : String(outcome.recommendationLabel || '').toUpperCase() === 'REJECT'
+                ? 'REJECT'
+                : 'HOLD',
+          comments: outcome.comments,
+          overallScore: outcome.overallScore,
+          companyName: outcome.companyName,
+          technicalScore: outcome.technicalScore,
+          communicationScore: outcome.communicationScore,
+          problemSolvingScore: outcome.problemSolvingScore,
+          cultureFitScore: outcome.cultureFitScore,
+          experienceMatchScore: outcome.experienceMatchScore,
+          strengths: outcome.strengths,
+          weaknesses: outcome.weaknesses,
+          submittedAt: outcome.completedAt,
+          skipTimeline: true,
+        });
+      } catch (repairErr) {
+        console.warn(
+          '[portal-sync] interview feedback repair failed:',
+          repairErr?.message || repairErr
+        );
+      }
+    }
+  }
+
+  return outcomes;
 }

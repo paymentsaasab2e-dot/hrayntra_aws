@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown } from 'lucide-react';
+import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown, ArrowRightLeft } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../constants/tableUi';
 import { TableBrandAvatar } from './ui/TableBrandAvatar';
 import type { Client } from '@/app/client/types';
@@ -24,6 +24,10 @@ interface ClientTableProps {
   onCreateJob?: (client: Client) => void;
   /** When false, the "Create job" button is rendered disabled with a permission tooltip. */
   canCreateJob?: boolean;
+  /** @deprecated Prefer passing `onHandoffClient` only when the user may hand off. */
+  canHandoffClient?: boolean;
+  /** When provided, shows the hand-off action in the row toolbar. */
+  onHandoffClient?: (client: Client) => void;
   /** Org status catalog (defaults + custom). */
   clientStatusOptions?: string[];
   /** When true, client status is editable inline in the table. */
@@ -61,6 +65,7 @@ export function ClientTable({
   onLogoUpdated,
   onCreateJob,
   canCreateJob = true,
+  onHandoffClient,
   clientStatusOptions = [],
   canUpdateClientStatus = false,
   onClientStatusChange,
@@ -314,6 +319,16 @@ export function ClientTable({
                     >
                       <Briefcase size={15} strokeWidth={2.35} />
                     </button>
+                    {onHandoffClient ? (
+                      <button
+                        type="button"
+                        onClick={() => onHandoffClient(client)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-violet-600 hover:bg-white hover:text-violet-800 hover:shadow-sm transition-all"
+                        title="Hand off to another department"
+                      >
+                        <ArrowRightLeft size={15} strokeWidth={2.35} />
+                      </button>
+                    ) : null}
                     {onDeleteClient && (
                       <button
                         type="button"

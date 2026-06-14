@@ -232,7 +232,7 @@ export async function getDepartmentReportingManagers(req, res) {
  */
 export async function createDepartment(req, res) {
   try {
-    const { name, description, roles } = req.body;
+    const { name, description, roles, allowsCrossDepartmentRequests } = req.body;
 
     // Validation
     if (!name) {
@@ -269,6 +269,7 @@ export async function createDepartment(req, res) {
       data: {
         name,
         description,
+        allowsCrossDepartmentRequests: Boolean(allowsCrossDepartmentRequests),
       },
     });
 
@@ -324,7 +325,7 @@ export async function createDepartment(req, res) {
 export async function updateDepartment(req, res) {
   try {
     const { id } = req.params;
-    const { name, description, roles } = req.body;
+    const { name, description, roles, allowsCrossDepartmentRequests } = req.body;
     const scopedWhere = await buildAccessibleDepartmentWhere(req);
     if (scopedWhere?.OR?.length) {
       const existingScoped = await prisma.department.findFirst({
@@ -372,6 +373,9 @@ export async function updateDepartment(req, res) {
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
+    if (allowsCrossDepartmentRequests !== undefined) {
+      updateData.allowsCrossDepartmentRequests = Boolean(allowsCrossDepartmentRequests);
+    }
 
     // Update department
     await prisma.department.update({

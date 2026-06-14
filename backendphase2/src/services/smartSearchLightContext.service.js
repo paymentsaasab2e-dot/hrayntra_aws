@@ -128,7 +128,7 @@ export async function loadJobsSmartSearchLightContext(req) {
 }
 
 export async function loadClientsSmartSearchLightContext(req) {
-  const where = buildClientsListScopeWhere(req);
+  const where = await buildClientsListScopeWhere(req);
   const tenantDbName = getActiveTenantDbName() || String(req?.user?.tenantDbName || '').trim();
   const totalClients = await prisma.client.count({ where });
 

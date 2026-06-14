@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
-import { Download, Eye, FileText, X } from 'lucide-react';
+import { Download, Eye, FileText, Undo2, X } from 'lucide-react';
 import { apiGetPlacement } from '../../lib/api';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import {
@@ -25,6 +25,9 @@ interface PlacementDetailsDrawerProps {
   canUpdate?: boolean;
   onStatusChange?: (placement: Placement, status: PlacementStatus) => Promise<void>;
   onScheduleJoining?: (placement: Placement) => void;
+  onUndo?: (placement: Placement) => Promise<void>;
+  onResendOffer?: (placement: Placement) => void;
+  onRejectOfferCandidate?: (placement: Placement) => void;
 }
 
 export function PlacementDetailsDrawer({
@@ -34,6 +37,9 @@ export function PlacementDetailsDrawer({
   canUpdate = false,
   onStatusChange,
   onScheduleJoining,
+  onUndo,
+  onResendOffer,
+  onRejectOfferCandidate,
 }: PlacementDetailsDrawerProps) {
   usePageDrawerLifecycle(isOpen);
   const [placement, setPlacement] = useState<Placement | null>(null);
@@ -222,6 +228,42 @@ export function PlacementDetailsDrawer({
                       </div>
                     ) : null}
 
+                    {canUpdate && onUndo && placement.status !== 'JOINED' ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onUndo(placement)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100"
+                        >
+                          <Undo2 className="h-4 w-4" />
+                          Undo placement
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {canUpdate && placement.status === 'OFFER_REJECTED' ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {onResendOffer ? (
+                          <button
+                            type="button"
+                            onClick={() => onResendOffer(placement)}
+                            className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                          >
+                            Resend offer letter
+                          </button>
+                        ) : null}
+                        {onRejectOfferCandidate ? (
+                          <button
+                            type="button"
+                            onClick={() => onRejectOfferCandidate(placement)}
+                            className="rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+                          >
+                            Reject candidate
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     {placement.reportingToName ? (
                       <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/80 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Reporting contact</p>
@@ -260,11 +302,25 @@ export function PlacementDetailsDrawer({
                         </div>
                         {placement.notes ? (
                           <div className="mt-4 rounded-xl bg-[#F9FAFB] p-4">
-                            <p className="text-sm font-medium text-[#111827]">Remarks</p>
+                            <p className="text-sm font-medium text-[#111827]">Internal remarks</p>
                             <p className="mt-1 text-sm text-[#4B5563]">{placement.notes}</p>
                           </div>
                         ) : null}
                       </section>
+
+                      {placement.candidateOfferRemark ? (
+                        <section className="rounded-2xl border border-red-100 bg-white p-6 shadow-sm">
+                          <h4 className="text-lg font-semibold text-[#111827]">Candidate remarks</h4>
+                          <p className="mt-1 text-sm text-[#6B7280]">
+                            Reason shared by the candidate when declining the offer on the job portal.
+                          </p>
+                          <div className="mt-4 rounded-xl border border-red-100 bg-red-50/60 p-4">
+                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#7F1D1D]">
+                              {placement.candidateOfferRemark}
+                            </p>
+                          </div>
+                        </section>
+                      ) : null}
 
                       <section className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
                         <EntityAuditSummary audit={placement.auditMeta} className="mb-4" />

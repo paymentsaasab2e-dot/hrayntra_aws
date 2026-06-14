@@ -1,6 +1,8 @@
 import { leadService } from './lead.service.js';
 import { leadNoteService } from './lead-note.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
+import { isDepartmentHeadUser } from '../../services/departmentRole.service.js';
 import * as XLSX from 'xlsx';
 import {
   filterMeaningfulImportColumns,
@@ -233,6 +235,18 @@ export const leadController = {
 
   async convertToClient(req, res) {
     try {
+      const isHead = await isDepartmentHeadUser(req.user.id);
+      const isSuperAdmin =
+        req.userWithPermissions?.isSuperAdmin ||
+        String(req.user?.role || '').toUpperCase().includes('SUPER');
+      if (!isHead && !isSuperAdmin) {
+        return sendError(
+          res,
+          403,
+          'Submit a conversion request for your department head to approve. Direct conversion is for department heads only.',
+        );
+      }
+
       // Log the received request body in JSON format
       console.log('\n=== CONVERT TO CLIENT REQUEST RECEIVED ===');
       console.log(JSON.stringify({
@@ -364,6 +378,29 @@ export const leadController = {
     try {
       const result = await leadNoteService.delete(req.params.noteId);
       sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getAssignableMembers(req, res) {
+    try {
+      const members = await listCrmAssigneeCandidates(req.user.id);
+      sendResponse(res, 200, 'Assignable members retrieved', members);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getConversionCapabilities(req, res) {
+    try {
+      const isHead = await isDepartmentHeadUser(req.user.id);
+      const isSuperAdmin =
+        req.userWithPermissions?.isSuperAdmin ||
+        String(req.user?.role || '').toUpperCase().includes('SUPER');
+      sendResponse(res, 200, 'Conversion capabilities retrieved', {
+        canDirectConvert: Boolean(isHead || isSuperAdmin),
+      });
     } catch (error) {
       sendError(res, 500, error.message, error);
     }

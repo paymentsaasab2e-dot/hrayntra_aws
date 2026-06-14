@@ -19,25 +19,39 @@ function normalizeRole(value?: string): string {
     .replace(/[\s_-]+/g, ' ');
 }
 
+function normalizePermissionList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((perm: unknown) => {
+      if (typeof perm === 'string') return perm.trim();
+      if (perm && typeof (perm as { permissionName?: string }).permissionName === 'string') {
+        return String((perm as { permissionName: string }).permissionName).trim();
+      }
+      if (perm && typeof (perm as { name?: string }).name === 'string') {
+        return String((perm as { name: string }).name).trim();
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
 function readUserData(): UserData {
   if (typeof window === 'undefined') return {};
   try {
     const currentUser = window.localStorage.getItem('currentUser');
     if (!currentUser) return {};
     const user = JSON.parse(currentUser);
-    const rawPermissions =
-      user?.permissions ||
-      JSON.parse(window.localStorage.getItem('userPermissions') || '[]');
-    const normalizedPermissions = Array.isArray(rawPermissions)
-      ? rawPermissions
-          .map((perm: unknown) => {
-            if (typeof perm === 'string') return perm;
-            if (perm && typeof (perm as any).permissionName === 'string') return (perm as any).permissionName;
-            if (perm && typeof (perm as any).name === 'string') return (perm as any).name;
-            return '';
-          })
-          .filter(Boolean)
-      : [];
+    const fromUser = normalizePermissionList(user?.permissions);
+    let fromStorage: string[] = [];
+    try {
+      fromStorage = normalizePermissionList(
+        JSON.parse(window.localStorage.getItem('userPermissions') || '[]'),
+      );
+    } catch {
+      fromStorage = [];
+    }
+    // Merge both stores — currentUser.permissions can be stale after an admin edits the role.
+    const normalizedPermissions = Array.from(new Set([...fromUser, ...fromStorage]));
     return {
       role: user?.role || '',
       roleName: user?.roleName || '',

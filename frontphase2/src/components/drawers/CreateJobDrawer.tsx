@@ -31,9 +31,11 @@ import {
   apiGetJob,
   getJobPreScreenAssessments,
   apiGetClients,
+  apiGetWorkspaceClient,
   apiGetClient,
   apiGetContacts,
   apiGenerateJobDescription,
+  apiGenerateJobFromPrompt,
   apiProcessJobCreationPipeline,
   type JobCreationPipelineResult,
   apiUploadJobFile,
@@ -45,12 +47,14 @@ import {
   apiGetJobApplyLink,
   type SocialPublishingAccount,
   getTenantDbName,
+  getCachedOrgRecruitmentMode,
   type CreateJobData,
   type BackendClient,
   type BackendContact,
   type BackendUser,
 } from '../../lib/api';
-import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { getAllTeamMembersForAssign, getLineManagersForJobPicker, linkTeamRequestToJob, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import type { TeamRequestJobPrefill } from '../../types/team';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LinkedInPostPreview } from '../LinkedInPostPreview';
 import { TwitterPostPreview } from '../TwitterPostPreview';
@@ -206,6 +210,105 @@ function extractLabeledPromptValue(text: string, labels: string[]): string {
   return '';
 }
 
+function extractJobSectionTextFromHtml(html: string, sectionTitle: string): string {
+  if (!html || typeof window === 'undefined') return '';
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const headings = Array.from(doc.querySelectorAll('h2, h3, h4'));
+    const heading = headings.find((node) =>
+      (node.textContent || '').trim().toLowerCase().includes(sectionTitle.toLowerCase()),
+    );
+    if (!heading) return '';
+
+    const chunks: string[] = [];
+    let cursor = heading.nextElementSibling;
+    while (cursor && !['H2', 'H3', 'H4'].includes(cursor.tagName)) {
+      if (cursor.tagName === 'LI') {
+        const text = (cursor.textContent || '').trim();
+        if (text) chunks.push(text);
+      } else if (cursor.tagName === 'UL' || cursor.tagName === 'OL') {
+        cursor.querySelectorAll('li').forEach((li) => {
+          const text = (li.textContent || '').trim();
+          if (text) chunks.push(text);
+        });
+      } else {
+        const text = (cursor.textContent || '').trim();
+        if (text) chunks.push(text);
+      }
+      cursor = cursor.nextElementSibling;
+    }
+    return chunks.join('\n');
+  } catch {
+    return '';
+  }
+}
+
+function hydrateJobListFieldsFromPipelineResult(data: JobCreationPipelineResult): {
+  keyResponsibilitiesText: string;
+  qualificationsExperienceText: string;
+  candidateRequirementsText: string;
+  compensationBenefitsText: string;
+} {
+  const html = String(data.jobDescriptionHtml || '').trim();
+  const pick = (value: string | undefined, ...sectionTitles: string[]) => {
+    const direct = String(value || '').trim();
+    if (direct) return direct;
+    for (const title of sectionTitles) {
+      const fromHtml = extractJobSectionTextFromHtml(html, title);
+      if (fromHtml.trim()) return fromHtml.trim();
+    }
+    return '';
+  };
+
+  const qualificationsParts = [
+    pick(data.qualificationsExperienceText, 'requirements', 'requirement'),
+    extractJobSectionTextFromHtml(html, 'preferred qualifications'),
+    extractJobSectionTextFromHtml(html, 'preferred qualification'),
+    extractJobSectionTextFromHtml(html, 'qualifications'),
+    extractJobSectionTextFromHtml(html, 'education'),
+  ].filter(Boolean);
+
+  let candidateRequirementsText = pick(
+    data.candidateRequirementsText,
+    'candidate requirements',
+    'additional requirements',
+  );
+  if (!candidateRequirementsText) {
+    const fallbackLines = [
+      data.educationalQualification,
+      data.educationalSpecialization,
+      data.minExperience != null && data.maxExperience != null && data.minExperience > 0
+        ? `${data.minExperience}–${data.maxExperience} years of relevant experience`
+        : data.minExperience != null && data.minExperience > 0
+          ? `At least ${data.minExperience} years of relevant experience`
+          : '',
+      data.nationality ? `Nationality: ${data.nationality}` : '',
+      data.country ? `Eligible to work in ${data.country}` : '',
+    ].filter((line): line is string => Boolean(String(line || '').trim()));
+    candidateRequirementsText = fallbackLines.join('\n');
+  }
+
+  return {
+    keyResponsibilitiesText: pick(
+      data.keyResponsibilitiesText,
+      'key responsibilities',
+      'responsibilities',
+    ),
+    qualificationsExperienceText:
+      qualificationsParts.length > 0
+        ? qualificationsParts.join('\n')
+        : pick(data.qualificationsExperienceText, 'qualifications', 'qualification'),
+    candidateRequirementsText,
+    compensationBenefitsText: pick(
+      data.compensationBenefitsText,
+      'benefits',
+      'compensation',
+      'perks',
+    ),
+  };
+}
+
 function inferJobTitleFromPrompt(prompt: string): string {
   const labeled = extractLabeledPromptValue(prompt, ['role', 'job title', 'position']);
   if (labeled) return labeled;
@@ -214,6 +317,8 @@ function inferJobTitleFromPrompt(prompt: string): string {
   if (!cleanPrompt) return '';
 
   const patterns = [
+    /(?:creat|create|generate|write|make)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+?)(?:\s+in\s+[A-Za-z]|\s+with\s+salary|\s+for\s+salary|\s+salary\s+|\s+only\s+for|,|$)/i,
+    /(?:hiring|looking\s+for|need)\s+(?:an?\s+)?(.+?)(?:\s+in\s+[A-Za-z]|\s+with\s+salary|\s+for\s+salary|,|$)/i,
     /(?:creat|create|generate|write|make)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+)/i,
     /(?:for|of)\s+(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
     /^(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
@@ -410,9 +515,28 @@ function normalizeEmploymentTypeValue(value: string): string {
   return '';
 }
 
-function parseSalaryHint(raw: string): { currency: string; min: string; max: string } {
+function parseSalaryHint(raw: string, contextText = ''): { currency: string; min: string; max: string } {
   const text = String(raw || '').trim();
-  if (!text) return { currency: '', min: '', max: '' };
+  const blob = `${text} ${String(contextText || '')}`.trim();
+  if (!text && !blob) return { currency: '', min: '', max: '' };
+
+  const inferCurrency = () => {
+    if (/\bINR\b/i.test(blob) || /\bIndia\b/i.test(blob) || /\b₹\b/.test(blob) || /\bLPA\b/i.test(blob)) {
+      return 'INR';
+    }
+    if (/\bUSD\b/i.test(blob) || /\$/.test(blob)) return 'USD';
+    return '';
+  };
+
+  const kRange = blob.match(/(\d+(?:\.\d+)?)\s*k\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)\s*k/i);
+  if (kRange) {
+    return {
+      currency: inferCurrency() || 'INR',
+      min: String(Math.round(Number(kRange[1]) * 1000)),
+      max: String(Math.round(Number(kRange[2]) * 1000)),
+    };
+  }
+
   const currencyMatch = text.match(/\b(INR|USD|EUR|GBP|AED|SAR|CAD|AUD)\b/i);
   const currency = normalizeJobSalaryCurrency(currencyMatch?.[1] || '');
   const range = text.match(/(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)/i);
@@ -424,6 +548,36 @@ function parseSalaryHint(raw: string): { currency: string; min: string; max: str
     return { currency, min: single[1], max: '' };
   }
   return { currency, min: '', max: '' };
+}
+
+function inferSalaryFromNaturalPrompt(prompt: string): string {
+  const labeled = extractLabeledPromptValue(prompt, ['salary', 'compensation', 'ctc', 'pay', 'package']);
+  if (labeled) return labeled;
+  const patterns = [
+    /salary\s+(?:is\s+)?(\d+\s*k\s*(?:to|-|–)\s*\d+\s*k)/i,
+    /(\d+\s*k\s*(?:to|-|–)\s*\d+\s*k)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = prompt.match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+  return '';
+}
+
+function inferCityFromNaturalPrompt(prompt: string): string {
+  const labeled = extractLabeledPromptValue(prompt, ['location', 'job location', 'work location', 'city']);
+  if (labeled) {
+    const parsed = parseJobLocationFromText(labeled);
+    return parsed.city || labeled.split(',')[0]?.trim() || '';
+  }
+  const inCity = prompt.match(
+    /\bin\s+([A-Za-z][A-Za-z\s]{1,40}?)(?:\s*,|\s+for\s+|\s+with\s+|\s+salary|\s+only\s+for|,|$)/i,
+  );
+  if (inCity?.[1]) {
+    const candidate = inCity[1].trim();
+    if (!/^(india|the|a|an|only)$/i.test(candidate)) return candidate;
+  }
+  return '';
 }
 
 function parseJobPromptHints(prompt: string, clients: BackendClient[]): JobPromptHints {
@@ -444,9 +598,14 @@ function parseJobPromptHints(prompt: string, clients: BackendClient[]): JobPromp
   hints.companyName = extractLabeledPromptValue(prompt, ['company', 'client', 'employer']);
   hints.companyId = resolveClientIdByCompanyName(hints.companyName, clients);
   hints.nationality = extractLabeledPromptValue(prompt, ['nationality']);
+  if (!hints.nationality && /\b(?:only\s+for\s+)?India\b/i.test(prompt)) hints.nationality = 'Indian';
   hints.industryType = extractLabeledPromptValue(prompt, ['industry', 'industry type', 'domain']);
 
   hints.location = extractLabeledPromptValue(prompt, ['location', 'job location', 'work location']);
+  if (!hints.location) {
+    const inferredCity = inferCityFromNaturalPrompt(prompt);
+    if (inferredCity) hints.location = inferredCity;
+  }
   if (hints.location) {
     const parsed = parseJobLocationFromText(hints.location);
     hints.city = parsed.city;
@@ -456,11 +615,20 @@ function parseJobPromptHints(prompt: string, clients: BackendClient[]): JobPromp
     hints.location = parsed.jobLocation;
   }
 
-  if (!hints.country && /\bIndia\b/i.test(prompt)) hints.country = 'India';
+  if (!hints.city) {
+    const inferredCity = inferCityFromNaturalPrompt(prompt);
+    if (inferredCity) hints.city = inferredCity;
+  }
+  if (!hints.country && /\b(?:only\s+for\s+)?India\b/i.test(prompt)) hints.country = 'India';
   if (!hints.country && /\bUnited States\b|\bUSA\b|\bUS\b/i.test(prompt)) hints.country = 'United States';
+  if (hints.city && hints.country && !hints.location) {
+    hints.location = [hints.city, hints.state, hints.country].filter(Boolean).join(', ');
+  }
 
-  hints.salary = extractLabeledPromptValue(prompt, ['salary', 'compensation', 'ctc', 'pay']);
-  const salaryParts = parseSalaryHint(hints.salary);
+  hints.salary =
+    extractLabeledPromptValue(prompt, ['salary', 'compensation', 'ctc', 'pay']) ||
+    inferSalaryFromNaturalPrompt(prompt);
+  const salaryParts = parseSalaryHint(hints.salary, prompt);
   hints.salaryCurrency = salaryParts.currency;
   hints.payRangeMin = salaryParts.min;
   hints.payRangeMax = salaryParts.max;
@@ -539,6 +707,8 @@ export interface CreateJobDrawerProps {
   onJobUpdated?: (jobId: string) => void | Promise<void>;
   /** When opening “Add job” from a client, pre-select this client (company) in the form */
   defaultClientId?: string | null;
+  /** Standalone: pre-fill job fields from an approved team request */
+  prefillFromRequest?: TeamRequestJobPrefill | null;
 }
 
 interface AccordionSection {
@@ -584,16 +754,21 @@ export function CreateJobDrawer({
   duplicateFromJobId = null,
   onJobUpdated,
   defaultClientId = null,
+  prefillFromRequest = null,
 }: CreateJobDrawerProps) {
   usePageDrawerLifecycle(isOpen);
   const isEditMode = !!jobId;
   const isDuplicateMode = !jobId && !!duplicateFromJobId;
+  const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
+  const useLineManagerPicker = (isStandaloneMode || !!prefillFromRequest) && !isEditMode;
   const [loading, setLoading] = useState(false);
   const [loadingJob, setLoadingJob] = useState(false);
   const [clients, setClients] = useState<BackendClient[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [users, setUsers] = useState<BackendUser[]>([]);
+  const [lineManagers, setLineManagers] = useState<BackendUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingLineManagers, setLoadingLineManagers] = useState(false);
   const [contacts, setContacts] = useState<JobContactPersonOption[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -959,6 +1134,47 @@ export function CreateJobDrawer({
   }, [isOpen, defaultClientId, jobId, duplicateFromJobId]);
 
   useEffect(() => {
+    if (!isOpen || jobId || duplicateFromJobId || !prefillFromRequest) return;
+
+    const priorityMap: Record<string, string> = {
+      high: 'High',
+      medium: 'Medium',
+      low: 'Low',
+    };
+    const subject = String(prefillFromRequest.subject || '').trim();
+    const description = String(prefillFromRequest.description || '').trim();
+    const priority = priorityMap[String(prefillFromRequest.priority || 'medium').toLowerCase()] || 'Medium';
+    const summaryParts = [
+      description,
+      prefillFromRequest.requestedByName
+        ? `Requested by ${prefillFromRequest.requestedByName}.`
+        : '',
+    ].filter(Boolean);
+
+    setFormData((prev) => ({
+      ...prev,
+      jobTitle: subject || prev.jobTitle,
+      jobSummary: summaryParts.join('\n\n'),
+      keyResponsibilitiesText: description || prev.keyResponsibilitiesText,
+      priority,
+      jobDescriptionHtml: subject
+        ? `<h2>${subject}</h2>${description ? `<p>${description.replace(/\n/g, '</p><p>')}</p>` : ''}`
+        : prev.jobDescriptionHtml,
+    }));
+    setAccordions((prev) =>
+      prev.map((section) =>
+        section.id === 'details' ? { ...section, isOpen: true } : section,
+      ),
+    );
+
+    if (prefillFromRequest.requestedById) {
+      setFormData((prev) =>
+        prev.managerId ? prev : { ...prev, managerId: prefillFromRequest.requestedById || '' },
+      );
+    }
+  }, [isOpen, jobId, duplicateFromJobId, prefillFromRequest]);
+
+  useEffect(() => {
     if (!isOpen || !formData.companyId) {
       setContacts([]);
       return;
@@ -1004,14 +1220,20 @@ export function CreateJobDrawer({
   useEffect(() => {
     if (isOpen) {
       const loadData = async () => {
-        await Promise.all([loadClients(), loadUsers(), loadSocialStatus()]);
+        const lineManagerSeed = prefillFromRequest?.requestedById;
+        await Promise.all([
+          loadClients(),
+          loadUsers(),
+          useLineManagerPicker ? loadLineManagers(lineManagerSeed) : Promise.resolve(),
+          loadSocialStatus(),
+        ]);
         if (jobId || duplicateFromJobId) {
           await loadJobData(jobId || duplicateFromJobId || undefined);
         }
       };
-      loadData();
+      void loadData();
     }
-  }, [isOpen, jobId, duplicateFromJobId]);
+  }, [isOpen, jobId, duplicateFromJobId, useLineManagerPicker, prefillFromRequest?.requestedById]);
 
   const mapIntegrationAccounts = useCallback(
     (accounts: Array<Record<string, unknown>> = []): SocialPublishingAccount[] =>
@@ -1605,6 +1827,22 @@ export function CreateJobDrawer({
   const loadClients = async () => {
     try {
       setLoadingClients(true);
+
+      if (isStandaloneMode) {
+        const response = await apiGetWorkspaceClient();
+        const payload = (response as { data?: { workspaceClient?: BackendClient | null } })?.data;
+        const workspaceClient = payload?.workspaceClient;
+        if (workspaceClient?.id) {
+          setClients([workspaceClient]);
+          setFormData((prev) =>
+            prev.companyId ? prev : { ...prev, companyId: workspaceClient.id },
+          );
+        } else {
+          setClients([]);
+        }
+        return;
+      }
+
       const response = await apiGetClients({});
       let backendClients: BackendClient[] = [];
       if (response.data) {
@@ -1634,6 +1872,24 @@ export function CreateJobDrawer({
       setUsers([]);
     } finally {
       setLoadingUsers(false);
+    }
+  };
+
+  const loadLineManagers = async (includeUserId?: string) => {
+    try {
+      setLoadingLineManagers(true);
+      const managers = await getLineManagersForJobPicker(includeUserId);
+      setLineManagers(managers);
+      if (includeUserId && managers.some((user) => user.id === includeUserId)) {
+        setFormData((prev) =>
+          prev.managerId ? prev : { ...prev, managerId: includeUserId },
+        );
+      }
+    } catch (err) {
+      console.error('Failed to load line managers:', err);
+      setLineManagers([]);
+    } finally {
+      setLoadingLineManagers(false);
     }
   };
 
@@ -2069,72 +2325,6 @@ export function CreateJobDrawer({
     }
   };
 
-  const handleSmartJobProcess = useCallback(async () => {
-    const input = smartJobPrompt.trim();
-    const fileText = smartJobFileText.trim();
-
-    if (!input && !fileText) {
-      setSmartJobError('Paste job details or attach a JD file first.');
-      return;
-    }
-
-    setSmartJobError('');
-
-    const combinedPrompt = [
-      input,
-      fileText ? `Job description (from file):\n${fileText}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n\n')
-      .trim();
-
-    try {
-      const hints = parseJobPromptHints(combinedPrompt, clients);
-      if (!hints.targetHireDate) hints.targetHireDate = defaultTargetHireDateIso();
-
-      const resolvedJobTitle =
-        hints.jobTitle || inferJobTitleFromPrompt(combinedPrompt);
-      if (!resolvedJobTitle) {
-        setSmartJobError('Add a Role or Job Title line (e.g. Role: Senior React Developer) and try again.');
-        return;
-      }
-      if (!hints.jobTitle) hints.jobTitle = resolvedJobTitle;
-
-      const assistResult = await handleAiAssist(
-        combinedPrompt,
-        {
-          jobTitle: resolvedJobTitle,
-          openings: hints.openings,
-          companyId: hints.companyId,
-          location: hints.location,
-          salary: hints.salary,
-          qualification: hints.qualification,
-          workMode: hints.workMode,
-        },
-        hints,
-      );
-
-      if (!assistResult?.form) {
-        setSmartJobError('Could not fill job details. Check your prompt and try again.');
-        return;
-      }
-
-      const nextForm = assistResult.form;
-      setSmartJobError('');
-
-      setAccordions((prev) =>
-        prev.map((section) => ({
-          ...section,
-          isOpen: section.id === 'details',
-        })),
-      );
-
-      setSmartJobPrompt('');
-    } catch (error: any) {
-      setSmartJobError(error?.message || 'Failed to process job details.');
-    }
-  }, [smartJobPrompt, smartJobFileText, handleAiAssist, clients]);
-
   const handleJobDescriptionPaste = useCallback(
     (event: React.ClipboardEvent<HTMLDivElement>) => {
       const pastedText = event.clipboardData?.getData('text/plain')?.trim() || '';
@@ -2225,10 +2415,13 @@ export function CreateJobDrawer({
 
   const applyJobPipelineResult = useCallback(
     (prev: typeof formData, data: JobCreationPipelineResult): typeof formData => {
-      const currency = normalizeJobSalaryCurrency(data.salaryCurrency || prev.currency);
+      const currency = normalizeJobSalaryCurrency(
+        data.salaryCurrency || (data.country === 'India' ? 'INR' : prev.currency),
+      );
+      const listFields = hydrateJobListFieldsFromPipelineResult(data);
       return {
         ...prev,
-        nationality: data.nationality || prev.nationality,
+        nationality: data.nationality?.trim() ? data.nationality : prev.nationality,
         jobTitle: data.jobTitle || prev.jobTitle,
         priority: data.priority || prev.priority,
         companyId: data.companyId || prev.companyId,
@@ -2260,12 +2453,14 @@ export function CreateJobDrawer({
         skills: data.skills?.length ? data.skills : prev.skills,
         jobDescriptionHtml: data.jobDescriptionHtml || prev.jobDescriptionHtml,
         jobSummary: data.jobSummary || prev.jobSummary,
-        keyResponsibilitiesText: data.keyResponsibilitiesText || prev.keyResponsibilitiesText,
+        keyResponsibilitiesText:
+          listFields.keyResponsibilitiesText || prev.keyResponsibilitiesText,
         qualificationsExperienceText:
-          data.qualificationsExperienceText || prev.qualificationsExperienceText,
+          listFields.qualificationsExperienceText || prev.qualificationsExperienceText,
         candidateRequirementsText:
-          data.candidateRequirementsText || prev.candidateRequirementsText,
-        compensationBenefitsText: data.compensationBenefitsText || prev.compensationBenefitsText,
+          listFields.candidateRequirementsText || prev.candidateRequirementsText,
+        compensationBenefitsText:
+          listFields.compensationBenefitsText || prev.compensationBenefitsText,
         educationalQualification: data.educationalQualification || prev.educationalQualification,
         educationalSpecialization:
           data.educationalSpecialization || prev.educationalSpecialization,
@@ -2273,6 +2468,114 @@ export function CreateJobDrawer({
     },
     [],
   );
+
+  const handleSmartJobProcess = useCallback(async () => {
+    const input = smartJobPrompt.trim();
+    const fileText = smartJobFileText.trim();
+
+    if (!input && !fileText) {
+      setSmartJobError('Paste job details or attach a JD file first.');
+      return;
+    }
+
+    setSmartJobError('');
+
+    const combinedPrompt = [
+      input,
+      fileText ? `Job description (from file):\n${fileText}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+
+    setAiGenerating(true);
+    try {
+      const response = await apiGenerateJobFromPrompt({
+        prompt: combinedPrompt,
+        currentForm: {
+          nationality: formData.nationality,
+          jobTitle: formData.jobTitle,
+          priority: formData.priority,
+          companyId: formData.companyId,
+          numberOfOpenings: formData.numberOfOpenings,
+          country: formData.country,
+          state: formData.state,
+          city: formData.city,
+          industryType: formData.industryType,
+          employmentType: formData.employmentType,
+          targetHireDate: formData.targetHireDate,
+          skills: formData.skills,
+        },
+      });
+
+      const data = response.data;
+      if (!data?.jobTitle) {
+        throw new Error('Could not extract a job title from your prompt.');
+      }
+
+      const matchedCompanyId =
+        data.companyId || resolveClientIdByCompanyName(data.companyName || '', clients);
+      const merged = { ...data, companyId: matchedCompanyId || data.companyId };
+
+      setPipelineDetectedCompanyName(merged.companyName || '');
+      setFormData((prev) => applyJobPipelineResult(prev, merged));
+      setAccordions((prev) =>
+        prev.map((section) => ({
+          ...section,
+          isOpen: section.id === 'details',
+        })),
+      );
+      setSmartJobPrompt('');
+    } catch (error: any) {
+      console.warn('[CreateJobDrawer] full prompt pipeline failed, falling back:', error);
+
+      try {
+        const hints = parseJobPromptHints(combinedPrompt, clients);
+        if (!hints.targetHireDate) hints.targetHireDate = defaultTargetHireDateIso();
+
+        const resolvedJobTitle =
+          hints.jobTitle || inferJobTitleFromPrompt(combinedPrompt);
+        if (!resolvedJobTitle) {
+          setSmartJobError('Add a role or job title (e.g. "create job for Frontend Developer in Mumbai").');
+          return;
+        }
+        if (!hints.jobTitle) hints.jobTitle = resolvedJobTitle;
+
+        const assistResult = await handleAiAssist(
+          combinedPrompt,
+          {
+            jobTitle: resolvedJobTitle,
+            openings: hints.openings,
+            companyId: hints.companyId,
+            location: hints.location,
+            salary: hints.salary,
+            qualification: hints.qualification,
+            workMode: hints.workMode,
+          },
+          hints,
+        );
+
+        if (!assistResult?.form) {
+          setSmartJobError(error?.message || 'Could not fill job details. Check your prompt and try again.');
+          return;
+        }
+
+        setAccordions((prev) =>
+          prev.map((section) => ({
+            ...section,
+            isOpen: section.id === 'details',
+          })),
+        );
+        setSmartJobPrompt('');
+      } catch (fallbackErr: any) {
+        setSmartJobError(
+          fallbackErr?.message || error?.message || 'Failed to process job details.',
+        );
+      }
+    } finally {
+      setAiGenerating(false);
+    }
+  }, [smartJobPrompt, smartJobFileText, handleAiAssist, clients, formData, applyJobPipelineResult]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2517,9 +2820,29 @@ export function CreateJobDrawer({
       void requestWarning('Job Title is required');
       return;
     }
-    if (!formData.companyId) {
-      void requestWarning('Company is required');
-      return;
+    let resolvedCompanyId = formData.companyId;
+    if (!resolvedCompanyId) {
+      if (isStandaloneMode) {
+        try {
+          const response = await apiGetWorkspaceClient();
+          const workspaceClient = (response as { data?: { workspaceClient?: BackendClient | null } })
+            ?.data?.workspaceClient;
+          if (workspaceClient?.id) {
+            resolvedCompanyId = workspaceClient.id;
+            setFormData((prev) => ({ ...prev, companyId: workspaceClient.id }));
+            setClients([workspaceClient]);
+          } else {
+            void requestWarning('Workspace company is not ready. Please try again.');
+            return;
+          }
+        } catch {
+          void requestWarning('Workspace company is not ready. Please try again.');
+          return;
+        }
+      } else {
+        void requestWarning('Company is required');
+        return;
+      }
     }
     if (!formData.numberOfOpenings) {
       void requestWarning('Number of Openings is required');
@@ -2531,6 +2854,10 @@ export function CreateJobDrawer({
     }
     if (!formData.targetHireDate) {
       void requestWarning('Target Hire Date is required');
+      return;
+    }
+    if (useLineManagerPicker && !formData.managerId) {
+      void requestWarning('Line Manager is required');
       return;
     }
 
@@ -2612,7 +2939,7 @@ export function CreateJobDrawer({
         title: formData.jobTitle,
         description: formData.jobDescriptionHtml.trim() || composedDescription,
         overview: formData.jobSummary || undefined,
-        clientId: formData.companyId,
+        clientId: resolvedCompanyId,
         openings: parseInt(formData.numberOfOpenings) || 1,
         // Core job fields
         type: mapJobType(formData.employmentType || formData.jobType),
@@ -2707,6 +3034,13 @@ export function CreateJobDrawer({
       } else {
         const response = await apiCreateJob(jobData);
         createdJobId = (response as any).data?.id || (response as any).data?.data?.id || (response as any).id;
+        if (prefillFromRequest?.requestId && createdJobId) {
+          try {
+            await linkTeamRequestToJob(prefillFromRequest.requestId, createdJobId);
+          } catch (linkError) {
+            console.warn('[CreateJobDrawer] Failed to link request to job:', linkError);
+          }
+        }
         onJobCreated?.();
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('jobportal:jobs-changed'));
@@ -3197,6 +3531,16 @@ export function CreateJobDrawer({
                       setSkillInput={setSkillInput}
                       onAddSkill={addSkill}
                       onRemoveSkill={removeSkill}
+                      hideCompanyField={isStandaloneMode}
+                      standaloneWorkspaceName={
+                        isStandaloneMode
+                          ? clients.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ||
+                            'Your organization'
+                          : undefined
+                      }
+                      useLineManagerPicker={useLineManagerPicker}
+                      lineManagerOptions={lineManagers}
+                      loadingLineManagers={loadingLineManagers}
                     />
 
                     <CreateJobPhase1Preview

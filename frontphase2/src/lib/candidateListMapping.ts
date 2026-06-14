@@ -38,6 +38,7 @@ function stageRank(stage: string): number {
   if (s.includes('reject')) return 70;
   if (s.includes('hire') || s.includes('placed') || s.includes('joined')) return 60;
   if (s.includes('offer')) return 50;
+  if (s.includes('interview') && s.includes('complet')) return 45;
   if (s.includes('interview')) return 40;
   if (s.includes('screen') || s.includes('short') || s.includes('long') || s.includes('submit')) return 30;
   if (s.includes('applied') || s.includes('apply')) return 20;
@@ -59,12 +60,31 @@ function mergeStages(...stages: Array<string | null | undefined>): string {
   return best;
 }
 
-function hasActiveInterview(c: BackendCandidate): boolean {
+const TERMINAL_INTERVIEW_STATUSES = new Set(['CANCELLED', 'CANCELED', 'REJECTED', 'NO_SHOW']);
+const COMPLETED_INTERVIEW_STATUSES = new Set(['COMPLETED', 'FEEDBACK_SUBMITTED']);
+
+function normalizeInterviewStatus(row: { status?: string }): string {
+  return String(row?.status || 'SCHEDULED').toUpperCase();
+}
+
+function isRelevantInterview(row: { status?: string }): boolean {
+  return !TERMINAL_INTERVIEW_STATUSES.has(normalizeInterviewStatus(row));
+}
+
+function hasUpcomingInterview(c: BackendCandidate): boolean {
   const interviews = Array.isArray(c.interviews) ? c.interviews : [];
   return interviews.some((row) => {
-    const status = String((row as { status?: string }).status || 'SCHEDULED').toUpperCase();
-    return !['CANCELLED', 'CANCELED', 'REJECTED'].includes(status);
+    const status = normalizeInterviewStatus(row);
+    if (TERMINAL_INTERVIEW_STATUSES.has(status)) return false;
+    return !COMPLETED_INTERVIEW_STATUSES.has(status);
   });
+}
+
+function hasCompletedInterviewOnly(c: BackendCandidate): boolean {
+  const interviews = Array.isArray(c.interviews) ? c.interviews : [];
+  const relevant = interviews.filter(isRelevantInterview);
+  if (!relevant.length) return false;
+  return relevant.every((row) => COMPLETED_INTERVIEW_STATUSES.has(normalizeInterviewStatus(row)));
 }
 
 function hasFreshSubmittedApplication(c: BackendCandidate): boolean {
@@ -101,26 +121,39 @@ function explicitStageLooksJobLinked(stage: string): boolean {
 export function resolveCandidateListStage(c: BackendCandidate): string {
   const backendStage = String(c.stage || '').trim();
   const hasTenantJob = candidateHasRealJobAssignment(c);
+  const explicit = backendStage;
+  const explicitLower = explicit.toLowerCase();
+  const upcomingInterview = hasUpcomingInterview(c);
+  const interviewCompletedOnly = hasCompletedInterviewOnly(c);
+
+  if (interviewCompletedOnly && !upcomingInterview) {
+    const merged = mergeStages(explicit, 'Interview completed');
+    if (hasTenantJob || explicitLower !== 'new' || explicit) {
+      return merged || 'Interview completed';
+    }
+  }
+
+  if (upcomingInterview) {
+    const merged = mergeStages(explicit, 'Interviewing');
+    if (hasTenantJob || explicitLower !== 'new' || explicit) {
+      return merged || 'Interviewing';
+    }
+  }
 
   if (backendStage && backendStage.toLowerCase() !== 'new') {
     if (hasTenantJob || !explicitStageLooksJobLinked(backendStage)) {
+      if (
+        interviewCompletedOnly &&
+        (explicitLower === 'interviewing' || explicitLower === 'interview')
+      ) {
+        return 'Interview completed';
+      }
       return backendStage;
     }
   }
 
-  const explicit = backendStage;
-  const explicitLower = explicit.toLowerCase();
-  const interviewing = hasActiveInterview(c);
-
   if (c.isJobAppliedCandidate === true) {
     return explicit && explicitLower !== 'new' ? explicit : 'Applied';
-  }
-
-  if (interviewing) {
-    const merged = mergeStages(explicit, 'Interviewing');
-    if (hasTenantJob || explicitLower !== 'new') {
-      return merged || 'Interviewing';
-    }
   }
 
   if (explicit && explicitLower !== 'new') {

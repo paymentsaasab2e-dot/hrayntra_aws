@@ -13,6 +13,9 @@ import type {
   LoginHistory,
   UserActivity,
   TeamMemberStats,
+  TeamRequest,
+  CreateTeamRequestPayload,
+  UpdateTeamRequestPayload,
 } from '../../types/team';
 import { buildFallbackPermissionsMap } from '../../components/team/permissionCatalog';
 
@@ -193,6 +196,83 @@ export async function getAllTeamMembersForDirectory(): Promise<TeamMember[]> {
   } catch {
     return getAllTeamMembersPaginated(true);
   }
+}
+
+/**
+ * Active team members with the Line Manager role (for standalone job ownership).
+ */
+export async function getLineManagersForJobPicker(includeUserId?: string): Promise<BackendUser[]> {
+  const includeId = String(includeUserId || '').trim();
+  const attempts: Array<() => Promise<TeamMember[]>> = [
+    () => getAllTeamMembersPaginated(true),
+    () => getAllTeamMembersPaginated(false),
+    async () => {
+      const res = await getTeamMembers({ limit: TEAM_LIST_MAX_PAGE_SIZE, page: 1, roleName: 'Line Manager' });
+      return res.data || [];
+    },
+  ];
+
+  let members: TeamMember[] = [];
+  for (const attempt of attempts) {
+    try {
+      const loaded = await attempt();
+      if (loaded.length > 0) {
+        members = loaded;
+        break;
+      }
+    } catch {
+      // Try next source.
+    }
+  }
+
+  const active = members.filter((member) => member.status !== 'INACTIVE');
+  const pool = active.length > 0 ? active : members;
+
+  let lineManagers = pool.filter(
+    (member) => String(member.role?.roleName || '').trim().toLowerCase() === 'line manager',
+  );
+
+  if (!lineManagers.length) {
+    lineManagers = pool;
+  }
+
+  if (includeId) {
+    const requestedMember = pool.find((member) => String(member.id) === includeId);
+    if (requestedMember && !lineManagers.some((member) => member.id === requestedMember.id)) {
+      lineManagers = [requestedMember, ...lineManagers];
+    }
+  }
+
+  return teamMembersToBackendUsers(lineManagers);
+}
+
+/**
+ * Team members for the Request “Send to” picker — same source as `/team`, with
+ * assignable-list fallback when the user lacks full directory read permissions.
+ */
+export async function getTeamMembersForRequestPicker(): Promise<TeamMember[]> {
+  const attempts: Array<() => Promise<TeamMember[]>> = [
+    () => getAllTeamMembersPaginated(true),
+    () => getAllTeamMembersPaginated(false),
+    async () => {
+      const res = await getTeamMembers({ limit: TEAM_LIST_MAX_PAGE_SIZE, page: 1 });
+      return res.data || [];
+    },
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const members = await attempt();
+      if (members.length > 0) {
+        const active = members.filter((member) => member.status !== 'INACTIVE');
+        return active.length > 0 ? active : members;
+      }
+    } catch {
+      // Try the next source.
+    }
+  }
+
+  return [];
 }
 
 /**
@@ -684,6 +764,7 @@ export async function createDepartment(payload: {
   name: string;
   description?: string;
   roles?: DepartmentRoleInput[];
+  allowsCrossDepartmentRequests?: boolean;
 }) {
   const path = buildPath('/departments');
   const headers = getTeamAuthHeaders();
@@ -707,7 +788,7 @@ export async function createDepartment(payload: {
  */
 export async function updateDepartment(
   id: string,
-  payload: { name?: string; description?: string; roles?: DepartmentRoleInput[] },
+  payload: { name?: string; description?: string; roles?: DepartmentRoleInput[]; allowsCrossDepartmentRequests?: boolean },
 ) {
   const path = buildPath(`/departments/${id}`);
   const headers = getTeamAuthHeaders();
@@ -946,4 +1027,420 @@ export async function getTeamStats() {
   };
   
   return stats;
+}
+
+export const TEAM_REQUESTS_UPDATED_EVENT = 'hrayntra:team-requests-updated';
+
+function notifyTeamRequestsUpdated() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(TEAM_REQUESTS_UPDATED_EVENT));
+}
+
+async function teamRequestsFetch<T = unknown>(suffix: string, options: RequestInit = {}): Promise<T> {
+  const path = buildPath(`/team/requests${suffix}`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    ...options,
+    headers: {
+      ...getTeamAuthHeaders(),
+      ...(options.headers || {}),
+    },
+    cache: 'no-store',
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json?.success === false) {
+    throw new Error(json?.message || `Request failed with status ${res.status}`);
+  }
+
+  return json as T;
+}
+
+export type TeamRequestUserIdentity = {
+  id?: string;
+  email?: string;
+  name?: string;
+};
+
+export function getCurrentUserRequestIdentity(): TeamRequestUserIdentity {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem('currentUser');
+    if (!raw) return {};
+    const user = JSON.parse(raw) as Record<string, unknown>;
+    const firstName = String(user.firstName || '').trim();
+    const lastName = String(user.lastName || '').trim();
+    const name =
+      String(user.name || '').trim() ||
+      [firstName, lastName].filter(Boolean).join(' ') ||
+      String(user.email || '').trim();
+    return {
+      id: String(user.id || user.userId || '').trim() || undefined,
+      email: String(user.email || '').trim().toLowerCase() || undefined,
+      name: name || undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function normalizeEmail(value: unknown) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeArrayTeamRequests(payload: unknown): TeamRequest[] {
+  if (Array.isArray(payload)) return payload as TeamRequest[];
+  if (payload && typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>;
+    if (Array.isArray(obj.data)) return obj.data as TeamRequest[];
+  }
+  return [];
+}
+
+/**
+ * List team requests submitted by users in this workspace.
+ */
+export async function getTeamRequests(): Promise<{ data: TeamRequest[]; success: boolean }> {
+  const json = await teamRequestsFetch<{ data?: TeamRequest[]; success: boolean }>('?box=sent');
+  return { data: normalizeArrayTeamRequests(json.data), success: true };
+}
+
+/**
+ * Submit a new team request.
+ */
+export async function createTeamRequest(
+  payload: CreateTeamRequestPayload,
+): Promise<{ data: TeamRequest; success: boolean }> {
+  const subject = String(payload.subject || '').trim();
+  const description = String(payload.description || '').trim();
+  const sendToId = String(payload.sendToId || '').trim();
+  const sendToName = String(payload.sendToName || '').trim();
+  if (!sendToId) throw new Error('Send to is required');
+  if (!sendToName) throw new Error('Send to is required');
+  if (!subject) throw new Error('Subject is required');
+  if (!description) throw new Error('Description is required');
+
+  const json = await teamRequestsFetch<{ data: TeamRequest; success: boolean }>('', {
+    method: 'POST',
+    body: JSON.stringify({
+      sendToId,
+      sendToName,
+      sendToEmail: normalizeEmail(payload.sendToEmail) || undefined,
+      subject,
+      description,
+      priority: payload.priority || 'medium',
+    }),
+  });
+
+  notifyTeamRequestsUpdated();
+  return { data: json.data, success: true };
+}
+
+/**
+ * Outgoing requests created by the signed-in user.
+ */
+export async function getTeamRequestsForSender(options?: {
+  currentUser?: TeamRequestUserIdentity;
+  viewAll?: boolean;
+}): Promise<{ data: TeamRequest[]; success: boolean }> {
+  const params = new URLSearchParams({ box: 'sent' });
+  if (options?.viewAll) params.set('all', 'true');
+
+  const json = await teamRequestsFetch<{ data?: TeamRequest[]; success: boolean }>(`?${params.toString()}`);
+  const data = normalizeArrayTeamRequests(json.data);
+
+  return {
+    data: [...data].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    ),
+    success: true,
+  };
+}
+
+/**
+ * Requests awaiting action by the signed-in user (sent to them only).
+ */
+export async function getTeamRequestsForApproval(options?: {
+  currentUser?: TeamRequestUserIdentity;
+  viewAll?: boolean;
+}): Promise<{ data: TeamRequest[]; success: boolean }> {
+  const params = new URLSearchParams({ box: 'inbox' });
+
+  const json = await teamRequestsFetch<{ data?: TeamRequest[]; success: boolean }>(`?${params.toString()}`);
+  const data = normalizeArrayTeamRequests(json.data);
+
+  return {
+    data: [...data].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    ),
+    success: true,
+  };
+}
+
+/**
+ * Approve, reject, or cancel a team request.
+ */
+export async function updateTeamRequestStatus(
+  id: string,
+  payload: UpdateTeamRequestPayload,
+): Promise<{ data: TeamRequest; success: boolean }> {
+  const requestId = String(id || '').trim();
+  if (!requestId) throw new Error('Request id is required');
+
+  const status = payload.status;
+  if (!['approved', 'rejected', 'cancelled'].includes(status)) {
+    throw new Error('Invalid request status');
+  }
+
+  const json = await teamRequestsFetch<{ data: TeamRequest; success: boolean }>(
+    `/${encodeURIComponent(requestId)}/status`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status,
+        reviewNote: String(payload.reviewNote || '').trim() || undefined,
+      }),
+    },
+  );
+
+  notifyTeamRequestsUpdated();
+  return { data: json.data, success: true };
+}
+
+/**
+ * Permanently remove a team request.
+ */
+export async function deleteTeamRequest(id: string): Promise<{ success: boolean }> {
+  const requestId = String(id || '').trim();
+  if (!requestId) throw new Error('Request id is required');
+
+  await teamRequestsFetch(`/${encodeURIComponent(requestId)}`, {
+    method: 'DELETE',
+  });
+
+  notifyTeamRequestsUpdated();
+  return { success: true };
+}
+
+/**
+ * Link an approved team request to a created job (standalone hiring flow).
+ */
+export async function linkTeamRequestToJob(
+  requestId: string,
+  jobId: string,
+): Promise<{ data: TeamRequest; success: boolean }> {
+  const id = String(requestId || '').trim();
+  const linkedJobId = String(jobId || '').trim();
+  if (!id) throw new Error('Request id is required');
+  if (!linkedJobId) throw new Error('Job id is required');
+
+  const json = await teamRequestsFetch<{ data: TeamRequest; success: boolean }>(
+    `/${encodeURIComponent(id)}/link-job`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ jobId: linkedJobId }),
+    },
+  );
+
+  notifyTeamRequestsUpdated();
+  return { data: json.data, success: true };
+}
+
+export const CROSS_DEPT_REQUESTS_UPDATED_EVENT = 'hrayntra:cross-dept-requests-updated';
+
+function notifyCrossDeptRequestsUpdated() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(CROSS_DEPT_REQUESTS_UPDATED_EVENT));
+}
+
+async function crossDeptFetch<T = unknown>(suffix: string, options: RequestInit = {}): Promise<T> {
+  const path = buildPath(`/cross-dept-requests${suffix}`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    ...options,
+    headers: {
+      ...getTeamAuthHeaders(),
+      ...(options.headers || {}),
+    },
+    cache: 'no-store',
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json?.success === false) {
+    throw new Error(json?.message || `Request failed with status ${res.status}`);
+  }
+
+  return json as T;
+}
+
+export type CrossDeptTargetMember = {
+  id: string;
+  name: string;
+  email?: string;
+  roleId?: string;
+  roleName?: string | null;
+  isDepartmentHead?: boolean;
+};
+
+export type CrossDeptTargetDepartment = {
+  id: string;
+  name: string;
+  headRoleId?: string | null;
+  members: CrossDeptTargetMember[];
+};
+
+export type CrossDepartmentWorkRequest = {
+  id: string;
+  subject: string;
+  description?: string;
+  priority: 'low' | 'medium' | 'high';
+  status: 'pending' | 'accepted' | 'rejected' | 'forwarded' | 'cancelled';
+  workType: string;
+  sourceDepartmentId: string;
+  targetDepartmentId: string;
+  requestedById: string;
+  requestedByName?: string;
+  targetHeadUserId?: string;
+  targetUserId?: string;
+  assignedToId?: string;
+  reviewedById?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+  linkedEntityType?: string;
+  linkedEntityId?: string;
+  createdTaskId?: string;
+  payload?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getCrossDeptAssignOptions() {
+  const json = await crossDeptFetch<{
+    data: {
+      canInitiate: boolean;
+      canHandoffClient?: boolean;
+      departments: CrossDeptTargetDepartment[];
+      ownDepartment?: CrossDeptTargetDepartment | null;
+    };
+  }>(
+    '/assign-options',
+  );
+  return json.data;
+}
+
+export async function listCrossDeptRequests(box: 'sent' | 'inbox' = 'sent') {
+  const json = await crossDeptFetch<{ data: CrossDepartmentWorkRequest[] }>(`?box=${box}`);
+  return json.data;
+}
+
+export async function createCrossDeptRequest(payload: {
+  subject: string;
+  description?: string;
+  priority?: 'low' | 'medium' | 'high';
+  workType?: string;
+  targetDepartmentId: string;
+  targetUserId?: string;
+  linkedEntityType?: string;
+  linkedEntityId?: string;
+  payload?: Record<string, unknown>;
+}) {
+  const json = await crossDeptFetch<{ data: CrossDepartmentWorkRequest }>('', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  notifyCrossDeptRequestsUpdated();
+  return json.data;
+}
+
+export async function reviewCrossDeptRequest(
+  id: string,
+  payload: { action: 'accept' | 'reject'; note?: string; assignToId?: string },
+) {
+  const json = await crossDeptFetch<{ data: CrossDepartmentWorkRequest }>(
+    `/${encodeURIComponent(id)}/review`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  );
+  notifyCrossDeptRequestsUpdated();
+  return json.data;
+}
+
+export async function forwardCrossDeptRequest(
+  id: string,
+  payload: { assignToId: string; note?: string },
+) {
+  const json = await crossDeptFetch<{ data: CrossDepartmentWorkRequest }>(
+    `/${encodeURIComponent(id)}/forward`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  );
+  notifyCrossDeptRequestsUpdated();
+  return json.data;
+}
+
+export const LEAD_CONVERSION_REQUESTS_UPDATED_EVENT = 'hrayntra:lead-conversion-requests-updated';
+
+function notifyLeadConversionRequestsUpdated() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(LEAD_CONVERSION_REQUESTS_UPDATED_EVENT));
+}
+
+async function leadConversionFetch<T = unknown>(suffix: string, options: RequestInit = {}): Promise<T> {
+  const path = buildPath(`/lead-conversion-requests${suffix}`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    ...options,
+    headers: {
+      ...getTeamAuthHeaders(),
+      ...(options.headers || {}),
+    },
+    cache: 'no-store',
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json?.success === false) {
+    throw new Error(json?.message || `Request failed with status ${res.status}`);
+  }
+
+  return json as T;
+}
+
+export type LeadConversionRequest = {
+  id: string;
+  leadId: string;
+  leadCompanyName?: string;
+  requestedById: string;
+  requestedByName?: string;
+  approverUserId: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  clientPayload?: Record<string, unknown>;
+  reviewedById?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+  createdClientId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function listLeadConversionRequests(box: 'inbox' | 'sent' = 'inbox') {
+  const json = await leadConversionFetch<{ data: LeadConversionRequest[] }>(`?box=${box}`);
+  return json.data;
+}
+
+export async function reviewLeadConversionRequest(
+  id: string,
+  payload: { action: 'accept' | 'reject'; note?: string },
+) {
+  const json = await leadConversionFetch<{ data: LeadConversionRequest }>(
+    `/${encodeURIComponent(id)}/review`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  );
+  notifyLeadConversionRequestsUpdated();
+  return json.data;
 }

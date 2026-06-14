@@ -36,15 +36,61 @@ export function buildDepartmentRankMap(
   return map;
 }
 
+function buildDepartmentRankNameMap(
+  department?: DepartmentWithRoles | null,
+  roleOptions?: Array<Role & { rank?: number }>,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const link of getDepartmentRoleLinks(department)) {
+    const roleName = String(link.role?.roleName || '').trim().toLowerCase();
+    if (roleName) map.set(roleName, Number(link.rank));
+  }
+  for (const role of roleOptions || []) {
+    const roleName = String(role.roleName || '').trim().toLowerCase();
+    if (roleName && role.rank != null) map.set(roleName, Number(role.rank));
+  }
+  return map;
+}
+
+function resolveMemberRankInDepartment(
+  member: TeamMember,
+  rankByRoleId: Map<string, number>,
+  rankByRoleName: Map<string, number>,
+): number | null {
+  const roleId = idStr(getMemberRoleId(member));
+  if (rankByRoleId.has(roleId)) return rankByRoleId.get(roleId) ?? null;
+
+  const roleName = String(
+    member.role?.roleName ||
+      (member as { systemRole?: { roleName?: string } }).systemRole?.roleName ||
+      '',
+  )
+    .trim()
+    .toLowerCase();
+  if (roleName && rankByRoleName.has(roleName)) return rankByRoleName.get(roleName) ?? null;
+
+  return null;
+}
+
 export function getRoleRankInDepartment(
   departmentId: string | undefined,
   roleId: string | undefined,
   departments: DepartmentWithRoles[],
+  roleName?: string | null,
 ): number | null {
-  if (!departmentId || !roleId) return null;
+  if (!departmentId || (!roleId && !roleName)) return null;
   const dept = departments.find((d) => d.id === departmentId);
-  const rank = buildDepartmentRankMap(dept).get(idStr(roleId));
-  return rank != null ? rank : null;
+  const rankByRoleId = buildDepartmentRankMap(dept);
+  const rankByRoleName = buildDepartmentRankNameMap(dept);
+  if (roleId) {
+    const direct = rankByRoleId.get(idStr(roleId));
+    if (direct != null) return direct;
+  }
+  const normalizedName = String(roleName || '').trim().toLowerCase();
+  if (normalizedName && rankByRoleName.has(normalizedName)) {
+    return rankByRoleName.get(normalizedName) ?? null;
+  }
+  return null;
 }
 
 /** Roles available for a member in the selected department (falls back to all roles if none configured). */
@@ -73,10 +119,12 @@ export function isSuperAdminMember(member: TeamMember): boolean {
   return roleName === 'Super Admin';
 }
 
-function mergeLists(primary: TeamMember[], extra: TeamMember[]): TeamMember[] {
-  const merged = [...primary];
-  for (const item of extra) {
-    if (!merged.some((m) => m.id === item.id)) merged.push(item);
+export function mergeReportingManagerLists(...lists: TeamMember[][]): TeamMember[] {
+  const merged: TeamMember[] = [];
+  for (const list of lists) {
+    for (const member of list) {
+      if (!merged.some((entry) => entry.id === member.id)) merged.push(member);
+    }
   }
   return merged;
 }
@@ -120,37 +168,55 @@ export function filterReportingManagers(options: {
 
   const dept = departments.find((d) => idStr(d.id) === idStr(departmentId));
   const rankByRoleId = buildDepartmentRankMap(dept, departmentRoleOptions);
+  const rankByRoleName = buildDepartmentRankNameMap(dept, departmentRoleOptions);
   const memberRank =
     memberRankOverride != null
       ? Number(memberRankOverride)
-      : rankByRoleId.get(idStr(roleId));
+      : rankByRoleId.get(idStr(roleId)) ??
+        (() => {
+          const selected = departmentRoleOptions?.find((role) => idStr(role.id) === idStr(roleId));
+          return selected?.rank != null ? Number(selected.rank) : null;
+        })();
 
   if (memberRank == null || Number.isNaN(memberRank) || rankByRoleId.size === 0) {
     const inDept = eligible.filter((m) => idStr(getMemberDepartmentId(m)) === idStr(departmentId));
-    return mergeLists(inDept.length > 0 ? inDept : [], superAdmins);
+    return mergeReportingManagerLists(inDept.length > 0 ? inDept : [], superAdmins);
   }
 
   const memberRankNum = Number(memberRank);
 
-  const superiors = eligible
+  const superiorsInDept = eligible
     .filter((m) => {
+      if (idStr(getMemberDepartmentId(m)) !== idStr(departmentId)) return false;
       if (isSuperAdminMember(m)) return false;
-      const userRoleId = getMemberRoleId(m);
-      if (!userRoleId) return false;
-      const userRank = rankByRoleId.get(idStr(userRoleId));
-      if (userRank == null) return false;
-      return userRank < memberRankNum;
+      const userRank = resolveMemberRankInDepartment(m, rankByRoleId, rankByRoleName);
+      return userRank != null && userRank < memberRankNum;
     })
     .sort((a, b) => {
-      const rankA = rankByRoleId.get(idStr(getMemberRoleId(a))) ?? 99;
-      const rankB = rankByRoleId.get(idStr(getMemberRoleId(b))) ?? 99;
-      if (rankA !== rankB) return rankA - rankB;
-      const aInDept = idStr(getMemberDepartmentId(a)) === idStr(departmentId) ? 0 : 1;
-      const bInDept = idStr(getMemberDepartmentId(b)) === idStr(departmentId) ? 0 : 1;
-      return aInDept - bInDept;
+      const rankA = resolveMemberRankInDepartment(a, rankByRoleId, rankByRoleName) ?? 99;
+      const rankB = resolveMemberRankInDepartment(b, rankByRoleId, rankByRoleName) ?? 99;
+      return rankA - rankB;
     });
 
-  return mergeLists(superiors, superAdmins);
+  const superiors =
+    superiorsInDept.length > 0
+      ? superiorsInDept
+      : eligible
+          .filter((m) => {
+            if (isSuperAdminMember(m)) return false;
+            const userRank = resolveMemberRankInDepartment(m, rankByRoleId, rankByRoleName);
+            return userRank != null && userRank < memberRankNum;
+          })
+          .sort((a, b) => {
+            const rankA = resolveMemberRankInDepartment(a, rankByRoleId, rankByRoleName) ?? 99;
+            const rankB = resolveMemberRankInDepartment(b, rankByRoleId, rankByRoleName) ?? 99;
+            if (rankA !== rankB) return rankA - rankB;
+            const aInDept = idStr(getMemberDepartmentId(a)) === idStr(departmentId) ? 0 : 1;
+            const bInDept = idStr(getMemberDepartmentId(b)) === idStr(departmentId) ? 0 : 1;
+            return aInDept - bInDept;
+          });
+
+  return mergeReportingManagerLists(superiors, superAdmins);
 }
 
 export function pickDefaultManagerId(

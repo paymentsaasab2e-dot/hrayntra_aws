@@ -45,6 +45,9 @@ const PERMISSIONS_TEAM_DIRECTORY_READ = [
   'interviews_update',
   'placements_read',
   'placements_update',
+  'requests_read',
+  'requests_create',
+  'view_all_requests',
 ];
 
 // Apply auth middleware to all routes

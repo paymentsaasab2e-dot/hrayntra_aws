@@ -540,8 +540,10 @@ export function applyOrgRecruitmentSummaryPayload(
   if (currency && currency.length === 3) {
     localStorage.setItem('orgDefaultCurrency', currency);
   }
-  if (payload?.clientPageFieldVisibility) {
-    cacheClientPageFieldVisibility(normalizeClientPageFieldVisibility(payload.clientPageFieldVisibility));
+  if (payload && Object.prototype.hasOwnProperty.call(payload, 'clientPageFieldVisibility')) {
+    cacheClientPageFieldVisibility(
+      normalizeClientPageFieldVisibility(payload.clientPageFieldVisibility),
+    );
   }
   window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
 }
@@ -566,6 +568,16 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
   } catch {
     applyOrgRecruitmentSummaryPayload({ recruitmentMode: 'agency', billingEnabled: true, subscriptionPlan: null });
   }
+}
+
+/** Standalone internal company used for jobs when the Clients module is hidden. */
+export async function apiGetWorkspaceClient(): Promise<{
+  data?: {
+    recruitmentMode?: string;
+    workspaceClient?: BackendClient | null;
+  };
+}> {
+  return apiFetch('/settings/org/workspace-client', { auth: true });
 }
 
 export async function apiGetClientPageFieldVisibility() {
@@ -966,6 +978,7 @@ export type HqLeadFollowUp = {
   status: string;
   createdAt: string | null;
   createdByEmail?: string | null;
+  completedAt?: string | null;
 };
 
 export type HqLeadRemark = {
@@ -1041,6 +1054,45 @@ export async function apiHqAddLeadFollowUp(
     lead: HqLeadApiRow;
     storage: HqLeadStorageInfo;
   }>(`/hq/leads/${encodeURIComponent(leadId)}/follow-ups`, { method: 'POST', auth: true, body });
+}
+
+export async function apiHqUpdateLeadFollowUp(
+  leadId: string,
+  followUpId: string,
+  body: {
+    type: string;
+    scheduledAt: string;
+    notes?: string;
+  }
+) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/follow-ups/${encodeURIComponent(followUpId)}`, {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqCompleteLeadFollowUp(leadId: string, followUpId: string) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(
+    `/hq/leads/${encodeURIComponent(leadId)}/follow-ups/${encodeURIComponent(followUpId)}/complete`,
+    { method: 'POST', auth: true, body: {} }
+  );
+}
+
+export async function apiHqDeleteLeadFollowUp(leadId: string, followUpId: string) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/follow-ups/${encodeURIComponent(followUpId)}`, {
+    method: 'DELETE',
+    auth: true,
+  });
 }
 
 export async function apiHqAddLeadRemark(leadId: string, body: { text: string }) {
@@ -1162,11 +1214,106 @@ export async function apiHqAddCompanyFollowUp(
   );
 }
 
+export async function apiHqUpdateCompanyFollowUp(
+  companyId: string,
+  followUpId: string,
+  body: { type: string; scheduledAt: string; notes?: string }
+) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/follow-ups/${encodeURIComponent(followUpId)}`,
+    { method: 'PUT', auth: true, body }
+  );
+}
+
+export async function apiHqCompleteCompanyFollowUp(companyId: string, followUpId: string) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/follow-ups/${encodeURIComponent(followUpId)}/complete`,
+    { method: 'POST', auth: true, body: {} }
+  );
+}
+
+export async function apiHqDeleteCompanyFollowUp(companyId: string, followUpId: string) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/follow-ups/${encodeURIComponent(followUpId)}`,
+    { method: 'DELETE', auth: true }
+  );
+}
+
 export async function apiHqAddCompanyRemark(companyId: string, body: { text: string }) {
   return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
     `/hq/companies/${encodeURIComponent(companyId)}/remarks`,
     { method: 'POST', auth: true, body }
   );
+}
+
+export type HqPortalCandidateRow = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  title: string;
+  location: string;
+  status: string;
+  source: string;
+  stage: string;
+  tenantDbName: string;
+  updatedAt: string | null;
+  createdAt: string | null;
+  origin: 'phase1_portal' | 'phase1_common' | 'phase2_crm';
+};
+
+export type HqPortalJobRow = {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  status: string;
+  workMode: string;
+  tenantDbName: string;
+  postedBy: string;
+  openings: number;
+  visibility: string;
+  origin: 'phase1_portal' | 'phase2_crm';
+  updatedAt: string | null;
+  postedDate: string | null;
+};
+
+export type HqPortalStats = {
+  totalCandidates: number;
+  portalCandidates: number;
+  commonCandidates: number;
+  phase2Candidates: number;
+  totalJobs: number;
+  phase2Jobs: number;
+  tenantJobs: number;
+  portalOnlyJobs: number;
+  tenantCount: number;
+};
+
+export type HqPortalStorageInfo = {
+  portal: {
+    engine: string;
+    database: string;
+    collections: { candidates: string; jobs: string };
+  };
+  common: {
+    engine: string;
+    database: string;
+    collection: string;
+  } | null;
+  phase2: {
+    engine: string;
+    tenantDatabases: string[];
+  };
+};
+
+export async function apiHqListPortal() {
+  return apiFetch<{
+    candidates: HqPortalCandidateRow[];
+    jobs: HqPortalJobRow[];
+    stats: HqPortalStats;
+    storage: HqPortalStorageInfo;
+  }>('/hq/portal', { auth: true });
 }
 
 export async function apiHqAssignTenantPlan(body: { email: string; plan: { name: string } }) {
@@ -1797,6 +1944,11 @@ export interface MyPermissionsPayload {
 
 export const USER_PERMISSIONS_CHANGED_EVENT = 'hrayntra:user-permissions-changed';
 
+const PERMISSIONS_REFRESH_MIN_INTERVAL_MS = 5_000;
+let permissionsRefreshInFlight: Promise<MyPermissionsPayload | null> | null = null;
+let permissionsRefreshLastAt = 0;
+let permissionsRefreshLastResult: MyPermissionsPayload | null = null;
+
 export async function apiGetMyPermissions() {
   return apiFetch<MyPermissionsPayload>('/users/me/permissions', { auth: true });
 }
@@ -1811,6 +1963,19 @@ export async function refreshLocalUserPermissions(): Promise<MyPermissionsPayloa
   if (typeof window === 'undefined') return null;
   const accessToken = window.localStorage.getItem('accessToken');
   if (!accessToken) return null;
+
+  const now = Date.now();
+  if (permissionsRefreshInFlight) {
+    return permissionsRefreshInFlight;
+  }
+  if (
+    permissionsRefreshLastResult &&
+    now - permissionsRefreshLastAt < PERMISSIONS_REFRESH_MIN_INTERVAL_MS
+  ) {
+    return permissionsRefreshLastResult;
+  }
+
+  permissionsRefreshInFlight = (async () => {
   try {
     const res = await apiGetMyPermissions();
     const data = res?.data;
@@ -1845,11 +2010,18 @@ export async function refreshLocalUserPermissions(): Promise<MyPermissionsPayloa
       // CustomEvent may not exist in some old envs; best-effort.
     }
 
+    permissionsRefreshLastAt = Date.now();
+    permissionsRefreshLastResult = data;
     return data;
   } catch (error) {
     console.warn('Failed to refresh user permissions', error);
     return null;
+  } finally {
+    permissionsRefreshInFlight = null;
   }
+  })();
+
+  return permissionsRefreshInFlight;
 }
 
 export async function apiUploadUserAvatar(userId: string, file: File) {
@@ -2506,9 +2678,13 @@ export interface BackendCandidate {
   }>;
   placements?: Array<{
     id: string;
+    jobId?: string;
     status?: string;
+    updatedAt?: string;
     createdAt?: string;
+    deletedAt?: string | null;
   }>;
+  placementStatus?: string | null;
   tagObjects?: Array<{
     id: string;
     label: string;
@@ -3877,6 +4053,24 @@ export const apiSchedulePlacementJoining = async (id: string, payload: ScheduleJ
   });
 };
 
+export const apiResendPlacementOffer = async (id: string, offerLetter?: File | null) => {
+  const formData = new FormData();
+  if (offerLetter) {
+    formData.append('offerLetter', offerLetter);
+  }
+  return apiFetchFormData<Placement>(`/placements/${id}/resend-offer`, formData, {
+    method: 'PATCH',
+    auth: true,
+  });
+};
+
+export const apiUndoPlacement = async (id: string) => {
+  return apiFetch<{ message: string }>(`/placements/${id}/undo`, {
+    method: 'PATCH',
+    auth: true,
+  });
+};
+
 export const apiDeletePlacement = async (id: string) => {
   return apiFetch<{ message: string }>(`/placements/${id}`, {
     method: 'DELETE',
@@ -4365,6 +4559,36 @@ export const apiConvertLeadToClient = async (id: string, clientData: ConvertLead
     body: clientData,
     auth: true,
   });
+};
+
+export const apiSubmitLeadConversionRequest = async (id: string, clientData: ConvertLeadToClientData) => {
+  return apiFetch<any>(`/leads/${id}/conversion-request`, {
+    method: 'POST',
+    body: clientData,
+    auth: true,
+  });
+};
+
+export const apiGetLeadConversionCapabilities = async () => {
+  return apiFetch<{ canDirectConvert: boolean }>(`/leads/conversion-capabilities`, { auth: true });
+};
+
+export type CrmAssignableMember = {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  email?: string;
+  role?: { id?: string; roleName?: string; color?: string };
+  department?: { id?: string; name?: string };
+};
+
+export const apiGetLeadAssignableMembers = async () => {
+  return apiFetch<CrmAssignableMember[]>(`/leads/assignable-members`, { auth: true });
+};
+
+export const apiGetClientAssignableMembers = async () => {
+  return apiFetch<CrmAssignableMember[]>(`/clients/assignable-members`, { auth: true });
 };
 
 export interface ConvertLeadToClientData {
@@ -5446,10 +5670,14 @@ export interface BackendTask {
   dueDate: string;
   dueTime?: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
-  status: 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
+  status: 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'AWAITING_APPROVAL' | 'DONE' | 'CANCELLED';
   taskType?: string | null;
   assignedToId: string;
   createdById: string;
+  participantIds?: string[];
+  completionRequestedById?: string | null;
+  completionRequestedAt?: string | null;
+  completionApproverId?: string | null;
   linkedEntityType?: 'CANDIDATE' | 'JOB' | 'CLIENT' | 'INTERVIEW' | 'INTERNAL' | null;
   linkedEntityId?: string | null;
   reminder?: string | null;
@@ -5577,8 +5805,23 @@ export const apiDeleteTask = async (id: string) => {
 };
 
 export const apiMarkTaskCompleted = async (id: string) => {
-  return apiFetch<BackendTask>(`/tasks/${id}/complete`, {
+  return apiFetch<{ task: BackendTask; submittedForApproval?: boolean }>(`/tasks/${id}/complete`, {
     method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiApproveTaskCompletion = async (id: string) => {
+  return apiFetch<BackendTask>(`/tasks/${id}/approve-completion`, {
+    method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiRejectTaskCompletion = async (id: string, note?: string) => {
+  return apiFetch<BackendTask>(`/tasks/${id}/reject-completion`, {
+    method: 'POST',
+    body: note ? { note } : {},
     auth: true,
   });
 };
@@ -6804,6 +7047,7 @@ export type JobCreationPipelineResult = {
   jobSummary: string;
   keyResponsibilitiesText: string;
   qualificationsExperienceText: string;
+  candidateRequirementsText: string;
   compensationBenefitsText: string;
   educationalQualification: string;
   educationalSpecialization: string;
@@ -6825,6 +7069,22 @@ export async function apiProcessJobCreationPipeline(
     method: 'POST',
     auth: true,
     signal: options.signal,
+  });
+}
+
+export async function apiGenerateJobFromPrompt(body: {
+  prompt: string;
+  currentForm?: Record<string, unknown>;
+}) {
+  const token = getAccessToken();
+  if (!token) {
+    throw new Error('Authentication required. Please log in.');
+  }
+
+  return apiFetch<JobCreationPipelineResult>('/ai/job-from-prompt', {
+    method: 'POST',
+    body,
+    auth: true,
   });
 }
 

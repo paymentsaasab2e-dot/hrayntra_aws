@@ -63,9 +63,12 @@ import {
   apiGetClients,
   apiGetJob,
   apiGetJobs,
+  apiGetWorkspaceClient,
   apiUploadCandidateAvatar,
+  getCachedOrgRecruitmentMode,
   type UpdateCandidatePayload,
 } from '../../lib/api';
+import { getAllTeamMembersForAssign, getLineManagersForJobPicker, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { toast } from 'sonner';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import {
@@ -118,6 +121,8 @@ export interface CandidatePipelineJobOption {
   department?: string | null;
   clientId?: string | null;
   clientName?: string | null;
+  managerId?: string | null;
+  managerName?: string | null;
 }
 
 export interface CandidatePipelineRecruiterOption {
@@ -637,6 +642,7 @@ function ScheduleInterviewModal({
   editInterview,
   onScheduledSuccess,
 }: ScheduleInterviewModalProps) {
+  const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
   const [interviewType, setInterviewType] = useState('');
   const [roundNumber, setRoundNumber] = useState(1);
   const [date, setDate] = useState('');
@@ -674,6 +680,13 @@ function ScheduleInterviewModal({
   const [selectedClientContacts, setSelectedClientContacts] = useState<ScheduleClientContactOption[]>([]);
   const [clientContactSearch, setClientContactSearch] = useState('');
   const [clientContactOpen, setClientContactOpen] = useState(false);
+  const [lineManagerOptions, setLineManagerOptions] = useState<CandidateInterviewerOption[]>([]);
+  const [teamMemberOptions, setTeamMemberOptions] = useState<CandidateInterviewerOption[]>([]);
+  const [loadingLineManagers, setLoadingLineManagers] = useState(false);
+  const [loadingTeamMembers, setLoadingTeamMembers] = useState(false);
+  const [workspaceClientName, setWorkspaceClientName] = useState('Your organization');
+  const [workspaceClientId, setWorkspaceClientId] = useState('');
+  const prevAutoPanelJobIdRef = useRef('');
 
   const typeRef = useRef<HTMLDivElement | null>(null);
   const timeRef = useRef<HTMLDivElement | null>(null);
@@ -692,9 +705,34 @@ function ScheduleInterviewModal({
   );
   const isEditingInterview = Boolean(editInterview);
   const minimumDate = getLocalDateInputMinToday();
+  const panelMemberOptions = useMemo(() => {
+    if (!isStandaloneMode) return interviewers;
+
+    const byId = new Map<string, CandidateInterviewerOption>();
+    for (const member of teamMemberOptions) {
+      if (member.id) byId.set(member.id, member);
+    }
+    for (const member of interviewers) {
+      if (member.id && !byId.has(member.id)) byId.set(member.id, member);
+    }
+    for (const manager of lineManagerOptions) {
+      if (!manager.id) continue;
+      const existing = byId.get(manager.id);
+      byId.set(manager.id, {
+        ...(existing || manager),
+        role: 'Line Manager',
+      });
+    }
+
+    if (byId.size === 0) return interviewers;
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [interviewers, isStandaloneMode, lineManagerOptions, teamMemberOptions]);
+
+  const loadingPanelMembers = isStandaloneMode && (loadingLineManagers || loadingTeamMembers);
 
   useEffect(() => {
     if (!isOpen) {
+      prevAutoPanelJobIdRef.current = '';
       setInterviewType('');
       setRoundNumber((existingInterviews?.length || 0) + 1);
       setDate('');
@@ -734,24 +772,83 @@ function ScheduleInterviewModal({
     void (async () => {
       setLoadingScheduleJobs(true);
       setLoadingClients(true);
+      if (isStandaloneMode) {
+        setLoadingLineManagers(true);
+        setLoadingTeamMembers(true);
+      }
       try {
-        const [jobsRes, clientsRes] = await Promise.all([
-          apiGetJobs({ page: 1, limit: 500 }),
-          apiGetClients({ page: 1, limit: 500 }),
-        ]);
-        if (cancelled) return;
-        const fetchedJobs = mapJobsToPipelineOptions(parseJobsListFromResponse(jobsRes));
-        const byJobId = new Map<string, CandidatePipelineJobOption>();
-        for (const job of [...jobsProp, ...fetchedJobs]) {
-          if (job.id) byJobId.set(job.id, job);
-        }
-        setScheduleJobOptions(Array.from(byJobId.values()).sort((a, b) => a.title.localeCompare(b.title)));
+        if (isStandaloneMode) {
+          const [jobsRes, workspaceRes, lineManagers, teamMembers] = await Promise.all([
+            apiGetJobs({ page: 1, limit: 500 }),
+            apiGetWorkspaceClient(),
+            getLineManagersForJobPicker(),
+            getAllTeamMembersForAssign(),
+          ]);
+          if (cancelled) return;
 
-        const clients = parseClientsListFromResponse(clientsRes)
-          .filter((c) => c.id && c.companyName)
-          .map((c) => ({ id: String(c.id), companyName: String(c.companyName).trim() }))
-          .sort((a, b) => a.companyName.localeCompare(b.companyName));
-        setClientOptions(clients);
+          const workspaceClient = workspaceRes?.data?.workspaceClient;
+          const wsId = workspaceClient?.id ? String(workspaceClient.id) : '';
+          const wsName = workspaceClient?.companyName || 'Your organization';
+          setWorkspaceClientId(wsId);
+          setWorkspaceClientName(wsName);
+          if (wsId) {
+            setClientOptions([{ id: wsId, companyName: wsName }]);
+            setSelectedClientId(wsId);
+          } else {
+            setClientOptions([]);
+          }
+
+          const allJobs = mapJobsToPipelineOptions(parseJobsListFromResponse(jobsRes));
+          const fetchedJobs = wsId ? allJobs.filter((job) => job.clientId === wsId) : allJobs;
+          const byJobId = new Map<string, CandidatePipelineJobOption>();
+          for (const job of [...jobsProp, ...fetchedJobs]) {
+            if (job.id) byJobId.set(job.id, job);
+          }
+          setScheduleJobOptions(Array.from(byJobId.values()).sort((a, b) => a.title.localeCompare(b.title)));
+
+          setLineManagerOptions(
+            lineManagers
+              .filter((manager) => manager.id)
+              .map((manager) => ({
+                id: String(manager.id),
+                name: String(manager.name || manager.email || 'Line Manager').trim() || 'Line Manager',
+                role: 'Line Manager',
+                department: manager.department || null,
+              }))
+              .sort((a, b) => a.name.localeCompare(b.name)),
+          );
+
+          setTeamMemberOptions(
+            teamMembersToBackendUsers(teamMembers)
+              .filter((member) => member.id)
+              .map((member) => ({
+                id: String(member.id),
+                name: String(member.name || member.email || 'Team member').trim() || 'Team member',
+                role: member.role || null,
+                department: member.department || null,
+                avatar: member.avatar || null,
+              }))
+              .sort((a, b) => a.name.localeCompare(b.name)),
+          );
+        } else {
+          const [jobsRes, clientsRes] = await Promise.all([
+            apiGetJobs({ page: 1, limit: 500 }),
+            apiGetClients({ page: 1, limit: 500 }),
+          ]);
+          if (cancelled) return;
+          const fetchedJobs = mapJobsToPipelineOptions(parseJobsListFromResponse(jobsRes));
+          const byJobId = new Map<string, CandidatePipelineJobOption>();
+          for (const job of [...jobsProp, ...fetchedJobs]) {
+            if (job.id) byJobId.set(job.id, job);
+          }
+          setScheduleJobOptions(Array.from(byJobId.values()).sort((a, b) => a.title.localeCompare(b.title)));
+
+          const clients = parseClientsListFromResponse(clientsRes)
+            .filter((c) => c.id && c.companyName)
+            .map((c) => ({ id: String(c.id), companyName: String(c.companyName).trim() }))
+            .sort((a, b) => a.companyName.localeCompare(b.companyName));
+          setClientOptions(clients);
+        }
       } catch (error) {
         console.error('Failed to load schedule interview options:', error);
         if (!cancelled) {
@@ -761,6 +858,10 @@ function ScheduleInterviewModal({
         if (!cancelled) {
           setLoadingScheduleJobs(false);
           setLoadingClients(false);
+          if (isStandaloneMode) {
+            setLoadingLineManagers(false);
+            setLoadingTeamMembers(false);
+          }
         }
       }
     })();
@@ -768,7 +869,7 @@ function ScheduleInterviewModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, jobsProp]);
+  }, [isOpen, isStandaloneMode, jobsProp]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -792,7 +893,7 @@ function ScheduleInterviewModal({
   }, [selectedJobId, scheduleJobOptions]);
 
   useEffect(() => {
-    if (!isOpen || !selectedClientId) {
+    if (!isOpen || !selectedClientId || isStandaloneMode) {
       setClientContactOptions([]);
       return undefined;
     }
@@ -830,7 +931,75 @@ function ScheduleInterviewModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, selectedClientId]);
+  }, [isOpen, isStandaloneMode, selectedClientId]);
+
+  useEffect(() => {
+    if (!isOpen || !isStandaloneMode) return;
+    const job = selectedJobId ? scheduleJobOptions.find((item) => item.id === selectedJobId) : null;
+    const managerId = job?.managerId ? String(job.managerId) : '';
+    if (!managerId) return;
+
+    setLineManagerOptions((prev) => {
+      if (prev.some((item) => item.id === managerId)) return prev;
+      const managerName = job?.managerName || 'Line Manager';
+      return [
+        ...prev,
+        {
+          id: managerId,
+          name: managerName,
+          role: 'Line Manager',
+          department: null,
+        },
+      ].sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    const managerName = job?.managerName || 'Line Manager';
+    setTeamMemberOptions((prev) => {
+      if (prev.some((item) => item.id === managerId)) return prev;
+      return [
+        ...prev,
+        {
+          id: managerId,
+          name: managerName,
+          role: 'Line Manager',
+          department: null,
+        },
+      ].sort((a, b) => a.name.localeCompare(b.name));
+    });
+  }, [isOpen, isStandaloneMode, selectedJobId, scheduleJobOptions]);
+
+  useEffect(() => {
+    if (!isOpen || !isStandaloneMode || isEditingInterview) return;
+    if (!lineManagerOptions.length) return;
+
+    const jobChanged = prevAutoPanelJobIdRef.current !== selectedJobId;
+    prevAutoPanelJobIdRef.current = selectedJobId;
+
+    const job = selectedJobId ? scheduleJobOptions.find((item) => item.id === selectedJobId) : null;
+    const preferredManagerId = job?.managerId;
+    const manager =
+      (preferredManagerId && lineManagerOptions.find((item) => item.id === preferredManagerId)) ||
+      lineManagerOptions[0];
+    if (!manager) return;
+
+    setSelectedInterviewers((prev) => {
+      if (prev.length === 0) {
+        return [{ id: manager.id, name: manager.name, role: 'Lead Interviewer' }];
+      }
+      if (jobChanged) {
+        const extras = prev.filter((item) => item.id !== manager.id && item.role !== 'Lead Interviewer');
+        return [{ id: manager.id, name: manager.name, role: 'Lead Interviewer' }, ...extras];
+      }
+      return prev;
+    });
+  }, [
+    isOpen,
+    isStandaloneMode,
+    isEditingInterview,
+    lineManagerOptions,
+    selectedJobId,
+    scheduleJobOptions,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -887,14 +1056,14 @@ function ScheduleInterviewModal({
 
   const filteredInterviewers = useMemo(() => {
     const query = interviewerSearch.trim().toLowerCase();
-    if (!query) return interviewers;
-    return interviewers.filter(
+    if (!query) return panelMemberOptions;
+    return panelMemberOptions.filter(
       (person) =>
         person.name.toLowerCase().includes(query) ||
         (person.role || '').toLowerCase().includes(query) ||
         (person.department || '').toLowerCase().includes(query)
     );
-  }, [interviewers, interviewerSearch]);
+  }, [interviewerSearch, panelMemberOptions]);
 
   const filteredClientContacts = useMemo(() => {
     const query = clientContactSearch.trim().toLowerCase();
@@ -936,7 +1105,9 @@ function ScheduleInterviewModal({
       nextErrors.linkedJob = 'Linked job is required';
     }
     if (selectedInterviewers.length === 0) {
-      nextErrors.interviewers = 'Select at least one internal interviewer';
+      nextErrors.interviewers = isStandaloneMode
+        ? 'Select at least one panel member'
+        : 'Select at least one internal interviewer';
     }
     if (mode === 'video' && !meetingPlatform) nextErrors.modeField = 'Select Google Meet or Zoom';
     if (mode === 'video' && !meetingLink.trim()) nextErrors.modeField = 'Meeting link is required';
@@ -1039,8 +1210,13 @@ function ScheduleInterviewModal({
         name: item.name,
         role: item.role,
       })),
-      clientId: selectedClientId || selectedJob?.clientId || null,
-      clientName: selectedClient?.companyName || selectedJob?.clientName || linkedJobCompany || null,
+      clientId: selectedClientId || workspaceClientId || selectedJob?.clientId || null,
+      clientName:
+        selectedClient?.companyName ||
+        workspaceClientName ||
+        selectedJob?.clientName ||
+        linkedJobCompany ||
+        null,
       clientPanel: selectedClientContacts.map((item) => ({
         id: item.id,
         name: item.name,
@@ -1408,7 +1584,7 @@ function ScheduleInterviewModal({
                       </div>
                     ) : null}
 
-                    <div>
+                    <div className={isStandaloneMode ? 'sm:col-span-2' : ''}>
                       <label className="mb-2 block text-sm font-medium text-slate-700">
                         Linked Job <span className="text-red-500">*</span>
                       </label>
@@ -1439,34 +1615,36 @@ function ScheduleInterviewModal({
                       </select>
                       {errors.linkedJob ? <p className="mt-1 text-xs text-red-600">{errors.linkedJob}</p> : null}
                     </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Company / Client</label>
-                      <select
-                        value={selectedClientId}
-                        onChange={(e) => {
-                          setSelectedClientId(e.target.value);
-                          setSelectedClientContacts([]);
-                        }}
-                        disabled={loadingClients || clientOptions.length === 0}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      >
-                        <option value="">
-                          {loadingClients ? 'Loading clients...' : 'Select client'}
-                        </option>
-                        {clientOptions.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.companyName}
+                    {!isStandaloneMode ? (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Company / Client</label>
+                        <select
+                          value={selectedClientId}
+                          onChange={(e) => {
+                            setSelectedClientId(e.target.value);
+                            setSelectedClientContacts([]);
+                          }}
+                          disabled={loadingClients || clientOptions.length === 0}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        >
+                          <option value="">
+                            {loadingClients ? 'Loading clients...' : 'Select client'}
                           </option>
-                        ))}
-                      </select>
-                      {selectedClient ? (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Jobs filtered to this client. Assign client contacts in the interview panel below.
-                        </p>
-                      ) : selectedJob?.clientName ? (
-                        <p className="mt-1 text-xs text-slate-500">Client from job: {selectedJob.clientName}</p>
-                      ) : null}
-                    </div>
+                          {clientOptions.map((client) => (
+                            <option key={client.id} value={client.id}>
+                              {client.companyName}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedClient ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Jobs filtered to this client. Assign client contacts in the interview panel below.
+                          </p>
+                        ) : selectedJob?.clientName ? (
+                          <p className="mt-1 text-xs text-slate-500">Client from job: {selectedJob.clientName}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </section>
 
@@ -1475,20 +1653,29 @@ function ScheduleInterviewModal({
                     Interview Panel <span className="text-red-500">*</span>
                   </h4>
                   <p className="mt-1 text-sm text-slate-500">
-                    Assign internal interviewers and/or client contacts from the selected company.
+                    {isStandaloneMode
+                      ? "The job's line manager is selected by default. Search below to add more team members."
+                      : 'Assign internal interviewers and/or client contacts from the selected company.'}
                   </p>
                   <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Internal panel
+                    {isStandaloneMode ? 'Panel members' : 'Internal panel'}
                   </p>
                   <div className="relative mt-2" ref={interviewerRef}>
                     <button
                       type="button"
                       onClick={() => setInterviewerOpen((prev) => !prev)}
+                      disabled={loadingPanelMembers}
                       className={`flex w-full items-center justify-between rounded-xl border bg-white px-3 py-2.5 text-left text-sm ${
                         errors.interviewers ? 'border-red-300' : 'border-slate-200'
-                      }`}
+                      } ${loadingPanelMembers ? 'cursor-not-allowed opacity-60' : ''}`}
                     >
-                      <span className="text-slate-400">Search and assign interviewers</span>
+                      <span className="text-slate-400">
+                        {isStandaloneMode
+                          ? loadingPanelMembers
+                            ? 'Loading team members...'
+                            : 'Search and assign team members'
+                          : 'Search and assign interviewers'}
+                      </span>
                       <ChevronDown size={16} className="text-slate-400" />
                     </button>
                     {interviewerOpen ? (
@@ -1500,7 +1687,12 @@ function ScheduleInterviewModal({
                           className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                         />
                         <div className="mt-3 max-h-56 overflow-y-auto">
-                          {filteredInterviewers.map((person) => {
+                          {filteredInterviewers.length === 0 ? (
+                            <p className="px-3 py-2 text-sm text-slate-500">
+                              {isStandaloneMode ? 'No team members available' : 'No interviewers available'}
+                            </p>
+                          ) : (
+                            filteredInterviewers.map((person) => {
                             const selected = selectedInterviewers.some((item) => item.id === person.id);
                             return (
                               <button
@@ -1529,18 +1721,21 @@ function ScheduleInterviewModal({
                                 {selected ? <Check size={15} /> : null}
                               </button>
                             );
-                          })}
+                          })
+                          )}
                         </div>
                       </div>
                     ) : null}
                   </div>
                   {errors.interviewers ? <p className="mt-1 text-xs text-red-600">{errors.interviewers}</p> : null}
 
-                  <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Client representatives
-                    {selectedClient ? ` · ${selectedClient.companyName}` : ''}
-                  </p>
-                  <div className="relative mt-2" ref={clientContactRef}>
+                  {!isStandaloneMode ? (
+                    <>
+                      <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Client representatives
+                        {selectedClient ? ` · ${selectedClient.companyName}` : ''}
+                      </p>
+                      <div className="relative mt-2" ref={clientContactRef}>
                     <button
                       type="button"
                       onClick={() => {
@@ -1600,6 +1795,8 @@ function ScheduleInterviewModal({
                       </div>
                     ) : null}
                   </div>
+                    </>
+                  ) : null}
 
                   {selectedInterviewers.length > 0 ? (
                     <div className="mt-4 flex flex-wrap gap-2" ref={roleMenuRef}>
@@ -1608,9 +1805,9 @@ function ScheduleInterviewModal({
                           key={person.id}
                           className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2"
                         >
-                          {interviewers.find((item) => item.id === person.id)?.avatar ? (
+                          {panelMemberOptions.find((item) => item.id === person.id)?.avatar ? (
                             <img
-                              src={interviewers.find((item) => item.id === person.id)?.avatar || ''}
+                              src={panelMemberOptions.find((item) => item.id === person.id)?.avatar || ''}
                               alt={person.name}
                               className="h-7 w-7 rounded-full object-cover"
                             />
@@ -1667,7 +1864,7 @@ function ScheduleInterviewModal({
                     </div>
                   ) : null}
 
-                  {selectedClientContacts.length > 0 ? (
+                  {!isStandaloneMode && selectedClientContacts.length > 0 ? (
                     <div className="mt-4 flex flex-wrap gap-2">
                       {selectedClientContacts.map((person) => (
                         <div
@@ -1787,6 +1984,8 @@ function mapJobsToPipelineOptions(
     department?: string | null;
     client?: { id?: string; companyName?: string | null } | null;
     clientId?: string | null;
+    manager?: { id?: string; name?: string | null } | null;
+    managerId?: string | null;
   }>,
 ): CandidatePipelineJobOption[] {
   return backendJobs
@@ -1797,6 +1996,8 @@ function mapJobsToPipelineOptions(
       department: job.department || job.client?.companyName || null,
       clientId: job.client?.id || job.clientId || null,
       clientName: job.client?.companyName || null,
+      managerId: job.managerId || job.manager?.id || null,
+      managerName: job.manager?.name || null,
     }))
     .sort((a, b) => a.title.localeCompare(b.title));
 }

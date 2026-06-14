@@ -327,7 +327,8 @@ export function applyClientFilters(
       if (!haystack.includes(filters.location.trim().toLowerCase())) return false;
     }
     if (showOwnerFilter && filters.ownerScope === 'me') {
-      if (!currentUserName || client.owner?.name !== currentUserName) return false;
+      // Server already returns records the user is involved in (assignee, creator, or participant).
+      // Do not narrow further by primary owner name — that hid clients after reassignment.
     }
     if (filters.openJobsMin !== null && client.openJobs < filters.openJobsMin) return false;
     if (filters.openJobsMax !== null && client.openJobs > filters.openJobsMax) return false;

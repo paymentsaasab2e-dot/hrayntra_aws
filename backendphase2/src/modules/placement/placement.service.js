@@ -7,9 +7,12 @@ import {
 } from '../../services/emailService.js';
 import {
   PIPELINE_STAGES,
+  clearApplicationPlacementDetails,
+  resetApplicationOfferResponse,
   syncApplicationJoiningDetails,
   syncApplicationOfferLetter,
   syncApplicationOfferResponse,
+  mapPlacementStatusToCrmStageSync,
   updateCandidateStage,
 } from '../stage/candidateStage.service.js';
 import { pushPortalNotification } from '../notification/notification.service.js';
@@ -111,6 +114,127 @@ function normalizePlacementStatus(value) {
   return normalized;
 }
 
+function resolveCandidateStageFromPlacementStatus(placementStatus) {
+  return mapPlacementStatusToCrmStageSync(placementStatus);
+}
+
+async function syncCandidateStageFromPlacementStatus(placement, placementStatus, userId, source = 'placement-status') {
+  const syncConfig = resolveCandidateStageFromPlacementStatus(placementStatus);
+  if (!syncConfig || !placement?.candidateId) return;
+
+  try {
+    await updateCandidateStage({
+      candidateId: placement.candidateId,
+      jobId: placement.jobId || null,
+      stage: syncConfig.stage,
+      stageLabel: syncConfig.stageLabel,
+      performedById: userId,
+      skipStageActivity: true,
+      metadata: {
+        source,
+        placementId: placement.id,
+        placementStatus: String(placementStatus || '').toUpperCase(),
+      },
+    });
+  } catch (stageErr) {
+    console.warn(
+      '[placement] candidate stage sync failed:',
+      stageErr?.message || stageErr,
+    );
+  }
+
+  const normalizedStatus = String(placementStatus || '').toUpperCase();
+  if (
+    placement.candidateId &&
+    placement.jobId &&
+    (normalizedStatus === 'OFFER_ACCEPTED' || normalizedStatus === 'OFFER_REJECTED')
+  ) {
+    try {
+      await syncApplicationOfferResponse(placement.candidateId, placement.jobId, {
+        decision: normalizedStatus === 'OFFER_ACCEPTED' ? 'accept' : 'reject',
+        placementStatus: normalizedStatus,
+      });
+    } catch (portalErr) {
+      console.warn(
+        '[placement] portal offer response sync failed:',
+        portalErr?.message || portalErr,
+      );
+    }
+  }
+}
+
+async function revertCandidateAfterPlacementRemoval(placement, userId, source = 'placement-revert') {
+  if (!placement?.candidateId) return;
+
+  const otherPlacement = await prisma.placement.findFirst({
+    where: {
+      candidateId: placement.candidateId,
+      jobId: placement.jobId,
+      deletedAt: null,
+      id: { not: placement.id },
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+
+  if (otherPlacement) {
+    await syncCandidateStageFromPlacementStatus(
+      otherPlacement,
+      otherPlacement.status,
+      userId,
+      source,
+    );
+    return;
+  }
+
+  if (placement.jobId) {
+    try {
+      await clearApplicationPlacementDetails(placement.candidateId, placement.jobId);
+    } catch (portalErr) {
+      console.warn(
+        '[placement] clear portal placement details failed:',
+        portalErr?.message || portalErr,
+      );
+    }
+  }
+
+  await updateCandidateStage({
+    candidateId: placement.candidateId,
+    jobId: placement.jobId || null,
+    stage: PIPELINE_STAGES.INTERVIEW,
+    stageLabel: 'Interviewing',
+    performedById: userId,
+    skipStageActivity: false,
+    metadata: {
+      source,
+      placementId: placement.id,
+      revertedToInterview: true,
+    },
+  });
+}
+
+async function removePlacementWithInterviewRevert(id, userId, activityAction) {
+  const existing = await fetchPlacementOrThrow(id);
+  if (existing.status === 'JOINED') {
+    throw new Error('Cannot revert a confirmed placement');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.placement.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    await createPlacementActivity(tx, id, activityAction, userId, {
+      previousStatus: existing.status,
+      revertedToInterview: true,
+    });
+  });
+
+  await revertCandidateAfterPlacementRemoval(existing, userId, activityAction);
+
+  return existing;
+}
+
 function buildPagination(query) {
   const page = Math.max(Number(query.page || 1), 1);
   const limit = Math.min(Math.max(Number(query.limit || DEFAULT_LIMIT), 1), 100);
@@ -165,12 +289,31 @@ function formatPlacementListItem(placement) {
   // one is fetched.
   const offerLetter = (placement.documents || [])[0] || null;
 
-  return {
+  return attachPlacementDerivedFields({
     ...placement,
     paymentStatus: latestBilling?.paymentStatus || 'PENDING',
     invoiceNumber: latestBilling?.invoiceNumber || null,
     offerLetterUrl: offerLetter?.fileUrl || null,
-  };
+  });
+}
+
+function resolveCandidateOfferRemark(placement) {
+  const direct = placement?.candidateOfferRemark;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  const logs = Array.isArray(placement?.activityLog) ? placement.activityLog : [];
+  for (const entry of logs) {
+    const remark = entry?.details?.candidateRemark;
+    if (typeof remark === 'string' && remark.trim()) return remark.trim();
+  }
+  return null;
+}
+
+function attachPlacementDerivedFields(placement) {
+  if (!placement) return placement;
+  const candidateOfferRemark = resolveCandidateOfferRemark(placement);
+  if (!candidateOfferRemark) return placement;
+  return { ...placement, candidateOfferRemark };
 }
 
 async function createPlacementActivity(tx, placementId, action, performedBy, details = {}) {
@@ -385,7 +528,9 @@ async function fetchPlacementOrThrow(id) {
     throw new Error('Placement not found');
   }
 
-  return attachAuditMetaToEntity(placement, ENTITY_TYPES.PLACEMENT, { useRecruiterAsCreator: true });
+  return attachPlacementDerivedFields(
+    attachAuditMetaToEntity(placement, ENTITY_TYPES.PLACEMENT, { useRecruiterAsCreator: true })
+  );
 }
 
 export const placementService = {
@@ -921,6 +1066,15 @@ export const placementService = {
       }
     }
 
+    if (updateData.status && updateData.status !== existing.status) {
+      await syncCandidateStageFromPlacementStatus(
+        { id, candidateId: existing.candidateId, jobId: existing.jobId },
+        updateData.status,
+        userId,
+        'placement-update',
+      );
+    }
+
     return fetchPlacementOrThrow(updatedPlacement.id);
   },
 
@@ -936,6 +1090,12 @@ export const placementService = {
 
     const existing = await fetchPlacementOrThrow(id);
     if (existing.status === nextStatus) {
+      await syncCandidateStageFromPlacementStatus(
+        existing,
+        nextStatus,
+        userId,
+        'placement-status-reconcile',
+      );
       return fetchPlacementOrThrow(id);
     }
 
@@ -989,6 +1149,7 @@ export const placementService = {
           nextStatus,
         });
       });
+      await syncCandidateStageFromPlacementStatus(existing, nextStatus, userId, 'placement-update-status');
       return fetchPlacementOrThrow(id);
     }
 
@@ -1003,6 +1164,7 @@ export const placementService = {
       });
     });
 
+    await syncCandidateStageFromPlacementStatus(existing, nextStatus, userId, 'placement-update-status');
     return fetchPlacementOrThrow(id);
   },
 
@@ -1093,6 +1255,7 @@ export const placementService = {
     });
 
     const failed = await fetchPlacementOrThrow(id);
+    await syncCandidateStageFromPlacementStatus(failed, status, userId, 'placement-mark-failed');
     try {
       const candidateName =
         `${failed.candidate?.firstName || ''} ${failed.candidate?.lastName || ''}`.trim() ||
@@ -1337,19 +1500,29 @@ export const placementService = {
       console.warn('[placement.scheduleJoining] notifications failed:', notifyErr?.message || notifyErr);
     }
 
+    await syncCandidateStageFromPlacementStatus(existing, 'JOINING_SCHEDULED', userId, 'placement-schedule-joining');
+
     return fetchPlacementOrThrow(id);
   },
 
   /**
    * Candidate accepted or rejected offer on Phase 1 portal (internal webhook).
    */
-  async respondToPortalOffer({ candidateId, jobId, decision }, userId = null) {
+  async respondToPortalOffer({ candidateId, jobId, decision, remark }, userId = null) {
     const normalized = String(decision || '').trim().toLowerCase();
     if (!['accept', 'reject', 'accepted', 'rejected'].includes(normalized)) {
       throw new Error('Invalid offer decision');
     }
     const isAccept = normalized === 'accept' || normalized === 'accepted';
     const nextStatus = isAccept ? 'OFFER_ACCEPTED' : 'OFFER_REJECTED';
+    const trimmedRemark = String(remark || '').trim();
+
+    if (!isAccept && !trimmedRemark) {
+      throw new Error('A remark is required when declining an offer');
+    }
+    if (!isAccept && trimmedRemark.length > 2000) {
+      throw new Error('Remark must be 2000 characters or fewer');
+    }
 
     const placement = await prisma.placement.findFirst({
       where: {
@@ -1370,14 +1543,21 @@ export const placementService = {
     await prisma.$transaction(async (tx) => {
       await tx.placement.update({
         where: { id: placement.id },
-        data: { status: nextStatus },
+        data: {
+          status: nextStatus,
+          ...(isAccept ? {} : { candidateOfferRemark: trimmedRemark }),
+        },
       });
       await createPlacementActivity(
         tx,
         placement.id,
         isAccept ? 'Offer accepted by candidate' : 'Offer rejected by candidate',
         userId,
-        { decision: isAccept ? 'accept' : 'reject', source: 'portal' }
+        {
+          decision: isAccept ? 'accept' : 'reject',
+          source: 'portal',
+          ...(isAccept ? {} : { candidateRemark: trimmedRemark }),
+        }
       );
     });
 
@@ -1385,6 +1565,7 @@ export const placementService = {
       await syncApplicationOfferResponse(candidateId, jobId, {
         decision: isAccept ? 'accept' : 'reject',
         placementStatus: nextStatus,
+        remark: isAccept ? undefined : trimmedRemark,
       });
     } catch (syncErr) {
       console.warn('[placement.respondToPortalOffer] portal sync failed:', syncErr?.message || syncErr);
@@ -1396,9 +1577,24 @@ export const placementService = {
           candidateId,
           jobId,
           stage: PIPELINE_STAGES.OFFER,
+          stageLabel: 'Offer Accepted',
           performedById: userId,
           skipStageActivity: true,
           metadata: { source: 'portal-offer-accept', placementId: placement.id },
+        });
+      } catch (stageErr) {
+        console.warn('[placement.respondToPortalOffer] stage sync failed:', stageErr?.message || stageErr);
+      }
+    } else {
+      try {
+        await updateCandidateStage({
+          candidateId,
+          jobId,
+          stage: PIPELINE_STAGES.REJECTED,
+          stageLabel: 'Offer Rejected',
+          performedById: userId,
+          skipStageActivity: true,
+          metadata: { source: 'portal-offer-reject', placementId: placement.id },
         });
       } catch (stageErr) {
         console.warn('[placement.respondToPortalOffer] stage sync failed:', stageErr?.message || stageErr);
@@ -1426,22 +1622,136 @@ export const placementService = {
     return fetchPlacementOrThrow(placement.id);
   },
 
-  async delete(id, userId) {
+  async resendOffer(id, userId, file) {
     const existing = await fetchPlacementOrThrow(id);
-    if (existing.status === 'JOINED') {
-      throw new Error('Cannot delete a confirmed placement');
+    if (existing.status !== 'OFFER_REJECTED') {
+      throw new Error('Only rejected offers can be resent');
     }
+
+    let offerLetterSync = null;
 
     await prisma.$transaction(async (tx) => {
       await tx.placement.update({
         where: { id },
-        data: { deletedAt: new Date() },
+        data: {
+          status: 'OFFER_SENT',
+          candidateOfferRemark: null,
+        },
       });
 
-      await createPlacementActivity(tx, id, 'Placement deleted', userId, {});
+      if (file?.path) {
+        const fileUrl = getPublicFileUrl(file.path);
+        await tx.placementDocument.create({
+          data: {
+            placementId: id,
+            documentType: 'OFFER_LETTER',
+            fileUrl,
+            fileName: file.originalname,
+            uploadedBy: userId,
+          },
+        });
+        offerLetterSync = { fileUrl, fileName: file.originalname };
+      } else {
+        const latestOffer = (existing.documents || []).find(
+          (doc) => String(doc.documentType || '').toUpperCase() === 'OFFER_LETTER'
+        );
+        if (latestOffer?.fileUrl) {
+          offerLetterSync = {
+            fileUrl: latestOffer.fileUrl,
+            fileName: latestOffer.fileName || 'offer-letter.pdf',
+          };
+        }
+      }
+
+      await createPlacementActivity(tx, id, 'Offer letter resent', userId, {
+        previousStatus: existing.status,
+        hasNewLetter: Boolean(offerLetterSync?.fileUrl),
+      });
     });
 
-    return { message: 'Placement deleted successfully' };
+    try {
+      await resetApplicationOfferResponse(existing.candidateId, existing.jobId, {
+        placementStatus: 'OFFER_SENT',
+        placementId: id,
+      });
+    } catch (portalErr) {
+      console.warn('[placement.resendOffer] portal reset failed:', portalErr?.message || portalErr);
+    }
+
+    if (offerLetterSync?.fileUrl) {
+      try {
+        await syncApplicationOfferLetter(existing.candidateId, existing.jobId, {
+          ...offerLetterSync,
+          placementId: id,
+          placementStatus: 'OFFER_SENT',
+          resetResponse: true,
+        });
+      } catch (offerSyncErr) {
+        console.warn('[placement.resendOffer] portal offer letter sync failed:', offerSyncErr?.message || offerSyncErr);
+      }
+    }
+
+    await syncCandidateStageFromPlacementStatus(
+      { ...existing, id },
+      'OFFER_SENT',
+      userId,
+      'placement-resend-offer'
+    );
+
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: existing.candidateId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const job = await prisma.job.findUnique({
+      where: { id: existing.jobId },
+      select: { title: true, client: { select: { companyName: true } } },
+    });
+
+    if (candidate?.email && offerLetterSync?.fileUrl) {
+      try {
+        await sendOfferReleasedEmail({
+          toEmail: candidate.email,
+          candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
+          jobTitle: job?.title || 'the role',
+          companyName: job?.client?.companyName || 'the company',
+          offerDate: existing.offerDate || new Date(),
+          senderUserId: userId,
+        });
+      } catch (emailErr) {
+        console.warn('[placement.resendOffer] email failed:', emailErr?.message || emailErr);
+      }
+    }
+
+    try {
+      void pushPortalNotification(existing.candidateId, {
+        type: 'application',
+        title: 'Revised offer letter',
+        description: `A new offer letter is available for ${job?.title || 'your role'}. Please review and respond.`,
+        actionButton: 'View applications',
+        actionPath: '/applications',
+        metadata: {
+          status: 'OFFER_SENT',
+          jobId: existing.jobId,
+          placementId: id,
+          offerLetterUrl: offerLetterSync?.fileUrl || null,
+          resent: true,
+        },
+      });
+    } catch (notifyErr) {
+      console.warn('[placement.resendOffer] notification failed:', notifyErr?.message || notifyErr);
+    }
+
+    return fetchPlacementOrThrow(id);
+  },
+
+  async delete(id, userId) {
+    await removePlacementWithInterviewRevert(id, userId, 'Placement deleted');
+    return { message: 'Placement deleted. Candidate moved back to Interviewing.' };
+  },
+
+  async undo(id, userId) {
+    await removePlacementWithInterviewRevert(id, userId, 'Placement undone');
+    return { message: 'Placement undone. Candidate moved back to Interviewing.' };
   },
 
   async exportCsv(req) {

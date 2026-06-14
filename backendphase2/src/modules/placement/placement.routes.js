@@ -80,6 +80,14 @@ router.patch(
 router.patch('/:id/mark-failed', requireAnyPermission(['placements_update']), placementController.markFailed);
 router.patch('/:id/request-replacement', requireAnyPermission(['placements_update']), placementController.requestReplacement);
 router.patch('/:id/schedule-joining', requireAnyPermission(['placements_update']), placementController.scheduleJoining);
+router.patch(
+  '/:id/resend-offer',
+  requireAnyPermission(['placements_update']),
+  upload.single('offerLetter'),
+  authenticatedTenantAfterMulter,
+  placementController.resendOffer
+);
+router.patch('/:id/undo', requireAnyPermission(['placements_update']), placementController.undo);
 router.delete('/:id', requireAnyPermission(['placements_delete']), placementController.delete);
 
 export default router;

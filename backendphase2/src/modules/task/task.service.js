@@ -9,31 +9,123 @@ import { prepareListWithAuditMeta } from '../../utils/listAuditMeta.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
 import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import activityService from '../../services/activityService.js';
-import { notifyTaskAssignment, notifyTaskStatusChange } from './taskWorkflow.js';
+import { notifyTaskAssignment, notifyTaskStatusChange, notifyTaskAwaitingApproval, notifyTaskCompletionApproved, notifyTaskCompletionRejected } from './taskWorkflow.js';
 import { assertCanAssignTask, listTaskAssigneeCandidates } from '../../services/taskAssignmentScope.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function uniqueUserIds(...values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function buildInitialParticipantIds(createdById, assignedToId) {
+  return uniqueUserIds(createdById, assignedToId);
+}
+
+function appendTaskParticipants(existing = [], ...ids) {
+  return uniqueUserIds(...(Array.isArray(existing) ? existing : []), ...ids);
+}
+
+/** Tasks visible to a non-admin user: assigned, created, delegated, approver, or assigned to direct reports. */
+function buildTaskAccessOrClause(userId) {
+  const uid = String(userId || '').trim();
+  return {
+    OR: [
+      { assignedToId: uid },
+      { createdById: uid },
+      { participantIds: { has: uid } },
+      { completionApproverId: uid },
+      { assignedTo: { managerId: uid } },
+    ],
+  };
+}
+
+const TASK_INCLUDE = {
+  assignedTo: {
+    select: { id: true, name: true, email: true, managerId: true },
+  },
+  createdBy: {
+    select: { id: true, name: true, email: true },
+  },
+  files: {
+    include: {
+      uploadedBy: {
+        select: { id: true, name: true, email: true },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  },
+};
+
+async function resolveCompletionApprover(task) {
+  const assigneeId = String(task.assignedToId || '').trim();
+  const participantIds = uniqueUserIds(...(task.participantIds || []));
+  const creatorId = String(task.createdById || '').trim();
+
+  if (!assigneeId || participantIds.length === 0) return null;
+
+  let managerId = task.assignedTo?.managerId
+    ? String(task.assignedTo.managerId)
+    : null;
+
+  if (!managerId) {
+    const assignee = await prisma.user.findUnique({
+      where: { id: assigneeId },
+      select: { managerId: true },
+    });
+    managerId = assignee?.managerId ? String(assignee.managerId) : null;
+  }
+
+  if (managerId && managerId !== assigneeId && participantIds.includes(managerId)) {
+    return managerId;
+  }
+
+  const delegators = participantIds.filter((id) => id !== assigneeId && id !== creatorId);
+  if (delegators.length === 0) return null;
+
+  return delegators[delegators.length - 1];
+}
+
+function taskNeedsCompletionApproval(task, actorId, approverId) {
+  return (
+    approverId &&
+    String(task.assignedToId) === String(actorId) &&
+    String(approverId) !== String(actorId)
+  );
+}
+
+function applyTaskVisibilityWhere(filters, req) {
+  if (canViewAllAssignments(req) || !req?.user?.id) {
+    return filters;
+  }
+  const visibility = buildTaskAccessOrClause(req.user.id);
+  if (!filters || Object.keys(filters).length === 0) {
+    return visibility;
+  }
+  return { AND: [filters, visibility] };
+}
 
 export const taskService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
     const { assignedToId, status, priority, linkedEntityType, linkedEntityId } = req.query;
 
-    const where = {};
-    if (assignedToId) where.assignedToId = assignedToId;
+    const filters = {};
+    if (assignedToId) filters.assignedToId = assignedToId;
     if (status) {
       // Map frontend status to backend enum
       const statusMap = {
         'Pending': 'PENDING',
         'In Progress': 'IN_PROGRESS',
+        'Awaiting Approval': 'AWAITING_APPROVAL',
         'Completed': 'DONE',
         'Overdue': 'PENDING', // Overdue is calculated, not stored
         'Cancelled': 'CANCELLED',
         'TODO': 'PENDING', // legacy value support
         'PENDING': 'PENDING',
       };
-      where.status = statusMap[status] || status;
+      filters.status = statusMap[status] || status;
     }
     if (priority) {
       // Map frontend priority to backend enum
@@ -42,7 +134,7 @@ export const taskService = {
         'Medium': 'MEDIUM',
         'High': 'HIGH',
       };
-      where.priority = priorityMap[priority] || priority;
+      filters.priority = priorityMap[priority] || priority;
     }
     if (linkedEntityType) {
       const typeMap = {
@@ -52,34 +144,18 @@ export const taskService = {
         'Interview': 'INTERVIEW',
         'Internal': 'INTERNAL',
       };
-      where.linkedEntityType = typeMap[linkedEntityType] || linkedEntityType;
+      filters.linkedEntityType = typeMap[linkedEntityType] || linkedEntityType;
     }
-    if (linkedEntityId) where.linkedEntityId = linkedEntityId;
-    if (!canViewAllAssignments(req) && req.user?.id) {
-      where.OR = [{ assignedToId: req.user.id }, { createdById: req.user.id }];
-    }
+    if (linkedEntityId) filters.linkedEntityId = linkedEntityId;
+
+    const where = applyTaskVisibilityWhere(filters, req);
 
     const [tasks, total] = await Promise.all([
       prisma.task.findMany({
         where,
         skip,
         take: limit,
-        include: {
-          assignedTo: {
-            select: { id: true, name: true, email: true },
-          },
-          createdBy: {
-            select: { id: true, name: true },
-          },
-          files: {
-            include: {
-              uploadedBy: {
-                select: { id: true, name: true, email: true },
-              },
-            },
-            orderBy: { createdAt: 'desc' },
-          },
-        },
+        include: TASK_INCLUDE,
         orderBy: { dueDate: 'asc' },
       }),
       prisma.task.count({ where }),
@@ -90,29 +166,12 @@ export const taskService = {
   },
 
   async getById(id, req = null) {
-    const where = { id };
-    if (!canViewAllAssignments(req) && req?.user?.id) {
-      where.OR = [{ assignedToId: req.user.id }, { createdById: req.user.id }];
-    }
+    const filters = { id };
+    const where = applyTaskVisibilityWhere(filters, req);
 
     const task = await prisma.task.findFirst({
       where,
-      include: {
-        assignedTo: {
-          select: { id: true, name: true, email: true },
-        },
-        createdBy: {
-          select: { id: true, name: true, email: true },
-        },
-        files: {
-          include: {
-            uploadedBy: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-      },
+      include: TASK_INCLUDE,
     });
 
     if (!task) return null;
@@ -146,6 +205,7 @@ export const taskService = {
     const statusMap = {
       'Pending': 'PENDING',
       'In Progress': 'IN_PROGRESS',
+      'Awaiting Approval': 'AWAITING_APPROVAL',
       'Completed': 'DONE',
       'Cancelled': 'CANCELLED',
       'TODO': 'PENDING',
@@ -214,28 +274,14 @@ export const taskService = {
       attachments,
       notifyAssignee: data.notifyAssignee !== undefined ? data.notifyAssignee : true,
       notes: data.notes || [],
+      participantIds: buildInitialParticipantIds(data.createdById, assignedToId),
     };
 
     dbLogger.logCreate('TASK', taskData);
 
     const task = await prisma.task.create({
       data: taskData,
-      include: {
-        assignedTo: {
-          select: { id: true, name: true, email: true },
-        },
-        createdBy: {
-          select: { id: true, name: true, email: true },
-        },
-        files: {
-          include: {
-            uploadedBy: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-      },
+      include: TASK_INCLUDE,
     });
 
     console.log(`✅ Task created successfully with ID: ${task.id}\n`);
@@ -297,6 +343,7 @@ export const taskService = {
     const statusMap = {
       'Pending': 'PENDING',
       'In Progress': 'IN_PROGRESS',
+      'Awaiting Approval': 'AWAITING_APPROVAL',
       'Completed': 'DONE',
       'Cancelled': 'CANCELLED',
       'TODO': 'PENDING',
@@ -369,10 +416,7 @@ export const taskService = {
 
     dbLogger.logUpdate('TASK', id, updateData);
 
-    const accessWhere = { id };
-    if (!canViewAllAssignments(req) && req?.user?.id) {
-      accessWhere.OR = [{ assignedToId: req.user.id }, { createdById: req.user.id }];
-    }
+    const accessWhere = applyTaskVisibilityWhere({ id }, req);
 
     const existingTask = await prisma.task.findFirst({
       where: accessWhere,
@@ -389,25 +433,24 @@ export const taskService = {
       }
     }
 
+    const assigneeWillChange =
+      updateData.assignedToId !== undefined &&
+      String(updateData.assignedToId) !== String(existingTask.assignedToId);
+
+    if (assigneeWillChange) {
+      const performerId = req?.user?.id || data.performedById;
+      updateData.participantIds = appendTaskParticipants(
+        existingTask.participantIds,
+        existingTask.assignedToId,
+        performerId,
+        existingTask.createdById,
+      );
+    }
+
     const updated = await prisma.task.update({
       where: { id },
       data: updateData,
-      include: {
-        assignedTo: {
-          select: { id: true, name: true, email: true },
-        },
-        createdBy: {
-          select: { id: true, name: true, email: true },
-        },
-        files: {
-          include: {
-            uploadedBy: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-      },
+      include: TASK_INCLUDE,
     });
 
     console.log(`✅ Task updated successfully (ID: ${id})\n`);
@@ -461,10 +504,7 @@ export const taskService = {
   },
 
   async delete(id, req = null) {
-    const where = { id };
-    if (!canViewAllAssignments(req) && req?.user?.id) {
-      where.OR = [{ assignedToId: req.user.id }, { createdById: req.user.id }];
-    }
+    const where = applyTaskVisibilityWhere({ id }, req);
 
     const task = await prisma.task.findFirst({
       where,
@@ -666,5 +706,175 @@ export const taskService = {
       completed,
       trendCompletedToday,
     };
+  },
+
+  async markCompleted(id, req) {
+    const actorId = req?.user?.id;
+    if (!actorId) throw new Error('Unauthorized');
+
+    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const existingTask = await prisma.task.findFirst({
+      where: accessWhere,
+      include: TASK_INCLUDE,
+    });
+    if (!existingTask) throw new Error('Task not found');
+
+    if (existingTask.status === 'DONE') throw new Error('Task is already completed');
+    if (existingTask.status === 'AWAITING_APPROVAL') throw new Error('Task is already awaiting approval');
+    if (existingTask.status === 'CANCELLED') throw new Error('Cancelled tasks cannot be completed');
+
+    const approverId = await resolveCompletionApprover(existingTask);
+    const needsApproval = taskNeedsCompletionApproval(existingTask, actorId, approverId);
+
+    const updateData = needsApproval
+      ? {
+          status: 'AWAITING_APPROVAL',
+          completionRequestedById: actorId,
+          completionRequestedAt: new Date(),
+          completionApproverId: approverId,
+        }
+      : {
+          status: 'DONE',
+          completionRequestedById: null,
+          completionRequestedAt: null,
+          completionApproverId: null,
+        };
+
+    const updated = await prisma.task.update({
+      where: { id },
+      data: updateData,
+      include: TASK_INCLUDE,
+    });
+
+    await activityService.logTaskActivity({
+      entityId: id,
+      performedById: actorId,
+      action: needsApproval ? 'Submitted for approval' : 'Task completed',
+      description: needsApproval
+        ? 'Awaiting manager approval'
+        : 'Marked as completed',
+    });
+
+    if (needsApproval) {
+      await notifyTaskAwaitingApproval({
+        task: updated,
+        actorUserId: actorId,
+        approverUserId: approverId,
+        actorUser: req?.user,
+      });
+    } else {
+      await notifyTaskStatusChange({
+        task: updated,
+        actorUserId: actorId,
+        newStatus: 'DONE',
+      });
+    }
+
+    return { task: updated, submittedForApproval: needsApproval };
+  },
+
+  async approveCompletion(id, req) {
+    const actorId = req?.user?.id;
+    if (!actorId) throw new Error('Unauthorized');
+
+    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const existingTask = await prisma.task.findFirst({
+      where: accessWhere,
+      include: TASK_INCLUDE,
+    });
+    if (!existingTask) throw new Error('Task not found');
+    if (existingTask.status !== 'AWAITING_APPROVAL') {
+      throw new Error('Task is not awaiting approval');
+    }
+
+    const isApprover = String(existingTask.completionApproverId) === String(actorId);
+    if (!isApprover && !canViewAllAssignments(req)) {
+      throw new Error('Only the assigned approver can approve this task');
+    }
+
+    const updated = await prisma.task.update({
+      where: { id },
+      data: {
+        status: 'DONE',
+        completionRequestedById: null,
+        completionRequestedAt: null,
+        completionApproverId: null,
+      },
+      include: TASK_INCLUDE,
+    });
+
+    await activityService.logTaskActivity({
+      entityId: id,
+      performedById: actorId,
+      action: 'Completion approved',
+      description: 'Task marked as completed',
+    });
+
+    await notifyTaskCompletionApproved({
+      task: updated,
+      actorUserId: actorId,
+      actorUser: req?.user,
+    });
+
+    await notifyTaskStatusChange({
+      task: updated,
+      actorUserId: actorId,
+      newStatus: 'DONE',
+    });
+
+    return updated;
+  },
+
+  async rejectCompletion(id, req, { note } = {}) {
+    const actorId = req?.user?.id;
+    if (!actorId) throw new Error('Unauthorized');
+
+    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const existingTask = await prisma.task.findFirst({
+      where: accessWhere,
+      include: TASK_INCLUDE,
+    });
+    if (!existingTask) throw new Error('Task not found');
+    if (existingTask.status !== 'AWAITING_APPROVAL') {
+      throw new Error('Task is not awaiting approval');
+    }
+
+    const isApprover = String(existingTask.completionApproverId) === String(actorId);
+    if (!isApprover && !canViewAllAssignments(req)) {
+      throw new Error('Only the assigned approver can reject this task');
+    }
+
+    const trimmedNote = note && String(note).trim() ? String(note).trim() : null;
+    const updatedNotes = trimmedNote
+      ? [...(existingTask.notes || []), `Rejected: ${trimmedNote}`]
+      : existingTask.notes || [];
+
+    const updated = await prisma.task.update({
+      where: { id },
+      data: {
+        status: 'IN_PROGRESS',
+        notes: updatedNotes,
+        completionRequestedById: null,
+        completionRequestedAt: null,
+        completionApproverId: null,
+      },
+      include: TASK_INCLUDE,
+    });
+
+    await activityService.logTaskActivity({
+      entityId: id,
+      performedById: actorId,
+      action: 'Completion rejected',
+      description: trimmedNote || 'Sent back for changes',
+    });
+
+    await notifyTaskCompletionRejected({
+      task: existingTask,
+      actorUserId: actorId,
+      actorUser: req?.user,
+      note: trimmedNote,
+    });
+
+    return updated;
   },
 };

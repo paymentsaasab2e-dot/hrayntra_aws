@@ -23,6 +23,7 @@ import {
   NOTIFICATIONS_UPDATED_EVENT,
   isOrgBillingNavEnabled,
   getCachedOrgSubscriptionPlanName,
+  getCachedOrgRecruitmentMode,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../lib/api';
 import { formatDirectorDisplay } from '../constants/salutations';
@@ -57,6 +58,8 @@ import {
   DollarSign,
   Trash2,
   History,
+  MessageSquarePlus,
+  ShieldCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -525,6 +528,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [navSearch, setNavSearch] = useState('');
   const [billingNavEnabled, setBillingNavEnabled] = useState(true);
   const [orgPlanName, setOrgPlanName] = useState<string>('');
+  const [recruitmentMode, setRecruitmentMode] = useState<'agency' | 'standalone'>('agency');
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -547,6 +551,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     const sync = () => {
       setBillingNavEnabled(isOrgBillingNavEnabled());
       setOrgPlanName(getCachedOrgSubscriptionPlanName());
+      setRecruitmentMode(getCachedOrgRecruitmentMode());
     };
     sync();
     window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
@@ -755,6 +760,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   
   // Super Admin sees everything - bypass permission checks
   const showAll = mounted && isSuperAdmin();
+  const isAgencyMode = recruitmentMode !== 'standalone';
 
   // Show the user's `designation` (e.g. "Senior Recruiter") when set so a
   // user with role RECRUITER doesn't get labelled with the bare role string.
@@ -1131,13 +1137,13 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
           )}
           
-          {/* Leads */}
-          {(mounted && (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']))) && (
+          {/* Leads — agency tenants only */}
+          {(mounted && isAgencyMode && (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']))) && (
             <NavItem icon={Target} label="Leads" href="/leads" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="rose" />
           )}
           
-          {/* Clients */}
-          {(mounted && (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']))) && (
+          {/* Clients — agency tenants only */}
+          {(mounted && isAgencyMode && (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']))) && (
             <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
           )}
           
@@ -1221,10 +1227,21 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           <div className="h-4" />
 
           {/* Team */}
-          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Team))) && (
+          {mounted &&
+            (showAll ||
+              hasAnyPermission(MODULE_ACCESS_MAP.Team) ||
+              hasAnyPermission(MODULE_ACCESS_MAP.Request)) && (
             <>
               <SectionLabel label="Team Management" collapsed={isCollapsed} />
-              <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
+              {(showAll || hasAnyPermission(MODULE_ACCESS_MAP.Team)) && (
+                <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
+              )}
+              {(showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request)) && (
+                <>
+                  <NavItem icon={MessageSquarePlus} label="Request" href="/request" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
+                  <NavItem icon={ShieldCheck} label="Approvals" href="/request/approval" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" />
+                </>
+              )}
             </>
           )}
 

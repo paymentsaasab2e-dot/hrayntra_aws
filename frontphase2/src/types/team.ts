@@ -36,6 +36,7 @@ export interface Department {
   id: string;
   name: string;
   description?: string;
+  allowsCrossDepartmentRequests?: boolean;
   createdAt: string;
   updatedAt: string;
   departmentRoles?: DepartmentRoleLink[];
@@ -254,4 +255,53 @@ export interface TeamMemberStats {
   activeMembers: number;
   roles: number;
   departments: number;
+}
+
+export type TeamRequestType = 'access' | 'leave' | 'support' | 'other';
+export type TeamRequestPriority = 'low' | 'medium' | 'high';
+export type TeamRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface TeamRequest {
+  id: string;
+  requestType?: TeamRequestType;
+  subject: string;
+  description: string;
+  priority: TeamRequestPriority;
+  status: TeamRequestStatus;
+  sendToId?: string;
+  sendToName?: string;
+  sendToEmail?: string;
+  requestedById?: string;
+  requestedByName?: string;
+  requestedByEmail?: string;
+  reviewedById?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+  linkedJobId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTeamRequestPayload {
+  sendToId: string;
+  sendToName: string;
+  sendToEmail?: string;
+  subject: string;
+  description: string;
+  priority?: TeamRequestPriority;
+}
+
+export interface UpdateTeamRequestPayload {
+  status: Extract<TeamRequestStatus, 'approved' | 'rejected' | 'cancelled'>;
+  reviewNote?: string;
+}
+
+export interface TeamRequestJobPrefill {
+  requestId: string;
+  subject: string;
+  description: string;
+  priority?: TeamRequestPriority;
+  requestedById?: string;
+  requestedByName?: string;
 }

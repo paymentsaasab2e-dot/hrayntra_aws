@@ -16,6 +16,7 @@ import {
   PIPELINE_STAGES,
   mapStageNameToPipelineBucket,
   updateCandidateStage,
+  mapPlacementStatusToCrmStageLabel,
 } from '../stage/candidateStage.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { resolveCandidateListExperienceYears } from '../../utils/candidateExperienceYears.util.js';
@@ -48,6 +49,11 @@ import {
 } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
+import {
+  buildAssigneeVisibilityOr,
+  buildInitialParticipantIds,
+  stampVisibilityOnAssigneeChange,
+} from '../../services/memberVisibility.service.js';
 import { pushPortalNotification } from '../notification/notification.service.js';
 import { createAlertNotification } from '../setting/alert-dispatch.service.js';
 import { notifyCandidateRejectedInternal } from '../setting/alert-notify.helpers.js';
@@ -157,6 +163,7 @@ function scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet) {
       pipelineEntries: [],
       matches: [],
       interviews: [],
+      placements: [],
       assignedJobTitles: [],
     };
   }
@@ -178,6 +185,9 @@ function scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet) {
   const interviews = (Array.isArray(candidate.interviews) ? candidate.interviews : []).filter(
     (row) => allowed.has(String(row?.jobId || row?.job?.id || '').trim())
   );
+  const placements = (Array.isArray(candidate.placements) ? candidate.placements : []).filter(
+    (row) => allowed.has(String(row?.jobId || '').trim())
+  );
 
   const assignedJobTitles = (Array.isArray(candidate.assignedJobTitles)
     ? candidate.assignedJobTitles
@@ -191,6 +201,7 @@ function scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet) {
     pipelineEntries,
     matches,
     interviews,
+    placements,
     assignedJobTitles,
   };
 }
@@ -254,6 +265,7 @@ function candidateWorkflowStageRank(stage) {
   if (s.includes('reject')) return 70;
   if (s.includes('hire') || s.includes('placed') || s.includes('joined') || s.includes('onboard')) return 60;
   if (s.includes('offer')) return 50;
+  if (s.includes('interview') && s.includes('complet')) return 45;
   if (s.includes('interview')) return 40;
   if (s.includes('screen') || s.includes('short') || s.includes('long') || s.includes('submit')) return 30;
   if (s.includes('applied') || s.includes('apply')) return 20;
@@ -275,14 +287,33 @@ function mergeCandidateWorkflowStages(...stages) {
   return best;
 }
 
-function candidateHasActiveInterviewLink(candidate, tenantJobIdSet = null) {
+const TERMINAL_INTERVIEW_STATUSES = new Set(['CANCELLED', 'CANCELED', 'REJECTED', 'NO_SHOW']);
+const COMPLETED_INTERVIEW_STATUSES = new Set(['COMPLETED', 'FEEDBACK_SUBMITTED']);
+
+function normalizeInterviewStatusForList(row) {
+  return String(row?.status || 'SCHEDULED').toUpperCase();
+}
+
+function isRelevantInterviewForList(row) {
+  return !TERMINAL_INTERVIEW_STATUSES.has(normalizeInterviewStatusForList(row));
+}
+
+function candidateHasUpcomingInterviewLink(candidate, tenantJobIdSet = null) {
   const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
   const interviews = Array.isArray(scoped?.interviews) ? scoped.interviews : [];
   return interviews.some((row) => {
-    const status = String(row?.status || 'SCHEDULED').toUpperCase();
-    if (['CANCELLED', 'CANCELED', 'REJECTED'].includes(status)) return false;
-    return true;
+    const status = normalizeInterviewStatusForList(row);
+    if (TERMINAL_INTERVIEW_STATUSES.has(status)) return false;
+    return !COMPLETED_INTERVIEW_STATUSES.has(status);
   });
+}
+
+function candidateHasCompletedInterviewOnly(candidate, tenantJobIdSet = null) {
+  const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
+  const interviews = Array.isArray(scoped?.interviews) ? scoped.interviews : [];
+  const relevant = interviews.filter(isRelevantInterviewForList);
+  if (!relevant.length) return false;
+  return relevant.every((row) => COMPLETED_INTERVIEW_STATUSES.has(normalizeInterviewStatusForList(row)));
 }
 
 function candidateHasTenantApplicationLink(candidate, tenantJobIdSet = null) {
@@ -299,22 +330,91 @@ function candidateHasFreshSubmittedApplication(candidate, tenantJobIdSet = null)
   });
 }
 
-/** CRM list/drawer stage: tenant job links use pipeline/applied; ignore global merged stage from other tenants. */
+/** Latest placement status label for CRM candidate list (mirrors placements table). */
+function resolvePlacementStageLabelForList(candidate, tenantJobIdSet = null) {
+  const placements = Array.isArray(candidate?.placements) ? candidate.placements : [];
+  if (!placements.length) return '';
+
+  const tenantJobIds = tenantJobIdSet instanceof Set ? tenantJobIdSet : null;
+  const relevant = placements
+    .filter((row) => row && !row.deletedAt && row.status)
+    .filter((row) => {
+      const jobId = String(row?.jobId || '').trim();
+      if (!tenantJobIds || !jobId) return true;
+      return tenantJobIds.has(jobId);
+    })
+    .sort((a, b) => {
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+
+  const latest = relevant[0];
+  if (!latest?.status) return '';
+  return mapPlacementStatusToCrmStageLabel(latest.status);
+}
+
+function resolveLatestPlacementStatusForList(candidate, tenantJobIdSet = null) {
+  const placements = Array.isArray(candidate?.placements) ? candidate.placements : [];
+  if (!placements.length) return null;
+
+  const tenantJobIds = tenantJobIdSet instanceof Set ? tenantJobIdSet : null;
+  const relevant = placements
+    .filter((row) => row && !row.deletedAt && row.status)
+    .filter((row) => {
+      const jobId = String(row?.jobId || '').trim();
+      if (!tenantJobIds || !jobId) return true;
+      return tenantJobIds.has(jobId);
+    })
+    .sort((a, b) => {
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+
+  return relevant[0]?.status ? String(relevant[0].status).toUpperCase() : null;
+}
+
+/** CRM list/drawer stage: when a placement exists, show its status on the Candidates table. */
 function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
+  const placementStage = resolvePlacementStageLabelForList(candidate, tenantJobIdSet);
+  if (placementStage) {
+    return placementStage;
+  }
+
   const hasTenantJob = candidateHasRealJobLink(candidate, tenantJobIdSet);
-  const hasInterview = candidateHasActiveInterviewLink(candidate, tenantJobIdSet);
+  const hasUpcomingInterview = candidateHasUpcomingInterviewLink(candidate, tenantJobIdSet);
+  const interviewCompletedOnly = candidateHasCompletedInterviewOnly(candidate, tenantJobIdSet);
   const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
+  const explicitStage = String(candidate?.stage || '').trim();
+  const explicitLower = explicitStage.toLowerCase();
+
   const tenantPipelineStage = mergeCandidateWorkflowStages(
     ...(Array.isArray(scoped.pipelineEntries) ? scoped.pipelineEntries : [])
       .map((row) => String(row?.stage?.name || row?.stageName || row?.stage || '').trim())
-      .filter(Boolean)
+      .filter(Boolean),
+    explicitStage,
   );
 
-  if (hasInterview) {
+  if (interviewCompletedOnly && !hasUpcomingInterview) {
+    const merged = mergeCandidateWorkflowStages(tenantPipelineStage, 'Interview completed');
+    if (hasTenantJob || tenantPipelineStage || explicitStage) {
+      return merged || 'Interview completed';
+    }
+  }
+
+  if (hasUpcomingInterview) {
     const merged = mergeCandidateWorkflowStages(tenantPipelineStage, 'Interviewing');
-    if (hasTenantJob || tenantPipelineStage) {
+    if (hasTenantJob || tenantPipelineStage || explicitStage) {
       return merged || 'Interviewing';
     }
+  }
+
+  if (
+    interviewCompletedOnly &&
+    (explicitLower === 'interviewing' || explicitLower === 'interview')
+  ) {
+    return 'Interview completed';
   }
 
   if (tenantPipelineStage) {
@@ -325,14 +425,12 @@ function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
     return 'Applied';
   }
 
-  const explicit = String(candidate?.stage || '').trim();
-  const explicitLower = explicit.toLowerCase();
-  if (explicit && explicitLower !== 'new') {
-    return 'New';
+  if (explicitStage && explicitLower !== 'new') {
+    return explicitStage;
   }
   const status = String(candidate?.status || '').toUpperCase();
   if (status === 'NEW' || status === 'ACTIVE') return 'New';
-  return explicit || 'New';
+  return explicitStage || 'New';
 }
 
 function stageWhenLinkingToJob(existingStage) {
@@ -421,16 +519,53 @@ function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {
   const phase1 = isPhase1CandidateRecord(candidate);
   const hasJob = candidateHasRealJobLink(candidate, tenantJobIdSet);
   const discoveryOnly = phase1 && !hasJob;
+  const placementStatus = resolveLatestPlacementStatusForList(candidate, tenantJobIdSet);
   const resolvedStage = resolveCandidateStageForList(candidate, tenantJobIdSet);
   const stageNew = ['new', ''].includes(String(resolvedStage || '').trim().toLowerCase());
   return {
     ...candidate,
     stage: resolvedStage,
+    placementStatus,
     isPhase1Candidate: discoveryOnly,
     isNewCandidate: discoveryOnly || (phase1 && stageNew && !hasJob),
     isJobAppliedCandidate: hasJob && resolvedStage === 'Applied',
     poolOrigin: discoveryOnly ? 'phase1_common' : phase1 ? 'phase1' : 'tenant',
   };
+}
+
+async function attachPlacementsToCandidates(candidates) {
+  const ids = [...new Set(candidates.map((row) => String(row?.id || '').trim()).filter(Boolean))];
+  if (!ids.length) return candidates;
+
+  const placementRows = await prisma.placement.findMany({
+    where: { candidateId: { in: ids }, deletedAt: null },
+    select: {
+      id: true,
+      candidateId: true,
+      jobId: true,
+      status: true,
+      updatedAt: true,
+      createdAt: true,
+      deletedAt: true,
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+
+  const byCandidateId = new Map();
+  for (const row of placementRows) {
+    const candidateId = String(row.candidateId || '').trim();
+    if (!candidateId) continue;
+    if (!byCandidateId.has(candidateId)) byCandidateId.set(candidateId, []);
+    byCandidateId.get(candidateId).push(row);
+  }
+
+  return candidates.map((candidate) => {
+    const candidateId = String(candidate?.id || '').trim();
+    const hydrated = byCandidateId.get(candidateId) || [];
+    const existing = Array.isArray(candidate?.placements) ? candidate.placements : [];
+    const mergedPlacements = hydrated.length ? hydrated : existing;
+    return mergedPlacements.length ? { ...candidate, placements: mergedPlacements } : candidate;
+  });
 }
 
 /** Prisma scope: non-phase1 OR phase1 with a real job/application/pipeline link. */
@@ -561,6 +696,12 @@ const candidateListInclude = {
     select: { id: true, jobId: true, status: true, scheduledAt: true },
     orderBy: { scheduledAt: 'desc' },
     take: 15,
+  },
+  placements: {
+    select: { id: true, jobId: true, status: true, updatedAt: true, createdAt: true, deletedAt: true },
+    where: { deletedAt: null },
+    orderBy: { updatedAt: 'desc' },
+    take: 5,
   },
 };
 
@@ -704,6 +845,11 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
       portalRow.interviews,
       (row) => String(row?.id || `${row?.jobId || ''}:${row?.scheduledAt || ''}`)
     ),
+    placements: Array.isArray(tenantRow?.placements) && tenantRow.placements.length
+      ? tenantRow.placements
+      : Array.isArray(portalRow?.placements)
+        ? portalRow.placements
+        : [],
   };
   for (const key of scalarKeys) {
     if (key === 'stage') continue;
@@ -2443,7 +2589,7 @@ async function buildMineCandidatesScope(userId) {
     return { id: { in: [] } };
   }
   const myJobIds = await getMyJobIds(userId);
-  const orClause = [{ createdById: userId }, { assignedToId: userId }];
+  const orClause = buildAssigneeVisibilityOr(userId);
   if (myJobIds.length > 0) {
     orClause.push({ matches: { some: { jobId: { in: myJobIds } } } });
     orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });
@@ -2459,7 +2605,7 @@ async function buildCandidateListVisibilityScope(req) {
   const userId = req?.user?.id;
   if (!userId) return { id: { in: [] } };
   const visibleJobIds = await getVisibleTenantJobIds(req, false);
-  const visibilityOr = [{ createdById: userId }, { assignedToId: userId }];
+  const visibilityOr = buildAssigneeVisibilityOr(userId);
   if (visibleJobIds.length > 0) {
     visibilityOr.push({ assignedJobs: { hasSome: visibleJobIds } });
     visibilityOr.push({ applications: { some: { jobId: { in: visibleJobIds } } } });
@@ -2910,6 +3056,7 @@ export const candidateService = {
 
       total = merged.length;
       candidates = merged.slice(skip, skip + limit);
+      candidates = await attachPlacementsToCandidates(candidates);
     } else {
       const tenantRows = await prisma.candidate.findMany({
         where,
@@ -2959,6 +3106,7 @@ export const candidateService = {
 
         total = merged.length;
         candidates = merged.slice(skip, skip + limit);
+        candidates = await attachPlacementsToCandidates(candidates);
       } else {
         let rows = tenantRows;
         if (search) {
@@ -2966,6 +3114,7 @@ export const candidateService = {
         }
         total = rows.length;
         candidates = rows.slice(skip, skip + limit);
+        candidates = await attachPlacementsToCandidates(candidates);
       }
     }
 
@@ -3082,7 +3231,7 @@ export const candidateService = {
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
 
     if (!isSuperAdminUser(req) && !canViewAllCandidates && req?.user?.id) {
-      const assignedScope = { OR: [{ createdById: req.user.id }, { assignedToId: req.user.id }] };
+      const assignedScope = { OR: buildAssigneeVisibilityOr(req.user.id) };
       accessScope = accessScope ? { AND: [accessScope, assignedScope] } : assignedScope;
     }
 
@@ -3220,6 +3369,7 @@ export const candidateService = {
       willingToRelocate: data.willingToRelocate || false,
       remoteWorkPreference: data.remoteWorkPreference,
       createdById: createdByUserId || undefined,
+      participantIds: buildInitialParticipantIds(createdByUserId, data.assignedToId),
     };
 
     // Log data being stored
@@ -3377,6 +3527,8 @@ export const candidateService = {
         status: true,
         stage: true,
         assignedToId: true,
+        createdById: true,
+        participantIds: true,
         notes: true,
         currentTitle: true,
         currentCompany: true,
@@ -3387,6 +3539,12 @@ export const candidateService = {
     // the per-tenant job-portal DB (self-registered via the public portal).
     // We update wherever the row actually exists so saves never fail with
     // "Record to update not found" on hybrid candidates.
+    stampVisibilityOnAssigneeChange({
+      updateData,
+      previous: beforeUpdate,
+      performerId: performedByUserId,
+    });
+
     const writeOnClient = async (client) => {
       try {
         return await client.candidate.update({
@@ -3571,8 +3729,7 @@ export const candidateService = {
     if (!canViewAll && req?.user?.id) {
       andParts.push({
         OR: [
-          { createdById: req.user.id },
-          { assignedToId: req.user.id },
+          ...buildAssigneeVisibilityOr(req.user.id),
           { deletedBy: req.user.id },
         ],
       });
@@ -4258,8 +4415,8 @@ export const candidateService = {
       void pushPortalNotification(candidateId, {
         type: 'application',
         title: 'Application update',
-        description: showFeedbackToCandidate && feedback
-          ? `Your application was not selected. Feedback: ${feedback}`
+        description: showFeedbackToCandidate
+          ? `Your application was not selected. Reason: ${reason}${feedback ? `. Feedback: ${feedback}` : ''}`
           : 'Your application was not selected this time.',
         actionButton: 'View applications',
         actionPath: '/applications',

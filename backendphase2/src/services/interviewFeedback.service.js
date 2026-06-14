@@ -1,7 +1,7 @@
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
-import { updateCandidateStage, PIPELINE_STAGES } from '../modules/stage/candidateStage.service.js';
+import { updateCandidateStage, PIPELINE_STAGES, syncApplicationInterviewFeedback, resolveInterviewRoundLabelForPortal } from '../modules/stage/candidateStage.service.js';
 import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 
 const averageScore = (payload) =>
@@ -22,7 +22,13 @@ export const interviewFeedbackService = {
       where: { id: interviewId },
       include: {
         candidate: true,
-        job: true,
+        job: {
+          include: {
+            client: {
+              select: { companyName: true },
+            },
+          },
+        },
       },
     });
 
@@ -62,10 +68,12 @@ export const interviewFeedbackService = {
       },
     });
 
+    const overallScore = payload.overallScore ?? averageScore(payload);
+
     await prisma.interview.update({
       where: { id: interviewId },
       data: {
-        status: 'FEEDBACK_SUBMITTED',
+        status: 'COMPLETED',
       },
     });
 
@@ -75,9 +83,30 @@ export const interviewFeedbackService = {
       userId: user.id,
       metadata: {
         recommendation: payload.recommendation,
-        overallScore: payload.overallScore ?? averageScore(payload),
+        overallScore,
       },
     });
+
+    try {
+      await syncApplicationInterviewFeedback(interview.candidateId, interview.jobId, {
+        interviewId,
+        roundLabel: resolveInterviewRoundLabelForPortal(interview),
+        recommendation: payload.recommendation,
+        comments: payload.comments,
+        overallScore,
+        companyName: interview.job?.client?.companyName || null,
+        technicalScore: payload.technicalScore,
+        communicationScore: payload.communicationScore,
+        problemSolvingScore: payload.problemSolvingScore,
+        cultureFitScore: payload.cultureFitScore,
+        experienceMatchScore: payload.experienceMatchScore,
+        strengths: payload.strengths,
+        weaknesses: payload.weakness,
+        submittedAt: feedback.createdAt,
+      });
+    } catch (portalErr) {
+      console.warn('[interviewFeedback.create] portal sync failed:', portalErr?.message || portalErr);
+    }
 
     try {
       await updateCandidateStage({

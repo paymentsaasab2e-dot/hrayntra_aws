@@ -20,6 +20,7 @@ import {
   getRolesForDepartment,
   getMemberRoleId,
   pickDefaultManagerId,
+  mergeReportingManagerLists,
   type DepartmentWithRoles,
 } from '../../lib/teamReporting';
 import { PortalHost } from './PortalHost';
@@ -221,13 +222,9 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
     getDepartmentReportingManagers(formData.departmentId, formData.roleId, member.id)
       .then(async (res) => {
         if (cancelled) return;
-        let list = res.data || [];
-        const hasNonSuper = list.some((m) => m.role?.roleName !== 'Super Admin');
-        if (!hasNonSuper) {
-          const fallback = await clientFallback();
-          const fallbackNonSuper = fallback.some((m) => m.role?.roleName !== 'Super Admin');
-          if (fallbackNonSuper) list = fallback;
-        }
+        const apiList = res.data || [];
+        const fallback = await clientFallback();
+        const list = mergeReportingManagerLists(apiList, fallback);
         applyList(list, res.defaultManagerId || pickDefaultManagerId(list));
       })
       .catch(async () => {
@@ -551,6 +548,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
                           formData.departmentId,
                           getMemberRoleId(mgr),
                           departments,
+                          mgr.role?.roleName,
                         );
                         return (
                           <option key={mgr.id} value={mgr.id}>

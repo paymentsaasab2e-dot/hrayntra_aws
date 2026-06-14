@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Edit, Trash2, Users } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Edit, Trash2, Users, Search } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -25,6 +25,7 @@ const roleColorMap: Record<string, string> = {
   amber: 'bg-amber-500',
   orange: 'bg-orange-500',
   red: 'bg-red-500',
+  indigo: 'bg-indigo-500',
   gray: 'bg-gray-500',
 };
 
@@ -40,6 +41,18 @@ const getSafeRoleColorClass = (color?: string | null) => {
   const key = String(color || '').trim().toLowerCase();
   return roleColorMap[key] || 'bg-gray-500';
 };
+
+function isSalesHeadRoleName(name?: string | null): boolean {
+  return /sales\s*(hod|head)/i.test(String(name || '').trim());
+}
+
+function roleHasPermission(role: SystemRole, permissionName: string): boolean {
+  return Boolean(
+    role.rolePermissions?.some(
+      (rp) => rp.permission?.permissionName === permissionName,
+    ),
+  );
+}
 
 const ROLES_TABLE_HEAD_ROW =
   'bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]';
@@ -58,6 +71,7 @@ export const RolesTab: React.FC = () => {
   const [showDetailDrawer, setShowDetailDrawer] = useState(false);
   const [selectedRole, setSelectedRole] = useState<SystemRole | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchData = useCallback(async () => {
     const [rolesRes, permsRes] = await Promise.all([getRoles(), getAllPermissions()]);
@@ -99,6 +113,21 @@ export const RolesTab: React.FC = () => {
   const getPermissionCount = (role: SystemRole): number => {
     return role.rolePermissions?.length || 0;
   };
+
+  const filteredRoles = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return roles;
+    return roles.filter((role) => {
+      const haystack = [
+        role.roleName,
+        role.description || '',
+        isSalesHeadRoleName(role.roleName) ? 'sales head' : '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [roles, searchQuery]);
 
   const upsertRoleLocal = useCallback((role: SystemRole) => {
     setRoles((prev) => {
@@ -164,6 +193,21 @@ export const RolesTab: React.FC = () => {
           {RBAC_CATALOG_TOTAL} permissions across {Object.keys(permissions).length || '…'} modules. Super Admin
           receives every permission automatically. Click a role to view its full permission list.
         </p>
+        <p className="mt-2 text-xs text-violet-800/90">
+          <span className="font-semibold">Sales Head</span> users are assigned the{' '}
+          <span className="font-semibold">Sales HOD</span> role — search &quot;sales&quot; below to find it. Enable{' '}
+          <span className="font-semibold">Clients Handoff</span> on that role for the client handoff button.
+        </p>
+      </div>
+      <div className="relative max-w-sm">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search roles (e.g. Sales Head, Hr Head)…"
+          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+        />
       </div>
       <div className={PH2_TABLE_CARD_CLASS}>
         <div className="overflow-hidden">
@@ -181,6 +225,10 @@ export const RolesTab: React.FC = () => {
                   Create your first role
                 </button>
               </div>
+            ) : filteredRoles.length === 0 ? (
+              <div className="px-4 py-12 text-center">
+                <p className="text-sm font-medium text-slate-500">No roles match your search</p>
+              </div>
             ) : (
               <table className="w-full min-w-[720px] text-left">
                 <thead>
@@ -193,12 +241,14 @@ export const RolesTab: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100/80">
-                  {roles.map((role) => {
+                  {filteredRoles.map((role) => {
                     const modules = getModulesForRole(role);
                     const permCount = getPermissionCount(role);
                     const memberCount = role._count?.users || 0;
                     const isSuperAdmin = role.roleName === 'Super Admin';
                     const displayPermCount = isSuperAdmin ? RBAC_CATALOG_TOTAL : permCount;
+                    const hasHandoff = roleHasPermission(role, 'clients_handoff');
+                    const salesHeadRole = isSalesHeadRoleName(role.roleName);
 
                     return (
                       <tr
@@ -211,6 +261,11 @@ export const RolesTab: React.FC = () => {
                             <div className={`size-2 shrink-0 rounded-full ${getSafeRoleColorClass(role.color)}`} />
                             <div>
                               <div className="text-xs font-semibold text-slate-900">{role.roleName}</div>
+                              {salesHeadRole ? (
+                                <div className="mt-0.5 text-[10px] font-medium text-violet-700">
+                                  Sales Head team role
+                                </div>
+                              ) : null}
                               {role.description ? (
                                 <div className="mt-0.5 text-[10px] text-slate-500">{role.description}</div>
                               ) : null}
@@ -240,6 +295,11 @@ export const RolesTab: React.FC = () => {
                             </div>
                             {modules.length > 0 ? (
                               <div className="flex flex-wrap gap-1.5">
+                                {hasHandoff ? (
+                                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800 ring-1 ring-violet-200/80">
+                                    Client handoff
+                                  </span>
+                                ) : null}
                                 {modules.map((module) => (
                                   <span
                                     key={module}
@@ -249,6 +309,11 @@ export const RolesTab: React.FC = () => {
                                   </span>
                                 ))}
                               </div>
+                            ) : null}
+                            {salesHeadRole && !hasHandoff ? (
+                              <p className="text-[10px] font-medium text-amber-700">
+                                Enable Clients Handoff so Sales Head can use the handoff button on Clients.
+                              </p>
                             ) : null}
                           </div>
                         </td>

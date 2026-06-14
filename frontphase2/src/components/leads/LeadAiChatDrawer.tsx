@@ -178,23 +178,15 @@ export function LeadAiChatDrawer({
   return (
     <AnimatePresence>
       {isOpen ? (
-        <>
-          <motion.div
-            key="lead-ai-chat-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[54] bg-slate-900/20 backdrop-blur-[1px] pointer-events-none"
-          />
-          <motion.aside
-            key="lead-ai-chat-panel"
-            initial={{ x: '-100%', opacity: 0.9 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: '-100%', opacity: 0.9 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-            className="fixed inset-y-4 left-4 z-[55] flex w-[min(100%,28rem)] flex-col overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] ring-1 ring-slate-900/5"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <motion.aside
+          key="lead-ai-chat-panel"
+          initial={{ x: '-100%', opacity: 0.9 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: '-100%', opacity: 0.9 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 260 }}
+          className="fixed inset-y-4 left-4 z-[56] flex w-[min(100%,28rem)] flex-col overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] ring-1 ring-slate-900/5"
+          onClick={(e) => e.stopPropagation()}
+        >
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/50 px-5 py-4">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm">
@@ -347,7 +339,6 @@ export function LeadAiChatDrawer({
               ) : null}
             </div>
           </motion.aside>
-        </>
       ) : null}
     </AnimatePresence>
   );

@@ -1763,7 +1763,9 @@ export function LeadDetailsDrawer({
       ];
 
   const drawerPanelClass = addLeadMode
-    ? 'fixed inset-y-4 right-4 z-50 flex h-[calc(100%-2rem)] w-[min(78vw,72rem)] max-w-6xl flex-col overflow-hidden rounded-[28px] border border-slate-200/90 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.16),0_8px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-900/5 pointer-events-auto'
+    ? `fixed inset-y-4 right-4 z-[56] flex h-[calc(100%-2rem)] flex-col overflow-hidden rounded-[28px] border border-slate-200/90 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.16),0_8px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-900/5 pointer-events-auto ${
+        leadAiChatOpen ? 'w-[min(58vw,56rem)] max-w-5xl' : 'w-[min(78vw,72rem)] max-w-6xl'
+      }`
     : 'fixed right-0 top-0 z-50 flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200 bg-white shadow-2xl pointer-events-auto';
 
   return (
@@ -1775,9 +1777,13 @@ export function LeadDetailsDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
-            className={`fixed inset-0 z-50 pointer-events-auto ${
-              addLeadMode ? 'bg-slate-900/45 backdrop-blur-sm' : 'bg-slate-900/40 backdrop-blur-[2px]'
+            onClick={leadAiChatOpen ? undefined : onClose}
+            className={`fixed inset-0 z-50 ${
+              addLeadMode && leadAiChatOpen
+                ? 'pointer-events-none bg-slate-900/10'
+                : addLeadMode
+                  ? 'pointer-events-auto bg-slate-900/30 backdrop-blur-[1px]'
+                  : 'pointer-events-auto bg-slate-900/40 backdrop-blur-[2px]'
             }`}
           />
           <motion.div

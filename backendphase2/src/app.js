@@ -40,6 +40,9 @@ import inboxRoutes from './modules/inbox/inbox.routes.js';
 import reportRoutes from './modules/report/report.routes.js';
 import teamRoutes from './modules/team/team.routes.js';
 import teamRoutesNew from './routes/teamRoutes.js';
+import teamRequestsRoutes from './routes/teamRequestsRoutes.js';
+import crossDepartmentRequestRoutes from './routes/crossDepartmentRequestRoutes.js';
+import leadConversionRequestRoutes from './routes/leadConversionRequestRoutes.js';
 import roleRoutes from './modules/role/role.routes.js';
 import rolesRoutesNew from './routes/rolesRoutes.js';
 import permissionsRoutesNew from './routes/permissionsRoutes.js';
@@ -241,6 +244,11 @@ app.use('/api/v1/inbox', inboxRoutes);
 app.use('/api/v1/reports', reportRoutes);
 app.use('/api/v1/teams', teamRoutes);
 app.use('/api/v1/team', teamRoutes); // Team members (individual users) - legacy
+app.use('/api/team/requests', teamRequestsRoutes);
+app.use('/api/cross-dept-requests', crossDepartmentRequestRoutes);
+app.use('/api/v1/cross-dept-requests', crossDepartmentRequestRoutes);
+app.use('/api/lead-conversion-requests', leadConversionRequestRoutes);
+app.use('/api/v1/lead-conversion-requests', leadConversionRequestRoutes);
 app.use('/api/team', teamRoutesNew); // New TypeScript team routes
 app.use('/api/v1/roles', roleRoutes);
 app.use('/api/roles', rolesRoutesNew); // New TypeScript roles routes
