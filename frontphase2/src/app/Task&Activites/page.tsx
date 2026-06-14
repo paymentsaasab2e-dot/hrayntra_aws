@@ -637,6 +637,8 @@ export default function App() {
         return clientNameById[backendTask.linkedEntityId];
       case 'INTERVIEW':
         return interviewNameById[backendTask.linkedEntityId];
+      case 'TEAM_REQUEST':
+        return backendTask.title || 'Hiring request';
       default:
         return undefined;
     }
@@ -768,7 +770,9 @@ export default function App() {
                 ? clientsLookup[backendTask.linkedEntityId]
                 : backendTask.linkedEntityType === 'INTERVIEW' && backendTask.linkedEntityId
                   ? interviewsLookup[backendTask.linkedEntityId]
-                  : undefined,
+                  : backendTask.linkedEntityType === 'TEAM_REQUEST'
+                    ? backendTask.title || 'Hiring request'
+                    : undefined,
         memberNameById,
       });
     });
@@ -1587,7 +1591,9 @@ export default function App() {
                   ? clientNameById[selectedBackendTask.linkedEntityId] || selectedBackendTask.linkedEntityId
                   : selectedBackendTask.linkedEntityType === 'INTERVIEW' && selectedBackendTask.linkedEntityId
                     ? interviewNameById[selectedBackendTask.linkedEntityId] || selectedBackendTask.linkedEntityId
-                    : selectedBackendTask.linkedEntityId || undefined,
+                    : selectedBackendTask.linkedEntityType === 'TEAM_REQUEST'
+                      ? selectedBackendTask.title || 'Hiring request'
+                      : selectedBackendTask.linkedEntityId || undefined,
         }) : (selectedTask ? (() => {
           // Convert Task to TaskForDrawer format (fallback)
           const taskForDrawer: TaskForDrawer = {

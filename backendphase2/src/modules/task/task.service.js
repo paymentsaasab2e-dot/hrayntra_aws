@@ -143,6 +143,7 @@ export const taskService = {
         'Client': 'CLIENT',
         'Interview': 'INTERVIEW',
         'Internal': 'INTERNAL',
+        'Team Request': 'TEAM_REQUEST',
       };
       filters.linkedEntityType = typeMap[linkedEntityType] || linkedEntityType;
     }
@@ -218,6 +219,7 @@ export const taskService = {
       'Client': 'CLIENT',
       'Interview': 'INTERVIEW',
       'Internal': 'INTERNAL',
+      'Team Request': 'TEAM_REQUEST',
     };
 
     // Validate assignedToId
@@ -356,6 +358,7 @@ export const taskService = {
       'Client': 'CLIENT',
       'Interview': 'INTERVIEW',
       'Internal': 'INTERNAL',
+      'Team Request': 'TEAM_REQUEST',
     };
 
     const updateData = {};

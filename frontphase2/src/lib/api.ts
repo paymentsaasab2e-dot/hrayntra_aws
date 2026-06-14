@@ -5731,7 +5731,7 @@ export interface BackendTask {
   completionRequestedById?: string | null;
   completionRequestedAt?: string | null;
   completionApproverId?: string | null;
-  linkedEntityType?: 'CANDIDATE' | 'JOB' | 'CLIENT' | 'INTERVIEW' | 'INTERNAL' | null;
+  linkedEntityType?: 'CANDIDATE' | 'JOB' | 'CLIENT' | 'INTERVIEW' | 'INTERNAL' | 'TEAM_REQUEST' | null;
   linkedEntityId?: string | null;
   reminder?: string | null;
   reminderChannel?: string | null;
@@ -5757,7 +5757,7 @@ export interface BackendTask {
 export interface CreateTaskData {
   title: string;
   description?: string;
-  relatedTo?: 'Candidate' | 'Job' | 'Client' | 'Interview' | 'Internal';
+  relatedTo?: 'Candidate' | 'Job' | 'Client' | 'Interview' | 'Internal' | 'Team Request';
   relatedEntityId?: string;
   assigneeId: string;
   priority: 'Low' | 'Medium' | 'High';

@@ -1177,6 +1177,43 @@ export async function getTeamRequestsForApproval(options?: {
 }
 
 /**
+ * Fetch a single team request by id.
+ */
+export async function getTeamRequest(id: string): Promise<{ data: TeamRequest; success: boolean }> {
+  const requestId = String(id || '').trim();
+  if (!requestId) throw new Error('Request id is required');
+
+  const json = await teamRequestsFetch<{ data: TeamRequest; success: boolean }>(
+    `/${encodeURIComponent(requestId)}`,
+  );
+  return { data: json.data, success: true };
+}
+
+/**
+ * Forward an approved team request to a lower-ranked member as a task.
+ */
+export async function forwardTeamRequestToTask(
+  id: string,
+  assignToId: string,
+): Promise<{ data: TeamRequest; success: boolean }> {
+  const requestId = String(id || '').trim();
+  const assigneeId = String(assignToId || '').trim();
+  if (!requestId) throw new Error('Request id is required');
+  if (!assigneeId) throw new Error('Assignee is required');
+
+  const json = await teamRequestsFetch<{ data: TeamRequest; success: boolean }>(
+    `/${encodeURIComponent(requestId)}/create-task`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ assignToId: assigneeId }),
+    },
+  );
+
+  notifyTeamRequestsUpdated();
+  return { data: json.data, success: true };
+}
+
+/**
  * Approve, reject, or cancel a team request.
  */
 export async function updateTeamRequestStatus(

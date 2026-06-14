@@ -82,6 +82,7 @@ export function transformBackendTaskToFrontend(
     'CLIENT': 'Client',
     'INTERVIEW': 'Interview',
     'INTERNAL': 'Internal',
+    'TEAM_REQUEST': 'Team Request',
   };
 
   const workflowStatus: TaskStatus = workflowStatusMap[backendTask.status] || 'Pending';
@@ -167,6 +168,7 @@ export function transformBackendTaskToDrawer(
     CLIENT: 'Client',
     INTERVIEW: 'Interview',
     INTERNAL: 'Internal',
+    TEAM_REQUEST: 'Team Request',
   };
 
   const workflowStatus: TaskStatus = workflowStatusMap[backendTask.status] || 'Pending';
