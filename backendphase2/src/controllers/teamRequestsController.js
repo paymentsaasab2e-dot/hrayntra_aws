@@ -139,7 +139,7 @@ export async function createTeamRequest(req, res) {
       return res.status(400).json({ success: false, message: 'Subject is required' });
     }
     if (!description) {
-      return res.status(400).json({ success: false, message: 'Description is required' });
+      return res.status(400).json({ success: false, message: 'Remark is required' });
     }
     if (!['low', 'medium', 'high'].includes(priority)) {
       return res.status(400).json({ success: false, message: 'Invalid priority' });
@@ -164,6 +164,23 @@ export async function createTeamRequest(req, res) {
 
     const resolvedSendToName = sendToName || formatUserName(recipient);
     const resolvedSendToEmail = normalizeEmail(req.body?.sendToEmail) || normalizeEmail(recipient.email);
+
+    const existingPending = await prisma.teamMemberRequest.findFirst({
+      where: {
+        requestedById: authz.userId,
+        sendToId: recipient.id,
+        subject,
+        status: 'pending',
+      },
+      select: { id: true },
+    });
+    if (existingPending) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'A request with this subject is already pending approval. Wait for a response before sending again.',
+      });
+    }
 
     const row = await prisma.teamMemberRequest.create({
       data: {
@@ -232,6 +249,10 @@ export async function updateTeamRequestStatus(req, res) {
 
     if (existing.status !== 'pending' && status !== existing.status) {
       return res.status(409).json({ success: false, message: 'Request has already been reviewed' });
+    }
+
+    if (status === 'rejected' && !reviewNote) {
+      return res.status(400).json({ success: false, message: 'Remark is required when rejecting a request' });
     }
 
     const reviewed = ['approved', 'rejected'].includes(status);

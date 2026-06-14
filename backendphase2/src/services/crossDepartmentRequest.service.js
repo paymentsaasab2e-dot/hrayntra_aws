@@ -142,6 +142,8 @@ export const crossDepartmentRequestService = {
     const targetUserId = data.targetUserId ? idStr(data.targetUserId) : null;
     const subject = String(data.subject || '').trim();
     if (!subject) throw new Error('Subject is required');
+    const description = data.description ? String(data.description).trim() : '';
+    if (!description) throw new Error('Remark is required when sending a request');
     if (!targetDepartmentId) throw new Error('Target department is required');
 
     const targetDept = await prisma.department.findUnique({
@@ -211,10 +213,28 @@ export const crossDepartmentRequestService = {
       }
     }
 
+    const linkedEntityId = idStr(data.linkedEntityId);
+    if (linkedEntityId && workType !== 'CLIENT') {
+      const existingPending = await prisma.crossDepartmentWorkRequest.findFirst({
+        where: {
+          workType,
+          linkedEntityId,
+          requestedById: uid,
+          status: 'PENDING',
+        },
+        select: { id: true },
+      });
+      if (existingPending) {
+        throw new Error(
+          'A request for this record is already pending approval. Wait for a response before sending again.',
+        );
+      }
+    }
+
     const row = await prisma.crossDepartmentWorkRequest.create({
       data: {
         subject,
-        description: data.description ? String(data.description).trim() : null,
+        description: description || null,
         priority: data.priority || 'medium',
         workType,
         sourceDepartmentId: actor.departmentId,
@@ -268,6 +288,9 @@ export const crossDepartmentRequestService = {
     const trimmedNote = note ? String(note).trim() : null;
 
     if (normalizedAction === 'reject') {
+      if (!trimmedNote) {
+        throw new Error('Remark is required when rejecting a request');
+      }
       const updated = await prisma.crossDepartmentWorkRequest.update({
         where: { id: rid },
         data: {

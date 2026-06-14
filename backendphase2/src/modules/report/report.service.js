@@ -618,6 +618,49 @@ function relatedJobWhere(filters) {
   return { job: jobWhere };
 }
 
+function hasJobScopedFilters(filters) {
+  return Boolean(
+    filters.jobId ||
+      filters.jobStatus ||
+      filters.jobType ||
+      filters.jobLocation ||
+      filters.jobDepartment ||
+      filters.clientId,
+  );
+}
+
+async function resolveJobIdsForFilters(filters) {
+  const jobWhere = buildJobMatchConditions(filters);
+  if (Object.keys(jobWhere).length === 0) return [];
+  const jobs = await prisma.job.findMany({
+    where: jobWhere,
+    select: { id: true },
+    take: 5000,
+  });
+  return jobs.map((job) => job.id);
+}
+
+async function candidateJobScopeFilter(filters) {
+  if (!hasJobScopedFilters(filters)) {
+    return {};
+  }
+
+  const jobIds = await resolveJobIdsForFilters(filters);
+  if (!jobIds.length) {
+    return { id: '__none__' };
+  }
+
+  return {
+    OR: [
+      { assignedJobs: { hasSome: jobIds } },
+      { pipelineEntries: { some: { jobId: { in: jobIds } } } },
+      { matches: { some: { jobId: { in: jobIds } } } },
+      { interviews: { some: { jobId: { in: jobIds } } } },
+      { placements: { some: { jobId: { in: jobIds } } } },
+    ],
+  };
+}
+
 function pipelineEntryJobFilter(filters) {
   if (filters.jobId) return { jobId: filters.jobId };
   const jobWhere = buildJobMatchConditions(filters, { includeId: false });
@@ -629,21 +672,6 @@ function placementJobFilter(filters) {
   const jobWhere = buildJobMatchConditions(filters, { includeId: false });
   if (Object.keys(jobWhere).length === 0) return {};
   return { placement: { job: jobWhere } };
-}
-
-function candidateJobScopeFilter(filters) {
-  if (!filters.jobId && !filters.jobStatus && !filters.jobType && !filters.jobLocation && !filters.jobDepartment) {
-    return {};
-  }
-  return {
-    OR: [
-      filters.jobId ? { assignedJobs: { has: filters.jobId } } : null,
-      { pipelineEntries: { some: relatedJobWhere(filters) } },
-      { matches: { some: relatedJobWhere(filters) } },
-      { interviews: { some: relatedJobWhere(filters) } },
-      { placements: { some: relatedJobWhere(filters) } },
-    ].filter(Boolean),
-  };
 }
 
 async function buildReportFilterOptions(user) {
@@ -888,23 +916,15 @@ async function getReportsSummary(query = {}, user = null) {
     caseInsensitiveMatchFilter('industry', filters.clientIndustry)
   );
 
+  const candidateJobScope = await candidateJobScopeFilter(filters);
+
   const candidatesWhere = combineWhere(
     candidateScope(user),
     dateBetween('createdAt', filters),
     filters.recruiterId ? { OR: [{ assignedToId: filters.recruiterId }, { createdById: filters.recruiterId }] } : {},
     exactMatchFilter('status', filters.candidateStatus),
     caseInsensitiveMatchFilter('source', filters.candidateSource),
-    filters.jobId
-      ? {
-          OR: [
-            { assignedJobs: { has: filters.jobId } },
-            { pipelineEntries: { some: { jobId: filters.jobId } } },
-            { matches: { some: { jobId: filters.jobId } } },
-            { interviews: { some: { jobId: filters.jobId } } },
-            { placements: { some: { jobId: filters.jobId } } },
-          ],
-        }
-      : candidateJobScopeFilter(filters),
+    candidateJobScope,
     filters.clientId
       ? {
           OR: [{ interviews: { some: { clientId: filters.clientId } } }, { placements: { some: { clientId: filters.clientId } } }],
@@ -1866,7 +1886,7 @@ async function buildWhereForEntity(entity, query, user) {
       if (createdAtRange) where.createdAt = createdAtRange;
       if (status || filters.candidateStatus) where.status = status || filters.candidateStatus;
       if (filters.candidateSource) where.source = { equals: filters.candidateSource, mode: 'insensitive' };
-      Object.assign(where, candidateJobScopeFilter(filters));
+      Object.assign(where, await candidateJobScopeFilter(filters));
       if (search || location) {
         where.OR = [
           ...(Array.isArray(where.OR) ? where.OR : []),
