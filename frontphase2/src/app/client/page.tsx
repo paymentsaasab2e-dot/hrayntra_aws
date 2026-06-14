@@ -72,6 +72,7 @@ import {
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useCanHandoffClient } from '../../hooks/useCanHandoffClient';
+import { useClientHandoffStatuses } from '../../hooks/useClientHandoffStatuses';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -338,6 +339,7 @@ export default function App() {
   const canHandoffFromServer = useCanHandoffClient();
   const canHandoffClient =
     canHandoffFromServer || hasPermission('clients_handoff');
+  const { getStatusForClient, refresh: refreshHandoffStatuses } = useClientHandoffStatuses();
   const canOpenClientTrash = hasAnyPermission(['clients_delete']);
   const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState('all');
@@ -1313,6 +1315,7 @@ export default function App() {
                         ? (client) => setHandoffClient(client)
                         : undefined
                     }
+                    getClientHandoffStatus={canHandoffClient ? getStatusForClient : undefined}
                     clientNameSortOrder={clientNameSortOrder}
                     onToggleClientNameSortOrder={() => {
                       setClientNameSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
@@ -1346,6 +1349,12 @@ export default function App() {
           clientId={handoffClient?.id ?? null}
           clientName={handoffClient?.name ?? 'Client'}
           onClose={() => setHandoffClient(null)}
+          onSent={() => void refreshHandoffStatuses()}
+          submitLabel={
+            handoffClient && getStatusForClient(handoffClient.id).status === 'rejected'
+              ? 'Resend handoff request'
+              : undefined
+          }
         />
 
         <ClientDetailsDrawer

@@ -177,6 +177,22 @@ export const crossDepartmentRequestService = {
     if (workType === 'CLIENT') {
       const clientId = idStr(data.linkedEntityId);
       if (!clientId) throw new Error('Client id is required for client handoff requests');
+
+      const existingPending = await prisma.crossDepartmentWorkRequest.findFirst({
+        where: {
+          workType: 'CLIENT',
+          linkedEntityId: clientId,
+          requestedById: uid,
+          status: 'PENDING',
+        },
+        select: { id: true },
+      });
+      if (existingPending) {
+        throw new Error(
+          'A handoff request for this client is already pending approval. Wait for a response before sending again.',
+        );
+      }
+
       const client = await prisma.client.findFirst({
         where: { id: clientId, isDeleted: { not: true } },
         select: { id: true, companyName: true, assignedToId: true },

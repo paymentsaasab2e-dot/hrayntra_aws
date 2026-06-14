@@ -11,9 +11,10 @@ type Props = {
   clientName: string;
   onClose: () => void;
   onSent?: () => void;
+  submitLabel?: string;
 };
 
-export function ClientHandoffModal({ isOpen, clientId, clientName, onClose, onSent }: Props) {
+export function ClientHandoffModal({ isOpen, clientId, clientName, onClose, onSent, submitLabel }: Props) {
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -81,6 +82,7 @@ export function ClientHandoffModal({ isOpen, clientId, clientName, onClose, onSe
                 showHeader={false}
                 onCancel={onClose}
                 onSent={handleSent}
+                submitLabel={submitLabel}
               />
             </div>
           </motion.div>
