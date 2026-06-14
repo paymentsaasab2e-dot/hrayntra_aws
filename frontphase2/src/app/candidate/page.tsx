@@ -272,7 +272,7 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
     experienceLabel: formatCandidateExperienceForTable(experienceYears, workEntries.length),
     location: c.location || '—',
     assignedJobs: assignedJobsFromAssignedTitles,
-    stage: String(c.stage || '').trim() || resolveCandidateListStage(c),
+    stage: resolveCandidateListStage(c),
     owner: c.assignedTo?.name || 'Unassigned',
     lastActivity: (c.updatedAt || c.createdAt)
       ? formatDateDMY(c.updatedAt || c.createdAt)

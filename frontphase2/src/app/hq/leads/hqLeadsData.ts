@@ -34,6 +34,7 @@ export type HqLeadFollowUp = {
   status: string;
   createdAt: string | null;
   createdByEmail?: string | null;
+  completedAt?: string | null;
 };
 
 export type HqLeadRemark = {

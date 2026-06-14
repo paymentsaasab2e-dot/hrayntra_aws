@@ -46,6 +46,7 @@ import {
   getClientPageFieldVisibility,
   setClientPageFieldVisibility,
 } from './recruitmentMode.service.js';
+import { getOrCreateWorkspaceClient } from './workspace-client.service.js';
 import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
 import { suggestIndustryOptions } from './industrySuggest.service.js';
 import { suggestLanguageOptions, suggestProficiencyOptions } from './languageSuggest.service.js';
@@ -73,6 +74,34 @@ router.get('/recruitment-summary', async (req, res) => {
     });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load org summary', error);
+  }
+});
+
+/** Standalone tenants: internal workspace company (no Clients module). */
+router.get('/workspace-client', async (req, res) => {
+  try {
+    const recruitmentMode = await getRecruitmentMode();
+    if (recruitmentMode !== 'standalone') {
+      return sendResponse(res, 200, 'OK', { recruitmentMode, workspaceClient: null });
+    }
+
+    const workspaceClient = await getOrCreateWorkspaceClient(req.user);
+    if (!workspaceClient) {
+      return sendError(res, 404, 'Workspace client is not available for this tenant');
+    }
+
+    sendResponse(res, 200, 'OK', {
+      recruitmentMode,
+      workspaceClient: {
+        id: workspaceClient.id,
+        companyName: workspaceClient.companyName,
+        website: workspaceClient.website,
+        industry: workspaceClient.industry,
+        status: workspaceClient.status,
+      },
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load workspace client', error);
   }
 });
 
@@ -115,6 +144,16 @@ router.put('/recruitment-mode', requireAnyPermission(['manage_settings']), async
     sendResponse(res, 200, 'Recruitment mode saved', { recruitmentMode: saved });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to save recruitment mode', error);
+  }
+});
+
+/** Any authenticated tenant user — org-wide client field visibility for list/drawer UI. */
+router.get('/client-page-fields/visibility', async (req, res) => {
+  try {
+    const clientPageFieldVisibility = await getClientPageFieldVisibility();
+    sendResponse(res, 200, 'OK', { clientPageFieldVisibility });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load client page fields', error);
   }
 });
 

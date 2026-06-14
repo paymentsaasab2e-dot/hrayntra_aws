@@ -1,6 +1,7 @@
-import { sendResponse, sendError } from '../../utils/response.js';
 import { env } from '../../config/env.js';
+import { sendResponse, sendError } from '../../utils/response.js';
 import { chatCompletionWithFallback, hasLlmProvider } from '../../services/llmChatFallback.service.js';
+import { processJobCreationFromPrompt } from '../../services/jobCreationPipeline.service.js';
 import { runAssistantChat } from './assistantChat.service.js';
 import {
   deleteAssistantHistory,
@@ -392,6 +393,47 @@ export const aiController = {
     }
   },
 
+  async generateJobFromPrompt(req, res) {
+    try {
+      const { prompt, currentForm } = req.body || {};
+      const promptText = String(prompt || '').trim();
+      if (!promptText) {
+        return sendError(res, 400, 'Job prompt is required');
+      }
+
+      if (!hasLlmProvider()) {
+        return sendError(res, 503, 'AI job generator is not configured (set OPENAI_API_KEY)');
+      }
+
+      let clients = [];
+      try {
+        const listReq = {
+          ...req,
+          query: { ...req.query, page: '1', limit: '500' },
+        };
+        const clientResult = await clientService.getAll(listReq);
+        const raw = clientResult?.data ?? clientResult;
+        clients = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+      } catch {
+        clients = [];
+      }
+
+      const result = await processJobCreationFromPrompt(promptText, {
+        currentForm: currentForm && typeof currentForm === 'object' ? currentForm : {},
+        clients,
+      });
+
+      if (!result?.jobTitle) {
+        return sendError(res, 422, 'Could not extract a job title from the prompt');
+      }
+
+      return sendResponse(res, 200, 'Job details generated from prompt', result);
+    } catch (error) {
+      console.error('[generateJobFromPrompt]', error);
+      return sendError(res, 500, error.message || 'Failed to generate job from prompt', error);
+    }
+  },
+
   async generateJobDescription(req, res) {
     try {
       const {
@@ -423,7 +465,9 @@ export const aiController = {
         Array.isArray(skills) && skills.length
           ? `Important skills: ${skills.filter(Boolean).join(', ')}.`
           : null,
-        customPrompt ? `Additional instructions: ${String(customPrompt).trim()}.` : null,
+        customPrompt
+          ? `Recruiter instruction (MUST respect location, salary, country, and nationality exactly as stated — do not substitute other cities or currencies): ${String(customPrompt).trim()}.`
+          : null,
         'Return only HTML, no markdown fences.',
         'Use a concise intro paragraph followed by sections titled Overview, Key Responsibilities, Requirements, Preferred Qualifications, and Benefits.',
         'Use semantic tags like h3, p, ul, and li.',

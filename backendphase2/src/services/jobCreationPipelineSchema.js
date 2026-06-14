@@ -54,6 +54,7 @@ export const jobCreationJsonSchema = {
       jobSummary: { type: 'string' },
       keyResponsibilitiesText: { type: 'string' },
       qualificationsExperienceText: { type: 'string' },
+      candidateRequirementsText: { type: 'string' },
       compensationBenefitsText: { type: 'string' },
       educationalQualification: { type: 'string' },
       educationalSpecialization: { type: 'string' },
@@ -85,6 +86,7 @@ export const jobCreationJsonSchema = {
       'jobSummary',
       'keyResponsibilitiesText',
       'qualificationsExperienceText',
+      'candidateRequirementsText',
       'compensationBenefitsText',
       'educationalQualification',
       'educationalSpecialization',
@@ -149,9 +151,33 @@ function defaultTargetHireDateIso() {
   return d.toISOString().slice(0, 10);
 }
 
-function parseSalaryFields(salaryInput) {
+function parseSalaryFields(salaryInput, contextText = '') {
   const raw = String(salaryInput || '').trim();
-  if (!raw) return { payRangeMin: '', payRangeMax: '', salaryCurrency: '', salaryInput: '' };
+  const blob = `${raw} ${String(contextText || '')}`.trim();
+  if (!raw && !blob) return { payRangeMin: '', payRangeMax: '', salaryCurrency: '', salaryInput: '' };
+
+  const inferCurrency = () => {
+    if (/\bINR\b/i.test(blob) || /\bIndia\b/i.test(blob) || /\b₹\b/.test(blob) || /\bLPA\b/i.test(blob)) {
+      return 'INR';
+    }
+    if (/\bUSD\b/i.test(blob) || /\$/.test(blob)) return 'USD';
+    return '';
+  };
+
+  const kRange = blob.match(/(\d+(?:\.\d+)?)\s*k\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)\s*k/i);
+  if (kRange) {
+    const min = String(Math.round(Number(kRange[1]) * 1000));
+    const max = String(Math.round(Number(kRange[2]) * 1000));
+    const display = `${kRange[1]}k to ${kRange[2]}k`;
+    const currency = inferCurrency() || (/\bIndia\b/i.test(blob) ? 'INR' : '');
+    return {
+      payRangeMin: min,
+      payRangeMax: max,
+      salaryCurrency: currency || 'INR',
+      salaryInput: raw || display,
+    };
+  }
+
   const lpa = raw.match(/(\d+(?:\.\d+)?)\s*[-–—]\s*(\d+(?:\.\d+)?)\s*LPA/i);
   if (lpa) {
     return {
@@ -171,6 +197,175 @@ function parseSalaryFields(salaryInput) {
     };
   }
   return { payRangeMin: '', payRangeMax: '', salaryCurrency: '', salaryInput: raw };
+}
+
+/** Known Indian cities — used to lock location from recruiter prompts (never guess Bengaluru if user said Mumbai). */
+const INDIAN_CITY_LOOKUP = [
+  { keys: ['mumbai', 'bombay'], city: 'Mumbai', state: 'Maharashtra', country: 'India' },
+  { keys: ['bengaluru', 'bangalore'], city: 'Bengaluru', state: 'Karnataka', country: 'India' },
+  { keys: ['delhi', 'new delhi'], city: 'Delhi', state: 'Delhi', country: 'India' },
+  { keys: ['pune'], city: 'Pune', state: 'Maharashtra', country: 'India' },
+  { keys: ['hyderabad'], city: 'Hyderabad', state: 'Telangana', country: 'India' },
+  { keys: ['chennai', 'madras'], city: 'Chennai', state: 'Tamil Nadu', country: 'India' },
+  { keys: ['kolkata', 'calcutta'], city: 'Kolkata', state: 'West Bengal', country: 'India' },
+  { keys: ['ahmedabad'], city: 'Ahmedabad', state: 'Gujarat', country: 'India' },
+  { keys: ['noida'], city: 'Noida', state: 'Uttar Pradesh', country: 'India' },
+  { keys: ['gurgaon', 'gurugram'], city: 'Gurugram', state: 'Haryana', country: 'India' },
+  { keys: ['panvel'], city: 'Panvel', state: 'Maharashtra', country: 'India' },
+  { keys: ['kharghar'], city: 'Kharghar', state: 'Maharashtra', country: 'India' },
+];
+
+function detectKnownCityInText(text) {
+  const lower = String(text || '').toLowerCase();
+  if (!lower) return null;
+  for (const row of INDIAN_CITY_LOOKUP) {
+    for (const key of row.keys) {
+      const pattern = new RegExp(`\\b${key.replace(/\s+/g, '\\s+')}\\b`, 'i');
+      if (pattern.test(lower)) {
+        return {
+          city: row.city,
+          state: row.state,
+          country: row.country,
+          jobLocation: [row.city, row.state, row.country].filter(Boolean).join(', '),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function normalizeEmploymentTypeFromText(text) {
+  const lower = String(text || '').toLowerCase();
+  if (/\bpart[\s-]?time\b/i.test(lower)) return 'Part Time';
+  if (/\bcontract\b/i.test(lower)) return 'Contract';
+  if (/\binternship\b/i.test(lower)) return 'Internship';
+  if (/\bfreelance\b/i.test(lower)) return 'Freelance';
+  if (/\bfull[\s-]?time\b/i.test(lower)) return 'Full Time';
+  return '';
+}
+
+function inferIndustryFromJobTitle(jobTitle) {
+  const title = String(jobTitle || '').toLowerCase();
+  if (!title) return '';
+  if (
+    /developer|engineer|frontend|backend|full[\s-]?stack|devops|software|data\s+scientist|qa|tester|designer|ui|ux|it\b/.test(
+      title,
+    )
+  ) {
+    return 'Information Technology';
+  }
+  if (/finance|analyst|accountant/.test(title)) return 'Finance';
+  if (/marketing|sales/.test(title)) return 'Marketing';
+  return '';
+}
+
+/**
+ * Hard constraints parsed from the recruiter's original prompt.
+ * These override AI guesses for location, salary, nationality, and employment type.
+ */
+export function extractPromptConstraints(promptText) {
+  const text = String(promptText || '').trim();
+  if (!text) return {};
+
+  const fallback = extractJobRegexFallback(text);
+  const knownCity = detectKnownCityInText(text);
+  const salaryRaw = inferSalaryFromNaturalText(text) || fallback.salaryInput;
+  const salaryFields = parseSalaryFields(salaryRaw, text);
+  const employmentType = normalizeEmploymentTypeFromText(text) || fallback.employmentType || 'Full Time';
+
+  const constraints = {};
+
+  if (fallback.jobTitle) constraints.jobTitle = fallback.jobTitle;
+
+  const cityRow = knownCity || (fallback.city ? {
+    city: fallback.city,
+    state: fallback.state,
+    country: fallback.country || (/\bIndia\b/i.test(text) ? 'India' : ''),
+    jobLocation: fallback.jobLocation,
+  } : null);
+
+  if (cityRow?.city) {
+    constraints.city = cityRow.city;
+    constraints.state = cityRow.state || '';
+    constraints.country = cityRow.country || '';
+    constraints.jobLocation = cityRow.jobLocation || [cityRow.city, cityRow.state, cityRow.country].filter(Boolean).join(', ');
+  } else if (/\b(?:only\s+for\s+)?India\b/i.test(text)) {
+    constraints.country = 'India';
+  }
+
+  if (/\b(?:only\s+for\s+)?India\b/i.test(text) || constraints.country === 'India') {
+    constraints.nationality = 'Indian';
+    constraints.country = 'India';
+    if (!constraints.salaryCurrency && salaryFields.payRangeMin) {
+      salaryFields.salaryCurrency = 'INR';
+    }
+  }
+
+  if (salaryFields.payRangeMin) {
+    constraints.payRangeMin = salaryFields.payRangeMin;
+    constraints.payRangeMax = salaryFields.payRangeMax || '';
+    constraints.salaryCurrency = salaryFields.salaryCurrency || (constraints.country === 'India' ? 'INR' : '');
+    constraints.salaryInput = salaryFields.salaryInput || salaryRaw;
+  }
+
+  if (fallback.nationality) constraints.nationality = fallback.nationality;
+  if (employmentType) constraints.employmentType = employmentType;
+
+  if (fallback.minExperience || fallback.maxExperience) {
+    constraints.minExperience = fallback.minExperience;
+    constraints.maxExperience = fallback.maxExperience;
+  }
+
+  const industry = fallback.industryType || inferIndustryFromJobTitle(constraints.jobTitle || fallback.jobTitle);
+  if (industry) constraints.industryType = industry;
+
+  return constraints;
+}
+
+/** Apply explicit prompt constraints on top of AI+regex merge (wins over AI hallucinations). */
+export function applyPromptConstraintsToMerged(merged, promptText) {
+  const text = String(promptText || '').trim();
+  if (!text) return merged;
+
+  const c = extractPromptConstraints(text);
+  const next = { ...merged };
+
+  if (c.jobTitle) next.jobTitle = c.jobTitle;
+  if (c.city) {
+    next.city = c.city;
+    next.state = c.state || next.state;
+    next.country = c.country || next.country;
+    next.jobLocation = c.jobLocation || next.jobLocation;
+  } else if (c.country) {
+    next.country = c.country;
+  }
+  if (c.nationality) next.nationality = c.nationality;
+  if (c.payRangeMin) {
+    next.payRangeMin = c.payRangeMin;
+    next.payRangeMax = c.payRangeMax || next.payRangeMax;
+    next.salaryCurrency = c.salaryCurrency || (c.country === 'India' ? 'INR' : next.salaryCurrency);
+    next.salaryInput = c.salaryInput || next.salaryInput;
+  }
+  if (c.employmentType) {
+    next.employmentType = c.employmentType;
+    next.jobType = c.employmentType;
+  } else if (!/\bpart[\s-]?time\b/i.test(text) && next.employmentType === 'Part Time') {
+    next.employmentType = 'Full Time';
+    next.jobType = 'Full Time';
+  }
+  if (c.minExperience != null && Number.isFinite(Number(c.minExperience))) {
+    next.minExperience = Number(c.minExperience);
+  }
+  if (c.maxExperience != null && Number.isFinite(Number(c.maxExperience))) {
+    next.maxExperience = Number(c.maxExperience);
+  }
+  if (c.industryType) next.industryType = c.industryType;
+
+  if (next.country === 'India' && (!next.salaryCurrency || next.salaryCurrency === 'USD')) {
+    next.salaryCurrency = 'INR';
+  }
+
+  return next;
 }
 
 export function buildJobDescriptionHtmlFromFields(fields) {
@@ -212,6 +407,124 @@ export function buildJobDescriptionHtmlFromFields(fields) {
     );
   }
   return sections.join('\n');
+}
+
+function stripHtmlTags(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Pull bullet/paragraph lines from an h2–h4 section in generated jobDescriptionHtml. */
+function extractListSectionFromHtml(html, headingKeywords) {
+  const raw = String(html || '');
+  if (!raw.trim()) return '';
+
+  const headingRegex = /<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/gi;
+  const sections = [];
+  let match;
+  while ((match = headingRegex.exec(raw)) !== null) {
+    sections.push({
+      heading: stripHtmlTags(match[1]).toLowerCase(),
+      headingStart: match.index,
+      bodyStart: match.index + match[0].length,
+    });
+  }
+
+  const keywords = (Array.isArray(headingKeywords) ? headingKeywords : [headingKeywords]).map((kw) =>
+    String(kw).toLowerCase(),
+  );
+
+  for (let i = 0; i < sections.length; i += 1) {
+    const heading = sections[i].heading;
+    const hit = keywords.some(
+      (kw) => heading.includes(kw) || kw.split(/\s+/).every((part) => heading.includes(part)),
+    );
+    if (!hit) continue;
+
+    const bodyEnd = i + 1 < sections.length ? sections[i + 1].headingStart : raw.length;
+    const body = raw.slice(sections[i].bodyStart, bodyEnd);
+
+    const liItems = [...body.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)]
+      .map((m) => stripHtmlTags(m[1]))
+      .filter(Boolean);
+    if (liItems.length) return liItems.join('\n');
+
+    const paragraphs = [...body.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+      .map((m) => stripHtmlTags(m[1]))
+      .filter(Boolean);
+    if (paragraphs.length) return paragraphs.join('\n');
+
+    const plain = stripHtmlTags(body);
+    if (plain) return plain;
+  }
+
+  return '';
+}
+
+function buildDefaultCandidateRequirements(fields) {
+  const lines = [];
+  if (fields.educationalQualification) lines.push(String(fields.educationalQualification).trim());
+  if (fields.educationalSpecialization) lines.push(String(fields.educationalSpecialization).trim());
+  const min = Number(fields.minExperience);
+  const max = Number(fields.maxExperience);
+  if (Number.isFinite(min) && min > 0 && Number.isFinite(max) && max > 0) {
+    lines.push(`${min}–${max} years of relevant experience`);
+  } else if (Number.isFinite(min) && min > 0) {
+    lines.push(`At least ${min} years of relevant experience`);
+  }
+  if (fields.nationality) lines.push(`Nationality: ${fields.nationality}`);
+  if (fields.country) lines.push(`Eligible to work in ${fields.country}`);
+  return lines.filter(Boolean).join('\n');
+}
+
+/** When AI only fills jobDescriptionHtml, derive list fields for the Add Job drawer. */
+export function hydrateListFieldsFromJobHtml(fields) {
+  const next = { ...fields };
+  const html = String(next.jobDescriptionHtml || '').trim();
+  if (!html) return next;
+
+  if (!String(next.keyResponsibilitiesText || '').trim()) {
+    next.keyResponsibilitiesText = extractListSectionFromHtml(html, [
+      'key responsibilities',
+      'responsibilities',
+      'roles and responsibilities',
+    ]);
+  }
+
+  if (!String(next.qualificationsExperienceText || '').trim()) {
+    const requirementParts = [
+      extractListSectionFromHtml(html, ['requirements', 'requirement', 'qualifications']),
+      extractListSectionFromHtml(html, ['preferred qualifications', 'preferred qualification', 'education']),
+    ].filter(Boolean);
+    if (requirementParts.length) {
+      next.qualificationsExperienceText = requirementParts.join('\n');
+    }
+  }
+
+  if (!String(next.candidateRequirementsText || '').trim()) {
+    const fromHtml = extractListSectionFromHtml(html, [
+      'candidate requirements',
+      'additional requirements',
+      'must have',
+    ]);
+    next.candidateRequirementsText = fromHtml || buildDefaultCandidateRequirements(next);
+  }
+
+  if (!String(next.compensationBenefitsText || '').trim()) {
+    next.compensationBenefitsText = extractListSectionFromHtml(html, [
+      'benefits',
+      'compensation',
+      'perks',
+    ]);
+  }
+
+  return next;
 }
 
 export function logJobRegexFieldExtraction(fallback) {
@@ -274,10 +587,65 @@ function parseLocationLine(location) {
   return { city, state, country, workMode, jobLocation: withoutParens || location.trim() };
 }
 
+function inferJobTitleFromNaturalText(text) {
+  const clean = String(text || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return '';
+
+  const labeled = extractLabeledValue(clean, ['role', 'job title', 'position', 'title']);
+  if (labeled) return labeled;
+
+  const patterns = [
+    /(?:create|creat|generate|make|write)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+?)(?:\s+in\s+[A-Za-z]|\s+with\s+salary|\s+for\s+salary|\s+salary\s+|\s+only\s+for|,|$)/i,
+    /(?:hiring|looking\s+for|need)\s+(?:an?\s+)?(.+?)(?:\s+in\s+[A-Za-z]|\s+with\s+salary|\s+for\s+salary|,|$)/i,
+    /(?:role|position)\s+(?:of|for)\s+(?:an?\s+)?(.+?)(?:\s+in\s+[A-Za-z]|,|$)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = clean.match(pattern);
+    if (match?.[1]) {
+      return match[1].trim().replace(/[.!,]$/, '');
+    }
+  }
+  return '';
+}
+
+function inferCityFromNaturalText(text) {
+  const labeled = extractLabeledValue(text, ['location', 'job location', 'work location', 'city']);
+  if (labeled) {
+    const parsed = parseLocationLine(labeled);
+    return parsed.city || labeled.split(',')[0]?.trim() || '';
+  }
+
+  const inCity = String(text || '').match(
+    /\bin\s+([A-Za-z][A-Za-z\s]{1,40}?)(?:\s*,|\s+for\s+|\s+with\s+|\s+salary|\s+only\s+for|,|$)/i,
+  );
+  if (inCity?.[1]) {
+    const candidate = inCity[1].trim();
+    if (!/^(india|the|a|an|only)$/i.test(candidate)) return candidate;
+  }
+  return '';
+}
+
+function inferSalaryFromNaturalText(text) {
+  const labeled = extractLabeledValue(text, ['salary', 'compensation', 'ctc', 'pay', 'package']);
+  if (labeled) return labeled;
+
+  const patterns = [
+    /salary\s+(?:is\s+)?(\d+\s*k\s*(?:to|-|–)\s*\d+\s*k)/i,
+    /(\d+\s*k\s*(?:to|-|–)\s*\d+\s*k)/i,
+    /(\d[\d,]*\s*(?:to|-|–)\s*\d[\d,]*\s*(?:lpa|inr|₹)?)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = String(text || '').match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+  return '';
+}
+
 export function extractJobRegexFallback(cleanedText) {
   const text = String(cleanedText || '');
   const jobTitle =
-    extractLabeledValue(text, ['role', 'job title', 'position', 'title']) || '';
+    extractLabeledValue(text, ['role', 'job title', 'position', 'title']) ||
+    inferJobTitleFromNaturalText(text);
   const openingsRaw = extractLabeledValue(text, [
     'openings',
     'number of openings',
@@ -288,10 +656,20 @@ export function extractJobRegexFallback(cleanedText) {
   const openingsMatch = openingsRaw.match(/\d+/);
   const companyName = extractLabeledValue(text, ['company', 'client', 'employer']);
   const locationLine = extractLabeledValue(text, ['location', 'job location', 'work location']);
-  const loc = locationLine ? parseLocationLine(locationLine) : { city: '', state: '', country: '', workMode: '', jobLocation: '' };
+  const inferredCity = inferCityFromNaturalText(text);
+  const loc = locationLine
+    ? parseLocationLine(locationLine)
+    : { city: '', state: '', country: '', workMode: '', jobLocation: '' };
+  if (!loc.city && inferredCity) {
+    loc.city = inferredCity;
+    loc.jobLocation = inferredCity;
+  }
   let country = loc.country;
-  if (!country && /\bIndia\b/i.test(text)) country = 'India';
+  if (!country && /\b(?:only\s+for\s+)?India\b/i.test(text)) country = 'India';
   if (!country && /\bUnited States\b|\bUSA\b/i.test(text)) country = 'United States';
+  if (country === 'India' && loc.city && !loc.jobLocation.includes(loc.city)) {
+    loc.jobLocation = [loc.city, loc.state, country].filter(Boolean).join(', ');
+  }
   const experienceLine = extractLabeledValue(text, ['experience', 'exp', 'years of experience']);
   const exp = parseExperienceRange(experienceLine);
   const skillsLine = extractLabeledValue(text, ['skills', 'skill set', 'tech stack', 'technologies']);
@@ -301,7 +679,7 @@ export function extractJobRegexFallback(cleanedText) {
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
-  const salaryInput = extractLabeledValue(text, ['salary', 'compensation', 'ctc', 'pay', 'package']);
+  const salaryInput = extractLabeledValue(text, ['salary', 'compensation', 'ctc', 'pay', 'package']) || inferSalaryFromNaturalText(text);
   const targetHireDateRaw = extractLabeledValue(text, [
     'target hire date',
     'hire date',
@@ -309,7 +687,7 @@ export function extractJobRegexFallback(cleanedText) {
     'closing date',
   ]);
   const isoDate = targetHireDateRaw.match(/\d{4}-\d{2}-\d{2}/)?.[0] || defaultTargetHireDateIso();
-  const salaryFields = parseSalaryFields(salaryInput);
+  const salaryFields = parseSalaryFields(salaryInput, text);
   const responsibilities = extractLabeledSectionBlock(text, [
     'responsibilities',
     'responsibility',
@@ -321,6 +699,11 @@ export function extractJobRegexFallback(cleanedText) {
     'qualifications',
   ]);
   const benefits = extractLabeledSectionBlock(text, ['benefits', 'benefit']);
+  const candidateRequirements = extractLabeledSectionBlock(text, [
+    'candidate requirements',
+    'candidate requirement',
+    'additional requirements',
+  ]);
   const eduMatch = requirements.match(/\b(B\.?\s*E\.?|B\.?\s*Tech|M\.?\s*Tech|MBA|Bachelor|Master)[^.\n]*/i);
   const educationalQualification = eduMatch ? eduMatch[0].trim() : '';
   const jobSummaryParts = [
@@ -330,7 +713,9 @@ export function extractJobRegexFallback(cleanedText) {
   ].filter(Boolean);
   const employmentType = extractLabeledValue(text, ['employment type', 'job type', 'employment']);
   const industryType = extractLabeledValue(text, ['industry', 'industry type', 'sector']);
-  const nationality = extractLabeledValue(text, ['nationality']);
+  const nationality =
+    extractLabeledValue(text, ['nationality']) ||
+    (/\b(?:only\s+for\s+)?India\b/i.test(text) ? 'Indian' : '');
   const priority = extractLabeledValue(text, ['priority']);
   const workMode =
     loc.workMode ||
@@ -363,6 +748,7 @@ export function extractJobRegexFallback(cleanedText) {
     jobSummary: jobSummaryParts.join(' '),
     keyResponsibilitiesText: responsibilities,
     qualificationsExperienceText: requirements,
+    candidateRequirementsText: candidateRequirements,
     compensationBenefitsText: benefits,
     educationalQualification,
     educationalSpecialization: '',
@@ -375,7 +761,10 @@ export function enrichJobFieldsAfterMerge(merged) {
     next.jobDescriptionHtml = buildJobDescriptionHtmlFromFields(next);
   }
   if (!next.jobSummary?.trim() && next.jobTitle) {
-    next.jobSummary = `${next.jobTitle}${next.companyName ? ` at ${next.companyName}` : ''}.`;
+    const loc = [next.city, next.country].filter(Boolean).join(', ');
+    next.jobSummary = loc
+      ? `${next.jobTitle}${next.companyName ? ` at ${next.companyName}` : ''} — ${loc}.`
+      : `${next.jobTitle}${next.companyName ? ` at ${next.companyName}` : ''}.`;
   }
   if (!next.targetHireDate?.trim()) {
     next.targetHireDate = defaultTargetHireDateIso();
@@ -383,20 +772,31 @@ export function enrichJobFieldsAfterMerge(merged) {
   if (!next.numberOfOpenings?.trim()) next.numberOfOpenings = '1';
   if (!next.priority?.trim()) next.priority = 'Medium';
   if (!next.salaryInput?.trim() && (next.payRangeMin || next.payRangeMax)) {
-    next.salaryInput = [next.payRangeMin, next.payRangeMax].filter(Boolean).join('–');
-    if (next.salaryCurrency === 'INR') next.salaryInput += ' LPA';
+    const minNum = Number(next.payRangeMin);
+    const maxNum = Number(next.payRangeMax);
+    const isLpaScale = minNum > 0 && minNum <= 50 && (!maxNum || maxNum <= 80);
+    if (next.salaryCurrency === 'INR' && isLpaScale) {
+      next.salaryInput = [next.payRangeMin, next.payRangeMax].filter(Boolean).join(' – ') + ' LPA';
+    } else if (next.salaryCurrency === 'INR' && minNum >= 1000) {
+      next.salaryInput = `₹${next.payRangeMin} – ₹${next.payRangeMax}`;
+    } else {
+      next.salaryInput = [next.payRangeMin, next.payRangeMax].filter(Boolean).join(' – ');
+    }
   }
-  return next;
+  if (next.country === 'India' && (!next.salaryCurrency || next.salaryCurrency === 'USD')) {
+    next.salaryCurrency = 'INR';
+  }
+  return hydrateListFieldsFromJobHtml(next);
 }
 
-export function mergeJobAiWithFallback(ai, fallback) {
+export function mergeJobAiWithFallback(ai, fallback, promptText = '') {
   const pick = (aiVal, fbVal) => {
     if (aiVal == null) return fbVal;
     if (typeof aiVal === 'string' && !aiVal.trim()) return fbVal;
     if (Array.isArray(aiVal) && !aiVal.length) return fbVal;
     return aiVal;
   };
-  return {
+  const merged = {
     nationality: pick(ai?.nationality, fallback.nationality),
     jobTitle: pick(ai?.jobTitle, fallback.jobTitle),
     priority: pick(ai?.priority, fallback.priority) || 'Medium',
@@ -427,10 +827,12 @@ export function mergeJobAiWithFallback(ai, fallback) {
     jobSummary: pick(ai?.jobSummary, fallback.jobSummary),
     keyResponsibilitiesText: pick(ai?.keyResponsibilitiesText, fallback.keyResponsibilitiesText),
     qualificationsExperienceText: pick(ai?.qualificationsExperienceText, fallback.qualificationsExperienceText),
+    candidateRequirementsText: pick(ai?.candidateRequirementsText, fallback.candidateRequirementsText),
     compensationBenefitsText: pick(ai?.compensationBenefitsText, fallback.compensationBenefitsText),
     educationalQualification: pick(ai?.educationalQualification, fallback.educationalQualification),
     educationalSpecialization: pick(ai?.educationalSpecialization, fallback.educationalSpecialization),
   };
+  return applyPromptConstraintsToMerged(merged, promptText);
 }
 
 function normalizeCompanyMatchKey(name) {
@@ -471,14 +873,36 @@ export function resolveCompanyIdByName(companyName, clients = []) {
   return '';
 }
 
-export function buildJobExtractionPromptInstructions() {
-  return [
+export function buildJobExtractionPromptInstructions(isNaturalLanguagePrompt = false) {
+  const lines = [
     'Extract structured job posting data for an ATS Add Job form.',
     'Sections: ' + JOB_CREATION_PIPELINE_SECTIONS.join('; '),
+  ];
+  if (isNaturalLanguagePrompt) {
+    lines.push(
+      'The user message is a SHORT natural-language instruction (not a full JD).',
+      'CRITICAL — do NOT invent or guess location, country, state, city, salary, or nationality.',
+      'Use ONLY location and salary values explicitly stated in the user text.',
+      'Example: "create job for frontend developer in Mumbai salary 10k to 20k only for India" → jobTitle=Frontend Developer, city=Mumbai, state=Maharashtra, country=India, nationality=Indian, salaryCurrency=INR, payRangeMin=10000, payRangeMax=20000, salaryInput="10k to 20k".',
+      'Never substitute Bengaluru, Delhi, or any other city if the user named a different city.',
+      'Default employmentType to Full Time unless the user explicitly says part-time, contract, or internship.',
+      'Generate complete jobDescriptionHtml (Overview, Key Responsibilities, Requirements, Preferred Qualifications, Benefits), 6-10 skills, and realistic min/max experience for the role.',
+    );
+  } else {
+    lines.push(
+      'Understand natural language prompts such as: "create job for frontend developer in Mumbai salary 10k to 20k only for India".',
+      'When salary uses k (e.g. 10k to 20k) and country is India, set salaryCurrency to INR, payRangeMin=10000, payRangeMax=20000, salaryInput="10k to 20k".',
+    );
+  }
+  lines.push(
     'priority: High | Medium | Low. employmentType: Full Time | Part Time | Contract | Internship.',
     'jobLocationType: Remote | Hybrid | On-site. targetHireDate: YYYY-MM-DD or empty.',
     'Copy labeled lines exactly (Role/Job Title, Company, Openings, Location, Experience, Salary, Skills).',
-    'jobDescriptionHtml: concise HTML with h3 sections Overview, Responsibilities, Requirements, Benefits.',
+    'jobDescriptionHtml: concise HTML with h3 sections Overview, Key Responsibilities, Requirements, Preferred Qualifications, Benefits.',
+    'keyResponsibilitiesText: 4–8 bullet lines (one responsibility per line, no HTML).',
+    'qualificationsExperienceText: requirements + preferred education/experience (one item per line, no HTML).',
+    'candidateRequirementsText: eligibility items e.g. degree, years of experience, nationality/work authorization (one per line).',
     'If unknown, use empty string, 0 for experience integers, or empty arrays.',
-  ].join('\n');
+  );
+  return lines.join('\n');
 }

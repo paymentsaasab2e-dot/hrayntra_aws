@@ -11,6 +11,7 @@ import {
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { hqLeadsService } from './hq-leads.service.js';
 import { hqCompaniesService } from './hq-companies.service.js';
+import { hqPortalService } from './hq-portal.service.js';
 
 function normalizePlanInput(raw) {
   if (!raw) return null;
@@ -258,6 +259,21 @@ export const hqService = {
     return hqLeadsService.addFollowUp(id, data, reqUser);
   },
 
+  async updateLeadFollowUp(id, followUpId, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.updateFollowUp(id, followUpId, data, reqUser);
+  },
+
+  async completeLeadFollowUp(id, followUpId, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.completeFollowUp(id, followUpId, reqUser);
+  },
+
+  async deleteLeadFollowUp(id, followUpId, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.deleteFollowUp(id, followUpId, reqUser);
+  },
+
   async addLeadRemark(id, data, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqLeadsService.addRemark(id, data, reqUser);
@@ -288,8 +304,28 @@ export const hqService = {
     return hqCompaniesService.addFollowUp(id, data, reqUser);
   },
 
+  async updateCompanyFollowUp(id, followUpId, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.updateFollowUp(id, followUpId, data, reqUser);
+  },
+
+  async completeCompanyFollowUp(id, followUpId, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.completeFollowUp(id, followUpId, reqUser);
+  },
+
+  async deleteCompanyFollowUp(id, followUpId, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.deleteFollowUp(id, followUpId, reqUser);
+  },
+
   async addCompanyRemark(id, data, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqCompaniesService.addRemark(id, data, reqUser);
+  },
+
+  async getPortalOverview(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqPortalService.getPortalOverview();
   },
 };

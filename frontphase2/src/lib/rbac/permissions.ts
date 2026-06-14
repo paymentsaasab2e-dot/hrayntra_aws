@@ -18,6 +18,7 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'clients_update', module: 'Clients', description: 'Update clients' },
   { permissionName: 'clients_delete', module: 'Clients', description: 'Delete clients' },
   { permissionName: 'view_all_clients', module: 'Clients', description: 'View all clients in tenant' },
+  { permissionName: 'clients_handoff', module: 'Clients', description: 'Hand off clients to another department' },
   { permissionName: 'jobs_create', module: 'Jobs', description: 'Create jobs' },
   { permissionName: 'jobs_read', module: 'Jobs', description: 'View jobs' },
   { permissionName: 'jobs_update', module: 'Jobs', description: 'Update jobs' },
@@ -75,6 +76,11 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'manage_commission', module: 'Team', description: 'Manage commission rules' },
   { permissionName: 'manage_targets', module: 'Team', description: 'Manage recruiter targets' },
   { permissionName: 'view_team_activity', module: 'Team', description: 'View team login and activity logs' },
+  { permissionName: 'requests_create', module: 'Request', description: 'Send requests' },
+  { permissionName: 'requests_read', module: 'Request', description: 'View requests' },
+  { permissionName: 'requests_update', module: 'Request', description: 'Update request status' },
+  { permissionName: 'requests_delete', module: 'Request', description: 'Cancel or delete requests' },
+  { permissionName: 'view_all_requests', module: 'Request', description: 'View all requests in tenant' },
   { permissionName: 'manage_settings', module: 'System', description: 'Manage organization settings' },
   { permissionName: 'access_integrations', module: 'System', description: 'Access integrations' },
   { permissionName: 'export_data', module: 'System', description: 'Export data to CSV or files' },
@@ -100,6 +106,7 @@ export const RBAC_MODULE_ORDER = [
   'Reports / Analytics',
   'Billing',
   'Team',
+  'Request',
   'System',
 ] as const;
 

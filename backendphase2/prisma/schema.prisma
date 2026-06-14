@@ -73,6 +73,9 @@ model User {
   activities             UserActivity[]
   tasks                  TeamTask[]
   targets                TeamTarget[]
+  reviewedMemberRequests TeamMemberRequest[] @relation("MemberRequestReviewer")
+  sentMemberRequests     TeamMemberRequest[] @relation("MemberRequestSender")
+  receivedMemberRequests TeamMemberRequest[] @relation("MemberRequestRecipient")
   commissions            Commission[]
   assignedCandidates     Candidate[]
   createdCandidates      Candidate[]            @relation("CandidateCreator")
@@ -183,6 +186,8 @@ model Client {
   status       ClientStatus @default(PROSPECT) // ACTIVE, PROSPECT, ON_HOLD, INACTIVE
   assignedToId String?      @db.ObjectId // User ID of assigned account manager/recruiter
   createdById  String?      @db.ObjectId // CRM user who created / sourced the client (still visible to them after reassignment)
+  /// Users who assigned or were previously assigned — both keep list visibility after handoff.
+  participantIds String[]   @default([]) @db.ObjectId
 
   // Extended fields from frontend (Company Snapshot section)
   companySize           String? // Company size (e.g., "1-50", "51-200", "201-500")
@@ -509,6 +514,8 @@ model Candidate {
   assignedToId            String?         @db.ObjectId
   // Recruiter who created this profile (used for "my candidates" on /candidate)
   createdById             String?         @db.ObjectId
+  /// Prior assigners/assignees who should retain visibility after reassignment.
+  participantIds          String[]        @default([]) @db.ObjectId
   rating                  Int?
   availability            String?
   noticePeriod            String?
@@ -631,6 +638,8 @@ model Job {
   assignedToId             String?   @db.ObjectId
   // User who created this job (used for "my jobs" on /job)
   createdById              String?   @db.ObjectId
+  /// Prior assigners/assignees who should retain visibility after reassignment.
+  participantIds         String[]  @default([]) @db.ObjectId
   openings                 Int       @default(1)
   // Extended fields from frontend (ClientDetailsDrawer Jobs tab)
   overview                 String?
@@ -1439,6 +1448,7 @@ model Placement {
   reportingToTitle     String?
   reportingToEmail       String?
   notes                String?
+  candidateOfferRemark String?
   deletedAt            DateTime?
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
@@ -1592,6 +1602,7 @@ enum TaskPriority {
 enum TaskStatus {
   PENDING
   IN_PROGRESS
+  AWAITING_APPROVAL
   DONE
   CANCELLED
 }
@@ -1623,6 +1634,11 @@ model Task {
   attachments      String[] // Array of attachment URLs/names
   notifyAssignee   Boolean           @default(true)
   notes            String[] // Array of notes
+  /// Users who retain visibility after reassignment (creator, past assignees, delegators).
+  participantIds   String[]          @default([])
+  completionRequestedById String?     @db.ObjectId
+  completionRequestedAt   DateTime?
+  completionApproverId    String?     @db.ObjectId
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -2004,6 +2020,8 @@ model Department {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   name        String
   description String?
+  /// When true, this department can receive cross-department work requests.
+  allowsCrossDepartmentRequests Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -2159,6 +2177,133 @@ model TeamTarget {
   @@index([userId])
   @@index([targetType])
   @@map("team_targets")
+}
+
+enum TeamRequestPriority {
+  low
+  medium
+  high
+}
+
+enum TeamRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+model TeamMemberRequest {
+  id               String              @id @default(auto()) @map("_id") @db.ObjectId
+  subject          String
+  description      String
+  priority         TeamRequestPriority @default(medium)
+  status           TeamRequestStatus   @default(pending)
+  sendToId         String              @db.ObjectId
+  sendToName       String
+  sendToEmail      String?
+  requestedById    String              @db.ObjectId
+  requestedByName  String?
+  requestedByEmail String?
+  reviewedById     String?             @db.ObjectId
+  reviewedByName   String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  linkedJobId      String?             @db.ObjectId
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  sendToUser      User  @relation("MemberRequestRecipient", fields: [sendToId], references: [id], onDelete: Cascade)
+  requestedByUser User  @relation("MemberRequestSender", fields: [requestedById], references: [id], onDelete: Cascade)
+  reviewedByUser  User? @relation("MemberRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([linkedJobId])
+  @@index([sendToId])
+  @@index([requestedById])
+  @@index([status])
+  @@index([createdAt])
+  @@map("team_member_requests")
+}
+
+enum CrossDeptWorkType {
+  TASK
+  LEAD
+  CLIENT
+  JOB
+  INTERVIEW
+  GENERIC
+}
+
+enum CrossDeptRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  FORWARDED
+  CANCELLED
+}
+
+model CrossDepartmentWorkRequest {
+  id                 String                 @id @default(auto()) @map("_id") @db.ObjectId
+  subject            String
+  description        String?
+  priority           TeamRequestPriority    @default(medium)
+  status             CrossDeptRequestStatus @default(PENDING)
+  workType           CrossDeptWorkType      @default(TASK)
+  sourceDepartmentId String                 @db.ObjectId
+  targetDepartmentId String                 @db.ObjectId
+  requestedById      String                 @db.ObjectId
+  requestedByName    String?
+  targetHeadUserId   String?                @db.ObjectId
+  targetUserId       String?                @db.ObjectId
+  assignedToId       String?                @db.ObjectId
+  reviewedById       String?                @db.ObjectId
+  reviewedByName     String?
+  reviewedAt         DateTime?
+  reviewNote         String?
+  linkedEntityType   String?
+  linkedEntityId     String?
+  createdTaskId      String?                @db.ObjectId
+  payload            Json?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([requestedById])
+  @@index([targetHeadUserId])
+  @@index([targetDepartmentId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("cross_department_work_requests")
+}
+
+enum LeadConversionRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeadConversionRequest {
+  id              String                      @id @default(auto()) @map("_id") @db.ObjectId
+  leadId          String                      @db.ObjectId
+  leadCompanyName String?
+  requestedById   String                      @db.ObjectId
+  requestedByName String?
+  approverUserId  String                      @db.ObjectId
+  status          LeadConversionRequestStatus @default(PENDING)
+  clientPayload   Json
+  reviewedById    String?                     @db.ObjectId
+  reviewedByName  String?
+  reviewedAt      DateTime?
+  reviewNote      String?
+  createdClientId String?                     @db.ObjectId
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+
+  @@index([leadId])
+  @@index([requestedById])
+  @@index([approverUserId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("lead_conversion_requests")
 }
 
 model Commission {

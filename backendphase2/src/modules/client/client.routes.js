@@ -9,6 +9,7 @@ const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSiz
 
 router.use(authMiddleware);
 
+router.get('/assignable-members', requireAnyPermission(['clients_create', 'clients_update']), clientController.getAssignableMembers);
 router.get('/', requireAnyPermission(['clients_read']), clientController.getAll);
 router.get('/metrics', requireAnyPermission(['clients_read']), clientController.getMetrics);
 // Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.

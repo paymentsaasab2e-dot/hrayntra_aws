@@ -56,11 +56,14 @@ import {
   apiUpdateLead,
   apiDeleteLead,
   apiConvertLeadToClient,
+  apiSubmitLeadConversionRequest,
+  apiGetLeadConversionCapabilities,
+  apiGetLeadAssignableMembers,
   type BackendLead,
   type BackendUser,
   type ConvertLeadToClientData,
+  type CrmAssignableMember,
 } from '../../lib/api';
-import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
@@ -483,7 +486,7 @@ export default function RecruitmentAgencyDashboard() {
   const canCreateLead = hasPermission('leads_create');
   const canUpdateLead = hasPermission('leads_update');
   const canDeleteLead = hasPermission('leads_delete');
-  const canConvertLead = hasAnyPermission(['leads_update', 'clients_create']);
+  const canConvertLead = hasPermission('leads_update');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -509,6 +512,7 @@ export default function RecruitmentAgencyDashboard() {
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [canDirectConvertLead, setCanDirectConvertLead] = useState(false);
   const [highlightedRows, setHighlightedRows] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
@@ -628,14 +632,31 @@ export default function RecruitmentAgencyDashboard() {
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         if (!token) return;
-        const members = await getAllTeamMembersForAssign();
-        setTeamMembers(teamMembersToBackendUsers(members));
+        const response = await apiGetLeadAssignableMembers();
+        const members = Array.isArray(response.data) ? response.data : [];
+        setTeamMembers(
+          members.map((m: CrmAssignableMember) => ({
+            id: m.id,
+            name: m.name || `${m.firstName || ''} ${m.lastName || ''}`.trim() || m.email || 'User',
+            email: m.email,
+          })),
+        );
       } catch (err) {
         console.error('Failed to fetch users for bulk lead assignment:', err);
       }
     };
 
-    fetchUsers();
+    const fetchConversionCapabilities = async () => {
+      try {
+        const response = await apiGetLeadConversionCapabilities();
+        setCanDirectConvertLead(Boolean(response.data?.canDirectConvert));
+      } catch {
+        setCanDirectConvertLead(false);
+      }
+    };
+
+    void fetchUsers();
+    void fetchConversionCapabilities();
   }, []);
 
   useEffect(() => {
@@ -1350,13 +1371,21 @@ export default function RecruitmentAgencyDashboard() {
         agreementFreeReplacementUnit: lead.agreementFreeReplacementUnit || null,
       };
 
-      const response = await apiConvertLeadToClient(id, convertData);
+      const response = canDirectConvertLead
+        ? await apiConvertLeadToClient(id, convertData)
+        : await apiSubmitLeadConversionRequest(id, convertData);
       
       // Log the response
       console.log('\n=== CONVERSION RESPONSE (Frontend) ===');
       console.log(JSON.stringify(response, null, 2));
       
-      const convertedClient = response.data;
+      const convertedClient = canDirectConvertLead ? response.data : null;
+
+      if (!canDirectConvertLead) {
+        toast.success('Conversion request sent to your department head for approval');
+        return;
+      }
+
       // Update local state
       setLeads(prev => prev.map(l => l.id === id ? {
         ...l,

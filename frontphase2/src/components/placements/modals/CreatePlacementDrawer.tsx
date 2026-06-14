@@ -14,7 +14,7 @@ import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../../utils/curre
 interface CreatePlacementDrawerProps {
   isOpen: boolean;
   isSubmitting: boolean;
-  mode?: 'create' | 'edit';
+  mode?: 'create' | 'edit' | 'resend';
   currentUserId?: string;
   candidates: Array<{ id: string; name: string; email: string }>;
   jobs: Array<{ id: string; title: string; clientId?: string; clientName: string }>;
@@ -56,6 +56,7 @@ export function CreatePlacementDrawer({
   onSubmit,
 }: CreatePlacementDrawerProps) {
   const isEditMode = mode === 'edit';
+  const isResendMode = mode === 'resend';
   const [form, setForm] = useState(initialState);
   const [offerLetter, setOfferLetter] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -98,8 +99,8 @@ export function CreatePlacementDrawer({
     () => candidates.find((candidate) => candidate.id === form.candidateId) || null,
     [candidates, form.candidateId]
   );
-  const lockCandidate = Boolean(prefill?.candidateId);
-  const lockJob = Boolean(prefill?.jobId);
+  const lockCandidate = Boolean(prefill?.candidateId || initialValues?.candidateId);
+  const lockJob = Boolean(prefill?.jobId || initialValues?.jobId);
 
   useEffect(() => {
     const salary = Number(form.offerSalary || 0);
@@ -165,12 +166,14 @@ export function CreatePlacementDrawer({
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-[#111827]">
-                  {isEditMode ? 'Edit Placement' : 'Add Manual Placement'}
+                  {isResendMode ? 'Resend offer letter' : isEditMode ? 'Edit Placement' : 'Add Manual Placement'}
                 </h2>
                 <p className="text-sm text-[#6B7280]">
-                  {isEditMode
-                    ? 'Update placement details from the table action.'
-                    : 'Create a placement and optionally upload the offer letter.'}
+                  {isResendMode
+                    ? 'Upload a revised offer letter and send it back to the candidate on Phase 1.'
+                    : isEditMode
+                      ? 'Update placement details from the table action.'
+                      : 'Create a placement and optionally upload the offer letter.'}
                 </p>
               </div>
               <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
@@ -376,33 +379,46 @@ export function CreatePlacementDrawer({
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#111827]">Status*</label>
-                <select
-                  value={form.status}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      status: event.target.value as PlacementStatus,
-                    }))
-                  }
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                >
-                  {PLACEMENT_STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {getPlacementStatusLabel(status)}
-                    </option>
-                  ))}
-                </select>
+                {isResendMode ? (
+                  <div className="flex h-11 items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
+                    Offer Sent
+                  </div>
+                ) : (
+                  <select
+                    value={form.status}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        status: event.target.value as PlacementStatus,
+                      }))
+                    }
+                    className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
+                  >
+                    {PLACEMENT_STATUS_OPTIONS.map((status) => (
+                      <option key={status} value={status}>
+                        {getPlacementStatusLabel(status)}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {errors.status ? <p className="mt-1 text-xs text-red-600">{errors.status}</p> : null}
-                {!isEditMode && form.status === 'OFFER_SENT' ? (
+                {!isEditMode && !isResendMode && form.status === 'OFFER_SENT' ? (
                   <p className="mt-1 text-xs text-[#6B7280]">
                     Default when sending an offer letter to the candidate on Phase 1.
                   </p>
                 ) : null}
+                {isResendMode ? (
+                  <p className="mt-1 text-xs text-[#6B7280]">
+                    Status will move back to Offer Sent so the candidate can accept or reject again.
+                  </p>
+                ) : null}
               </div>
 
-              {!isEditMode ? (
+              {!isEditMode || isResendMode ? (
                 <div className="md:col-span-2">
-                  <label className="mb-1.5 block text-sm font-medium text-[#111827]">Upload Offer Letter (PDF)</label>
+                  <label className="mb-1.5 block text-sm font-medium text-[#111827]">
+                    {isResendMode ? 'Upload revised offer letter (PDF)' : 'Upload Offer Letter (PDF)'}
+                  </label>
                   <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#D1D5DB] px-4 py-4 hover:bg-slate-50">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-[#2563EB]">
                       <Upload className="h-4 w-4" />
@@ -459,15 +475,25 @@ export function CreatePlacementDrawer({
                       offerDate: form.offerDate,
                       expectedJoiningDate: form.expectedJoiningDate || undefined,
                       employmentType: form.employmentType,
-                      status: form.status,
+                      status: isResendMode ? 'OFFER_SENT' : form.status,
                       notes: form.notes || undefined,
                     },
-                    isEditMode ? null : offerLetter
+                    isResendMode || !isEditMode ? offerLetter : null
                   );
                 }}
                 className="rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSubmitting ? (isEditMode ? 'Saving...' : 'Creating...') : isEditMode ? 'Save Changes' : 'Create Placement'}
+                {isSubmitting
+                  ? isResendMode
+                    ? 'Resending...'
+                    : isEditMode
+                      ? 'Saving...'
+                      : 'Creating...'
+                  : isResendMode
+                    ? 'Resend offer letter'
+                    : isEditMode
+                      ? 'Save Changes'
+                      : 'Create Placement'}
               </button>
             </div>
           </motion.aside>

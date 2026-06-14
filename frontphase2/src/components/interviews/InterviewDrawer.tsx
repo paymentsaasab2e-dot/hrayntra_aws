@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
-import { Copy, Edit2, RotateCcw, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
+import { Edit2, RotateCcw, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { InterviewAction } from './ActionsDropdown';
 import { DrawerActivityLog } from './DrawerActivityLog';
@@ -122,8 +122,17 @@ export function InterviewDrawer({
 
               <div className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
                 {onOpenFeedback && (
-                  <button type="button" onClick={onOpenFeedback} className="inline-flex w-full items-center justify-center rounded-md bg-[#2563EB] px-2 py-1.5 text-[11px] font-semibold text-white">
-                    Add Feedback
+                  <button
+                    type="button"
+                    onClick={onOpenFeedback}
+                    disabled={interview.status === 'Completed'}
+                    className={`inline-flex w-full items-center justify-center rounded-md px-2 py-1.5 text-[11px] font-semibold text-white ${
+                      interview.status === 'Completed'
+                        ? 'cursor-default bg-green-600 opacity-90'
+                        : 'bg-[#2563EB] hover:bg-[#1D4ED8]'
+                    }`}
+                  >
+                    Completed
                   </button>
                 )}
                 <button
@@ -175,13 +184,6 @@ export function InterviewDrawer({
                       className="inline-flex w-full items-center justify-center rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100"
                     >
                       <span className="inline-flex items-center gap-1"><XCircle className="size-3" />Reject Candidate</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onAction('copyLink')}
-                      className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]"
-                    >
-                      <span className="inline-flex items-center gap-1"><Copy className="size-3" />Copy Meeting Link</span>
                     </button>
                     <button
                       type="button"

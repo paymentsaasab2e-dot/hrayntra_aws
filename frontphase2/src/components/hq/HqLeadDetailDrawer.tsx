@@ -4,7 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarClock, ChevronDown, LayoutGrid, MessageSquare, Pencil, X } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
-import { apiHqAddLeadFollowUp, apiHqAddLeadRemark } from '@/lib/api';
+import { apiHqAddLeadFollowUp, apiHqAddLeadRemark, apiHqCompleteLeadFollowUp, apiHqDeleteLeadFollowUp, apiHqUpdateLeadFollowUp } from '@/lib/api';
+import { HqFollowUpTabPanel } from './HqFollowUpTabPanel';
 import {
   HQ_LEAD_FOLLOW_UP_TYPES,
   HQ_LEAD_INDUSTRY_OPTIONS,
@@ -150,13 +151,7 @@ export function HqLeadDetailDrawer({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [followUpForm, setFollowUpForm] = useState({
-    type: 'Call',
-    scheduledAt: defaultNextFollowUpLocal(),
-    notes: '',
-  });
   const [remarkText, setRemarkText] = useState('');
-  const [followUpSubmitting, setFollowUpSubmitting] = useState(false);
   const [remarkSubmitting, setRemarkSubmitting] = useState(false);
   const [tabError, setTabError] = useState<string | null>(null);
 
@@ -184,11 +179,6 @@ export function HqLeadDetailDrawer({
     setError(null);
     setTabError(null);
     setSubmitting(false);
-    setFollowUpForm({
-      type: 'Call',
-      scheduledAt: toDatetimeLocalValue(lead.nextFollowUpAt) || defaultNextFollowUpLocal(),
-      notes: '',
-    });
     setRemarkText('');
   }, [open, leadId]);
 
@@ -251,29 +241,58 @@ export function HqLeadDetailDrawer({
     setActiveTab(tab);
   };
 
-  const handleScheduleFollowUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTabError(null);
-    if (!followUpForm.scheduledAt.trim()) {
-      setTabError('Follow-up date and time is required.');
-      return;
-    }
-    setFollowUpSubmitting(true);
+  const handleLeadFollowUpUpdated = (updated: HqLeadRow) => {
+    onLeadUpdated(updated);
+  };
+
+  const handleScheduleFollowUp = async (values: {
+    type: string;
+    scheduledAt: string;
+    notes: string;
+  }) => {
     try {
-      const result = await apiHqAddLeadFollowUp(lead.id, followUpForm);
+      const result = await apiHqAddLeadFollowUp(lead.id, values);
       const updated = result.data?.lead;
-      if (updated) {
-        onLeadUpdated(updated);
-        setFollowUpForm({
-          type: 'Call',
-          scheduledAt: toDatetimeLocalValue(updated.nextFollowUpAt) || defaultNextFollowUpLocal(),
-          notes: '',
-        });
-      }
+      if (updated) handleLeadFollowUpUpdated(updated);
     } catch (err) {
       setTabError(err instanceof Error ? err.message : 'Failed to schedule follow-up');
-    } finally {
-      setFollowUpSubmitting(false);
+      throw err;
+    }
+  };
+
+  const handleUpdateFollowUp = async (
+    followUpId: string,
+    values: { type: string; scheduledAt: string; notes: string }
+  ) => {
+    try {
+      const result = await apiHqUpdateLeadFollowUp(lead.id, followUpId, values);
+      const updated = result.data?.lead;
+      if (updated) handleLeadFollowUpUpdated(updated);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : 'Failed to update follow-up');
+      throw err;
+    }
+  };
+
+  const handleCompleteFollowUp = async (followUpId: string) => {
+    try {
+      const result = await apiHqCompleteLeadFollowUp(lead.id, followUpId);
+      const updated = result.data?.lead;
+      if (updated) handleLeadFollowUpUpdated(updated);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : 'Failed to complete follow-up');
+      throw err;
+    }
+  };
+
+  const handleDeleteFollowUp = async (followUpId: string) => {
+    try {
+      const result = await apiHqDeleteLeadFollowUp(lead.id, followUpId);
+      const updated = result.data?.lead;
+      if (updated) handleLeadFollowUpUpdated(updated);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : 'Failed to delete follow-up');
+      throw err;
     }
   };
 
@@ -432,7 +451,7 @@ export function HqLeadDetailDrawer({
                 {error}
               </p>
             ) : null}
-            {tabError && activeTab !== 'details' ? (
+            {tabError && activeTab === 'remarks' ? (
               <p className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                 {tabError}
               </p>
@@ -703,97 +722,19 @@ export function HqLeadDetailDrawer({
             </div>
               </div>
             ) : activeTab === 'followup' ? (
-              <div className="space-y-6">
-                <section className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Next scheduled</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-900">
-                    {formatNextFollowUpDisplay(lead.nextFollowUpAt) || lead.nextFollowUp || '—'}
-                  </p>
-                </section>
-
-                <section className="rounded-2xl border border-slate-200 p-4">
-                  <h3 className="text-sm font-bold text-slate-900">Schedule Follow-up</h3>
-                  <form onSubmit={handleScheduleFollowUp} className="mt-4 space-y-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <FieldLabel required>Type</FieldLabel>
-                        <div className="relative">
-                          <select
-                            className={`${INPUT_CLASS} appearance-none pr-10`}
-                            value={followUpForm.type}
-                            onChange={(e) => setFollowUpForm({ ...followUpForm, type: e.target.value })}
-                          >
-                            {HQ_LEAD_FOLLOW_UP_TYPES.map((type) => (
-                              <option key={type} value={type}>
-                                {type}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        </div>
-                      </div>
-                      <div>
-                        <FieldLabel required>Date & Time</FieldLabel>
-                        <input
-                          type="datetime-local"
-                          className={INPUT_CLASS}
-                          value={followUpForm.scheduledAt}
-                          onChange={(e) =>
-                            setFollowUpForm({ ...followUpForm, scheduledAt: e.target.value })
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <FieldLabel>Notes</FieldLabel>
-                      <textarea
-                        rows={3}
-                        className={`${INPUT_CLASS} min-h-[80px] resize-y`}
-                        placeholder="What to discuss on the follow-up..."
-                        value={followUpForm.notes}
-                        onChange={(e) => setFollowUpForm({ ...followUpForm, notes: e.target.value })}
-                      />
-                    </div>
-                    <div className="flex justify-end">
-                      <HqPrimaryButton type="submit" disabled={followUpSubmitting}>
-                        {followUpSubmitting ? 'Scheduling…' : 'Schedule Follow-up'}
-                      </HqPrimaryButton>
-                    </div>
-                  </form>
-                </section>
-
-                <section>
-                  <h3 className="mb-3 text-sm font-bold text-slate-900">Follow-up History</h3>
-                  {(lead.followUps?.length ?? 0) === 0 ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-                      No follow-ups scheduled yet.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {lead.followUps?.map((item) => (
-                        <div
-                          key={item.id}
-                          className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-sm font-semibold text-slate-900">{item.type}</span>
-                            <span className="text-xs font-medium text-slate-500">
-                              {formatNextFollowUpDisplay(item.scheduledAt)}
-                            </span>
-                          </div>
-                          {item.notes ? (
-                            <p className="mt-2 text-sm text-slate-600 whitespace-pre-wrap">{item.notes}</p>
-                          ) : null}
-                          <p className="mt-2 text-[11px] text-slate-400">
-                            Logged {formatCreatedAt(item.createdAt)}
-                            {item.createdByEmail ? ` · ${item.createdByEmail}` : ''}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-              </div>
+              <HqFollowUpTabPanel
+                key={lead.id}
+                nextFollowUpAt={lead.nextFollowUpAt}
+                nextFollowUpLabel={lead.nextFollowUp}
+                followUps={lead.followUps ?? []}
+                followUpTypes={HQ_LEAD_FOLLOW_UP_TYPES}
+                tabError={tabError}
+                onClearError={() => setTabError(null)}
+                onSchedule={handleScheduleFollowUp}
+                onUpdate={handleUpdateFollowUp}
+                onComplete={handleCompleteFollowUp}
+                onDelete={handleDeleteFollowUp}
+              />
             ) : (
               <div className="space-y-6">
                 <section className="rounded-2xl border border-slate-200 p-4">

@@ -222,6 +222,38 @@ export function mapPipelineStageToCrmCandidateLabel(stage) {
   }
 }
 
+/** Map placements table status to CRM candidate stage + pipeline bucket. */
+export function mapPlacementStatusToCrmStageSync(placementStatus) {
+  switch (String(placementStatus || '').toUpperCase()) {
+    case 'OFFER_SENT':
+      return { stage: PIPELINE_STAGES.OFFER, stageLabel: 'Offer Sent' };
+    case 'OFFER_ACCEPTED':
+      return { stage: PIPELINE_STAGES.OFFER, stageLabel: 'Offer Accepted' };
+    case 'OFFER_REJECTED':
+      return { stage: PIPELINE_STAGES.REJECTED, stageLabel: 'Offer Rejected' };
+    case 'JOINING_SCHEDULED':
+      return { stage: PIPELINE_STAGES.OFFER, stageLabel: 'Joining Scheduled' };
+    case 'JOINED':
+      return { stage: PIPELINE_STAGES.HIRED, stageLabel: 'Joined' };
+    case 'NO_SHOW':
+      return { stage: PIPELINE_STAGES.REJECTED, stageLabel: 'No Show' };
+    case 'WITHDRAWN':
+      return { stage: PIPELINE_STAGES.REJECTED, stageLabel: 'Withdrawn' };
+    case 'FAILED':
+      return { stage: PIPELINE_STAGES.REJECTED, stageLabel: 'Failed' };
+    case 'REPLACEMENT_REQUIRED':
+      return { stage: PIPELINE_STAGES.REJECTED, stageLabel: 'Replacement Required' };
+    case 'REPLACED':
+      return { stage: PIPELINE_STAGES.HIRED, stageLabel: 'Replaced' };
+    default:
+      return null;
+  }
+}
+
+export function mapPlacementStatusToCrmStageLabel(placementStatus) {
+  return mapPlacementStatusToCrmStageSync(placementStatus)?.stageLabel || '';
+}
+
 /** Human-ready title for portal ApplicationTimeline (avoid generic "Interview"). */
 function interviewTypeToPortalTimelineTitle(metadata) {
   if (!metadata || typeof metadata !== 'object') return null;
@@ -306,6 +338,49 @@ function buildAbsoluteUploadsUrl(relativeUrl) {
   return `${base}${path}`;
 }
 
+function buildRejectionPortalDescription(reason, feedback) {
+  const lines = [
+    reason ? `Reason: ${String(reason).trim()}` : null,
+    feedback ? `Feedback: ${String(feedback).trim()}` : null,
+  ].filter(Boolean);
+  return lines.length ? lines.join('\n') : null;
+}
+
+/** Mirror recruiter rejection reason/feedback to the candidate portal application. */
+export async function syncApplicationRejectionFeedback(
+  candidateId,
+  jobId,
+  { reason, feedback, sharedAt } = {}
+) {
+  if (!candidateId || !jobId) return;
+
+  const portal = getJobPortalPrismaClient();
+  const app = await portal.application.findUnique({
+    where: { candidateId_jobId: { candidateId, jobId } },
+    select: { id: true, offerDetails: true },
+  });
+  if (!app) return;
+
+  let parsed = {};
+  if (app.offerDetails) {
+    try {
+      const maybe = JSON.parse(app.offerDetails);
+      parsed = maybe && typeof maybe === 'object' ? maybe : { legacyOfferText: app.offerDetails };
+    } catch {
+      parsed = { legacyOfferText: app.offerDetails };
+    }
+  }
+
+  parsed.rejectionReason = reason ? String(reason).trim() : null;
+  parsed.rejectionFeedback = feedback ? String(feedback).trim() : null;
+  parsed.rejectionSharedAt = sharedAt ? new Date(sharedAt).toISOString() : new Date().toISOString();
+
+  await portal.application.update({
+    where: { id: app.id },
+    data: { offerDetails: JSON.stringify(parsed) },
+  });
+}
+
 /**
  * Mirror an offer-letter URL to the candidate's portal Application so the
  * job-portal `/applications/[id]` page can show "View / Download offer letter".
@@ -318,7 +393,7 @@ function buildAbsoluteUploadsUrl(relativeUrl) {
 export async function syncApplicationOfferLetter(
   candidateId,
   jobId,
-  { fileUrl, fileName, placementId, placementStatus }
+  { fileUrl, fileName, placementId, placementStatus, resetResponse = false }
 ) {
   if (!candidateId || !jobId || !fileUrl) return;
   const portal = getJobPortalPrismaClient();
@@ -342,7 +417,14 @@ export async function syncApplicationOfferLetter(
   parsed.offerLetterUploadedAt = new Date().toISOString();
   if (placementId) parsed.placementId = String(placementId);
   if (placementStatus) parsed.placementStatus = String(placementStatus);
-  parsed.offerResponse = parsed.offerResponse || 'PENDING';
+  if (resetResponse) {
+    parsed.offerResponse = 'PENDING';
+    delete parsed.offerRejectionRemark;
+    delete parsed.offerRespondedAt;
+    parsed.offerResentAt = new Date().toISOString();
+  } else {
+    parsed.offerResponse = parsed.offerResponse || 'PENDING';
+  }
   await portal.application.update({
     where: { id: app.id },
     data: { offerDetails: JSON.stringify(parsed) },
@@ -398,7 +480,268 @@ export async function syncApplicationJoiningDetails(candidateId, jobId, details 
   });
 }
 
-export async function syncApplicationOfferResponse(candidateId, jobId, { decision, placementStatus }) {
+/** Reset portal offer response so the candidate can accept/reject again after a resend. */
+export async function resetApplicationOfferResponse(
+  candidateId,
+  jobId,
+  { placementStatus = 'OFFER_SENT', placementId } = {}
+) {
+  if (!candidateId || !jobId) return;
+  const portal = getJobPortalPrismaClient();
+  const app = await portal.application.findUnique({
+    where: { candidateId_jobId: { candidateId, jobId } },
+    select: { id: true, offerDetails: true },
+  });
+  if (!app) return;
+
+  let parsed = {};
+  if (app.offerDetails) {
+    try {
+      const maybe = JSON.parse(app.offerDetails);
+      parsed = maybe && typeof maybe === 'object' ? maybe : { legacyOfferText: app.offerDetails };
+    } catch {
+      parsed = { legacyOfferText: app.offerDetails };
+    }
+  }
+
+  parsed.offerResponse = 'PENDING';
+  parsed.placementStatus = String(placementStatus || 'OFFER_SENT');
+  parsed.offerResentAt = new Date().toISOString();
+  if (placementId) parsed.placementId = String(placementId);
+  delete parsed.offerRejectionRemark;
+  delete parsed.offerRespondedAt;
+
+  await portal.application.update({
+    where: { id: app.id },
+    data: { offerDetails: JSON.stringify(parsed) },
+  });
+
+  await portal.applicationTimeline.create({
+    data: {
+      applicationId: app.id,
+      status: 'FINAL_DECISION',
+      title: 'Offer letter resent',
+      description:
+        'The recruiter shared a revised offer letter. Please review and respond when you are ready.',
+    },
+  });
+}
+
+/** Remove placement/offer mirror fields from the portal application after undo or delete. */
+export async function clearApplicationPlacementDetails(candidateId, jobId) {
+  if (!candidateId || !jobId) return;
+  const portal = getJobPortalPrismaClient();
+  const app = await portal.application.findUnique({
+    where: { candidateId_jobId: { candidateId, jobId } },
+    select: { id: true, offerDetails: true },
+  });
+  if (!app) return;
+
+  let parsed = {};
+  if (app.offerDetails) {
+    try {
+      const maybe = JSON.parse(app.offerDetails);
+      parsed = maybe && typeof maybe === 'object' ? maybe : { legacyOfferText: app.offerDetails };
+    } catch {
+      parsed = { legacyOfferText: app.offerDetails };
+    }
+  }
+
+  const placementKeys = [
+    'offerLetterUrl',
+    'offerLetterRelativeUrl',
+    'offerLetterFileName',
+    'offerLetterUploadedAt',
+    'placementId',
+    'placementStatus',
+    'offerResponse',
+    'offerRespondedAt',
+    'offerResentAt',
+    'offerRejectionRemark',
+    'joiningScheduledAt',
+    'joiningDate',
+    'reportingToName',
+    'reportingToTitle',
+    'reportingToEmail',
+    'joiningNotes',
+  ];
+  for (const key of placementKeys) {
+    delete parsed[key];
+  }
+
+  const hasLegacyText =
+    typeof parsed.legacyOfferText === 'string' && parsed.legacyOfferText.trim().length > 0;
+  const remainingKeys = Object.keys(parsed).filter((key) => {
+    const value = parsed[key];
+    return value !== null && value !== undefined && value !== '';
+  });
+
+  await portal.application.update({
+    where: { id: app.id },
+    data: {
+      offerDetails: remainingKeys.length || hasLegacyText ? JSON.stringify(parsed) : null,
+    },
+  });
+}
+
+export function mapFeedbackRecommendationForPortal(recommendation) {
+  const key = String(recommendation || '').trim().toUpperCase();
+  if (key === 'PASS') return 'Pass';
+  if (key === 'REJECT') return 'Failed';
+  return 'On hold';
+}
+
+export function mapFeedbackRecommendationLabelForPortal(recommendation) {
+  const key = String(recommendation || '').trim().toUpperCase();
+  if (key === 'PASS') return 'Pass';
+  if (key === 'REJECT') return 'Reject';
+  return 'Hold';
+}
+
+export function resolveInterviewRoundLabelForPortal(interviewLike = {}) {
+  const fromRound = String(interviewLike.round || '').trim();
+  if (fromRound) return fromRound;
+  const rawType = String(interviewLike.type || '').trim();
+  if (!rawType) return 'Interview';
+  const upper = rawType.replace(/[\s-]+/g, '_').toUpperCase();
+  const map = {
+    PHONE: 'Phone screening',
+    VIDEO: 'Video interview',
+    IN_PERSON: 'In-person interview',
+    TECHNICAL_TEST: 'Technical test',
+    ASSESSMENT: 'Assessment',
+    GROUP_DISCUSSION: 'Group discussion',
+    ONSITE: 'On-site interview',
+    TECHNICAL: 'Technical round',
+    FINAL: 'Final interview',
+    SCREENING: 'HR screening',
+    HR_SCREENING: 'HR screening',
+  };
+  if (map[upper]) return map[upper];
+  return rawType
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+/** Mirror completed interview feedback (Pass/Failed + remark) to the candidate portal. */
+export async function syncApplicationInterviewFeedback(
+  candidateId,
+  jobId,
+  {
+    interviewId,
+    roundLabel,
+    recommendation,
+    comments,
+    overallScore,
+    companyName,
+    technicalScore,
+    communicationScore,
+    problemSolvingScore,
+    cultureFitScore,
+    experienceMatchScore,
+    strengths,
+    weaknesses,
+    submittedAt,
+    skipTimeline = false,
+  } = {}
+) {
+  if (!candidateId || !jobId) return;
+
+  const portal = getJobPortalPrismaClient();
+  const app = await portal.application.findUnique({
+    where: { candidateId_jobId: { candidateId, jobId } },
+    select: { id: true, offerDetails: true },
+  });
+  if (!app) return;
+
+  const outcome = mapFeedbackRecommendationForPortal(recommendation);
+  const recommendationLabel = mapFeedbackRecommendationLabelForPortal(recommendation);
+  const round = String(roundLabel || 'Interview').trim() || 'Interview';
+  const remark = String(comments || '').trim() || null;
+  const score =
+    overallScore != null && !Number.isNaN(Number(overallScore)) ? Number(overallScore) : null;
+  const completedAt = submittedAt ? new Date(submittedAt).toISOString() : new Date().toISOString();
+
+  const descriptionLines = [
+    `Outcome: ${outcome}`,
+    `Recommendation: ${recommendationLabel}`,
+    remark ? `Remark: ${remark}` : null,
+    score != null ? `Overall rating: ${score}/5` : null,
+    technicalScore != null ? `Technical skills: ${Number(technicalScore)}/5` : null,
+    communicationScore != null ? `Communication: ${Number(communicationScore)}/5` : null,
+    problemSolvingScore != null ? `Problem solving: ${Number(problemSolvingScore)}/5` : null,
+    cultureFitScore != null ? `Culture fit: ${Number(cultureFitScore)}/5` : null,
+    experienceMatchScore != null ? `Experience match: ${Number(experienceMatchScore)}/5` : null,
+    strengths ? `Strengths: ${String(strengths)}` : null,
+    weaknesses ? `Weaknesses: ${String(weaknesses)}` : null,
+    `Round: ${round}`,
+    companyName ? `Company: ${companyName}` : null,
+  ].filter(Boolean);
+
+  if (!skipTimeline) {
+    await portal.applicationTimeline.create({
+      data: {
+        applicationId: app.id,
+        status: 'INTERVIEW',
+        title: `Interview completed — ${round}`,
+        description: descriptionLines.join('\n'),
+      },
+    });
+  }
+
+  let parsed = {};
+  if (app.offerDetails) {
+    try {
+      const maybe = JSON.parse(app.offerDetails);
+      parsed = maybe && typeof maybe === 'object' ? maybe : { legacyOfferText: app.offerDetails };
+    } catch {
+      parsed = { legacyOfferText: app.offerDetails };
+    }
+  }
+
+  const outcomes = Array.isArray(parsed.interviewOutcomes) ? parsed.interviewOutcomes : [];
+  const nextOutcome = {
+    interviewId: interviewId ? String(interviewId) : null,
+    roundLabel: round,
+    outcome,
+    recommendationLabel,
+    remark,
+    comments: remark,
+    overallScore: score,
+    companyName: companyName ? String(companyName) : null,
+    technicalScore: technicalScore != null ? Number(technicalScore) : null,
+    communicationScore: communicationScore != null ? Number(communicationScore) : null,
+    problemSolvingScore: problemSolvingScore != null ? Number(problemSolvingScore) : null,
+    cultureFitScore: cultureFitScore != null ? Number(cultureFitScore) : null,
+    experienceMatchScore: experienceMatchScore != null ? Number(experienceMatchScore) : null,
+    strengths: strengths ? String(strengths) : null,
+    weaknesses: weaknesses ? String(weaknesses) : null,
+    completedAt,
+  };
+  const existingIdx = outcomes.findIndex(
+    (entry) =>
+      (interviewId && String(entry?.interviewId || '') === String(interviewId)) ||
+      String(entry?.roundLabel || '').trim().toLowerCase() === round.toLowerCase()
+  );
+  if (existingIdx >= 0) {
+    outcomes[existingIdx] = { ...outcomes[existingIdx], ...nextOutcome };
+  } else {
+    outcomes.push(nextOutcome);
+  }
+  parsed.interviewOutcomes = outcomes;
+
+  await portal.application.update({
+    where: { id: app.id },
+    data: { offerDetails: JSON.stringify(parsed) },
+  });
+}
+
+export async function syncApplicationOfferResponse(
+  candidateId,
+  jobId,
+  { decision, placementStatus, remark }
+) {
   if (!candidateId || !jobId) return;
   const portal = getJobPortalPrismaClient();
   const app = await portal.application.findUnique({
@@ -418,6 +761,9 @@ export async function syncApplicationOfferResponse(candidateId, jobId, { decisio
   parsed.offerResponse = decision === 'accept' ? 'ACCEPTED' : 'REJECTED';
   parsed.offerRespondedAt = new Date().toISOString();
   if (placementStatus) parsed.placementStatus = placementStatus;
+  if (decision === 'reject' && remark) {
+    parsed.offerRejectionRemark = String(remark).trim();
+  }
   await portal.application.update({
     where: { id: app.id },
     data: { offerDetails: JSON.stringify(parsed) },
@@ -430,7 +776,9 @@ export async function syncApplicationOfferResponse(candidateId, jobId, { decisio
       description:
         decision === 'accept'
           ? 'You accepted the offer letter on the candidate portal.'
-          : 'You declined the offer letter on the candidate portal.',
+          : remark
+            ? `You declined the offer letter on the candidate portal.\n\nReason: ${String(remark).trim()}`
+            : 'You declined the offer letter on the candidate portal.',
     },
   });
 }
@@ -499,6 +847,7 @@ export async function updateCandidateStage({
   candidateId,
   jobId,
   stage,
+  stageLabel,
   metadata = {},
   reason,
   feedback,
@@ -509,7 +858,7 @@ export async function updateCandidateStage({
   // kept on the CRM (Activity + internal note) for recruiter records.
   showFeedbackToCandidate = true,
 }) {
-  const label = mapPipelineStageToCrmCandidateLabel(stage);
+  const label = String(stageLabel || '').trim() || mapPipelineStageToCrmCandidateLabel(stage);
   const upper = String(stage || '').toUpperCase();
 
   const previousCandidate = await prisma.candidate.findUnique({
@@ -555,7 +904,7 @@ export async function updateCandidateStage({
           ? buildInterviewTimelineDescription(metadata)
           : upper === PIPELINE_STAGES.REJECTED
             ? showFeedbackToCandidate
-              ? [reason, feedback].filter(Boolean).join(' — ') || null
+              ? buildRejectionPortalDescription(reason, feedback)
               // HR opted out of sharing — keep portal description empty so
               // the candidate's "View feedback" button stays hidden and the
               // generic "No additional notes for this step." renders.
@@ -564,6 +913,21 @@ export async function updateCandidateStage({
     };
 
     await syncApplicationState(candidateId, jobId, portalExtra);
+
+    if (upper === PIPELINE_STAGES.REJECTED && showFeedbackToCandidate) {
+      try {
+        await syncApplicationRejectionFeedback(candidateId, jobId, {
+          reason,
+          feedback,
+          sharedAt: new Date().toISOString(),
+        });
+      } catch (rejectSyncErr) {
+        console.warn(
+          '[updateCandidateStage] portal rejection feedback sync failed:',
+          rejectSyncErr?.message || rejectSyncErr
+        );
+      }
+    }
 
     try {
       const resolvedStage = await ensureJobPipelineStageForRole(jobId, upper);

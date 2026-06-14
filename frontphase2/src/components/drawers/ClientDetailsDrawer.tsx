@@ -162,6 +162,7 @@ import {
   apiRemoveClientLeadStatus,
   apiRemoveClientPriority,
   apiGetClientScheduledMeetings,
+  apiGetClientAssignableMembers,
   apiGetContacts,
   apiGetJob,
   apiGetJobs,
@@ -180,7 +181,7 @@ import {
   isOrgBillingNavEnabled,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
-import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { CrossDepartmentClientHandoff } from '../team/CrossDepartmentClientHandoff';
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { ClientAiChatDrawer } from '../clients/ClientAiChatDrawer';
@@ -341,6 +342,23 @@ const FieldRow = ({
     </p>
   </div>
 );
+
+function resolvePrimaryAssignedToId(form: {
+  assignedToId?: string;
+  assignedToIds?: string[];
+}): string | undefined {
+  const single = String(form.assignedToId || '').trim();
+  if (single) return single;
+  return form.assignedToIds?.[0] || undefined;
+}
+
+function assignedToSelectionFromId(userId: string): { assignedToId: string; assignedToIds: string[] } {
+  const id = String(userId || '').trim();
+  return {
+    assignedToId: id,
+    assignedToIds: id ? [id] : [],
+  };
+}
 
 function curatedDynamicPairsForSave(rows: Array<{ label: string; value: string }>): Array<{ label: string; value: string }> | undefined {
   const curated = rows
@@ -2347,7 +2365,7 @@ export function ClientDetailsDrawer({
           overviewEditForm.website,
         );
         const primaryWebsite = savedWebsite || overviewEditForm.website?.trim() || undefined;
-        const primaryAssignedToId = overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined;
+        const primaryAssignedToId = resolvePrimaryAssignedToId(overviewEditForm);
         const mergedHiringLocations =
           [overviewEditForm.city, overviewEditForm.state, overviewEditForm.country].filter(Boolean).join(', ') ||
           overviewEditForm.hiringLocations?.trim() ||
@@ -2555,7 +2573,7 @@ export function ClientDetailsDrawer({
           cleanedCompanyLinks,
           overviewEditForm.website,
         );
-        const primaryAssignedToId = overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined;
+        const primaryAssignedToId = resolvePrimaryAssignedToId(overviewEditForm);
         const updateData: any = {
           companyName: overviewEditForm.companyName,
           email: contactChannels.email,
@@ -2865,19 +2883,36 @@ export function ClientDetailsDrawer({
     const fetchUsers = async () => {
       setLoadingUsers(true);
       try {
-        const members = await getAllTeamMembersForAssign();
-        // The Add Client form (mirroring Add Lead) needs the raw TeamMember list for
-        // LeadAssigneesMultiSelect; the legacy single-select dropdown keeps using BackendUser.
-        setRecruiters(
-          members.map((member) => {
-            const m = member as TeamMember & { systemRole?: TeamMember['role'] };
-            if (!m.role && m.systemRole) {
-              return { ...member, role: m.systemRole };
-            }
-            return member;
-          })
+        const response = await apiGetClientAssignableMembers();
+        const members = Array.isArray(response.data) ? response.data : [];
+        const toTeamMember = (member: (typeof members)[number]) => {
+          const fullName =
+            member.name ||
+            `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
+            member.email ||
+            'User';
+          const nameParts = fullName.split(/\s+/).filter(Boolean);
+          return {
+            id: member.id,
+            firstName: member.firstName || nameParts[0] || fullName,
+            lastName: member.lastName || nameParts.slice(1).join(' '),
+            name: fullName,
+            email: member.email,
+            role: member.role,
+          };
+        };
+        setRecruiters(members.map(toTeamMember) as unknown as TeamMember[]);
+        setUsers(
+          members.map((member) => ({
+            id: member.id,
+            name:
+              member.name ||
+              `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
+              member.email ||
+              'User',
+            email: member.email,
+          })) as BackendUser[],
         );
-        setUsers(teamMembersToBackendUsers(members));
       } catch (error) {
         console.error('Failed to fetch users:', error);
         setUsers([]);
@@ -4425,7 +4460,10 @@ export function ClientDetailsDrawer({
                                             <button
                                               type="button"
                                               onClick={() => {
-                                                setOverviewEditForm((p) => ({ ...p, assignedToId: '' }));
+                                                setOverviewEditForm((p) => ({
+                                                  ...p,
+                                                  ...assignedToSelectionFromId(''),
+                                                }));
                                                 setAssignedToDropdownOpen(false);
                                               }}
                                               className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${!overviewEditForm.assignedToId ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
@@ -4438,7 +4476,10 @@ export function ClientDetailsDrawer({
                                               <button
                                                 type="button"
                                                 onClick={() => {
-                                                  setOverviewEditForm((p) => ({ ...p, assignedToId: user.id }));
+                                                  setOverviewEditForm((p) => ({
+                                                    ...p,
+                                                    ...assignedToSelectionFromId(user.id),
+                                                  }));
                                                   setAssignedToDropdownOpen(false);
                                                 }}
                                                 className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${overviewEditForm.assignedToId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
@@ -5807,6 +5848,14 @@ export function ClientDetailsDrawer({
                           <FieldRow label="Client stage" value={client.stage} />
                           <FieldRow label="Priority" value={client.priority ?? 'Ã¢â‚¬â€'} />
                           <FieldRow label="SLA / Response expectations" value={client.sla ?? 'Ã¢â‚¬â€'} />
+                          {client?.id ? (
+                            <div className="mt-4">
+                              <CrossDepartmentClientHandoff
+                                clientId={client.id}
+                                clientName={client.name || 'Client'}
+                              />
+                            </div>
+                          ) : null}
                                 </>
                               )}
                             </>
@@ -5859,7 +5908,10 @@ export function ClientDetailsDrawer({
                                               <button
                                                 type="button"
                                                 onClick={() => {
-                                                  setOverviewEditForm((p) => ({ ...p, assignedToId: '' }));
+                                                  setOverviewEditForm((p) => ({
+                                                    ...p,
+                                                    ...assignedToSelectionFromId(''),
+                                                  }));
                                                   setAssignedToDropdownOpen(false);
                                                 }}
                                                 className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${!overviewEditForm.assignedToId ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
@@ -5872,7 +5924,10 @@ export function ClientDetailsDrawer({
                                                 <button
                                                   type="button"
                                                   onClick={() => {
-                                                    setOverviewEditForm((p) => ({ ...p, assignedToId: user.id }));
+                                                    setOverviewEditForm((p) => ({
+                                                      ...p,
+                                                      ...assignedToSelectionFromId(user.id),
+                                                    }));
                                                     setAssignedToDropdownOpen(false);
                                                   }}
                                                   className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${overviewEditForm.assignedToId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}

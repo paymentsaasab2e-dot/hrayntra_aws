@@ -43,7 +43,7 @@ function normalizeMember(user) {
   };
 }
 
-async function isSuperAdminUserId(userId) {
+export async function isSuperAdminUserId(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {

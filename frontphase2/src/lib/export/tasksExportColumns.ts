@@ -10,6 +10,13 @@ export type TaskExportRow = {
   priority: string;
   status: string;
   owner?: { name?: string };
+  assignmentChain?: {
+    createdByName: string;
+    assignedToName: string;
+    delegatedToName: string | null;
+    isDelegated: boolean;
+  };
+  createdByName?: string;
 };
 
 export const TASKS_EXPORT_COLUMNS: ExportColumnDef<TaskExportRow>[] = [
@@ -24,7 +31,22 @@ export const TASKS_EXPORT_COLUMNS: ExportColumnDef<TaskExportRow>[] = [
   { id: 'time', label: 'Time', accessor: (t) => t.time || '' },
   { id: 'priority', label: 'Priority', accessor: (t) => t.priority },
   { id: 'status', label: 'Status', accessor: (t) => t.status },
-  { id: 'owner', label: 'Owner', accessor: (t) => t.owner?.name || '' },
+  {
+    id: 'createdBy',
+    label: 'Created by',
+    accessor: (t) => t.assignmentChain?.createdByName || t.createdByName || '',
+  },
+  {
+    id: 'assignedTo',
+    label: 'Assigned to',
+    accessor: (t) => t.assignmentChain?.assignedToName || t.owner?.name || '',
+  },
+  {
+    id: 'delegatedTo',
+    label: 'Delegated to',
+    accessor: (t) => (t.assignmentChain?.isDelegated ? t.assignmentChain.delegatedToName || '' : ''),
+  },
+  { id: 'owner', label: 'Current owner', accessor: (t) => t.owner?.name || '' },
 ];
 
 export function buildTasksCsvColumns(selectedIds: string[]) {

@@ -3,12 +3,15 @@ import multer from 'multer';
 import { leadController } from './lead.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { requireAnyPermission } from '../../middleware/permission.middleware.js';
+import { submitLeadConversionRequest } from '../../routes/leadConversionRequestRoutes.js';
 
 const router = express.Router();
 const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(authMiddleware);
 
+router.get('/assignable-members', requireAnyPermission(['leads_create', 'leads_update']), leadController.getAssignableMembers);
+router.get('/conversion-capabilities', requireAnyPermission(['leads_read', 'leads_update']), leadController.getConversionCapabilities);
 router.get('/', requireAnyPermission(['leads_read']), leadController.getAll);
 // Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.
 router.get('/trash', requireAnyPermission(['leads_read', 'leads_delete']), leadController.listTrash);
@@ -23,6 +26,7 @@ router.get('/:id', requireAnyPermission(['leads_read']), leadController.getById)
 router.get('/:id/activities', leadController.getActivities);
 router.post('/', requireAnyPermission(['leads_create']), leadController.create);
 router.patch('/:id', requireAnyPermission(['leads_update']), leadController.update);
+router.post('/:id/conversion-request', requireAnyPermission(['leads_update']), submitLeadConversionRequest);
 router.post('/:id/convert', requireAnyPermission(['leads_update', 'clients_create']), leadController.convertToClient);
 router.delete('/:id', requireAnyPermission(['leads_delete']), leadController.delete);
 

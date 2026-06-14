@@ -5,8 +5,11 @@ import logger from '../utils/logger.js';
 import { DEFAULT_PERMISSIONS } from '../modules/role/default-permissions.js';
 import {
   ensureSuperAdminHasAllPermissions,
+  ensureDefaultSystemRoles,
   syncDefaultPermissions,
   syncDefaultRolePresets,
+  syncMissingRolePresetPermissions,
+  syncAgencySalesHeadHandoffPermissions,
 } from '../modules/role/permission-sync.service.js';
 import activityService from '../services/activityService.js';
 
@@ -33,7 +36,11 @@ export async function getAllRoles(req, res) {
   try {
     await syncDefaultPermissions();
     await ensureSuperAdminHasAllPermissions();
+    await ensureDefaultSystemRoles();
     await syncDefaultRolePresets();
+    await syncMissingRolePresetPermissions();
+    await syncAgencySalesHeadHandoffPermissions();
+    await deleteCacheByPattern(getPermissionCachePattern());
 
     const page = Math.max(Number.parseInt(String(req.query.page || '1'), 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit || '20'), 10) || 20, 1), 100);
@@ -602,7 +609,11 @@ export async function getAllPermissions(req, res) {
   try {
     await syncDefaultPermissions();
     await ensureSuperAdminHasAllPermissions();
+    await ensureDefaultSystemRoles();
     await syncDefaultRolePresets();
+    await syncMissingRolePresetPermissions();
+    await syncAgencySalesHeadHandoffPermissions();
+    await deleteCacheByPattern(getPermissionCachePattern());
 
     const permissions = await prisma.permission.findMany({
       select: {

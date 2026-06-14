@@ -74,6 +74,46 @@ export const hqController = {
     }
   },
 
+  async updateLeadFollowUp(req, res) {
+    try {
+      const result = await hqService.updateLeadFollowUp(
+        req.params.id,
+        req.params.followUpId,
+        req.body,
+        req.user
+      );
+      sendResponse(res, 200, 'Follow-up updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async completeLeadFollowUp(req, res) {
+    try {
+      const result = await hqService.completeLeadFollowUp(
+        req.params.id,
+        req.params.followUpId,
+        req.user
+      );
+      sendResponse(res, 200, 'Follow-up completed', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async deleteLeadFollowUp(req, res) {
+    try {
+      const result = await hqService.deleteLeadFollowUp(
+        req.params.id,
+        req.params.followUpId,
+        req.user
+      );
+      sendResponse(res, 200, 'Follow-up deleted', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async addLeadRemark(req, res) {
     try {
       const result = await hqService.addLeadRemark(req.params.id, req.body, req.user);
@@ -128,10 +168,59 @@ export const hqController = {
     }
   },
 
+  async updateCompanyFollowUp(req, res) {
+    try {
+      const result = await hqService.updateCompanyFollowUp(
+        req.params.id,
+        req.params.followUpId,
+        req.body,
+        req.user
+      );
+      sendResponse(res, 200, 'Follow-up updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async completeCompanyFollowUp(req, res) {
+    try {
+      const result = await hqService.completeCompanyFollowUp(
+        req.params.id,
+        req.params.followUpId,
+        req.user
+      );
+      sendResponse(res, 200, 'Follow-up completed', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async deleteCompanyFollowUp(req, res) {
+    try {
+      const result = await hqService.deleteCompanyFollowUp(
+        req.params.id,
+        req.params.followUpId,
+        req.user
+      );
+      sendResponse(res, 200, 'Follow-up deleted', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async addCompanyRemark(req, res) {
     try {
       const result = await hqService.addCompanyRemark(req.params.id, req.body, req.user);
       sendResponse(res, 201, 'Remark added', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getPortalOverview(req, res) {
+    try {
+      const result = await hqService.getPortalOverview(req.user);
+      sendResponse(res, 200, 'OK', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

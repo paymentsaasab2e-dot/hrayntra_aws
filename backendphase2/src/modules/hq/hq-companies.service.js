@@ -1,5 +1,6 @@
 import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
+import { findFollowUpIndex, recomputeNextFollowUpAt } from './hq-follow-up.helpers.js';
 
 const HQ_CRM_COMPANIES_COLLECTION = 'hq_crm_companies';
 const VALID_STATUSES = ['active', 'inactive', 'on_hold', 'closed'];
@@ -53,6 +54,12 @@ function mapFollowUps(items) {
             ? new Date(item.createdAt).toISOString()
             : null,
       createdByEmail: item?.createdByEmail || null,
+      completedAt:
+        item?.completedAt instanceof Date
+          ? item.completedAt.toISOString()
+          : item?.completedAt
+            ? new Date(item.completedAt).toISOString()
+            : null,
     }))
     .filter((item) => item.id)
     .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
@@ -306,8 +313,8 @@ export const hqCompaniesService = {
       status: 'active',
       score: leadDoc.score || inferScore(leadDoc.estimatedDealValue ?? 0, leadDoc.expectedUsers ?? 0),
       nextFollowUpAt,
-      followUps: Array.isArray(leadDoc.followUps) ? leadDoc.followUps : [],
-      remarks: Array.isArray(leadDoc.remarks) ? leadDoc.remarks : [],
+      followUps: [],
+      remarks: [],
       companyTag: 'converted_lead',
       convertedFromLeadId: leadId,
       createdAt: new Date(),
@@ -386,6 +393,119 @@ export const hqCompaniesService = {
         },
       }
     );
+    const updated = await collection.findOne({ _id: objectId });
+    return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  async updateFollowUp(id, followUpId, data, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+
+    const followUps = Array.isArray(existing.followUps) ? [...existing.followUps] : [];
+    const index = findFollowUpIndex(followUps, followUpId);
+    if (index === -1) throw new Error('Follow-up not found');
+
+    const current = followUps[index];
+    const type = String(data?.type || current.type || 'Call').trim();
+    const notes = String(data?.notes ?? current.notes ?? '').trim();
+    const scheduledAt = parseNextFollowUpAt(data?.scheduledAt ?? current.scheduledAt);
+
+    followUps[index] = {
+      ...current,
+      type: FOLLOW_UP_TYPES.includes(type) ? type : 'Call',
+      scheduledAt,
+      notes,
+      updatedAt: new Date(),
+      updatedByEmail: reqUser?.email || null,
+    };
+
+    const nextFollowUpAt = recomputeNextFollowUpAt(followUps);
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          followUps,
+          ...(nextFollowUpAt ? { nextFollowUpAt } : {}),
+          updatedAt: new Date(),
+          updatedByEmail: reqUser?.email || null,
+        },
+      }
+    );
+
+    const updated = await collection.findOne({ _id: objectId });
+    return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  async completeFollowUp(id, followUpId, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+
+    const followUps = Array.isArray(existing.followUps) ? [...existing.followUps] : [];
+    const index = findFollowUpIndex(followUps, followUpId);
+    if (index === -1) throw new Error('Follow-up not found');
+    if (String(followUps[index]?.status || '') === 'completed') {
+      throw new Error('Follow-up is already completed');
+    }
+
+    followUps[index] = {
+      ...followUps[index],
+      status: 'completed',
+      completedAt: new Date(),
+      completedByEmail: reqUser?.email || null,
+      updatedAt: new Date(),
+      updatedByEmail: reqUser?.email || null,
+    };
+
+    const nextFollowUpAt = recomputeNextFollowUpAt(followUps);
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          followUps,
+          ...(nextFollowUpAt ? { nextFollowUpAt } : {}),
+          updatedAt: new Date(),
+          updatedByEmail: reqUser?.email || null,
+        },
+      }
+    );
+
+    const updated = await collection.findOne({ _id: objectId });
+    return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  async deleteFollowUp(id, followUpId, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+
+    const followUps = (Array.isArray(existing.followUps) ? existing.followUps : []).filter(
+      (item) => String(item?.id || '') !== String(followUpId || '')
+    );
+    if (followUps.length === (existing.followUps || []).length) {
+      throw new Error('Follow-up not found');
+    }
+
+    const nextFollowUpAt = recomputeNextFollowUpAt(followUps);
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          followUps,
+          ...(nextFollowUpAt ? { nextFollowUpAt } : {}),
+          updatedAt: new Date(),
+          updatedByEmail: reqUser?.email || null,
+        },
+      }
+    );
+
     const updated = await collection.findOne({ _id: objectId });
     return { company: toCompanyRow(updated), storage: getStorageInfo() };
   },

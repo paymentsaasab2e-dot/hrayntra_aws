@@ -1,14 +1,65 @@
 import type { BackendTask } from './api';
 import { formatDateTimeDMY } from '../utils/dateDisplay';
 import { extractAuditMeta } from '../utils/auditMeta';
-import type { Task, TaskForDrawer, TaskStatus, TaskPriority, TaskType, TaskRelatedTo } from '../app/Task&Activites/types';
+import type { Task, TaskStatus, TaskPriority, TaskType, TaskRelatedTo } from '../app/Task&Activites/types';
+import type { TaskForDrawer } from '../components/drawers/TaskDetailsDrawer';
+
+export interface TaskAssignmentChain {
+  createdByName: string;
+  assignedToName: string;
+  delegatedToName: string | null;
+  isDelegated: boolean;
+}
+
+export function resolveTaskAssignmentChain(
+  backendTask: BackendTask,
+  memberNameById: Record<string, string> = {},
+): TaskAssignmentChain {
+  const nameFor = (id: string, explicit?: string | null) => {
+    if (explicit?.trim()) return explicit.trim();
+    if (id && memberNameById[id]) return memberNameById[id];
+    return id ? 'Team member' : '—';
+  };
+
+  const createdById = String(backendTask.createdById || backendTask.createdBy?.id || '').trim();
+  const currentAssigneeId = String(backendTask.assignedToId || backendTask.assignedTo?.id || '').trim();
+  const createdByName = nameFor(createdById, backendTask.createdBy?.name);
+  const currentAssigneeName = nameFor(
+    currentAssigneeId,
+    backendTask.assignedTo?.name || (currentAssigneeId ? 'Unassigned' : '—'),
+  );
+
+  const participants = [
+    ...new Set((backendTask.participantIds || []).map((id) => String(id).trim()).filter(Boolean)),
+  ];
+  const firstAssigneeId = participants.find((id) => id !== createdById);
+  const isDelegated = Boolean(
+    firstAssigneeId && currentAssigneeId && firstAssigneeId !== currentAssigneeId,
+  );
+
+  if (!isDelegated) {
+    return {
+      createdByName,
+      assignedToName: currentAssigneeName,
+      delegatedToName: null,
+      isDelegated: false,
+    };
+  }
+
+  return {
+    createdByName,
+    assignedToName: nameFor(firstAssigneeId!),
+    delegatedToName: currentAssigneeName,
+    isDelegated: true,
+  };
+}
 
 /**
  * Transform backend task format to frontend Task format
  */
 export function transformBackendTaskToFrontend(
   backendTask: BackendTask,
-  options?: { relatedEntityName?: string }
+  options?: { relatedEntityName?: string; memberNameById?: Record<string, string> }
 ): Task {
   const priorityMap: Record<string, TaskPriority> = {
     'LOW': 'Low',
@@ -16,18 +67,11 @@ export function transformBackendTaskToFrontend(
     'HIGH': 'High',
   };
 
-  const statusMap: Record<string, TaskStatus> = {
-    PENDING: 'Pending',
-    TODO: 'Pending',
-    IN_PROGRESS: 'Pending',
-    DONE: 'Completed',
-    CANCELLED: 'Cancelled',
-  };
-
   const workflowStatusMap: Record<string, TaskStatus> = {
     PENDING: 'Pending',
     TODO: 'Pending',
     IN_PROGRESS: 'In Progress',
+    AWAITING_APPROVAL: 'Awaiting Approval',
     DONE: 'Completed',
     CANCELLED: 'Cancelled',
   };
@@ -42,7 +86,12 @@ export function transformBackendTaskToFrontend(
 
   const workflowStatus: TaskStatus = workflowStatusMap[backendTask.status] || 'Pending';
   let status: TaskStatus = workflowStatus;
-  if (backendTask.isOverdue && workflowStatus !== 'Completed' && workflowStatus !== 'Cancelled') {
+  if (
+    backendTask.isOverdue &&
+    workflowStatus !== 'Completed' &&
+    workflowStatus !== 'Cancelled' &&
+    workflowStatus !== 'Awaiting Approval'
+  ) {
     status = 'Overdue';
   }
 
@@ -75,6 +124,13 @@ export function transformBackendTaskToFrontend(
     assigneeId: backendTask.assignedToId || backendTask.assignedTo?.id,
     createdById: backendTask.createdById || backendTask.createdBy?.id,
     createdByName: backendTask.createdBy?.name,
+    participantIds: backendTask.participantIds,
+    completionApproverId: backendTask.completionApproverId || undefined,
+    completionRequestedById: backendTask.completionRequestedById || undefined,
+    assignmentChain: resolveTaskAssignmentChain(
+      backendTask,
+      options?.memberNameById || {},
+    ),
     owner: {
       name: backendTask.assignedTo?.name || 'Unassigned',
       avatar: '',
@@ -100,6 +156,7 @@ export function transformBackendTaskToDrawer(
     PENDING: 'Pending',
     TODO: 'Pending',
     IN_PROGRESS: 'In Progress',
+    AWAITING_APPROVAL: 'Awaiting Approval',
     DONE: 'Completed',
     CANCELLED: 'Cancelled',
   };
@@ -114,7 +171,12 @@ export function transformBackendTaskToDrawer(
 
   const workflowStatus: TaskStatus = workflowStatusMap[backendTask.status] || 'Pending';
   let status: TaskStatus = workflowStatus;
-  if (backendTask.isOverdue && workflowStatus !== 'Completed' && workflowStatus !== 'Cancelled') {
+  if (
+    backendTask.isOverdue &&
+    workflowStatus !== 'Completed' &&
+    workflowStatus !== 'Cancelled' &&
+    workflowStatus !== 'Awaiting Approval'
+  ) {
     status = 'Overdue';
   }
 
@@ -147,7 +209,10 @@ export function transformBackendTaskToDrawer(
     createdById: backendTask.createdById || backendTask.createdBy?.id,
     createdByName: backendTask.createdBy?.name,
     assignedToId: backendTask.assignedToId || backendTask.assignedTo?.id,
-    backendStatus: backendTask.status, // Store original backend status for edit form mapping
+    backendStatus: backendTask.status,
+    participantIds: backendTask.participantIds,
+    completionApproverId: backendTask.completionApproverId || undefined,
+    completionRequestedById: backendTask.completionRequestedById || undefined,
     description: backendTask.description || undefined,
     reminder: backendTask.reminder || undefined,
     lastUpdated: {

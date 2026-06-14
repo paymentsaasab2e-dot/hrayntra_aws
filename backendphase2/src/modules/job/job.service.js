@@ -14,6 +14,11 @@ import { notifyJobClosed, personName } from '../setting/alert-notify.helpers.js'
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments } from '../../utils/permissionScope.js';
 import {
+  buildAssigneeVisibilityOr,
+  buildInitialParticipantIds,
+  stampVisibilityOnAssigneeChange,
+} from '../../services/memberVisibility.service.js';
+import {
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
 } from '../setting/recruitmentMode.service.js';
@@ -974,7 +979,7 @@ export const jobService = {
     if (mineFilter && req.user?.id) {
       where.createdById = req.user.id;
     } else if (!canViewAllAssignments(req) && req.user?.id) {
-      where.OR = [{ assignedToId: req.user.id }, { createdById: req.user.id }];
+      where.OR = buildAssigneeVisibilityOr(req.user.id);
     }
     if (search) {
       where.title = { contains: search, mode: 'insensitive' };
@@ -1062,7 +1067,7 @@ export const jobService = {
     const scope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     where = mergeWhereWithScope(where, scope);
     if (!canViewAllAssignments(req) && req?.user?.id) {
-      where = mergeWhereWithScope(where, { OR: [{ assignedToId: req.user.id }, { createdById: req.user.id }] });
+      where = mergeWhereWithScope(where, { OR: buildAssigneeVisibilityOr(req.user.id) });
     }
 
     const job = await prisma.job.findFirst({
@@ -1287,6 +1292,11 @@ export const jobService = {
       jobData.createdBy = { connect: { id: createdByUserId } };
     }
 
+    jobData.participantIds = buildInitialParticipantIds(
+      createdByUserId,
+      data.assignedToId,
+    );
+
     // Log data being stored
     dbLogger.logCreate('JOB', jobData);
 
@@ -1391,6 +1401,8 @@ export const jobService = {
         status: true,
         clientId: true,
         assignedToId: true,
+        createdById: true,
+        participantIds: true,
         openings: true,
         salary: true,
         experienceRequired: true,
@@ -1511,6 +1523,12 @@ export const jobService = {
       }
       return enrichJobWithAssessments(currentJob);
     }
+
+    stampVisibilityOnAssigneeChange({
+      updateData,
+      previous: currentJob,
+      performerId: data.performedById || req?.user?.id,
+    });
 
     if (!hasPipelineStageUpdates) {
       const updatedJob = await prisma.job.update({
@@ -1863,7 +1881,7 @@ export const jobService = {
         ...baseWhere,
         OR: [
           { createdById: req.user.id },
-          { assignedToId: req.user.id },
+          ...buildAssigneeVisibilityOr(req.user.id),
           { deletedBy: req.user.id },
         ],
       };
@@ -1980,7 +1998,7 @@ export const jobService = {
       mineFilter && req?.user?.id
         ? { createdById: req.user.id }
         : !canViewAllAssignments(req) && req?.user?.id
-          ? { OR: [{ createdById: req.user.id }, { assignedToId: req.user.id }] }
+          ? { OR: buildAssigneeVisibilityOr(req.user.id) }
           : {}
     );
 

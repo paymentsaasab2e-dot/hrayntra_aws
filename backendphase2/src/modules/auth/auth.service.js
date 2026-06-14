@@ -6,7 +6,7 @@ import { sendOtpEmail, sendWelcomeEmail } from '../../emails/email.service.js';
 import { headquartersAuthService } from './headquarters-auth.service.js';
 import { seedOrgRecruitmentFromOrganizationType } from '../setting/recruitmentMode.service.js';
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
-import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions } from '../role/permission-sync.service.js';
+import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions, syncDefaultRolePresets, syncMissingRolePresetPermissions } from '../role/permission-sync.service.js';
 import { revokeAllSessionsForUser, sessionService } from '../session/session.service.js';
 
 const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
@@ -81,6 +81,8 @@ async function ensureDefaultSystemRoles() {
 async function ensureSuperAdminRoleAndDepartment() {
   await syncDefaultPermissions();
   await ensureDefaultSystemRoles();
+  await syncDefaultRolePresets();
+  await syncMissingRolePresetPermissions();
   const superAdminRole = await prisma.systemRole.findUnique({
     where: { roleName: 'Super Admin' },
   });

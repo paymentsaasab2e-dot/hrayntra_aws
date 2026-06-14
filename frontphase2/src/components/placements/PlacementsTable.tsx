@@ -10,6 +10,9 @@ import {
   MoreHorizontal,
   Pencil,
   Receipt,
+  RefreshCw,
+  Undo2,
+  UserX,
 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
 import type { Placement, PlacementStatus } from '../../types/placement';
@@ -43,6 +46,9 @@ interface PlacementsTableProps {
   onScheduleJoining?: (placement: Placement) => void;
   onMarkFailed?: (placement: Placement, mode: 'FAILED' | 'NO_SHOW') => void;
   onRequestReplacement?: (placement: Placement) => void;
+  onUndo?: (placement: Placement) => void;
+  onResendOffer?: (placement: Placement) => void;
+  onRejectOfferCandidate?: (placement: Placement) => void;
   onDelete?: (placement: Placement) => void;
   onCreateInvoice?: (placement: Placement) => void;
   onPageChange: (page: number) => void;
@@ -106,15 +112,21 @@ function PlacementStatusDropdown({
 const MENU_WIDTH = 208; // matches w-52 / 13rem
 const MENU_GAP = 6; // small offset from trigger
 
+function canUndoPlacement(placement: Placement): boolean {
+  return placement.status !== 'JOINED';
+}
+
 function RowMenu({
   placement,
   onMarkFailed,
   onRequestReplacement,
+  onUndo,
   onDelete,
 }: {
   placement: Placement;
   onMarkFailed?: (placement: Placement, mode: 'FAILED' | 'NO_SHOW') => void;
   onRequestReplacement?: (placement: Placement) => void;
+  onUndo?: (placement: Placement) => void;
   onDelete?: (placement: Placement) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -122,7 +134,7 @@ function RowMenu({
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const hasMenuActions = Boolean(onMarkFailed || onRequestReplacement || onDelete);
+  const hasMenuActions = Boolean(onMarkFailed || onRequestReplacement || onUndo || onDelete);
 
   useEffect(() => {
     setMounted(true);
@@ -243,6 +255,15 @@ function RowMenu({
                   Request Replacement
                 </button>
               )}
+              {onUndo && canUndoPlacement(placement) ? (
+                <button
+                  type="button"
+                  onClick={closeAnd(() => onUndo(placement))}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#111827] hover:bg-slate-50"
+                >
+                  Undo placement
+                </button>
+              ) : null}
               {onDelete && (
                 <button
                   type="button"
@@ -272,6 +293,9 @@ export function PlacementsTable({
   onScheduleJoining,
   onMarkFailed,
   onRequestReplacement,
+  onUndo,
+  onResendOffer,
+  onRejectOfferCandidate,
   onDelete,
   onCreateInvoice,
   onStatusChange,
@@ -516,10 +540,44 @@ export function PlacementsTable({
                         </button>
                       )}
 
+                      {placement.status === 'OFFER_REJECTED' && onResendOffer ? (
+                        <button
+                          type="button"
+                          onClick={() => onResendOffer(placement)}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-indigo-50 hover:text-indigo-700"
+                          title="Resend offer letter"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </button>
+                      ) : null}
+
+                      {placement.status === 'OFFER_REJECTED' && onRejectOfferCandidate ? (
+                        <button
+                          type="button"
+                          onClick={() => onRejectOfferCandidate(placement)}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-700"
+                          title="Reject candidate"
+                        >
+                          <UserX className="h-4 w-4" />
+                        </button>
+                      ) : null}
+
+                      {onUndo && canUndoPlacement(placement) ? (
+                        <button
+                          type="button"
+                          onClick={() => onUndo(placement)}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-sky-50 hover:text-sky-700"
+                          title="Undo placement and move candidate back to Interviewing"
+                        >
+                          <Undo2 className="h-4 w-4" />
+                        </button>
+                      ) : null}
+
                       <RowMenu
                         placement={placement}
                         onMarkFailed={onMarkFailed}
                         onRequestReplacement={onRequestReplacement}
+                        onUndo={onUndo}
                         onDelete={onDelete}
                       />
                     </div>

@@ -16,6 +16,7 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'clients_update', module: 'Clients', description: 'Update clients' },
   { permissionName: 'clients_delete', module: 'Clients', description: 'Delete clients' },
   { permissionName: 'view_all_clients', module: 'Clients', description: 'View all clients in tenant' },
+  { permissionName: 'clients_handoff', module: 'Clients', description: 'Hand off clients to another department' },
 
   // Jobs
   { permissionName: 'jobs_create', module: 'Jobs', description: 'Create jobs' },
@@ -102,6 +103,13 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'manage_targets', module: 'Team', description: 'Manage recruiter targets' },
   { permissionName: 'view_team_activity', module: 'Team', description: 'View team login and activity logs' },
 
+  // Request
+  { permissionName: 'requests_create', module: 'Request', description: 'Send requests' },
+  { permissionName: 'requests_read', module: 'Request', description: 'View requests' },
+  { permissionName: 'requests_update', module: 'Request', description: 'Update request status' },
+  { permissionName: 'requests_delete', module: 'Request', description: 'Cancel or delete requests' },
+  { permissionName: 'view_all_requests', module: 'Request', description: 'View all requests in tenant' },
+
   // System
   { permissionName: 'manage_settings', module: 'System', description: 'Manage organization settings' },
   { permissionName: 'access_integrations', module: 'System', description: 'Access integrations' },
@@ -130,6 +138,7 @@ export const RBAC_MODULE_ORDER = [
   'Reports / Analytics',
   'Billing',
   'Team',
+  'Request',
   'System',
 ];
 
@@ -141,6 +150,7 @@ export const DEFAULT_SYSTEM_ROLES = [
   { roleName: 'Account Manager', description: 'Client account management', color: 'amber' },
   { roleName: 'Finance', description: 'Finance and billing access', color: 'orange' },
   { roleName: 'Manager', description: 'Team management access', color: 'purple' },
+  { roleName: 'Line Manager', description: 'Review and manage team requests', color: 'indigo' },
   { roleName: 'Viewer', description: 'Read-only access', color: 'gray' },
 ];
 
@@ -149,7 +159,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
   Admin: DEFAULT_PERMISSION_NAMES.filter((n) => n !== 'view_team_activity'),
   'Senior Recruiter': [
     'leads_read', 'leads_create', 'leads_update',
-    'clients_read', 'clients_create', 'clients_update', 'view_all_clients',
+    'clients_read', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff',
     'jobs_read', 'jobs_create', 'jobs_update', 'assign_job', 'view_all_jobs',
     'candidates_read', 'candidates_create', 'candidates_update', 'view_all_candidates', 'move_pipeline', 'submit_candidate',
     'interviews_read', 'interviews_create', 'interviews_update',
@@ -164,6 +174,10 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'reports_read',
     'view_dashboard',
     'view_activity_log',
+    'requests_read',
+    'requests_create',
+    'requests_update',
+    'requests_delete',
   ],
   Recruiter: [
     'leads_read', 'clients_read', 'jobs_read', 'view_assigned_candidates', 'candidates_read', 'candidates_create', 'candidates_update',
@@ -171,14 +185,16 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'placements_read', 'contacts_read', 'tasks_read', 'tasks_create', 'tasks_update',
     'pipeline_read', 'pipeline_manage', 'matches_read', 'matches_manage',
     'inbox_read', 'calendar_read', 'view_dashboard',
+    'requests_read', 'requests_create', 'requests_update', 'requests_delete',
   ],
   'Account Manager': [
     'leads_read', 'leads_create', 'leads_update', 'view_all_leads',
-    'clients_read', 'clients_create', 'clients_update', 'view_all_clients',
+    'clients_read', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff',
     'jobs_read', 'jobs_create', 'jobs_update',
     'contacts_read', 'contacts_create', 'contacts_update',
     'agreements_read', 'agreements_manage',
     'reports_read', 'view_dashboard',
+    'requests_read', 'requests_create', 'requests_update', 'requests_delete',
   ],
   Finance: [
     'placements_read', 'access_billing', 'create_invoice', 'record_payment', 'manage_billing_settings',
@@ -187,10 +203,22 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
   Manager: [
     'view_team', 'add_team_member', 'edit_team_member', 'manage_targets', 'view_team_activity',
     'reports_read', 'view_dashboard', 'view_all_candidates', 'view_all_jobs', 'view_all_clients', 'view_all_leads',
+    'clients_handoff',
+    'requests_read', 'requests_create', 'requests_update', 'requests_delete', 'view_all_requests',
+  ],
+  'Line Manager': [
+    'requests_create',
+    'requests_read',
+    'requests_update',
+    'requests_delete',
+    'view_all_requests',
+    'view_dashboard',
+    'view_team',
   ],
   Viewer: [
     'leads_read', 'clients_read', 'jobs_read', 'candidates_read', 'view_assigned_candidates',
     'interviews_read', 'placements_read', 'contacts_read', 'tasks_read', 'pipeline_read', 'matches_read',
     'reports_read', 'view_dashboard',
+    'requests_read', 'requests_update',
   ],
 };

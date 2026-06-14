@@ -26,6 +26,7 @@ interface AddDepartmentDrawerProps {
 const EMPTY_FORM = {
   name: '',
   description: '',
+  allowsCrossDepartmentRequests: false,
 };
 
 export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen, onClose, onSuccess, department = null }) => {
@@ -90,6 +91,7 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
         roles: departmentRoleDraftsToPayload(roleDrafts),
+        allowsCrossDepartmentRequests: Boolean(formData.allowsCrossDepartmentRequests),
       };
 
       if (isEditMode && department?.id) {
@@ -130,6 +132,7 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
     setFormData({
       name: department?.name || '',
       description: department?.description || '',
+      allowsCrossDepartmentRequests: Boolean(department?.allowsCrossDepartmentRequests),
     });
     setRoleDrafts(departmentRolesToDrafts(department?.departmentRoles));
     setErrors({});
@@ -205,6 +208,26 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
                         placeholder="Brief description of this department"
                       />
                     </div>
+
+                    <label className="flex items-start gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.allowsCrossDepartmentRequests)}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            allowsCrossDepartmentRequests: e.target.checked,
+                          }))
+                        }
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-900">Allow cross-department requests</span>
+                        <span className="block text-xs text-slate-600 mt-0.5">
+                          Other department heads can send work requests to this department.
+                        </span>
+                      </span>
+                    </label>
 
                     <div className={loadingRoles ? 'pointer-events-none opacity-60' : ''}>
                       <DepartmentRolesEditor

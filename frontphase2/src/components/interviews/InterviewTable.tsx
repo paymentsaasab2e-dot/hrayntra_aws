@@ -103,6 +103,32 @@ const feedbackClasses = {
   'N/A': 'text-[#9CA3AF]',
 };
 
+function resolveInterviewGroupStatusBadge(
+  rounds: Interview[],
+  candidateStage?: string | null
+): { label: string; className: string } | null {
+  if (!rounds.length) return null;
+
+  const allCompleted = rounds.every((round) => round.status === 'Completed');
+  const stageNormalized = String(candidateStage || '').trim().toLowerCase();
+  const isInterviewingStage =
+    stageNormalized === 'interviewing' || stageNormalized === 'interview';
+
+  if (allCompleted && (isInterviewingStage || !candidateStage)) {
+    return {
+      label: 'Interview completed',
+      className: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    };
+  }
+
+  if (!candidateStage) return null;
+
+  return {
+    label: getCandidateStageLabel(candidateStage),
+    className: getCandidateStageBadgeClasses(candidateStage),
+  };
+}
+
 export function InterviewTable({
   interviews,
   selectedIds,
@@ -315,6 +341,10 @@ export function InterviewTable({
               const { rounds } = group;
               const primary = representativeInterview(rounds);
               const panelMerged = mergedPanel(rounds);
+              const statusBadge = resolveInterviewGroupStatusBadge(
+                rounds,
+                primary.candidate.stage
+              );
               const everySelected = rounds.length > 0 && rounds.every((r) => selectedIds.includes(r.id));
               const someSelected = rounds.some((r) => selectedIds.includes(r.id));
 
@@ -427,23 +457,29 @@ export function InterviewTable({
                           title={`Round ${index + 1}: ${interview.status}, feedback ${interview.feedbackStatus}`}
                         >
                           <span className="font-semibold text-[#2563EB]">R{index + 1}</span>
-                          <span className="text-[#64748B]">-</span>
-                          <span>{interview.status}</span>
-                          <span className="text-[#64748B]">-</span>
+                          <span className="text-[#64748B]"> · </span>
+                          <span
+                            className={
+                              interview.status === 'Completed'
+                                ? 'font-semibold text-emerald-700'
+                                : undefined
+                            }
+                          >
+                            {interview.status === 'Completed' ? 'Interview completed' : interview.status}
+                          </span>
+                          <span className="text-[#64748B]"> · </span>
                           <span className={`font-semibold ${feedbackClasses[interview.feedbackStatus]}`}>
                             {interview.feedbackStatus}
                           </span>
                         </div>
                       ))}
                     </div>
-                    {primary.candidate.stage ? (
+                    {statusBadge ? (
                       <div className="mt-1.5">
                         <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getCandidateStageBadgeClasses(
-                            primary.candidate.stage
-                          )}`}
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusBadge.className}`}
                         >
-                          {getCandidateStageLabel(primary.candidate.stage)}
+                          {statusBadge.label}
                         </span>
                       </div>
                     ) : null}

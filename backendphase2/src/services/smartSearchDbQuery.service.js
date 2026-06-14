@@ -14,6 +14,7 @@ import {
   normalizeInterviewStatusFilter,
   SCHEMA_ENUMS,
 } from './smartSearchSchema.config.js';
+import { buildAssigneeVisibilityOr } from './memberVisibility.service.js';
 
 /** When more matches exist, return filters only (avoid huge ?ids= URLs). */
 export const SMART_SEARCH_MAX_IDS_IN_RESPONSE = 500;
@@ -207,7 +208,7 @@ async function queryJobIds(filters, req) {
 }
 
 async function queryClientIds(filters, req) {
-  const andParts = scopeToAndParts(buildClientsListScopeWhere(req));
+  const andParts = scopeToAndParts(await buildClientsListScopeWhere(req));
   const tabWhere = mapClientActiveTabToWhere(filters.activeTab);
   if (tabWhere) andParts.push(tabWhere);
   if (filters.priority) {
@@ -216,7 +217,7 @@ async function queryClientIds(filters, req) {
   }
   if (filters.ownerScope === 'me' && req?.user?.id) {
     andParts.push({
-      OR: [{ assignedToId: req.user.id }, { createdById: req.user.id }],
+      OR: buildAssigneeVisibilityOr(req.user.id),
     });
   }
   const searchFilter = buildSchemaTextSearchWhere('clients', filters.searchText);

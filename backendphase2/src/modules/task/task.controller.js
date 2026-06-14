@@ -573,8 +573,30 @@ export const taskController = {
 
   async markCompleted(req, res) {
     try {
-      const task = await taskService.update(req.params.id, { status: 'DONE' }, req);
-      sendResponse(res, 200, 'Task marked as completed', task);
+      const result = await taskService.markCompleted(req.params.id, req);
+      const message = result.submittedForApproval
+        ? 'Task submitted for approval'
+        : 'Task marked as completed';
+      sendResponse(res, 200, message, result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async approveCompletion(req, res) {
+    try {
+      const task = await taskService.approveCompletion(req.params.id, req);
+      sendResponse(res, 200, 'Task completion approved', task);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async rejectCompletion(req, res) {
+    try {
+      const { note } = req.body || {};
+      const task = await taskService.rejectCompletion(req.params.id, req, { note });
+      sendResponse(res, 200, 'Task completion rejected', task);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

@@ -57,6 +57,7 @@ import {
   apiGetCandidate,
   apiGetCandidates,
   apiGetClients,
+  apiGetWorkspaceClient,
   apiGetMatches,
   apiGetJobs,
   apiGetJob,
@@ -82,6 +83,8 @@ import {
   type BackendUser,
   type JobMetrics,
   type CreateJobData,
+  getCachedOrgRecruitmentMode,
+  ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
 import type { Candidate } from '../candidate/components/CandidateTable';
 import {
@@ -988,6 +991,10 @@ export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [clientFilterId, setClientFilterId] = useState('');
   const [recruiterFilterId, setRecruiterFilterId] = useState('');
+  const [isStandaloneMode, setIsStandaloneMode] = useState(
+    () => typeof window !== 'undefined' && getCachedOrgRecruitmentMode() === 'standalone',
+  );
+  const [workspaceClientId, setWorkspaceClientId] = useState('');
   const [smartSearchJobIds, setSmartSearchJobIds] = useState<string[]>([]);
   const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string }>>([]);
@@ -1108,7 +1115,7 @@ export default function JobsPage() {
     smartSearchJobIds.length > 0 ||
     searchFilter ||
       statusFilter ||
-      clientFilterId ||
+      (!isStandaloneMode && clientFilterId) ||
       recruiterFilterId ||
       jobSmartSearch.activeKeywords.length > 0,
   );
@@ -1257,10 +1264,48 @@ export default function JobsPage() {
   }, []);
 
   useEffect(() => {
+    const syncMode = () => setIsStandaloneMode(getCachedOrgRecruitmentMode() === 'standalone');
+    syncMode();
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, syncMode);
+    return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, syncMode);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadFilterOptions = async () => {
       try {
+        if (isStandaloneMode) {
+          const workspaceRes = await apiGetWorkspaceClient();
+          const workspaceClient = workspaceRes?.data?.workspaceClient;
+          if (cancelled) return;
+
+          if (workspaceClient?.id) {
+            const workspaceId = String(workspaceClient.id);
+            setWorkspaceClientId(workspaceId);
+            setClientFilterId(workspaceId);
+            setClientOptions([
+              {
+                id: workspaceId,
+                name: workspaceClient.companyName || 'Your organization',
+              },
+            ]);
+          } else {
+            setWorkspaceClientId('');
+            setClientFilterId('');
+            setClientOptions([]);
+          }
+
+          const members = await getAllTeamMembersForAssign();
+          if (cancelled) return;
+          const usersList = teamMembersToBackendUsers(members);
+          const nextRecruiters = usersList
+            .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed member' }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          setRecruiterOptions(nextRecruiters);
+          return;
+        }
+
         const [clientsRes, members] = await Promise.all([
           apiGetClients({ page: 1, limit: 500 }),
           getAllTeamMembersForAssign(),
@@ -1298,7 +1343,7 @@ export default function JobsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isStandaloneMode]);
 
   const loadJobsPageData = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -2097,6 +2142,7 @@ export default function JobsPage() {
                           <option value="DRAFT">Draft</option>
                           <option value="FILLED">Filled</option>
                         </select>
+                        {!isStandaloneMode ? (
                         <select
                       className={PH2_TOOLBAR_SELECT_CLASS}
                           value={clientFilterId}
@@ -2112,6 +2158,7 @@ export default function JobsPage() {
                             </option>
                           ))}
                         </select>
+                        ) : null}
                         <select
                       className={PH2_TOOLBAR_SELECT_CLASS}
                           value={recruiterFilterId}
@@ -2134,7 +2181,7 @@ export default function JobsPage() {
                         onClick={() => {
                           setSearchFilter('');
                           setStatusFilter('');
-                          setClientFilterId('');
+                          setClientFilterId(isStandaloneMode ? workspaceClientId : '');
                           setRecruiterFilterId('');
                           setSmartSearchJobIds([]);
                           jobSmartSearch.clearSmartSearch();

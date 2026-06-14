@@ -9,6 +9,7 @@ function getStatusCode(error) {
     message.includes('required') ||
     message.includes('linked to a client') ||
     message.includes('cannot delete') ||
+    message.includes('cannot revert') ||
     message.includes('must be') ||
     message.includes('unable to allocate')
   ) {
@@ -124,6 +125,15 @@ export const placementController = {
     }
   },
 
+  async resendOffer(req, res) {
+    try {
+      const placement = await placementService.resendOffer(req.params.id, req.user.id, req.file);
+      sendResponse(res, 200, 'Offer letter resent successfully', placement);
+    } catch (error) {
+      sendError(res, getStatusCode(error), error.message, error);
+    }
+  },
+
   async exportCsv(req, res) {
     try {
       const csv = await placementService.exportCsv(req);
@@ -138,6 +148,15 @@ export const placementController = {
   async delete(req, res) {
     try {
       const result = await placementService.delete(req.params.id, req.user.id);
+      sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, getStatusCode(error), error.message, error);
+    }
+  },
+
+  async undo(req, res) {
+    try {
+      const result = await placementService.undo(req.params.id, req.user.id);
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, getStatusCode(error), error.message, error);

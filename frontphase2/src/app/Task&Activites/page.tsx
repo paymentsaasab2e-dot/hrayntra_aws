@@ -44,6 +44,8 @@ import {
   apiGetTask,
   apiGetTaskActivities,
   apiMarkTaskCompleted,
+  apiApproveTaskCompletion,
+  apiRejectTaskCompletion,
   apiDeleteTask,
   apiGetTaskStats,
   type TaskStats,
@@ -67,9 +69,9 @@ import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/
 
 type TaskType = 'Call' | 'Email' | 'Interview' | 'Follow-up' | 'Meeting' | 'Note';
 type Priority = 'Low' | 'Medium' | 'High';
-type Status = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled' | 'Overdue';
+type Status = 'Pending' | 'In Progress' | 'Awaiting Approval' | 'Completed' | 'Cancelled' | 'Overdue';
 type TaskScope = 'all' | 'assigned_to_me' | 'created_by_me';
-type TaskStatusSummary = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled';
+type TaskStatusSummary = 'Pending' | 'In Progress' | 'Awaiting Approval' | 'Completed' | 'Cancelled';
 
 interface RelatedTo {
   id: string;
@@ -90,6 +92,17 @@ interface Task {
     name: string;
     avatar: string;
   };
+  createdByName?: string;
+  createdById?: string;
+  assigneeId?: string;
+  assignee?: { id: string; name: string };
+  assignmentChain?: {
+    createdByName: string;
+    assignedToName: string;
+    delegatedToName: string | null;
+    isDelegated: boolean;
+  };
+  auditMeta?: import('../../types/audit').AuditMeta;
 }
 
 interface Activity {
@@ -112,6 +125,9 @@ function getTaskStatusSummary(backendTask: BackendTask): TaskStatusSummary {
 
   if (rawStatus === 'IN_PROGRESS' || rawStatus === 'WORKING' || rawStatus === 'ONGOING') {
     return 'In Progress';
+  }
+  if (rawStatus === 'AWAITING_APPROVAL') {
+    return 'Awaiting Approval';
   }
   if (rawStatus === 'DONE' || rawStatus === 'COMPLETED') {
     return 'Completed';
@@ -146,6 +162,10 @@ const SummaryCard = ({ label, count, icon: Icon, color }: { label: string; count
   </div>
 );
 
+const TaskAssignmentCell = ({ name }: { name: string }) => (
+  <span className="text-[13px] font-medium text-gray-700">{name || '—'}</span>
+);
+
 const PriorityBadge = ({ priority }: { priority: Priority }) => {
   const colors = {
     High: 'bg-red-50 text-red-600 border-red-100',
@@ -163,6 +183,7 @@ const StatusBadge = ({ status }: { status: Status }) => {
   const colors: Record<Status, string> = {
     Pending: 'bg-slate-100 text-slate-700',
     'In Progress': 'bg-blue-100 text-blue-700',
+    'Awaiting Approval': 'bg-amber-100 text-amber-800',
     Completed: 'bg-emerald-100 text-emerald-700',
     Cancelled: 'bg-slate-200 text-slate-500',
     Overdue: 'bg-red-100 text-red-700',
@@ -726,6 +747,16 @@ export default function App() {
     setCandidateNameById(candidatesLookup);
     setClientNameById(clientsLookup);
     setInterviewNameById(interviewsLookup);
+
+    const memberNameById: Record<string, string> = {};
+    teamAssigneeOptions.forEach((member) => {
+      memberNameById[member.id] = member.name;
+    });
+    typedBackendTasks.forEach((task) => {
+      if (task.createdBy?.id) memberNameById[task.createdBy.id] = task.createdBy.name;
+      if (task.assignedTo?.id) memberNameById[task.assignedTo.id] = task.assignedTo.name;
+    });
+
     const mappedTasks: Task[] = typedBackendTasks.map((backendTask) => {
       return transformBackendTaskToFrontend(backendTask, {
         relatedEntityName:
@@ -738,6 +769,7 @@ export default function App() {
                 : backendTask.linkedEntityType === 'INTERVIEW' && backendTask.linkedEntityId
                   ? interviewsLookup[backendTask.linkedEntityId]
                   : undefined,
+        memberNameById,
       });
     });
     setTasks(mappedTasks);
@@ -812,6 +844,7 @@ export default function App() {
       {
         Pending: 0,
         'In Progress': 0,
+        'Awaiting Approval': 0,
         Completed: 0,
         Cancelled: 0,
       }
@@ -826,11 +859,17 @@ export default function App() {
         if (filters.todayOnly && task.dueDate !== todayString) return false;
         if (filters.priority && task.priority !== filters.priority) return false;
         if (filters.assignedTo && task.assigneeId !== filters.assignedTo) return false;
-        if (filters.scope === 'assigned_to_me' && currentUserId && task.assigneeId !== currentUserId) {
-          return false;
+        if (filters.scope === 'assigned_to_me' && currentUserId) {
+          const isAssignee = task.assigneeId === currentUserId;
+          const isParticipant = Array.isArray((task as { participantIds?: string[] }).participantIds)
+            && (task as { participantIds?: string[] }).participantIds!.includes(currentUserId);
+          if (!isAssignee && !isParticipant) return false;
         }
-        if (filters.scope === 'created_by_me' && currentUserId && task.createdById !== currentUserId) {
-          return false;
+        if (filters.scope === 'created_by_me' && currentUserId) {
+          const isCreator = task.createdById === currentUserId;
+          const isParticipant = Array.isArray((task as { participantIds?: string[] }).participantIds)
+            && (task as { participantIds?: string[] }).participantIds!.includes(currentUserId);
+          if (!isCreator && !isParticipant) return false;
         }
         const q = filters.search.trim().toLowerCase();
         if (q) {
@@ -912,6 +951,19 @@ export default function App() {
     });
   };
 
+  const refreshSelectedTask = async (taskId: string) => {
+    const taskResponse = await apiGetTask(taskId);
+    if (taskResponse.data) {
+      const backendTask = taskResponse.data as BackendTask;
+      setSelectedBackendTask(backendTask);
+      setSelectedTask(
+        transformBackendTaskToFrontend(backendTask, {
+          relatedEntityName: getRelatedEntityName(backendTask),
+        })
+      );
+    }
+  };
+
   const handleMarkTaskCompleted = async (taskId: string) => {
     if (!isBackendTaskObjectId(taskId)) {
       setTasks((prev) =>
@@ -926,21 +978,51 @@ export default function App() {
     }
 
     try {
-      await apiMarkTaskCompleted(taskId);
+      const response = await apiMarkTaskCompleted(taskId);
+      const submittedForApproval = Boolean(response.data?.submittedForApproval);
       await refreshTasksAndStats();
       if (selectedTask && selectedTask.id === taskId) {
-        const taskResponse = await apiGetTask(taskId);
-        if (taskResponse.data) {
-          const backendTask = taskResponse.data as BackendTask;
-          setSelectedBackendTask(backendTask);
-          setSelectedTask(transformBackendTaskToFrontend(backendTask));
-        }
+        await refreshSelectedTask(taskId);
       }
-      setTaskSuccessToastMessage('Task marked as completed');
+      setTaskSuccessToastMessage(
+        submittedForApproval ? 'Task submitted for approval' : 'Task marked as completed'
+      );
       setShowTaskSuccessToast(true);
     } catch (error: any) {
       console.error('Failed to mark task as completed:', error);
       void requestError(error.message || 'Failed to update task');
+    }
+  };
+
+  const handleApproveTaskCompletion = async (taskId: string) => {
+    if (!isBackendTaskObjectId(taskId)) return;
+    try {
+      await apiApproveTaskCompletion(taskId);
+      await refreshTasksAndStats();
+      if (selectedTask && selectedTask.id === taskId) {
+        await refreshSelectedTask(taskId);
+      }
+      setTaskSuccessToastMessage('Task approved and completed');
+      setShowTaskSuccessToast(true);
+    } catch (error: any) {
+      console.error('Failed to approve task:', error);
+      void requestError(error.message || 'Failed to approve task');
+    }
+  };
+
+  const handleRejectTaskCompletion = async (taskId: string, note?: string) => {
+    if (!isBackendTaskObjectId(taskId)) return;
+    try {
+      await apiRejectTaskCompletion(taskId, note);
+      await refreshTasksAndStats();
+      if (selectedTask && selectedTask.id === taskId) {
+        await refreshSelectedTask(taskId);
+      }
+      setTaskSuccessToastMessage('Task sent back for changes');
+      setShowTaskSuccessToast(true);
+    } catch (error: any) {
+      console.error('Failed to reject task:', error);
+      void requestError(error.message || 'Failed to reject task');
     }
   };
 
@@ -1208,13 +1290,14 @@ export default function App() {
 
           <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto max-w-[1600px]">
-              <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
+              <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-5">
                 {loading && tasks.length === 0 ? (
-                  (['blue', 'cyan', 'orange', 'purple'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
+                  (['blue', 'cyan', 'orange', 'purple', 'orange'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
                 ) : (
                   <>
                     <SummaryCard label="Pending" count={statusSummaryCounts.Pending} icon={Clock} color="bg-amber-100 text-amber-600" />
                     <SummaryCard label="In Progress" count={statusSummaryCounts['In Progress']} icon={Pencil} color="bg-blue-100 text-blue-600" />
+                    <SummaryCard label="Awaiting Approval" count={statusSummaryCounts['Awaiting Approval']} icon={Clock} color="bg-orange-100 text-orange-700" />
                     <SummaryCard label="Completed" count={statusSummaryCounts.Completed} icon={CheckSquare} color="bg-emerald-100 text-emerald-600" />
                     <SummaryCard label="Cancelled" count={statusSummaryCounts.Cancelled} icon={X} color="bg-rose-100 text-rose-600" />
                   </>
@@ -1227,7 +1310,7 @@ export default function App() {
               <div className={PH2_TOOLBAR_ROW_CLASS}>{tasksToolbar}</div>
               <div className="overflow-hidden">
                 <div className="no-scrollbar overflow-x-auto">
-              <table className="w-full min-w-[1180px] text-left">
+              <table className="w-full min-w-[1320px] text-left">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/50">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Task Title</th>
@@ -1236,7 +1319,9 @@ export default function App() {
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Due Date</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Priority</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Created by</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Assigned to</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Delegated to</th>
                     <TableAuditColumnHeader className="px-6 py-4" />
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
                   </tr>
@@ -1244,19 +1329,19 @@ export default function App() {
                 <tbody className="divide-y divide-gray-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="p-0">
-                        <TableSkeleton rows={6} columns={9} className="border-0 shadow-none rounded-none" />
+                      <td colSpan={11} className="p-0">
+                        <TableSkeleton rows={6} columns={11} className="border-0 shadow-none rounded-none" />
                       </td>
                     </tr>
                   ) : error ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-8 text-center text-sm text-red-500">
+                      <td colSpan={11} className="px-6 py-8 text-center text-sm text-red-500">
                         {error}
                       </td>
                     </tr>
                   ) : filteredTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-8 text-center text-sm text-gray-500">
+                      <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">
                         No tasks found. Try clearing the filters or create a new task.
                       </td>
                     </tr>
@@ -1306,10 +1391,17 @@ export default function App() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <ImageWithFallback src={task.owner.avatar} className="w-6 h-6 rounded-full" />
-                          <span className="text-[13px] font-medium text-gray-600">{task.owner?.name?.split(' ')[0] ?? '—'}</span>
-                        </div>
+                        <TaskAssignmentCell name={task.assignmentChain?.createdByName || task.createdByName || '—'} />
+                      </td>
+                      <td className="px-6 py-4">
+                        <TaskAssignmentCell name={task.assignmentChain?.assignedToName || task.assignee?.name || task.owner?.name || '—'} />
+                      </td>
+                      <td className="px-6 py-4">
+                        {task.assignmentChain?.isDelegated ? (
+                          <TaskAssignmentCell name={task.assignmentChain.delegatedToName || '—'} />
+                        ) : (
+                          <span className="text-[13px] text-gray-400">—</span>
+                        )}
                       </td>
                       <TableAuditCell audit={task.auditMeta} className="px-6 py-4" />
                       <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
@@ -1522,8 +1614,10 @@ export default function App() {
         onCreateTaskFromSuggestion={handleCreateTaskFromSuggestion}
         onCreateSuccess={async (createdTaskId?: string) => {
           setCreateTaskPrefill(null);
-          setTaskSuccessToastMessage('Task created and assigned successfully');
-          setShowTaskSuccessToast(true);
+          if (createdTaskId) {
+            setTaskSuccessToastMessage('Task created and assigned successfully');
+            setShowTaskSuccessToast(true);
+          }
           try {
             await refreshTasksAndStats();
             if (createdTaskId && isBackendTaskObjectId(createdTaskId)) {
@@ -1583,32 +1677,10 @@ export default function App() {
             console.error('Failed to refresh tasks:', error);
           }
         }}
-        onMarkCompleted={async (taskId) => {
-          if (!isBackendTaskObjectId(taskId)) {
-            setTasks((prev) =>
-              prev.map((t) => (t.id === taskId ? { ...t, status: 'Completed' as Status } : t))
-            );
-            setSelectedTask((prev) =>
-              prev && prev.id === taskId ? { ...prev, status: 'Completed' } : prev
-            );
-            return;
-          }
-          try {
-            await apiMarkTaskCompleted(taskId);
-            await refreshTasksAndStats();
-            if (selectedTask && selectedTask.id === taskId) {
-              const taskResponse = await apiGetTask(taskId);
-              if (taskResponse.data) {
-                const backendTask = taskResponse.data as BackendTask;
-                setSelectedBackendTask(backendTask);
-                setSelectedTask(transformBackendTaskToFrontend(backendTask));
-              }
-            }
-          } catch (error: any) {
-            console.error('Failed to mark task as completed:', error);
-            void requestError(error.message || 'Failed to update task');
-          }
-        }}
+        onMarkCompleted={(taskId) => void handleMarkTaskCompleted(taskId)}
+        onApproveCompletion={(taskId) => void handleApproveTaskCompletion(taskId)}
+        onRejectCompletion={(taskId, note) => void handleRejectTaskCompletion(taskId, note)}
+        currentUserId={currentUserId}
         onDelete={async (taskId) => {
           if (!(await requestConfirm('Are you sure you want to delete this task?'))) return;
           if (!isBackendTaskObjectId(taskId)) {
