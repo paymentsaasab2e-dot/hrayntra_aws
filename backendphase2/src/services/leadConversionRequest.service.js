@@ -28,6 +28,7 @@ function serializeRequest(row) {
     reviewedByName: row.reviewedByName || undefined,
     reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : undefined,
     reviewNote: row.reviewNote || undefined,
+    requestNote: row.requestNote || undefined,
     createdClientId: row.createdClientId || undefined,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -135,10 +136,18 @@ export const leadConversionRequestService = {
     return rows.map(serializeRequest);
   },
 
-  async submit(actorUserId, leadId, clientPayload = {}) {
+  async submit(actorUserId, leadId, body = {}) {
     const uid = idStr(actorUserId);
     const lid = idStr(leadId);
     if (!uid || !lid) throw new Error('Unauthorized');
+
+    const payload =
+      body && typeof body === 'object' && !Array.isArray(body) ? { ...body } : {};
+    const requestNote = String(payload.requestNote || '').trim();
+    delete payload.requestNote;
+    if (!requestNote) {
+      throw new Error('Remark is required when submitting a conversion request');
+    }
 
     const isHead = await isDepartmentHeadUser(uid);
     if (isHead) {
@@ -188,7 +197,7 @@ export const leadConversionRequestService = {
     });
 
     const companyLabel =
-      String(clientPayload.companyName || lead.companyName || lead.contactPerson || 'Lead').trim() ||
+      String(payload.companyName || lead.companyName || lead.contactPerson || 'Lead').trim() ||
       'Lead';
 
     const row = await prisma.leadConversionRequest.create({
@@ -198,7 +207,8 @@ export const leadConversionRequestService = {
         requestedById: uid,
         requestedByName: formatUserName(actor),
         approverUserId,
-        clientPayload: clientPayload && typeof clientPayload === 'object' ? clientPayload : {},
+        requestNote,
+        clientPayload: payload && typeof payload === 'object' ? payload : {},
         status: 'PENDING',
       },
     });
@@ -237,6 +247,9 @@ export const leadConversionRequestService = {
     const trimmedNote = note ? String(note).trim() : null;
 
     if (normalizedAction === 'reject') {
+      if (!trimmedNote) {
+        throw new Error('Remark is required when rejecting a conversion request');
+      }
       const updated = await prisma.leadConversionRequest.update({
         where: { id: rid },
         data: {

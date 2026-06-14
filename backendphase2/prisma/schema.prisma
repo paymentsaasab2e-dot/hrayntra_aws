@@ -2289,6 +2289,7 @@ model LeadConversionRequest {
   requestedByName String?
   approverUserId  String                      @db.ObjectId
   status          LeadConversionRequestStatus @default(PENDING)
+  requestNote     String?
   clientPayload   Json
   reviewedById    String?                     @db.ObjectId
   reviewedByName  String?
