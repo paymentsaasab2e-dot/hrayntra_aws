@@ -51,7 +51,7 @@ export async function syncDefaultPermissions() {
   }
 
   if (creates.length) {
-    await prisma.permission.createMany({ data: creates, skipDuplicates: true });
+    await prisma.permission.createMany({ data: creates });
   }
   for (const row of updates) {
     await prisma.permission.update({

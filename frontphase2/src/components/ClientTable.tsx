@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown, ArrowRightLeft } from 'lucide-react';
+import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown, ArrowRightLeft, RefreshCcw } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../constants/tableUi';
 import { TableBrandAvatar } from './ui/TableBrandAvatar';
 import type { Client } from '@/app/client/types';
@@ -10,6 +10,8 @@ import {
   clientStatusBadgeClass,
   resolveClientStatusLabel,
 } from '../lib/clientLifecycleStatus';
+import type { ClientHandoffRequestInfo } from '../lib/clientHandoffStatus';
+import { canInitiateClientHandoff } from '../lib/clientHandoffStatus';
 
 interface ClientTableProps {
   clients: Client[];
@@ -28,6 +30,8 @@ interface ClientTableProps {
   canHandoffClient?: boolean;
   /** When provided, shows the hand-off action in the row toolbar. */
   onHandoffClient?: (client: Client) => void;
+  /** Latest cross-dept handoff state per client for the current sender. */
+  getClientHandoffStatus?: (clientId: string) => ClientHandoffRequestInfo | undefined;
   /** Org status catalog (defaults + custom). */
   clientStatusOptions?: string[];
   /** When true, client status is editable inline in the table. */
@@ -66,6 +70,7 @@ export function ClientTable({
   onCreateJob,
   canCreateJob = true,
   onHandoffClient,
+  getClientHandoffStatus,
   clientStatusOptions = [],
   canUpdateClientStatus = false,
   onClientStatusChange,
@@ -235,6 +240,32 @@ export function ClientTable({
                       >
                         {client.name}
                       </button>
+                      {(() => {
+                        const handoff = getClientHandoffStatus?.(client.id);
+                        if (!handoff || handoff.status === 'none') return null;
+                        if (handoff.status === 'pending') {
+                          return (
+                            <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                              Handoff pending
+                            </span>
+                          );
+                        }
+                        if (handoff.status === 'accepted') {
+                          return (
+                            <span className="mt-0.5 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200/80">
+                              Handed off
+                            </span>
+                          );
+                        }
+                        return (
+                          <span
+                            className="mt-0.5 inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-800 ring-1 ring-rose-200/80"
+                            title={handoff.reviewNote || 'Handoff request was rejected'}
+                          >
+                            Handoff rejected
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                 </td>
@@ -320,14 +351,50 @@ export function ClientTable({
                       <Briefcase size={15} strokeWidth={2.35} />
                     </button>
                     {onHandoffClient ? (
-                      <button
-                        type="button"
-                        onClick={() => onHandoffClient(client)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-violet-600 hover:bg-white hover:text-violet-800 hover:shadow-sm transition-all"
-                        title="Hand off to another department"
-                      >
-                        <ArrowRightLeft size={15} strokeWidth={2.35} />
-                      </button>
+                      (() => {
+                        const handoff = getClientHandoffStatus?.(client.id);
+                        const canSend = canInitiateClientHandoff(handoff);
+                        const isResend = handoff?.status === 'rejected';
+
+                        if (isResend) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onHandoffClient(client)}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-violet-600 hover:bg-white hover:text-violet-800 hover:shadow-sm transition-all"
+                              title="Resend handoff request"
+                            >
+                              <RefreshCcw size={15} strokeWidth={2.35} />
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canSend) return;
+                              onHandoffClient(client);
+                            }}
+                            disabled={!canSend}
+                            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all ${
+                              canSend
+                                ? 'text-violet-600 hover:bg-white hover:text-violet-800 hover:shadow-sm'
+                                : 'cursor-not-allowed text-slate-300'
+                            }`}
+                            title={
+                              handoff?.status === 'pending'
+                                ? 'Handoff request is pending approval'
+                                : handoff?.status === 'accepted'
+                                  ? 'Client has already been handed off'
+                                  : 'Hand off to another department'
+                            }
+                            aria-disabled={!canSend}
+                          >
+                            <ArrowRightLeft size={15} strokeWidth={2.35} />
+                          </button>
+                        );
+                      })()
                     ) : null}
                     {onDeleteClient && (
                       <button
