@@ -1613,6 +1613,7 @@ enum LinkedEntityType {
   CLIENT
   INTERVIEW
   INTERNAL
+  TEAM_REQUEST
 }
 
 model Task {
@@ -2212,6 +2213,7 @@ model TeamMemberRequest {
   reviewedAt       DateTime?
   reviewNote       String?
   linkedJobId      String?             @db.ObjectId
+  linkedTaskId     String?             @db.ObjectId
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
@@ -2220,6 +2222,7 @@ model TeamMemberRequest {
   reviewedByUser  User? @relation("MemberRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@index([linkedJobId])
+  @@index([linkedTaskId])
   @@index([sendToId])
   @@index([requestedById])
   @@index([status])

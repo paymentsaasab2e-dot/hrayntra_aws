@@ -27,6 +27,7 @@ import {
   Eye,
   Send,
   MessagesSquare,
+  Briefcase,
 } from 'lucide-react';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel, getDaysOverdue } from '../TaskSLAAlerts';
@@ -54,6 +55,10 @@ import {
 } from '../../app/Task&Activites/types';
 import { apiGetTaskFiles, type TaskFile } from '../../lib/api';
 import { cloudinaryPdfViewerHref, normalizeCloudinaryDocumentUrl } from '../../utils/cloudinaryUrls';
+import { CreateJobDrawer } from './CreateJobDrawer';
+import { getTeamRequest } from '../../lib/api/teamApi';
+import { usePermissions } from '../../hooks/usePermissions';
+import type { TeamRequest, TeamRequestJobPrefill } from '../../types/team';
 
 function cloudinaryViewableUrl(u: string) {
   return cloudinaryPdfViewerHref(normalizeCloudinaryDocumentUrl(u));
@@ -310,6 +315,8 @@ export function TaskDetailsDrawer({
   isLoading = false,
 }: TaskDetailsDrawerProps) {
   usePageDrawerLifecycle(isOpen);
+  const { hasAnyPermission } = usePermissions();
+  const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
   const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'chat' | 'alerts' | 'suggestions'>('overview');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [createForm, setCreateForm] = useState<TaskFormValues>(CREATE_FORM_INITIAL);
@@ -343,6 +350,55 @@ export function TaskDetailsDrawer({
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [linkedTeamRequest, setLinkedTeamRequest] = useState<TeamRequest | null>(null);
+  const [loadingTeamRequest, setLoadingTeamRequest] = useState(false);
+  const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
+
+  const isTeamRequestTask = task?.relatedTo.type === 'Team Request' && Boolean(task.relatedTo.id);
+  const isTaskAssignee = Boolean(
+    currentUserId && task?.assignedToId && task.assignedToId === currentUserId,
+  );
+  const showCreateJobFromRequest = Boolean(
+    isTeamRequestTask &&
+      isTaskAssignee &&
+      canCreateJob &&
+      linkedTeamRequest &&
+      !linkedTeamRequest.linkedJobId,
+  );
+  const jobPrefillFromRequest: TeamRequestJobPrefill | null = linkedTeamRequest
+    ? {
+        requestId: linkedTeamRequest.id,
+        subject: linkedTeamRequest.subject,
+        description: linkedTeamRequest.description,
+        priority: linkedTeamRequest.priority,
+        requestedById: linkedTeamRequest.requestedById,
+        requestedByName: linkedTeamRequest.requestedByName,
+      }
+    : null;
+
+  useEffect(() => {
+    if (!isOpen || mode !== 'detail' || !isTeamRequestTask || !task?.relatedTo.id) {
+      setLinkedTeamRequest(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingTeamRequest(true);
+    void getTeamRequest(task.relatedTo.id)
+      .then((res) => {
+        if (!cancelled) setLinkedTeamRequest(res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedTeamRequest(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTeamRequest(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode, isTeamRequestTask, task?.relatedTo.id]);
 
   const submitLabel = task && taskRequiresApprovalSubmit(task, currentUserId)
     ? 'Submit for approval'
@@ -1241,6 +1297,42 @@ export function TaskDetailsDrawer({
                 <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
                   {task && activeTab === 'overview' && (
                     <div className="space-y-4">
+                      {showCreateJobFromRequest ? (
+                        <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 shadow-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-indigo-700">
+                                Approved hiring request
+                              </p>
+                              <p className="mt-1 text-sm text-slate-700">
+                                Create a job from this task. Line Manager will default to{' '}
+                                <span className="font-semibold text-slate-900">
+                                  {linkedTeamRequest?.requestedByName || 'the original requester'}
+                                </span>
+                                .
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setCreateJobDrawerOpen(true)}
+                              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                            >
+                              <Briefcase size={16} />
+                              Create Job
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      {isTeamRequestTask && loadingTeamRequest ? (
+                        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+                          Loading hiring request details…
+                        </div>
+                      ) : null}
+                      {linkedTeamRequest?.linkedJobId ? (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                          A job has already been created from this hiring request.
+                        </div>
+                      ) : null}
                       {/* Task Information Section */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Task Information</h4>
@@ -1288,15 +1380,30 @@ export function TaskDetailsDrawer({
                       {/* Related Entity Card — clickable */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Related {task.relatedTo.type}</h4>
-                        <button
-                          type="button"
-                          onClick={() => onRelatedEntityClick?.(task.relatedTo)}
-                          className="w-full flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-100 hover:border-slate-300 transition-colors text-left group"
-                        >
-                          <span className="text-sm font-medium text-slate-900">{task.relatedTo.name}</span>
-                          <ExternalLink size={14} className="text-slate-400 group-hover:text-blue-600 shrink-0" />
-                        </button>
-                        <p className="text-[11px] text-slate-500 mt-1">Click to open {task.relatedTo.type.toLowerCase()} profile</p>
+                        {task.relatedTo.type === 'Team Request' ? (
+                          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50">
+                            <span className="text-sm font-medium text-slate-900">
+                              {linkedTeamRequest?.subject || task.relatedTo.name}
+                            </span>
+                            {linkedTeamRequest?.requestedByName ? (
+                              <p className="mt-1 text-xs text-slate-500">
+                                Requested by {linkedTeamRequest.requestedByName}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onRelatedEntityClick?.(task.relatedTo)}
+                              className="w-full flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-100 hover:border-slate-300 transition-colors text-left group"
+                            >
+                              <span className="text-sm font-medium text-slate-900">{task.relatedTo.name}</span>
+                              <ExternalLink size={14} className="text-slate-400 group-hover:text-blue-600 shrink-0" />
+                            </button>
+                            <p className="text-[11px] text-slate-500 mt-1">Click to open {task.relatedTo.type.toLowerCase()} profile</p>
+                          </>
+                        )}
                       </div>
 
                       {task.description && (
@@ -1895,6 +2002,24 @@ export function TaskDetailsDrawer({
           )}
         </AnimatePresence>
       </motion.div>
+
+      <CreateJobDrawer
+        isOpen={createJobDrawerOpen}
+        onClose={() => setCreateJobDrawerOpen(false)}
+        prefillFromRequest={jobPrefillFromRequest}
+        onJobCreated={async () => {
+          setCreateJobDrawerOpen(false);
+          if (task?.relatedTo.id) {
+            try {
+              const res = await getTeamRequest(task.relatedTo.id);
+              setLinkedTeamRequest(res.data);
+            } catch {
+              // ignore refresh errors
+            }
+          }
+          onUpdateSuccess?.();
+        }}
+      />
     </AnimatePresence>
   );
 }

@@ -1,6 +1,8 @@
 import { prisma } from '../config/prisma.js';
 import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
 import { logCrmGlobalActivity } from '../utils/crmGlobalActivity.js';
+import { taskService } from '../modules/task/task.service.js';
+import { assertCanAssignTask } from '../services/taskAssignmentScope.service.js';
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -35,6 +37,7 @@ function serializeTeamRequest(row) {
     reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : undefined,
     reviewNote: row.reviewNote || undefined,
     linkedJobId: row.linkedJobId || undefined,
+    linkedTaskId: row.linkedTaskId || undefined,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -307,6 +310,162 @@ export async function updateTeamRequestStatus(req, res) {
   }
 }
 
+function mapTeamRequestPriorityToTask(priority) {
+  const map = { low: 'Low', medium: 'Medium', high: 'High' };
+  return map[String(priority || 'medium').toLowerCase()] || 'Medium';
+}
+
+async function canCreateJobForTeamRequest(existing, authz) {
+  if (isRecipient(existing, authz)) return true;
+  if (!existing.linkedTaskId) return false;
+  const task = await prisma.task.findUnique({
+    where: { id: existing.linkedTaskId },
+    select: { assignedToId: true },
+  });
+  return Boolean(task && normalizeId(task.assignedToId) === authz.userId);
+}
+
+/**
+ * GET /api/team/requests/:id
+ */
+export async function getTeamRequest(req, res) {
+  try {
+    const authz = getAuthz(req);
+    const requestId = normalizeId(req.params.id);
+
+    if (!requestId) {
+      return res.status(400).json({ success: false, message: 'Request id is required' });
+    }
+
+    const existing = await prisma.teamMemberRequest.findUnique({ where: { id: requestId } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Request not found' });
+    }
+
+    const allowed =
+      isSender(existing, authz) ||
+      isRecipient(existing, authz) ||
+      authz.canViewAll ||
+      (existing.linkedTaskId
+        ? await canCreateJobForTeamRequest(existing, authz)
+        : false);
+
+    if (!allowed) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: serializeTeamRequest(existing),
+    });
+  } catch (error) {
+    console.error('Error fetching team request:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch team request',
+    });
+  }
+}
+
+/**
+ * PATCH /api/team/requests/:id/create-task
+ * Forward an approved hiring request to a lower-ranked team member as a task.
+ */
+export async function forwardTeamRequestToTask(req, res) {
+  try {
+    const authz = getAuthz(req);
+    const requestId = normalizeId(req.params.id);
+    const assignToId = normalizeId(req.body?.assignToId);
+
+    if (!requestId) {
+      return res.status(400).json({ success: false, message: 'Request id is required' });
+    }
+    if (!assignToId) {
+      return res.status(400).json({ success: false, message: 'Assignee is required' });
+    }
+
+    const existing = await prisma.teamMemberRequest.findUnique({ where: { id: requestId } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Request not found' });
+    }
+    if (existing.status !== 'approved') {
+      return res.status(409).json({ success: false, message: 'Only approved requests can be forwarded as tasks' });
+    }
+    if (existing.linkedTaskId) {
+      return res.status(409).json({ success: false, message: 'A task has already been created for this request' });
+    }
+    if (!isRecipient(existing, authz)) {
+      return res.status(403).json({ success: false, message: 'Only the request recipient can forward this request' });
+    }
+    if (!authz.canUpdate && !authz.canViewAll) {
+      return res.status(403).json({ success: false, message: 'Access denied: requires requests_update' });
+    }
+
+    await assertCanAssignTask(authz.userId, assignToId);
+
+    const assignee = await prisma.user.findFirst({
+      where: { id: assignToId, status: 'ACTIVE', isActive: true },
+      select: { id: true },
+    });
+    if (!assignee) {
+      return res.status(400).json({ success: false, message: 'Assignee must be an active team member' });
+    }
+
+    const task = await taskService.create(
+      {
+        title: existing.subject,
+        description: [
+          existing.description,
+          existing.requestedByName ? `Requested by ${existing.requestedByName}.` : '',
+          'Create a job from this approved hiring request.',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        assigneeId: assignToId,
+        assignedToId: assignToId,
+        createdById: authz.userId,
+        priority: mapTeamRequestPriorityToTask(existing.priority),
+        dueDate: new Date().toISOString().split('T')[0],
+        taskType: 'Note',
+        linkedEntityType: 'TEAM_REQUEST',
+        linkedEntityId: requestId,
+        notifyAssignee: true,
+      },
+      req,
+    );
+
+    const updated = await prisma.teamMemberRequest.update({
+      where: { id: requestId },
+      data: { linkedTaskId: task.id },
+    });
+
+    await logCrmGlobalActivity({
+      performedById: authz.userId,
+      action: 'Team request forwarded as task',
+      description: `${existing.subject} assigned for job creation`,
+      entityType: 'USER',
+      entityId: assignToId,
+      category: 'Request',
+      relatedType: 'TEAM_REQUEST',
+      relatedId: requestId,
+      relatedLabel: existing.subject,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: serializeTeamRequest(updated),
+    });
+  } catch (error) {
+    console.error('Error forwarding team request to task:', error);
+    const message = error instanceof Error ? error.message : 'Failed to create task from request';
+    const status = message.includes('assign tasks') ? 403 : 500;
+    return res.status(status).json({
+      success: false,
+      message,
+    });
+  }
+}
+
 /**
  * PATCH /api/team/requests/:id/link-job
  */
@@ -330,8 +489,11 @@ export async function linkTeamRequestToJob(req, res) {
     if (existing.status !== 'approved') {
       return res.status(409).json({ success: false, message: 'Only approved requests can be linked to a job' });
     }
-    if (!isRecipient(existing, authz)) {
-      return res.status(403).json({ success: false, message: 'Only the request recipient can create a job for this request' });
+    if (!(await canCreateJobForTeamRequest(existing, authz))) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the request recipient or assigned task owner can create a job for this request',
+      });
     }
 
     const job = await prisma.job.findUnique({

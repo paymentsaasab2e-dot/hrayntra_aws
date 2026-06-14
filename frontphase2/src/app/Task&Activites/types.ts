@@ -7,7 +7,7 @@ export interface TaskAssignmentChain {
   isDelegated: boolean;
 }
 
-export type TaskRelatedTo = 'Candidate' | 'Job' | 'Client' | 'Interview' | 'Internal';
+export type TaskRelatedTo = 'Candidate' | 'Job' | 'Client' | 'Interview' | 'Internal' | 'Team Request';
 export type TaskPriority = 'Low' | 'Medium' | 'High';
 export type TaskStatus = 'Pending' | 'In Progress' | 'Awaiting Approval' | 'Completed' | 'Cancelled' | 'Overdue';
 /** Status options for Edit Task form */

@@ -279,6 +279,7 @@ export interface TeamRequest {
   reviewedAt?: string;
   reviewNote?: string;
   linkedJobId?: string;
+  linkedTaskId?: string;
   createdAt: string;
   updatedAt: string;
 }
