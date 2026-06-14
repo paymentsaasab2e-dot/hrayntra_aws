@@ -12,6 +12,7 @@ import {
   type LeadAiInsights,
 } from '@/lib/leadAiHelpers';
 import { DrawerCloseButton } from '../drawers/DrawerCloseButton';
+import { LeadAiChatMessageContent } from './LeadAiChatMessageContent';
 
 type Props = {
   isOpen: boolean;
@@ -163,7 +164,7 @@ export function LeadAiChatDrawer({
       {
         role: 'assistant',
         content:
-          "Hi — I'm your lead assistant. Tell me about the company, or paste notes from email or WhatsApp. What's the company name?",
+          "Hi — I'm your lead assistant. Tell me about the company or paste notes from email/WhatsApp. I'll fill Company, Director, Team Member, Location, Industry, Source, Status, Interest Level, Follow-up, Services, and Business Value as we go. Only Company name and Director email are required — everything else is optional. What's the company name?",
       },
     ]);
   };
@@ -194,7 +195,7 @@ export function LeadAiChatDrawer({
                 </div>
                 <div className="min-w-0">
                   <h2 className="text-base font-bold tracking-tight text-slate-900">AI Lead Assistant</h2>
-                  <p className="text-xs text-slate-500">Chat fills the Add Lead form as you go</p>
+                  <p className="text-xs text-slate-500">Fills company, contact, location, source, services & more</p>
                 </div>
               </div>
               <DrawerCloseButton onClick={onClose} />
@@ -240,14 +241,15 @@ export function LeadAiChatDrawer({
               {mode === 'paste' ? (
                 <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-5">
                   <p className="text-sm text-slate-600">
-                    Paste unstructured text — meeting notes, WhatsApp, or email — and we&apos;ll fill the form.
+                    Paste unstructured text — meeting notes, WhatsApp, or email — and we&apos;ll extract company,
+                    director, team member, location, industry, source, follow-up, services, and business value.
                   </p>
                   <textarea
                     value={pasteText}
                     onChange={(e) => setPasteText(e.target.value)}
                     rows={10}
                     disabled={busy}
-                    placeholder={`Tell me about this lead…\n\nExample:\nI met Rajesh Sharma from ABC Technologies.\nThey need an ATS for 500 employees.\nEmail: rajesh@abc.com\nPhone: 9876543210\nBudget ₹10 lakh.\nFollow up next week.`}
+                    placeholder={`Example:\nCompany: ABC Technologies\nWebsite: https://abc.com | LinkedIn: https://linkedin.com/company/abc\nDirector: Rajesh Sharma (CEO) — rajesh@abc.com, +91 9876543210\nTeam member: Priya Nair — priya@abc.com\nLocation: Bengaluru, Karnataka, India\nIndustry: Technology | Source: Website\nServices: Executive placement, ATS\nExpected value: ₹10 lakh annual\nFollow-up: 20/06/2026 10:00 AM\nAssign to: Sarah Chen`}
                     className="w-full flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                   />
                   <button
@@ -271,7 +273,7 @@ export function LeadAiChatDrawer({
                             : 'ml-auto bg-blue-600 text-white'
                         }`}
                       >
-                        {entry.content}
+                        <LeadAiChatMessageContent content={entry.content} role={entry.role} />
                       </div>
                     ))}
                     {busy ? (

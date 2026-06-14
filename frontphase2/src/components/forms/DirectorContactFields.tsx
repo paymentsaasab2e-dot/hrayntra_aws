@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
-import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
+import { Mail, Phone, Plus, Trash2, User } from 'lucide-react';
+import { NAME_SALUTATION_OPTIONS, applySalutationFromNameInput } from '../../constants/salutations';
 import { ensureMinContactRows, normalizeContactList, primaryContactValue } from '../../lib/contact-channels';
 
 const INPUT_CLASS =
@@ -80,11 +80,18 @@ export function DirectorContactFields({
   return (
     <div className="space-y-2">
       <div className="hidden sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.2fr)_minmax(7rem,1fr)_2.5rem] sm:gap-2 sm:px-0">
-        <span className="col-span-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+        <span className="col-span-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-500">
+          <User size={12} />
           Director Name
         </span>
-        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Email *</span>
-        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Mobile Number</span>
+        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-500">
+          <Mail size={12} />
+          Email *
+        </span>
+        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-500">
+          <Phone size={12} />
+          Mobile Number
+        </span>
         <span />
       </div>
       <div className="space-y-2">
@@ -111,7 +118,14 @@ export function DirectorContactFields({
                 </select>
                 <input
                   value={contactPerson}
-                  onChange={(e) => onContactPersonChange(e.target.value)}
+                  onChange={(e) => {
+                    const { salutation, name, salutationChanged } = applySalutationFromNameInput(
+                      directorSalutation,
+                      e.target.value,
+                    );
+                    if (salutationChanged) onDirectorSalutationChange(salutation);
+                    onContactPersonChange(name);
+                  }}
                   onBlur={onContactPersonBlur}
                   className={`min-w-[7rem] flex-1 border px-3 sm:min-w-0 ${INPUT_CLASS} ${
                     contactPersonError ? 'border-red-300' : 'border-slate-200'

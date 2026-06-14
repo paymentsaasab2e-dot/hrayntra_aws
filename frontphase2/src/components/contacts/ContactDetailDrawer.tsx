@@ -13,6 +13,7 @@ import { formatDirectorDisplay } from '../../constants/salutations';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { EntityAuditSummary } from '../table/TableAuditCell';
+import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 
 interface ContactDetailDrawerProps {
   contact: BackendContact | null;
@@ -24,7 +25,7 @@ interface ContactDetailDrawerProps {
 
 export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete }: ContactDetailDrawerProps) {
   usePageDrawerLifecycle(isOpen && Boolean(contact));
-  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'jobs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'jobs' | 'chat'>('overview');
 
   if (!contact) return null;
 
@@ -166,6 +167,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
                     { id: 'overview', label: 'Overview' },
                     { id: 'activity', label: 'Activity' },
                     { id: 'communication', label: 'Communication' },
+                    { id: 'chat', label: 'Chat' },
                     { id: 'jobs', label: 'Jobs' },
                   ].map((tab) => (
                     <button
@@ -258,6 +260,16 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
                         <p className="text-sm text-gray-400">No communications yet</p>
                       )}
                     </div>
+                  )}
+
+                  {activeTab === 'chat' && (
+                    <DrawerEntityChatTab
+                      entityType="CONTACT"
+                      entityId={contact.id}
+                      entityLabel={`${contact.firstName} ${contact.lastName}`.trim()}
+                      isActive={activeTab === 'chat'}
+                      isOpen={isOpen}
+                    />
                   )}
 
                   {activeTab === 'jobs' && (

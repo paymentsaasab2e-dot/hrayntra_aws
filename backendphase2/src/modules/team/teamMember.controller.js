@@ -1,5 +1,6 @@
 import { teamMemberService } from './teamMember.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { assertCanViewMemberActivity } from '../../services/activityVisibility.service.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 
 export const teamMemberController = {
@@ -143,10 +144,12 @@ export const teamMemberController = {
 
   async getActivity(req, res) {
     try {
+      await assertCanViewMemberActivity(req.user?.id, req.params.id);
       const activities = await teamMemberService.getActivity(req.params.id);
       sendResponse(res, 200, 'Activity retrieved successfully', activities);
     } catch (error) {
-      sendError(res, 500, error.message, error);
+      const status = /permission/i.test(error.message) ? 403 : 500;
+      sendError(res, status, error.message, error);
     }
   },
 

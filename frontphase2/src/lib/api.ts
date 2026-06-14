@@ -4634,6 +4634,7 @@ export interface ConvertLeadToClientData {
   agreementAdvancePaymentPercent?: string | null;
   agreementFreeReplacementValue?: number | null;
   agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
+  requestNote?: string;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -5610,11 +5611,55 @@ export interface BackendGlobalActivity {
     email: string;
     avatar?: string | null;
     systemRole?: { roleName?: string };
+    departmentRelation?: { id: string; name: string } | null;
   };
 }
 
-export async function apiGetTaskActivities(taskId: string) {
-  return apiFetch<BackendActivity[]>(`/tasks/${encodeURIComponent(taskId)}/activities`, { auth: true });
+export type ActivityVisibilityCapabilities = {
+  level: 'self' | 'department' | 'tenant';
+  canViewMembers: boolean;
+  canViewDepartments: boolean;
+  canViewTeam: boolean;
+  viewerRank: number | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
+};
+
+export type ActivityViewableMember = {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  email?: string;
+  designation?: string;
+  avatar?: string | null;
+  departmentId?: string;
+  role?: { roleName?: string; color?: string } | null;
+  department?: { id: string; name: string } | null;
+};
+
+export type ActivityViewableDepartment = {
+  id: string;
+  name: string;
+  memberCount: number;
+};
+
+export async function apiGetActivityCapabilities() {
+  return apiFetch<ActivityVisibilityCapabilities>('/activities/capabilities', { auth: true });
+}
+
+export async function apiGetActivityViewableMembers() {
+  return apiFetch<{
+    scope: ActivityVisibilityCapabilities;
+    members: ActivityViewableMember[];
+  }>('/activities/viewable-members', { auth: true });
+}
+
+export async function apiGetActivityViewableDepartments() {
+  return apiFetch<{
+    scope: ActivityVisibilityCapabilities;
+    departments: ActivityViewableDepartment[];
+  }>('/activities/viewable-departments', { auth: true });
 }
 
 export const apiGetActivityFeed = async (params?: {
@@ -5624,7 +5669,9 @@ export const apiGetActivityFeed = async (params?: {
   category?: string;
   search?: string;
   mine?: boolean;
+  scope?: 'self' | 'team' | 'department' | 'tenant';
   performedById?: string;
+  departmentId?: string;
   from?: string;
   to?: string;
 }) => {
@@ -5635,7 +5682,9 @@ export const apiGetActivityFeed = async (params?: {
   if (params?.category) queryParams.append('category', params.category);
   if (params?.search) queryParams.append('search', params.search);
   if (params?.mine) queryParams.append('mine', 'true');
+  if (params?.scope) queryParams.append('scope', params.scope);
   if (params?.performedById) queryParams.append('performedById', params.performedById);
+  if (params?.departmentId) queryParams.append('departmentId', params.departmentId);
   if (params?.from) queryParams.append('from', params.from);
   if (params?.to) queryParams.append('to', params.to);
   const qs = queryParams.toString();
@@ -5643,6 +5692,10 @@ export const apiGetActivityFeed = async (params?: {
     auth: true,
   });
 };
+
+export async function apiGetTaskActivities(taskId: string) {
+  return apiFetch<BackendActivity[]>(`/tasks/${encodeURIComponent(taskId)}/activities`, { auth: true });
+}
 
 export const apiUpdateClient = async (id: string, data: UpdateClientData) => {
   return apiFetch<BackendClient>(`/clients/${id}`, {
@@ -6056,8 +6109,18 @@ export const filesApiDelete = async (entityType: FileEntityType, entityId: strin
 };
 
 // ────────────────────────────────────────────────────────────
-// Internal Chat (Inbox) for Tasks
+// Internal Chat (Inbox) for entity drawers
 // ────────────────────────────────────────────────────────────
+
+export type EntityChatType =
+  | 'CANDIDATE'
+  | 'JOB'
+  | 'CLIENT'
+  | 'INTERVIEW'
+  | 'TASK'
+  | 'LEAD'
+  | 'CONTACT'
+  | 'USER';
 
 export interface InboxMessage {
   id: string;
@@ -6077,7 +6140,7 @@ export interface InboxMessage {
 export interface InboxThread {
   id: string;
   subject?: string | null;
-  relatedEntityType?: 'CANDIDATE' | 'JOB' | 'CLIENT' | 'INTERVIEW' | 'TASK' | null;
+  relatedEntityType?: EntityChatType | null;
   relatedEntityId?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -6194,26 +6257,40 @@ export const apiCreateCalendarEventFromGmailMessage = async (messageId: string) 
   return res.data;
 };
 
+function parseInboxThreadList(raw: unknown): InboxThread[] {
+  if (Array.isArray(raw)) return raw as InboxThread[];
+  if (raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)) {
+    return (raw as { data: InboxThread[] }).data;
+  }
+  if (raw && typeof raw === 'object' && Array.isArray((raw as { items?: unknown }).items)) {
+    return (raw as { items: InboxThread[] }).items;
+  }
+  return [];
+}
+
+// Get (at most one) chat thread for an entity, if it exists
+export const apiGetEntityChatThread = async (
+  entityType: EntityChatType,
+  entityId: string,
+) => {
+  const id = String(entityId || '').trim();
+  if (!id) return null;
+
+  const res = await apiFetch<any>(
+    `/inbox/threads?relatedEntityType=${encodeURIComponent(entityType)}&relatedEntityId=${encodeURIComponent(id)}`,
+    {
+      method: 'GET',
+      auth: true,
+    },
+  );
+
+  const threads = parseInboxThreadList(res.data);
+  return threads.length > 0 ? threads[0] : null;
+};
+
 // Get (at most one) chat thread for a task, if it exists
 export const apiGetTaskChatThread = async (taskId: string) => {
-  const res = await apiFetch<any>(`/inbox/threads?relatedEntityType=TASK&relatedEntityId=${taskId}`, {
-    method: 'GET',
-    auth: true,
-  });
-
-  let threads: InboxThread[] = [];
-
-  // Backend returns paginated shape { data: [...], pagination: {...} }
-  const raw = res.data;
-  if (Array.isArray(raw)) {
-    threads = raw as InboxThread[];
-  } else if (raw && Array.isArray(raw.data)) {
-    threads = raw.data as InboxThread[];
-  } else if (raw && Array.isArray(raw.items)) {
-    threads = raw.items as InboxThread[];
-  }
-
-  return threads.length > 0 ? threads[0] : null;
+  return apiGetEntityChatThread('TASK', taskId);
 };
 
 // Get full thread with all messages
@@ -6225,16 +6302,27 @@ export const apiGetInboxThread = async (threadId: string) => {
   return res.data;
 };
 
-// Create a chat thread for a task with an initial message
-export const apiCreateTaskChatThread = async (taskId: string, initialMessage: string) => {
+// Create a chat thread for an entity with an initial message
+export const apiCreateEntityChatThread = async (
+  entityType: EntityChatType,
+  entityId: string,
+  options: {
+    subject?: string;
+    initialMessage: string;
+    participantIds?: string[];
+  },
+) => {
+  const id = String(entityId || '').trim();
+  if (!id) throw new Error('Entity id is required');
+
   const res = await apiFetch<InboxThread>('/inbox/threads', {
     method: 'POST',
     body: {
-      subject: 'Task Internal Chat',
-      relatedEntityType: 'TASK',
-      relatedEntityId: taskId,
-      participantIds: [], // optional, can be extended later
-      initialMessage,
+      subject: options.subject || 'Team chat',
+      relatedEntityType: entityType,
+      relatedEntityId: id,
+      participantIds: options.participantIds || [],
+      initialMessage: options.initialMessage,
       attachments: [],
     },
     auth: true,
@@ -6242,8 +6330,16 @@ export const apiCreateTaskChatThread = async (taskId: string, initialMessage: st
   return res.data;
 };
 
+// Create a chat thread for a task with an initial message
+export const apiCreateTaskChatThread = async (taskId: string, initialMessage: string) => {
+  return apiCreateEntityChatThread('TASK', taskId, {
+    subject: 'Task Internal Chat',
+    initialMessage,
+  });
+};
+
 // Add a message to an existing thread
-export const apiAddTaskChatMessage = async (threadId: string, body: string) => {
+export const apiAddInboxChatMessage = async (threadId: string, body: string) => {
   const res = await apiFetch<InboxMessage>(`/inbox/threads/${threadId}/messages`, {
     method: 'POST',
     body: {
@@ -6254,6 +6350,9 @@ export const apiAddTaskChatMessage = async (threadId: string, body: string) => {
   });
   return res.data;
 };
+
+/** @deprecated Use apiAddInboxChatMessage */
+export const apiAddTaskChatMessage = apiAddInboxChatMessage;
 
 // ── LINKEDIN INTEGRATION ──
 
@@ -7154,6 +7253,13 @@ export type LeadAiGeneratedDetails = {
   lastFollowUp: string;
   nextFollowUp: string;
   assignedToId: string;
+  assignedToName?: string;
+  companyLinks?: string[];
+  teamMemberSalutation?: string;
+  teamMemberName?: string;
+  teamMemberDesignation?: string;
+  teamMemberEmail?: string;
+  teamMemberPhone?: string;
 };
 
 export type LeadAiChatMessage = {

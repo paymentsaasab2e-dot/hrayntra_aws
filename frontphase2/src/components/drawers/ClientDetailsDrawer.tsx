@@ -133,9 +133,11 @@ import {
   Receipt,
   Plus,
   Bell,
+  MessageSquare,
 } from 'lucide-react';
 import type { Client, ClientStage, ClientHealthStatus, ClientContact, ClientJob, JobStatus, ClientPipelineCandidate, PipelineStageName, ClientPlacement, PlacementStatus, ClientInvoice, InvoiceStatus, ClientActivityItem, ActivityFilterType, ClientNote, NoteTag, ClientFile, ClientFileType } from '@/app/client/types';
 import { EntityAuditSummary } from '../table/TableAuditCell';
+import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { useFiles } from '../../hooks/useFiles';
@@ -906,7 +908,7 @@ export function ClientDetailsDrawer({
   usePageDrawerLifecycle(Boolean(client) || propIsAddMode);
   const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'contacts' | 'jobs' | 'placements' | 'billing' | 'activity' | 'notes' | 'files' | 'schedule'
+    'overview' | 'contacts' | 'jobs' | 'placements' | 'billing' | 'activity' | 'notes' | 'files' | 'schedule' | 'chat'
   >('overview');
   const [orgRecruitmentUiVersion, setOrgRecruitmentUiVersion] = useState(0);
 
@@ -3447,6 +3449,7 @@ export function ClientDetailsDrawer({
     { id: 'billing' as const, label: 'Billing', icon: CreditCard },
     { id: 'activity' as const, label: 'Activity', icon: Activity },
     { id: 'schedule' as const, label: 'Schedule', icon: CalendarPlus },
+    { id: 'chat' as const, label: 'Chat', icon: MessageSquare },
     { id: 'notes' as const, label: 'Remarks', icon: StickyNote },
     { id: 'files' as const, label: 'Files', icon: Paperclip },
   ];
@@ -7342,7 +7345,15 @@ export function ClientDetailsDrawer({
                       )}
                     </div>
                   );
-                })() : null}
+                })() : activeTab === 'chat' ? (
+                  <DrawerEntityChatTab
+                    entityType="CLIENT"
+                    entityId={client?.id}
+                    entityLabel={client?.name}
+                    isActive={activeTab === 'chat'}
+                    isOpen={Boolean(client) || propIsAddMode}
+                  />
+                ) : null}
               </div>
               </div>
 

@@ -76,11 +76,16 @@ export function LeadConversionApprovalsPanel() {
       toast.error('You do not have permission to review conversion requests');
       return;
     }
+    const note = (reviewNoteById[request.id] || '').trim();
+    if (action === 'reject' && !note) {
+      toast.error('Remark is required when rejecting a conversion request');
+      return;
+    }
     setActingId(request.id);
     try {
       const result = await reviewLeadConversionRequest(request.id, {
         action,
-        note: reviewNoteById[request.id] || undefined,
+        note: note || undefined,
       });
       toast.success(action === 'accept' ? 'Lead converted to client' : 'Conversion request rejected');
       if (action === 'accept' && result.createdClientId) {
@@ -139,6 +144,11 @@ export function LeadConversionApprovalsPanel() {
                       {request.status}
                     </span>
                   </div>
+                  {request.requestNote ? (
+                    <p className="mt-1 text-sm text-slate-600 whitespace-pre-wrap">
+                      Sender remark: {request.requestNote}
+                    </p>
+                  ) : null}
                   <p className="mt-2 text-xs text-slate-500">
                     Requested by {request.requestedByName || 'team member'} · {formatDate(request.createdAt)}
                   </p>
@@ -163,7 +173,7 @@ export function LeadConversionApprovalsPanel() {
                   <div className="flex flex-col items-end gap-2">
                     <input
                       type="text"
-                      placeholder="Optional review note"
+                      placeholder="Remark (required to reject)"
                       className="w-48 rounded-lg border border-slate-200 px-2 py-1 text-xs"
                       value={reviewNoteById[request.id] || ''}
                       onChange={(e) =>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, MessageSquarePlus, Send, Trash2 } from 'lucide-react';
+import { Loader2, MessageSquarePlus, RefreshCcw, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   deleteTeamRequest,
@@ -42,6 +42,12 @@ export function RequestsTab() {
   const [requests, setRequests] = useState<TeamRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRequestDrawer, setShowRequestDrawer] = useState(false);
+  const [requestDraft, setRequestDraft] = useState<{
+    sendToId?: string;
+    subject?: string;
+    description?: string;
+    priority?: 'low' | 'medium' | 'high';
+  } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserRequestIdentity());
 
@@ -133,7 +139,10 @@ export function RequestsTab() {
           </div>
           <button
             type="button"
-            onClick={() => setShowRequestDrawer(true)}
+            onClick={() => {
+              setRequestDraft(null);
+              setShowRequestDrawer(true);
+            }}
             disabled={!canCreateRequest}
             className="inline-flex items-center gap-1.5 self-start rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
           >
@@ -153,7 +162,10 @@ export function RequestsTab() {
             </p>
             <button
               type="button"
-              onClick={() => setShowRequestDrawer(true)}
+              onClick={() => {
+                setRequestDraft(null);
+                setShowRequestDrawer(true);
+              }}
               disabled={!canCreateRequest}
               className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3.5 py-2 text-xs font-semibold text-indigo-900 shadow-sm transition-all hover:border-indigo-300 hover:bg-indigo-50/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -188,6 +200,9 @@ export function RequestsTab() {
                       <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">
                         {request.description}
                       </p>
+                      {request.status === 'rejected' && request.reviewNote ? (
+                        <p className="mt-1 text-xs text-rose-700">Rejected: {request.reviewNote}</p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3.5 text-xs font-medium text-slate-700">
                       {request.sendToName || '—'}
@@ -206,7 +221,27 @@ export function RequestsTab() {
                       {formatDate(request.createdAt)}
                     </td>
                     <td className="px-4 py-3.5 sm:pr-6">
-                      {canDelete ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {request.status === 'rejected' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRequestDraft({
+                                sendToId: request.sendToId,
+                                subject: request.subject,
+                                description: '',
+                                priority: request.priority,
+                              });
+                              setShowRequestDrawer(true);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-100"
+                            title="Resend request"
+                          >
+                            <RefreshCcw className="size-3" strokeWidth={2.25} />
+                            Resend
+                          </button>
+                        ) : null}
+                        {canDelete ? (
                         <button
                           type="button"
                           disabled={isDeleting}
@@ -221,9 +256,10 @@ export function RequestsTab() {
                           )}
                           Delete
                         </button>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                   );
@@ -236,9 +272,14 @@ export function RequestsTab() {
 
       <TeamRequestDrawer
         isOpen={showRequestDrawer && canCreateRequest}
-        onClose={() => setShowRequestDrawer(false)}
+        onClose={() => {
+          setShowRequestDrawer(false);
+          setRequestDraft(null);
+        }}
+        initialDraft={requestDraft || undefined}
         onSuccess={(request) => {
           setRequests((prev) => [request, ...prev]);
+          setRequestDraft(null);
         }}
       />
     </>

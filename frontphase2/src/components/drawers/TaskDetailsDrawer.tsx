@@ -26,6 +26,7 @@ import {
   Sparkles,
   Eye,
   Send,
+  MessagesSquare,
 } from 'lucide-react';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel, getDaysOverdue } from '../TaskSLAAlerts';
@@ -33,6 +34,7 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { TaskForm } from '../TaskForm';
 import { TaskActivityLog } from '../TaskActivityLog';
 import { EntityAuditSummary } from '../table/TableAuditCell';
+import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import type { AuditMeta } from '../../types/audit';
 import { TaskCommunicationHistory } from '../TaskCommunicationHistory';
 import { CandidateInteractionLogs } from '../CandidateInteractionLogs';
@@ -308,7 +310,7 @@ export function TaskDetailsDrawer({
   isLoading = false,
 }: TaskDetailsDrawerProps) {
   usePageDrawerLifecycle(isOpen);
-  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'alerts' | 'suggestions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'chat' | 'alerts' | 'suggestions'>('overview');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [createForm, setCreateForm] = useState<TaskFormValues>(CREATE_FORM_INITIAL);
   const [editForm, setEditForm] = useState<TaskFormValues>(CREATE_FORM_INITIAL);
@@ -328,12 +330,6 @@ export function TaskDetailsDrawer({
   const [selectedAttachmentUrl, setSelectedAttachmentUrl] = useState<string | null>(null);
   const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
-  // Internal chat state for Task Communication tab
-  const [chatThreadId, setChatThreadId] = useState<string | null>(null);
-  const [chatMessages, setChatMessages] = useState<any[]>([]);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  const [chatSending, setChatSending] = useState(false);
   const [hydratedAttachments, setHydratedAttachments] = useState<TaskAttachment[]>([]);
   const [spreadsheetPreview, setSpreadsheetPreview] = useState<{ sheetName: string; rows: string[][] } | null>(null);
   const [spreadsheetLoading, setSpreadsheetLoading] = useState(false);
@@ -488,94 +484,8 @@ export function TaskDetailsDrawer({
       setShowAttachmentViewer(false);
       setSelectedAttachment(null);
       setSelectedAttachmentUrl(null);
-      setChatThreadId(null);
-      setChatMessages([]);
-      setChatInput('');
     }
   }, [isOpen]);
-
-  // Load internal chat thread when switching to Communication tab or when drawer opens
-  useEffect(() => {
-    const loadChat = async () => {
-      if (!task || activeTab !== 'communication' || !isOpen) return;
-      setChatLoading(true);
-      try {
-        const { apiGetTaskChatThread, apiGetInboxThread } = await import('../../lib/api');
-        const existingThread = await apiGetTaskChatThread(task.id);
-        if (!existingThread) {
-          setChatThreadId(null);
-          setChatMessages([]);
-        } else {
-          setChatThreadId(existingThread.id);
-          const fullThread = await apiGetInboxThread(existingThread.id);
-          // Ensure messages array exists and sort by createdAt ascending
-          const messages = fullThread?.messages ?? [];
-          const sortedMessages = messages.sort((a: any, b: any) => {
-            const dateA = new Date(a.createdAt).getTime();
-            const dateB = new Date(b.createdAt).getTime();
-            return dateA - dateB;
-          });
-          console.log('Loaded chat messages:', sortedMessages.length, sortedMessages);
-          setChatMessages(sortedMessages);
-        }
-      } catch (error) {
-        console.error('Failed to load task chat:', error);
-        setChatMessages([]);
-      } finally {
-        setChatLoading(false);
-      }
-    };
-
-    loadChat();
-  }, [task?.id, activeTab, isOpen]);
-
-  const handleSendChatMessage = async () => {
-    if (!task || !chatInput.trim()) return;
-    setChatSending(true);
-    try {
-      const { apiCreateTaskChatThread, apiAddTaskChatMessage, apiGetInboxThread } = await import('../../lib/api');
-      const messageText = chatInput.trim();
-
-      if (!chatThreadId) {
-        // Create thread with initial message
-        const thread = await apiCreateTaskChatThread(task.id, messageText);
-        setChatThreadId(thread.id);
-        // Reload full thread to get all messages including the one we just sent
-        const fullThread = await apiGetInboxThread(thread.id);
-        const messages = fullThread?.messages ?? [];
-        const sortedMessages = messages.sort((a: any, b: any) => {
-          const dateA = new Date(a.createdAt).getTime();
-          const dateB = new Date(b.createdAt).getTime();
-          return dateA - dateB;
-        });
-        console.log('Messages after creating thread:', sortedMessages.length, sortedMessages);
-        setChatMessages(sortedMessages);
-        setChatInput('');
-      } else {
-        const msg = await apiAddTaskChatMessage(chatThreadId, messageText);
-        // Reload full thread to ensure we have the latest messages from server
-        const fullThread = await apiGetInboxThread(chatThreadId);
-        const messages = fullThread?.messages ?? [];
-        const sortedMessages = messages.sort((a: any, b: any) => {
-          const dateA = new Date(a.createdAt).getTime();
-          const dateB = new Date(b.createdAt).getTime();
-          return dateA - dateB;
-        });
-        console.log('Messages after adding:', sortedMessages.length, sortedMessages);
-        setChatMessages(sortedMessages);
-        setChatInput('');
-      }
-    } catch (error: any) {
-      console.error('Failed to send chat message:', error);
-      // Show user-friendly error message
-      const errorMessage = error?.message || 'Failed to send message. Please check your connection and try again.';
-      setToastMessage(errorMessage);
-      setShowErrorToast(true);
-      setTimeout(() => setShowErrorToast(false), 3000);
-    } finally {
-      setChatSending(false);
-    }
-  };
 
   const handleAddNote = async () => {
     if (!task || !newNote.trim()) return;
@@ -1306,6 +1216,7 @@ export function TaskDetailsDrawer({
                       { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
                       { id: 'activity' as const, label: 'Activity', icon: Activity },
                       { id: 'communication' as const, label: 'Communication', icon: MessageSquare },
+                      { id: 'chat' as const, label: 'Chat', icon: MessagesSquare },
                       { id: 'alerts' as const, label: 'SLA Alerts', icon: AlertTriangle },
                       { id: 'suggestions' as const, label: 'AI Suggestions', icon: Sparkles },
                     ].map((tab) => {
@@ -1503,73 +1414,17 @@ export function TaskDetailsDrawer({
                       {task.relatedTo?.type === 'Candidate' && candidateInteractionEntries.length > 0 && (
                         <CandidateInteractionLogs entries={candidateInteractionEntries} />
                       )}
-
-                      {/* Internal chat */}
-                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                          <div>
-                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                              Internal chat
-                            </h4>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              Private messages visible only to your team.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="p-4 flex flex-col gap-3 max-h-80 overflow-y-auto">
-                          {chatLoading ? (
-                            <p className="text-xs text-slate-500">Loading chat…</p>
-                          ) : chatMessages.length === 0 ? (
-                            <p className="text-xs text-slate-500">
-                              No messages yet. Start the conversation below.
-                            </p>
-                          ) : (
-                            chatMessages.map((msg: any) => {
-                              const senderName = msg.sender?.name || msg.sender?.email || 'Unknown User';
-                              const messageBody = msg.body || '';
-                              const createdAt = msg.createdAt ? formatDateTimeDMY(msg.createdAt) : '';
-                              
-                              return (
-                                <div key={msg.id || `msg-${msg.createdAt}-${Math.random()}`} className="text-xs text-slate-700">
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    <span className="font-semibold text-slate-800">
-                                      {senderName}
-                                    </span>
-                                    {createdAt && (
-                                      <span className="text-[10px] text-slate-400">
-                                        {createdAt}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="mt-1 inline-block rounded-lg bg-slate-100 px-3 py-2 text-[11px] whitespace-pre-wrap">
-                                    {messageBody}
-                                  </div>
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                        <div className="px-4 pb-4 pt-1 border-t border-slate-100">
-                          <div className="flex items-end gap-2">
-                            <textarea
-                              rows={2}
-                              value={chatInput}
-                              onChange={(e) => setChatInput(e.target.value)}
-                              placeholder="Type an internal message…"
-                              className="flex-1 resize-none rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                            />
-                            <button
-                              type="button"
-                              onClick={handleSendChatMessage}
-                              disabled={!chatInput.trim() || chatSending}
-                              className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {chatSending ? 'Sending…' : <><Send size={14} /> Send</>}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
                     </div>
+                  )}
+
+                  {task && activeTab === 'chat' && (
+                    <DrawerEntityChatTab
+                      entityType="TASK"
+                      entityId={task.id}
+                      entityLabel={task.title}
+                      isActive={activeTab === 'chat'}
+                      isOpen={isOpen}
+                    />
                   )}
 
                   {task && activeTab === 'alerts' && (

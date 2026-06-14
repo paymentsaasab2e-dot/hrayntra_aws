@@ -1,6 +1,6 @@
 /**
  * Legacy permission names still stored on older roles / used in routes.
- * Any name in a group satisfies a check for any other name in the same group.
+ * Only true synonyms belong in the same group — never mix read vs write vs scope permissions.
  */
 export const PERMISSION_ALIAS_GROUPS = [
   ['jobs_create', 'create_job'],
@@ -8,13 +8,9 @@ export const PERMISSION_ALIAS_GROUPS = [
   ['jobs_update', 'edit_job'],
   ['jobs_delete', 'delete_job'],
   ['candidates_create', 'add_candidate'],
-  ['candidates_read', 'view_all_candidates', 'view_assigned_candidates'],
   ['candidates_update', 'edit_candidate'],
   ['candidates_delete', 'delete_candidate'],
-  ['manage_roles', 'assign_roles', 'system_select_all'],
-  ['view_team', 'add_team_member', 'edit_team_member'],
   ['view_activity_log', 'reports_read'],
-  ['recycle_bin_manage', 'clients_delete', 'jobs_delete', 'leads_delete', 'candidates_delete'],
 ];
 
 const aliasLookup = new Map();

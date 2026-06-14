@@ -1420,6 +1420,7 @@ export type LeadConversionRequest = {
   reviewedByName?: string;
   reviewedAt?: string;
   reviewNote?: string;
+  requestNote?: string;
   createdClientId?: string;
   createdAt: string;
   updatedAt: string;

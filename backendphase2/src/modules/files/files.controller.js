@@ -1,5 +1,6 @@
 import { filesService } from './files.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { assertCanAccessEntityFiles } from '../../services/filesAccess.service.js';
 
 export const filesController = {
   /**
@@ -8,10 +9,12 @@ export const filesController = {
   async getByEntity(req, res) {
     try {
       const { entityType, entityId } = req.query;
+      await assertCanAccessEntityFiles(req, entityType, entityId);
       const files = await filesService.getByEntity(entityType, entityId);
       sendResponse(res, 200, 'Files retrieved successfully', files);
     } catch (error) {
-      sendError(res, error.message.includes('required') || error.message.includes('Unsupported') ? 400 : 500, error.message, error);
+      const status = /permission|denied|not found/i.test(error.message) ? 403 : 400;
+      sendError(res, status, error.message, error);
     }
   },
 
@@ -39,6 +42,8 @@ export const filesController = {
       if (!['job', 'lead', 'client', 'candidate', 'interview', 'user'].includes(entityType)) {
         return sendError(res, 400, 'Only entityType=job, lead, client, candidate, interview, or user is supported for upload');
       }
+
+      await assertCanAccessEntityFiles(req, entityType, entityType === 'user' ? req.user.id : entityId, { write: true });
 
       const fileUrl = req.file.location || req.file.path;
       if (!fileUrl) {
@@ -68,11 +73,16 @@ export const filesController = {
   async delete(req, res) {
     try {
       const { fileId } = req.params;
-      const { entityType } = req.query;
+      const { entityType, entityId } = req.query;
+      if (!entityId) {
+        return sendError(res, 400, 'entityId query param is required');
+      }
+      await assertCanAccessEntityFiles(req, entityType || 'job', entityId, { write: true });
       const result = await filesService.delete(entityType || 'job', fileId);
       sendResponse(res, 200, result.message);
     } catch (error) {
-      sendError(res, error.message.includes('required') ? 400 : 500, error.message, error);
+      const status = /permission|denied|not found/i.test(error.message) ? 403 : 400;
+      sendError(res, status, error.message, error);
     }
   },
 };

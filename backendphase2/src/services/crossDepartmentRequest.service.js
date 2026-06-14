@@ -9,6 +9,7 @@ import {
 } from './departmentRole.service.js';
 import { taskService } from '../modules/task/task.service.js';
 import { clientService } from '../modules/client/client.service.js';
+import { logCrmGlobalActivity } from '../utils/crmGlobalActivity.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -256,6 +257,18 @@ export const crossDepartmentRequestService = {
       requestId: row.id,
     });
 
+    await logCrmGlobalActivity({
+      performedById: uid,
+      action: workType === 'CLIENT' ? 'Client handoff requested' : 'Cross-department request sent',
+      description: `${subject}${description ? ` — ${description}` : ''}`,
+      entityType: workType === 'CLIENT' ? 'CLIENT' : 'USER',
+      entityId: workType === 'CLIENT' ? data.linkedEntityId || row.id : row.id,
+      category: 'Request',
+      relatedType: 'CROSS_DEPT_REQUEST',
+      relatedId: row.id,
+      relatedLabel: subject,
+    });
+
     return serializeRequest(row);
   },
 
@@ -306,6 +319,18 @@ export const crossDepartmentRequestService = {
         title: 'Cross-department request rejected',
         description: `${reviewerName} rejected "${existing.subject}".${trimmedNote ? ` Note: ${trimmedNote}` : ''}`,
         requestId: rid,
+      });
+
+      await logCrmGlobalActivity({
+        performedById: uid,
+        action: 'Cross-department request rejected',
+        description: `${existing.subject}${trimmedNote ? ` — ${trimmedNote}` : ''}`,
+        entityType: existing.workType === 'CLIENT' ? 'CLIENT' : 'USER',
+        entityId: existing.linkedEntityId || rid,
+        category: 'Request',
+        relatedType: 'CROSS_DEPT_REQUEST',
+        relatedId: rid,
+        relatedLabel: existing.subject,
       });
 
       return serializeRequest(updated);
@@ -386,6 +411,18 @@ export const crossDepartmentRequestService = {
         requestId: rid,
       });
     }
+
+    await logCrmGlobalActivity({
+      performedById: uid,
+      action: existing.workType === 'CLIENT' ? 'Client handoff accepted' : 'Cross-department request accepted',
+      description: `${existing.subject}${trimmedNote ? ` — ${trimmedNote}` : ''}`,
+      entityType: existing.workType === 'CLIENT' ? 'CLIENT' : 'USER',
+      entityId: existing.linkedEntityId || rid,
+      category: 'Request',
+      relatedType: 'CROSS_DEPT_REQUEST',
+      relatedId: rid,
+      relatedLabel: existing.subject,
+    });
 
     return serializeRequest(updated);
   },

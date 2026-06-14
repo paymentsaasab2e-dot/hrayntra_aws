@@ -58,9 +58,21 @@ import {
   Eye,
   FileText,
   X,
+  MessageSquare,
+  Link2,
+  MapPin,
+  Briefcase,
+  Globe,
+  Users,
+  IndianRupee,
+  Layers,
+  Megaphone,
+  Flag,
+  GripVertical,
 } from 'lucide-react';
 import type { DefaultLeadStatus, Lead, LeadStatus, LeadSource, LeadType, LeadNote, LeadNoteTag, Activity as LeadActivity } from '@/app/leads/types';
 import { EntityAuditSummary } from '../table/TableAuditCell';
+import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
@@ -99,6 +111,14 @@ import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
 import type { LeadAiGeneratedPayload } from '@/lib/leadAiHelpers';
+import {
+  mergeAiCompanyLinks,
+  mergeAiSourceFields,
+  mergeAiTeamMembers,
+  normalizeLeadDateTimeInput,
+  resolveAiDirectorFields,
+  resolveAiLocationFields,
+} from '@/lib/leadAiHelpers';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
 import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
@@ -419,6 +439,36 @@ function leadConvertedAlertMessage(lead: Lead | null | undefined): string {
   return `This lead has already been converted to a client${clientLabel}. A duplicate client will not be created.`;
 }
 
+const ADD_LEAD_DRAWER_WIDTH_KEY = 'hrayntra.addLeadDrawerWidth';
+const ADD_LEAD_DRAWER_MIN_WIDTH = 520;
+const ADD_LEAD_DRAWER_MAX_WIDTH_RATIO = 0.9;
+const ADD_LEAD_DRAWER_DEFAULT_WIDTH = 768;
+
+function getAddLeadDrawerMaxWidth(viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280) {
+  return Math.round(viewportWidth * ADD_LEAD_DRAWER_MAX_WIDTH_RATIO);
+}
+
+function clampAddLeadDrawerWidth(width: number, viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280) {
+  return Math.min(
+    getAddLeadDrawerMaxWidth(viewportWidth),
+    Math.max(ADD_LEAD_DRAWER_MIN_WIDTH, Math.round(width)),
+  );
+}
+
+function getInitialAddLeadDrawerWidth(): number {
+  if (typeof window === 'undefined') return ADD_LEAD_DRAWER_DEFAULT_WIDTH;
+
+  const stored = window.localStorage.getItem(ADD_LEAD_DRAWER_WIDTH_KEY);
+  if (stored) {
+    const parsed = Number(stored);
+    if (Number.isFinite(parsed)) {
+      return clampAddLeadDrawerWidth(parsed);
+    }
+  }
+
+  return clampAddLeadDrawerWidth(Math.min(Math.round(window.innerWidth * 0.64), ADD_LEAD_DRAWER_DEFAULT_WIDTH));
+}
+
 const FieldRow = ({
   label,
   value,
@@ -466,6 +516,224 @@ const FieldRowDateTime = ({ label, value }: { label: string; value: string | nul
     </div>
   );
 };
+
+type AddLeadAccent = 'blue' | 'violet' | 'emerald' | 'amber' | 'sky' | 'rose' | 'indigo';
+
+const ADD_LEAD_ACCENT_STYLES: Record<
+  AddLeadAccent,
+  { card: string; headerBg: string; icon: string; bar: string }
+> = {
+  blue: {
+    card: 'border-blue-100/90 bg-white shadow-sm shadow-blue-500/5 ring-1 ring-blue-50/80',
+    headerBg: 'bg-gradient-to-r from-blue-50/90 via-white to-white',
+    icon: 'bg-blue-100 text-blue-600 ring-1 ring-blue-200/80',
+    bar: 'bg-gradient-to-b from-blue-400 to-blue-600',
+  },
+  violet: {
+    card: 'border-violet-100/90 bg-white shadow-sm shadow-violet-500/5 ring-1 ring-violet-50/80',
+    headerBg: 'bg-gradient-to-r from-violet-50/90 via-white to-white',
+    icon: 'bg-violet-100 text-violet-600 ring-1 ring-violet-200/80',
+    bar: 'bg-gradient-to-b from-violet-400 to-violet-600',
+  },
+  emerald: {
+    card: 'border-emerald-100/90 bg-white shadow-sm shadow-emerald-500/5 ring-1 ring-emerald-50/80',
+    headerBg: 'bg-gradient-to-r from-emerald-50/90 via-white to-white',
+    icon: 'bg-emerald-100 text-emerald-600 ring-1 ring-emerald-200/80',
+    bar: 'bg-gradient-to-b from-emerald-400 to-emerald-600',
+  },
+  amber: {
+    card: 'border-amber-100/90 bg-white shadow-sm shadow-amber-500/5 ring-1 ring-amber-50/80',
+    headerBg: 'bg-gradient-to-r from-amber-50/90 via-white to-white',
+    icon: 'bg-amber-100 text-amber-600 ring-1 ring-amber-200/80',
+    bar: 'bg-gradient-to-b from-amber-400 to-amber-600',
+  },
+  sky: {
+    card: 'border-sky-100/90 bg-white shadow-sm shadow-sky-500/5 ring-1 ring-sky-50/80',
+    headerBg: 'bg-gradient-to-r from-sky-50/90 via-white to-white',
+    icon: 'bg-sky-100 text-sky-600 ring-1 ring-sky-200/80',
+    bar: 'bg-gradient-to-b from-sky-400 to-sky-600',
+  },
+  rose: {
+    card: 'border-rose-100/90 bg-white shadow-sm shadow-rose-500/5 ring-1 ring-rose-50/80',
+    headerBg: 'bg-gradient-to-r from-rose-50/90 via-white to-white',
+    icon: 'bg-rose-100 text-rose-600 ring-1 ring-rose-200/80',
+    bar: 'bg-gradient-to-b from-rose-400 to-rose-600',
+  },
+  indigo: {
+    card: 'border-indigo-100/90 bg-white shadow-sm shadow-indigo-500/5 ring-1 ring-indigo-50/80',
+    headerBg: 'bg-gradient-to-r from-indigo-50/90 via-white to-white',
+    icon: 'bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200/80',
+    bar: 'bg-gradient-to-b from-indigo-400 to-indigo-600',
+  },
+};
+
+const ADD_LEAD_INPUT =
+  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+
+const ADD_LEAD_INPUT_WITH_ICON =
+  'w-full rounded-xl border border-slate-200 bg-white py-2.5 pr-4 pl-10 text-sm text-slate-900 transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+
+function AddLeadSectionCard({
+  title,
+  subtitle,
+  icon: Icon,
+  accent = 'blue',
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  accent?: AddLeadAccent;
+  children: React.ReactNode;
+}) {
+  const styles = ADD_LEAD_ACCENT_STYLES[accent];
+  return (
+    <section className={`relative overflow-hidden rounded-2xl border ${styles.card}`}>
+      <div className={`absolute left-0 top-0 h-full w-1 ${styles.bar}`} />
+      <div className={`border-b border-slate-100/80 px-5 py-4 ${styles.headerBg}`}>
+        <div className="flex items-center gap-3 pl-2">
+          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${styles.icon}`}>
+            <Icon size={16} />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+            {subtitle ? <p className="text-xs text-slate-500">{subtitle}</p> : null}
+          </div>
+        </div>
+      </div>
+      <div className="space-y-4 px-5 py-4 pl-6">{children}</div>
+    </section>
+  );
+}
+
+function AddLeadFieldLabel({
+  label,
+  icon: Icon,
+  iconClassName = 'text-slate-400',
+  required,
+}: {
+  label: string;
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  iconClassName?: string;
+  required?: boolean;
+}) {
+  return (
+    <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+      {Icon ? <Icon size={12} className={iconClassName} /> : null}
+      <span>
+        {label}
+        {required ? ' *' : ''}
+      </span>
+    </label>
+  );
+}
+
+function AddLeadIconInput({
+  icon: Icon,
+  iconClassName,
+  className,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  iconClassName: string;
+}) {
+  return (
+    <div className="relative">
+      <Icon
+        size={16}
+        className={`pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 ${iconClassName}`}
+      />
+      <input className={className || ADD_LEAD_INPUT_WITH_ICON} {...props} />
+    </div>
+  );
+}
+
+function OverviewField({
+  label,
+  icon,
+  iconClassName = 'text-slate-400',
+  required,
+  value,
+  href,
+  multiline,
+}: {
+  label: string;
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  iconClassName?: string;
+  required?: boolean;
+  value: string;
+  href?: boolean;
+  multiline?: boolean;
+}) {
+  const displayValue = String(value || '').trim();
+  return (
+    <div>
+      <AddLeadFieldLabel label={label} icon={icon} iconClassName={iconClassName} required={required} />
+      {displayValue ? (
+        <p
+          className={`text-sm font-medium text-slate-900 ${href ? 'text-blue-600' : ''} ${
+            multiline ? 'whitespace-pre-line' : ''
+          }`}
+        >
+          {displayValue}
+        </p>
+      ) : (
+        <p className="text-sm text-slate-400">—</p>
+      )}
+    </div>
+  );
+}
+
+function getLeadSourceDetailValue(lead: Lead | null | undefined): string {
+  if (!lead) return '';
+  switch (lead.source) {
+    case 'Website':
+      return lead.sourceWebsiteUrl ?? lead.website ?? '';
+    case 'LinkedIn':
+      return lead.sourceLinkedInUrl ?? lead.linkedIn ?? '';
+    case 'Email':
+      return lead.sourceEmail ?? lead.email ?? '';
+    case 'Referral':
+      return lead.referralName ?? '';
+    case 'Campaign':
+      return [lead.campaignName, lead.campaignLink].filter(Boolean).join(' · ');
+    default:
+      return '';
+  }
+}
+
+function OverviewFieldDateTime({
+  label,
+  icon,
+  iconClassName = 'text-slate-400',
+  value,
+}: {
+  label: string;
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  iconClassName?: string;
+  value: string | null | undefined;
+}) {
+  const parts = splitDateTimeForDisplay(value);
+  return (
+    <div>
+      <AddLeadFieldLabel label={label} icon={icon} iconClassName={iconClassName} />
+      {parts ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Date</p>
+            <p className="text-sm font-medium text-slate-900">{parts.date}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Time</p>
+            <p className="text-sm font-medium text-slate-900">{parts.time}</p>
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">—</p>
+      )}
+    </div>
+  );
+}
 
 const LeadStatusDropdown = ({
   value,
@@ -562,7 +830,7 @@ export function LeadDetailsDrawer({
   onOpenExistingLead,
 }: LeadDetailsDrawerProps) {
   usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
-  const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'add'>(
+  const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'chat' | 'add'>(
     'overview'
   );
   const [leadFilesTypeFilter, setLeadFilesTypeFilter] = useState<'All' | 'Contract' | 'Proposal' | 'Other'>('All');
@@ -646,6 +914,13 @@ export function LeadDetailsDrawer({
   const [savingLeadStatus, setSavingLeadStatus] = useState(false);
   const [deletingLeadStatus, setDeletingLeadStatus] = useState(false);
   const [addLeadErrors, setAddLeadErrors] = useState<LeadRequiredFieldErrors>({});
+  const [addLeadDrawerWidth, setAddLeadDrawerWidth] = useState(getInitialAddLeadDrawerWidth);
+  const addLeadDrawerResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const addLeadDrawerWidthRef = useRef(addLeadDrawerWidth);
+
+  useEffect(() => {
+    addLeadDrawerWidthRef.current = addLeadDrawerWidth;
+  }, [addLeadDrawerWidth]);
 
   /** Pending Agreements & Terms file selected in the Add Lead form (uploaded after the lead is created). */
   const [pendingAddLeadAgreementsFile, setPendingAddLeadAgreementsFile] = useState<File | null>(null);
@@ -736,6 +1011,52 @@ export function LeadDetailsDrawer({
     setShowDuplicateNotification(false);
   };
 
+  const beginAddLeadDrawerResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    addLeadDrawerResizeRef.current = {
+      startX: event.clientX,
+      startWidth: addLeadDrawerWidthRef.current,
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!addLeadDrawerResizeRef.current) return;
+      const deltaX = addLeadDrawerResizeRef.current.startX - moveEvent.clientX;
+      const nextWidth = clampAddLeadDrawerWidth(
+        addLeadDrawerResizeRef.current.startWidth + deltaX,
+      );
+      setAddLeadDrawerWidth(nextWidth);
+    };
+
+    const handleMouseUp = () => {
+      addLeadDrawerResizeRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      setAddLeadDrawerWidth((current) => {
+        const clamped = clampAddLeadDrawerWidth(current);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(ADD_LEAD_DRAWER_WIDTH_KEY, String(clamped));
+        }
+        return clamped;
+      });
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, []);
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setAddLeadDrawerWidth((current) => clampAddLeadDrawerWidth(current));
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, []);
+
   const resetAddLeadForm = () => {
     setAddLeadStatusIsCustom(false);
     setAddLeadForm({
@@ -793,12 +1114,19 @@ export function LeadDetailsDrawer({
   const applyGeneratedLeadToForm = (
     form: AddLeadFormData,
     generated: Awaited<ReturnType<typeof apiGenerateLeadDetails>>['data'],
-  ): AddLeadFormData => ({
+  ): AddLeadFormData => {
+    const linkFields = mergeAiCompanyLinks(generated, form.website);
+    const sourceFields = mergeAiSourceFields(generated, form, linkFields);
+    const locationFields = resolveAiLocationFields(generated, form);
+    const directorFields = resolveAiDirectorFields(generated, form);
+    const teamMembers = mergeAiTeamMembers(form.teamMembers, generated);
+    const syncedTeam = syncLeadTeamMembers(teamMembers);
+
+    return {
     ...form,
     companyName: generated.companyName || form.companyName,
-    directorSalutation:
-      (generated as { directorSalutation?: string }).directorSalutation || form.directorSalutation,
-    contactPerson: generated.contactPerson || form.contactPerson,
+    directorSalutation: directorFields.directorSalutation || form.directorSalutation,
+    contactPerson: directorFields.contactPerson || form.contactPerson,
     designation: generated.designation || form.designation,
     email: generated.email || form.email,
     phone: generated.phone || form.phone,
@@ -818,47 +1146,30 @@ export function LeadDetailsDrawer({
     notes: generated.expectedBusinessValue || generated.notes || form.notes,
     industry: generated.industry || form.industry,
     companySize: generated.companySize || form.companySize,
-    website: generated.website || form.website,
-    linkedIn: generated.linkedIn || form.linkedIn,
-    location: generated.location || form.location,
-    country: generated.country || form.country,
-    city: generated.city || form.city,
-    state: (() => {
-      const nextCity = (generated.city || form.city || '').trim();
-      if (generated.state?.trim()) return generated.state.trim();
-      if (form.state?.trim()) return form.state;
-      if (!nextCity) return form.state;
-      return inferLocationFromCityName(nextCity, {
-        country: generated.country || form.country,
-        countryCode: form.countryCode,
-        state: form.state,
-      })?.state || form.state;
-    })(),
-    countryCode: (() => {
-      const nextCity = (generated.city || form.city || '').trim();
-      if (form.countryCode?.trim()) return form.countryCode;
-      if (!nextCity) return form.countryCode;
-      return (
-        inferLocationFromCityName(nextCity, {
-          country: generated.country || form.country,
-          state: form.state,
-        })?.countryCode || form.countryCode
-      );
-    })(),
-    latitude: form.latitude,
-    longitude: form.longitude,
-    campaignName: generated.campaignName || form.campaignName,
-    campaignLink: generated.campaignLink || form.campaignLink,
-    referralName: generated.referralName || form.referralName,
-    sourceWebsiteUrl: generated.sourceWebsiteUrl || form.sourceWebsiteUrl,
-    sourceLinkedInUrl: generated.sourceLinkedInUrl || form.sourceLinkedInUrl,
-    sourceEmail: generated.sourceEmail || form.sourceEmail,
+    website: linkFields.website,
+    linkedIn: linkFields.linkedIn || form.linkedIn,
+    location: locationFields.location,
+    country: locationFields.country,
+    city: locationFields.city,
+    state: locationFields.state,
+    countryCode: locationFields.countryCode,
+    latitude: locationFields.latitude,
+    longitude: locationFields.longitude,
+    campaignName: sourceFields.campaignName || generated.campaignName || form.campaignName,
+    campaignLink: sourceFields.campaignLink || generated.campaignLink || form.campaignLink,
+    referralName: sourceFields.referralName || generated.referralName || form.referralName,
+    sourceWebsiteUrl: sourceFields.sourceWebsiteUrl,
+    sourceLinkedInUrl: sourceFields.sourceLinkedInUrl,
+    sourceEmail: sourceFields.sourceEmail,
     otherDetails: Array.isArray(generated.otherDetails) ? generated.otherDetails : form.otherDetails,
-    lastFollowUp: normalizeLeadDateInput(generated.lastFollowUp || form.lastFollowUp),
-    nextFollowUp: normalizeLeadDateInput(generated.nextFollowUp || form.nextFollowUp),
+    lastFollowUp: normalizeLeadDateTimeInput(generated.lastFollowUp || form.lastFollowUp),
+    nextFollowUp: normalizeLeadDateTimeInput(generated.nextFollowUp || form.nextFollowUp),
     assignedToId: generated.assignedToId || form.assignedToId,
-    teamMembers: form.teamMembers,
-  });
+    assignedToName:
+      (generated as { assignedToName?: string }).assignedToName?.trim() || form.assignedToName,
+    ...syncedTeam,
+  };
+  };
 
   const normalizeLeadDateInput = (value: string) => {
     const trimmed = String(value || '').trim();
@@ -888,14 +1199,32 @@ export function LeadDetailsDrawer({
 
   const handleApplyLeadAiGenerated = useCallback(
     (generated: LeadAiGeneratedPayload) => {
-      const nextFormState = applyGeneratedLeadToForm(
+      let nextFormState = applyGeneratedLeadToForm(
         addLeadForm,
         generated as Awaited<ReturnType<typeof apiGenerateLeadDetails>>['data'],
       );
+
+      const assigneeName = String(generated.assignedToName || '').trim().toLowerCase();
+      if (assigneeName && recruiters.length > 0) {
+        const match = recruiters.find((member) => {
+          const full = `${member.firstName || ''} ${member.lastName || ''}`.trim().toLowerCase();
+          const email = String(member.email || '').trim().toLowerCase();
+          return full === assigneeName || full.includes(assigneeName) || assigneeName.includes(full) || email === assigneeName;
+        });
+        if (match) {
+          nextFormState = {
+            ...nextFormState,
+            assignedToId: match.id,
+            assignedToIds: [match.id],
+            assignedToName: `${match.firstName || ''} ${match.lastName || ''}`.trim(),
+          };
+        }
+      }
+
       setAddLeadForm(nextFormState);
       setAddLeadErrors({});
     },
-    [addLeadForm],
+    [addLeadForm, recruiters],
   );
 
   const DEFAULT_ADD_LEAD_SECTIONS = {
@@ -1759,14 +2088,12 @@ export function LeadDetailsDrawer({
         { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
         { id: 'activities' as const, label: 'Activities', icon: Activity },
         { id: 'notes' as const, label: 'Remarks', icon: StickyNote },
+        { id: 'chat' as const, label: 'Chat', icon: MessageSquare },
         { id: 'files' as const, label: 'Files', icon: Paperclip },
       ];
 
-  const drawerPanelClass = addLeadMode
-    ? `fixed inset-y-4 right-4 z-[56] flex h-[calc(100%-2rem)] flex-col overflow-hidden rounded-[28px] border border-slate-200/90 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.16),0_8px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-900/5 pointer-events-auto ${
-        leadAiChatOpen ? 'w-[min(58vw,56rem)] max-w-5xl' : 'w-[min(78vw,72rem)] max-w-6xl'
-      }`
-    : 'fixed right-0 top-0 z-50 flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200 bg-white shadow-2xl pointer-events-auto';
+  const drawerPanelClass =
+    'fixed right-0 top-0 z-[56] flex h-full flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl pointer-events-auto';
 
   return (
     <AnimatePresence>
@@ -1782,7 +2109,7 @@ export function LeadDetailsDrawer({
               addLeadMode && leadAiChatOpen
                 ? 'pointer-events-none bg-slate-900/10'
                 : addLeadMode
-                  ? 'pointer-events-auto bg-slate-900/30 backdrop-blur-[1px]'
+                  ? 'pointer-events-auto bg-slate-900/40 backdrop-blur-[2px]'
                   : 'pointer-events-auto bg-slate-900/40 backdrop-blur-[2px]'
             }`}
           />
@@ -1793,21 +2120,31 @@ export function LeadDetailsDrawer({
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             className={drawerPanelClass}
+            style={{ width: addLeadDrawerWidth }}
           >
+          <div className="relative flex h-full min-h-0 flex-col">
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize lead drawer"
+              title="Drag to resize drawer"
+              onMouseDown={beginAddLeadDrawerResize}
+              className="group absolute left-0 top-0 z-20 flex h-full w-3 -translate-x-1/2 cursor-col-resize items-center justify-center hover:bg-blue-500/5 active:bg-blue-500/10"
+            >
+              <div className="flex h-14 w-4 items-center justify-center rounded-full border border-slate-200/80 bg-white shadow-sm transition-colors group-hover:border-blue-200 group-hover:bg-blue-50 group-active:border-blue-300">
+                <GripVertical
+                  size={12}
+                  className="text-slate-400 transition-colors group-hover:text-blue-500 group-active:text-blue-600"
+                  aria-hidden
+                />
+              </div>
+            </div>
           {/* Header */}
           <div
-            className={`flex shrink-0 items-start justify-between gap-3 border-b ${
-              addLeadMode
-                ? 'border-slate-100 bg-gradient-to-b from-white to-slate-50/40 px-6 py-5'
-                : 'border-slate-200 bg-white p-5'
-            }`}
+            className={`flex shrink-0 items-start justify-between gap-3 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white px-6 py-5`}
           >
             <div className="flex-1 min-w-0 flex items-center gap-3">
-              <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center text-blue-600 ${
-                  addLeadMode ? 'rounded-2xl bg-blue-50 ring-1 ring-blue-100' : 'rounded-xl bg-blue-100'
-                }`}
-              >
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
                 <Building2 size={20} />
               </div>
               <div className="min-w-0">
@@ -1965,12 +2302,8 @@ export function LeadDetailsDrawer({
 
           {/* Tab content */}
           <div className="relative flex min-h-0 flex-1 flex-col">
-            <div
-              className={`flex-1 overflow-y-auto ${
-                addLeadMode ? 'bg-[#f8fafc]' : 'bg-slate-50/30'
-              }`}
-            >
-            <div className={addLeadMode ? 'px-6 py-5' : 'p-5'}>
+            <div className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 via-[#f8fafc] to-blue-50/30">
+            <div className="px-6 py-5">
               {showDeleteLeadForm ? (
                 <div className="space-y-5">
                   <div className="flex items-center gap-3 mb-4">
@@ -2770,120 +3103,127 @@ export function LeadDetailsDrawer({
                   </div>
                 </div>
               ) : activeTab === 'add' ? (
-                <div className="space-y-6">
-                  <div className="flex flex-col gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/90 to-indigo-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-900">Create faster with AI</p>
-                      <p className="mt-0.5 text-xs text-slate-600">
-                        Chat or paste notes — the form fills as you go. Close the assistant anytime; your conversation continues.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setLeadAiChatOpen(true)}
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-                    >
-                      <Sparkles size={16} />
-                      {leadAiChatOpen ? 'Continue AI chat' : 'Open AI assistant'}
-                    </button>
-                  </div>
-                  <section className="space-y-5">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 shrink-0 rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 flex items-center justify-center">
-                        <UserPlus size={15} />
+                <div className="space-y-5">
+                  <AddLeadSectionCard
+                    title="Company Details"
+                    subtitle="Organization name and online presence"
+                    icon={Building2}
+                    accent="blue"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <AddLeadFieldLabel label="Company" icon={Building2} iconClassName="text-blue-500" required />
+                        <AddLeadIconInput
+                          icon={Building2}
+                          iconClassName="text-blue-400"
+                          value={addLeadForm.companyName}
+                          onChange={(e) => setAddLeadForm((p) => ({ ...p, companyName: e.target.value }))}
+                          placeholder="e.g. Acme Inc."
+                        />
                       </div>
                       <div>
-                        <h4 className="text-sm font-semibold text-slate-900">Lead Information</h4>
-                        <p className="text-xs text-slate-500">Company, contact, and qualification details</p>
+                        <div className="mb-1.5 flex items-center justify-between gap-3">
+                          <AddLeadFieldLabel label="Company Links" icon={Link2} iconClassName="text-blue-500" />
+                          <button
+                            type="button"
+                            onClick={addCompanyLinkField}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+                            aria-label="Add company link"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {companyLinks.map((link, index) => (
+                            <div key={`company-link-${index}`} className="flex items-center gap-2">
+                              <AddLeadIconInput
+                                icon={Globe}
+                                iconClassName="text-blue-400"
+                                value={link}
+                                onChange={(e) => updateCompanyLink(index, e.target.value)}
+                                placeholder="https://company.com or LinkedIn URL"
+                              />
+                              {companyLinks.length > 1 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => removeCompanyLinkField(index)}
+                                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                                  aria-label={`Remove company link ${index + 1}`}
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
+                  </AddLeadSectionCard>
+
+                  <AddLeadSectionCard
+                    title="Contacts"
+                    subtitle="Director and team member details"
+                    icon={Users}
+                    accent="violet"
+                  >
                     <div className="space-y-4">
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
-                          <input value={addLeadForm.companyName} onChange={(e) => setAddLeadForm((p) => ({ ...p, companyName: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. Acme Inc." />
-                        </div>
-                        <div>
-                          <div className="mb-1 flex items-center justify-between gap-3">
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Company Links</label>
-                            <button
-                              type="button"
-                              onClick={addCompanyLinkField}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
-                              aria-label="Add company link"
-                            >
-                              <Plus size={14} />
-                            </button>
-                          </div>
-                          <div className="space-y-2">
-                            {companyLinks.map((link, index) => (
-                              <div key={`company-link-${index}`} className="flex items-center gap-2">
-                                <input
-                                  value={link}
-                                  onChange={(e) => updateCompanyLink(index, e.target.value)}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="https://company.com or LinkedIn URL"
-                                />
-                                {companyLinks.length > 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => removeCompanyLinkField(index)}
-                                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-red-500"
-                                    aria-label={`Remove company link ${index + 1}`}
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <DirectorContactFields
-                            directorSalutation={addLeadForm.directorSalutation}
-                            contactPerson={addLeadForm.contactPerson}
-                            emails={addLeadForm.emails}
-                            phones={addLeadForm.phones}
-                            email={addLeadForm.email}
-                            phone={addLeadForm.phone}
-                            onDirectorSalutationChange={(value) =>
-                              setAddLeadForm((p) => ({ ...p, directorSalutation: value }))
+                      <div className="rounded-xl border border-violet-100/80 bg-violet-50/30 p-3">
+                        <DirectorContactFields
+                          directorSalutation={addLeadForm.directorSalutation}
+                          contactPerson={addLeadForm.contactPerson}
+                          emails={addLeadForm.emails}
+                          phones={addLeadForm.phones}
+                          email={addLeadForm.email}
+                          phone={addLeadForm.phone}
+                          onDirectorSalutationChange={(value) =>
+                            setAddLeadForm((p) => ({ ...p, directorSalutation: value }))
+                          }
+                          onContactPersonChange={(value) => {
+                            setAddLeadForm((p) => ({ ...p, contactPerson: value }));
+                            if (addLeadErrors.contactPerson) {
+                              setAddLeadErrors((prev) => ({ ...prev, contactPerson: undefined }));
                             }
-                            onContactPersonChange={(value) => {
-                              setAddLeadForm((p) => ({ ...p, contactPerson: value }));
-                              if (addLeadErrors.contactPerson) {
-                                setAddLeadErrors((prev) => ({ ...prev, contactPerson: undefined }));
-                              }
-                            }}
-                            onEmailsChange={(emails, primaryEmail) => {
-                              setAddLeadForm((p) => ({ ...p, emails, email: primaryEmail }));
-                              if (addLeadErrors.email) {
-                                setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
-                              }
-                            }}
-                            onPhonesChange={(phones, primaryPhone) => {
-                              setAddLeadForm((p) => ({ ...p, phones, phone: primaryPhone }));
-                            }}
-                            contactPersonError={addLeadErrors.contactPerson}
-                            emailError={addLeadErrors.email}
-                            onContactPersonBlur={() => {
-                              const nextErrors = validateLeadRequiredFields(addLeadForm);
-                              setAddLeadErrors((prev) => ({
-                                ...prev,
-                                contactPerson: nextErrors.contactPerson,
-                              }));
-                            }}
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <TeamMemberOptionalFields
-                            requireTeamName={false}
-                            members={addLeadForm.teamMembers}
-                            onChange={(teamMembers) =>
-                              setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
+                          }}
+                          onEmailsChange={(emails, primaryEmail) => {
+                            setAddLeadForm((p) => ({ ...p, emails, email: primaryEmail }));
+                            if (addLeadErrors.email) {
+                              setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
                             }
-                          />
-                        </div>
+                          }}
+                          onPhonesChange={(phones, primaryPhone) => {
+                            setAddLeadForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                          }}
+                          contactPersonError={addLeadErrors.contactPerson}
+                          emailError={addLeadErrors.email}
+                          onContactPersonBlur={() => {
+                            const nextErrors = validateLeadRequiredFields(addLeadForm);
+                            setAddLeadErrors((prev) => ({
+                              ...prev,
+                              contactPerson: nextErrors.contactPerson,
+                            }));
+                          }}
+                        />
+                      </div>
+                      <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3">
+                        <TeamMemberOptionalFields
+                          requireTeamName={false}
+                          members={addLeadForm.teamMembers}
+                          onChange={(teamMembers) =>
+                            setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  </AddLeadSectionCard>
+
+                  <AddLeadSectionCard
+                    title="Location & Industry"
+                    subtitle="Where the company operates"
+                    icon={MapPin}
+                    accent="emerald"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
                         <CscLocationFields
                           location={addLeadForm.location ?? ''}
                           city={addLeadForm.city ?? ''}
@@ -2896,121 +3236,191 @@ export function LeadDetailsDrawer({
                           onLocationChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
                           onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
                         />
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                          <input value={addLeadForm.industry ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. Technology" />
+                      </div>
+                      <div>
+                        <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
+                        <AddLeadIconInput
+                          icon={Briefcase}
+                          iconClassName="text-emerald-400"
+                          value={addLeadForm.industry ?? ''}
+                          onChange={(e) => setAddLeadForm((p) => ({ ...p, industry: e.target.value }))}
+                          placeholder="e.g. Technology"
+                        />
+                      </div>
+                    </div>
+                  </AddLeadSectionCard>
+
+                  <AddLeadSectionCard
+                    title="Source & Qualification"
+                    subtitle="How you found this lead and its stage"
+                    icon={Megaphone}
+                    accent="amber"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <LeadSourceFields
+                          form={addLeadForm}
+                          onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
+                        />
+                      </div>
+                      <div>
+                        <div className="mb-1.5 flex items-center justify-between gap-3">
+                          <AddLeadFieldLabel label="Status" icon={Flag} iconClassName="text-amber-500" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAddLeadStatusInput((prev) => !prev);
+                              setNewLeadStatusValue('');
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Add status
+                          </button>
                         </div>
-                        <div className="sm:col-span-2">
-                          <LeadSourceFields
-                            form={addLeadForm}
-                            onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
-                          />
-                        </div>
-                        <div>
-                          <div className="mb-1 flex items-center justify-between gap-3">
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowAddLeadStatusInput((prev) => !prev);
-                                  setNewLeadStatusValue('');
-                                }}
-                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                                Add status
-                              </button>
-                            </div>
+                        <LeadStatusDropdown
+                          value={addLeadForm.status ?? 'New'}
+                          options={addLeadStatusOptions}
+                          deleting={deletingLeadStatus}
+                          onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
+                          onDelete={(status) =>
+                            deleteLeadStatusOption(status, (nextStatus) =>
+                              setAddLeadForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
+                            )
+                          }
+                        />
+                        {showAddLeadStatusInput ? (
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              value={newLeadStatusValue}
+                              onChange={(e) => setNewLeadStatusValue(e.target.value)}
+                              className={ADD_LEAD_INPUT}
+                              placeholder="Enter new status"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                addLeadStatusOption((status) =>
+                                  setAddLeadForm((p) => ({ ...p, status: status as LeadStatus })),
+                                )
+                              }
+                              disabled={savingLeadStatus}
+                              className="rounded-xl bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {savingLeadStatus ? 'Adding...' : 'Add'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowAddLeadStatusInput(false);
+                                setNewLeadStatusValue('');
+                              }}
+                              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                              Cancel
+                            </button>
                           </div>
-                          <LeadStatusDropdown
-                            value={addLeadForm.status ?? 'New'}
-                            options={addLeadStatusOptions}
-                            deleting={deletingLeadStatus}
-                            onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
-                            onDelete={(status) =>
-                              deleteLeadStatusOption(status, (nextStatus) =>
-                                setAddLeadForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
-                              )
-                            }
+                        ) : null}
+                      </div>
+                      <div>
+                        <AddLeadFieldLabel label="Interest Level" icon={Target} iconClassName="text-amber-500" />
+                        <div className="relative">
+                          <Target
+                            size={16}
+                            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-amber-400"
                           />
-                          {showAddLeadStatusInput ? (
-                            <div className="mt-2 flex items-center gap-2">
-                              <input
-                                value={newLeadStatusValue}
-                                onChange={(e) => setNewLeadStatusValue(e.target.value)}
-                                className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="Enter new status"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => addLeadStatusOption((status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus })))}
-                                disabled={savingLeadStatus}
-                                className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {savingLeadStatus ? 'Adding...' : 'Add'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowAddLeadStatusInput(false);
-                                  setNewLeadStatusValue('');
-                                }}
-                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
-                          <select value={addLeadForm.priority ?? 'Medium'} onChange={(e) => setAddLeadForm((p) => ({ ...p, priority: e.target.value as 'High' | 'Medium' | 'Low' }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white">
+                          <select
+                            value={addLeadForm.priority ?? 'Medium'}
+                            onChange={(e) =>
+                              setAddLeadForm((p) => ({
+                                ...p,
+                                priority: e.target.value as 'High' | 'Medium' | 'Low',
+                              }))
+                            }
+                            className={`${ADD_LEAD_INPUT_WITH_ICON} appearance-none bg-white`}
+                          >
                             <option value="High">High</option>
                             <option value="Medium">Medium</option>
                             <option value="Low">Low</option>
                           </select>
                         </div>
-                        <div>
-                          <FollowUpDateTimeField
-                            value={addLeadForm.nextFollowUp ?? ''}
-                            onChange={(iso) => setAddLeadForm((p) => ({ ...p, nextFollowUp: iso }))}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
-                          <LeadAssigneesMultiSelect
-                            members={recruiters}
-                            value={addLeadForm.assignedToIds ?? (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])}
-                            loading={loadingRecruiters}
-                            onChange={(ids) => {
-                              const primary = ids[0] ? recruiters.find((r) => r.id === ids[0]) : undefined;
-                              setAddLeadForm((p) => ({
-                                ...p,
-                                assignedToIds: ids,
-                                assignedToId: ids[0] ?? '',
-                                assignedToName: primary ? `${primary.firstName} ${primary.lastName}` : '',
-                              }));
-                            }}
-                          />
-                        </div>
+                      </div>
+                    </div>
+                  </AddLeadSectionCard>
+
+                  <AddLeadSectionCard
+                    title="Follow-up & Assignment"
+                    subtitle="Schedule and owner"
+                    icon={Calendar}
+                    accent="sky"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <FollowUpDateTimeField
+                          value={addLeadForm.nextFollowUp ?? ''}
+                          onChange={(iso) => setAddLeadForm((p) => ({ ...p, nextFollowUp: iso }))}
+                        />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Services Needed</label>
+                        <AddLeadFieldLabel label="Assigned To" icon={UserCog} iconClassName="text-sky-500" />
+                        <LeadAssigneesMultiSelect
+                          members={recruiters}
+                          value={
+                            addLeadForm.assignedToIds ??
+                            (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])
+                          }
+                          loading={loadingRecruiters}
+                          onChange={(ids) => {
+                            const primary = ids[0] ? recruiters.find((r) => r.id === ids[0]) : undefined;
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              assignedToIds: ids,
+                              assignedToId: ids[0] ?? '',
+                              assignedToName: primary
+                                ? `${primary.firstName} ${primary.lastName}`
+                                : '',
+                            }));
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </AddLeadSectionCard>
+
+                  <AddLeadSectionCard
+                    title="Business Opportunity"
+                    subtitle="Services and expected value"
+                    icon={IndianRupee}
+                    accent="rose"
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <AddLeadFieldLabel label="Services Needed" icon={Layers} iconClassName="text-rose-500" />
                         <ServicesNeededSelect
                           value={addLeadForm.interestedNeeds ?? ''}
-                          onChange={(interestedNeeds) => setAddLeadForm((p) => ({ ...p, interestedNeeds }))}
+                          onChange={(interestedNeeds) =>
+                            setAddLeadForm((p) => ({ ...p, interestedNeeds }))
+                          }
                           industry={addLeadForm.industry ?? ''}
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
-                        <textarea value={addLeadForm.notes ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, notes: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none" placeholder="e.g. Potential annual business of $50,000" />
+                        <AddLeadFieldLabel
+                          label="Expected Business Value"
+                          icon={IndianRupee}
+                          iconClassName="text-rose-500"
+                        />
+                        <textarea
+                          value={addLeadForm.notes ?? ''}
+                          onChange={(e) => setAddLeadForm((p) => ({ ...p, notes: e.target.value }))}
+                          rows={3}
+                          className={`${ADD_LEAD_INPUT} resize-none`}
+                          placeholder="e.g. Potential annual business of ₹15,00,000"
+                        />
                       </div>
                       {Array.isArray(addLeadForm.otherDetails) && addLeadForm.otherDetails.length ? (
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Other Details</label>
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-2">
+                          <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
+                          <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-3">
                             {addLeadForm.otherDetails.map((item, index) => (
                               <div key={`${item.label}-${index}`} className="text-sm">
                                 <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
@@ -3021,7 +3431,8 @@ export function LeadDetailsDrawer({
                         </div>
                       ) : null}
                     </div>
-                  </section>
+                  </AddLeadSectionCard>
+
                   <div className="hidden">
                   {/* Section 1 — Company Information */}
                   <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -3302,74 +3713,154 @@ export function LeadDetailsDrawer({
                   </div>
                 </div>
               ) : activeTab === 'overview' ? (
-                <div className="space-y-4">
-                  <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-5 border-b border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lead Information</h4>
-                    </div>
-                    <div className="p-5 space-y-4">
+                <div className="space-y-5">
                       {!overviewEditMode ? (
                         <>
-                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div><FieldRow label="Company *" value={lead?.companyName ?? ''} /></div>
-                            <div><FieldRow label="Company Links" value={lead?.website ?? ''} href={!!lead?.website} /></div>
-                            <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                <FieldRow
-                                  label="Director Name"
-                                  value={formatDirectorDisplay(lead?.directorSalutation, lead?.directorName || lead?.contactPerson)}
-                                />
-                                <FieldRow
-                                  label="Email *"
-                                  value={formatContactListMultiline(lead?.emails, lead?.email)}
-                                  href
-                                  multiline
-                                />
-                                <FieldRow
-                                  label="Mobile Number"
-                                  value={formatContactListMultiline(lead?.phones, lead?.phone)}
-                                  multiline
-                                />
-                              </div>
+                          <AddLeadSectionCard
+                            title="Company Details"
+                            subtitle="Organization name and online presence"
+                            icon={Building2}
+                            accent="blue"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <OverviewField
+                                label="Company"
+                                icon={Building2}
+                                iconClassName="text-blue-500"
+                                required
+                                value={lead?.companyName ?? ''}
+                              />
+                              <OverviewField
+                                label="Company Links"
+                                icon={Link2}
+                                iconClassName="text-blue-500"
+                                value={lead?.website ?? ''}
+                                href={!!lead?.website}
+                              />
                             </div>
-                            {(() => {
-                              const teamMembers = resolveTeamMemberList(lead).filter(teamMemberHasAnyValue);
-                              if (teamMembers.length === 0) return null;
-                              return (
-                                <div className="sm:col-span-2 space-y-2">
-                                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</p>
-                                  {teamMembers.map((tm, index) => (
-                                    <div
-                                      key={`lead-team-member-${index}`}
-                                      className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 sm:grid-cols-3"
-                                    >
-                                      <FieldRow
-                                        label="Name"
-                                        value={formatDirectorDisplay(
-                                          tm.teamMemberSalutation,
-                                          tm.teamMemberName || tm.teamMemberDesignation,
-                                        )}
-                                      />
-                                      <FieldRow label="Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} />
-                                      <FieldRow label="Mobile Number" value={tm.teamMemberPhone ?? ''} />
-                                    </div>
-                                  ))}
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Contacts"
+                            subtitle="Director and team member details"
+                            icon={Users}
+                            accent="violet"
+                          >
+                            <div className="space-y-4">
+                              <div className="rounded-xl border border-violet-100/80 bg-violet-50/30 p-3">
+                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                                  <OverviewField
+                                    label="Director Name"
+                                    icon={User}
+                                    iconClassName="text-violet-500"
+                                    value={formatDirectorDisplay(
+                                      lead?.directorSalutation,
+                                      lead?.directorName || lead?.contactPerson,
+                                    )}
+                                  />
+                                  <OverviewField
+                                    label="Email"
+                                    icon={Mail}
+                                    iconClassName="text-violet-500"
+                                    required
+                                    value={formatContactListMultiline(lead?.emails, lead?.email)}
+                                    multiline
+                                  />
+                                  <OverviewField
+                                    label="Mobile Number"
+                                    icon={Phone}
+                                    iconClassName="text-violet-500"
+                                    value={formatContactListMultiline(lead?.phones, lead?.phone)}
+                                    multiline
+                                  />
                                 </div>
-                              );
-                            })()}
-                            <div><FieldRow label="Location" value={lead?.location ?? ''} /></div>
-                            <div><FieldRow label="City" value={lead?.city ?? ''} /></div>
-                            <div><FieldRow label="State" value={lead?.state ?? ''} /></div>
-                            <div><FieldRow label="Country" value={lead?.country ?? ''} /></div>
-                            <div><FieldRow label="Industry" value={lead?.industry ?? ''} /></div>
-                            <div><FieldRow label="Status" value={lead?.status ?? ''} /></div>
-                            <div><FieldRow label="Interest Level" value={lead?.priority ?? ''} /></div>
-                            <div>
-                              <FieldRowDateTime label="Next Follow-up" value={lead?.nextFollowUp} />
+                              </div>
+                              {(() => {
+                                const teamMembers = resolveTeamMemberList(lead).filter(teamMemberHasAnyValue);
+                                if (teamMembers.length === 0) return null;
+                                return (
+                                  <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3 space-y-3">
+                                    <AddLeadFieldLabel label="Team Member" icon={Users} iconClassName="text-violet-500" />
+                                    {teamMembers.map((tm, index) => (
+                                      <div
+                                        key={`lead-team-member-${index}`}
+                                        className="grid grid-cols-1 gap-4 rounded-xl border border-violet-100/60 bg-white/80 px-3 py-3 sm:grid-cols-3"
+                                      >
+                                        <OverviewField
+                                          label="Name"
+                                          value={formatDirectorDisplay(
+                                            tm.teamMemberSalutation,
+                                            tm.teamMemberName || tm.teamMemberDesignation,
+                                          )}
+                                        />
+                                        <OverviewField
+                                          label="Email"
+                                          value={tm.teamMemberEmail ?? ''}
+                                          href={!!tm.teamMemberEmail}
+                                        />
+                                        <OverviewField label="Mobile Number" value={tm.teamMemberPhone ?? ''} />
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </div>
-                            <div>
-                              <FieldRow
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Location & Industry"
+                            subtitle="Where the company operates"
+                            icon={MapPin}
+                            accent="emerald"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div className="sm:col-span-2">
+                                <OverviewField label="Location" icon={MapPin} iconClassName="text-emerald-500" value={lead?.location ?? ''} />
+                              </div>
+                              <OverviewField label="City" icon={MapPin} iconClassName="text-emerald-500" value={lead?.city ?? ''} />
+                              <OverviewField label="State" icon={MapPin} iconClassName="text-emerald-500" value={lead?.state ?? ''} />
+                              <OverviewField label="Country" icon={Globe} iconClassName="text-emerald-500" value={lead?.country ?? ''} />
+                              <OverviewField label="Industry" icon={Briefcase} iconClassName="text-emerald-500" value={lead?.industry ?? ''} />
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Source & Qualification"
+                            subtitle="Lead origin and pipeline stage"
+                            icon={Megaphone}
+                            accent="amber"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <OverviewField label="Source" icon={Megaphone} iconClassName="text-amber-500" value={lead?.source ?? ''} />
+                              <OverviewField
+                                label={getSourceFieldLabel(lead?.source)}
+                                icon={Globe}
+                                iconClassName="text-amber-500"
+                                value={getLeadSourceDetailValue(lead)}
+                                href={Boolean(getLeadSourceDetailValue(lead))}
+                              />
+                              <OverviewField label="Status" icon={Flag} iconClassName="text-amber-500" value={lead?.status ?? ''} />
+                              <OverviewField label="Interest Level" icon={Target} iconClassName="text-amber-500" value={lead?.priority ?? ''} />
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Follow-up & Assignment"
+                            subtitle="Schedule and owner"
+                            icon={Calendar}
+                            accent="sky"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <OverviewFieldDateTime
+                                label="Next Follow-up"
+                                icon={Calendar}
+                                iconClassName="text-sky-500"
+                                value={lead?.nextFollowUp}
+                              />
+                              <OverviewField
                                 label="Assigned To"
+                                icon={UserCog}
+                                iconClassName="text-sky-500"
                                 value={
                                   Array.isArray(lead?.assignedToUsers) && lead!.assignedToUsers!.length > 0
                                     ? lead!.assignedToUsers!.map((u) => u.name).join(', ')
@@ -3377,34 +3868,44 @@ export function LeadDetailsDrawer({
                                 }
                               />
                             </div>
-                          </div>
-                          <div>
-                            <FieldRow label="Services Needed" value={lead?.interestedNeeds ?? ''} />
-                          </div>
-                          <div>
-                            <FieldRow label="Expected Business Value" value={lead?.notes ?? ''} />
-                          </div>
-                          {Array.isArray(lead?.otherDetails) && lead.otherDetails.length ? (
-                            <div className="sm:col-span-2">
-                              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Dynamic Fields</p>
-                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                  {lead.otherDetails.map((item, index) => (
-                                    <div key={`${item.label}-${index}`} className="text-sm">
-                                      <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
-                                      <span className="text-slate-600">{item.value}</span>
-                                    </div>
-                                  ))}
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Business Opportunity"
+                            subtitle="Services and expected value"
+                            icon={IndianRupee}
+                            accent="rose"
+                          >
+                            <div className="space-y-4">
+                              <OverviewField label="Services Needed" icon={Layers} iconClassName="text-rose-500" value={lead?.interestedNeeds ?? ''} />
+                              <OverviewField label="Expected Business Value" icon={IndianRupee} iconClassName="text-rose-500" value={lead?.notes ?? ''} multiline />
+                              {Array.isArray(lead?.otherDetails) && lead.otherDetails.length ? (
+                                <div>
+                                  <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
+                                  <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-3">
+                                    {lead.otherDetails.map((item, index) => (
+                                      <div key={`${item.label}-${index}`} className="text-sm">
+                                        <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
+                                        <span className="text-slate-600">{item.value}</span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
+                              ) : null}
                             </div>
-                          ) : null}
+                          </AddLeadSectionCard>
                         </>
                       ) : (
-                        <>
-                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-5">
+                          <AddLeadSectionCard
+                            title="Company Details"
+                            subtitle="Organization name and online presence"
+                            icon={Building2}
+                            accent="blue"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
+                              <AddLeadFieldLabel label="Company" icon={Building2} iconClassName="text-blue-500" required />
                               <input
                                 value={overviewEditForm.companyName}
                                 onChange={(e) => {
@@ -3414,7 +3915,7 @@ export function LeadDetailsDrawer({
                                     setOverviewEditErrors((prev) => ({ ...prev, companyName: undefined }));
                                   }
                                 }}
-                                className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                                className={`${ADD_LEAD_INPUT} ${
                                   overviewEditErrors.companyName ? 'border-red-300' : 'border-slate-200'
                                 }`}
                               />
@@ -3423,10 +3924,20 @@ export function LeadDetailsDrawer({
                               )}
                             </div>
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company Links</label>
-                              <input value={overviewEditForm.website} onChange={(e) => setOverviewEditForm((p) => ({ ...p, website: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              <AddLeadFieldLabel label="Company Links" icon={Link2} iconClassName="text-blue-500" />
+                              <input value={overviewEditForm.website} onChange={(e) => setOverviewEditForm((p) => ({ ...p, website: e.target.value }))} className={ADD_LEAD_INPUT} />
                             </div>
-                            <div className="sm:col-span-2">
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Contacts"
+                            subtitle="Director and team member details"
+                            icon={Users}
+                            accent="violet"
+                          >
+                            <div className="space-y-4">
+                            <div className="rounded-xl border border-violet-100/80 bg-violet-50/30 p-3">
                               <DirectorContactFields
                                 directorSalutation={overviewEditForm.directorSalutation}
                                 contactPerson={overviewEditForm.contactPerson}
@@ -3456,7 +3967,7 @@ export function LeadDetailsDrawer({
                                 emailError={overviewEditErrors.email}
                               />
                             </div>
-                            <div className="sm:col-span-2">
+                            <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3">
                               <TeamMemberOptionalFields
                                 requireTeamName={false}
                                 members={overviewEditForm.teamMembers}
@@ -3465,6 +3976,17 @@ export function LeadDetailsDrawer({
                                 }
                               />
                             </div>
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Location & Industry"
+                            subtitle="Where the company operates"
+                            icon={MapPin}
+                            accent="emerald"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className="sm:col-span-2">
                             <CscLocationFields
                               location={overviewEditForm.location}
                               city={overviewEditForm.city}
@@ -3477,13 +3999,30 @@ export function LeadDetailsDrawer({
                               onLocationChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
                               onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
                             />
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                              <input value={overviewEditForm.industry} onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
                             <div>
-                              <div className="mb-1 flex items-center justify-between gap-3">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                              <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
+                              <input value={overviewEditForm.industry} onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))} className={ADD_LEAD_INPUT} />
+                            </div>
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Source & Qualification"
+                            subtitle="How you found this lead and its stage"
+                            icon={Megaphone}
+                            accent="amber"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className="sm:col-span-2">
+                              <LeadSourceFields
+                                form={overviewEditForm}
+                                onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                              />
+                            </div>
+                            <div>
+                              <div className="mb-1.5 flex items-center justify-between gap-3">
+                                <AddLeadFieldLabel label="Status" icon={Flag} iconClassName="text-amber-500" />
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
@@ -3491,7 +4030,7 @@ export function LeadDetailsDrawer({
                                       setShowAddLeadStatusInput((prev) => !prev);
                                       setNewLeadStatusValue('');
                                     }}
-                                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800"
                                   >
                                     <Plus className="h-3.5 w-3.5" />
                                     Add status
@@ -3539,17 +4078,27 @@ export function LeadDetailsDrawer({
                               ) : null}
                             </div>
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
+                              <AddLeadFieldLabel label="Interest Level" icon={Target} iconClassName="text-amber-500" />
                               <select
                                 value={overviewEditForm.priority}
                                 onChange={(e) => setOverviewEditForm((p) => ({ ...p, priority: e.target.value as 'High' | 'Medium' | 'Low' }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                                className={`${ADD_LEAD_INPUT} bg-white`}
                               >
                                 <option value="High">High</option>
                                 <option value="Medium">Medium</option>
                                 <option value="Low">Low</option>
                               </select>
                             </div>
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Follow-up & Assignment"
+                            subtitle="Schedule and owner"
+                            icon={Calendar}
+                            accent="sky"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
                               <FollowUpDateTimeField
                                 value={overviewEditForm.nextFollowUp}
@@ -3557,7 +4106,7 @@ export function LeadDetailsDrawer({
                               />
                             </div>
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
+                              <AddLeadFieldLabel label="Assigned To" icon={UserCog} iconClassName="text-sky-500" />
                               <LeadAssigneesMultiSelect
                                 members={recruiters}
                                 value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
@@ -3573,9 +4122,18 @@ export function LeadDetailsDrawer({
                                 }}
                               />
                             </div>
-                          </div>
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Business Opportunity"
+                            subtitle="Services and expected value"
+                            icon={IndianRupee}
+                            accent="rose"
+                          >
+                            <div className="space-y-4">
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Services Needed</label>
+                              <AddLeadFieldLabel label="Services Needed" icon={Layers} iconClassName="text-rose-500" />
                               <ServicesNeededSelect
                                 value={overviewEditForm.interestedNeeds}
                                 onChange={(interestedNeeds) => setOverviewEditForm((p) => ({ ...p, interestedNeeds }))}
@@ -3583,17 +4141,17 @@ export function LeadDetailsDrawer({
                               />
                             </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
+                            <AddLeadFieldLabel label="Expected Business Value" icon={IndianRupee} iconClassName="text-rose-500" />
                             <textarea
                               value={overviewEditForm.notes}
                               onChange={(e) => setOverviewEditForm((p) => ({ ...p, notes: e.target.value }))}
                               rows={3}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
+                              className={`${ADD_LEAD_INPUT} resize-none`}
                             />
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Other Details</label>
-                            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-4 space-y-3">
+                            <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
+                            <div className="rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-4 space-y-3">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Dynamic Fields</p>
                                 <button
@@ -3665,15 +4223,17 @@ export function LeadDetailsDrawer({
                               )}
                             </div>
                           </div>
-                        </>
+                            </div>
+                          </AddLeadSectionCard>
+                        </div>
                       )}
-                    </div>
-                  </section>
-                  <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-5 border-b border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Quick Actions</h4>
-                    </div>
-                    <div className="p-5">
+
+                  <AddLeadSectionCard
+                    title="Quick Actions"
+                    subtitle="Common lead workflows"
+                    icon={Activity}
+                    accent="indigo"
+                  >
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                         <button
                           type="button"
@@ -3726,8 +4286,7 @@ export function LeadDetailsDrawer({
                           Assign Lead
                         </button>
                       </div>
-                    </div>
-                  </section>
+                  </AddLeadSectionCard>
                   <div className="hidden">
                   {/* Section 1 — Company Information */}
                   <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -4008,7 +4567,7 @@ export function LeadDetailsDrawer({
                                       setShowAddLeadStatusInput((prev) => !prev);
                                       setNewLeadStatusValue('');
                                     }}
-                                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800"
                                   >
                                     <Plus className="h-3.5 w-3.5" />
                                     Add status
@@ -4479,10 +5038,19 @@ export function LeadDetailsDrawer({
                     </div>
                   );
                 })()
+              ) : activeTab === 'chat' ? (
+                <DrawerEntityChatTab
+                  entityType="LEAD"
+                  entityId={lead?.id}
+                  entityLabel={lead?.companyName || lead?.contactName}
+                  isActive={activeTab === 'chat'}
+                  isOpen={Boolean(lead)}
+                />
               ) : null}
             </div>
             </div>
 
+          </div>
           </div>
         </motion.div>
 

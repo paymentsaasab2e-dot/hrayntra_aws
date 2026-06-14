@@ -22,6 +22,7 @@ import { hasSaasaCvSaved, readSaasaCvAnnotations, SAASA_CV_FILE_TYPE } from '../
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import type { AuditMeta } from '../../types/audit';
 import { EntityAuditSummary } from '../table/TableAuditCell';
+import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { AnimatePresence, motion } from 'motion/react';
 import { requestSuccess } from '../../lib/appDialog';
@@ -204,7 +205,8 @@ type DrawerTab =
   | 'Activity'
   | 'Remarks'
   | 'Tags'
-  | 'Files';
+  | 'Files'
+  | 'Chat';
 
 const TABS: DrawerTab[] = [
   'Overview',
@@ -216,6 +218,7 @@ const TABS: DrawerTab[] = [
   'Remarks',
   'Tags',
   'Files',
+  'Chat',
 ];
 
 function getInitials(name: string) {
@@ -4897,6 +4900,16 @@ export function CandidateProfileDrawer({
                       ) : null}
                     </div>
                   </section>
+                )}
+
+                {activeTab === 'Chat' && (
+                  <DrawerEntityChatTab
+                    entityType="CANDIDATE"
+                    entityId={candidate?.id}
+                    entityLabel={candidate?.name}
+                    isActive={activeTab === 'Chat'}
+                    isOpen={isOpen}
+                  />
                 )}
               </div>
                 </div>

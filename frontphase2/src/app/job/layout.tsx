@@ -2,6 +2,7 @@
 
 import { Sidenav } from '../../components/Sidenav';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
+import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
 
 export default function JobLayout({
   children,
@@ -20,7 +21,7 @@ export default function JobLayout({
           avatarUrl: avatarUrl
         }}
       >
-        <PermissionRouteGuard anyPermissions={['jobs_read', 'jobs_create', 'jobs_update', 'jobs_delete', 'view_jobs', 'create_job', 'edit_job', 'delete_job', 'assign_job']}>
+        <PermissionRouteGuard anyPermissions={MODULE_ACCESS_MAP.Jobs}>
           {children}
         </PermissionRouteGuard>
       </Sidenav>

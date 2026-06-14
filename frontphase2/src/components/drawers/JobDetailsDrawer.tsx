@@ -59,6 +59,7 @@ import {
   Sparkles,
   Loader2,
   ClipboardList,
+  MessageSquare,
 } from 'lucide-react';
 import {
   apiCreateMatch,
@@ -104,6 +105,7 @@ import { DocumentUploadButton } from '../import/documentUploadUi';
 import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
 import type { AuditMeta } from '../../types/audit';
 import { EntityAuditSummary } from '../table/TableAuditCell';
+import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
@@ -422,6 +424,7 @@ const TAB_CONFIG = [
   { id: 'interviews' as const, label: 'Interviews', icon: Calendar },
   { id: 'placements' as const, label: 'Placements', icon: UserCheck },
   { id: 'activity' as const, label: 'Activity', icon: Activity },
+  { id: 'chat' as const, label: 'Chat', icon: MessageSquare },
   { id: 'notes' as const, label: 'Remarks', icon: StickyNote },
   { id: 'files' as const, label: 'Files', icon: Paperclip },
 ];
@@ -2410,6 +2413,15 @@ export function JobDetailsDrawer({
                   </div>
                 );
               })()}
+              {activeTab === 'chat' && job ? (
+                <DrawerEntityChatTab
+                  entityType="JOB"
+                  entityId={job.id}
+                  entityLabel={job.title}
+                  isActive={activeTab === 'chat'}
+                  isOpen={isOpen}
+                />
+              ) : null}
             </div>
 
             {/* Footer */}

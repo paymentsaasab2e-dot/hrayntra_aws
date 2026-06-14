@@ -11,6 +11,7 @@ import { DrawerClientTab } from './DrawerClientTab';
 import { DrawerNotesTab } from './DrawerNotesTab';
 import { DrawerOverviewTab } from './DrawerOverviewTab';
 import { DrawerPanelTab } from './DrawerPanelTab';
+import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 import type { DrawerTab, Interview } from '../../types/interview.types';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
 
@@ -36,6 +37,7 @@ const tabs: Array<{ id: DrawerTab; label: string }> = [
   { id: 'notes', label: 'Remarks' },
   { id: 'activity', label: 'Activity Log' },
   { id: 'files', label: 'Files' },
+  { id: 'chat', label: 'Chat' },
 ];
 
 export function InterviewDrawer({
@@ -245,6 +247,15 @@ export function InterviewDrawer({
                 <DrawerActivityLog items={interview.activityLog} audit={interview.auditMeta} />
               ) : null}
               {activeTab === 'files' ? <DrawerFilesTab interviewId={interview.id} /> : null}
+              {activeTab === 'chat' ? (
+                <DrawerEntityChatTab
+                  entityType="INTERVIEW"
+                  entityId={interview.id}
+                  entityLabel={`${interview.candidate.name} — ${interview.job?.title || 'Interview'}`}
+                  isActive={activeTab === 'chat'}
+                  isOpen={isOpen}
+                />
+              ) : null}
             </div>
           </motion.aside>
         </>

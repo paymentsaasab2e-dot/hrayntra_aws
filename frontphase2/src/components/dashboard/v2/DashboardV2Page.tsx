@@ -4,13 +4,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { LayoutDashboard, Pencil, Save } from 'lucide-react';
 import { apiDashboardOverview } from '@/lib/dashboard/api';
 import type { DashboardOverview } from '@/lib/dashboard/api';
+import { useDashboardLayoutStore } from '@/lib/dashboard/DashboardLayoutProvider';
 import { DASHBOARD_MODULE_TABS, type ModuleTabKey } from '@/lib/dashboard/moduleCommandConfig';
 import { usePermissions } from '@/hooks/usePermissions';
-import { MODULE_ACCESS_MAP } from '@/lib/rbac/moduleAccess';
-import { DashboardLayoutProvider } from '@/lib/dashboard/DashboardLayoutProvider';
 import { useDashboardTabLayout } from '@/lib/dashboard/useDashboardTabLayout';
 import { DashboardModuleTabs } from './DashboardModuleTabs';
 import { ModuleCommandCenter } from './ModuleCommandCenter';
+import { DashboardWelcomeFallback } from './DashboardWelcomeFallback';
 
 function DashboardModuleTabsSkeleton() {
   return (
@@ -35,7 +35,8 @@ function CommandCenterSkeleton() {
 }
 
 function DashboardV2PageInner() {
-  const { hasAnyPermission, isSuperAdmin } = usePermissions();
+  const { isSuperAdmin } = usePermissions();
+  const { loading: layoutLoading, permittedTabKeys } = useDashboardLayoutStore();
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [activeModule, setActiveModule] = useState<ModuleTabKey>('leads');
   const [clientReady, setClientReady] = useState(false);
@@ -49,10 +50,9 @@ function DashboardV2PageInner() {
     if (!clientReady) return [];
     return DASHBOARD_MODULE_TABS.filter((tab) => {
       if (isSuperAdmin()) return true;
-      const perms = MODULE_ACCESS_MAP[tab.label] || tab.permissions;
-      return hasAnyPermission(perms);
+      return permittedTabKeys.has(tab.key);
     });
-  }, [clientReady, hasAnyPermission, isSuperAdmin]);
+  }, [clientReady, permittedTabKeys, isSuperAdmin]);
 
   const visibleTabs = useMemo(
     () => permittedTabs.filter((tab) => !tabLayout.hiddenTabSet.has(tab.key)),
@@ -87,6 +87,8 @@ function DashboardV2PageInner() {
     };
   }, []);
 
+  const pageLoading = !clientReady || layoutLoading;
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -96,10 +98,10 @@ function DashboardV2PageInner() {
             Dashboard
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            Module command centers with custom widgets per module.
+            Modules and widgets are tailored to your role and permissions.
           </p>
         </div>
-        {clientReady && permittedTabs.length > 0 ? (
+        {!pageLoading && permittedTabs.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             {tabLayout.editMode ? (
               <>
@@ -134,7 +136,7 @@ function DashboardV2PageInner() {
         ) : null}
       </header>
 
-      {!clientReady ? (
+      {pageLoading ? (
         <>
           <DashboardModuleTabsSkeleton />
           <CommandCenterSkeleton />
@@ -170,16 +172,15 @@ function DashboardV2PageInner() {
           </p>
         </>
       ) : (
-        <p className="text-sm text-slate-500">You do not have access to any dashboard modules.</p>
+        <DashboardWelcomeFallback
+          title="Your dashboard"
+          description="No command-center modules are available for your role. Use the links below to open what you can access."
+        />
       )}
     </div>
   );
 }
 
 export function DashboardV2Page() {
-  return (
-    <DashboardLayoutProvider>
-      <DashboardV2PageInner />
-    </DashboardLayoutProvider>
-  );
+  return <DashboardV2PageInner />;
 }

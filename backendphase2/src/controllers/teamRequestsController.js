@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
+import { logCrmGlobalActivity } from '../utils/crmGlobalActivity.js';
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -197,6 +198,18 @@ export async function createTeamRequest(req, res) {
       },
     });
 
+    await logCrmGlobalActivity({
+      performedById: authz.userId,
+      action: 'Team request sent',
+      description: `${subject} — ${description}`,
+      entityType: 'USER',
+      entityId: recipient.id,
+      category: 'Request',
+      relatedType: 'TEAM_REQUEST',
+      relatedId: row.id,
+      relatedLabel: subject,
+    });
+
     return res.status(201).json({
       success: true,
       data: serializeTeamRequest(row),
@@ -266,6 +279,20 @@ export async function updateTeamRequestStatus(req, res) {
         reviewedAt: reviewed ? new Date() : existing.reviewedAt,
       },
     });
+
+    if (reviewed) {
+      await logCrmGlobalActivity({
+        performedById: authz.userId,
+        action: status === 'approved' ? 'Team request approved' : 'Team request rejected',
+        description: `${existing.subject}${reviewNote ? ` — ${reviewNote}` : ''}`,
+        entityType: 'USER',
+        entityId: existing.requestedById,
+        category: 'Request',
+        relatedType: 'TEAM_REQUEST',
+        relatedId: requestId,
+        relatedLabel: existing.subject,
+      });
+    }
 
     return res.status(200).json({
       success: true,

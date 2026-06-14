@@ -19,6 +19,7 @@ import {
   X,
   Inbox,
   Loader2,
+  RefreshCcw,
 } from 'lucide-react';
 import {
   buildLeadSearchHaystack,
@@ -68,6 +69,8 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useLeadConversionStatuses } from '../../hooks/useLeadConversionStatuses';
+import { canInitiateSentRequest } from '../../lib/sentRequestStatus';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
@@ -513,6 +516,21 @@ export default function RecruitmentAgencyDashboard() {
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [canDirectConvertLead, setCanDirectConvertLead] = useState(false);
+  const { getStatusForLead, refresh: refreshConversionStatuses } = useLeadConversionStatuses();
+  const [conversionRemarkModal, setConversionRemarkModal] = useState<{
+    leadId: string;
+    form?: {
+      companyName: string;
+      primaryContact: string;
+      email: string;
+      phone: string;
+      industry: string;
+      companySize: string;
+      accountManager: string;
+      createJobRequirement: boolean;
+    };
+  } | null>(null);
+  const [conversionRemark, setConversionRemark] = useState('');
   const [highlightedRows, setHighlightedRows] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
@@ -1302,6 +1320,7 @@ export default function RecruitmentAgencyDashboard() {
       accountManager: string;
       createJobRequirement: boolean;
     },
+    requestNote?: string,
   ) => {
     try {
       const lead = leads.find(l => l.id === id);
@@ -1312,6 +1331,12 @@ export default function RecruitmentAgencyDashboard() {
         void requestError(
           `This lead has already been converted to a client${clientLabel}. A duplicate client will not be created.`,
         );
+        return;
+      }
+
+      if (!canDirectConvertLead && !String(requestNote || '').trim()) {
+        setConversionRemarkModal({ leadId: id, form });
+        setConversionRemark('');
         return;
       }
 
@@ -1369,6 +1394,7 @@ export default function RecruitmentAgencyDashboard() {
         agreementAdvancePaymentPercent: lead.agreementAdvancePaymentPercent || null,
         agreementFreeReplacementValue: lead.agreementFreeReplacementValue ?? null,
         agreementFreeReplacementUnit: lead.agreementFreeReplacementUnit || null,
+        requestNote: requestNote?.trim() || undefined,
       };
 
       const response = canDirectConvertLead
@@ -1383,6 +1409,9 @@ export default function RecruitmentAgencyDashboard() {
 
       if (!canDirectConvertLead) {
         toast.success('Conversion request sent to your department head for approval');
+        void refreshConversionStatuses();
+        setConversionRemarkModal(null);
+        setConversionRemark('');
         return;
       }
 
@@ -2186,6 +2215,34 @@ export default function RecruitmentAgencyDashboard() {
                                 >
                                   {lead.companyName}
                                 </button>
+                                {(() => {
+                                  const conversion = getStatusForLead(lead.id);
+                                  if (conversion.status === 'pending') {
+                                    return (
+                                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                                        Conversion pending
+                                      </span>
+                                    );
+                                  }
+                                  if (conversion.status === 'accepted') {
+                                    return (
+                                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200/80">
+                                        Conversion approved
+                                      </span>
+                                    );
+                                  }
+                                  if (conversion.status === 'rejected') {
+                                    return (
+                                      <span
+                                        className="inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-800 ring-1 ring-rose-200/80"
+                                        title={conversion.reviewNote || 'Conversion request was rejected'}
+                                      >
+                                        Conversion rejected
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                                 <span className="text-[10px] font-medium text-slate-500">{lead.type}</span>
                                 </div>
                               </div>
@@ -2292,14 +2349,50 @@ export default function RecruitmentAgencyDashboard() {
                                   </button>
                                 ) : null}
                                 {canConvertLead && lead.status !== 'Converted' && !lead.convertedToClientId && (
-                                  <button
-                                    type="button"
-                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
-                                    title="Convert to Client"
-                                    onClick={() => handleConvert(lead.id)}
-                                  >
-                                    <UserPlus size={15} strokeWidth={2.35} />
-                                  </button>
+                                  (() => {
+                                    const conversion = getStatusForLead(lead.id);
+                                    const canSend = canInitiateSentRequest(conversion);
+                                    const isResend = conversion.status === 'rejected';
+
+                                    if (isResend) {
+                                      return (
+                                        <button
+                                          type="button"
+                                          className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
+                                          title="Resend conversion request"
+                                          onClick={() => void handleConvert(lead.id)}
+                                        >
+                                          <RefreshCcw size={15} strokeWidth={2.35} />
+                                        </button>
+                                      );
+                                    }
+
+                                    return (
+                                      <button
+                                        type="button"
+                                        disabled={!canSend}
+                                        className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all ${
+                                          canSend
+                                            ? 'text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm'
+                                            : 'cursor-not-allowed text-slate-300'
+                                        }`}
+                                        title={
+                                          conversion.status === 'pending'
+                                            ? 'Conversion request is pending approval'
+                                            : conversion.status === 'accepted'
+                                              ? 'Conversion request already approved'
+                                              : 'Convert to Client'
+                                        }
+                                        aria-disabled={!canSend}
+                                        onClick={() => {
+                                          if (!canSend) return;
+                                          void handleConvert(lead.id);
+                                        }}
+                                      >
+                                        <UserPlus size={15} strokeWidth={2.35} />
+                                      </button>
+                                    );
+                                  })()
                                 )}
                                 {canDeleteLead && (
                                   <button
@@ -2566,6 +2659,53 @@ export default function RecruitmentAgencyDashboard() {
             </div>
           </div>
         )}
+        {conversionRemarkModal ? (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/45 p-4"
+            onClick={() => setConversionRemarkModal(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl border border-emerald-100 bg-white p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-base font-bold text-slate-900">Conversion request remark</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Add a remark for your department head before sending this lead conversion for approval.
+              </p>
+              <textarea
+                value={conversionRemark}
+                onChange={(e) => setConversionRemark(e.target.value)}
+                rows={3}
+                placeholder="Remark (required)"
+                className="mt-4 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm resize-none"
+              />
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConversionRemarkModal(null)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!conversionRemark.trim()}
+                  onClick={() => {
+                    if (!conversionRemarkModal) return;
+                    void handleConvert(
+                      conversionRemarkModal.leadId,
+                      conversionRemarkModal.form,
+                      conversionRemark.trim(),
+                    );
+                  }}
+                  className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  Send request
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {deleteConfirmState && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"

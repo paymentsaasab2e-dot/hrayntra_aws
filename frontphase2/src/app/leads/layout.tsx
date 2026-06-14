@@ -2,6 +2,7 @@
 
 import { Sidenav } from '../../components/Sidenav';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
+import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
 
 export default function LeadsLayout({
   children,
@@ -20,7 +21,7 @@ export default function LeadsLayout({
           avatarUrl: avatarUrl
         }}
       >
-        <PermissionRouteGuard anyPermissions={['leads_read', 'leads_create', 'leads_update', 'leads_delete']}>
+        <PermissionRouteGuard anyPermissions={MODULE_ACCESS_MAP.Leads}>
           {children}
         </PermissionRouteGuard>
       </Sidenav>

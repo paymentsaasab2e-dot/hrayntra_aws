@@ -16,10 +16,12 @@ import {
   unlockAccount,
 } from '../../lib/api/teamApi';
 import { usePermissions } from '../../hooks/usePermissions';
+import { apiGetActivityViewableMembers } from '../../lib/api';
 import type { TeamMemberDetail, UserActivity, TeamTask } from '../../types/team';
 import { LoginHistoryDrawer } from './LoginHistoryDrawer';
 import { PortalHost } from './PortalHost';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 
 interface MemberProfileDrawerProps {
   isOpen: boolean;
@@ -77,9 +79,50 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
   const [customPassword, setCustomPassword] = useState('');
   const [customPasswordConfirm, setCustomPasswordConfirm] = useState('');
   const [settingCustomPassword, setSettingCustomPassword] = useState(false);
+  const [profileTab, setProfileTab] = useState<'profile' | 'chat'>('profile');
 
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, hasAnyPermission } = usePermissions();
   const userIsSuperAdmin = isSuperAdmin();
+  const [canViewMemberActivity, setCanViewMemberActivity] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !memberId) {
+      setCanViewMemberActivity(false);
+      return;
+    }
+    let cancelled = false;
+    const resolveActivityAccess = async () => {
+      if (userIsSuperAdmin) {
+        if (!cancelled) setCanViewMemberActivity(true);
+        return;
+      }
+      try {
+        const raw = typeof window !== 'undefined' ? localStorage.getItem('currentUser') : null;
+        const currentUser = raw ? JSON.parse(raw) : null;
+        if (currentUser?.id === memberId) {
+          if (!cancelled) setCanViewMemberActivity(true);
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!hasAnyPermission(['view_team_activity', 'view_team', 'add_team_member', 'edit_team_member'])) {
+        if (!cancelled) setCanViewMemberActivity(false);
+        return;
+      }
+      try {
+        const res = await apiGetActivityViewableMembers();
+        const ids = new Set((res.data?.members || []).map((m) => m.id));
+        if (!cancelled) setCanViewMemberActivity(ids.has(memberId));
+      } catch {
+        if (!cancelled) setCanViewMemberActivity(false);
+      }
+    };
+    void resolveActivityAccess();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, memberId, userIsSuperAdmin, hasAnyPermission]);
 
   useEffect(() => {
     if (isOpen && memberId) {
@@ -343,7 +386,40 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                     </div>
                   </div>
 
-                  {/* Content */}
+                  <div className="border-b border-slate-200 px-6">
+                    <div className="flex gap-1">
+                      {[
+                        { id: 'profile' as const, label: 'Profile' },
+                        { id: 'chat' as const, label: 'Chat' },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setProfileTab(tab.id)}
+                          className={`px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                            profileTab === tab.id
+                              ? 'border-indigo-600 text-indigo-600'
+                              : 'border-transparent text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {profileTab === 'chat' ? (
+                    <div className="flex-1 overflow-y-auto p-6">
+                      <DrawerEntityChatTab
+                        entityType="USER"
+                        entityId={member.id}
+                        entityLabel={`${member.firstName} ${member.lastName}`.trim()}
+                        isActive={profileTab === 'chat'}
+                        isOpen={isOpen}
+                      />
+                    </div>
+                  ) : (
+                  <>
                   <div className="flex-1 overflow-y-auto p-6 space-y-6">
                     {/* Credential Snapshot */}
                     <section>
@@ -586,6 +662,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                     </section>
 
                     {/* Activity Timeline */}
+                    {canViewMemberActivity ? (
                     <section>
                       <h3 className="text-sm font-bold text-slate-800 mb-3">Recent Activity</h3>
                       {member.activities && member.activities.length > 0 ? (
@@ -611,6 +688,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                         <p className="text-sm text-slate-500">No recent activity</p>
                       )}
                     </section>
+                    ) : null}
 
                     {/* Tasks */}
                     <section>
@@ -652,6 +730,8 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                       )}
                     </section>
                   </div>
+                  </>
+                  )}
                 </>
               )}
             </motion.div>

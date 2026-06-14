@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Users } from 'lucide-react';
 import { KycDocumentsField } from '../documents/KycDocumentsField';
-import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
+import { NAME_SALUTATION_OPTIONS, applySalutationFromNameInput } from '../../constants/salutations';
 import type { TeamMemberListItem } from '../../lib/teamMemberFormDetails';
 import {
   createEmptyTeamMember,
@@ -64,7 +64,10 @@ export function TeamMemberOptionalFields({
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</p>
+      <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-500">
+        <Users size={12} />
+        Team Member
+      </p>
       <div className="space-y-2">
         {normalizedMembers.map((member, index) => (
           <div
@@ -87,9 +90,14 @@ export function TeamMemberOptionalFields({
               value={member.teamMemberName ?? ''}
               onChange={(e) => {
                 const value = e.target.value;
+                const { salutation, name, salutationChanged } = applySalutationFromNameInput(
+                  member.teamMemberSalutation ?? '',
+                  value,
+                );
                 updateMember(index, {
-                  teamMemberName: value,
-                  teamMemberDesignation: value,
+                  ...(salutationChanged ? { teamMemberSalutation: salutation } : {}),
+                  teamMemberName: name,
+                  teamMemberDesignation: name,
                 });
               }}
               className="min-w-[7rem] flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"

@@ -17,7 +17,7 @@ export function useCommandCenterLayout(
   config: ModuleCommandConfig | undefined,
   widgetModuleName: string,
 ) {
-  const { layout, loading, saving, saveLayout: persistFullLayout } = useDashboardLayoutStore();
+  const { layout, loading, saving, saveLayout: persistFullLayout, allowedDatasetIds } = useDashboardLayoutStore();
   const [editMode, setEditMode] = useState(false);
   const [sessionWidgets, setSessionWidgets] = useState<DashboardWidget[] | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -35,8 +35,8 @@ export function useCommandCenterLayout(
 
   const resolved = useMemo(() => {
     if (!config) return { widgets: [] as DashboardWidget[], usingDefaults: false };
-    return resolveModuleDisplayWidgets(moduleKey, config, widgetModuleName, moduleLayout);
-  }, [config, moduleKey, widgetModuleName, moduleLayout]);
+    return resolveModuleDisplayWidgets(moduleKey, config, widgetModuleName, moduleLayout, allowedDatasetIds);
+  }, [config, moduleKey, widgetModuleName, moduleLayout, allowedDatasetIds]);
 
   const displayWidgets = sessionWidgets ?? resolved.widgets;
   const usingDefaults = sessionWidgets == null && resolved.usingDefaults;

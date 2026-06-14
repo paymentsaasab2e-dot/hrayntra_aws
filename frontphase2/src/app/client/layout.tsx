@@ -3,6 +3,7 @@
 import { Sidenav } from '../../components/Sidenav';
 import { PasswordResetGuard } from '../../components/PasswordResetGuard';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
+import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
 
 export default function ClientLayout({
   children,
@@ -22,7 +23,7 @@ export default function ClientLayout({
             avatarUrl: avatarUrl
           }}
         >
-          <PermissionRouteGuard anyPermissions={['clients_read', 'clients_create', 'clients_update', 'clients_delete']}>
+          <PermissionRouteGuard anyPermissions={MODULE_ACCESS_MAP.Clients}>
             {children}
           </PermissionRouteGuard>
         </Sidenav>

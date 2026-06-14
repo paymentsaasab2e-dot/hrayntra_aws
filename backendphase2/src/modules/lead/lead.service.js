@@ -12,6 +12,7 @@ import {
   personName,
 } from '../setting/alert-notify.helpers.js';
 import { canViewAllLeads } from '../../utils/permissionScope.js';
+import { applyMemberLeadScope, buildLeadAccessWhere } from '../../services/leadMemberScope.service.js';
 import { stampLeadAssigneeVisibility } from '../../services/memberVisibility.service.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import {
@@ -504,24 +505,6 @@ async function findExistingLeadImportDuplicate(payload) {
   };
 }
 
-function buildLeadAccessWhere(id, req) {
-  if (canViewAllLeads(req) || !req?.user?.id) {
-    return { id };
-  }
-  return {
-    AND: [
-      { id },
-      {
-        OR: [
-          { assignedToId: req.user.id },
-          { assignedToIds: { has: req.user.id } },
-          { createdBy: req.user.id },
-        ],
-      },
-    ],
-  };
-}
-
 async function resolveAssignedToId(value) {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) return null;
@@ -641,13 +624,7 @@ export const leadService = {
       andParts.push(searchFilter);
     }
     if (!canViewAllLeads(req) && req.user?.id) {
-      andParts.push({
-        OR: [
-          { assignedToId: req.user.id },
-          { assignedToIds: { has: req.user.id } },
-          { createdBy: req.user.id },
-        ],
-      });
+      andParts.push(await applyMemberLeadScope({}, req));
     }
 
     const filteredParts = andParts.filter((part) => part && Object.keys(part).length > 0);
@@ -684,7 +661,7 @@ export const leadService = {
   },
 
   async getById(id, req = null) {
-    const where = buildLeadAccessWhere(id, req);
+    const where = await buildLeadAccessWhere(id, req);
 
     const lead = await prisma.lead.findFirst({
       where,
@@ -1677,13 +1654,9 @@ export const leadService = {
 
     const andParts = [{ isDeleted: true }];
     if (!canViewAllLeads(req) && req.user?.id) {
+      const scope = await applyMemberLeadScope({}, req);
       andParts.push({
-        OR: [
-          { assignedToId: req.user.id },
-          { assignedToIds: { has: req.user.id } },
-          { createdBy: req.user.id },
-          { deletedBy: req.user.id },
-        ],
+        OR: [...(scope.OR || []), { deletedBy: req.user.id }],
       });
     }
     const where = { AND: andParts };

@@ -1759,6 +1759,9 @@ enum RelatedEntityType {
   CLIENT
   INTERVIEW
   TASK
+  LEAD
+  CONTACT
+  USER
 }
 
 model Thread {

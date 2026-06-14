@@ -41,9 +41,10 @@ interface TeamRequestDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (request: TeamRequest) => void;
+  initialDraft?: Partial<RequestFormState>;
 }
 
-export function TeamRequestDrawer({ isOpen, onClose, onSuccess }: TeamRequestDrawerProps) {
+export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: TeamRequestDrawerProps) {
   const [formData, setFormData] = useState<RequestFormState>({
     sendToId: '',
     subject: '',
@@ -69,10 +70,10 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess }: TeamRequestDra
     if (!isOpen) return;
 
     setFormData({
-      sendToId: '',
-      subject: '',
-      description: '',
-      priority: 'medium',
+      sendToId: initialDraft?.sendToId || '',
+      subject: initialDraft?.subject || '',
+      description: initialDraft?.description || '',
+      priority: initialDraft?.priority || 'medium',
     });
     setErrors({});
     setIsSubmitting(false);
@@ -101,7 +102,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess }: TeamRequestDra
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, initialDraft]);
 
   const validate = () => {
     const nextErrors: Record<string, string> = {};
@@ -112,7 +113,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess }: TeamRequestDra
       nextErrors.subject = 'Subject is required';
     }
     if (!formData.description.trim()) {
-      nextErrors.description = 'Description is required';
+      nextErrors.description = 'Remark is required';
     }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -252,7 +253,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess }: TeamRequestDra
 
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-slate-700">
-                  Description
+                  Remark
                 </label>
                 <textarea
                   rows={5}
@@ -260,7 +261,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess }: TeamRequestDra
                   onChange={(event) =>
                     setFormData((prev) => ({ ...prev, description: event.target.value }))
                   }
-                  placeholder="Provide details about what you need"
+                  placeholder="Explain what you need and why (required)"
                   className={`${INPUT_CLASS} resize-y ${errors.description ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-500/20' : ''}`}
                 />
                 {errors.description ? (
