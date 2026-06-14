@@ -5,6 +5,7 @@ import {
   findDepartmentHeadUser,
   isDepartmentHeadUser,
 } from './departmentRole.service.js';
+import { logCrmGlobalActivity } from '../utils/crmGlobalActivity.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -219,6 +220,18 @@ export const leadConversionRequestService = {
       requestId: row.id,
     });
 
+    await logCrmGlobalActivity({
+      performedById: uid,
+      action: 'Lead conversion requested',
+      description: `${companyLabel} — ${requestNote}`,
+      entityType: 'LEAD',
+      entityId: lid,
+      category: 'Request',
+      relatedType: 'LEAD_CONVERSION_REQUEST',
+      relatedId: row.id,
+      relatedLabel: companyLabel,
+    });
+
     return serializeRequest(row);
   },
 
@@ -267,6 +280,18 @@ export const leadConversionRequestService = {
         requestId: rid,
       });
 
+      await logCrmGlobalActivity({
+        performedById: uid,
+        action: 'Lead conversion rejected',
+        description: `${existing.leadCompanyName || 'Lead'}${trimmedNote ? ` — ${trimmedNote}` : ''}`,
+        entityType: 'LEAD',
+        entityId: existing.leadId,
+        category: 'Request',
+        relatedType: 'LEAD_CONVERSION_REQUEST',
+        relatedId: rid,
+        relatedLabel: existing.leadCompanyName,
+      });
+
       return serializeRequest(updated);
     }
 
@@ -300,6 +325,19 @@ export const leadConversionRequestService = {
       title: 'Lead converted to client',
       description: `${reviewerName} approved conversion for "${existing.leadCompanyName || 'lead'}".`,
       requestId: rid,
+    });
+
+    await logCrmGlobalActivity({
+      performedById: uid,
+      action: 'Lead conversion approved',
+      description: `${existing.leadCompanyName || 'Lead'} converted to client`,
+      entityType: 'LEAD',
+      entityId: existing.leadId,
+      category: 'Request',
+      relatedType: 'LEAD_CONVERSION_REQUEST',
+      relatedId: rid,
+      relatedLabel: existing.leadCompanyName,
+      clientId: client?.id,
     });
 
     return { ...serializeRequest(updated), client };

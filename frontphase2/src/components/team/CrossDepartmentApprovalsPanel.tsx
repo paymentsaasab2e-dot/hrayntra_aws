@@ -96,6 +96,11 @@ export function CrossDepartmentApprovalsPanel() {
       toast.error('You do not have permission to review requests');
       return;
     }
+    const note = (reviewNoteById[request.id] || '').trim();
+    if (action === 'reject' && !note) {
+      toast.error('Remark is required when rejecting a request');
+      return;
+    }
     setActingId(request.id);
     try {
       const assignToId =
@@ -104,7 +109,7 @@ export function CrossDepartmentApprovalsPanel() {
           : undefined;
       await reviewCrossDeptRequest(request.id, {
         action,
-        note: reviewNoteById[request.id] || undefined,
+        note: note || undefined,
         assignToId,
       });
       toast.success(action === 'accept' ? 'Request accepted' : 'Request rejected');
@@ -157,7 +162,9 @@ export function CrossDepartmentApprovalsPanel() {
                     <span className="text-[10px] font-semibold uppercase text-slate-400">{request.workType}</span>
                   </div>
                   {request.description ? (
-                    <p className="mt-1 text-sm text-slate-600 whitespace-pre-wrap">{request.description}</p>
+                    <p className="mt-1 text-sm text-slate-600 whitespace-pre-wrap">
+                      Sender remark: {request.description}
+                    </p>
                   ) : null}
                   <p className="mt-2 text-xs text-slate-500">
                     From {request.requestedByName || 'another department'} · {formatDate(request.createdAt)}
@@ -197,7 +204,7 @@ export function CrossDepartmentApprovalsPanel() {
                     ) : null}
                     <input
                       type="text"
-                      placeholder="Optional review note"
+                      placeholder="Remark (required to reject)"
                       className="w-48 rounded-lg border border-slate-200 px-2 py-1 text-xs"
                       value={reviewNoteById[request.id] || ''}
                       onChange={(e) =>

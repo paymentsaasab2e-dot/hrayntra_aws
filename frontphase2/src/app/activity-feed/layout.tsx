@@ -13,7 +13,7 @@ export default function ActivityFeedLayout({ children }: { children: React.React
     <PasswordResetGuard>
       <div className="min-h-screen bg-slate-50 font-['Arimo',sans-serif]">
         <Sidenav avatarUrl={avatarUrl}>
-          <PermissionRouteGuard anyPermissions={['view_activity_log', 'reports_read']}>{children}</PermissionRouteGuard>
+          <PermissionRouteGuard anyPermissions={['view_activity_log', 'reports_read', 'view_team_activity']}>{children}</PermissionRouteGuard>
         </Sidenav>
       </div>
     </PasswordResetGuard>

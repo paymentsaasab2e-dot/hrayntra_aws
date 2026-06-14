@@ -6,6 +6,11 @@ import { clientService } from '../client/client.service.js';
 import { analyzeDataset } from './datasetAnalyzer.js';
 import { applyRowFilters, parseFilters } from './dashboard.filters.js';
 import { DATASET_REGISTRY, DASHBOARD_MODULE_ORDER } from './dashboard.registry.js';
+import {
+  ALL_DASHBOARD_TAB_KEYS,
+  CATALOG_MODULE_TO_TAB_KEY,
+  ROLE_DEFAULT_TAB_KEYS,
+} from './dashboardModuleAccess.js';
 
 const LIST_TAKE = 800;
 
@@ -618,6 +623,101 @@ function legacyWidgetsToModules(widgets) {
   return modules;
 }
 
+function listCatalogForRequest(req) {
+  const datasets = DATASET_REGISTRY.filter((d) => canAccessDataset(req, d)).map(
+    ({ permissions, ...rest }) => rest,
+  );
+  const modules = DASHBOARD_MODULE_ORDER.map((name) => ({
+    name,
+    datasets: datasets.filter((d) => d.module === name),
+  })).filter((m) => m.datasets.length > 0);
+  return { datasets, modules };
+}
+
+function getPermittedTabKeys(req) {
+  const catalog = listCatalogForRequest(req);
+  const keys = new Set();
+  for (const mod of catalog.modules || []) {
+    const tabKey = CATALOG_MODULE_TO_TAB_KEY[mod.name];
+    if (tabKey) keys.add(tabKey);
+  }
+  if (hasAnyPermission(req, ['matches_read', 'matches_manage', 'all']) || isSuperAdminUser(req)) {
+    keys.add('matches');
+  }
+  const allowedDatasets = new Set((catalog.datasets || []).map((d) => d.id));
+  if (
+    allowedDatasets.has('candidates_pipeline') &&
+    (hasAnyPermission(req, [...(DATASET_REGISTRY.find((d) => d.id === 'candidates_pipeline')?.permissions || [])]) ||
+      isSuperAdminUser(req))
+  ) {
+    keys.add('pipeline');
+  }
+  return keys;
+}
+
+function widgetDatasetId(widget) {
+  if (!widget || typeof widget !== 'object') return null;
+  const direct = String(widget.datasetId || '').trim();
+  if (direct) return resolveDatasetId(direct);
+  const filters = widget.filters;
+  if (filters && typeof filters === 'object' && filters.datasetId) {
+    return resolveDatasetId(String(filters.datasetId));
+  }
+  return null;
+}
+
+function filterLayoutByPermissions(layout, req) {
+  const catalog = listCatalogForRequest(req);
+  const allowedDatasetIds = new Set((catalog.datasets || []).map((d) => d.id));
+  const permittedTabKeys = getPermittedTabKeys(req);
+  const modules = {};
+  const sourceModules = layout?.modules && typeof layout.modules === 'object' ? layout.modules : {};
+
+  for (const [key, mod] of Object.entries(sourceModules)) {
+    if (!permittedTabKeys.has(key)) continue;
+    if (!mod || typeof mod !== 'object') continue;
+    const widgets = (Array.isArray(mod.widgets) ? mod.widgets : []).filter((widget) => {
+      const ds = widgetDatasetId(widget);
+      if (!ds) return true;
+      return allowedDatasetIds.has(ds);
+    });
+    modules[key] = {
+      widgets,
+      hiddenDefaultIds: Array.isArray(mod.hiddenDefaultIds) ? mod.hiddenDefaultIds : [],
+      dismissed: Boolean(mod.dismissed),
+      customized: Boolean(mod.customized),
+    };
+  }
+
+  const hiddenTabs = (Array.isArray(layout?.hiddenTabs) ? layout.hiddenTabs : []).filter((tab) =>
+    permittedTabKeys.has(tab),
+  );
+
+  return {
+    version: 2,
+    modules,
+    hiddenTabs,
+  };
+}
+
+function buildDefaultLayoutForUser(req) {
+  const permitted = getPermittedTabKeys(req);
+  const roleName = String(
+    req.user?.systemRole?.roleName || req.user?.roleName || req.user?.role || '',
+  ).trim();
+  const preferred = ROLE_DEFAULT_TAB_KEYS[roleName];
+  let hiddenTabs = [];
+  if (preferred?.length) {
+    const preferredSet = new Set(preferred);
+    hiddenTabs = ALL_DASHBOARD_TAB_KEYS.filter((key) => permitted.has(key) && !preferredSet.has(key));
+  }
+  return {
+    version: 2,
+    modules: {},
+    hiddenTabs,
+  };
+}
+
 /** Accept legacy widget array or v2 `{ version: 2, modules }` command-center layout. */
 function normalizeDashboardLayoutPayload(raw) {
   if (Array.isArray(raw)) {
@@ -749,14 +849,7 @@ export const dashboardService = {
   getOverview,
 
   listCatalog(req) {
-    const datasets = DATASET_REGISTRY.filter((d) => canAccessDataset(req, d)).map(
-      ({ permissions, ...rest }) => rest
-    );
-    const modules = DASHBOARD_MODULE_ORDER.map((name) => ({
-      name,
-      datasets: datasets.filter((d) => d.module === name),
-    })).filter((m) => m.datasets.length > 0);
-    return { datasets, modules };
+    return listCatalogForRequest(req);
   },
 
   async fetchDataset(datasetId, req) {
@@ -790,28 +883,41 @@ export const dashboardService = {
     return analyzeDataset(rows);
   },
 
-  async getLayout(userId) {
+  async getLayout(userId, req) {
     const layout = await prisma.userDashboardLayout.findUnique({ where: { userId } });
-    const stored = normalizeDashboardLayoutPayload(layout?.widgets);
+    let stored;
+    if (!layout?.widgets) {
+      stored = req ? buildDefaultLayoutForUser(req) : { version: 2, modules: {}, hiddenTabs: [] };
+    } else {
+      stored = normalizeDashboardLayoutPayload(layout.widgets);
+    }
+    if (req) {
+      stored = filterLayoutByPermissions(stored, req);
+    }
     return {
       layout: stored,
       widgets: stored,
       version: stored.version ?? 2,
       updatedAt: layout?.updatedAt ?? null,
+      permittedTabKeys: req ? [...getPermittedTabKeys(req)] : [],
     };
   },
 
-  async saveLayout(userId, body = {}) {
-    const stored = normalizeDashboardLayoutPayload(body.layout ?? body.widgets ?? body);
+  async saveLayout(userId, body = {}, req) {
+    let stored = normalizeDashboardLayoutPayload(body.layout ?? body.widgets ?? body);
+    if (req) {
+      stored = filterLayoutByPermissions(stored, req);
+    }
     const layout = await prisma.userDashboardLayout.upsert({
       where: { userId },
       create: { userId, widgets: stored, version: 2 },
       update: { widgets: stored, version: 2 },
     });
     const normalized = normalizeDashboardLayoutPayload(layout.widgets);
+    const filtered = req ? filterLayoutByPermissions(normalized, req) : normalized;
     return {
-      layout: normalized,
-      widgets: normalized,
+      layout: filtered,
+      widgets: filtered,
       version: 2,
       updatedAt: layout.updatedAt,
     };

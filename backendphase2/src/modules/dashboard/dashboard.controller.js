@@ -42,7 +42,7 @@ export const dashboardController = {
 
   async getLayout(req, res) {
     try {
-      const layout = await dashboardService.getLayout(req.user.id);
+      const layout = await dashboardService.getLayout(req.user.id, req);
       sendResponse(res, 200, 'OK', layout);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -51,7 +51,7 @@ export const dashboardController = {
 
   async saveLayout(req, res) {
     try {
-      const layout = await dashboardService.saveLayout(req.user.id, req.body);
+      const layout = await dashboardService.saveLayout(req.user.id, req.body, req);
       sendResponse(res, 200, 'Layout saved', layout);
     } catch (error) {
       sendError(res, 400, error.message, error);

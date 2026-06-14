@@ -108,6 +108,7 @@ export function resolveModuleDisplayWidgets(
   config: ModuleCommandConfig,
   widgetModuleName: string,
   moduleLayout: ModuleCommandCenterLayout,
+  allowedDatasetIds?: Set<string>,
 ): { widgets: DashboardWidget[]; usingDefaults: boolean } {
   if (moduleLayout.dismissed) {
     return { widgets: [], usingDefaults: false };
@@ -126,16 +127,25 @@ export function resolveModuleDisplayWidgets(
       if (missingKpis.length) widgets = [...missingKpis, ...widgets];
     }
     return {
-      widgets,
+      widgets: filterWidgetsByDatasets(widgets, allowedDatasetIds),
       usingDefaults: false,
     };
   }
   const defaults = buildDefaultModuleWidgets(config, widgetModuleName);
   const visible = defaults.filter((w) => !moduleLayout.hiddenDefaultIds.includes(w.id));
   return {
-    widgets: visible,
+    widgets: filterWidgetsByDatasets(visible, allowedDatasetIds),
     usingDefaults: visible.length > 0,
   };
+}
+
+function filterWidgetsByDatasets(widgets: DashboardWidget[], allowedDatasetIds?: Set<string>) {
+  if (!allowedDatasetIds?.size) return widgets;
+  return widgets.filter((widget) => {
+    const ds = widgetDatasetId(widget);
+    if (!ds) return true;
+    return allowedDatasetIds.has(ds);
+  });
 }
 
 export function isDefaultWidgetId(id: string) {
@@ -207,4 +217,38 @@ export function serializeLayout(layout: DashboardLayoutV2): DashboardLayoutV2 {
     modules: { ...layout.modules },
     hiddenTabs: [...(layout.hiddenTabs || [])],
   };
+}
+
+function widgetDatasetId(widget: DashboardWidget): string | null {
+  const direct = String(widget.datasetId || '').trim();
+  if (direct) return direct;
+  const filters = widget.filters as { datasetId?: string } | undefined;
+  if (filters?.datasetId) return String(filters.datasetId).trim();
+  return null;
+}
+
+/** Drop widgets and modules the viewer cannot access (saved layout may outlive permission changes). */
+export function filterLayoutByAllowedDatasets(
+  layout: DashboardLayoutV2,
+  allowedDatasetIds: Set<string>,
+  permittedTabKeys: Set<ModuleTabKey>,
+): DashboardLayoutV2 {
+  const modules: Partial<Record<ModuleTabKey, ModuleCommandCenterLayout>> = {};
+  for (const [key, mod] of Object.entries(layout.modules || {})) {
+    const tabKey = key as ModuleTabKey;
+    if (!permittedTabKeys.has(tabKey) || !mod) continue;
+    const widgets = (mod.widgets || []).filter((widget) => {
+      const ds = widgetDatasetId(widget);
+      if (!ds) return true;
+      return allowedDatasetIds.has(ds);
+    });
+    modules[tabKey] = {
+      widgets,
+      hiddenDefaultIds: mod.hiddenDefaultIds || [],
+      dismissed: mod.dismissed,
+      customized: mod.customized,
+    };
+  }
+  const hiddenTabs = (layout.hiddenTabs || []).filter((tab) => permittedTabKeys.has(tab));
+  return { version: 2, modules, hiddenTabs };
 }

@@ -29,3 +29,7 @@ export function canViewAllClients(req) {
 export function canViewAllLeads(req) {
   return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_leads']);
 }
+
+export function canViewAllJobs(req) {
+  return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_jobs']);
+}

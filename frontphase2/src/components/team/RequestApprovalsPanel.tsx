@@ -77,6 +77,7 @@ export function RequestApprovalsPanel() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [actingId, setActingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [reviewNoteById, setReviewNoteById] = useState<Record<string, string>>({});
   const [currentUser, setCurrentUser] = useState<TeamRequestUserIdentity>({});
   const [recruitmentMode, setRecruitmentMode] = useState<'agency' | 'standalone'>(() =>
     typeof window !== 'undefined' ? getCachedOrgRecruitmentMode() : 'agency',
@@ -168,13 +169,18 @@ export function RequestApprovalsPanel() {
     status: 'approved' | 'rejected',
   ) => {
     const label = status === 'approved' ? 'approve' : 'reject';
+    const note = (reviewNoteById[request.id] || '').trim();
+    if (status === 'rejected' && !note) {
+      toast.error('Remark is required when rejecting a request');
+      return;
+    }
     if (!(await requestConfirm(`Are you sure you want to ${label} this request?`))) {
       return;
     }
 
     setActingId(request.id);
     try {
-      const res = await updateTeamRequestStatus(request.id, { status });
+      const res = await updateTeamRequestStatus(request.id, { status, reviewNote: note || undefined });
       setRequests((prev) =>
         prev.map((entry) => (entry.id === request.id ? res.data : entry)),
       );
@@ -326,6 +332,18 @@ export function RequestApprovalsPanel() {
                           <div className="flex flex-wrap items-center gap-2">
                             {canAct ? (
                               <>
+                                <input
+                                  type="text"
+                                  placeholder="Remark (required to reject)"
+                                  className="min-w-[10rem] rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
+                                  value={reviewNoteById[request.id] || ''}
+                                  onChange={(e) =>
+                                    setReviewNoteById((prev) => ({
+                                      ...prev,
+                                      [request.id]: e.target.value,
+                                    }))
+                                  }
+                                />
                                 <button
                                   type="button"
                                   disabled={isActing || isDeleting}

@@ -202,6 +202,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
   ],
   Manager: [
     'view_team', 'add_team_member', 'edit_team_member', 'manage_targets', 'view_team_activity',
+    'leads_read', 'clients_read', 'jobs_read',
     'reports_read', 'view_dashboard', 'view_all_candidates', 'view_all_jobs', 'view_all_clients', 'view_all_leads',
     'clients_handoff',
     'requests_read', 'requests_create', 'requests_update', 'requests_delete', 'view_all_requests',

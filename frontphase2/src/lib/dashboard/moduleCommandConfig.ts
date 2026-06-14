@@ -2,6 +2,11 @@ import type { SummaryCardColor } from '@/components/ui/SummaryCard';
 import type { DashboardOverview } from './api';
 import type { TaskStats } from '../api';
 import type { WidgetFilters } from './types';
+import { MODULE_ACCESS_MAP } from '../rbac/moduleAccess';
+
+function modulePerms(module: keyof typeof MODULE_ACCESS_MAP): string[] {
+  return MODULE_ACCESS_MAP[module] ?? [];
+}
 
 export type ModuleTabKey =
   | 'leads'
@@ -86,7 +91,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'leads',
     label: 'Leads',
     listRoute: '/leads',
-    permissions: ['leads_read', 'leads_create', 'leads_update'],
+    permissions: modulePerms('Leads'),
     datasets: ['leads'],
     tableDatasetId: 'leads',
     tableTitle: 'Lead command center',
@@ -151,7 +156,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'clients',
     label: 'Clients',
     listRoute: '/client',
-    permissions: ['clients_read'],
+    permissions: modulePerms('Clients'),
     datasets: ['clients', 'clients_metrics'],
     tableDatasetId: 'clients',
     tableTitle: 'Client command center',
@@ -195,7 +200,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'jobs',
     label: 'Jobs',
     listRoute: '/job',
-    permissions: ['jobs_read', 'view_jobs'],
+    permissions: modulePerms('Jobs'),
     datasets: ['jobs', 'jobs_metrics'],
     tableDatasetId: 'jobs',
     tableTitle: 'Job command center',
@@ -227,7 +232,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'candidates',
     label: 'Candidates',
     listRoute: '/candidate',
-    permissions: ['candidates_read', 'view_all_candidates'],
+    permissions: modulePerms('Candidates'),
     datasets: ['candidates', 'candidates_pipeline'],
     tableDatasetId: 'candidates',
     tableTitle: 'Candidate command center',
@@ -258,7 +263,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'interviews',
     label: 'Interviews',
     listRoute: '/interviews',
-    permissions: ['interviews_read'],
+    permissions: modulePerms('Interviews'),
     datasets: ['interviews', 'interviews_kpis'],
     tableDatasetId: 'interviews',
     tableTitle: 'Interview schedule',
@@ -306,7 +311,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'placements',
     label: 'Placements',
     listRoute: '/placement',
-    permissions: ['placements_read'],
+    permissions: modulePerms('Placements'),
     datasets: ['placements', 'placements_stats'],
     tableDatasetId: 'placements',
     tableTitle: 'Placements',
@@ -344,7 +349,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'pipeline',
     label: 'Pipeline',
     listRoute: '/job',
-    permissions: ['pipeline_read', 'move_pipeline'],
+    permissions: modulePerms('Pipeline'),
     datasets: ['candidates_pipeline'],
     tableDatasetId: 'candidates_pipeline',
     tableTitle: 'Pipeline stages',
@@ -374,7 +379,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'matches',
     label: 'Matches',
     listRoute: '/matches',
-    permissions: ['matches_read'],
+    permissions: modulePerms('Matches'),
     datasets: [],
     tableDatasetId: '',
     tableTitle: 'AI matches',
@@ -396,7 +401,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'tasks',
     label: 'Tasks',
     listRoute: '/Task&Activites',
-    permissions: ['tasks_read'],
+    permissions: modulePerms('Tasks'),
     datasets: ['tasks_and_activity'],
     tableDatasetId: 'tasks_and_activity',
     tableTitle: 'Tasks & activity',
@@ -429,7 +434,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'team',
     label: 'Team',
     listRoute: '/team',
-    permissions: ['view_team', 'add_team_member'],
+    permissions: modulePerms('Team'),
     datasets: ['team'],
     tableDatasetId: 'team',
     tableTitle: 'Team members',
@@ -458,7 +463,7 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
     key: 'departments',
     label: 'Departments',
     listRoute: '/team?tab=departments',
-    permissions: ['add_team_member', 'manage_settings'],
+    permissions: modulePerms('Departments'),
     datasets: ['departments'],
     tableDatasetId: 'departments',
     tableTitle: 'Departments',

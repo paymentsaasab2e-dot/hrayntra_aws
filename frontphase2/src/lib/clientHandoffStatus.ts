@@ -1,66 +1,23 @@
 import type { CrossDepartmentWorkRequest } from './api/teamApi';
+import {
+  canInitiateSentRequest,
+  resolveLatestSentRequestStatus,
+  type SentRequestInfo,
+  type SentRequestUiStatus,
+} from './sentRequestStatus';
 
-export type ClientHandoffUiStatus = 'none' | 'pending' | 'accepted' | 'rejected';
-
-export type ClientHandoffRequestInfo = {
-  status: ClientHandoffUiStatus;
-  requestId?: string;
-  reviewNote?: string;
-  targetDepartmentId?: string;
-  targetDepartmentName?: string;
-  updatedAt?: string;
-};
+export type ClientHandoffUiStatus = SentRequestUiStatus;
+export type ClientHandoffRequestInfo = SentRequestInfo;
 
 export function resolveClientHandoffInfo(
   requests: CrossDepartmentWorkRequest[],
   clientId: string,
 ): ClientHandoffRequestInfo {
   const normalizedClientId = String(clientId || '').trim();
-  if (!normalizedClientId) return { status: 'none' };
-
-  const clientRequests = requests
-    .filter(
-      (req) =>
-        String(req.workType || '').toUpperCase() === 'CLIENT' &&
-        String(req.linkedEntityId || '').trim() === normalizedClientId,
-    )
-    .sort(
-      (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime(),
-    );
-
-  if (!clientRequests.length) return { status: 'none' };
-
-  const pending = clientRequests.find((req) => req.status === 'pending');
-  if (pending) {
-    return {
-      status: 'pending',
-      requestId: pending.id,
-      targetDepartmentId: pending.targetDepartmentId,
-      updatedAt: pending.updatedAt || pending.createdAt,
-    };
-  }
-
-  const accepted = clientRequests.find((req) => req.status === 'accepted' || req.status === 'forwarded');
-  if (accepted) {
-    return {
-      status: 'accepted',
-      requestId: accepted.id,
-      updatedAt: accepted.updatedAt || accepted.createdAt,
-    };
-  }
-
-  const rejected = clientRequests.find((req) => req.status === 'rejected');
-  if (rejected) {
-    return {
-      status: 'rejected',
-      requestId: rejected.id,
-      reviewNote: rejected.reviewNote,
-      targetDepartmentId: rejected.targetDepartmentId,
-      updatedAt: rejected.updatedAt || rejected.createdAt,
-    };
-  }
-
-  return { status: 'none' };
+  return resolveLatestSentRequestStatus(requests, (req) => {
+    if (String(req.workType || '').toUpperCase() !== 'CLIENT') return false;
+    return String(req.linkedEntityId || '').trim() === normalizedClientId;
+  });
 }
 
 export function buildClientHandoffStatusMap(
@@ -80,7 +37,4 @@ export function buildClientHandoffStatusMap(
   return map;
 }
 
-export function canInitiateClientHandoff(info: ClientHandoffRequestInfo | undefined): boolean {
-  if (!info || info.status === 'none' || info.status === 'rejected') return true;
-  return false;
-}
+export const canInitiateClientHandoff = canInitiateSentRequest;

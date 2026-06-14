@@ -1,4 +1,5 @@
 import { COMMON_FILTER_DEFS, DATE_RANGE_OPTIONS } from './dashboard.filters.js';
+import { DASHBOARD_MODULE_PERMISSIONS as P } from './dashboardModuleAccess.js';
 
 /** Display order for module groups in the UI */
 export const DASHBOARD_MODULE_ORDER = [
@@ -24,7 +25,7 @@ export const DATASET_REGISTRY = [
     label: 'All leads',
     module: 'Leads',
     description: 'Lead records with status and source',
-    permissions: ['leads_read', 'leads_create', 'leads_update'],
+    permissions: P.Leads,
     kind: 'list',
     filters: [
       COMMON_FILTER_DEFS.dateRange,
@@ -39,7 +40,7 @@ export const DATASET_REGISTRY = [
     label: 'All clients',
     module: 'Clients',
     description: 'Client accounts',
-    permissions: ['clients_read', 'clients_create', 'clients_update'],
+    permissions: P.Clients,
     kind: 'list',
     filters: [
       COMMON_FILTER_DEFS.dateRange,
@@ -54,7 +55,7 @@ export const DATASET_REGISTRY = [
     label: 'Client metrics',
     module: 'Clients',
     description: 'KPI aggregates for clients',
-    permissions: ['clients_read'],
+    permissions: P.Clients,
     kind: 'metrics',
     filters: [COMMON_FILTER_DEFS.dateRange],
   },
@@ -63,7 +64,7 @@ export const DATASET_REGISTRY = [
     label: 'All jobs',
     module: 'Jobs',
     description: 'Job requisitions and pipeline counts',
-    permissions: ['jobs_read', 'view_jobs', 'create_job', 'edit_job'],
+    permissions: P.Jobs,
     kind: 'list',
     filters: [
       COMMON_FILTER_DEFS.dateRange,
@@ -78,7 +79,7 @@ export const DATASET_REGISTRY = [
     label: 'Job metrics',
     module: 'Jobs',
     description: 'Aggregated job KPIs',
-    permissions: ['jobs_read', 'view_jobs'],
+    permissions: P.Jobs,
     kind: 'metrics',
     filters: [COMMON_FILTER_DEFS.dateRange],
   },
@@ -87,7 +88,7 @@ export const DATASET_REGISTRY = [
     label: 'All candidates',
     module: 'Candidates',
     description: 'Candidate pool records',
-    permissions: ['candidates_read', 'view_all_candidates', 'view_assigned_candidates'],
+    permissions: P.Candidates,
     kind: 'list',
     filters: [
       COMMON_FILTER_DEFS.dateRange,
@@ -112,7 +113,7 @@ export const DATASET_REGISTRY = [
     label: 'Pipeline by stage',
     module: 'Candidates',
     description: 'Candidate counts per pipeline stage',
-    permissions: ['candidates_read', 'view_all_candidates', 'view_assigned_candidates'],
+    permissions: [...P.Candidates, ...P.Pipeline],
     kind: 'metrics',
     filters: [],
   },
@@ -121,7 +122,7 @@ export const DATASET_REGISTRY = [
     label: 'All interviews',
     module: 'Interviews',
     description: 'Scheduled and completed interviews',
-    permissions: ['interviews_read', 'interviews_create'],
+    permissions: P.Interviews,
     kind: 'list',
     filters: [
       COMMON_FILTER_DEFS.dateRange,
@@ -136,7 +137,7 @@ export const DATASET_REGISTRY = [
     label: 'Interview KPIs',
     module: 'Interviews',
     description: 'Today, upcoming, and completion metrics',
-    permissions: ['interviews_read'],
+    permissions: P.Interviews,
     kind: 'metrics',
     filters: [COMMON_FILTER_DEFS.dateRange],
   },
@@ -145,7 +146,7 @@ export const DATASET_REGISTRY = [
     label: 'All placements',
     module: 'Placements',
     description: 'Placements and revenue',
-    permissions: ['placements_read', 'placements_create'],
+    permissions: P.Placements,
     kind: 'list',
     filters: [
       COMMON_FILTER_DEFS.dateRange,
@@ -160,7 +161,7 @@ export const DATASET_REGISTRY = [
     label: 'Placement stats',
     module: 'Placements',
     description: 'Joined, pending, and revenue aggregates',
-    permissions: ['placements_read'],
+    permissions: P.Placements,
     kind: 'metrics',
     filters: [COMMON_FILTER_DEFS.dateRange],
   },
@@ -169,16 +170,7 @@ export const DATASET_REGISTRY = [
     label: 'Tasks & activity',
     module: 'Task and activity',
     description: 'Team tasks and recent user activity',
-    permissions: [
-      'leads_read',
-      'clients_read',
-      'jobs_read',
-      'candidates_read',
-      'interviews_read',
-      'placements_read',
-      'manage_settings',
-      'export_data',
-    ],
+    permissions: P['Task and activity'],
     kind: 'list',
     filters: [COMMON_FILTER_DEFS.dateRange, COMMON_FILTER_DEFS.recordType],
   },
@@ -187,7 +179,7 @@ export const DATASET_REGISTRY = [
     label: 'Team members',
     module: 'Team',
     description: 'Users, roles, and departments',
-    permissions: ['add_team_member', 'edit_team_member', 'assign_roles', 'generate_credentials'],
+    permissions: P.Team,
     kind: 'list',
     filters: [
       {
@@ -208,7 +200,7 @@ export const DATASET_REGISTRY = [
     label: 'Departments',
     module: 'Departments',
     description: 'Departments and member counts',
-    permissions: ['add_team_member', 'edit_team_member', 'manage_settings'],
+    permissions: P.Departments,
     kind: 'list',
     filters: [],
   },

@@ -97,6 +97,16 @@ const leadDetailsFieldProperties = {
   lastFollowUp: { type: 'string' },
   nextFollowUp: { type: 'string' },
   assignedToId: { type: 'string' },
+  assignedToName: { type: 'string' },
+  companyLinks: {
+    type: 'array',
+    items: { type: 'string' },
+  },
+  teamMemberSalutation: { type: 'string' },
+  teamMemberName: { type: 'string' },
+  teamMemberDesignation: { type: 'string' },
+  teamMemberEmail: { type: 'string' },
+  teamMemberPhone: { type: 'string' },
 };
 
 const leadDetailsRequiredFields = Object.keys(leadDetailsFieldProperties);
@@ -132,9 +142,83 @@ const leadChatJsonSchema = {
   strict: true,
 };
 
-const LEAD_DETAILS_SYSTEM_PROMPT = `You are the HRYANTRA recruitment CRM lead extraction assistant. Extract lead information and return ONLY valid JSON. companyName, contactPerson, email, phone, interestedNeeds, expectedBusinessValue (budget), priority High|Medium|Low, location fields, source/type/status enums. If unknown use empty string. Do not return markdown.`;
+const LEAD_AI_FIELD_GUIDE = `Add Lead drawer fields (map user text into leadPatch on every turn):
 
-const LEAD_CHAT_SYSTEM_PROMPT = `You are a recruitment sales coordinator for HRYANTRA Add Lead. Ask ONE question at a time. Required before readyToCreate: companyName + valid email. Return leadPatch with all schema fields.`;
+REQUIRED (only these block readyToCreate):
+- companyName — Company name
+- email — Director primary email (valid format)
+
+OPTIONAL (extract whenever mentioned; never require):
+- companyLinks[] — company website / LinkedIn URLs (also copy first URL to website, LinkedIn URL to linkedIn)
+- website, linkedIn — company web presence
+- contactPerson — Director name
+- directorSalutation — Mr/Mrs/Ms/Dr etc. Infer from director name when not stated (e.g. Amit → Mr, Neha → Ms)
+- designation — Director job title
+- phone, emails[], phones[] — Director contact channels
+- teamMemberSalutation, teamMemberName, teamMemberDesignation, teamMemberEmail, teamMemberPhone — secondary team member (not director). Infer teamMemberSalutation from teamMemberName when not stated.
+- location — free-text location search (also set city, state, country separately)
+- city, state, country — ALWAYS populate these when location is known (e.g. Mumbai, Maharashtra, India → city Mumbai, state Maharashtra, country India)
+- industry — e.g. Technology, Healthcare
+- source — Website | LinkedIn | Email | Referral | Campaign
+- sourceWebsiteUrl — REQUIRED when source is Website: copy the company website URL here (same URL as website/companyLinks)
+- sourceLinkedInUrl — when source is LinkedIn: copy LinkedIn URL here
+- sourceEmail — when source is Email
+- referralName — when source is Referral
+- campaignName, campaignLink — when source is Campaign
+- status — New | Contacted | Qualified | Converted | Lost (default New)
+- priority — High | Medium | Low (Interest Level)
+- nextFollowUp — ISO 8601 datetime (YYYY-MM-DDTHH:mm) for next follow-up date & time
+- interestedNeeds — Services needed (placement, executive search, ATS, etc.)
+- expectedBusinessValue — budget / deal size / revenue potential
+- notes — general remarks not captured elsewhere
+- assignedToName — recruiter or owner name if user mentions who should own the lead
+- type — Company | Individual | Referral
+- companySize, lastFollowUp, otherDetails[] — extras as label/value pairs
+
+Merge with currentForm: keep existing non-empty values unless the user corrects them.`;
+
+const LEAD_DETAILS_SYSTEM_PROMPT = `You are the HRYANTRA recruitment CRM lead extraction assistant.
+
+${LEAD_AI_FIELD_GUIDE}
+
+From unstructured text (email, WhatsApp, meeting notes), extract every field you can in one pass.
+Return ONLY valid JSON matching the schema. Use empty string or empty array when unknown. No markdown.`;
+
+const LEAD_CHAT_SYSTEM_PROMPT = `You are the HRYANTRA AI Lead Assistant for the Add Lead drawer.
+
+${LEAD_AI_FIELD_GUIDE}
+
+Conversation rules:
+- Extract ALL detectable fields from every user message into leadPatch immediately.
+- Ask ONE question at a time. Prioritize missing REQUIRED fields (companyName, email) first.
+- All optional fields are optional — user may skip. Offer to collect more (director phone, team member, location, industry, source, status, interest level, follow-up, services, business value, assignee) but never insist.
+- When the user pastes bulk notes, extract everything possible and summarize what you filled.
+- Never re-ask fields already present in currentForm unless the user wants to change them.
+- Set readyToCreate=true only when companyName and a valid email are present. Tell the user to review the Add Lead form and click Create Lead.
+- Always return leadPatch with ALL schema fields (empty string or [] when unknown).
+
+Reply formatting (reply field only):
+- When summarizing captured fields, use a short intro line then ONE bullet per field on its own line.
+- Start each bullet with the character • (not a hyphen dash).
+- Format: "Label: value" — no markdown, no ** bold, no asterisks.
+- Put a blank line between the intro and the bullet list, and another blank line before the closing sentence.
+- Example reply shape:
+"I've captured these details for you:
+
+• Company: QuantumByte Pvt Ltd
+• Website: https://quantumbyte.com
+• Director: Amit Shah (amit@quantumbyte.com, 9876543210)
+• Team member: Neha Rao (neha@quantumbyte.com)
+• Location: Mumbai, Maharashtra, India
+• Industry: Technology
+• Source: Website
+• Services: Executive placement
+• Expected value: ₹15 lakh
+• Follow-up: 25 Jun 2026, 10:00 AM
+• Assigned to: Sarah Chen
+
+Please review the Add Lead form and click Create Lead when ready."
+- Never run multiple bullets together on one line.`;
 
 const clientDetailsFieldProperties = {
   companyName: { type: 'string' },
@@ -558,10 +642,16 @@ export const aiController = {
                 'Optimize this lead for our Add Lead drawer and return only valid JSON matching the schema.',
                 `User input:\n${String(prompt || '').trim()}`,
                 `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}`,
-                'Map hiring requirements or requested services into interestedNeeds.',
-                'Map business context or expected value notes into notes.',
-                'If website, linkedin, email source, or campaign links are mentioned, place them in the most relevant URL fields.',
-                'Any useful prompt data that does not fit our standard lead fields must go into otherDetails as label/value pairs.',
+                'Map company URLs into companyLinks[] and website/linkedIn.',
+                'When source is Website, also set sourceWebsiteUrl to the same company website URL.',
+                'When source is LinkedIn, also set sourceLinkedInUrl to the LinkedIn URL.',
+                'Map director/contact into contactPerson, email, phone, directorSalutation, designation.',
+                'Map secondary contacts into teamMember* fields.',
+                'Map city/state/country/location from address text — set city, state, and country fields separately, not only location.',
+                'Map services into interestedNeeds and budget/deal size into expectedBusinessValue.',
+                'Map follow-up phrases into nextFollowUp as ISO datetime when possible.',
+                'Map source-specific URLs into sourceWebsiteUrl, sourceLinkedInUrl, sourceEmail, campaignName, campaignLink, referralName.',
+                'Put remaining facts into otherDetails as label/value pairs.',
                 'Do not return markdown.',
               ].join('\n\n'),
             },
@@ -606,7 +696,7 @@ export const aiController = {
         {
           model: env.OPENAI_CHAT_MODEL,
           temperature: 0.3,
-          max_tokens: 1800,
+          max_tokens: 2200,
           response_format: { type: 'json_schema', json_schema: leadChatJsonSchema },
           messages: [
             { role: 'system', content: LEAD_CHAT_SYSTEM_PROMPT },

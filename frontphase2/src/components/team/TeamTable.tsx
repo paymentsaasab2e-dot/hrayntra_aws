@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Filter, MoreVertical, Eye, Edit, Key, UserX, Lock, Unlock, Mail, CheckCircle, AlertCircle } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
-import { getTeamMembers, deleteTeamMember, lockAccount, unlockAccount, resetPassword, resendInvite } from '../../lib/api/teamApi';
+import { getTeamMembers, deleteTeamMember, lockAccount, unlockAccount, resetPassword, resendInvite, activateTeamMember } from '../../lib/api/teamApi';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { toast } from 'sonner';
 import { requestConfirm } from '../../lib/appDialog';
@@ -105,8 +105,11 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
           }
           break;
         case 'activate':
-          // Would need an activate endpoint or update status
-          toast.info('Activate functionality coming soon');
+          if (await requestConfirm('Activate this team member?')) {
+            await activateTeamMember(member.id);
+            toast.success('Member activated');
+            loadMembers();
+          }
           break;
         case 'login-history':
           setSelectedMember(member);

@@ -12,7 +12,7 @@ import { sendJobAssignmentEmail, sendJobClosedEmail } from '../../services/email
 import { createAlertNotification } from '../setting/alert-dispatch.service.js';
 import { notifyJobClosed, personName } from '../setting/alert-notify.helpers.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
-import { canViewAllAssignments } from '../../utils/permissionScope.js';
+import { canViewAllAssignments, canViewAllJobs } from '../../utils/permissionScope.js';
 import {
   buildAssigneeVisibilityOr,
   buildInitialParticipantIds,
@@ -978,7 +978,7 @@ export const jobService = {
     const mineFilter = mine === 'true' || mine === '1';
     if (mineFilter && req.user?.id) {
       where.createdById = req.user.id;
-    } else if (!canViewAllAssignments(req) && req.user?.id) {
+    } else if (!canViewAllJobs(req) && req.user?.id) {
       where.OR = buildAssigneeVisibilityOr(req.user.id);
     }
     if (search) {
@@ -1066,7 +1066,7 @@ export const jobService = {
     let where = { id };
     const scope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     where = mergeWhereWithScope(where, scope);
-    if (!canViewAllAssignments(req) && req?.user?.id) {
+    if (!canViewAllJobs(req) && req?.user?.id) {
       where = mergeWhereWithScope(where, { OR: buildAssigneeVisibilityOr(req.user.id) });
     }
 
@@ -1876,7 +1876,7 @@ export const jobService = {
     const skip = (page - 1) * limit;
 
     let baseWhere = { isDeleted: true };
-    if (!canViewAllAssignments(req) && req?.user?.id) {
+    if (!canViewAllJobs(req) && req?.user?.id) {
       baseWhere = {
         ...baseWhere,
         OR: [
@@ -1997,7 +1997,7 @@ export const jobService = {
     const scope = superAdminScope || (
       mineFilter && req?.user?.id
         ? { createdById: req.user.id }
-        : !canViewAllAssignments(req) && req?.user?.id
+        : !canViewAllJobs(req) && req?.user?.id
           ? { OR: buildAssigneeVisibilityOr(req.user.id) }
           : {}
     );

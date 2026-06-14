@@ -184,7 +184,7 @@ export async function syncDepartmentRoles(departmentId, roles) {
   return applyDepartmentRoles(departmentId, roles);
 }
 
-async function loadDepartmentRankMaps(departmentId) {
+export async function loadDepartmentRankMaps(departmentId) {
   const normalizedDeptId = idStr(departmentId);
   const deptRoles = await departmentRoleDelegate().findMany({
     where: { departmentId: normalizedDeptId },
