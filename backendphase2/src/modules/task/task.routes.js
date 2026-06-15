@@ -15,6 +15,7 @@ router.get('/:id/activities', requireAnyPermission(['tasks_read']), taskControll
 router.get('/:id', requireAnyPermission(['tasks_read']), taskController.getById);
 router.post('/', requireAnyPermission(['tasks_create']), taskController.create);
 router.patch('/:id', requireAnyPermission(['tasks_update']), taskController.update);
+router.post('/:id/delegate', requireAnyPermission(['tasks_update']), taskController.delegateTask);
 router.post('/:id/notes', requireAnyPermission(['tasks_update']), taskController.addNote);
 router.post('/:id/approve-completion', requireAnyPermission(['tasks_update']), taskController.approveCompletion);
 router.post('/:id/reject-completion', requireAnyPermission(['tasks_update']), taskController.rejectCompletion);

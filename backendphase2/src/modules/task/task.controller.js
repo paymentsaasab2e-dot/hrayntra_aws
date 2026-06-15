@@ -133,6 +133,15 @@ export const taskController = {
     }
   },
 
+  async delegateTask(req, res) {
+    try {
+      const task = await taskService.delegateTask(req.params.id, req.body, req);
+      sendResponse(res, 200, 'Task delegated successfully', task);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async delete(req, res) {
     try {
       const result = await taskService.delete(req.params.id, req);

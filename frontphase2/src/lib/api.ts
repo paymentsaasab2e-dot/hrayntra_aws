@@ -5772,6 +5772,7 @@ export interface CreateTaskData {
   notes?: string[];
   taskType?: string;
   type?: string;
+  completionApproverId?: string;
   status?: 'Pending' | 'In Progress' | 'Completed' | 'Cancelled' | 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
 }
 
@@ -5846,6 +5847,17 @@ export const apiUpdateTask = async (id: string, data: UpdateTaskData) => {
   return apiFetch<BackendTask>(`/tasks/${id}`, {
     method: 'PATCH',
     body: data,
+    auth: true,
+  });
+};
+
+export const apiDelegateTask = async (
+  id: string,
+  payload: { assignToId: string; setSelfAsApprover?: boolean; completionApproverId?: string },
+) => {
+  return apiFetch<BackendTask>(`/tasks/${id}/delegate`, {
+    method: 'POST',
+    body: payload,
     auth: true,
   });
 };
