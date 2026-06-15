@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, X, Users } from 'lucide-react';
 import type { TeamMember } from '../../types/team';
 
@@ -17,6 +18,9 @@ const ROLE_COLOR_MAP: Record<string, string> = {
   gray: 'bg-gray-100 text-gray-700',
 };
 
+const MENU_MAX_HEIGHT = 288;
+const MENU_GAP = 6;
+
 function initials(first?: string, last?: string): string {
   return `${(first?.[0] ?? '').toUpperCase()}${(last?.[0] ?? '').toUpperCase()}` || '?';
 }
@@ -26,6 +30,16 @@ function colorForMember(member: TeamMember): string {
   const colorKey = (m.role?.color || m.systemRole?.color || '').toLowerCase();
   return ROLE_COLOR_MAP[colorKey] || ROLE_COLOR_MAP.gray;
 }
+
+type MenuPlacement = 'top' | 'bottom';
+
+type MenuPosition = {
+  left: number;
+  width: number;
+  top?: number;
+  bottom?: number;
+  placement: MenuPlacement;
+};
 
 export interface LeadAssigneesMultiSelectProps {
   members: TeamMember[];
@@ -59,7 +73,10 @@ export function LeadAssigneesMultiSelect({
 }: LeadAssigneesMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const memberById = useMemo(() => {
     const m = new Map<string, TeamMember>();
@@ -67,7 +84,10 @@ export function LeadAssigneesMultiSelect({
     return m;
   }, [members]);
 
-  const selected = useMemo(() => value.map((id) => memberById.get(id)).filter(Boolean) as TeamMember[], [value, memberById]);
+  const selected = useMemo(
+    () => value.map((id) => memberById.get(id)).filter(Boolean) as TeamMember[],
+    [value, memberById],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -78,10 +98,56 @@ export function LeadAssigneesMultiSelect({
     });
   }, [members, query]);
 
+  const updateMenuPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const openUpward = spaceBelow < MENU_MAX_HEIGHT + MENU_GAP && spaceAbove > spaceBelow;
+
+    if (openUpward) {
+      setMenuPosition({
+        left: rect.left,
+        width: rect.width,
+        bottom: window.innerHeight - rect.top + MENU_GAP,
+        placement: 'top',
+      });
+      return;
+    }
+
+    setMenuPosition({
+      left: rect.left,
+      width: rect.width,
+      top: rect.bottom + MENU_GAP,
+      placement: 'bottom',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      setQuery('');
+      return;
+    }
+
+    updateMenuPosition();
+    const onReposition = () => updateMenuPosition();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [open, updateMenuPosition]);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
     };
     const escHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -105,6 +171,86 @@ export function LeadAssigneesMultiSelect({
     onChange(value.filter((existing) => existing !== id));
   };
 
+  const menu =
+    open && menuPosition && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-label={ariaLabel}
+            className="fixed z-[80] flex max-h-72 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{
+              left: menuPosition.left,
+              width: menuPosition.width,
+              ...(menuPosition.placement === 'top'
+                ? { bottom: menuPosition.bottom }
+                : { top: menuPosition.top }),
+            }}
+          >
+            <div className="border-b border-slate-100 px-3 py-2">
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search team members…"
+                className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <ul className="min-h-0 flex-1 overflow-y-auto py-1">
+              {loading && (
+                <li className="px-4 py-3 text-xs text-slate-500">Loading team members…</li>
+              )}
+              {!loading && filtered.length === 0 && (
+                <li className="px-4 py-3 text-xs text-slate-500">No team members match your search.</li>
+              )}
+              {!loading &&
+                filtered.map((member) => {
+                  const checked = value.includes(member.id);
+                  return (
+                    <li key={member.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggle(member.id)}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 ${checked ? 'bg-blue-50/60' : ''}`}
+                      >
+                        <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white">
+                          {checked && <span className="block h-2 w-2 rounded-sm bg-blue-600" />}
+                        </span>
+                        <span
+                          className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${colorForMember(member)}`}
+                        >
+                          {initials(member.firstName, member.lastName)}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-slate-900">
+                            {member.firstName} {member.lastName}
+                          </span>
+                          {member.email && (
+                            <span className="block truncate text-[11px] text-slate-500">{member.email}</span>
+                          )}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+            </ul>
+            {value.length > 0 && (
+              <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
+                <span>{value.length} selected · first row is Primary</span>
+                <button
+                  type="button"
+                  onClick={() => onChange([])}
+                  className="font-medium text-rose-600 hover:text-rose-700"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       {selected.length > 0 && (
@@ -112,16 +258,20 @@ export function LeadAssigneesMultiSelect({
           {selected.map((member, idx) => (
             <span
               key={member.id}
-              className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 border border-slate-200 pl-1 pr-2 py-1 text-xs text-slate-700"
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 py-1 pl-1 pr-2 text-xs text-slate-700"
             >
-              <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${colorForMember(member)}`}>
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${colorForMember(member)}`}
+              >
                 {initials(member.firstName, member.lastName)}
               </span>
               <span className="font-medium">
                 {member.firstName} {member.lastName}
               </span>
               {idx === 0 && (
-                <span className="text-[9px] font-semibold uppercase tracking-wider text-blue-700">Primary</span>
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-blue-700">
+                  Primary
+                </span>
               )}
               {!disabled && (
                 <button
@@ -139,86 +289,31 @@ export function LeadAssigneesMultiSelect({
       )}
 
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={disabled || loading}
         aria-label={ariaLabel}
-        className="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-700 hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="flex items-center gap-2 text-slate-600">
-          <Users size={14} className="text-slate-400 shrink-0" />
+          <Users size={14} className="shrink-0 text-slate-400" />
           {selected.length > 0 ? (
-            <span className="text-slate-900 font-medium">
+            <span className="font-medium text-slate-900">
               {selected.length} {selected.length === 1 ? 'member selected' : 'members selected'}
             </span>
           ) : (
             <span className="text-slate-400">{placeholder}</span>
           )}
         </span>
-        <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={16}
+          className={`text-slate-400 transition-transform ${open ? (menuPosition?.placement === 'top' ? '' : 'rotate-180') : ''}`}
+        />
       </button>
 
-      {open && (
-        <div className="absolute z-30 mt-1 w-full rounded-xl border border-slate-200 bg-white shadow-lg max-h-72 overflow-hidden flex flex-col">
-          <div className="px-3 py-2 border-b border-slate-100">
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search team members…"
-              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            />
-          </div>
-          <ul className="overflow-y-auto py-1">
-            {loading && (
-              <li className="px-4 py-3 text-xs text-slate-500">Loading team members…</li>
-            )}
-            {!loading && filtered.length === 0 && (
-              <li className="px-4 py-3 text-xs text-slate-500">No team members match your search.</li>
-            )}
-            {!loading &&
-              filtered.map((member) => {
-                const checked = value.includes(member.id);
-                return (
-                  <li key={member.id}>
-                    <button
-                      type="button"
-                      onClick={() => toggle(member.id)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 ${checked ? 'bg-blue-50/60' : ''}`}
-                    >
-                      <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white">
-                        {checked && <span className="block h-2 w-2 rounded-sm bg-blue-600" />}
-                      </span>
-                      <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${colorForMember(member)}`}>
-                        {initials(member.firstName, member.lastName)}
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="block truncate text-slate-900">
-                          {member.firstName} {member.lastName}
-                        </span>
-                        {member.email && (
-                          <span className="block truncate text-[11px] text-slate-500">{member.email}</span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-          </ul>
-          {value.length > 0 && (
-            <div className="border-t border-slate-100 px-3 py-2 flex justify-between items-center text-xs text-slate-500">
-              <span>{value.length} selected · first row is Primary</span>
-              <button
-                type="button"
-                onClick={() => onChange([])}
-                className="font-medium text-rose-600 hover:text-rose-700"
-              >
-                Clear all
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      {menu}
     </div>
   );
 }
