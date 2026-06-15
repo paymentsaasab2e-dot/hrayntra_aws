@@ -93,6 +93,7 @@ export const taskController = {
       const activities = await getEntityActivities({
         entityType: ENTITY_TYPES.TASK,
         entityId: req.params.id,
+        viewerUserId: req.user?.id,
       });
       sendResponse(res, 200, 'Task activities retrieved successfully', activities);
     } catch (error) {

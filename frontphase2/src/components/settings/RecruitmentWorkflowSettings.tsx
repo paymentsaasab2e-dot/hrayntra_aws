@@ -21,8 +21,6 @@ import {
   type ClientPageFieldVisibility,
 } from '../../lib/clientPageFieldVisibility';
 
-type RecruitmentMode = 'agency' | 'standalone';
-
 type TemplateStage = {
   name: string;
   order: number;
@@ -45,11 +43,8 @@ export function RecruitmentWorkflowSettings() {
   const canManage = hasPermission('manage_settings');
 
   const [loading, setLoading] = useState(true);
-  const [savingMode, setSavingMode] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
-  const [mode, setMode] = useState<RecruitmentMode>('agency');
-  const [draftMode, setDraftMode] = useState<RecruitmentMode>('agency');
   const [stages, setStages] = useState<TemplateStage[]>([]);
   const [planName, setPlanName] = useState<string>('');
   const [planOptions, setPlanOptions] = useState<SubscriptionPlanOption[]>([]);
@@ -74,16 +69,12 @@ export function RecruitmentWorkflowSettings() {
     }
     setLoading(true);
     try {
-      const [modeRes, tplRes, planRes, currencyRes, clientFieldsRes] = await Promise.all([
-        apiFetch<{ recruitmentMode: RecruitmentMode }>('/settings/org/recruitment-mode', { auth: true }),
+      const [tplRes, planRes, currencyRes, clientFieldsRes] = await Promise.all([
         apiFetch<{ stages: TemplateStage[] }>('/settings/org/pipeline-template', { auth: true }),
         apiGetSubscriptionPlan(),
         apiGetOrgDefaultCurrency(),
         apiGetClientPageFieldVisibility(),
       ]);
-      const m = modeRes.data?.recruitmentMode === 'standalone' ? 'standalone' : 'agency';
-      setMode(m);
-      setDraftMode(m);
       const list = Array.isArray(tplRes.data?.stages) ? tplRes.data!.stages : [];
       setStages(
         list.map((s, i) => ({
@@ -134,24 +125,6 @@ export function RecruitmentWorkflowSettings() {
     draftClientPageFields.interestLevel !== clientPageFields.interestLevel ||
     draftClientPageFields.status !== clientPageFields.status ||
     draftClientPageFields.assignedTo !== clientPageFields.assignedTo;
-
-  const saveMode = async () => {
-    setSavingMode(true);
-    try {
-      await apiFetch('/settings/org/recruitment-mode', {
-        method: 'PUT',
-        auth: true,
-        body: { recruitmentMode: draftMode },
-      });
-      setMode(draftMode);
-      await syncOrgRecruitmentSummaryFromApi();
-      toast.success('Recruitment mode saved');
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to save mode');
-    } finally {
-      setSavingMode(false);
-    }
-  };
 
   const saveTemplate = async () => {
     if (stages.length === 0) {
@@ -251,7 +224,7 @@ export function RecruitmentWorkflowSettings() {
   if (!canManage) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-        You need permission to manage settings to change organization recruitment mode or the default pipeline template.
+        You need permission to manage settings to change organization workflow or the default pipeline template.
       </div>
     );
   }
@@ -266,48 +239,6 @@ export function RecruitmentWorkflowSettings() {
 
   return (
     <div className="space-y-8">
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-900">Recruitment mode</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Agency mode keeps billing and commission flows. Both agency and standalone use the default pipeline template below for new jobs unless a job has its own customized pipeline.
-          </p>
-        </div>
-        <div className="p-5 space-y-4">
-          <div className="flex flex-wrap gap-4 items-center">
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="radio"
-                name="recruitmentMode"
-                checked={draftMode === 'agency'}
-                onChange={() => setDraftMode('agency')}
-              />
-              Agency (default)
-            </label>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="radio"
-                name="recruitmentMode"
-                checked={draftMode === 'standalone'}
-                onChange={() => setDraftMode('standalone')}
-              />
-              Standalone
-            </label>
-            <button
-              type="button"
-              onClick={() => void saveMode()}
-              disabled={savingMode || draftMode === mode}
-              className="ml-auto px-4 py-2 rounded-lg text-xs font-bold bg-[#2b7fff] text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600"
-            >
-              {savingMode ? 'Saving…' : 'Save mode'}
-            </button>
-          </div>
-          {draftMode !== mode && (
-            <p className="text-[11px] text-amber-700">You have unsaved changes to recruitment mode.</p>
-          )}
-        </div>
-      </div>
-
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-3">
           <div>

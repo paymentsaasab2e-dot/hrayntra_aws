@@ -11,6 +11,15 @@ async function getQuizzes(req, res) {
   }
 }
 
+async function getCompletedQuizzes(req, res) {
+  try {
+    const quizzes = await quizzesService.fetchCompletedQuizzes(req.user.id);
+    return sendSuccess(res, quizzes);
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
 async function getRecommendedQuiz(req, res) {
   try {
     const quiz = await quizzesService.fetchRecommendedQuiz(req.user.id);
@@ -59,4 +68,32 @@ async function getAttemptResult(req, res) {
   }
 }
 
-module.exports = { getQuizzes, getRecommendedQuiz, getAnalytics, getQuizDetail, submitAttempt, getAttemptResult };
+async function getTopicSuggestions(req, res) {
+  try {
+    const suggestions = await quizzesService.suggestQuizTopics(req.query.q);
+    return sendSuccess(res, suggestions);
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+async function generateQuizzes(req, res) {
+  try {
+    const result = await quizzesService.generateQuizzesFromTopic(req.user.id, req.body.topic);
+    return sendSuccess(res, result, 'Quizzes generated successfully');
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+module.exports = {
+  getQuizzes,
+  getCompletedQuizzes,
+  getRecommendedQuiz,
+  getAnalytics,
+  getQuizDetail,
+  submitAttempt,
+  getAttemptResult,
+  getTopicSuggestions,
+  generateQuizzes,
+};

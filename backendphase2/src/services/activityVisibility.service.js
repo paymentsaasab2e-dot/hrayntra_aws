@@ -61,6 +61,7 @@ async function loadViewer(userId) {
     where: { id: idStr(userId) },
     select: {
       id: true,
+      role: true,
       departmentId: true,
       roleId: true,
       status: true,
@@ -276,6 +277,105 @@ export async function getDepartmentMemberIds(departmentId) {
     select: { id: true },
   });
   return rows.map((row) => row.id).filter(Boolean);
+}
+
+/**
+ * Prisma filter for performedById based on rank/dept hierarchy.
+ * - Super Admin: null (no extra filter)
+ * - Rank 1 dept head: self + same-dept rank 2+
+ * - Rank 2+: self only
+ */
+export async function buildPerformedByScopeForViewer(viewerUserId) {
+  if (!viewerUserId) {
+    return { in: ['__none__'] };
+  }
+  const scope = await resolveActivityViewerScope(viewerUserId);
+  if (scope.userIds === null) {
+    return null;
+  }
+  if (!scope.userIds.length) {
+    return { in: ['__none__'] };
+  }
+  if (scope.userIds.length === 1) {
+    return scope.userIds[0];
+  }
+  return { in: scope.userIds };
+}
+
+/**
+ * Restrict entity activity queries to what the viewer may see (remarks stay on description).
+ * System rows without performedBy remain visible to anyone who can open the record.
+ */
+export async function appendEntityActivityVisibilityToWhere(where, viewerUserId) {
+  const performedByScope = await buildPerformedByScopeForViewer(viewerUserId);
+  if (performedByScope == null) {
+    return where;
+  }
+
+  const performerClause =
+    typeof performedByScope === 'string'
+      ? { performedById: performedByScope }
+      : { performedById: performedByScope };
+
+  const visibilityClause = {
+    OR: [{ performedById: null }, performerClause],
+  };
+
+  const existingAnd = Array.isArray(where.AND) ? where.AND : [];
+  return {
+    ...where,
+    AND: [...existingAnd, visibilityClause],
+  };
+}
+
+/**
+ * Filter in-memory activity rows (drawers/API responses).
+ */
+export async function filterEntityActivitiesForViewer(viewerUserId, activities) {
+  if (!Array.isArray(activities) || activities.length === 0) {
+    return [];
+  }
+  const performedByScope = await buildPerformedByScopeForViewer(viewerUserId);
+  if (performedByScope == null) {
+    return activities;
+  }
+
+  const allowed = new Set(
+    typeof performedByScope === 'string'
+      ? [idStr(performedByScope)]
+      : (performedByScope.in || []).map(idStr),
+  );
+
+  return activities.filter((row) => {
+    const performerId = idStr(row?.performedById || row?.performedBy?.id);
+    if (!performerId) return true;
+    return allowed.has(performerId);
+  });
+}
+
+/**
+ * Filter interview activity logs / feedback by user id using the same hierarchy.
+ */
+export async function filterInterviewUserRowsForViewer(viewerUserId, rows, userIdKey = 'userId') {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+  const performedByScope = await buildPerformedByScopeForViewer(viewerUserId);
+  if (performedByScope == null) {
+    return rows;
+  }
+
+  const allowed = new Set(
+    typeof performedByScope === 'string'
+      ? [idStr(performedByScope)]
+      : (performedByScope.in || []).map(idStr),
+  );
+
+  return rows.filter((row) => {
+    const actorId = idStr(row?.[userIdKey] || row?.user?.id || row?.interviewer?.id);
+    if (!actorId) return true;
+    return allowed.has(actorId);
+  });
 }
 
 /**

@@ -1125,8 +1125,8 @@ export const clientService = {
     return { message: 'Client permanently deleted' };
   },
 
-  async getActivities(clientId) {
-    return activityService.getClientActivities({ clientId, limit: 100 });
+  async getActivities(clientId, viewerUserId = null) {
+    return activityService.getClientActivities({ clientId, limit: 100, viewerUserId });
   },
 
   async getMetrics(req = {}) {

@@ -16,6 +16,7 @@ import {
 } from './notificationService.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
 import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../utils/listAuditMeta.js';
+import { filterInterviewUserRowsForViewer } from './activityVisibility.service.js';
 import { ENTITY_TYPES } from './activityService.js';
 import { canViewAllAssignments } from '../utils/permissionScope.js';
 import { notifyInterviewScheduleChange } from '../modules/notification/interviewNotifications.js';
@@ -891,7 +892,16 @@ export const interviewService = {
     if (!interview) {
       throw new Error('Interview not found');
     }
-    return attachAuditMetaToEntity(interview, ENTITY_TYPES.INTERVIEW);
+    const withAudit = await attachAuditMetaToEntity(interview, ENTITY_TYPES.INTERVIEW);
+    const viewerUserId = req?.user?.id || null;
+    if (viewerUserId && Array.isArray(withAudit.activityLogs)) {
+      withAudit.activityLogs = await filterInterviewUserRowsForViewer(
+        viewerUserId,
+        withAudit.activityLogs,
+        'userId',
+      );
+    }
+    return withAudit;
   },
 
   async create(payload, user) {

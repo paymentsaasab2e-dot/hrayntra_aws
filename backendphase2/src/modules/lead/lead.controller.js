@@ -335,7 +335,7 @@ export const leadController = {
 
   async getActivities(req, res) {
     try {
-      const activities = await leadService.getActivities(req.params.id);
+      const activities = await leadService.getActivities(req.params.id, req.user?.id);
       sendResponse(res, 200, 'Activities retrieved successfully', activities);
     } catch (error) {
       sendError(res, 500, error.message, error);

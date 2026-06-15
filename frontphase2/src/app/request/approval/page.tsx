@@ -3,19 +3,35 @@
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Building2, ShieldCheck, UserCheck } from 'lucide-react';
+import { Building2, ClipboardList, ShieldCheck, UserCheck } from 'lucide-react';
 import { Toaster } from 'sonner';
-import { RequestApprovalsPanel } from '../../../components/team/RequestApprovalsPanel';
-import { CrossDepartmentApprovalsPanel } from '../../../components/team/CrossDepartmentApprovalsPanel';
-import { LeadConversionApprovalsPanel } from '../../../components/team/LeadConversionApprovalsPanel';
 import {
+  UnifiedApprovalsPanel,
+  type ApprovalKindFilter,
+} from '../../../components/team/UnifiedApprovalsPanel';
+import {
+  CROSS_DEPT_REQUESTS_UPDATED_EVENT,
   LEAD_CONVERSION_REQUESTS_UPDATED_EVENT,
+  TEAM_REQUESTS_UPDATED_EVENT,
+  getCurrentUserRequestIdentity,
+  getTeamRequestsForApproval,
+  listCrossDeptRequests,
   listLeadConversionRequests,
 } from '../../../lib/api/teamApi';
+import { apiGetTasks, type BackendTask } from '../../../lib/api';
 
 export const dynamic = 'force-dynamic';
 
-type ApprovalTab = 'team' | 'cross-dept' | 'lead-conversion';
+type ApprovalTab = ApprovalKindFilter;
+
+function extractTasks(responseData: unknown): BackendTask[] {
+  if (!responseData) return [];
+  if (Array.isArray(responseData)) return responseData as BackendTask[];
+  const payload = responseData as { data?: unknown; items?: unknown };
+  if (Array.isArray(payload.data)) return payload.data as BackendTask[];
+  if (Array.isArray(payload.items)) return payload.items as BackendTask[];
+  return [];
+}
 
 function ApprovalPageContent() {
   const searchParams = useSearchParams();
@@ -25,38 +41,125 @@ function ApprovalPageContent() {
       ? 'cross-dept'
       : tabParam === 'lead-conversion'
         ? 'lead-conversion'
-        : 'team';
-  const [pendingLeadConversions, setPendingLeadConversions] = useState(0);
+        : tabParam === 'team'
+          ? 'team'
+          : tabParam === 'task-completion'
+            ? 'task-completion'
+            : 'all';
+
+  const [pendingCounts, setPendingCounts] = useState({
+    all: 0,
+    team: 0,
+    crossDept: 0,
+    leadConversion: 0,
+    taskCompletion: 0,
+  });
 
   useEffect(() => {
     const loadPending = async () => {
+      const user = getCurrentUserRequestIdentity();
+      const userId = String(user.id || '').trim().toLowerCase();
+
       try {
-        const data = await listLeadConversionRequests('inbox');
-        setPendingLeadConversions(data.filter((r) => r.status === 'pending').length);
+        const [teamRes, crossDept, leads, tasksRes] = await Promise.all([
+          getTeamRequestsForApproval({ currentUser: user }).catch(() => ({ data: [] })),
+          listCrossDeptRequests('inbox').catch(() => []),
+          listLeadConversionRequests('inbox').catch(() => []),
+          apiGetTasks({ status: 'Awaiting Approval', limit: 200 }).catch(() => ({ data: [] })),
+        ]);
+
+        const teamPending = (Array.isArray(teamRes.data) ? teamRes.data : []).filter(
+          (request) =>
+            request.status === 'pending' &&
+            (String(request.sendToId || '').toLowerCase() === userId ||
+              String(request.sendToEmail || '').toLowerCase() ===
+                String(user.email || '').toLowerCase()),
+        ).length;
+
+        const crossPending = crossDept.filter((r) => r.status === 'pending').length;
+        const leadPending = leads.filter((r) => r.status === 'pending').length;
+        const taskPending = extractTasks(tasksRes.data).filter(
+          (task) =>
+            task.status === 'AWAITING_APPROVAL' &&
+            String(task.completionApproverId || '').toLowerCase() === userId,
+        ).length;
+
+        setPendingCounts({
+          all: teamPending + crossPending + leadPending + taskPending,
+          team: teamPending,
+          crossDept: crossPending,
+          leadConversion: leadPending,
+          taskCompletion: taskPending,
+        });
       } catch {
-        setPendingLeadConversions(0);
+        setPendingCounts({
+          all: 0,
+          team: 0,
+          crossDept: 0,
+          leadConversion: 0,
+          taskCompletion: 0,
+        });
       }
     };
+
     void loadPending();
     const onUpdate = () => void loadPending();
+    window.addEventListener(TEAM_REQUESTS_UPDATED_EVENT, onUpdate);
+    window.addEventListener(CROSS_DEPT_REQUESTS_UPDATED_EVENT, onUpdate);
     window.addEventListener(LEAD_CONVERSION_REQUESTS_UPDATED_EVENT, onUpdate);
-    return () => window.removeEventListener(LEAD_CONVERSION_REQUESTS_UPDATED_EVENT, onUpdate);
+    window.addEventListener('focus', onUpdate);
+    return () => {
+      window.removeEventListener(TEAM_REQUESTS_UPDATED_EVENT, onUpdate);
+      window.removeEventListener(CROSS_DEPT_REQUESTS_UPDATED_EVENT, onUpdate);
+      window.removeEventListener(LEAD_CONVERSION_REQUESTS_UPDATED_EVENT, onUpdate);
+      window.removeEventListener('focus', onUpdate);
+    };
   }, []);
 
   const tabs = useMemo(
     () => [
-      { id: 'team' as const, label: 'Team requests', href: '/request/approval?tab=team' },
+      {
+        id: 'all' as const,
+        label:
+          pendingCounts.all > 0 ? `All approvals (${pendingCounts.all})` : 'All approvals',
+        href: '/request/approval',
+        icon: ShieldCheck,
+      },
+      {
+        id: 'team' as const,
+        label: pendingCounts.team > 0 ? `Team requests (${pendingCounts.team})` : 'Team requests',
+        href: '/request/approval?tab=team',
+        icon: ShieldCheck,
+      },
+      {
+        id: 'cross-dept' as const,
+        label:
+          pendingCounts.crossDept > 0
+            ? `Cross-department (${pendingCounts.crossDept})`
+            : 'Cross-department',
+        href: '/request/approval?tab=cross-dept',
+        icon: Building2,
+      },
       {
         id: 'lead-conversion' as const,
         label:
-          pendingLeadConversions > 0
-            ? `Lead conversions (${pendingLeadConversions})`
+          pendingCounts.leadConversion > 0
+            ? `Lead conversions (${pendingCounts.leadConversion})`
             : 'Lead conversions',
         href: '/request/approval?tab=lead-conversion',
+        icon: UserCheck,
       },
-      { id: 'cross-dept' as const, label: 'Cross-department', href: '/request/approval?tab=cross-dept' },
+      {
+        id: 'task-completion' as const,
+        label:
+          pendingCounts.taskCompletion > 0
+            ? `Task completion (${pendingCounts.taskCompletion})`
+            : 'Task completion',
+        href: '/request/approval?tab=task-completion',
+        icon: ClipboardList,
+      },
     ],
-    [pendingLeadConversions],
+    [pendingCounts],
   );
 
   return (
@@ -74,16 +177,22 @@ function ApprovalPageContent() {
                   Approvals
                 </h1>
                 <p className="mt-1 text-xs text-slate-500">
-                  Team requests, lead conversions, and cross-department work.
+                  One inbox for every approval sent to you on the platform.
                 </p>
               </div>
             </div>
+            {pendingCounts.all > 0 ? (
+              <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                {pendingCounts.all} pending
+              </span>
+            ) : null}
           </header>
 
           <div className="border-b border-slate-200 bg-white px-4 sm:px-6">
             <div className="mx-auto flex max-w-[1600px] flex-wrap gap-1 py-2">
               {tabs.map((tab) => {
                 const isActive = activeTab === tab.id;
+                const Icon = tab.icon;
                 return (
                   <Link
                     key={tab.id}
@@ -94,8 +203,7 @@ function ApprovalPageContent() {
                         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
-                    {tab.id === 'cross-dept' ? <Building2 className="h-4 w-4" /> : null}
-                    {tab.id === 'lead-conversion' ? <UserCheck className="h-4 w-4" /> : null}
+                    <Icon className="h-4 w-4" />
                     {tab.label}
                   </Link>
                 );
@@ -105,13 +213,7 @@ function ApprovalPageContent() {
 
           <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto max-w-[1600px]">
-              {activeTab === 'cross-dept' ? (
-                <CrossDepartmentApprovalsPanel />
-              ) : activeTab === 'lead-conversion' ? (
-                <LeadConversionApprovalsPanel />
-              ) : (
-                <RequestApprovalsPanel />
-              )}
+              <UnifiedApprovalsPanel kindFilter={activeTab} />
             </div>
           </div>
         </main>

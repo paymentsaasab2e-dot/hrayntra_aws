@@ -7,6 +7,7 @@ import {
   processJobCreationPipeline,
   cleanupJobPipelineUpload,
 } from '../../services/jobCreationPipeline.service.js';
+import { getEntityActivities, ENTITY_TYPES } from '../../services/activityService.js';
 
 export const jobController = {
   async getPublicFeed(req, res) {
@@ -247,6 +248,23 @@ export const jobController = {
     try {
       const result = await jobFileService.delete(req.params.fileId);
       sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getActivities(req, res) {
+    try {
+      const job = await jobService.getById(req.params.jobId, req);
+      if (!job) {
+        return sendError(res, 404, 'Job not found');
+      }
+      const activities = await getEntityActivities({
+        entityType: ENTITY_TYPES.JOB,
+        entityId: req.params.jobId,
+        viewerUserId: req.user?.id,
+      });
+      sendResponse(res, 200, 'Job activities retrieved successfully', activities);
     } catch (error) {
       sendError(res, 500, error.message, error);
     }

@@ -6,6 +6,10 @@ const attemptSchema = z.object({
   timeTakenSeconds: z.number().nonnegative()
 });
 
+const generateSchema = z.object({
+  topic: z.string().trim().min(2).max(120),
+});
+
 function validateAttempt(req, res, next) {
   const result = attemptSchema.safeParse(req.body);
   if (!result.success) {
@@ -14,4 +18,13 @@ function validateAttempt(req, res, next) {
   next();
 }
 
-module.exports = { validateAttempt };
+function validateGenerate(req, res, next) {
+  const result = generateSchema.safeParse(req.body);
+  if (!result.success) {
+    return sendValidationError(res, result.error.errors.map(e => ({ field: e.path.join('.'), message: e.message })));
+  }
+  req.body = result.data;
+  next();
+}
+
+module.exports = { validateAttempt, validateGenerate };

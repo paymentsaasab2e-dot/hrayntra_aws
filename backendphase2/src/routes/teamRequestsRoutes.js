@@ -4,6 +4,7 @@ import { attachUserPermissions, requireAnyPermission, requirePermission } from '
 import {
   listTeamRequests,
   getTeamRequest,
+  getTeamRequestRecipients,
   createTeamRequest,
   updateTeamRequestStatus,
   forwardTeamRequestToTask,
@@ -17,6 +18,7 @@ router.use(authMiddleware);
 router.use(attachUserPermissions);
 
 router.get('/', requireAnyPermission(['requests_read', 'view_all_requests']), listTeamRequests);
+router.get('/recipients', requirePermission('requests_create'), getTeamRequestRecipients);
 router.get('/:id', requireAnyPermission(['requests_read', 'view_all_requests']), getTeamRequest);
 router.post('/', requirePermission('requests_create'), createTeamRequest);
 router.patch('/:id/status', requirePermission('requests_update'), updateTeamRequestStatus);

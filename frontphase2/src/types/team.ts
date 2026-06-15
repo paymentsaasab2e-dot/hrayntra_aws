@@ -160,6 +160,8 @@ export interface TeamMember {
   status: UserStatus;
   role: Role;
   department: Department | null;
+  /** Department authority rank (1 = head). From department role config. */
+  departmentRank?: number | null;
   manager: { id: string; firstName: string; lastName: string } | null;
   credential: {
     loginId: string;

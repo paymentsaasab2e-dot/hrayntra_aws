@@ -247,32 +247,17 @@ export async function getLineManagersForJobPicker(includeUserId?: string): Promi
 }
 
 /**
- * Team members for the Request “Send to” picker — same source as `/team`, with
- * assignable-list fallback when the user lacks full directory read permissions.
+ * Department heads (rank 1) across all departments — for the Request "Send to" picker.
  */
 export async function getTeamMembersForRequestPicker(): Promise<TeamMember[]> {
-  const attempts: Array<() => Promise<TeamMember[]>> = [
-    () => getAllTeamMembersPaginated(true),
-    () => getAllTeamMembersPaginated(false),
-    async () => {
-      const res = await getTeamMembers({ limit: TEAM_LIST_MAX_PAGE_SIZE, page: 1 });
-      return res.data || [];
-    },
-  ];
-
-  for (const attempt of attempts) {
-    try {
-      const members = await attempt();
-      if (members.length > 0) {
-        const active = members.filter((member) => member.status !== 'INACTIVE');
-        return active.length > 0 ? active : members;
-      }
-    } catch {
-      // Try the next source.
-    }
+  try {
+    const json = await teamRequestsFetch<{ data?: TeamMember[] }>('/recipients');
+    const members = normalizeArrayPayload<TeamMember>(json.data);
+    const active = members.filter((member) => member.status !== 'INACTIVE');
+    return active.length > 0 ? active : members;
+  } catch {
+    return [];
   }
-
-  return [];
 }
 
 /**

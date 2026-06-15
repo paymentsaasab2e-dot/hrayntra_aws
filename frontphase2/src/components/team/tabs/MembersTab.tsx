@@ -66,6 +66,18 @@ const TEAM_TH = 'px-3 py-2.5 text-left first:pl-4 sm:px-4 sm:first:pl-6 sm:py-3'
 const TEAM_TR =
   'transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45';
 
+function formatDepartmentRankLabel(rank: number | null | undefined) {
+  if (rank == null || Number.isNaN(rank)) return null;
+  return rank === 1 ? 'Rank 1 · Head' : `Rank ${rank}`;
+}
+
+function getDepartmentRankBadgeClass(rank: number | null | undefined) {
+  if (rank === 1) return 'bg-violet-100 text-violet-800 ring-violet-200/80';
+  if (rank === 2) return 'bg-sky-100 text-sky-800 ring-sky-200/80';
+  if (rank != null) return 'bg-slate-100 text-slate-700 ring-slate-200/80';
+  return 'bg-slate-50 text-slate-400 ring-slate-200/60';
+}
+
 const TEAM_SEARCH_INPUT_CLASS =
   'h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30';
 
@@ -544,19 +556,20 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
         <div className="overflow-hidden">
           <div className="no-scrollbar overflow-x-auto">
             {isLoading && members.length === 0 ? (
-              <TableSkeleton rows={8} columns={8} className="border-0 shadow-none rounded-none" />
+              <TableSkeleton rows={8} columns={9} className="border-0 shadow-none rounded-none" />
             ) : members.length === 0 ? (
               <div className="px-4 py-12 text-center">
                 <p className="text-sm font-medium text-slate-500">No team members found</p>
                 <p className="mt-1 text-xs text-slate-400">Try adjusting search or filters.</p>
               </div>
             ) : (
-              <table className="w-full min-w-[1080px] text-left">
+              <table className="w-full min-w-[1160px] text-left">
                 <thead>
                   <tr className={TEAM_TABLE_HEAD_ROW}>
                     <th className={TEAM_TH}>Member</th>
                     <th className={TEAM_TH}>Role</th>
                     <th className={TEAM_TH}>Department</th>
+                    <th className={TEAM_TH}>Rank</th>
                     <th className={TEAM_TH}>Email</th>
                     <th className={TEAM_TH}>Assigned leads</th>
                     <th className={TEAM_TH}>Credential</th>
@@ -597,6 +610,17 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                         </td>
                         <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
                           {member.department?.name || '—'}
+                        </td>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                          {formatDepartmentRankLabel(member.departmentRank) ? (
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ${getDepartmentRankBadgeClass(member.departmentRank)}`}
+                            >
+                              {formatDepartmentRankLabel(member.departmentRank)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
                           <div className="max-w-[200px] truncate" title={member.email}>

@@ -53,8 +53,11 @@ const PERMISSIONS_TEAM_DIRECTORY_READ = [
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
-// Tenant member list for assignment pickers — any authenticated user (no extra RBAC).
-router.get('/assignable', getAllTeamMembers);
+// Tenant member list for assignment pickers — scoped to same-department lower ranks.
+router.get('/assignable', (req, res) => {
+  req.teamListMode = 'assignable';
+  return getAllTeamMembers(req, res);
+});
 
 // Team member routes (admin / CRM screens that read full directory with explicit permissions)
 router.get('/', requireAnyPermission(PERMISSIONS_TEAM_DIRECTORY_READ), getAllTeamMembers);

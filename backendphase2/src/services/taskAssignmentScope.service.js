@@ -60,7 +60,7 @@ export async function isSuperAdminUserId(userId) {
 /**
  * Users the actor may assign tasks to:
  * - self (personal tasks)
- * - direct reports (Reports To = actor)
+ * - direct reports in the same department (Reports To = actor)
  * - same department members with a lower rank (higher rank number)
  * Super Admin: all active users
  */
@@ -82,12 +82,18 @@ export async function listTaskAssigneeCandidates(actorUserId) {
     return all.map(normalizeMember).filter(Boolean);
   }
 
+  const actorDeptId = idStr(actor.departmentId);
   const byId = new Map();
   byId.set(actor.id, normalizeMember(actor));
+
+  if (!actorDeptId) {
+    return [normalizeMember(actor)].filter(Boolean);
+  }
 
   const directReports = await prisma.user.findMany({
     where: {
       managerId: actorUserId,
+      departmentId: actorDeptId,
       status: 'ACTIVE',
       isActive: true,
     },
@@ -97,9 +103,8 @@ export async function listTaskAssigneeCandidates(actorUserId) {
     byId.set(row.id, normalizeMember(row));
   }
 
-  const actorDeptId = idStr(actor.departmentId);
   const actorRoleId = idStr(actor.roleId);
-  if (actorDeptId && actorRoleId) {
+  if (actorRoleId) {
     const actorRank = await getDepartmentRoleRank(actorDeptId, actorRoleId);
     if (actorRank != null) {
       const lowerRankMembers = await prisma.user.findMany({
@@ -120,11 +125,16 @@ export async function listTaskAssigneeCandidates(actorUserId) {
     }
   }
 
-  return [...byId.values()].sort((a, b) => {
-    const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim() || a.name || '';
-    const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim() || b.name || '';
-    return nameA.localeCompare(nameB);
-  });
+  return [...byId.values()]
+    .filter(
+      (member) =>
+        idStr(member.id) === idStr(actorUserId) || idStr(member.departmentId) === actorDeptId,
+    )
+    .sort((a, b) => {
+      const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim() || a.name || '';
+      const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim() || b.name || '';
+      return nameA.localeCompare(nameB);
+    });
 }
 
 export async function canAssignTaskTo(actorUserId, assigneeUserId) {
@@ -141,7 +151,7 @@ export async function assertCanAssignTask(actorUserId, assigneeUserId) {
   const ok = await canAssignTaskTo(actorUserId, assigneeUserId);
   if (!ok) {
     throw new Error(
-      'You can only assign tasks to yourself, your direct reports, or lower-ranked members in your department. Super Admin can assign to anyone.',
+      'You can only assign tasks to yourself or lower-ranked members in your department. Super Admin can assign to anyone.',
     );
   }
 }

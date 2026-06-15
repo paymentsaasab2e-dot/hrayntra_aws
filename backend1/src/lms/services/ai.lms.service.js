@@ -925,6 +925,148 @@ Return ONLY a JSON object with this shape:
   };
 }
 
+const STATIC_QUIZ_TOPICS = [
+  'JavaScript',
+  'React',
+  'TypeScript',
+  'Node.js',
+  'Python',
+  'Java',
+  'SQL',
+  'System Design',
+  'Data Structures',
+  'Behavioral Interview',
+  'AWS Cloud',
+  'Docker',
+  'Machine Learning',
+  'HTML & CSS',
+  'REST APIs',
+  'Git & Version Control',
+];
+
+async function generateQuizTopicSuggestions(query) {
+  const trimmed = String(query || '').trim();
+  if (trimmed.length < 2) return [];
+
+  const prompt = `Suggest up to 8 concise quiz practice topics for a career learning portal matching the partial query: "${trimmed}".
+Return ONLY a JSON array of strings.
+Examples: ["JavaScript Closures", "React Hooks", "REST API Design"]`;
+
+  try {
+    const openai = getOpenAIClient();
+    if (openai) {
+      const completion = await openai.chat.completions.create({
+        model: OPENAI_CHAT_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 220,
+        temperature: 0.35,
+      });
+      const result = extractJson(completion.choices[0].message.content);
+      if (Array.isArray(result) && result.length > 0) {
+        return result
+          .filter((value) => typeof value === 'string')
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 8);
+      }
+    }
+  } catch (error) {
+    console.warn('AI quiz topic suggestions failed, using static list.', error.message);
+  }
+
+  return getStaticRecommendations(trimmed, STATIC_QUIZ_TOPICS, 8);
+}
+
+function normalizeGeneratedQuizQuestions(questions = [], quizIndex = 0) {
+  return questions.slice(0, 5).map((question, questionIndex) => ({
+    id: question.id || `q${quizIndex + 1}-${questionIndex + 1}`,
+    text: String(question.text || question.q || '').trim(),
+    options: Array.isArray(question.options)
+      ? question.options.map((option) => String(option).trim()).filter(Boolean).slice(0, 4)
+      : [],
+    correctOptionIndex: Number.isInteger(question.correctOptionIndex)
+      ? question.correctOptionIndex
+      : Number.isInteger(question.correct)
+        ? question.correct
+        : 0,
+    explanation: String(question.explanation || '').trim(),
+  })).filter((question) => question.text && question.options.length >= 2);
+}
+
+async function generateQuizzesForTopic(topic) {
+  const trimmed = String(topic || '').trim();
+  if (!trimmed) {
+    throw new Error('Topic is required');
+  }
+
+  const prompt = `Create exactly 5 multiple-choice practice quizzes about "${trimmed}" for job candidates preparing for interviews.
+Each quiz must have exactly 5 questions with exactly 4 answer options each.
+Use varied difficulty across quizzes: 2 beginner, 2 intermediate, 1 advanced.
+Return ONLY valid JSON with this shape:
+{
+  "quizzes": [
+    {
+      "title": "short quiz title",
+      "description": "one sentence describing focus",
+      "difficulty": "beginner",
+      "estimatedMinutes": 8,
+      "questions": [
+        {
+          "id": "q1",
+          "text": "question text",
+          "options": ["option A", "option B", "option C", "option D"],
+          "correctOptionIndex": 0,
+          "explanation": "why the answer is correct"
+        }
+      ]
+    }
+  ]
+}`;
+
+  try {
+    const openai = getOpenAIClient();
+    if (!openai) {
+      throw new Error('OpenAI is not configured on the server');
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: OPENAI_CHAT_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 4500,
+      temperature: 0.45,
+    });
+
+    const parsed = extractJson(completion.choices[0].message.content);
+    const quizzes = Array.isArray(parsed?.quizzes) ? parsed.quizzes : [];
+
+    const normalized = quizzes.slice(0, 5).map((quiz, index) => {
+      const questions = normalizeGeneratedQuizQuestions(quiz.questions, index);
+      return {
+        title: String(quiz.title || `${trimmed} Practice ${index + 1}`).trim(),
+        description: String(quiz.description || `AI-generated practice quiz on ${trimmed}.`).trim(),
+        difficulty: ['beginner', 'intermediate', 'advanced'].includes(String(quiz.difficulty || '').toLowerCase())
+          ? String(quiz.difficulty).toLowerCase()
+          : index < 2
+            ? 'beginner'
+            : index < 4
+              ? 'intermediate'
+              : 'advanced',
+        estimatedMinutes: Number.isFinite(quiz.estimatedMinutes) ? Math.max(5, Math.min(20, quiz.estimatedMinutes)) : 8,
+        questions,
+      };
+    }).filter((quiz) => quiz.questions.length > 0);
+
+    if (normalized.length > 0) {
+      return { topic: trimmed, quizzes: normalized };
+    }
+  } catch (error) {
+    console.error('generateQuizzesForTopic failed:', error.message || error);
+    throw error;
+  }
+
+  throw new Error('AI could not generate quizzes for this topic. Try a different topic.');
+}
+
 module.exports = {
   generateDashboardInsight,
   generateInterviewQuestions,
@@ -942,7 +1084,9 @@ module.exports = {
   generateSharedIntelligence,
   generateOrchestrationPlan,
   generateGoalRecommendations,
-  generateLocationRecommendations
+  generateLocationRecommendations,
+  generateQuizTopicSuggestions,
+  generateQuizzesForTopic,
 };
 
 async function generateGoalRecommendations(query) {
