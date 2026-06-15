@@ -1195,7 +1195,7 @@ export async function getTeamRequest(id: string): Promise<{ data: TeamRequest; s
 export async function forwardTeamRequestToTask(
   id: string,
   assignToId: string,
-  options?: { setSelfAsApprover?: boolean },
+  options?: { setSelfAsApprover?: boolean; dueDate?: string },
 ): Promise<{ data: TeamRequest; success: boolean }> {
   const requestId = String(id || '').trim();
   const assigneeId = String(assignToId || '').trim();
@@ -1209,6 +1209,7 @@ export async function forwardTeamRequestToTask(
       body: JSON.stringify({
         assignToId: assigneeId,
         setSelfAsApprover: options?.setSelfAsApprover === true,
+        dueDate: options?.dueDate?.trim() || undefined,
       }),
     },
   );
@@ -1394,13 +1395,23 @@ export async function createCrossDeptRequest(payload: {
 
 export async function reviewCrossDeptRequest(
   id: string,
-  payload: { action: 'accept' | 'reject'; note?: string; assignToId?: string },
+  payload: {
+    action: 'accept' | 'reject';
+    note?: string;
+    assignToId?: string;
+    dueDate?: string;
+    setSelfAsApprover?: boolean;
+  },
 ) {
   const json = await crossDeptFetch<{ data: CrossDepartmentWorkRequest }>(
     `/${encodeURIComponent(id)}/review`,
     {
       method: 'PATCH',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        setSelfAsApprover: payload.setSelfAsApprover === true,
+        dueDate: payload.dueDate?.trim() || undefined,
+      }),
     },
   );
   notifyCrossDeptRequestsUpdated();

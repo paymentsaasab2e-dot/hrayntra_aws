@@ -318,13 +318,24 @@ function mapTeamRequestPriorityToTask(priority) {
   return map[String(priority || 'medium').toLowerCase()] || 'Medium';
 }
 
-async function createTaskForApprovedTeamRequest(existing, assignToId, approverUserId, req, { setSelfAsApprover = false } = {}) {
+async function createTaskForApprovedTeamRequest(
+  existing,
+  assignToId,
+  approverUserId,
+  req,
+  { setSelfAsApprover = false, dueDate } = {},
+) {
   let completionApproverId = null;
   if (setSelfAsApprover && approverUserId) {
     await assertCanSetSelfAsTaskCompletionApprover(approverUserId);
     completionApproverId = approverUserId;
     await assertValidTaskCompletionApprover(approverUserId, completionApproverId, assignToId);
   }
+
+  const resolvedDueDate =
+    dueDate && String(dueDate).trim()
+      ? String(dueDate).trim()
+      : new Date().toISOString().split('T')[0];
 
   const task = await taskService.create(
     {
@@ -341,7 +352,7 @@ async function createTaskForApprovedTeamRequest(existing, assignToId, approverUs
       createdById: existing.requestedById,
       performedById: req?.user?.id || approverUserId,
       priority: mapTeamRequestPriorityToTask(existing.priority),
-      dueDate: new Date().toISOString().split('T')[0],
+      dueDate: resolvedDueDate,
       taskType: 'Note',
       linkedEntityType: 'TEAM_REQUEST',
       linkedEntityId: existing.id,
@@ -416,6 +427,7 @@ export async function forwardTeamRequestToTask(req, res) {
     const requestId = normalizeId(req.params.id);
     const assignToId = normalizeId(req.body?.assignToId);
     const setSelfAsApprover = req.body?.setSelfAsApprover === true;
+    const dueDate = String(req.body?.dueDate || '').trim() || null;
 
     if (!requestId) {
       return res.status(400).json({ success: false, message: 'Request id is required' });
@@ -446,7 +458,7 @@ export async function forwardTeamRequestToTask(req, res) {
         assignToId,
         authz.userId,
         req,
-        { setSelfAsApprover },
+        { setSelfAsApprover, dueDate },
       );
       updated = await prisma.teamMemberRequest.update({
         where: { id: requestId },

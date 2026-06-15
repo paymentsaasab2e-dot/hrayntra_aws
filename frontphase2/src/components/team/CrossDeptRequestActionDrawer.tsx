@@ -5,40 +5,34 @@ import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { ClipboardList, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { TeamRequest } from '../../types/team';
 import {
-  forwardTeamRequestToTask,
   getCurrentUserRequestIdentity,
-  updateTeamRequestStatus,
+  reviewCrossDeptRequest,
+  type CrossDepartmentWorkRequest,
+  type CrossDeptTargetMember,
 } from '../../lib/api/teamApi';
-import { apiGetTaskAssignableMembers } from '../../lib/api';
 import { getLocalDateInputMinToday } from '../../utils/dateInputConstraints';
 
-export type TeamRequestDrawerMode = 'approve' | 'assign' | 'view';
+export type CrossDeptRequestDrawerMode = 'accept' | 'view';
 
 type Props = {
   isOpen: boolean;
   onClose: () => void;
-  request: TeamRequest | null;
-  mode: TeamRequestDrawerMode;
-  onSuccess?: (updated: TeamRequest) => void;
+  request: CrossDepartmentWorkRequest | null;
+  members: CrossDeptTargetMember[];
+  mode: CrossDeptRequestDrawerMode;
+  onSuccess?: (updated: CrossDepartmentWorkRequest) => void;
 };
 
-function memberLabel(member: {
-  id: string;
-  name?: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-}) {
-  const full = `${member.firstName || ''} ${member.lastName || ''}`.trim();
-  return member.name?.trim() || full || member.email || 'Team member';
+function memberLabel(member: CrossDeptTargetMember) {
+  return member.name?.trim() || member.email || 'Team member';
 }
 
-export function TeamRequestActionDrawer({
+export function CrossDeptRequestActionDrawer({
   isOpen,
   onClose,
   request,
+  members,
   mode,
   onSuccess,
 }: Props) {
@@ -47,19 +41,19 @@ export function TeamRequestActionDrawer({
   const [dueDate, setDueDate] = useState(() => getLocalDateInputMinToday());
   const [setSelfAsApprover, setSetSelfAsApprover] = useState(true);
   const [reviewNote, setReviewNote] = useState('');
-  const [assignees, setAssignees] = useState<Array<{ id: string; name: string }>>([]);
-  const [loadingMembers, setLoadingMembers] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const currentUserId = getCurrentUserRequestIdentity().id || '';
 
-  const delegateTargets = useMemo(
-    () => assignees.filter((member) => member.id !== currentUserId),
-    [assignees, currentUserId],
-  );
+  const assignOptions = useMemo(() => {
+    const rows = members.filter((member) => member.id !== currentUserId);
+    if (rows.length > 0) return rows;
+    return members;
+  }, [members, currentUserId]);
 
-  const canAssign = mode === 'assign' || mode === 'approve';
-  const showAssignForm = canAssign && !request?.linkedTaskId;
+  const needsAssignment =
+    request?.workType === 'CLIENT' || request?.workType === 'TASK';
+  const showAssignForm = mode === 'accept' && needsAssignment && !request?.createdTaskId;
 
   useEffect(() => {
     if (!isOpen) {
@@ -70,20 +64,12 @@ export function TeamRequestActionDrawer({
       return;
     }
 
-    setLoadingMembers(true);
-    void apiGetTaskAssignableMembers()
-      .then((response) => {
-        const rows = Array.isArray(response.data) ? response.data : [];
-        setAssignees(
-          rows.map((member) => ({
-            id: member.id,
-            name: memberLabel(member),
-          })),
-        );
-      })
-      .catch(() => setAssignees([]))
-      .finally(() => setLoadingMembers(false));
-  }, [isOpen]);
+    if (request?.targetUserId) {
+      setAssignToId(request.targetUserId);
+    } else if (assignOptions.length === 1) {
+      setAssignToId(assignOptions[0].id);
+    }
+  }, [isOpen, request?.targetUserId, assignOptions]);
 
   const handleSubmit = async () => {
     if (!request) return;
@@ -91,7 +77,6 @@ export function TeamRequestActionDrawer({
       toast.error('Select a team member to assign this task');
       return;
     }
-
     if (showAssignForm && !dueDate) {
       toast.error('Task due date is required');
       return;
@@ -99,34 +84,19 @@ export function TeamRequestActionDrawer({
 
     setSubmitting(true);
     try {
-      let workingRequest = request;
-
-      if (mode === 'approve' && request.status === 'pending') {
-        const approved = await updateTeamRequestStatus(request.id, {
-          status: 'approved',
-          reviewNote: reviewNote.trim() || undefined,
-        });
-        workingRequest = approved.data;
-      }
-
-      if (showAssignForm) {
-        const assigned = await forwardTeamRequestToTask(request.id, assignToId, {
-          setSelfAsApprover,
-          dueDate,
-        });
-        workingRequest = assigned.data;
-        toast.success('Request approved and task assigned');
-        onSuccess?.(workingRequest);
-        onClose();
-        if (workingRequest.linkedTaskId) {
-          router.push(`/Task&Activites?taskId=${encodeURIComponent(workingRequest.linkedTaskId)}`);
-        }
-        return;
-      }
-
-      toast.success(mode === 'approve' ? 'Request approved' : 'Saved');
-      onSuccess?.(workingRequest);
+      const updated = await reviewCrossDeptRequest(request.id, {
+        action: 'accept',
+        note: reviewNote.trim() || undefined,
+        assignToId: showAssignForm ? assignToId : request.targetUserId || undefined,
+        dueDate: showAssignForm ? dueDate : undefined,
+        setSelfAsApprover: showAssignForm ? setSelfAsApprover : undefined,
+      });
+      toast.success('Request accepted and task assigned');
+      onSuccess?.(updated);
       onClose();
+      if (updated.createdTaskId) {
+        router.push(`/Task&Activites?taskId=${encodeURIComponent(updated.createdTaskId)}`);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Action failed');
     } finally {
@@ -136,19 +106,10 @@ export function TeamRequestActionDrawer({
 
   if (!isOpen || !request) return null;
 
-  const title =
-    mode === 'approve'
-      ? 'Approve & assign task'
-      : mode === 'assign'
-        ? 'Assign task'
-        : 'Request details';
+  const workTypeLabel =
+    request.workType === 'CLIENT' ? 'Client handoff' : 'Cross-department work';
 
-  const submitLabel =
-    mode === 'approve'
-      ? 'Approve & assign task'
-      : mode === 'assign'
-        ? 'Assign task'
-        : 'Close';
+  const title = mode === 'accept' ? 'Accept & assign task' : 'Request details';
 
   return (
     <AnimatePresence>
@@ -171,7 +132,7 @@ export function TeamRequestActionDrawer({
             <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">
-                  Hiring request
+                  {workTypeLabel}
                 </p>
                 <h2 className="mt-0.5 text-lg font-bold text-slate-900">{title}</h2>
               </div>
@@ -205,22 +166,20 @@ export function TeamRequestActionDrawer({
                     <p className="mt-1 text-sm capitalize text-slate-800">{request.status}</p>
                   </div>
                 </div>
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Description</p>
-                  <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{request.description}</p>
-                </div>
-                {request.reviewNote ? (
+                {request.description ? (
                   <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Review note</p>
-                    <p className="mt-1 text-sm text-slate-700">{request.reviewNote}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      Handoff remark (task description)
+                    </p>
+                    <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{request.description}</p>
                   </div>
                 ) : null}
               </div>
 
-              {mode === 'approve' && request.status === 'pending' ? (
+              {mode === 'accept' ? (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Approval note <span className="text-slate-400 font-normal">(optional)</span>
+                    Acceptance note <span className="text-slate-400 font-normal">(optional)</span>
                   </label>
                   <input
                     type="text"
@@ -236,25 +195,23 @@ export function TeamRequestActionDrawer({
                 <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3">
                   <div className="flex items-center gap-2 text-indigo-800">
                     <ClipboardList size={16} />
-                    <p className="text-sm font-semibold">Assign task to team member</p>
+                    <p className="text-sm font-semibold">Assign task to department member</p>
                   </div>
                   <p className="text-xs text-slate-600">
-                    Choose a lower-ranked colleague who will create the job. You can verify completion yourself.
+                    Pick any active member in your department. The handoff remark above becomes the task
+                    description.
                   </p>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">Assign to</label>
                     <select
                       value={assignToId}
                       onChange={(e) => setAssignToId(e.target.value)}
-                      disabled={loadingMembers}
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                     >
-                      <option value="">
-                        {loadingMembers ? 'Loading team members…' : 'Select team member…'}
-                      </option>
-                      {delegateTargets.map((member) => (
+                      <option value="">Select team member…</option>
+                      {assignOptions.map((member) => (
                         <option key={member.id} value={member.id}>
-                          {member.name}
+                          {memberLabel(member)}
                         </option>
                       ))}
                     </select>
@@ -276,12 +233,12 @@ export function TeamRequestActionDrawer({
                       onChange={(e) => setSetSelfAsApprover(e.target.checked)}
                       className="rounded border-slate-300"
                     />
-                    I will verify completion when the job is created
+                    I will verify completion when the work is done
                   </label>
                 </div>
-              ) : request.linkedTaskId ? (
+              ) : request.createdTaskId ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                  A task has already been created for this request.
+                  A task has already been created for this handoff.
                 </div>
               ) : null}
             </div>
@@ -294,11 +251,11 @@ export function TeamRequestActionDrawer({
               >
                 Cancel
               </button>
-              {mode === 'view' && request.linkedTaskId ? (
+              {mode === 'view' && request.createdTaskId ? (
                 <button
                   type="button"
                   onClick={() => {
-                    router.push(`/Task&Activites?taskId=${encodeURIComponent(request.linkedTaskId || '')}`);
+                    router.push(`/Task&Activites?taskId=${encodeURIComponent(request.createdTaskId || '')}`);
                     onClose();
                   }}
                   className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
@@ -314,7 +271,17 @@ export function TeamRequestActionDrawer({
                   className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
                 >
                   {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
-                  {submitLabel}
+                  Accept & assign task
+                </button>
+              ) : mode === 'accept' ? (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void handleSubmit()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                >
+                  {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
+                  Accept request
                 </button>
               ) : null}
             </div>
