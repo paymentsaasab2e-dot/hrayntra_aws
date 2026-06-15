@@ -31,6 +31,8 @@ export interface TaskFormValues {
   crossDepartmentRequest?: boolean;
   targetDepartmentId?: string;
   targetMemberId?: string;
+  /** User who verifies completion (must differ from assignee) */
+  completionApproverId?: string;
   _files?: File[]; // Internal: files to upload
 }
 

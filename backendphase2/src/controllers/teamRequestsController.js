@@ -2,7 +2,10 @@ import { prisma } from '../config/prisma.js';
 import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
 import { logCrmGlobalActivity } from '../utils/crmGlobalActivity.js';
 import { taskService } from '../modules/task/task.service.js';
-import { assertCanAssignTask } from '../services/taskAssignmentScope.service.js';
+import {
+  assertCanSetSelfAsTaskCompletionApprover,
+  assertValidTaskCompletionApprover,
+} from '../services/taskAssignmentScope.service.js';
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -315,6 +318,42 @@ function mapTeamRequestPriorityToTask(priority) {
   return map[String(priority || 'medium').toLowerCase()] || 'Medium';
 }
 
+async function createTaskForApprovedTeamRequest(existing, assignToId, approverUserId, req, { setSelfAsApprover = false } = {}) {
+  let completionApproverId = null;
+  if (setSelfAsApprover && approverUserId) {
+    await assertCanSetSelfAsTaskCompletionApprover(approverUserId);
+    completionApproverId = approverUserId;
+    await assertValidTaskCompletionApprover(approverUserId, completionApproverId, assignToId);
+  }
+
+  const task = await taskService.create(
+    {
+      title: existing.subject,
+      description: [
+        existing.description,
+        existing.requestedByName ? `Requested by ${existing.requestedByName}.` : '',
+        'Create a job from this approved hiring request.',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      assigneeId: assignToId,
+      assignedToId: assignToId,
+      createdById: existing.requestedById,
+      performedById: req?.user?.id || approverUserId,
+      priority: mapTeamRequestPriorityToTask(existing.priority),
+      dueDate: new Date().toISOString().split('T')[0],
+      taskType: 'Note',
+      linkedEntityType: 'TEAM_REQUEST',
+      linkedEntityId: existing.id,
+      notifyAssignee: true,
+      participantIds: [existing.requestedById, approverUserId, assignToId].filter(Boolean),
+      completionApproverId,
+    },
+    req,
+  );
+  return task;
+}
+
 async function canCreateJobForTeamRequest(existing, authz) {
   if (isRecipient(existing, authz)) return true;
   if (!existing.linkedTaskId) return false;
@@ -369,13 +408,14 @@ export async function getTeamRequest(req, res) {
 
 /**
  * PATCH /api/team/requests/:id/create-task
- * Forward an approved hiring request to a lower-ranked team member as a task.
+ * Create (or delegate) a hiring-request task to a team member.
  */
 export async function forwardTeamRequestToTask(req, res) {
   try {
     const authz = getAuthz(req);
     const requestId = normalizeId(req.params.id);
     const assignToId = normalizeId(req.body?.assignToId);
+    const setSelfAsApprover = req.body?.setSelfAsApprover === true;
 
     if (!requestId) {
       return res.status(400).json({ success: false, message: 'Request id is required' });
@@ -389,76 +429,73 @@ export async function forwardTeamRequestToTask(req, res) {
       return res.status(404).json({ success: false, message: 'Request not found' });
     }
     if (existing.status !== 'approved') {
-      return res.status(409).json({ success: false, message: 'Only approved requests can be forwarded as tasks' });
-    }
-    if (existing.linkedTaskId) {
-      return res.status(409).json({ success: false, message: 'A task has already been created for this request' });
+      return res.status(409).json({ success: false, message: 'Only approved requests can be assigned as tasks' });
     }
     if (!isRecipient(existing, authz)) {
-      return res.status(403).json({ success: false, message: 'Only the request recipient can forward this request' });
+      return res.status(403).json({ success: false, message: 'Only the request recipient can assign this request' });
     }
     if (!authz.canUpdate && !authz.canViewAll) {
       return res.status(403).json({ success: false, message: 'Access denied: requires requests_update' });
     }
 
-    await assertCanAssignTask(authz.userId, assignToId);
+    let updated = existing;
 
-    const assignee = await prisma.user.findFirst({
-      where: { id: assignToId, status: 'ACTIVE', isActive: true },
-      select: { id: true },
-    });
-    if (!assignee) {
-      return res.status(400).json({ success: false, message: 'Assignee must be an active team member' });
+    if (!existing.linkedTaskId) {
+      const task = await createTaskForApprovedTeamRequest(
+        existing,
+        assignToId,
+        authz.userId,
+        req,
+        { setSelfAsApprover },
+      );
+      updated = await prisma.teamMemberRequest.update({
+        where: { id: requestId },
+        data: { linkedTaskId: task.id },
+      });
+
+      await logCrmGlobalActivity({
+        performedById: authz.userId,
+        action: 'Team request assigned as task',
+        description: `${existing.subject} assigned for job creation`,
+        entityType: 'USER',
+        entityId: assignToId,
+        category: 'Request',
+        relatedType: 'TEAM_REQUEST',
+        relatedId: requestId,
+        relatedLabel: existing.subject,
+      });
+    } else {
+      await taskService.delegateTask(
+        existing.linkedTaskId,
+        {
+          assignToId,
+          setSelfAsApprover,
+        },
+        req,
+      );
+
+      await logCrmGlobalActivity({
+        performedById: authz.userId,
+        action: 'Team request task delegated',
+        description: `${existing.subject} delegated for job creation`,
+        entityType: 'USER',
+        entityId: assignToId,
+        category: 'Request',
+        relatedType: 'TEAM_REQUEST',
+        relatedId: requestId,
+        relatedLabel: existing.subject,
+      });
     }
-
-    const task = await taskService.create(
-      {
-        title: existing.subject,
-        description: [
-          existing.description,
-          existing.requestedByName ? `Requested by ${existing.requestedByName}.` : '',
-          'Create a job from this approved hiring request.',
-        ]
-          .filter(Boolean)
-          .join('\n\n'),
-        assigneeId: assignToId,
-        assignedToId: assignToId,
-        createdById: authz.userId,
-        priority: mapTeamRequestPriorityToTask(existing.priority),
-        dueDate: new Date().toISOString().split('T')[0],
-        taskType: 'Note',
-        linkedEntityType: 'TEAM_REQUEST',
-        linkedEntityId: requestId,
-        notifyAssignee: true,
-      },
-      req,
-    );
-
-    const updated = await prisma.teamMemberRequest.update({
-      where: { id: requestId },
-      data: { linkedTaskId: task.id },
-    });
-
-    await logCrmGlobalActivity({
-      performedById: authz.userId,
-      action: 'Team request forwarded as task',
-      description: `${existing.subject} assigned for job creation`,
-      entityType: 'USER',
-      entityId: assignToId,
-      category: 'Request',
-      relatedType: 'TEAM_REQUEST',
-      relatedId: requestId,
-      relatedLabel: existing.subject,
-    });
 
     return res.status(200).json({
       success: true,
       data: serializeTeamRequest(updated),
     });
   } catch (error) {
-    console.error('Error forwarding team request to task:', error);
-    const message = error instanceof Error ? error.message : 'Failed to create task from request';
-    const status = message.includes('assign tasks') ? 403 : 500;
+    console.error('Error assigning team request task:', error);
+    const message = error instanceof Error ? error.message : 'Failed to assign task from request';
+    const status =
+      message.includes('assign tasks') || message.includes('verify completion') ? 403 : 500;
     return res.status(status).json({
       success: false,
       message,

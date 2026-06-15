@@ -50,6 +50,7 @@ function formValuesEqual(a: TaskFormValues, b: TaskFormValues): boolean {
     a.reminder === b.reminder &&
     a.attachmentNames === b.attachmentNames &&
     a.notifyAssignee === b.notifyAssignee &&
+    (a.completionApproverId || '') === (b.completionApproverId || '') &&
     (a.status ?? 'Pending') === (b.status ?? 'Pending')
   );
 }
@@ -422,6 +423,36 @@ export function TaskForm({
           required
           searchLoading={loadingEntities}
         />
+        ) : null}
+
+        {!values.crossDepartmentRequest && values.assigneeId ? (
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Completion approver <span className="text-slate-400 font-normal">(optional)</span>
+            </label>
+            <select
+              value={values.completionApproverId || ''}
+              onChange={(e) =>
+                onChange({
+                  ...values,
+                  completionApproverId: e.target.value || undefined,
+                })
+              }
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            >
+              <option value="">No separate approver</option>
+              {assignees
+                .filter((member) => member.id !== values.assigneeId)
+                .map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Choose who verifies completion when the assignee finishes this task.
+            </p>
+          </div>
         ) : null}
 
         {mode === 'edit' && (

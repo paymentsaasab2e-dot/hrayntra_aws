@@ -53,7 +53,7 @@ import {
   MOCK_CLIENTS,
   MOCK_INTERVIEWS,
 } from '../../app/Task&Activites/types';
-import { apiGetTaskFiles, type TaskFile } from '../../lib/api';
+import { apiGetTaskFiles, apiDelegateTask, apiGetTaskAssignableMembers, type TaskFile } from '../../lib/api';
 import { cloudinaryPdfViewerHref, normalizeCloudinaryDocumentUrl } from '../../utils/cloudinaryUrls';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { getTeamRequest } from '../../lib/api/teamApi';
@@ -177,6 +177,9 @@ function taskRequiresApprovalSubmit(task: TaskForDrawer, currentUserId?: string)
     task.backendStatus === 'CANCELLED'
   ) {
     return false;
+  }
+  if (task.completionApproverId && task.completionApproverId !== currentUserId) {
+    return true;
   }
   const participants = task.participantIds || [];
   const delegators = participants.filter(
@@ -353,6 +356,11 @@ export function TaskDetailsDrawer({
   const [linkedTeamRequest, setLinkedTeamRequest] = useState<TeamRequest | null>(null);
   const [loadingTeamRequest, setLoadingTeamRequest] = useState(false);
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
+  const [delegateAssigneeId, setDelegateAssigneeId] = useState('');
+  const [delegateSelfAsApprover, setDelegateSelfAsApprover] = useState(true);
+  const [delegateTargets, setDelegateTargets] = useState<Array<{ id: string; name: string }>>([]);
+  const [isDelegating, setIsDelegating] = useState(false);
+  const [canSelfApprove, setCanSelfApprove] = useState(false);
 
   const isTeamRequestTask = task?.relatedTo.type === 'Team Request' && Boolean(task.relatedTo.id);
   const isTaskAssignee = Boolean(
@@ -364,6 +372,15 @@ export function TaskDetailsDrawer({
       canCreateJob &&
       linkedTeamRequest &&
       !linkedTeamRequest.linkedJobId,
+  );
+  const showDelegatePanel = Boolean(
+    mode === 'detail' &&
+      task &&
+      currentUserId &&
+      task.assignedToId === currentUserId &&
+      task.backendStatus !== 'DONE' &&
+      task.backendStatus !== 'CANCELLED' &&
+      delegateTargets.length > 0,
   );
   const jobPrefillFromRequest: TeamRequestJobPrefill | null = linkedTeamRequest
     ? {
@@ -399,6 +416,70 @@ export function TaskDetailsDrawer({
       cancelled = true;
     };
   }, [isOpen, mode, isTeamRequestTask, task?.relatedTo.id]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== 'detail' || !task || !currentUserId) {
+      setDelegateTargets([]);
+      setCanSelfApprove(false);
+      return;
+    }
+
+    let cancelled = false;
+    void apiGetTaskAssignableMembers()
+      .then((response) => {
+        if (cancelled) return;
+        const rows = Array.isArray(response.data) ? response.data : [];
+        const targets = rows
+          .filter((member) => member.id !== currentUserId)
+          .map((member) => ({
+            id: member.id,
+            name:
+              member.name ||
+              `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
+              member.email ||
+              'Team member',
+          }));
+        setDelegateTargets(targets);
+        setCanSelfApprove(targets.length > 0);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDelegateTargets([]);
+          setCanSelfApprove(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode, task?.id, task?.assignedToId, currentUserId]);
+
+  const handleDelegateTask = async () => {
+    if (!task || !delegateAssigneeId) {
+      setToastMessage('Select a team member to delegate to');
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 4000);
+      return;
+    }
+    setIsDelegating(true);
+    try {
+      await apiDelegateTask(task.id, {
+        assignToId: delegateAssigneeId,
+        setSelfAsApprover: delegateSelfAsApprover && canSelfApprove,
+      });
+      setDelegateAssigneeId('');
+      setToastMessage('Task delegated successfully');
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+      onUpdateSuccess?.();
+    } catch (error) {
+      setToastMessage(error instanceof Error ? error.message : 'Failed to delegate task');
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 4000);
+    } finally {
+      setIsDelegating(false);
+    }
+  };
 
   const submitLabel = task && taskRequiresApprovalSubmit(task, currentUserId)
     ? 'Submit for approval'
@@ -1038,6 +1119,7 @@ export function TaskDetailsDrawer({
         reminder: createForm.reminder || undefined,
         attachmentNames: createForm.attachmentNames || undefined,
         notifyAssignee: createForm.notifyAssignee,
+        completionApproverId: createForm.completionApproverId || undefined,
       });
 
       // Upload files if any
@@ -1297,6 +1379,54 @@ export function TaskDetailsDrawer({
                 <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
                   {task && activeTab === 'overview' && (
                     <div className="space-y-4">
+                      {showDelegatePanel ? (
+                        <div className="rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 p-5 shadow-sm">
+                          <p className="text-xs font-bold uppercase tracking-wider text-violet-700">
+                            Delegate task
+                          </p>
+                          <p className="mt-1 text-sm text-slate-700">
+                            Assign this work to a lower-ranked team member. You can verify completion yourself after delegation.
+                          </p>
+                          <div className="mt-3 flex flex-wrap items-end gap-3">
+                            <div className="min-w-[12rem] flex-1">
+                              <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
+                                Delegate to
+                              </label>
+                              <select
+                                value={delegateAssigneeId}
+                                onChange={(e) => setDelegateAssigneeId(e.target.value)}
+                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
+                                <option value="">Select team member…</option>
+                                {delegateTargets.map((member) => (
+                                  <option key={member.id} value={member.id}>
+                                    {member.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {canSelfApprove ? (
+                              <label className="flex items-center gap-2 text-sm text-slate-700 pb-2">
+                                <input
+                                  type="checkbox"
+                                  checked={delegateSelfAsApprover}
+                                  onChange={(e) => setDelegateSelfAsApprover(e.target.checked)}
+                                  className="rounded border-slate-300"
+                                />
+                                I will verify completion
+                              </label>
+                            ) : null}
+                            <button
+                              type="button"
+                              disabled={isDelegating || !delegateAssigneeId}
+                              onClick={() => void handleDelegateTask()}
+                              className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+                            >
+                              {isDelegating ? 'Delegating…' : 'Delegate'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                       {showCreateJobFromRequest ? (
                         <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 shadow-sm">
                           <div className="flex flex-wrap items-start justify-between gap-3">

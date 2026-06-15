@@ -1195,6 +1195,7 @@ export async function getTeamRequest(id: string): Promise<{ data: TeamRequest; s
 export async function forwardTeamRequestToTask(
   id: string,
   assignToId: string,
+  options?: { setSelfAsApprover?: boolean },
 ): Promise<{ data: TeamRequest; success: boolean }> {
   const requestId = String(id || '').trim();
   const assigneeId = String(assignToId || '').trim();
@@ -1205,7 +1206,10 @@ export async function forwardTeamRequestToTask(
     `/${encodeURIComponent(requestId)}/create-task`,
     {
       method: 'PATCH',
-      body: JSON.stringify({ assignToId: assigneeId }),
+      body: JSON.stringify({
+        assignToId: assigneeId,
+        setSelfAsApprover: options?.setSelfAsApprover === true,
+      }),
     },
   );
 

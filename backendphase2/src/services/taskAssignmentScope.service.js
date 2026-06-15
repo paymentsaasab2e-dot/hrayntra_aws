@@ -1,5 +1,5 @@
 import { prisma } from '../config/prisma.js';
-import { getDepartmentRoleRank } from './departmentRole.service.js';
+import { getDepartmentRoleRank, isDepartmentHeadUser } from './departmentRole.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -143,5 +143,75 @@ export async function assertCanAssignTask(actorUserId, assigneeUserId) {
     throw new Error(
       'You can only assign tasks to yourself, your direct reports, or lower-ranked members in your department. Super Admin can assign to anyone.',
     );
+  }
+}
+
+/**
+ * Department heads and members who can assign to lower-ranked peers may set themselves
+ * as completion approver when delegating (even if they did not create the task).
+ */
+export async function canSetSelfAsTaskCompletionApprover(userId) {
+  if (!userId) return false;
+  if (await isSuperAdminUserId(userId)) return true;
+  if (await isDepartmentHeadUser(userId)) return true;
+
+  const actor = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, departmentId: true, roleId: true, status: true },
+  });
+  if (!actor || actor.status !== 'ACTIVE') return false;
+
+  const actorDeptId = idStr(actor.departmentId);
+  const actorRoleId = idStr(actor.roleId);
+  if (!actorDeptId || !actorRoleId) return false;
+
+  const actorRank = await getDepartmentRoleRank(actorDeptId, actorRoleId);
+  if (actorRank == null) return false;
+
+  const deptMembers = await prisma.user.findMany({
+    where: { departmentId: actorDeptId, status: 'ACTIVE', isActive: true },
+    select: { id: true, roleId: true },
+  });
+
+  for (const member of deptMembers) {
+    if (idStr(member.id) === idStr(userId)) continue;
+    const memberRank = await getDepartmentRoleRank(actorDeptId, member.roleId);
+    if (memberRank != null && memberRank > actorRank) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export async function assertCanSetSelfAsTaskCompletionApprover(userId) {
+  const ok = await canSetSelfAsTaskCompletionApprover(userId);
+  if (!ok) {
+    throw new Error(
+      'Only department heads or members who can assign to lower-ranked colleagues can verify completion themselves.',
+    );
+  }
+}
+
+export async function assertValidTaskCompletionApprover(actorUserId, approverUserId, assigneeUserId) {
+  const approverId = idStr(approverUserId);
+  const assigneeId = idStr(assigneeUserId);
+  if (!approverId) return;
+
+  if (approverId === assigneeId) {
+    throw new Error('Completion approver must be different from the task assignee');
+  }
+
+  const approver = await prisma.user.findFirst({
+    where: { id: approverId, status: 'ACTIVE', isActive: true },
+    select: { id: true },
+  });
+  if (!approver) {
+    throw new Error('Completion approver must be an active team member');
+  }
+
+  if (approverId === idStr(actorUserId)) {
+    await assertCanSetSelfAsTaskCompletionApprover(actorUserId);
+    return;
   }
 }

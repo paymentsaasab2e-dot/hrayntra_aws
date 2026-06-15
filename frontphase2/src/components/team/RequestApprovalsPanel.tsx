@@ -2,11 +2,10 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Check, ClipboardList, Loader2, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Check, ClipboardList, Eye, Loader2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   deleteTeamRequest,
-  forwardTeamRequestToTask,
   getTeamRequestsForApproval,
   getCurrentUserRequestIdentity,
   updateTeamRequestStatus,
@@ -17,7 +16,11 @@ import type { TeamRequest, TeamRequestStatus } from '../../types/team';
 import { PH2_TABLE_CARD_CLASS } from '../layout/Ph2ModulePageLayout';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestConfirm } from '../../lib/appDialog';
-import { apiGetTaskAssignableMembers, getCachedOrgRecruitmentMode, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
+import { getCachedOrgRecruitmentMode, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
+import {
+  TeamRequestActionDrawer,
+  type TeamRequestDrawerMode,
+} from './TeamRequestActionDrawer';
 
 const STATUS_STYLES: Record<TeamRequestStatus, string> = {
   pending: 'bg-amber-50 text-amber-700 ring-amber-200/80',
@@ -54,16 +57,6 @@ function isRequestForCurrentUser(request: TeamRequest, user: TeamRequestUserIden
   return false;
 }
 
-function memberDisplayName(member: {
-  name?: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-}) {
-  const full = `${member.firstName || ''} ${member.lastName || ''}`.trim();
-  return member.name?.trim() || full || member.email || 'Team member';
-}
-
 type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected';
 
 export function RequestApprovalsPanel() {
@@ -74,25 +67,17 @@ export function RequestApprovalsPanel() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [actingId, setActingId] = useState<string | null>(null);
-  const [forwardingId, setForwardingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [reviewNoteById, setReviewNoteById] = useState<Record<string, string>>({});
-  const [assignToById, setAssignToById] = useState<Record<string, string>>({});
-  const [assignableMembers, setAssignableMembers] = useState<
-    Array<{ id: string; name: string; firstName?: string; lastName?: string; email?: string }>
-  >([]);
   const [currentUser, setCurrentUser] = useState<TeamRequestUserIdentity>({});
   const [recruitmentMode, setRecruitmentMode] = useState<'agency' | 'standalone'>(() =>
     typeof window !== 'undefined' ? getCachedOrgRecruitmentMode() : 'agency',
   );
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<TeamRequestDrawerMode>('view');
+  const [selectedRequest, setSelectedRequest] = useState<TeamRequest | null>(null);
 
   const isStandaloneMode = recruitmentMode === 'standalone';
-  const currentUserId = normalizeUserId(currentUser.id);
-
-  const forwardTargets = useMemo(
-    () => assignableMembers.filter((member) => normalizeUserId(member.id) !== currentUserId),
-    [assignableMembers, currentUserId],
-  );
 
   useEffect(() => {
     setCurrentUser(getCurrentUserRequestIdentity());
@@ -103,24 +88,6 @@ export function RequestApprovalsPanel() {
     syncMode();
     window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, syncMode);
     return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, syncMode);
-  }, []);
-
-  const loadAssignableMembers = useCallback(async () => {
-    try {
-      const response = await apiGetTaskAssignableMembers();
-      const rows = Array.isArray(response.data) ? response.data : [];
-      setAssignableMembers(
-        rows.map((member) => ({
-          id: member.id,
-          name: memberDisplayName(member),
-          firstName: member.firstName,
-          lastName: member.lastName,
-          email: member.email,
-        })),
-      );
-    } catch {
-      setAssignableMembers([]);
-    }
   }, []);
 
   const loadRequests = useCallback(async () => {
@@ -145,21 +112,17 @@ export function RequestApprovalsPanel() {
 
   useEffect(() => {
     void loadRequests();
-    void loadAssignableMembers();
-  }, [loadRequests, loadAssignableMembers]);
+  }, [loadRequests]);
 
   useEffect(() => {
-    const refresh = () => {
-      void loadRequests();
-      void loadAssignableMembers();
-    };
+    const refresh = () => void loadRequests();
     window.addEventListener(TEAM_REQUESTS_UPDATED_EVENT, refresh);
     window.addEventListener('focus', refresh);
     return () => {
       window.removeEventListener(TEAM_REQUESTS_UPDATED_EVENT, refresh);
       window.removeEventListener('focus', refresh);
     };
-  }, [loadRequests, loadAssignableMembers]);
+  }, [loadRequests]);
 
   const filteredRequests = useMemo(() => {
     if (statusFilter === 'all') return requests;
@@ -188,62 +151,38 @@ export function RequestApprovalsPanel() {
     [canDelete, currentUser],
   );
 
-  const handleDecision = async (
-    request: TeamRequest,
-    status: 'approved' | 'rejected',
-  ) => {
-    const label = status === 'approved' ? 'approve' : 'reject';
+  const openDrawer = (request: TeamRequest, mode: TeamRequestDrawerMode) => {
+    setSelectedRequest(request);
+    setDrawerMode(mode);
+    setDrawerOpen(true);
+  };
+
+  const handleDrawerSuccess = (updated: TeamRequest) => {
+    setRequests((prev) => prev.map((entry) => (entry.id === updated.id ? updated : entry)));
+    setSelectedRequest(updated);
+  };
+
+  const handleReject = async (request: TeamRequest) => {
     const note = (reviewNoteById[request.id] || '').trim();
-    if (status === 'rejected' && !note) {
+    if (!note) {
       toast.error('Remark is required when rejecting a request');
       return;
     }
-    if (!(await requestConfirm(`Are you sure you want to ${label} this request?`))) {
+    if (!(await requestConfirm('Are you sure you want to reject this request?'))) {
       return;
     }
 
     setActingId(request.id);
     try {
-      const res = await updateTeamRequestStatus(request.id, { status, reviewNote: note || undefined });
+      const res = await updateTeamRequestStatus(request.id, { status: 'rejected', reviewNote: note });
       setRequests((prev) =>
         prev.map((entry) => (entry.id === request.id ? res.data : entry)),
       );
-      toast.success(`Request ${status}`);
-      if (status === 'approved' && isStandaloneMode) {
-        toast.message('Forward this approved request as a task to a team member.');
-      }
+      toast.success('Request rejected');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : `Failed to ${label} request`);
+      toast.error(error instanceof Error ? error.message : 'Failed to reject request');
     } finally {
       setActingId(null);
-    }
-  };
-
-  const handleCreateTask = async (request: TeamRequest) => {
-    const assignToId = (assignToById[request.id] || '').trim();
-    if (!assignToId) {
-      toast.error('Select a team member to assign this task');
-      return;
-    }
-    if (
-      !(await requestConfirm(
-        'Create a task for the selected team member from this approved request?',
-      ))
-    ) {
-      return;
-    }
-
-    setForwardingId(request.id);
-    try {
-      const res = await forwardTeamRequestToTask(request.id, assignToId);
-      setRequests((prev) =>
-        prev.map((entry) => (entry.id === request.id ? res.data : entry)),
-      );
-      toast.success('Task created and assigned');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to create task');
-    } finally {
-      setForwardingId(null);
     }
   };
 
@@ -274,105 +213,127 @@ export function RequestApprovalsPanel() {
   }
 
   return (
-    <div className={PH2_TABLE_CARD_CLASS}>
-      <div className="flex flex-col gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">Approval Queue</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {isStandaloneMode
-              ? 'Approve hiring requests, then forward approved requests as tasks to lower-ranked team members in your department.'
-              : 'Requests sent to you for review and approval.'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {pendingCount > 0 ? (
-            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200/80">
-              {pendingCount} pending
-            </span>
-          ) : null}
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-            className="rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
-          >
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="all">All</option>
-          </select>
-        </div>
-      </div>
-
-      {filteredRequests.length === 0 ? (
-        <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
-            <ShieldCheck className="h-7 w-7" strokeWidth={1.8} />
+    <>
+      <div className={PH2_TABLE_CARD_CLASS}>
+        <div className="flex flex-col gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Approval Queue</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {isStandaloneMode
+                ? 'Approve hiring requests, then assign a tracked task to a team member with you as completion verifier.'
+                : 'Requests sent to you for review and approval.'}
+            </p>
           </div>
-          <p className="text-sm font-semibold text-slate-800">No requests in this queue</p>
-          <p className="mt-1 max-w-sm text-xs text-slate-500">
-            When someone sends a request to you, it will appear here for approval.
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {pendingCount > 0 ? (
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200/80">
+                {pendingCount} pending
+              </span>
+            ) : null}
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+              className="rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
+            >
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="all">All</option>
+            </select>
+          </div>
         </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45">
-                <th className="px-4 py-3 sm:px-6">Subject</th>
-                <th className="px-4 py-3">From</th>
-                <th className="px-4 py-3">Priority</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Received</th>
-                <th className="px-4 py-3 sm:pr-6">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRequests.map((request) => {
-                const canAct = canActOnRequest(request);
-                const canRemove = canDeleteRequest(request);
-                const isActing = actingId === request.id;
-                const isForwarding = forwardingId === request.id;
-                const isDeleting = deletingId === request.id;
-                const showCreateTask =
-                  isStandaloneMode &&
-                  canUpdate &&
-                  request.status === 'approved' &&
-                  !request.linkedTaskId;
-                const showViewTask = isStandaloneMode && Boolean(request.linkedTaskId);
-                const showViewJob = isStandaloneMode && Boolean(request.linkedJobId);
 
-                return (
-                  <tr
-                    key={request.id}
-                    className="border-b border-slate-100/80 transition-colors even:bg-slate-50/35 hover:bg-indigo-50/45"
-                  >
-                    <td className="px-4 py-3.5 sm:px-6">
-                      <p className="font-medium text-slate-900">{request.subject}</p>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
-                        {request.description}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3.5 text-xs font-medium text-slate-700">
-                      {request.requestedByName || '—'}
-                    </td>
-                    <td className="px-4 py-3.5 text-xs capitalize text-slate-600">
-                      {request.priority}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ring-1 ring-inset ${STATUS_STYLES[request.status]}`}
-                      >
-                        {request.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-xs text-slate-500">
-                      {formatDate(request.createdAt)}
-                    </td>
-                    <td className="px-4 py-3.5 sm:pr-6">
-                      {canAct || canRemove || showCreateTask || showViewTask || showViewJob ? (
+        {filteredRequests.length === 0 ? (
+          <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
+              <ShieldCheck className="h-7 w-7" strokeWidth={1.8} />
+            </div>
+            <p className="text-sm font-semibold text-slate-800">No requests in this queue</p>
+            <p className="mt-1 max-w-sm text-xs text-slate-500">
+              When someone sends a request to you, it will appear here for approval.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45">
+                  <th className="px-4 py-3 sm:px-6">Subject</th>
+                  <th className="px-4 py-3">From</th>
+                  <th className="px-4 py-3">Priority</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Received</th>
+                  <th className="px-4 py-3 sm:pr-6">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRequests.map((request) => {
+                  const canAct = canActOnRequest(request);
+                  const canRemove = canDeleteRequest(request);
+                  const isActing = actingId === request.id;
+                  const isDeleting = deletingId === request.id;
+                  const showAssignTask =
+                    isStandaloneMode &&
+                    canUpdate &&
+                    request.status === 'approved' &&
+                    !request.linkedTaskId;
+                  const showViewTask = isStandaloneMode && Boolean(request.linkedTaskId);
+                  const showViewJob = isStandaloneMode && Boolean(request.linkedJobId);
+
+                  return (
+                    <tr
+                      key={request.id}
+                      className="border-b border-slate-100/80 transition-colors even:bg-slate-50/35 hover:bg-indigo-50/45"
+                    >
+                      <td className="px-4 py-3.5 sm:px-6">
+                        <button
+                          type="button"
+                          onClick={() => openDrawer(request, 'view')}
+                          className="text-left hover:text-indigo-700"
+                        >
+                          <p className="font-medium text-slate-900">{request.subject}</p>
+                          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+                            {request.description}
+                          </p>
+                        </button>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs font-medium text-slate-700">
+                        {request.requestedByName || '—'}
+                      </td>
+                      <td className="px-4 py-3.5 text-xs capitalize text-slate-600">
+                        {request.priority}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ring-1 ring-inset ${STATUS_STYLES[request.status]}`}
+                        >
+                          {request.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-slate-500">
+                        {formatDate(request.createdAt)}
+                      </td>
+                      <td className="px-4 py-3.5 sm:pr-6">
                         <div className="flex flex-wrap items-center gap-2">
-                          {canAct ? (
+                          <button
+                            type="button"
+                            onClick={() => openDrawer(request, 'view')}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                          >
+                            <Eye className="size-3" strokeWidth={2.25} />
+                            Details
+                          </button>
+                          {canAct && isStandaloneMode ? (
                             <>
+                              <button
+                                type="button"
+                                disabled={isActing || isDeleting}
+                                onClick={() => openDrawer(request, 'approve')}
+                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                              >
+                                <Check className="size-3" strokeWidth={2.5} />
+                                Approve
+                              </button>
                               <input
                                 type="text"
                                 placeholder="Remark (required to reject)"
@@ -388,20 +349,7 @@ export function RequestApprovalsPanel() {
                               <button
                                 type="button"
                                 disabled={isActing || isDeleting}
-                                onClick={() => void handleDecision(request, 'approved')}
-                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
-                              >
-                                {isActing ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  <Check className="size-3" strokeWidth={2.5} />
-                                )}
-                                Approve
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isActing || isDeleting}
-                                onClick={() => void handleDecision(request, 'rejected')}
+                                onClick={() => void handleReject(request)}
                                 className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 transition-colors hover:bg-rose-100 disabled:opacity-60"
                               >
                                 {isActing ? (
@@ -412,65 +360,88 @@ export function RequestApprovalsPanel() {
                                 Reject
                               </button>
                             </>
-                          ) : null}
-                          {showCreateTask ? (
+                          ) : canAct ? (
                             <>
-                              <select
-                                value={assignToById[request.id] || ''}
+                              <button
+                                type="button"
+                                disabled={isActing || isDeleting}
+                                onClick={async () => {
+                                  if (!(await requestConfirm('Approve this request?'))) return;
+                                  setActingId(request.id);
+                                  try {
+                                    const res = await updateTeamRequestStatus(request.id, {
+                                      status: 'approved',
+                                      reviewNote: reviewNoteById[request.id]?.trim() || undefined,
+                                    });
+                                    setRequests((prev) =>
+                                      prev.map((entry) => (entry.id === request.id ? res.data : entry)),
+                                    );
+                                    toast.success('Request approved');
+                                  } catch (error) {
+                                    toast.error(error instanceof Error ? error.message : 'Failed to approve');
+                                  } finally {
+                                    setActingId(null);
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                              >
+                                Approve
+                              </button>
+                              <input
+                                type="text"
+                                placeholder="Remark (required to reject)"
+                                className="min-w-[10rem] rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
+                                value={reviewNoteById[request.id] || ''}
                                 onChange={(e) =>
-                                  setAssignToById((prev) => ({
+                                  setReviewNoteById((prev) => ({
                                     ...prev,
                                     [request.id]: e.target.value,
                                   }))
                                 }
-                                className="min-w-[10rem] rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px]"
-                              >
-                                <option value="">Assign to…</option>
-                                {forwardTargets.map((member) => (
-                                  <option key={member.id} value={member.id}>
-                                    {member.name}
-                                  </option>
-                                ))}
-                              </select>
+                              />
                               <button
                                 type="button"
-                                disabled={isForwarding || isDeleting || forwardTargets.length === 0}
-                                onClick={() => void handleCreateTask(request)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-60"
+                                disabled={isActing || isDeleting}
+                                onClick={() => void handleReject(request)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
                               >
-                                {isForwarding ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  <ClipboardList className="size-3" strokeWidth={2.25} />
-                                )}
-                                Create Task
+                                Reject
                               </button>
                             </>
+                          ) : null}
+                          {showAssignTask ? (
+                            <button
+                              type="button"
+                              onClick={() => openDrawer(request, 'assign')}
+                              className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                            >
+                              <ClipboardList className="size-3" strokeWidth={2.25} />
+                              Assign task
+                            </button>
                           ) : null}
                           {showViewTask ? (
                             <Link
                               href={`/Task&Activites?taskId=${encodeURIComponent(request.linkedTaskId || '')}`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                              className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100"
                             >
                               <ClipboardList className="size-3" strokeWidth={2.25} />
-                              View Task
+                              Open task
                             </Link>
                           ) : null}
                           {showViewJob ? (
                             <Link
                               href={`/job?jobId=${encodeURIComponent(request.linkedJobId || '')}`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
                             >
-                              View Job
+                              View job
                             </Link>
                           ) : null}
                           {canRemove ? (
                             <button
                               type="button"
-                              disabled={isActing || isForwarding || isDeleting}
+                              disabled={isActing || isDeleting}
                               onClick={() => void handleDelete(request)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-60"
-                              title="Delete request"
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-60"
                             >
                               {isDeleting ? (
                                 <Loader2 className="size-3 animate-spin" />
@@ -481,17 +452,26 @@ export function RequestApprovalsPanel() {
                             </button>
                           ) : null}
                         </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <TeamRequestActionDrawer
+        isOpen={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setSelectedRequest(null);
+        }}
+        request={selectedRequest}
+        mode={drawerMode}
+        onSuccess={handleDrawerSuccess}
+      />
+    </>
   );
 }

@@ -10,7 +10,7 @@ import { ENTITY_TYPES } from '../../services/activityService.js';
 import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import activityService from '../../services/activityService.js';
 import { notifyTaskAssignment, notifyTaskStatusChange, notifyTaskAwaitingApproval, notifyTaskCompletionApproved, notifyTaskCompletionRejected } from './taskWorkflow.js';
-import { assertCanAssignTask, listTaskAssigneeCandidates } from '../../services/taskAssignmentScope.service.js';
+import { assertCanAssignTask, listTaskAssigneeCandidates, assertValidTaskCompletionApprover, assertCanSetSelfAsTaskCompletionApprover } from '../../services/taskAssignmentScope.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,6 +59,11 @@ const TASK_INCLUDE = {
 };
 
 async function resolveCompletionApprover(task) {
+  const preset = String(task.completionApproverId || '').trim();
+  if (preset && preset !== String(task.assignedToId || '').trim()) {
+    return preset;
+  }
+
   const assigneeId = String(task.assignedToId || '').trim();
   const participantIds = uniqueUserIds(...(task.participantIds || []));
   const creatorId = String(task.createdById || '').trim();
@@ -231,12 +236,18 @@ export const taskService = {
       throw new Error(`Invalid assignee ID format. Expected MongoDB ObjectID, got: ${assignedToId}`);
     }
 
-    const actorId = data.createdById || req?.user?.id;
+    const actorId = req?.user?.id || data.performedById || data.createdById;
     if (actorId) {
       await assertCanAssignTask(actorId, assignedToId);
     }
 
-    // Validate linkedEntityId if provided
+    const completionApproverId = data.completionApproverId
+      ? String(data.completionApproverId).trim()
+      : null;
+    if (completionApproverId && actorId) {
+      await assertValidTaskCompletionApprover(actorId, completionApproverId, assignedToId);
+    }
+
     const linkedEntityId = data.linkedEntityId || data.relatedEntityId;
     if (linkedEntityId && !isValidObjectId(linkedEntityId)) {
       throw new Error(`Invalid linked entity ID format. Expected MongoDB ObjectID, got: ${linkedEntityId}`);
@@ -268,7 +279,7 @@ export const taskService = {
       status: statusMap[data.status] || 'PENDING',
       taskType: data.taskType || data.type || null,
       assignedToId,
-      createdById: data.createdById,
+      createdById: data.createdById || actorId,
       linkedEntityType: data.linkedEntityType || (data.relatedTo ? linkedEntityTypeMap[data.relatedTo] : null),
       linkedEntityId: linkedEntityId || null,
       reminder: data.reminder || null,
@@ -276,7 +287,12 @@ export const taskService = {
       attachments,
       notifyAssignee: data.notifyAssignee !== undefined ? data.notifyAssignee : true,
       notes: data.notes || [],
-      participantIds: buildInitialParticipantIds(data.createdById, assignedToId),
+      participantIds: uniqueUserIds(
+        ...(Array.isArray(data.participantIds) ? data.participantIds : []),
+        ...buildInitialParticipantIds(data.createdById, assignedToId),
+        completionApproverId,
+      ),
+      completionApproverId: completionApproverId || null,
     };
 
     dbLogger.logCreate('TASK', taskData);
@@ -428,6 +444,24 @@ export const taskService = {
       throw new Error('Task not found');
     }
 
+    if (data.completionApproverId !== undefined) {
+      const nextApproverId = data.completionApproverId
+        ? String(data.completionApproverId).trim()
+        : null;
+      const nextAssigneeId = updateData.assignedToId ?? existingTask.assignedToId;
+      const actorId = req?.user?.id || data.performedById;
+      if (nextApproverId && actorId && nextAssigneeId) {
+        await assertValidTaskCompletionApprover(actorId, nextApproverId, nextAssigneeId);
+      }
+      updateData.completionApproverId = nextApproverId;
+      if (nextApproverId) {
+        updateData.participantIds = appendTaskParticipants(
+          updateData.participantIds || existingTask.participantIds,
+          nextApproverId,
+        );
+      }
+    }
+
     const newAssigneeId = updateData.assignedToId;
     if (newAssigneeId !== undefined) {
       const actorId = req?.user?.id || data.performedById;
@@ -494,6 +528,89 @@ export const taskService = {
         task: updated,
         actorUserId: performerId,
         newStatus: 'DONE',
+      });
+    }
+
+    return updated;
+  },
+
+  async delegateTask(id, data, req = null) {
+    const actorId = req?.user?.id || data.performedById;
+    if (!actorId) throw new Error('Unauthorized');
+
+    const assignToId = String(data.assignToId || data.assignedToId || '').trim();
+    if (!assignToId) throw new Error('Delegate assignee is required');
+
+    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const existingTask = await prisma.task.findFirst({
+      where: accessWhere,
+      include: TASK_INCLUDE,
+    });
+    if (!existingTask) throw new Error('Task not found');
+
+    const isCurrentAssignee = String(existingTask.assignedToId) === String(actorId);
+    const isParticipant = (existingTask.participantIds || []).some(
+      (pid) => String(pid) === String(actorId),
+    );
+    if (!isCurrentAssignee && !isParticipant) {
+      throw new Error('Only the current assignee or a participant can delegate this task');
+    }
+    if (String(assignToId) === String(actorId)) {
+      throw new Error('Choose a different team member to delegate to');
+    }
+
+    await assertCanAssignTask(actorId, assignToId);
+
+    let completionApproverId = data.completionApproverId
+      ? String(data.completionApproverId).trim()
+      : null;
+    if (data.setSelfAsApprover === true || data.selfAsApprover === true) {
+      await assertCanSetSelfAsTaskCompletionApprover(actorId);
+      completionApproverId = String(actorId);
+    } else if (completionApproverId) {
+      await assertValidTaskCompletionApprover(actorId, completionApproverId, assignToId);
+    }
+
+    const updateData = {
+      assignedToId: assignToId,
+      participantIds: appendTaskParticipants(
+        existingTask.participantIds,
+        existingTask.assignedToId,
+        actorId,
+        existingTask.createdById,
+        completionApproverId,
+      ),
+    };
+    if (completionApproverId) {
+      updateData.completionApproverId = completionApproverId;
+    }
+
+    const updated = await prisma.task.update({
+      where: { id },
+      data: updateData,
+      include: TASK_INCLUDE,
+    });
+
+    await activityService.logTaskActivity({
+      entityId: id,
+      performedById: actorId,
+      action: 'Task delegated',
+      description: `Delegated to ${updated.assignedTo?.name || 'team member'}${
+        completionApproverId ? ' with completion verification assigned' : ''
+      }`,
+      metadata: {
+        assigneeId: assignToId,
+        completionApproverId: completionApproverId || null,
+      },
+    });
+
+    if (updated.notifyAssignee !== false && assignToId !== actorId) {
+      await notifyTaskAssignment({
+        task: updated,
+        actorUserId: actorId,
+        assigneeUserId: assignToId,
+        isReassign: true,
+        actorUser: req?.user,
       });
     }
 
