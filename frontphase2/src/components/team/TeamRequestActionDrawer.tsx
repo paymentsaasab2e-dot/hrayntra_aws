@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { ClipboardList, Loader2, X } from 'lucide-react';
@@ -53,10 +53,7 @@ export function TeamRequestActionDrawer({
 
   const currentUserId = getCurrentUserRequestIdentity().id || '';
 
-  const delegateTargets = useMemo(
-    () => assignees.filter((member) => member.id !== currentUserId),
-    [assignees, currentUserId],
-  );
+  const assignToSelf = Boolean(assignToId && currentUserId && assignToId === currentUserId);
 
   const canAssign = mode === 'assign' || mode === 'approve';
   const showAssignForm = canAssign && !request?.linkedTaskId;
@@ -111,7 +108,7 @@ export function TeamRequestActionDrawer({
 
       if (showAssignForm) {
         const assigned = await forwardTeamRequestToTask(request.id, assignToId, {
-          setSelfAsApprover,
+          setSelfAsApprover: assignToSelf ? false : setSelfAsApprover,
           dueDate,
         });
         workingRequest = assigned.data;
@@ -239,7 +236,7 @@ export function TeamRequestActionDrawer({
                     <p className="text-sm font-semibold">Assign task to team member</p>
                   </div>
                   <p className="text-xs text-slate-600">
-                    Choose a lower-ranked colleague who will create the job. You can verify completion yourself.
+                    Choose yourself or a team member who will work on this request. You can verify completion yourself when assigning to someone else.
                   </p>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">Assign to</label>
@@ -252,9 +249,10 @@ export function TeamRequestActionDrawer({
                       <option value="">
                         {loadingMembers ? 'Loading team members…' : 'Select team member…'}
                       </option>
-                      {delegateTargets.map((member) => (
+                      {assignees.map((member) => (
                         <option key={member.id} value={member.id}>
                           {member.name}
+                          {member.id === currentUserId ? ' (Me)' : ''}
                         </option>
                       ))}
                     </select>
@@ -269,15 +267,21 @@ export function TeamRequestActionDrawer({
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                     />
                   </div>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={setSelfAsApprover}
-                      onChange={(e) => setSetSelfAsApprover(e.target.checked)}
-                      className="rounded border-slate-300"
-                    />
-                    I will verify completion when the job is created
-                  </label>
+                  {assignToSelf ? (
+                    <p className="text-xs text-slate-500">
+                      Assigning to yourself — completion verification is not needed.
+                    </p>
+                  ) : (
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={setSelfAsApprover}
+                        onChange={(e) => setSetSelfAsApprover(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      I will verify completion when the job is created
+                    </label>
+                  )}
                 </div>
               ) : request.linkedTaskId ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">

@@ -45,11 +45,9 @@ export function CrossDeptRequestActionDrawer({
 
   const currentUserId = getCurrentUserRequestIdentity().id || '';
 
-  const assignOptions = useMemo(() => {
-    const rows = members.filter((member) => member.id !== currentUserId);
-    if (rows.length > 0) return rows;
-    return members;
-  }, [members, currentUserId]);
+  const assignOptions = useMemo(() => members, [members]);
+
+  const assignToSelf = Boolean(assignToId && currentUserId && assignToId === currentUserId);
 
   const needsAssignment =
     request?.workType === 'CLIENT' || request?.workType === 'TASK';
@@ -89,7 +87,7 @@ export function CrossDeptRequestActionDrawer({
         note: reviewNote.trim() || undefined,
         assignToId: showAssignForm ? assignToId : request.targetUserId || undefined,
         dueDate: showAssignForm ? dueDate : undefined,
-        setSelfAsApprover: showAssignForm ? setSelfAsApprover : undefined,
+        setSelfAsApprover: showAssignForm && !assignToSelf ? setSelfAsApprover : undefined,
       });
       toast.success('Request accepted and task assigned');
       onSuccess?.(updated);
@@ -212,6 +210,7 @@ export function CrossDeptRequestActionDrawer({
                       {assignOptions.map((member) => (
                         <option key={member.id} value={member.id}>
                           {memberLabel(member)}
+                          {member.id === currentUserId ? ' (Me)' : ''}
                         </option>
                       ))}
                     </select>
@@ -226,15 +225,21 @@ export function CrossDeptRequestActionDrawer({
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                     />
                   </div>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={setSelfAsApprover}
-                      onChange={(e) => setSetSelfAsApprover(e.target.checked)}
-                      className="rounded border-slate-300"
-                    />
-                    I will verify completion when the work is done
-                  </label>
+                  {assignToSelf ? (
+                    <p className="text-xs text-slate-500">
+                      Assigning to yourself — completion verification is not needed.
+                    </p>
+                  ) : (
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={setSelfAsApprover}
+                        onChange={(e) => setSetSelfAsApprover(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      I will verify completion when the work is done
+                    </label>
+                  )}
                 </div>
               ) : request.createdTaskId ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
