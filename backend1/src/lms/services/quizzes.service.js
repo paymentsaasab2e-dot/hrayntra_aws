@@ -1,4 +1,5 @@
 const { prisma } = require('../../lib/prisma');
+const aiLmsService = require('./ai.lms.service');
 
 async function checkCareerPathAdvancement(userId, quizId, score) {
   if (score < 80) return;
@@ -56,16 +57,74 @@ async function fetchQuizzes(userId, filters) {
   return quizzes.map(q => {
     const attempts = q.attempts;
     const bestAttempt = attempts[0];
+    const latestAttempt = attempts.reduce((latest, current) => {
+      if (!latest) return current;
+      return new Date(current.completedAt) > new Date(latest.completedAt) ? current : latest;
+    }, null);
     const { questions, ...quizInfo } = q;
     return {
       ...quizInfo,
       questionsCount: Array.isArray(questions) ? questions.length : 0,
       bestScore: bestAttempt ? bestAttempt.score : null,
+      latestScore: latestAttempt ? latestAttempt.score : null,
       attemptCount: attempts.length,
-      lastAttemptedDate: attempts.length > 0 ? attempts[0].completedAt : null,
+      lastAttemptedDate: latestAttempt ? latestAttempt.completedAt : null,
+      lastAttemptId: latestAttempt ? latestAttempt.id : null,
       masteryLevel: computeMasteryLevel(bestAttempt ? bestAttempt.score : null)
     };
   });
+}
+
+async function fetchCompletedQuizzes(userId) {
+  const attempts = await prisma.lmsQuizAttempt.findMany({
+    where: { userId },
+    include: { quiz: true },
+    orderBy: { completedAt: 'desc' },
+  });
+
+  const byQuizId = new Map();
+
+  for (const attempt of attempts) {
+    const quiz = attempt.quiz;
+    if (!quiz) continue;
+
+    const score = Math.round(attempt.score);
+    const existing = byQuizId.get(quiz.id);
+
+    if (!existing) {
+      const questions = Array.isArray(quiz.questions) ? quiz.questions : [];
+      byQuizId.set(quiz.id, {
+        id: quiz.id,
+        title: quiz.title,
+        description: quiz.description,
+        category: quiz.category,
+        skillTags: quiz.skillTags,
+        difficulty: quiz.difficulty,
+        estimatedMinutes: quiz.estimatedMinutes,
+        questionsCount: questions.length,
+        bestScore: score,
+        latestScore: score,
+        attemptCount: 1,
+        lastAttemptedDate: attempt.completedAt,
+        lastAttemptId: attempt.id,
+        masteryLevel: computeMasteryLevel(score),
+      });
+      continue;
+    }
+
+    existing.attemptCount += 1;
+    existing.bestScore = Math.max(existing.bestScore, score);
+    if (new Date(attempt.completedAt) > new Date(existing.lastAttemptedDate)) {
+      existing.latestScore = score;
+      existing.lastAttemptedDate = attempt.completedAt;
+      existing.lastAttemptId = attempt.id;
+      existing.masteryLevel = computeMasteryLevel(existing.bestScore);
+    }
+  }
+
+  return Array.from(byQuizId.values()).sort(
+    (a, b) => new Date(b.lastAttemptedDate).getTime() - new Date(a.lastAttemptedDate).getTime()
+  );
 }
 
 async function fetchRecommendedQuiz(userId) {
@@ -243,11 +302,75 @@ async function fetchAttemptResult(userId, quizId, attemptId) {
   };
 }
 
+async function suggestQuizTopics(query) {
+  if (!query || String(query).trim().length < 2) return [];
+  return aiLmsService.generateQuizTopicSuggestions(String(query).trim());
+}
+
+function slugifyTopic(topic) {
+  return String(topic)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'general';
+}
+
+async function generateQuizzesFromTopic(userId, topic) {
+  const normalizedTopic = String(topic || '').trim();
+  if (normalizedTopic.length < 2) {
+    throw new Error('Topic must be at least 2 characters');
+  }
+
+  const generated = await aiLmsService.generateQuizzesForTopic(normalizedTopic);
+  const skillSlug = slugifyTopic(normalizedTopic);
+  const created = [];
+
+  for (const quiz of generated.quizzes.slice(0, 5)) {
+    const questions = Array.isArray(quiz.questions) ? quiz.questions : [];
+    const row = await prisma.lmsQuiz.create({
+      data: {
+        title: quiz.title,
+        description: quiz.description,
+        category: skillSlug,
+        skillTags: [skillSlug, normalizedTopic],
+        difficulty: quiz.difficulty,
+        estimatedMinutes: quiz.estimatedMinutes || 8,
+        isPublished: true,
+        questions,
+      },
+    });
+
+    created.push({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      category: row.category,
+      skillTags: row.skillTags,
+      difficulty: row.difficulty,
+      estimatedMinutes: row.estimatedMinutes,
+      totalQuestions: questions.length,
+      questionsCount: questions.length,
+      durationMinutes: row.estimatedMinutes,
+      skill: skillSlug,
+      topic: normalizedTopic,
+      isAiGenerated: true,
+    });
+  }
+
+  return {
+    topic: normalizedTopic,
+    quizzes: created,
+  };
+}
+
 module.exports = {
   fetchQuizzes,
+  fetchCompletedQuizzes,
   fetchRecommendedQuiz,
   fetchAnalytics,
   fetchQuizDetail,
   scoreAttempt,
-  fetchAttemptResult
+  fetchAttemptResult,
+  suggestQuizTopics,
+  generateQuizzesFromTopic,
 };

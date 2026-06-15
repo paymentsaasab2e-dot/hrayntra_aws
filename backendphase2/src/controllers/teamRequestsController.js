@@ -6,6 +6,7 @@ import {
   assertCanSetSelfAsTaskCompletionApprover,
   assertValidTaskCompletionApprover,
 } from '../services/taskAssignmentScope.service.js';
+import { isDepartmentHeadUser, listAllDepartmentHeadRecipients } from '../services/departmentRole.service.js';
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -91,6 +92,26 @@ function isRecipient(request, authz) {
 }
 
 /**
+ * GET /api/team/requests/recipients
+ * Department heads (rank 1) across all departments — for the Send Request picker.
+ */
+export async function getTeamRequestRecipients(req, res) {
+  try {
+    const members = await listAllDepartmentHeadRecipients();
+    return res.status(200).json({
+      success: true,
+      data: members,
+    });
+  } catch (error) {
+    console.error('Error listing team request recipients:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load department heads',
+    });
+  }
+}
+
+/**
  * GET /api/team/requests?box=sent|inbox&all=true
  */
 export async function listTeamRequests(req, res) {
@@ -167,6 +188,18 @@ export async function createTeamRequest(req, res) {
 
     if (!recipient) {
       return res.status(404).json({ success: false, message: 'Recipient not found' });
+    }
+
+    if (recipient.status !== 'ACTIVE' || !recipient.isActive) {
+      return res.status(400).json({ success: false, message: 'Recipient must be an active team member' });
+    }
+
+    const recipientIsDeptHead = await isDepartmentHeadUser(recipient.id);
+    if (!recipientIsDeptHead) {
+      return res.status(400).json({
+        success: false,
+        message: 'Requests can only be sent to department heads (rank 1)',
+      });
     }
 
     const resolvedSendToName = sendToName || formatUserName(recipient);

@@ -13,7 +13,7 @@ export const interviewFeedbackController = {
 
   async list(req, res) {
     try {
-      const result = await interviewFeedbackService.list(req.params.id);
+      const result = await interviewFeedbackService.list(req.params.id, req.user?.id);
       sendResponse(res, 200, 'Interview feedback retrieved successfully', result);
     } catch (error) {
       sendError(res, 500, error.message, error);

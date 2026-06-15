@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import { emitTenantActionFromActivity } from '../utils/tenantAuditLog.js';
+import { appendEntityActivityVisibilityToWhere } from './activityVisibility.service.js';
 
 /**
  * Universal Activity Service
@@ -367,14 +368,19 @@ export async function getEntityActivities({
   entityId,
   limit = 100,
   category,
+  viewerUserId = null,
 }) {
-  const where = {
+  let where = {
     entityType,
     entityId,
   };
 
   if (category) {
     where.category = category;
+  }
+
+  if (viewerUserId) {
+    where = await appendEntityActivityVisibilityToWhere(where, viewerUserId);
   }
 
   const activities = await prisma.activity.findMany({
@@ -405,8 +411,8 @@ export async function getEntityActivities({
  * @param {string} [params.category] - Filter by category
  * @returns {Promise<Activity[]>}
  */
-export async function getClientActivities({ clientId, limit = 100, category }) {
-  const where = {
+export async function getClientActivities({ clientId, limit = 100, category, viewerUserId = null }) {
+  let where = {
     OR: [
       { entityType: ENTITY_TYPES.CLIENT, entityId: clientId },
       { clientId },
@@ -415,6 +421,10 @@ export async function getClientActivities({ clientId, limit = 100, category }) {
 
   if (category) {
     where.category = category;
+  }
+
+  if (viewerUserId) {
+    where = await appendEntityActivityVisibilityToWhere(where, viewerUserId);
   }
 
   const activities = await prisma.activity.findMany({

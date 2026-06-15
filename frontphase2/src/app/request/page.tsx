@@ -50,7 +50,7 @@ export default function RequestPage() {
                 <h1 className="text-xl font-bold leading-none tracking-tight text-slate-900 sm:text-[1.35rem]">
                   Request
                 </h1>
-                <p className="mt-1 text-xs text-slate-500">Send requests to team members.</p>
+                <p className="mt-1 text-xs text-slate-500">Send requests to department heads across all departments.</p>
               </div>
             </div>
             {canCreateRequest ? (

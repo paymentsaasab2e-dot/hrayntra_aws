@@ -10,6 +10,7 @@ export const TEAM_EXPORT_COLUMNS: ExportColumnDef<TeamMember>[] = [
   { id: 'designation', label: 'Designation', accessor: (m) => m.designation || '' },
   { id: 'location', label: 'Location', accessor: (m) => m.location || '' },
   { id: 'department', label: 'Department', accessor: (m) => m.department?.name || '' },
+  { id: 'departmentRank', label: 'Rank', accessor: (m) => (m.departmentRank != null ? String(m.departmentRank) : '') },
   { id: 'role', label: 'Role', accessor: (m) => m.role?.roleName || '' },
   { id: 'status', label: 'Status', accessor: (m) => m.status || '' },
   { id: 'loginId', label: 'Login ID', accessor: (m) => m.credential?.loginId || '' },

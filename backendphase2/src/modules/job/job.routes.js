@@ -46,6 +46,7 @@ router.delete('/:id', requireAnyPermission(['jobs_delete', 'delete_job']), jobCo
 
 // Notes routes
 router.get('/:jobId/notes', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getNotes);
+router.get('/:jobId/activities', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getActivities);
 router.post('/:jobId/notes', requireAnyPermission(['jobs_update', 'edit_job']), jobController.createNote);
 router.patch('/:jobId/notes/:noteId', requireAnyPermission(['jobs_update', 'edit_job']), jobController.updateNote);
 router.delete('/:jobId/notes/:noteId', requireAnyPermission(['jobs_delete', 'delete_job']), jobController.deleteNote);

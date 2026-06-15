@@ -16,7 +16,10 @@ import {
   assertRoleAllowedInDepartment,
   resolveDefaultManagerId,
   validateReportingManager,
+  attachDepartmentRanksToMembers,
+  attachDepartmentRankToMember,
 } from '../services/departmentRole.service.js';
+import { listCrmAssigneeCandidates } from '../services/crmAssignmentScope.service.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -49,6 +52,7 @@ function getTeamListCacheKey(req) {
     managerId: req.query.managerId || '',
     superAdmin: Boolean(isSuperAdminUser(req)),
     userId: req.user?.id || '',
+    assignableOnly: Boolean(req.teamListMode === 'assignable'),
     page,
     limit,
   };
@@ -151,10 +155,18 @@ export async function getAllTeamMembers(req, res) {
       where.managerId = managerId;
     }
 
-    const superAdminScope = getSuperAdminMemberScope(req);
-    if (superAdminScope) {
+    const isAssignableList = req.teamListMode === 'assignable';
+    if (isAssignableList && req.user?.id) {
+      const candidates = await listCrmAssigneeCandidates(req.user.id);
+      const allowedIds = candidates.map((member) => member.id).filter(Boolean);
       const existingAnd = Array.isArray(where.AND) ? where.AND : [];
-      where.AND = [...existingAnd, superAdminScope];
+      where.AND = [...existingAnd, { id: { in: allowedIds.length ? allowedIds : ['__none__'] } }];
+    } else {
+      const superAdminScope = getSuperAdminMemberScope(req);
+      if (superAdminScope) {
+        const existingAnd = Array.isArray(where.AND) ? where.AND : [];
+        where.AND = [...existingAnd, superAdminScope];
+      }
     }
 
     const [members, total] = await Promise.all([
@@ -170,6 +182,8 @@ export async function getAllTeamMembers(req, res) {
           designation: true,
           location: true,
           status: true,
+          departmentId: true,
+          roleId: true,
           createdAt: true,
           updatedAt: true,
           systemRole: {
@@ -222,9 +236,11 @@ export async function getAllTeamMembers(req, res) {
       manager: member.managerRelation || null,
     }));
 
+    const membersWithRanks = await attachDepartmentRanksToMembers(normalizedMembers);
+
     const responsePayload = {
       success: true,
-      data: normalizedMembers,
+      data: membersWithRanks,
       pagination: {
         page,
         limit,
@@ -327,9 +343,11 @@ export async function getTeamMemberById(req, res) {
       manager: member.managerRelation || null,
     };
 
+    const memberWithRank = await attachDepartmentRankToMember(normalizedMember);
+
     return res.status(200).json({
       success: true,
-      data: normalizedMember,
+      data: memberWithRank,
     });
   } catch (error) {
     logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to fetch team member' });

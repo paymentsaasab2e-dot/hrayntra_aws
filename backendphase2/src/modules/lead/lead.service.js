@@ -25,6 +25,7 @@ import {
 } from '../../utils/agreementTermsFields.js';
 import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
+import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
 import {
   mergeDirectorIntoOtherDetails,
   resolveDirectorNameFromLeadContext,
@@ -1888,12 +1889,18 @@ export const leadService = {
     return results;
   },
 
-  async getActivities(leadId) {
+  async getActivities(leadId, viewerUserId = null) {
+    let where = {
+      entityType: 'LEAD',
+      entityId: leadId,
+    };
+
+    if (viewerUserId) {
+      where = await appendEntityActivityVisibilityToWhere(where, viewerUserId);
+    }
+
     const activities = await prisma.activity.findMany({
-      where: {
-        entityType: 'LEAD',
-        entityId: leadId,
-      },
+      where,
       include: {
         performedBy: {
           select: { id: true, name: true, email: true, avatar: true },

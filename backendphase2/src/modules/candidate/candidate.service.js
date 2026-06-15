@@ -37,6 +37,7 @@ import {
   attachAuditMetaToEntity,
 } from '../../utils/listAuditMeta.js';
 import activityService, { ENTITY_TYPES } from '../../services/activityService.js';
+import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import { normalizePortalCareerPreferences } from '../../utils/normalizePortalCareerPreferences.js';
 import { generateMeetingLink } from '../../services/meetingService.js';
@@ -1300,12 +1301,18 @@ async function generateCandidateMeetingLink({ candidate, job, data, interviewers
   };
 }
 
-async function getCandidateActivities(candidateId, client = prisma) {
+async function getCandidateActivities(candidateId, client = prisma, viewerUserId = null) {
+  let where = {
+    entityType: CANDIDATE_ACTIVITY_ENTITY,
+    entityId: candidateId,
+  };
+
+  if (viewerUserId) {
+    where = await appendEntityActivityVisibilityToWhere(where, viewerUserId);
+  }
+
   return client.activity.findMany({
-    where: {
-      entityType: CANDIDATE_ACTIVITY_ENTITY,
-      entityId: candidateId,
-    },
+    where,
     include: {
       performedBy: {
         select: { id: true, name: true, email: true, avatar: true },
@@ -2483,8 +2490,8 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
   return candidate;
 }
 
-async function buildCandidateResponse(candidate, activityClient = prisma) {
-  const activities = await getCandidateActivities(candidate.id, activityClient);
+async function buildCandidateResponse(candidate, activityClient = prisma, viewerUserId = null) {
+  const activities = await getCandidateActivities(candidate.id, activityClient, viewerUserId);
   const customTags = extractCustomTags(activities);
   const internalNotes = activities.map(mapActivityToNote).filter(Boolean);
   const activityFeed = activities.map(mapActivityToDrawerItem).filter(Boolean);
@@ -3216,6 +3223,7 @@ export const candidateService = {
   },
 
   async getById(id, req = null) {
+    const viewerUserId = req?.user?.id || null;
     const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
     const annotateForTenant = (row) =>
       annotateCandidateListFlags(scopeCandidateForActiveTenant(row, tenantJobIdSet), tenantJobIdSet);
@@ -3267,7 +3275,8 @@ export const candidateService = {
         await hydrateAndPersistCandidateCvProfile(commonCandidate, portalPrisma);
         return buildCandidateResponse(
           await enrichCandidateDetailJobTitles(annotateForTenant(commonCandidate), tenantJobIdSet),
-          portalPrisma
+          portalPrisma,
+          viewerUserId,
         );
       }
       if (tombstone || purgedRef) {
@@ -3289,7 +3298,8 @@ export const candidateService = {
           await hydrateAndPersistCandidateCvProfile(candidate, portalPrisma);
           return buildCandidateResponse(
             await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),
-            portalPrisma
+            portalPrisma,
+            viewerUserId,
           );
         }
       }
@@ -3300,7 +3310,8 @@ export const candidateService = {
         await hydrateAndPersistCandidateCvProfile(commonCandidate, portalPrisma);
         return buildCandidateResponse(
           await enrichCandidateDetailJobTitles(annotateForTenant(commonCandidate), tenantJobIdSet),
-          portalPrisma
+          portalPrisma,
+          viewerUserId,
         );
       }
     }
@@ -3322,7 +3333,8 @@ export const candidateService = {
 
     return buildCandidateResponse(
       await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),
-      portalClientForPrefs
+      portalClientForPrefs,
+      viewerUserId,
     );
   },
 

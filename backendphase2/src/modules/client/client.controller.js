@@ -165,7 +165,7 @@ export const clientController = {
   async getActivities(req, res) {
     try {
       const { clientId } = req.params;
-      const activities = await clientService.getActivities(clientId);
+      const activities = await clientService.getActivities(clientId, req.user?.id);
       sendResponse(res, 200, 'Activities retrieved successfully', activities);
     } catch (error) {
       sendError(res, 500, error.message, error);

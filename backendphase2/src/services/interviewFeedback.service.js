@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
+import { filterInterviewUserRowsForViewer } from './activityVisibility.service.js';
 import { updateCandidateStage, PIPELINE_STAGES, syncApplicationInterviewFeedback, resolveInterviewRoundLabelForPortal } from '../modules/stage/candidateStage.service.js';
 import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 
@@ -124,8 +125,8 @@ export const interviewFeedbackService = {
     return feedback;
   },
 
-  async list(interviewId) {
-    return prisma.interviewFeedback.findMany({
+  async list(interviewId, viewerUserId = null) {
+    const rows = await prisma.interviewFeedback.findMany({
       where: { interviewId },
       include: {
         interviewer: {
@@ -141,6 +142,12 @@ export const interviewFeedbackService = {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    if (!viewerUserId) {
+      return rows;
+    }
+
+    return filterInterviewUserRowsForViewer(viewerUserId, rows, 'interviewerId');
   },
 
   async generateAiSummary(interviewId, feedbackId) {

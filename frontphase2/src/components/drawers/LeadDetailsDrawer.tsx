@@ -106,7 +106,7 @@ import {
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 import { filterKycFiles, uploadKycDocuments } from '../../lib/kycDocuments';
 import { useFiles } from '../../hooks/useFiles';
-import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
+import { apiGetLeadAssignableMembers } from '../../lib/api';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
@@ -960,15 +960,31 @@ export function LeadDetailsDrawer({
       
       setLoadingRecruiters(true);
       try {
-        const members = await getAllTeamMembersForAssign();
+        const response = await apiGetLeadAssignableMembers();
+        const members = Array.isArray(response.data) ? response.data : [];
         setRecruiters(
-          members.map((member) => {
-            const m = member as TeamMember & { systemRole?: TeamMember['role'] };
-            if (!m.role && m.systemRole) {
-              return { ...member, role: m.systemRole };
-            }
-            return member;
-          })
+          members.map((member) => ({
+            id: member.id,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            name:
+              member.name ||
+              `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
+              member.email ||
+              'User',
+            email: member.email || '',
+            role: member.role
+              ? {
+                  id: member.role.id,
+                  roleName: member.role.roleName || '',
+                  color: member.role.color,
+                }
+              : undefined,
+            department: member.department
+              ? { id: member.department.id, name: member.department.name || '' }
+              : undefined,
+            status: 'ACTIVE' as const,
+          })),
         );
       } catch (error: any) {
         console.error('Failed to fetch recruiters:', error);

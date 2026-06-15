@@ -222,6 +222,47 @@ function resolveUserRankInDepartment(user, rankByRoleId, rankByRoleName) {
   return null;
 }
 
+/**
+ * Attach each member's department rank (from department role config) for list/detail APIs.
+ */
+export async function attachDepartmentRanksToMembers(members) {
+  if (!Array.isArray(members) || members.length === 0) return members;
+
+  const deptIds = [
+    ...new Set(
+      members
+        .map((member) => idStr(member.departmentId || member.department?.id))
+        .filter(Boolean),
+    ),
+  ];
+
+  const mapsByDept = new Map();
+  await Promise.all(
+    deptIds.map(async (deptId) => {
+      mapsByDept.set(deptId, await loadDepartmentRankMaps(deptId));
+    }),
+  );
+
+  return members.map((member) => {
+    const deptId = idStr(member.departmentId || member.department?.id);
+    if (!deptId) {
+      return { ...member, departmentRank: null };
+    }
+    const maps = mapsByDept.get(deptId);
+    if (!maps) {
+      return { ...member, departmentRank: null };
+    }
+    const rank = resolveUserRankInDepartment(member, maps.rankByRoleId, maps.rankByRoleName);
+    return { ...member, departmentRank: rank != null ? rank : null };
+  });
+}
+
+export async function attachDepartmentRankToMember(member) {
+  if (!member) return member;
+  const [enriched] = await attachDepartmentRanksToMembers([member]);
+  return enriched;
+}
+
 export async function getDepartmentRoleRank(departmentId, roleId) {
   if (!departmentId || !roleId) return null;
   const { rankByRoleId, rankByRoleName } = await loadDepartmentRankMaps(departmentId);
@@ -546,6 +587,68 @@ export async function findDepartmentHeadUser(departmentId) {
   });
 
   return headUser ? normalizeMemberRow(headUser) : null;
+}
+
+/**
+ * Active users who hold rank 1 (department head) in any department — used for team request "Send to" pickers.
+ */
+export async function listAllDepartmentHeadRecipients() {
+  const departments = await prisma.department.findMany({
+    orderBy: { name: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      departmentRoles: {
+        orderBy: { rank: 'asc' },
+        take: 1,
+        select: { roleId: true, rank: true },
+      },
+    },
+  });
+
+  const headClauses = departments
+    .map((dept) => {
+      const headRoleId = dept.departmentRoles[0]?.roleId;
+      if (!headRoleId) return null;
+      return {
+        departmentId: dept.id,
+        roleId: headRoleId,
+      };
+    })
+    .filter(Boolean);
+
+  if (!headClauses.length) return [];
+
+  const users = await prisma.user.findMany({
+    where: {
+      status: 'ACTIVE',
+      isActive: true,
+      OR: headClauses,
+    },
+    select: memberListSelect,
+    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+  });
+
+  const deptNameById = new Map(departments.map((dept) => [idStr(dept.id), dept.name]));
+
+  return users
+    .map((row) => {
+      const member = normalizeMemberRow(row);
+      const deptId = idStr(member.departmentId || member.department?.id);
+      return {
+        ...member,
+        department: member.department || (deptId ? { id: deptId, name: deptNameById.get(deptId) || '' } : null),
+        isDepartmentHead: true,
+      };
+    })
+    .sort((a, b) => {
+      const deptA = a.department?.name || '';
+      const deptB = b.department?.name || '';
+      if (deptA !== deptB) return deptA.localeCompare(deptB);
+      const nameA = formatUserDisplayName(a);
+      const nameB = formatUserDisplayName(b);
+      return nameA.localeCompare(nameB);
+    });
 }
 
 export async function listCrossDepartmentTargetOptions(actorUserId, { forceLoadDepartments = false } = {}) {

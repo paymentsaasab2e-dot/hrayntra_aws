@@ -33,6 +33,10 @@ function getMemberLabel(member: TeamMember) {
   const fromParts = [member.firstName, member.lastName].filter(Boolean).join(' ').trim();
   const fromName = String((member as TeamMember & { name?: string }).name || '').trim();
   const name = fromParts || fromName || member.email || 'Unnamed member';
+  const deptName = member.department?.name?.trim();
+  if (deptName) {
+    return `${name} — ${deptName}`;
+  }
   const suffix = member.designation || member.role?.roleName;
   return suffix ? `${name} — ${suffix}` : name;
 }
@@ -171,7 +175,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: 
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">Send Request</h3>
                 <p className="mt-0.5 text-sm text-slate-500">
-                  Send a request to a team member.
+                  Send a request to a department head (rank 1) in any department.
                 </p>
               </div>
               <DrawerCloseButton onClick={onClose} disabled={isSubmitting} />
@@ -180,12 +184,12 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: 
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-slate-700">
-                  Send To
+                  Send To (department head)
                 </label>
                 {loadingMembers ? (
                   <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-500">
                     <Loader2 className="size-4 animate-spin text-indigo-600" />
-                    Loading team members…
+                    Loading department heads…
                   </div>
                 ) : (
                   <select
@@ -195,7 +199,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: 
                     }
                     className={`${INPUT_CLASS} ${errors.sendToId ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-500/20' : ''}`}
                   >
-                    <option value="">Select team member</option>
+                    <option value="">Select department head</option>
                     {recipientOptions.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label}
@@ -207,7 +211,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: 
                   <p className="mt-1 text-xs text-rose-600">{errors.sendToId}</p>
                 ) : null}
                 {!loadingMembers && recipientOptions.length === 0 ? (
-                  <p className="mt-1 text-xs text-slate-500">No team members available.</p>
+                  <p className="mt-1 text-xs text-slate-500">No department heads are available.</p>
                 ) : null}
               </div>
 

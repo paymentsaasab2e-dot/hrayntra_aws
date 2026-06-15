@@ -12,6 +12,7 @@ import {
   Search,
   User,
   Users,
+  Globe,
 } from 'lucide-react';
 import {
   apiGetActivityCapabilities,
@@ -28,7 +29,7 @@ import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../../components/la
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 
-type ActivityTab = 'self' | 'members' | 'departments';
+type ActivityTab = 'self' | 'all' | 'members' | 'departments';
 
 const MODULE_OPTIONS = [
   { value: '', label: 'All modules' },
@@ -340,10 +341,22 @@ export default function ActivityFeedPage() {
 
   useEffect(() => {
     if (!capabilities) return;
-    if (!capabilities.canViewMembers && activeTab !== 'self') {
+    if (activeTab === 'all' && capabilities.level !== 'tenant') {
       setActiveTab('self');
+      return;
     }
-  }, [capabilities, activeTab]);
+    if (!capabilities.canViewMembers && (activeTab === 'members' || activeTab === 'departments')) {
+      setActiveTab('self');
+      return;
+    }
+    if (!searchParams.get('tab')) {
+      if (capabilities.level === 'tenant') {
+        setActiveTab('all');
+      } else if (capabilities.level === 'department' && capabilities.canViewMembers) {
+        setActiveTab('members');
+      }
+    }
+  }, [capabilities, activeTab, searchParams]);
 
   useEffect(() => {
     if (activeTab !== 'members' || !capabilities?.canViewMembers) return;
@@ -444,6 +457,7 @@ export default function ActivityFeedPage() {
     if (!capabilities) return null;
     if (!showTabs) return 'self' as const;
     if (activeTab === 'self') return 'self' as const;
+    if (activeTab === 'all' && capabilities.level === 'tenant') return 'tenant' as const;
     if (activeTab === 'members' && selectedMember?.id) return 'member' as const;
     if (activeTab === 'departments' && selectedDepartment?.id) return 'department' as const;
     return null;
@@ -463,12 +477,14 @@ export default function ActivityFeedPage() {
         to: dateTo ? toIsoDayEnd(dateTo) : undefined,
         ...(feedMode === 'self'
           ? { scope: 'self', mine: true }
-          : feedMode === 'member'
-            ? { performedById: selectedMember?.id }
-            : {
-                scope: 'department',
-                departmentId: selectedDepartment?.id,
-              }),
+          : feedMode === 'tenant'
+            ? { scope: 'tenant' }
+            : feedMode === 'member'
+              ? { performedById: selectedMember?.id }
+              : {
+                  scope: 'department',
+                  departmentId: selectedDepartment?.id,
+                }),
       });
       const payload = res.data as {
         data?: BackendGlobalActivity[];
@@ -548,7 +564,7 @@ export default function ActivityFeedPage() {
     setRows([]);
   };
 
-  const showPerformerColumn = feedMode === 'department';
+  const showPerformerColumn = feedMode === 'department' || feedMode === 'tenant' || feedMode === 'member';
 
   const tabBar = showTabs ? (
     <div className="flex flex-wrap gap-2">
@@ -570,6 +586,31 @@ export default function ActivityFeedPage() {
         <User className="h-3.5 w-3.5" />
         My activity
       </button>
+      {capabilities?.level === 'tenant' ? (
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedMember(null);
+            setSelectedDepartment(null);
+            setActiveTab('all');
+            setRows([]);
+            setSearch('');
+            setEntityType('');
+            setDateFrom('');
+            setDateTo('');
+            setPage(1);
+            syncUrl({ tab: 'all', memberId: null, departmentId: null });
+          }}
+          className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold ${
+            activeTab === 'all'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'border border-indigo-100 bg-white text-slate-700 hover:bg-indigo-50/50'
+          }`}
+        >
+          <Globe className="h-3.5 w-3.5" />
+          All activity
+        </button>
+      ) : null}
       {capabilities?.canViewMembers ? (
         <button
           type="button"
@@ -611,14 +652,18 @@ export default function ActivityFeedPage() {
   }
 
   const detailTitle =
-    feedMode === 'member' && selectedMember
+    feedMode === 'tenant'
+      ? 'All activity'
+      : feedMode === 'member' && selectedMember
       ? memberDisplayName(selectedMember)
       : feedMode === 'department' && selectedDepartment
         ? selectedDepartment.name
         : 'My activity';
 
   const detailSubtitle =
-    feedMode === 'member' && selectedMember
+    feedMode === 'tenant'
+      ? 'Every team member action across modules — full remarks and flow'
+      : feedMode === 'member' && selectedMember
       ? selectedMember.email
       : feedMode === 'department' && selectedDepartment
         ? `${selectedDepartment.memberCount} active member${selectedDepartment.memberCount === 1 ? '' : 's'}`
@@ -648,6 +693,8 @@ export default function ActivityFeedPage() {
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
                 {feedMode === 'department' ? (
                   <Building2 className="h-5 w-5" />
+                ) : feedMode === 'tenant' ? (
+                  <Globe className="h-5 w-5" />
                 ) : (
                   getInitials(detailTitle)
                 )}
@@ -727,7 +774,7 @@ export default function ActivityFeedPage() {
         </h1>
         <p className="text-sm text-slate-500 mt-1">
           {capabilities?.level === 'tenant'
-            ? 'View your activity, any team member, or department-wide work.'
+            ? 'View all company activity, any team member, or department-wide work.'
             : capabilities?.canViewTeam
               ? `View your activity or your team${capabilities.departmentName ? ` in ${capabilities.departmentName}` : ''}.`
               : 'View your personal activity across modules.'}
