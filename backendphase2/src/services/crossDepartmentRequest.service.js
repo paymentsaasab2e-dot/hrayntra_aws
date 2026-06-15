@@ -9,7 +9,10 @@ import {
 } from './departmentRole.service.js';
 import { taskService } from '../modules/task/task.service.js';
 import { clientService } from '../modules/client/client.service.js';
-import { logCrmGlobalActivity } from '../utils/crmGlobalActivity.js';
+import {
+  assertCanSetSelfAsTaskCompletionApprover,
+  assertValidTaskCompletionApprover,
+} from './taskAssignmentScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -45,6 +48,49 @@ function serializeRequest(row) {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function mapCrossDeptPriorityToTask(priority) {
+  const map = { low: 'Low', medium: 'Medium', high: 'High', LOW: 'Low', MEDIUM: 'Medium', HIGH: 'High' };
+  return map[String(priority || 'medium')] || 'Medium';
+}
+
+async function createCrossDeptHandoffTask(existing, assigneeId, reviewerId, req, options = {}) {
+  const { setSelfAsApprover = false, dueDate } = options;
+  let completionApproverId = null;
+  if (setSelfAsApprover && reviewerId) {
+    await assertCanSetSelfAsTaskCompletionApprover(reviewerId);
+    completionApproverId = reviewerId;
+    await assertValidTaskCompletionApprover(reviewerId, completionApproverId, assigneeId);
+  }
+
+  const resolvedDueDate =
+    dueDate && String(dueDate).trim()
+      ? String(dueDate).trim()
+      : new Date().toISOString().split('T')[0];
+
+  const linkedType = existing.workType === 'CLIENT' ? 'CLIENT' : existing.linkedEntityType || null;
+
+  return taskService.create(
+    {
+      title: existing.subject,
+      description: existing.description || '',
+      assigneeId,
+      assignedToId: assigneeId,
+      createdById: existing.requestedById,
+      performedById: reviewerId,
+      skipAssignScopeCheck: true,
+      priority: mapCrossDeptPriorityToTask(existing.priority),
+      dueDate: resolvedDueDate,
+      taskType: existing.workType === 'CLIENT' ? 'Follow-up' : 'Note',
+      linkedEntityType: linkedType,
+      linkedEntityId: existing.linkedEntityId || null,
+      notifyAssignee: true,
+      participantIds: [existing.requestedById, reviewerId, assigneeId].filter(Boolean),
+      completionApproverId,
+    },
+    req,
+  );
 }
 
 async function notifyCrossDeptEvent(userId, alertId, { title, description, requestId }) {
@@ -272,7 +318,7 @@ export const crossDepartmentRequestService = {
     return serializeRequest(row);
   },
 
-  async review(actorUserId, requestId, { action, note, assignToId } = {}) {
+  async review(actorUserId, requestId, { action, note, assignToId, dueDate, setSelfAsApprover } = {}) {
     const uid = idStr(actorUserId);
     const rid = idStr(requestId);
     const normalizedAction = String(action || '').trim().toLowerCase();
@@ -355,28 +401,40 @@ export const crossDepartmentRequestService = {
     if (!assignee) throw new Error('Assignee must be an active member of the target department');
 
     let createdTaskId = existing.createdTaskId || null;
+    const handoffTaskOptions = {
+      setSelfAsApprover: setSelfAsApprover === true,
+      dueDate: dueDate ? String(dueDate).trim() : null,
+    };
+
     if (existing.workType === 'TASK' && !createdTaskId) {
-      const payload = existing.payload && typeof existing.payload === 'object' ? existing.payload : {};
-      const task = await taskService.create(
-        {
-          title: existing.subject,
-          description: existing.description || payload.description || '',
-          assigneeId: finalAssigneeId,
-          assignedToId: finalAssigneeId,
-          createdById: uid,
-          priority: payload.priority || 'Medium',
-          dueDate: payload.dueDate || new Date().toISOString().split('T')[0],
-          dueTime: payload.dueTime || null,
-          taskType: payload.taskType || payload.type || 'Note',
-          relatedTo: payload.relatedTo,
-          linkedEntityType: existing.linkedEntityType,
-          linkedEntityId: existing.linkedEntityId,
-          reminder: payload.reminder,
-          notifyAssignee: payload.notifyAssignee !== false,
-        },
+      const task = await createCrossDeptHandoffTask(
+        existing,
+        finalAssigneeId,
+        uid,
         { user: reviewer },
+        handoffTaskOptions,
       );
       createdTaskId = task?.id || null;
+    } else if (existing.workType === 'CLIENT' && !createdTaskId) {
+      const task = await createCrossDeptHandoffTask(
+        existing,
+        finalAssigneeId,
+        uid,
+        { user: reviewer },
+        handoffTaskOptions,
+      );
+      createdTaskId = task?.id || null;
+
+      if (existing.linkedEntityId) {
+        await clientService.update(
+          existing.linkedEntityId,
+          {
+            assignedToId: finalAssigneeId,
+            performedById: uid,
+          },
+          { user: reviewer, userWithPermissions: { id: uid }, _bypassClientScope: true },
+        );
+      }
     } else if (existing.workType === 'CLIENT' && existing.linkedEntityId) {
       await clientService.update(
         existing.linkedEntityId,

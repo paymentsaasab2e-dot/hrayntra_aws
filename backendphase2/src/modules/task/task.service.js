@@ -237,7 +237,7 @@ export const taskService = {
     }
 
     const actorId = req?.user?.id || data.performedById || data.createdById;
-    if (actorId) {
+    if (actorId && !data.skipAssignScopeCheck) {
       await assertCanAssignTask(actorId, assignedToId);
     }
 

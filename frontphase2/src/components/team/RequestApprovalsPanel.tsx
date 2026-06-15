@@ -16,7 +16,6 @@ import type { TeamRequest, TeamRequestStatus } from '../../types/team';
 import { PH2_TABLE_CARD_CLASS } from '../layout/Ph2ModulePageLayout';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestConfirm } from '../../lib/appDialog';
-import { getCachedOrgRecruitmentMode, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
 import {
   TeamRequestActionDrawer,
   type TeamRequestDrawerMode,
@@ -70,24 +69,12 @@ export function RequestApprovalsPanel() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [reviewNoteById, setReviewNoteById] = useState<Record<string, string>>({});
   const [currentUser, setCurrentUser] = useState<TeamRequestUserIdentity>({});
-  const [recruitmentMode, setRecruitmentMode] = useState<'agency' | 'standalone'>(() =>
-    typeof window !== 'undefined' ? getCachedOrgRecruitmentMode() : 'agency',
-  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<TeamRequestDrawerMode>('view');
   const [selectedRequest, setSelectedRequest] = useState<TeamRequest | null>(null);
 
-  const isStandaloneMode = recruitmentMode === 'standalone';
-
   useEffect(() => {
     setCurrentUser(getCurrentUserRequestIdentity());
-  }, []);
-
-  useEffect(() => {
-    const syncMode = () => setRecruitmentMode(getCachedOrgRecruitmentMode());
-    syncMode();
-    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, syncMode);
-    return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, syncMode);
   }, []);
 
   const loadRequests = useCallback(async () => {
@@ -219,9 +206,7 @@ export function RequestApprovalsPanel() {
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Approval Queue</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              {isStandaloneMode
-                ? 'Approve hiring requests, then assign a tracked task to a team member with you as completion verifier.'
-                : 'Requests sent to you for review and approval.'}
+              Approve hiring requests, assign a tracked task with due date, and optionally verify completion yourself.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -273,12 +258,11 @@ export function RequestApprovalsPanel() {
                   const isActing = actingId === request.id;
                   const isDeleting = deletingId === request.id;
                   const showAssignTask =
-                    isStandaloneMode &&
                     canUpdate &&
                     request.status === 'approved' &&
                     !request.linkedTaskId;
-                  const showViewTask = isStandaloneMode && Boolean(request.linkedTaskId);
-                  const showViewJob = isStandaloneMode && Boolean(request.linkedJobId);
+                  const showViewTask = Boolean(request.linkedTaskId);
+                  const showViewJob = Boolean(request.linkedJobId);
 
                   return (
                     <tr
@@ -323,7 +307,7 @@ export function RequestApprovalsPanel() {
                             <Eye className="size-3" strokeWidth={2.25} />
                             Details
                           </button>
-                          {canAct && isStandaloneMode ? (
+                          {canAct ? (
                             <>
                               <button
                                 type="button"
@@ -357,54 +341,6 @@ export function RequestApprovalsPanel() {
                                 ) : (
                                   <X className="size-3" strokeWidth={2.5} />
                                 )}
-                                Reject
-                              </button>
-                            </>
-                          ) : canAct ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={isActing || isDeleting}
-                                onClick={async () => {
-                                  if (!(await requestConfirm('Approve this request?'))) return;
-                                  setActingId(request.id);
-                                  try {
-                                    const res = await updateTeamRequestStatus(request.id, {
-                                      status: 'approved',
-                                      reviewNote: reviewNoteById[request.id]?.trim() || undefined,
-                                    });
-                                    setRequests((prev) =>
-                                      prev.map((entry) => (entry.id === request.id ? res.data : entry)),
-                                    );
-                                    toast.success('Request approved');
-                                  } catch (error) {
-                                    toast.error(error instanceof Error ? error.message : 'Failed to approve');
-                                  } finally {
-                                    setActingId(null);
-                                  }
-                                }}
-                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                              >
-                                Approve
-                              </button>
-                              <input
-                                type="text"
-                                placeholder="Remark (required to reject)"
-                                className="min-w-[10rem] rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
-                                value={reviewNoteById[request.id] || ''}
-                                onChange={(e) =>
-                                  setReviewNoteById((prev) => ({
-                                    ...prev,
-                                    [request.id]: e.target.value,
-                                  }))
-                                }
-                              />
-                              <button
-                                type="button"
-                                disabled={isActing || isDeleting}
-                                onClick={() => void handleReject(request)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-                              >
                                 Reject
                               </button>
                             </>
