@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import { createAlertNotification } from '../modules/setting/alert-dispatch.service.js';
+import { logCrmGlobalActivity } from '../utils/crmGlobalActivity.js';
 import { hasPermission } from '../utils/permissionScope.js';
 import {
   canInitiateCrossDepartmentRequest,
@@ -58,7 +59,11 @@ function mapCrossDeptPriorityToTask(priority) {
 async function createCrossDeptHandoffTask(existing, assigneeId, reviewerId, req, options = {}) {
   const { setSelfAsApprover = false, dueDate } = options;
   let completionApproverId = null;
-  if (setSelfAsApprover && reviewerId) {
+  if (
+    setSelfAsApprover &&
+    reviewerId &&
+    idStr(assigneeId) !== idStr(reviewerId)
+  ) {
     await assertCanSetSelfAsTaskCompletionApprover(reviewerId);
     completionApproverId = reviewerId;
     await assertValidTaskCompletionApprover(reviewerId, completionApproverId, assigneeId);

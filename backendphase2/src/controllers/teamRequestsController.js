@@ -326,7 +326,11 @@ async function createTaskForApprovedTeamRequest(
   { setSelfAsApprover = false, dueDate } = {},
 ) {
   let completionApproverId = null;
-  if (setSelfAsApprover && approverUserId) {
+  if (
+    setSelfAsApprover &&
+    approverUserId &&
+    normalizeId(assignToId) !== normalizeId(approverUserId)
+  ) {
     await assertCanSetSelfAsTaskCompletionApprover(approverUserId);
     completionApproverId = approverUserId;
     await assertValidTaskCompletionApprover(approverUserId, completionApproverId, assignToId);
