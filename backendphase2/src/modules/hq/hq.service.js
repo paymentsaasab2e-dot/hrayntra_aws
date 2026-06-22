@@ -6,22 +6,71 @@ import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { env } from '../../config/env.js';
 import {
   setSubscriptionPlan,
-  SUBSCRIPTION_PLAN_OPTIONS,
 } from '../setting/recruitmentMode.service.js';
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { hqLeadsService } from './hq-leads.service.js';
 import { hqCompaniesService } from './hq-companies.service.js';
 import { hqPortalService } from './hq-portal.service.js';
+import { hqDemosService } from './hq-demos.service.js';
+import { hqPackagesService } from './hq-packages.service.js';
 
-function normalizePlanInput(raw) {
-  if (!raw) return null;
-  const candidate = typeof raw === 'string' ? raw : raw.name || raw.id || '';
-  const s = String(candidate).trim();
-  if (!s) return null;
-  const found = SUBSCRIPTION_PLAN_OPTIONS.find(
-    (o) => o.name.toLowerCase() === s.toLowerCase() || o.id.toLowerCase() === s.toLowerCase()
-  );
-  return found ? { name: found.name } : { name: s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() };
+async function resolvePlanInput(raw) {
+  const plan = await hqPackagesService.resolvePlanInput(raw);
+  if (plan) return plan;
+  if (raw) {
+    const label = typeof raw === 'string' ? raw : raw?.name || raw?.id || 'plan';
+    throw new Error(`Unknown subscription package: ${label}`);
+  }
+  return hqPackagesService.resolvePlanInput('Enterprise');
+}
+
+function tenantMatchesPlan(tenant, pkg) {
+  const plan = tenant.subscriptionPlan;
+  if (!plan) return false;
+  if (pkg.id && plan.id && plan.id === pkg.id) return true;
+  return String(plan.name || '').toLowerCase() === String(pkg.name || '').toLowerCase();
+}
+
+function buildPlanCounts(tenants, packages) {
+  const counts = packages.reduce((acc, pkg) => {
+    acc[pkg.name] = tenants.filter((t) => tenantMatchesPlan(t, pkg)).length;
+    return acc;
+  }, {});
+  counts.Unassigned = tenants.filter((t) => !t.subscriptionPlan?.name).length;
+  return counts;
+}
+
+async function backfillUnassignedTenantPlans(tenants) {
+  const enterprise = await hqPackagesService.resolvePlanInput('Enterprise');
+  if (!enterprise) return tenants;
+
+  let changed = false;
+  const next = [];
+  for (const tenant of tenants) {
+    if (tenant.subscriptionPlan?.name) {
+      next.push(tenant);
+      continue;
+    }
+
+    const updated = await headquartersAuthService.setSubscriptionPlanForEmail(
+      tenant.email,
+      enterprise
+    );
+    if (updated?.tenantDbName) {
+      try {
+        await runWithTenantContext(updated.tenantDbName, () => setSubscriptionPlan(enterprise));
+      } catch (err) {
+        console.warn('[hq] failed to backfill tenant plan in workspace:', err?.message || err);
+      }
+    }
+    changed = true;
+    next.push({
+      ...tenant,
+      subscriptionPlan: updated?.subscriptionPlan || enterprise,
+    });
+  }
+
+  return changed ? next : tenants;
 }
 
 function assertPlatformProvisioner(reqUser) {
@@ -119,7 +168,9 @@ export const hqService = {
     const password = String(data?.password || '');
     const organizationType =
       String(data?.organizationType || 'agency').toLowerCase() === 'standalone' ? 'standalone' : 'agency';
-    const subscriptionPlan = normalizePlanInput(data?.plan ?? data?.subscriptionPlan);
+    const subscriptionPlan = await resolvePlanInput(
+      data?.plan ?? data?.subscriptionPlan ?? 'Enterprise'
+    );
     if (!name || !email || !loginId || !password) {
       throw new Error('name, email, loginId, and password are required');
     }
@@ -181,15 +232,14 @@ export const hqService = {
 
   async listTenants(reqUser) {
     assertPlatformProvisioner(reqUser);
-    const tenants = await headquartersAuthService.listTenants();
+    let tenants = await headquartersAuthService.listTenants();
+    tenants = await backfillUnassignedTenantPlans(tenants);
+    const packages = await hqPackagesService.listPackages();
     const stats = {
       total: tenants.length,
       agency: tenants.filter((t) => t.organizationType === 'agency').length,
       standalone: tenants.filter((t) => t.organizationType === 'standalone').length,
-      planCounts: SUBSCRIPTION_PLAN_OPTIONS.reduce((acc, opt) => {
-        acc[opt.name] = tenants.filter((t) => t.subscriptionPlan?.name === opt.name).length;
-        return acc;
-      }, { Unassigned: tenants.filter((t) => !t.subscriptionPlan?.name).length }),
+      planCounts: buildPlanCounts(tenants, packages),
     };
     return {
       tenants: tenants.map((t) => ({
@@ -205,14 +255,14 @@ export const hqService = {
         updatedAt: t.updatedAt,
       })),
       stats,
-      planOptions: SUBSCRIPTION_PLAN_OPTIONS,
+      planOptions: packages,
     };
   },
 
   async assignPlan(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     const email = String(data?.email || '').trim().toLowerCase();
-    const plan = normalizePlanInput(data?.plan);
+    const plan = await resolvePlanInput(data?.plan);
     if (!email) throw new Error('email is required');
     if (!plan) throw new Error('plan is required');
     const updated = await headquartersAuthService.setSubscriptionPlanForEmail(email, plan);
@@ -284,6 +334,11 @@ export const hqService = {
     return hqLeadsService.convertToCompany(id, reqUser);
   },
 
+  async listDemoRequests(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqDemosService.listDemoRequests();
+  },
+
   async listCompanies(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqCompaniesService.listCompanies();
@@ -327,5 +382,30 @@ export const hqService = {
   async getPortalOverview(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqPortalService.getPortalOverview();
+  },
+
+  async listPackages(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const packages = await hqPackagesService.listPackages();
+    return {
+      packages,
+    };
+  },
+
+  async createPackage(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const pkg = await hqPackagesService.createPackage(data);
+    return { package: pkg };
+  },
+
+  async updatePackage(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const pkg = await hqPackagesService.updatePackage(id, data);
+    return { package: pkg };
+  },
+
+  async deletePackage(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqPackagesService.deletePackage(id);
   },
 };

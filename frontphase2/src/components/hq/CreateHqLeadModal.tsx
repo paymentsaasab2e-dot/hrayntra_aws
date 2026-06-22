@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
-import { defaultNextFollowUpLocal } from '@/app/hq/leads/hqLeadsData';
+import { HQ_LEAD_TABS, type HqLeadStage } from '@/app/hq/leads/hqLeadsData';
+import { HqLeadSourceFields, validateHqLeadSourceFields } from './HqLeadSourceFields';
 
 export type CreateHqLeadFormValues = {
   contactName: string;
@@ -14,8 +15,9 @@ export type CreateHqLeadFormValues = {
   country: string;
   expectedUsers: string;
   estimatedDealValue: string;
-  leadOwner: string;
   leadSource: string;
+  leadSourceDetail: string;
+  stage: HqLeadStage;
   nextFollowUpAt: string;
   interestedModules: string[];
   initialNotes: string;
@@ -30,8 +32,9 @@ const EMPTY_FORM: CreateHqLeadFormValues = {
   country: '',
   expectedUsers: '',
   estimatedDealValue: '',
-  leadOwner: '',
   leadSource: '',
+  leadSourceDetail: '',
+  stage: 'new',
   nextFollowUpAt: '',
   interestedModules: [],
   initialNotes: '',
@@ -49,16 +52,6 @@ const INDUSTRY_OPTIONS = [
   'Staffing',
   'Design',
   'Agriculture',
-  'Other',
-];
-
-const LEAD_SOURCE_OPTIONS = [
-  'Referral',
-  'Website',
-  'LinkedIn',
-  'Cold Outreach',
-  'Event',
-  'Partner',
   'Other',
 ];
 
@@ -97,7 +90,7 @@ export function CreateHqLeadModal({
 
   useEffect(() => {
     if (!open) return;
-    setForm({ ...EMPTY_FORM, nextFollowUpAt: defaultNextFollowUpLocal() });
+    setForm({ ...EMPTY_FORM });
     setError(null);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -134,12 +127,13 @@ export function CreateHqLeadModal({
       setError('Please fill in all required fields.');
       return;
     }
-    if (!form.leadOwner.trim() || !form.leadSource) {
-      setError('Lead owner and lead source are required.');
+    if (!form.leadSource) {
+      setError('Lead source is required.');
       return;
     }
-    if (!form.nextFollowUpAt.trim()) {
-      setError('Next follow-up date and time is required.');
+    const sourceError = validateHqLeadSourceFields(form.leadSource, form.leadSourceDetail);
+    if (sourceError) {
+      setError(sourceError);
       return;
     }
     if (form.interestedModules.length === 0) {
@@ -287,27 +281,25 @@ export function CreateHqLeadModal({
                 onChange={(e) => setForm({ ...form, estimatedDealValue: e.target.value })}
               />
             </div>
-            <div>
-              <FieldLabel required>Lead Owner</FieldLabel>
-              <input
-                className={INPUT_CLASS}
-                placeholder="e.g. Jane Admin"
-                value={form.leadOwner}
-                onChange={(e) => setForm({ ...form, leadOwner: e.target.value })}
+            <div className="sm:col-span-2">
+              <HqLeadSourceFields
+                leadSource={form.leadSource}
+                leadSourceDetail={form.leadSourceDetail}
+                onChange={(patch) => setForm({ ...form, ...patch })}
+                required
               />
             </div>
             <div>
-              <FieldLabel required>Lead Source</FieldLabel>
+              <FieldLabel required>Stage</FieldLabel>
               <div className="relative">
                 <select
                   className={`${INPUT_CLASS} appearance-none pr-10`}
-                  value={form.leadSource}
-                  onChange={(e) => setForm({ ...form, leadSource: e.target.value })}
+                  value={form.stage}
+                  onChange={(e) => setForm({ ...form, stage: e.target.value as HqLeadStage })}
                 >
-                  <option value="">Select source</option>
-                  {LEAD_SOURCE_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
+                  {HQ_LEAD_TABS.filter((tab) => tab.id !== 'all').map((tab) => (
+                    <option key={tab.id} value={tab.id}>
+                      {tab.label}
                     </option>
                   ))}
                 </select>
@@ -315,7 +307,7 @@ export function CreateHqLeadModal({
               </div>
             </div>
             <div className="sm:col-span-2">
-              <FieldLabel required>Next Follow-up (Date & Time)</FieldLabel>
+              <FieldLabel>Next Follow-up (Date & Time)</FieldLabel>
               <input
                 type="datetime-local"
                 className={INPUT_CLASS}

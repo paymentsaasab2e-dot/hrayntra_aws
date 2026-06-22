@@ -22,6 +22,7 @@ import {
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
 } from '../setting/recruitmentMode.service.js';
+import { assertCanCreateJob } from '../setting/planAccess.service.js';
 import {
   normalizeApplicationFormSchema,
   schemaFromLegacyQuestions,
@@ -1217,6 +1218,8 @@ export const jobService = {
   },
 
   async create(data, createdByUserId) {
+    await assertCanCreateJob();
+
     // Utility function to remove undefined values
     const removeUndefined = (obj) => {
       return Object.fromEntries(

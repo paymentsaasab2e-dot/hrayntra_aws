@@ -22,6 +22,7 @@ const notificationRoutes = require('./routes/notification.routes');
 const internalRoutes = require('./routes/internal.routes');
 const contactImportRoutes = require('./routes/contact-import.routes');
 const resumePreviewRoutes = require('./routes/resumePreview.routes');
+const employerDemoRoutes = require('./routes/employer-demo.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -103,6 +104,7 @@ app.use('/api/internal', internalRoutes);
 app.use('/api/contacts/import', contactImportRoutes);
 app.use('/api/v1/contacts/import', contactImportRoutes);
 app.use('/api/resume-preview', resumePreviewRoutes);
+app.use('/api/employers/demo-request', employerDemoRoutes);
 app.use('/api/document-download', require('./routes/documentDownload.routes'));
 app.use('/api/document-view', require('./routes/documentView.routes'));
 

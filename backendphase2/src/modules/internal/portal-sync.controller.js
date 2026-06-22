@@ -6,6 +6,7 @@ import {
   lookupPortalInterviewFeedback,
 } from './portal-sync.service.js';
 import { applyPortalTailoredCvSync } from './portal-tailored-cv.service.js';
+import { hqLeadsService } from '../hq/hq-leads.service.js';
 
 export async function postSyncPortalApplication(req, res) {
   try {
@@ -100,6 +101,23 @@ export async function postBackfillPortalJobTenants(req, res) {
     return res.json({ success: true, ...result });
   } catch (error) {
     const message = String(error?.message || 'Backfill failed');
+    return res.status(400).json({ success: false, message });
+  }
+}
+
+export async function postSyncEmployerDemoVerified(req, res) {
+  try {
+    const result = await hqLeadsService.createLeadFromEmployerDemoRequest(req.body || {});
+    return res.json({
+      success: true,
+      message: result.created ? 'HQ lead created from demo request' : 'HQ lead already exists',
+      data: {
+        leadId: result.lead?.id || null,
+        created: result.created,
+      },
+    });
+  } catch (error) {
+    const message = String(error?.message || 'Employer demo sync failed');
     return res.status(400).json({ success: false, message });
   }
 }

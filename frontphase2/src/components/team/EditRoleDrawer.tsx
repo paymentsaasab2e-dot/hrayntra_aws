@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Check } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Shield, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateRole } from '../../lib/api/teamApi';
 import type { SystemRole, Permission } from '../../types/team';
@@ -12,7 +11,12 @@ import {
   RBAC_CATALOG_TOTAL,
 } from './permissionCatalog';
 import { PermissionPicker } from './PermissionPicker';
-import { PortalHost } from './PortalHost';
+import { DrawerFormShell } from '../drawers/DrawerFormShell';
+import {
+  DrawerFieldLabel,
+  DrawerSectionCard,
+  DRAWER_FORM_INPUT,
+} from '../drawers/drawerFormUi';
 
 interface EditRoleDrawerProps {
   isOpen: boolean;
@@ -193,150 +197,108 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
   }, [isOpen]);
 
   return (
-    <PortalHost open={isOpen}>
-      <AnimatePresence>
-      {isOpen && (
+    <DrawerFormShell
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Edit Role"
+      subtitle={role.roleName}
+      headerIcon={UserCog}
+      footer={
         <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <button
+            type="button"
             onClick={handleClose}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[60]"
-          />
-
-          {/* Drawer */}
-          <motion.div
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            onClick={(e) => e.stopPropagation()}
-            className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-[70] flex flex-col"
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/50">
-              <h2 className="text-lg font-bold text-slate-900">Edit Role</h2>
-              <button
-                onClick={handleClose}
-                className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Super Admin Notice */}
-            {isSuperAdmin && (
-              <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-800">
-                  Super Admin has all <strong>{RBAC_CATALOG_TOTAL}</strong> permissions and cannot be modified.
-                </p>
-              </div>
-            )}
-
-            {/* Content */}
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Role Name */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">Role Name *</label>
-                <input
-                  type="text"
-                  value={formData.roleName}
-                  onChange={(e) => handleChange('roleName', e.target.value)}
-                  disabled={isSuperAdmin}
-                  className={`w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all ${
-                    errors.roleName ? 'border-red-300' : 'border-slate-200'
-                  } ${isSuperAdmin ? 'bg-slate-50 cursor-not-allowed' : ''}`}
-                />
-                {errors.roleName && <p className="text-xs text-red-600">{errors.roleName}</p>}
-              </div>
-
-              {/* Description */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">Description</label>
-                <input
-                  type="text"
-                  value={formData.description}
-                  onChange={(e) => handleChange('description', e.target.value)}
-                  disabled={isSuperAdmin}
-                  className={`w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all ${
-                    isSuperAdmin ? 'bg-slate-50 cursor-not-allowed' : ''
-                  }`}
-                />
-              </div>
-
-              {/* Color */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">Color *</label>
-                <div className="flex items-center gap-3 flex-wrap">
-                  {colors.map((color) => (
-                    <button
-                      key={color.name}
-                      type="button"
-                      onClick={() => handleChange('color', color.name)}
-                      disabled={isSuperAdmin}
-                      className={`size-6 rounded-full ${colorClassMap[color.name]} transition-all ${
-                        formData.color === color.name
-                          ? 'ring-2 ring-offset-2 ring-blue-500 scale-110'
-                          : isSuperAdmin ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110'
-                      }`}
-                      title={color.label}
-                    />
-                  ))}
-                </div>
-                {errors.color && <p className="text-xs text-red-600">{errors.color}</p>}
-              </div>
-
-              {/* Permissions */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700">Permissions *</label>
-                  <span className="text-xs text-slate-500">{selectedCount} permission{selectedCount !== 1 ? 's' : ''} selected</span>
-                </div>
-                {errors.permissions && <p className="text-xs text-red-600">{errors.permissions}</p>}
-
-                <PermissionPicker
-                  permissionsByModule={effectivePermissions}
-                  selectedIds={formData.selectedPermissions}
-                  onToggle={handlePermissionToggle}
-                  onModuleSelectAll={handleModuleSelectAll}
-                  disabled={isSuperAdmin}
-                />
-              </div>
-            </form>
-
-            {/* Footer */}
-            <div className="border-t border-slate-200 px-6 py-4 bg-slate-50/50 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={handleClose}
-                className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              {!isSuperAdmin && (
-                <button
-                  type="submit"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    'Save Changes'
-                  )}
-                </button>
-              )}
-            </div>
-          </motion.div>
+            Cancel
+          </button>
+          {!isSuperAdmin ? (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </button>
+          ) : null}
         </>
-      )}
-      </AnimatePresence>
-    </PortalHost>
+      }
+    >
+      {isSuperAdmin ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+          <p className="text-sm text-red-800">
+            Super Admin has all <strong>{RBAC_CATALOG_TOTAL}</strong> permissions and cannot be modified.
+          </p>
+        </div>
+      ) : null}
+
+      <DrawerSectionCard title="Role Details" subtitle="Name, description, and badge color" icon={UserCog} accent="blue">
+        <div className="space-y-4">
+          <div>
+            <DrawerFieldLabel label="Role Name" required />
+            <input
+              type="text"
+              value={formData.roleName}
+              onChange={(e) => handleChange('roleName', e.target.value)}
+              disabled={isSuperAdmin}
+              className={`${DRAWER_FORM_INPUT} ${errors.roleName ? 'border-red-300' : ''} ${isSuperAdmin ? 'cursor-not-allowed bg-slate-50' : ''}`}
+            />
+            {errors.roleName && <p className="text-xs text-red-600">{errors.roleName}</p>}
+          </div>
+          <div>
+            <DrawerFieldLabel label="Description" />
+            <input
+              type="text"
+              value={formData.description}
+              onChange={(e) => handleChange('description', e.target.value)}
+              disabled={isSuperAdmin}
+              className={`${DRAWER_FORM_INPUT} ${isSuperAdmin ? 'cursor-not-allowed bg-slate-50' : ''}`}
+            />
+          </div>
+          <div>
+            <DrawerFieldLabel label="Color" required />
+            <div className="flex flex-wrap items-center gap-3">
+              {colors.map((color) => (
+                <button
+                  key={color.name}
+                  type="button"
+                  onClick={() => handleChange('color', color.name)}
+                  disabled={isSuperAdmin}
+                  className={`size-6 rounded-full ${colorClassMap[color.name]} transition-all ${
+                    formData.color === color.name
+                      ? 'scale-110 ring-2 ring-blue-500 ring-offset-2'
+                      : isSuperAdmin
+                        ? 'cursor-not-allowed opacity-50'
+                        : 'hover:scale-110'
+                  }`}
+                  title={color.label}
+                />
+              ))}
+            </div>
+            {errors.color && <p className="text-xs text-red-600">{errors.color}</p>}
+          </div>
+        </div>
+      </DrawerSectionCard>
+
+      <DrawerSectionCard title="Permissions" subtitle="Module access for this role" icon={Shield} accent="violet">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <DrawerFieldLabel label="Selected" />
+            <span className="text-xs text-slate-500">
+              {selectedCount} permission{selectedCount !== 1 ? 's' : ''} selected
+            </span>
+          </div>
+          {errors.permissions && <p className="text-xs text-red-600">{errors.permissions}</p>}
+          <PermissionPicker
+            permissionsByModule={effectivePermissions}
+            selectedIds={formData.selectedPermissions}
+            onToggle={handlePermissionToggle}
+            onModuleSelectAll={handleModuleSelectAll}
+            disabled={isSuperAdmin}
+          />
+        </div>
+      </DrawerSectionCard>
+    </DrawerFormShell>
   );
 };

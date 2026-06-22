@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
-import { Upload, X } from 'lucide-react';
+import { Award, Briefcase, Calendar, IndianRupee, Upload, User } from 'lucide-react';
 import type { CreatePlacementPayload, EmploymentType, PlacementStatus } from '../../../types/placement';
 import {
   calculatePlacementFee,
@@ -10,6 +9,13 @@ import {
   PLACEMENT_STATUS_OPTIONS,
 } from '../../../utils/placements';
 import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../../utils/currency';
+import { DrawerFormShell } from '../../drawers/DrawerFormShell';
+import {
+  DrawerFieldLabel,
+  DrawerSectionCard,
+  DrawerSelectDropdown,
+  DRAWER_FORM_INPUT,
+} from '../../drawers/drawerFormUi';
 
 interface CreatePlacementDrawerProps {
   isOpen: boolean;
@@ -145,360 +151,334 @@ export function CreatePlacementDrawer({
     return !Object.keys(nextErrors).length;
   };
 
+  const drawerTitle = isResendMode
+    ? 'Resend offer letter'
+    : isEditMode
+      ? 'Edit Placement'
+      : 'Add Manual Placement';
+  const drawerSubtitle = isResendMode
+    ? 'Upload a revised offer letter and send it back to the candidate on Phase 1.'
+    : isEditMode
+      ? 'Update placement details from the table action.'
+      : 'Create a placement and optionally upload the offer letter.';
+
+  const handleSave = async () => {
+    if (!validate()) return;
+    await onSubmit(
+      {
+        candidateId: form.candidateId,
+        jobId: form.jobId,
+        companyId: selectedJob?.clientId || undefined,
+        recruiterId: form.recruiterId || currentUserId,
+        offerSalary: form.offerSalary,
+        placementFee: form.placementFee,
+        commissionPercentage: form.commissionPercentage,
+        currency: form.currency,
+        offerDate: form.offerDate,
+        expectedJoiningDate: form.expectedJoiningDate || undefined,
+        employmentType: form.employmentType,
+        status: isResendMode ? 'OFFER_SENT' : form.status,
+        notes: form.notes || undefined,
+      },
+      isResendMode || !isEditMode ? offerLetter : null,
+    );
+  };
+
   return (
-    <AnimatePresence>
-      {isOpen ? (
+    <DrawerFormShell
+      isOpen={isOpen}
+      onClose={onClose}
+      title={drawerTitle}
+      subtitle={drawerSubtitle}
+      headerIcon={Award}
+      footer={
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[90] bg-slate-900/40"
+          <button
+            type="button"
             onClick={onClose}
-          />
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
           >
-            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
-              <div>
-                <h2 className="text-lg font-semibold text-[#111827]">
-                  {isResendMode ? 'Resend offer letter' : isEditMode ? 'Edit Placement' : 'Add Manual Placement'}
-                </h2>
-                <p className="text-sm text-[#6B7280]">
-                  {isResendMode
-                    ? 'Upload a revised offer letter and send it back to the candidate on Phase 1.'
-                    : isEditMode
-                      ? 'Update placement details from the table action.'
-                      : 'Create a placement and optionally upload the offer letter.'}
-                </p>
-              </div>
-              <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-6 py-5">
-              <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Candidate*</label>
-                {lockCandidate ? (
-                  <div className="flex h-11 items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
-                    {selectedCandidate
-                      ? `${selectedCandidate.name} • ${selectedCandidate.email}`
-                      : 'Selected candidate'}
-                  </div>
-                ) : (
-                  <select
-                    value={form.candidateId}
-                    onChange={(event) => setForm((current) => ({ ...current, candidateId: event.target.value }))}
-                    className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                  >
-                    <option value="">Select candidate</option>
-                    {candidates.map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>
-                        {candidate.name} • {candidate.email}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {errors.candidateId ? <p className="mt-1 text-xs text-red-600">{errors.candidateId}</p> : null}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Job*</label>
-                {lockJob ? (
-                  <div className="flex h-11 items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
-                    {selectedJob
-                      ? `${selectedJob.title}${selectedJob.clientName ? ` • ${selectedJob.clientName}` : ''}`
-                      : 'Selected job'}
-                  </div>
-                ) : (
-                  <select
-                    value={form.jobId}
-                    onChange={(event) => setForm((current) => ({ ...current, jobId: event.target.value }))}
-                    className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                  >
-                    <option value="">Select job</option>
-                    {jobs.map((job) => (
-                      <option key={job.id} value={job.id} disabled={!job.clientId}>
-                        {job.title} • {job.clientName}
-                        {!job.clientId ? ' (assign client first)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {errors.jobId ? <p className="mt-1 text-xs text-red-600">{errors.jobId}</p> : null}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Company</label>
-                <div
-                  className={`flex h-11 items-center rounded-xl border px-3 text-sm font-medium ${
-                    selectedJob && !selectedJob.clientId
-                      ? 'border-amber-300 bg-amber-50 text-amber-900'
-                      : 'border-[#E5E7EB] bg-[#F1F5F9] text-[#0F172A]'
-                  }`}
-                >
-                  {selectedJob
-                    ? selectedJob.clientId
-                      ? selectedJob.clientName
-                      : 'No client linked — assign a client on the job first'
-                    : 'Pick a job to see the company'}
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Recruiter / Team member</label>
-                <select
-                  value={form.recruiterId}
-                  onChange={(event) => setForm((current) => ({ ...current, recruiterId: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                >
-                  <option value="">Select team member</option>
-                  {recruiters.map((recruiter) => (
-                    <option key={recruiter.id} value={recruiter.id}>
-                      {recruiter.email ? `${recruiter.name} • ${recruiter.email}` : recruiter.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Currency</label>
-                <select
-                  value={form.currency}
-                  onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                >
-                  {SUPPORTED_CURRENCIES.map((code) => (
-                    <option key={code} value={code}>
-                      {code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Offer Salary*</label>
-                <input
-                  type="number"
-                  value={form.offerSalary}
-                  onChange={(event) => setForm((current) => ({ ...current, offerSalary: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                />
-                {Number(form.offerSalary) > 0 ? (
-                  <p className="mt-1 text-xs text-[#6B7280]">{formatCurrencyAmount(Number(form.offerSalary), form.currency)}</p>
-                ) : null}
-                {errors.offerSalary ? <p className="mt-1 text-xs text-red-600">{errors.offerSalary}</p> : null}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Commission %</label>
-                <input
-                  type="number"
-                  value={form.commissionPercentage}
-                  onChange={(event) => {
-                    setFeeEditedManually(false);
-                    setForm((current) => ({ ...current, commissionPercentage: event.target.value }));
-                  }}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                />
-                <p className="mt-1 text-xs text-[#6B7280]">
-                  Drives placement fee. Edit fee directly to override.
-                </p>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Placement Fee*</label>
-                <input
-                  type="number"
-                  value={form.placementFee}
-                  onChange={(event) => {
-                    setFeeEditedManually(true);
-                    setForm((current) => ({ ...current, placementFee: event.target.value }));
-                  }}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                />
-                {Number(form.placementFee) > 0 ? (
-                  <p className="mt-1 text-xs text-[#6B7280]">
-                    {formatCurrencyAmount(Number(form.placementFee), form.currency)}
-                    {!feeEditedManually && Number(form.offerSalary) > 0 && Number(form.commissionPercentage) > 0
-                      ? ` (${form.commissionPercentage}% of salary)`
-                      : ''}
-                  </p>
-                ) : null}
-                {errors.placementFee ? <p className="mt-1 text-xs text-red-600">{errors.placementFee}</p> : null}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Offer Date*</label>
-                <input
-                  type="date"
-                  value={form.offerDate}
-                  onChange={(event) => setForm((current) => ({ ...current, offerDate: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                />
-                {errors.offerDate ? <p className="mt-1 text-xs text-red-600">{errors.offerDate}</p> : null}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Expected Joining Date</label>
-                <input
-                  type="date"
-                  value={form.expectedJoiningDate}
-                  onChange={(event) => setForm((current) => ({ ...current, expectedJoiningDate: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                />
-                {errors.expectedJoiningDate ? (
-                  <p className="mt-1 text-xs text-red-600">{errors.expectedJoiningDate}</p>
-                ) : form.status === 'JOINING_SCHEDULED' ? (
-                  <p className="mt-1 text-xs text-[#6B7280]">Required when status is Joining Scheduled.</p>
-                ) : null}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Employment Type*</label>
-                <select
-                  value={form.employmentType}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, employmentType: event.target.value as EmploymentType }))
-                  }
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                >
-                  {employmentTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Status*</label>
-                {isResendMode ? (
-                  <div className="flex h-11 items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
-                    Offer Sent
-                  </div>
-                ) : (
-                  <select
-                    value={form.status}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        status: event.target.value as PlacementStatus,
-                      }))
-                    }
-                    className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                  >
-                    {PLACEMENT_STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>
-                        {getPlacementStatusLabel(status)}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {errors.status ? <p className="mt-1 text-xs text-red-600">{errors.status}</p> : null}
-                {!isEditMode && !isResendMode && form.status === 'OFFER_SENT' ? (
-                  <p className="mt-1 text-xs text-[#6B7280]">
-                    Default when sending an offer letter to the candidate on Phase 1.
-                  </p>
-                ) : null}
-                {isResendMode ? (
-                  <p className="mt-1 text-xs text-[#6B7280]">
-                    Status will move back to Offer Sent so the candidate can accept or reject again.
-                  </p>
-                ) : null}
-              </div>
-
-              {!isEditMode || isResendMode ? (
-                <div className="md:col-span-2">
-                  <label className="mb-1.5 block text-sm font-medium text-[#111827]">
-                    {isResendMode ? 'Upload revised offer letter (PDF)' : 'Upload Offer Letter (PDF)'}
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#D1D5DB] px-4 py-4 hover:bg-slate-50">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-[#2563EB]">
-                      <Upload className="h-4 w-4" />
-                    </div>
-                    <div className="text-sm">
-                      <p className="font-medium text-[#111827]">{offerLetter?.name || 'Choose PDF file'}</p>
-                      <p className="text-[#6B7280]">Upload offer letter as PDF</p>
-                    </div>
-                    <input
-                      type="file"
-                      accept="application/pdf"
-                      onChange={(event) => setOfferLetter(event.target.files?.[0] || null)}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-              ) : null}
-
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Notes</label>
-                <textarea
-                  rows={4}
-                  value={form.notes}
-                  onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                  className="w-full rounded-xl border border-[#D1D5DB] bg-white px-3 py-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                />
-              </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] px-6 py-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-xl border border-[#D1D5DB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={async () => {
-                  if (!validate()) return;
-                  await onSubmit(
-                    {
-                      candidateId: form.candidateId,
-                      jobId: form.jobId,
-                      companyId: selectedJob?.clientId || undefined,
-                      recruiterId: form.recruiterId || currentUserId,
-                      offerSalary: form.offerSalary,
-                      placementFee: form.placementFee,
-                      commissionPercentage: form.commissionPercentage,
-                      currency: form.currency,
-                      offerDate: form.offerDate,
-                      expectedJoiningDate: form.expectedJoiningDate || undefined,
-                      employmentType: form.employmentType,
-                      status: isResendMode ? 'OFFER_SENT' : form.status,
-                      notes: form.notes || undefined,
-                    },
-                    isResendMode || !isEditMode ? offerLetter : null
-                  );
-                }}
-                className="rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSubmitting
-                  ? isResendMode
-                    ? 'Resending...'
-                    : isEditMode
-                      ? 'Saving...'
-                      : 'Creating...'
-                  : isResendMode
-                    ? 'Resend offer letter'
-                    : isEditMode
-                      ? 'Save Changes'
-                      : 'Create Placement'}
-              </button>
-            </div>
-          </motion.aside>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => void handleSave()}
+            className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSubmitting
+              ? isResendMode
+                ? 'Resending...'
+                : isEditMode
+                  ? 'Saving...'
+                  : 'Creating...'
+              : isResendMode
+                ? 'Resend offer letter'
+                : isEditMode
+                  ? 'Save Changes'
+                  : 'Create Placement'}
+          </button>
         </>
-      ) : null}
-    </AnimatePresence>
+      }
+    >
+      <DrawerSectionCard title="Placement Details" subtitle="Candidate, job, and team" icon={User} accent="blue">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <DrawerFieldLabel label="Candidate" icon={User} iconClassName="text-blue-500" required />
+            {lockCandidate ? (
+              <div className={`${DRAWER_FORM_INPUT} flex items-center bg-slate-50 font-medium`}>
+                {selectedCandidate
+                  ? `${selectedCandidate.name} • ${selectedCandidate.email}`
+                  : 'Selected candidate'}
+              </div>
+            ) : (
+              <DrawerSelectDropdown
+                value={form.candidateId}
+                preferUpward
+                placeholder="Select candidate"
+                error={Boolean(errors.candidateId)}
+                options={[
+                  { value: '', label: 'Select candidate' },
+                  ...candidates.map((candidate) => ({
+                    value: candidate.id,
+                    label: `${candidate.name} • ${candidate.email}`,
+                  })),
+                ]}
+                onChange={(candidateId) => setForm((current) => ({ ...current, candidateId }))}
+              />
+            )}
+            {errors.candidateId ? <p className="mt-1 text-xs text-red-600">{errors.candidateId}</p> : null}
+          </div>
+
+          <div>
+            <DrawerFieldLabel label="Job" icon={Briefcase} iconClassName="text-blue-500" required />
+            {lockJob ? (
+              <div className={`${DRAWER_FORM_INPUT} flex items-center bg-slate-50 font-medium`}>
+                {selectedJob
+                  ? `${selectedJob.title}${selectedJob.clientName ? ` • ${selectedJob.clientName}` : ''}`
+                  : 'Selected job'}
+              </div>
+            ) : (
+              <DrawerSelectDropdown
+                value={form.jobId}
+                preferUpward
+                placeholder="Select job"
+                error={Boolean(errors.jobId)}
+                options={[
+                  { value: '', label: 'Select job' },
+                  ...jobs.map((job) => ({
+                    value: job.id,
+                    label: `${job.title} • ${job.clientName}${!job.clientId ? ' (assign client first)' : ''}`,
+                  })),
+                ]}
+                onChange={(jobId) => setForm((current) => ({ ...current, jobId }))}
+              />
+            )}
+            {errors.jobId ? <p className="mt-1 text-xs text-red-600">{errors.jobId}</p> : null}
+          </div>
+
+          <div>
+            <DrawerFieldLabel label="Company" icon={Briefcase} iconClassName="text-blue-500" />
+            <div
+              className={`${DRAWER_FORM_INPUT} flex items-center font-medium ${
+                selectedJob && !selectedJob.clientId
+                  ? 'border-amber-300 bg-amber-50 text-amber-900'
+                  : 'bg-slate-50 text-slate-900'
+              }`}
+            >
+              {selectedJob
+                ? selectedJob.clientId
+                  ? selectedJob.clientName
+                  : 'No client linked — assign a client on the job first'
+                : 'Pick a job to see the company'}
+            </div>
+          </div>
+
+          <div>
+            <DrawerFieldLabel label="Recruiter / Team member" />
+            <DrawerSelectDropdown
+              value={form.recruiterId}
+              preferUpward
+              placeholder="Select team member"
+              options={[
+                { value: '', label: 'Select team member' },
+                ...recruiters.map((recruiter) => ({
+                  value: recruiter.id,
+                  label: recruiter.email ? `${recruiter.name} • ${recruiter.email}` : recruiter.name,
+                })),
+              ]}
+              onChange={(recruiterId) => setForm((current) => ({ ...current, recruiterId }))}
+            />
+          </div>
+        </div>
+      </DrawerSectionCard>
+
+      <DrawerSectionCard title="Compensation" subtitle="Salary, fee, and currency" icon={IndianRupee} accent="emerald">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <DrawerFieldLabel label="Currency" />
+            <DrawerSelectDropdown
+              value={form.currency}
+              preferUpward
+              options={SUPPORTED_CURRENCIES.map((code) => ({ value: code, label: code }))}
+              onChange={(currency) => setForm((current) => ({ ...current, currency }))}
+            />
+          </div>
+          <div>
+            <DrawerFieldLabel label="Offer Salary" required />
+            <input
+              type="number"
+              value={form.offerSalary}
+              onChange={(event) => setForm((current) => ({ ...current, offerSalary: event.target.value }))}
+              className={DRAWER_FORM_INPUT}
+            />
+            {Number(form.offerSalary) > 0 ? (
+              <p className="mt-1 text-xs text-slate-500">
+                {formatCurrencyAmount(Number(form.offerSalary), form.currency)}
+              </p>
+            ) : null}
+            {errors.offerSalary ? <p className="mt-1 text-xs text-red-600">{errors.offerSalary}</p> : null}
+          </div>
+          <div>
+            <DrawerFieldLabel label="Commission %" />
+            <input
+              type="number"
+              value={form.commissionPercentage}
+              onChange={(event) => {
+                setFeeEditedManually(false);
+                setForm((current) => ({ ...current, commissionPercentage: event.target.value }));
+              }}
+              className={DRAWER_FORM_INPUT}
+            />
+            <p className="mt-1 text-xs text-slate-500">Drives placement fee. Edit fee directly to override.</p>
+          </div>
+          <div>
+            <DrawerFieldLabel label="Placement Fee" required />
+            <input
+              type="number"
+              value={form.placementFee}
+              onChange={(event) => {
+                setFeeEditedManually(true);
+                setForm((current) => ({ ...current, placementFee: event.target.value }));
+              }}
+              className={DRAWER_FORM_INPUT}
+            />
+            {Number(form.placementFee) > 0 ? (
+              <p className="mt-1 text-xs text-slate-500">
+                {formatCurrencyAmount(Number(form.placementFee), form.currency)}
+                {!feeEditedManually && Number(form.offerSalary) > 0 && Number(form.commissionPercentage) > 0
+                  ? ` (${form.commissionPercentage}% of salary)`
+                  : ''}
+              </p>
+            ) : null}
+            {errors.placementFee ? <p className="mt-1 text-xs text-red-600">{errors.placementFee}</p> : null}
+          </div>
+        </div>
+      </DrawerSectionCard>
+
+      <DrawerSectionCard title="Schedule & Status" subtitle="Dates, employment type, and workflow" icon={Calendar} accent="amber">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <DrawerFieldLabel label="Offer Date" required />
+            <input
+              type="date"
+              value={form.offerDate}
+              onChange={(event) => setForm((current) => ({ ...current, offerDate: event.target.value }))}
+              className={DRAWER_FORM_INPUT}
+            />
+            {errors.offerDate ? <p className="mt-1 text-xs text-red-600">{errors.offerDate}</p> : null}
+          </div>
+          <div>
+            <DrawerFieldLabel label="Expected Joining Date" />
+            <input
+              type="date"
+              value={form.expectedJoiningDate}
+              onChange={(event) => setForm((current) => ({ ...current, expectedJoiningDate: event.target.value }))}
+              className={DRAWER_FORM_INPUT}
+            />
+            {errors.expectedJoiningDate ? (
+              <p className="mt-1 text-xs text-red-600">{errors.expectedJoiningDate}</p>
+            ) : form.status === 'JOINING_SCHEDULED' ? (
+              <p className="mt-1 text-xs text-slate-500">Required when status is Joining Scheduled.</p>
+            ) : null}
+          </div>
+          <div>
+            <DrawerFieldLabel label="Employment Type" required />
+            <DrawerSelectDropdown
+              value={form.employmentType}
+              preferUpward
+              options={employmentTypes.map((type) => ({ value: type, label: type }))}
+              onChange={(employmentType) =>
+                setForm((current) => ({ ...current, employmentType: employmentType as EmploymentType }))
+              }
+            />
+          </div>
+          <div>
+            <DrawerFieldLabel label="Status" required />
+            {isResendMode ? (
+              <div className={`${DRAWER_FORM_INPUT} flex items-center bg-slate-50 font-medium`}>Offer Sent</div>
+            ) : (
+              <DrawerSelectDropdown
+                value={form.status}
+                preferUpward
+                options={PLACEMENT_STATUS_OPTIONS.map((status) => ({
+                  value: status,
+                  label: getPlacementStatusLabel(status),
+                }))}
+                onChange={(status) =>
+                  setForm((current) => ({ ...current, status: status as PlacementStatus }))
+                }
+              />
+            )}
+            {errors.status ? <p className="mt-1 text-xs text-red-600">{errors.status}</p> : null}
+            {!isEditMode && !isResendMode && form.status === 'OFFER_SENT' ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Default when sending an offer letter to the candidate on Phase 1.
+              </p>
+            ) : null}
+            {isResendMode ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Status will move back to Offer Sent so the candidate can accept or reject again.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </DrawerSectionCard>
+
+      <DrawerSectionCard title="Documents & Notes" subtitle="Offer letter and internal notes" icon={Upload} accent="sky">
+        {!isEditMode || isResendMode ? (
+          <div className="mb-4">
+            <DrawerFieldLabel
+              label={isResendMode ? 'Upload revised offer letter (PDF)' : 'Upload Offer Letter (PDF)'}
+            />
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-4 transition-colors hover:bg-slate-50">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                <Upload className="h-4 w-4" />
+              </div>
+              <div className="text-sm">
+                <p className="font-medium text-slate-900">{offerLetter?.name || 'Choose PDF file'}</p>
+                <p className="text-slate-500">Upload offer letter as PDF</p>
+              </div>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(event) => setOfferLetter(event.target.files?.[0] || null)}
+                className="hidden"
+              />
+            </label>
+            {errors.offerLetter ? <p className="mt-1 text-xs text-red-600">{errors.offerLetter}</p> : null}
+          </div>
+        ) : null}
+        <div>
+          <DrawerFieldLabel label="Notes" />
+          <textarea
+            rows={4}
+            value={form.notes}
+            onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+            className={`${DRAWER_FORM_INPUT} resize-none`}
+          />
+        </div>
+      </DrawerSectionCard>
+    </DrawerFormShell>
   );
 }

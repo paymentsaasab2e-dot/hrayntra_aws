@@ -7,6 +7,7 @@ import {
   postPlacementOfferResponse,
   postBackfillPortalJobTenants,
   postPortalInterviewFeedbackLookup,
+  postSyncEmployerDemoVerified,
 } from './portal-sync.controller.js';
 
 const router = Router();
@@ -86,6 +87,11 @@ router.post(
   '/portal-interview-feedback-lookup',
   portalSyncSecretMiddleware,
   postPortalInterviewFeedbackLookup
+);
+router.post(
+  '/sync-employer-demo-verified',
+  portalSyncSecretMiddleware,
+  postSyncEmployerDemoVerified
 );
 
 export default router;

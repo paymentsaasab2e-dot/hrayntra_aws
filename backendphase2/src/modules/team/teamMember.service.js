@@ -10,6 +10,7 @@ import {
 import { sendCredentialInvite, sendPasswordResetEmail } from '../../utils/emailService.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
+import { assertCanCreateUser } from '../setting/planAccess.service.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -272,6 +273,8 @@ export const teamMemberService = {
   },
 
   async create(data, createdById) {
+    await assertCanCreateUser();
+
     const {
       firstName,
       lastName,

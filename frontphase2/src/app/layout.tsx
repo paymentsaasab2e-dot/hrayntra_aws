@@ -5,6 +5,7 @@ import { GlobalAlertHost } from "../components/GlobalAlertHost";
 import { PageTitleSync } from "../components/PageTitleSync";
 import { UserPermissionsSync } from "../components/UserPermissionsSync";
 import "./globals.css";
+import "../styles/nexus-dashboard.css";
 
 export const metadata: Metadata = {
   title: "HRYANTRA",

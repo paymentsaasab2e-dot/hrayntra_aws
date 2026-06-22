@@ -6,6 +6,7 @@ import { findFollowUpIndex, recomputeNextFollowUpAt } from './hq-follow-up.helpe
 const HQ_CRM_LEADS_COLLECTION = 'hq_crm_leads';
 const VALID_STAGES = ['new', 'contacted', 'qualified', 'converted', 'lost'];
 const FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'];
+const EMPLOYER_DEMO_LEAD_SOURCE = 'Website form fill up';
 
 let cachedClient = null;
 let indexesEnsured = false;
@@ -76,6 +77,7 @@ function toLeadRow(doc) {
     country: doc.country || '',
     estimatedDealValue: doc.estimatedDealValue ?? 0,
     leadSource: doc.leadSource || '',
+    leadSourceDetail: doc.leadSourceDetail || '',
     interestedModules: doc.interestedModules || [],
     initialNotes: doc.initialNotes || '',
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : null,
@@ -204,14 +206,37 @@ function parseNextFollowUpAt(raw) {
   return dt;
 }
 
+function parseOptionalNextFollowUpAt(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) {
+    throw new Error('Invalid next follow-up date and time');
+  }
+  return dt;
+}
+
+function companySizeToExpectedUsers(companySize) {
+  const size = String(companySize || '').toLowerCase();
+  if (size.includes('1–10') || size.includes('1-10')) return 5;
+  if (size.includes('11–50') || size.includes('11-50')) return 30;
+  if (size.includes('51–200') || size.includes('51-200')) return 100;
+  if (size.includes('201–500') || size.includes('201-500')) return 350;
+  if (size.includes('501–1,000') || size.includes('501-1,000') || size.includes('501–1000')) {
+    return 750;
+  }
+  if (size.includes('1,000+') || size.includes('1000+')) return 1500;
+  return 50;
+}
+
 function parseLeadInput(data) {
   const contactName = String(data?.contactName || '').trim();
   const companyName = String(data?.companyName || '').trim();
   const email = String(data?.email || '').trim().toLowerCase();
   const industry = String(data?.industry || '').trim();
   const country = String(data?.country || '').trim();
-  const leadOwner = String(data?.leadOwner || '').trim();
   const leadSource = String(data?.leadSource || '').trim();
+  const leadSourceDetail = String(data?.leadSourceDetail || '').trim();
   const expectedUsers = Number(data?.expectedUsers) || 0;
   const estimatedDealValue = Number(data?.estimatedDealValue) || 0;
   const interestedModules = Array.isArray(data?.interestedModules)
@@ -224,8 +249,8 @@ function parseLeadInput(data) {
   if (!industry || !country || !expectedUsers || !estimatedDealValue) {
     throw new Error('Industry, country, expected users, and deal value are required');
   }
-  if (!leadOwner || !leadSource) {
-    throw new Error('Lead owner and lead source are required');
+  if (!leadSource) {
+    throw new Error('Lead source is required');
   }
   if (interestedModules.length === 0) {
     throw new Error('Select at least one interested module');
@@ -245,13 +270,14 @@ function parseLeadInput(data) {
     country,
     expectedUsers,
     estimatedDealValue,
-    leadOwner,
+    leadOwner: String(data?.leadOwner || '').trim(),
     leadSource,
+    leadSourceDetail,
     interestedModules,
     initialNotes: String(data?.initialNotes || '').trim(),
     stage,
     score: inferScore(estimatedDealValue, expectedUsers),
-    nextFollowUpAt: parseNextFollowUpAt(data?.nextFollowUpAt),
+    nextFollowUpAt: parseOptionalNextFollowUpAt(data?.nextFollowUpAt),
   };
 }
 
@@ -266,6 +292,85 @@ export const hqLeadsService = {
     return {
       leads,
       stats: computeStats(leads, docs),
+      storage: getStorageInfo(),
+    };
+  },
+
+  async createLeadFromEmployerDemoRequest(demo) {
+    const requestId = String(demo?.requestId || '').trim();
+    const contactName = String(demo?.fullName || '').trim();
+    const companyName = String(demo?.organizationName || '').trim();
+    const email = String(demo?.email || '').trim().toLowerCase();
+
+    if (!contactName || !companyName || !email) {
+      throw new Error('Demo request is missing contact name, company name, or email');
+    }
+
+    const collection = await getCollection();
+
+    if (requestId) {
+      const existing = await collection.findOne({ employerDemoRequestId: requestId });
+      if (existing) {
+        return {
+          lead: toLeadRow(existing),
+          created: false,
+          storage: getStorageInfo(),
+        };
+      }
+    }
+
+    const dialCode = String(demo?.dialCode || '').trim();
+    const phoneNumber = String(demo?.phoneNumber || '').trim();
+    const phone = [dialCode, phoneNumber].filter(Boolean).join(' ');
+    const country = String(demo?.countryCode || '').trim();
+    const companySize = String(demo?.companySize || '').trim();
+    const outcome = String(demo?.outcome || '').trim();
+    const expectedUsers = companySizeToExpectedUsers(companySize);
+    const estimatedDealValue = Math.max(expectedUsers * 25, 500);
+    const initialNotes = [
+      outcome ? `Outcome: ${outcome}` : '',
+      companySize ? `Company size: ${companySize}` : '',
+      requestId ? `Employer demo request: ${requestId}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const doc = {
+      contactName,
+      companyName,
+      email,
+      phone,
+      industry: 'Employer / HR Tech',
+      country,
+      expectedUsers,
+      estimatedDealValue,
+      leadOwner: '',
+      leadSource: EMPLOYER_DEMO_LEAD_SOURCE,
+      leadSourceDetail: 'Employer request demo form',
+      interestedModules: ['Recruitment'],
+      initialNotes,
+      stage: 'new',
+      score: inferScore(estimatedDealValue, expectedUsers),
+      nextFollowUpAt: (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(9, 0, 0, 0);
+        return d;
+      })(),
+      employerDemoRequestId: requestId || null,
+      followUps: [],
+      remarks: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdByEmail: null,
+    };
+
+    const result = await collection.insertOne(doc);
+    const inserted = await collection.findOne({ _id: result.insertedId });
+
+    return {
+      lead: toLeadRow(inserted),
+      created: true,
       storage: getStorageInfo(),
     };
   },
