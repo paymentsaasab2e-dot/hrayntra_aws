@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
-import { X } from 'lucide-react';
+import { Briefcase, Building2, Mail, User, UserCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiUpdateContact,
@@ -12,6 +11,13 @@ import {
   type BackendContact,
 } from '../../lib/api';
 import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
+import { DrawerFormShell } from '../drawers/DrawerFormShell';
+import {
+  DrawerFieldLabel,
+  DrawerSectionCard,
+  DrawerSelectDropdown,
+  DRAWER_FORM_INPUT,
+} from '../drawers/drawerFormUi';
 
 interface EditContactDrawerProps {
   contact: BackendContact | null;
@@ -51,7 +57,7 @@ export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditC
       try {
         const [clientsRes, ownersRes] = await Promise.all([
           apiGetClients({ type: 'client' }),
-            apiGetUsers({ role: 'RECRUITER' }),
+          apiGetUsers({ role: 'RECRUITER' }),
         ]);
 
         if (clientsRes.data) {
@@ -68,7 +74,7 @@ export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditC
       }
     };
 
-    if (isOpen) fetchOptions();
+    if (isOpen) void fetchOptions();
   }, [contact, isOpen]);
 
   const validate = () => {
@@ -90,7 +96,8 @@ export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditC
     try {
       const response = await apiUpdateContact(contact.id, formData);
       toast.success('Contact updated successfully');
-      onSuccess(response.data);
+      await onSuccess(response.data?.data ?? response.data);
+      onClose();
     } catch (error: any) {
       toast.error(error.message || 'Failed to update contact');
     } finally {
@@ -100,252 +107,198 @@ export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditC
 
   if (!contact) return null;
 
+  const inputClass = (field?: string) =>
+    `${DRAWER_FORM_INPUT} ${field && errors[field] ? 'border-red-300 focus:border-red-400 focus:ring-red-500/20' : ''}`;
+
   return (
-    <AnimatePresence>
-      {isOpen && (
+    <DrawerFormShell
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Edit Contact"
+      subtitle={`Update details for ${contact.firstName} ${contact.lastName}`}
+      headerIcon={UserCircle}
+      footer={
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <button
+            type="button"
             onClick={onClose}
-            className="fixed inset-0 z-[90] bg-slate-900/40"
-          />
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
           >
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <h2 className="text-lg font-semibold text-gray-900">Edit Contact</h2>
-              <button
-                onClick={onClose}
-                className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-6 py-5">
-              <div className="space-y-4">
-                {/* Same form fields as AddContactDrawer */}
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Basic Information</h3>
-                  <div className="grid grid-cols-12 gap-4">
-                    <div className="col-span-12 sm:col-span-3">
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Salutation</label>
-                      <select
-                        value={formData.salutation ?? ''}
-                        onChange={(e) => setFormData({ ...formData, salutation: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        aria-label="Salutation"
-                      >
-                        {NAME_SALUTATION_OPTIONS.map((opt) => (
-                          <option key={opt.value || 'none'} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-span-12 sm:col-span-4">
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">
-                        First Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.firstName || ''}
-                        onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                        className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                          errors.firstName ? 'border-red-300' : 'border-gray-200'
-                        } focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                      />
-                      {errors.firstName && (
-                        <p className="mt-1 text-xs text-red-600">{errors.firstName}</p>
-                      )}
-                    </div>
-                    <div className="col-span-12 sm:col-span-5">
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">
-                        Last Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.lastName || ''}
-                        onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                        className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                          errors.lastName ? 'border-red-300' : 'border-gray-200'
-                        } focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                      />
-                      {errors.lastName && (
-                        <p className="mt-1 text-xs text-red-600">{errors.lastName}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Contact Details</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">
-                        Email <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="email"
-                        value={formData.email || ''}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                          errors.email ? 'border-red-300' : 'border-gray-200'
-                        } focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                      />
-                      {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1.5">Phone</label>
-                        <input
-                          type="tel"
-                          value={formData.phone || ''}
-                          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1.5">Location</label>
-                        <input
-                          type="text"
-                          value={formData.location || ''}
-                          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">LinkedIn URL</label>
-                      <input
-                        type="url"
-                        value={formData.linkedinUrl || ''}
-                        onChange={(e) => setFormData({ ...formData, linkedinUrl: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Company Information</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Company</label>
-                      <select
-                        value={formData.companyId || ''}
-                        onChange={(e) => setFormData({ ...formData, companyId: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select company</option>
-                        {clients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.companyName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1.5">Designation</label>
-                        <input
-                          type="text"
-                          value={formData.designation || ''}
-                          onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1.5">Department</label>
-                        <input
-                          type="text"
-                          value={formData.department || ''}
-                          onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Additional Information</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Contact Type</label>
-                      <select
-                        value={formData.contactType || 'CLIENT'}
-                        onChange={(e) =>
-                          setFormData({ ...formData, contactType: e.target.value as any })
-                        }
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="CANDIDATE">Candidate</option>
-                        <option value="CLIENT">Client</option>
-                        <option value="HIRING_MANAGER">Hiring Manager</option>
-                        <option value="INTERVIEWER">Interviewer</option>
-                        <option value="VENDOR">Vendor</option>
-                        <option value="DECISION_MAKER">Decision Maker</option>
-                        <option value="FINANCE">Finance</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Status</label>
-                      <select
-                        value={formData.status || 'ACTIVE'}
-                        onChange={(e) =>
-                          setFormData({ ...formData, status: e.target.value as 'ACTIVE' | 'INACTIVE' })
-                        }
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="ACTIVE">Active</option>
-                        <option value="INACTIVE">Inactive</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Owner</label>
-                      <select
-                        value={formData.ownerId || ''}
-                        onChange={(e) => setFormData({ ...formData, ownerId: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Assign owner</option>
-                        {owners.map((owner) => (
-                          <option key={owner.id} value={owner.id}>
-                            {owner.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </motion.aside>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={isSubmitting}
+            className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSubmitting ? 'Saving...' : 'Save Changes'}
+          </button>
         </>
-      )}
-    </AnimatePresence>
+      }
+    >
+      <DrawerSectionCard title="Basic Information" subtitle="Name and salutation" icon={User} accent="blue">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
+          <div className="sm:col-span-3">
+            <DrawerFieldLabel label="Salutation" icon={User} iconClassName="text-blue-500" />
+            <DrawerSelectDropdown
+              value={formData.salutation ?? ''}
+              preferUpward
+              options={NAME_SALUTATION_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+              onChange={(salutation) => setFormData({ ...formData, salutation })}
+            />
+          </div>
+          <div className="sm:col-span-4">
+            <DrawerFieldLabel label="First Name" required />
+            <input
+              type="text"
+              value={formData.firstName || ''}
+              onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+              className={inputClass('firstName')}
+            />
+            {errors.firstName ? <p className="mt-1 text-xs text-red-600">{errors.firstName}</p> : null}
+          </div>
+          <div className="sm:col-span-5">
+            <DrawerFieldLabel label="Last Name" required />
+            <input
+              type="text"
+              value={formData.lastName || ''}
+              onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+              className={inputClass('lastName')}
+            />
+            {errors.lastName ? <p className="mt-1 text-xs text-red-600">{errors.lastName}</p> : null}
+          </div>
+        </div>
+      </DrawerSectionCard>
+
+      <DrawerSectionCard title="Contact Details" subtitle="Email, phone, and social" icon={Mail} accent="violet">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <DrawerFieldLabel label="Email" icon={Mail} iconClassName="text-violet-500" required />
+            <input
+              type="email"
+              value={formData.email || ''}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className={inputClass('email')}
+            />
+            {errors.email ? <p className="mt-1 text-xs text-red-600">{errors.email}</p> : null}
+          </div>
+          <div>
+            <DrawerFieldLabel label="Phone" />
+            <input
+              type="tel"
+              value={formData.phone || ''}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              className={DRAWER_FORM_INPUT}
+            />
+          </div>
+          <div>
+            <DrawerFieldLabel label="Location" />
+            <input
+              type="text"
+              value={formData.location || ''}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              className={DRAWER_FORM_INPUT}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <DrawerFieldLabel label="LinkedIn URL" />
+            <input
+              type="url"
+              value={formData.linkedinUrl || ''}
+              onChange={(e) => setFormData({ ...formData, linkedinUrl: e.target.value })}
+              className={DRAWER_FORM_INPUT}
+            />
+          </div>
+        </div>
+      </DrawerSectionCard>
+
+      <DrawerSectionCard title="Company Information" subtitle="Organization and role" icon={Building2} accent="emerald">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <DrawerFieldLabel label="Company" icon={Building2} iconClassName="text-emerald-500" />
+            <DrawerSelectDropdown
+              value={formData.companyId || ''}
+              preferUpward
+              placeholder="Select company"
+              options={[
+                { value: '', label: 'Select company' },
+                ...clients.map((client) => ({ value: client.id, label: client.companyName })),
+              ]}
+              onChange={(companyId) => setFormData({ ...formData, companyId })}
+            />
+          </div>
+          <div>
+            <DrawerFieldLabel label="Designation" icon={Briefcase} iconClassName="text-emerald-500" />
+            <input
+              type="text"
+              value={formData.designation || ''}
+              onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+              className={DRAWER_FORM_INPUT}
+            />
+          </div>
+          <div>
+            <DrawerFieldLabel label="Department" />
+            <input
+              type="text"
+              value={formData.department || ''}
+              onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+              className={DRAWER_FORM_INPUT}
+            />
+          </div>
+        </div>
+      </DrawerSectionCard>
+
+      <DrawerSectionCard title="Additional Information" subtitle="Type, status, and ownership" icon={Briefcase} accent="sky">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <DrawerFieldLabel label="Contact Type" />
+            <DrawerSelectDropdown
+              value={formData.contactType || 'CLIENT'}
+              preferUpward
+              options={[
+                { value: 'CANDIDATE', label: 'Candidate' },
+                { value: 'CLIENT', label: 'Client' },
+                { value: 'HIRING_MANAGER', label: 'Hiring Manager' },
+                { value: 'INTERVIEWER', label: 'Interviewer' },
+                { value: 'VENDOR', label: 'Vendor' },
+                { value: 'DECISION_MAKER', label: 'Decision Maker' },
+                { value: 'FINANCE', label: 'Finance' },
+              ]}
+              onChange={(contactType) =>
+                setFormData({ ...formData, contactType: contactType as CreateContactData['contactType'] })
+              }
+            />
+          </div>
+          <div>
+            <DrawerFieldLabel label="Status" />
+            <DrawerSelectDropdown
+              value={formData.status || 'ACTIVE'}
+              preferUpward
+              options={[
+                { value: 'ACTIVE', label: 'Active' },
+                { value: 'INACTIVE', label: 'Inactive' },
+              ]}
+              onChange={(status) =>
+                setFormData({ ...formData, status: status as 'ACTIVE' | 'INACTIVE' })
+              }
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <DrawerFieldLabel label="Owner" />
+            <DrawerSelectDropdown
+              value={formData.ownerId || ''}
+              preferUpward
+              placeholder="Assign owner"
+              options={[
+                { value: '', label: 'Assign owner' },
+                ...owners.map((owner) => ({ value: owner.id, label: owner.name })),
+              ]}
+              onChange={(ownerId) => setFormData({ ...formData, ownerId })}
+            />
+          </div>
+        </div>
+      </DrawerSectionCard>
+    </DrawerFormShell>
   );
 }

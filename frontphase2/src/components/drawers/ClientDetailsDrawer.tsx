@@ -195,6 +195,12 @@ import {
 } from '@/lib/clientAiHelpers';
 import { inferLocationFromCityName } from '../../lib/cscData';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import {
+  DrawerFieldLabel,
+  DrawerSectionCard,
+  DRAWER_FORM_SCROLL_BG,
+  DRAWER_FORM_INPUT,
+} from './drawerFormUi';
 import { JobDetailsDrawer, type JobForDrawer } from './JobDetailsDrawer';
 import { usePermissions } from '../../hooks/usePermissions';
 import { toast } from 'sonner';
@@ -1006,7 +1012,7 @@ export function ClientDetailsDrawer({
   }, [client?.id, client?.leadStatus, client?.leadStatusValue, client?.stage, propIsAddMode]);
 
   const DEFAULT_CLIENT_OVERVIEW_SECTIONS: Record<string, boolean> = {
-    leadInformation: false,
+    leadInformation: true,
     agreementsTerms: false,
     kycForm: false,
     companySnapshot: false,
@@ -3673,10 +3679,10 @@ export function ClientDetailsDrawer({
 
             {/* Tab content */}
             <div className="relative flex min-h-0 flex-1 flex-col">
-              <div className="flex-1 overflow-y-auto bg-slate-50/30">
+              <div className={`flex-1 overflow-y-auto ${isAddMode ? DRAWER_FORM_SCROLL_BG : 'bg-slate-50/30'}`}>
               <div className="p-5">
                 {isAddMode ? (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <div className="flex flex-col gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/90 to-indigo-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900">Create faster with AI</p>
@@ -3693,24 +3699,16 @@ export function ClientDetailsDrawer({
                         {clientAiChatOpen ? 'Continue AI chat' : 'Open AI assistant'}
                       </button>
                     </div>
-                    {/* Add Client Form — split into collapsible Client Information and Agreements & Terms sections. */}
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-5 space-y-4">
-                        <div className="rounded-xl border border-slate-200 overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => toggleOverviewSection('leadInformation')}
-                            className="flex w-full items-center justify-between gap-2 bg-white px-5 py-4 text-left hover:bg-slate-50/50 transition-colors"
-                          >
-                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Client Information</h4>
-                            {overviewOpen.leadInformation ? (
-                              <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                            ) : (
-                              <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                            )}
-                          </button>
-                          {overviewOpen.leadInformation ? (
-                            <div className="border-t border-slate-100 p-5 space-y-4 bg-white">
+
+                    <DrawerSectionCard
+                      title="Client Information"
+                      subtitle="Company profile, contacts, and qualification"
+                      icon={Building2}
+                      accent="blue"
+                      collapsible
+                      open={overviewOpen.leadInformation}
+                      onOpenChange={() => toggleOverviewSection('leadInformation')}
+                    >
                               {/* Company Logo uploader — kept on Add Client even though Add Lead doesn't have one,
                                   so the client gets a logo immediately during onboarding. */}
                               <div>
@@ -4142,25 +4140,17 @@ export function ClientDetailsDrawer({
                                   </div>
                                 )}
                               </div>
-                            </div>
-                          ) : null}
-                        </div>
+                    </DrawerSectionCard>
 
-                        <div className="rounded-xl border border-slate-200 overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => toggleOverviewSection('agreementsTerms')}
-                            className="flex w-full items-center justify-between gap-2 bg-white px-5 py-4 text-left hover:bg-slate-50/50 transition-colors"
-                          >
-                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Agreements &amp; Terms</h4>
-                            {overviewOpen.agreementsTerms ? (
-                              <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                            ) : (
-                              <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                            )}
-                          </button>
-                          {overviewOpen.agreementsTerms ? (
-                            <div className="border-t border-slate-100 p-5 space-y-4 bg-white">
+                    <DrawerSectionCard
+                      title="Agreements & Terms"
+                      subtitle="Contract terms and agreement documents"
+                      icon={FileText}
+                      accent="indigo"
+                      collapsible
+                      open={overviewOpen.agreementsTerms}
+                      onOpenChange={() => toggleOverviewSection('agreementsTerms')}
+                    >
                               <AgreementTermsSection
                                 values={overviewEditForm}
                                 onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
@@ -4187,25 +4177,17 @@ export function ClientDetailsDrawer({
                                   />
                                 }
                               />
-                            </div>
-                          ) : null}
-                        </div>
+                    </DrawerSectionCard>
 
-                        <div className="rounded-xl border border-slate-200 overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => toggleOverviewSection('kycForm')}
-                            className="flex w-full items-center justify-between gap-2 bg-white px-5 py-4 text-left hover:bg-slate-50/50 transition-colors"
-                          >
-                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">KYC Form</h4>
-                            {overviewOpen.kycForm ? (
-                              <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                            ) : (
-                              <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                            )}
-                          </button>
-                          {overviewOpen.kycForm ? (
-                            <div className="border-t border-slate-100 p-5 space-y-4 bg-white">
+                    <DrawerSectionCard
+                      title="KYC Form"
+                      subtitle="Identity verification and compliance documents"
+                      icon={Shield}
+                      accent="emerald"
+                      collapsible
+                      open={overviewOpen.kycForm}
+                      onOpenChange={() => toggleOverviewSection('kycForm')}
+                    >
                               <KycDocumentsField
                                 pendingFiles={pendingKycFiles}
                                 onPendingFilesChange={setPendingKycFiles}
@@ -4233,363 +4215,7 @@ export function ClientDetailsDrawer({
                                   setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
                                 }
                               />
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </section>
-                    {/* Legacy Add Client sections (logo / SLA / placeholder cards) — kept below for now but hidden. */}
-                    <div className="hidden">
-                    {/* 1. Company Snapshot Card */}
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('companySnapshot')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <Building2 size={14} className="text-slate-400" />
-                          Company Snapshot
-                        </h4>
-                        {overviewOpen.companySnapshot ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.companySnapshot && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <div className="space-y-4 pt-2">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Company Logo</label>
-                              <input
-                                ref={clientLogoInputRef}
-                                type="file"
-                                accept="image/*"
-                                onChange={handleClientLogoFileChange}
-                                className="hidden"
-                              />
-                              <div className="flex items-center gap-4">
-                                <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
-                                  {clientLogoPreview ? (
-                                    <ImageWithFallback
-                                      src={getClientLogoSrc(clientLogoPreview)}
-                                      alt="Client logo preview"
-                                      className="w-full h-full object-cover block"
-                                    />
-                                  ) : (
-                                    <Building2 size={24} className="text-slate-300" />
-                                  )}
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => clientLogoInputRef.current?.click()}
-                                    disabled={uploadingClientLogo}
-                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-                                  >
-                                    <Upload size={16} />
-                                    {uploadingClientLogo ? 'Uploadingâ€¦' : 'Upload Logo'}
-                                  </button>
-                                  {clientLogoPreview && (
-                                    <button
-                                      type="button"
-                                      onClick={markClientLogoRemoved}
-                                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
-                                    >
-                                      <Trash2 size={16} />
-                                      Remove
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company Name *</label>
-                              <input
-                                type="text"
-                                value={overviewEditForm.companyName}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, companyName: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="Enter company name"
-                                required
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                              <IndustryMultiSelect
-                                value={overviewEditForm.industry ?? ''}
-                                onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
-                                companyName={overviewEditForm.companyName}
-                                placeholder="Type an industry (e.g. technology, healthcare)"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company Size</label>
-                              <input
-                                type="text"
-                                value={overviewEditForm.companySize}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="e.g., 50-100"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                              <input
-                                type="text"
-                                value={overviewEditForm.location}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, location: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="Enter location"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Website</label>
-                              <input
-                                type="text"
-                                value={overviewEditForm.website}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, website: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="https://example.com"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">LinkedIn</label>
-                              <input
-                                type="text"
-                                value={overviewEditForm.linkedin}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, linkedin: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="LinkedIn URL"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Timezone</label>
-                              <ClientTimezoneSelect
-                                value={overviewEditForm.timezone}
-                                onManualChange={() => {
-                                  timezoneManuallyEditedRef.current = true;
-                                }}
-                                onChange={(timezone) =>
-                                  setOverviewEditForm((p) => ({ ...p, timezone }))
-                                }
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </section>
-
-                    {/* 2. Relationship & Ownership Card */}
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('relationship')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <Users size={14} className="text-slate-400" />
-                          Relationship & Ownership
-                        </h4>
-                        {overviewOpen.relationship ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.relationship && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <div className="space-y-4 pt-2">
-                            {clientFieldVisibility.status ? (
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
-                                <select
-                                  value={overviewEditForm.status}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, status: e.target.value as 'ACTIVE' | 'ON_HOLD' | 'INACTIVE' }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                >
-                                  <option value="ACTIVE">Active</option>
-                                  <option value="ON_HOLD">On Hold</option>
-                                  <option value="INACTIVE">Inactive</option>
-                                </select>
-                              </div>
-                            ) : null}
-                            {clientFieldVisibility.assignedTo ? (
-                              <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
-                              <div className="relative">
-                                <button
-                                  type="button"
-                                  onClick={() => setAssignedToDropdownOpen(!assignedToDropdownOpen)}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 flex items-center justify-between bg-white"
-                                >
-                                  <span className="flex items-center gap-2">
-                                    {overviewEditForm.assignedToId ? (
-                                      (() => {
-                                        const selectedUser = users.find(u => u.id === overviewEditForm.assignedToId);
-                                        return selectedUser ? (
-                                          <>
-                                            {selectedUser.avatar ? (
-                                              <img src={selectedUser.avatar} alt="" className="w-5 h-5 rounded-full object-cover" />
-                                            ) : (
-                                              <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center">
-                                                <User size={12} className="text-slate-500" />
-                                              </div>
-                                            )}
-                                            <span className="text-slate-900">{selectedUser.name}</span>
-                                          </>
-                                        ) : (
-                                          <span className="text-slate-500">Select user</span>
-                                        );
-                                      })()
-                                    ) : (
-                                      <span className="text-slate-400">Select user</span>
-                                    )}
-                                  </span>
-                                  <ChevronDown size={16} className="text-slate-400" />
-                                </button>
-                                {assignedToDropdownOpen && (
-                                  <>
-                                    <div className="fixed inset-0 z-10" onClick={() => setAssignedToDropdownOpen(false)} aria-hidden />
-                                    <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
-                                      {loadingUsers ? (
-                                        <li className="px-4 py-2.5 text-sm text-slate-500 text-center">Loading users...</li>
-                                      ) : users.length === 0 ? (
-                                        <li className="px-4 py-2.5 text-sm text-slate-500 text-center">No users available</li>
-                                      ) : (
-                                        <>
-                                          <li>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setOverviewEditForm((p) => ({
-                                                  ...p,
-                                                  ...assignedToSelectionFromId(''),
-                                                }));
-                                                setAssignedToDropdownOpen(false);
-                                              }}
-                                              className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${!overviewEditForm.assignedToId ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
-                                            >
-                                              <span className="text-slate-400">Unassigned</span>
-                                            </button>
-                                          </li>
-                                          {users.map((user) => (
-                                            <li key={user.id}>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setOverviewEditForm((p) => ({
-                                                    ...p,
-                                                    ...assignedToSelectionFromId(user.id),
-                                                  }));
-                                                  setAssignedToDropdownOpen(false);
-                                                }}
-                                                className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${overviewEditForm.assignedToId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
-                                              >
-                                                {user.avatar ? (
-                                                  <img src={user.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
-                                                ) : (
-                                                  <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center">
-                                                    <User size={14} className="text-slate-500" />
-                                                  </div>
-                                                )}
-                                                <div className="flex-1 min-w-0">
-                                                  <div className="font-medium truncate">{user.name}</div>
-                                                  {user.role && (
-                                                    <div className="text-xs text-slate-500 truncate">{user.role}</div>
-                                                  )}
-                                                </div>
-                                              </button>
-                                            </li>
-                                          ))}
-                                        </>
-                                      )}
-                                    </ul>
-                                  </>
-                                )}
-                              </div>
-                              </div>
-                            ) : null}
-                            {clientFieldVisibility.interestLevel ? (
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Priority</label>
-                                <input
-                                  type="text"
-                                  value={overviewEditForm.priority}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, priority: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="High, Medium, Low"
-                                />
-                              </div>
-                            ) : null}
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">SLA / Response expectations</label>
-                              <input
-                                type="text"
-                                value={overviewEditForm.sla}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, sla: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="e.g., 48h response"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </section>
-
-                    {/* 3. Performance Metrics Card - Read-only info in add mode */}
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('performance')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <TrendingUp size={14} className="text-slate-400" />
-                          Performance metrics
-                        </h4>
-                        {overviewOpen.performance ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.performance && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <p className="text-sm text-slate-500 italic pt-2">
-                            Performance metrics will be available after the client is created and data is added.
-                          </p>
-                        </div>
-                      )}
-                    </section>
-
-                    {/* 4. Client Health Card - Read-only info in add mode */}
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('health')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <Heart size={14} className="text-slate-400" />
-                          Client health
-                        </h4>
-                        {overviewOpen.health ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.health && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <p className="text-sm text-slate-500 italic pt-2">
-                            Client health status will be available after the client is created and activities are tracked.
-                          </p>
-                        </div>
-                      )}
-                    </section>
-                    </div>
+                    </DrawerSectionCard>
                   </div>
                 ) : showSendMessageForm ? (
                   <div className="space-y-5">

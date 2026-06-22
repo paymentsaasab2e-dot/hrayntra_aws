@@ -11,6 +11,12 @@ router.post('/setup', hqController.setupSuperAdmin);
 router.post('/provision-tenant', authMiddleware, hqController.provisionTenant);
 router.get('/tenants', authMiddleware, hqController.listTenants);
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
+
+router.get('/packages', authMiddleware, hqController.listPackages);
+router.post('/packages', authMiddleware, hqController.createPackage);
+router.put('/packages/:id', authMiddleware, hqController.updatePackage);
+router.delete('/packages/:id', authMiddleware, hqController.deletePackage);
+
 // Two delete shapes: body-driven (DELETE /tenants with { email }) and
 // URL-driven (DELETE /tenants/:email). The latter is a fallback for HTTP
 // clients that strip DELETE bodies.
@@ -26,6 +32,8 @@ router.post('/leads/:id/follow-ups/:followUpId/complete', authMiddleware, hqCont
 router.delete('/leads/:id/follow-ups/:followUpId', authMiddleware, hqController.deleteLeadFollowUp);
 router.post('/leads/:id/remarks', authMiddleware, hqController.addLeadRemark);
 router.post('/leads/:id/convert-to-company', authMiddleware, hqController.convertLeadToCompany);
+
+router.get('/demos', authMiddleware, hqController.listDemoRequests);
 
 router.get('/companies', authMiddleware, hqController.listCompanies);
 router.post('/companies', authMiddleware, hqController.createCompany);

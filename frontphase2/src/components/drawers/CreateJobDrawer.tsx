@@ -4,8 +4,6 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
-  ChevronDown,
-  ChevronUp,
   Plus,
   Check,
   Upload,
@@ -23,6 +21,8 @@ import {
   FileText,
   Loader2,
   GripHorizontal,
+  Briefcase,
+  Share2,
 } from 'lucide-react';
 import { RichTextEditor } from '../RichTextEditor';
 import {
@@ -96,6 +96,11 @@ import {
   toggleJobPublicFieldVisibility,
 } from '../../lib/jobPublicFieldVisibility';
 import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
+import {
+  DrawerSectionCard,
+  DRAWER_FORM_HEADER_CLASS,
+  DRAWER_FORM_SCROLL_BG,
+} from './drawerFormUi';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
@@ -718,7 +723,7 @@ interface AccordionSection {
 }
 
 const DEFAULT_JOB_DRAWER_ACCORDIONS: AccordionSection[] = [
-  { id: 'details', label: 'Job Details', isOpen: false },
+  { id: 'details', label: 'Job Details', isOpen: true },
   { id: 'application', label: 'Job Application Form', isOpen: false },
   { id: 'publish', label: 'Publish & Share', isOpen: false },
 ];
@@ -3332,20 +3337,25 @@ export function CreateJobDrawer({
             className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
           >
             {/* Sticky Header */}
-            <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <h2 className="text-lg font-bold text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
-                <p className="text-sm text-slate-500">
-                  {isEditMode
-                    ? 'Update job details, description, and publishing options.'
-                    : 'Upload a JD or paste job details below, then complete the form.'}
-                </p>
+            <div className={`${DRAWER_FORM_HEADER_CLASS} shrink-0`}>
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
+                  <Briefcase size={20} />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-bold tracking-tight text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {isEditMode
+                      ? 'Update job details, description, and publishing options.'
+                      : 'Upload a JD or paste job details below, then complete the form.'}
+                  </p>
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   Close
                 </button>
@@ -3353,7 +3363,7 @@ export function CreateJobDrawer({
                   type="button"
                   onClick={handleSaveJob}
                   disabled={loading}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send size={14} />
                   {loading
@@ -3369,23 +3379,17 @@ export function CreateJobDrawer({
 
             {/* Scrollable Content */}
             <div ref={smartJobPromptBoundsRef} className="flex min-h-0 flex-1 flex-col">
-              <div className="flex-1 overflow-y-auto bg-slate-50/30 p-6">
-              {/* Section 1: Job Details */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion('details')}
-                  className="w-full px-5 py-4 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
-                >
-                  <span className="text-sm font-bold text-slate-900">1. Job Details</span>
-                  {accordions.find(a => a.id === 'details')?.isOpen ? (
-                    <ChevronUp size={18} className="text-slate-400" />
-                  ) : (
-                    <ChevronDown size={18} className="text-slate-400" />
-                  )}
-                </button>
-                {accordions.find(a => a.id === 'details')?.isOpen && (
-                  <div className="p-5 space-y-6">
+              <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG} p-6 space-y-5`}>
+              <DrawerSectionCard
+                title="Job Details"
+                subtitle="Description, role info, and requirements"
+                icon={Briefcase}
+                accent="blue"
+                collapsible
+                open={accordions.find((a) => a.id === 'details')?.isOpen ?? false}
+                onOpenChange={() => toggleAccordion('details')}
+              >
+                  <div className="space-y-6">
                     <div>
                       <input
                         ref={smartJobFileInputRef}
@@ -3551,24 +3555,18 @@ export function CreateJobDrawer({
                       jobDescriptionHtml={formData.jobDescriptionHtml}
                     />
                   </div>
-                )}
-              </div>
+              </DrawerSectionCard>
 
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion('application')}
-                  className="w-full px-5 py-4 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
-                >
-                  <span className="text-sm font-bold text-slate-900">2. Job Application Form</span>
-                  {accordions.find(a => a.id === 'application')?.isOpen ? (
-                    <ChevronUp size={18} className="text-slate-400" />
-                  ) : (
-                    <ChevronDown size={18} className="text-slate-400" />
-                  )}
-                </button>
-                {accordions.find(a => a.id === 'application')?.isOpen && (
-                  <div className="p-5 space-y-4">
+              <DrawerSectionCard
+                title="Job Application Form"
+                subtitle="Application fields and pre-screen assessments"
+                icon={FileText}
+                accent="violet"
+                collapsible
+                open={accordions.find((a) => a.id === 'application')?.isOpen ?? false}
+                onOpenChange={() => toggleAccordion('application')}
+              >
+                  <div className="space-y-4">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -3990,27 +3988,18 @@ export function CreateJobDrawer({
                       }
                     />
                   </div>
-                )}
-              </div>
+              </DrawerSectionCard>
 
-              {/* Section 3: Publish & Share */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion('publish')}
-                  className="w-full px-5 py-4 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
-                >
-                  <span className="text-sm font-bold text-slate-900">
-                    3. Publish & Share
-                  </span>
-                  {accordions.find(a => a.id === 'publish')?.isOpen ? (
-                    <ChevronUp size={18} className="text-slate-400" />
-                  ) : (
-                    <ChevronDown size={18} className="text-slate-400" />
-                  )}
-                </button>
-                {accordions.find(a => a.id === 'publish')?.isOpen && (
-                  <div className="p-5 space-y-4">
+              <DrawerSectionCard
+                title="Publish & Share"
+                subtitle="LinkedIn, social channels, and job board publishing"
+                icon={Share2}
+                accent="sky"
+                collapsible
+                open={accordions.find((a) => a.id === 'publish')?.isOpen ?? false}
+                onOpenChange={() => toggleAccordion('publish')}
+              >
+                  <div className="space-y-4">
                     {/* LinkedIn Card */}
                     <div className="border border-slate-200 rounded-xl p-4">
                       <div className="flex items-center justify-between mb-3">
@@ -4484,8 +4473,7 @@ export function CreateJobDrawer({
                       )}
                     </div>
                   </div>
-                )}
-              </div>
+              </DrawerSectionCard>
               </div>
 
               {!isEditMode ? (

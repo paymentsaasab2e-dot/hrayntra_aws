@@ -502,6 +502,24 @@ export function getCachedOrgSubscriptionPlanName(): string {
   return localStorage.getItem('orgSubscriptionPlanName') || '';
 }
 
+export type OrgPlanUsageCache = {
+  activeJobs: number;
+  activeUsers: number;
+  maxJobs: number | null;
+  maxUsers: number | null;
+};
+
+export function getCachedOrgPlanUsage(): OrgPlanUsageCache | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem('orgPlanUsage');
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as OrgPlanUsageCache;
+  } catch {
+    return null;
+  }
+}
+
 /** Tenant-wide default currency code (ISO 4217). Falls back to USD when unset. */
 export function getCachedOrgDefaultCurrency(): string {
   if (typeof window === 'undefined') return 'USD';
@@ -515,6 +533,7 @@ export function applyOrgRecruitmentSummaryPayload(
         recruitmentMode?: string;
         billingEnabled?: boolean;
         subscriptionPlan?: { name?: string } | null;
+        planUsage?: OrgPlanUsageCache | null;
         defaultCurrency?: string | null;
         clientPageFieldVisibility?: {
           interestLevel?: boolean;
@@ -535,6 +554,17 @@ export function applyOrgRecruitmentSummaryPayload(
     localStorage.setItem('orgSubscriptionPlanName', planName);
   } else {
     localStorage.removeItem('orgSubscriptionPlanName');
+  }
+  if (payload?.planUsage) {
+    localStorage.setItem(
+      'orgPlanUsage',
+      JSON.stringify({
+        activeJobs: Number(payload.planUsage.activeJobs) || 0,
+        activeUsers: Number(payload.planUsage.activeUsers) || 0,
+        maxJobs: payload.planUsage.maxJobs ?? null,
+        maxUsers: payload.planUsage.maxUsers ?? null,
+      })
+    );
   }
   const currency = String(payload?.defaultCurrency || '').trim().toUpperCase();
   if (currency && currency.length === 3) {
@@ -557,6 +587,7 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
       recruitmentMode?: string;
       billingEnabled?: boolean;
       subscriptionPlan?: { name?: string } | null;
+      planUsage?: OrgPlanUsageCache | null;
       defaultCurrency?: string | null;
       clientPageFieldVisibility?: {
         interestLevel?: boolean;
@@ -643,9 +674,25 @@ export async function apiSetOrgDefaultCurrency(code: string) {
   return res;
 }
 
-export interface SubscriptionPlanOption {
+export interface HqSubscriptionPackage {
   id: string;
+  slug: string;
   name: string;
+  description: string;
+  maxUsers: number | null;
+  maxJobs: number | null;
+  isSystem: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export type SubscriptionPlanOption = HqSubscriptionPackage;
+
+export interface HqTenantSubscriptionPlan {
+  id?: string;
+  name: string;
+  maxUsers?: number | null;
+  maxJobs?: number | null;
 }
 
 export async function apiGetSubscriptionPlan() {
@@ -911,11 +958,53 @@ export interface HqTenantRow {
   email: string;
   loginId: string;
   organizationType: 'agency' | 'standalone';
-  subscriptionPlan: { name: string } | null;
+  subscriptionPlan: HqTenantSubscriptionPlan | null;
   tenantDbName: string;
   tenantProvisioningMode: string;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+export async function apiHqListPackages() {
+  return apiFetch<{
+    packages: HqSubscriptionPackage[];
+  }>('/hq/packages', { auth: true });
+}
+
+export async function apiHqCreatePackage(body: {
+  name: string;
+  description?: string;
+  maxUsers?: number | null;
+  maxJobs?: number | null;
+}) {
+  return apiFetch<{ package: HqSubscriptionPackage }>('/hq/packages', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqUpdatePackage(
+  packageId: string,
+  body: {
+    name?: string;
+    description?: string;
+    maxUsers?: number | null;
+    maxJobs?: number | null;
+  }
+) {
+  return apiFetch<{ package: HqSubscriptionPackage }>(`/hq/packages/${encodeURIComponent(packageId)}`, {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqDeletePackage(packageId: string) {
+  return apiFetch<{ deleted: boolean; id: string }>(`/hq/packages/${encodeURIComponent(packageId)}`, {
+    method: 'DELETE',
+    auth: true,
+  });
 }
 
 export async function apiHqListTenants() {
@@ -927,7 +1016,7 @@ export async function apiHqListTenants() {
       standalone: number;
       planCounts: Record<string, number>;
     };
-    planOptions: SubscriptionPlanOption[];
+    planOptions: HqSubscriptionPackage[];
   }>('/hq/tenants', { auth: true });
 }
 
@@ -946,6 +1035,29 @@ export type HqLeadStats = {
   conversionRate: number;
 };
 
+export type HqDemoStats = {
+  total: number;
+  verified: number;
+  pending: number;
+  expired: number;
+};
+
+export type HqDemoRequestApiRow = {
+  id: string;
+  fullName: string;
+  email: string;
+  organizationName: string;
+  countryCode: string;
+  dialCode: string;
+  phoneNumber: string;
+  companySize: string;
+  outcome: string;
+  status: 'PENDING' | 'VERIFIED' | 'EXPIRED';
+  emailVerifiedAt: string | null;
+  createdAt: string | null;
+  submittedAt: string;
+};
+
 export type HqLeadApiRow = {
   id: string;
   name: string;
@@ -962,6 +1074,7 @@ export type HqLeadApiRow = {
   country?: string;
   estimatedDealValue?: number;
   leadSource?: string;
+  leadSourceDetail?: string;
   interestedModules?: string[];
   initialNotes?: string;
   createdAt?: string | null;
@@ -996,6 +1109,14 @@ export async function apiHqListLeads() {
   }>('/hq/leads', { auth: true });
 }
 
+export async function apiHqListDemoRequests() {
+  return apiFetch<{
+    demos: HqDemoRequestApiRow[];
+    stats: HqDemoStats;
+    storage: HqLeadStorageInfo;
+  }>('/hq/demos', { auth: true });
+}
+
 export async function apiHqCreateLead(body: {
   contactName: string;
   companyName: string;
@@ -1005,9 +1126,10 @@ export async function apiHqCreateLead(body: {
   country: string;
   expectedUsers: string | number;
   estimatedDealValue: string | number;
-  leadOwner: string;
   leadSource: string;
-  nextFollowUpAt: string;
+  leadSourceDetail?: string;
+  stage?: 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
+  nextFollowUpAt?: string;
   interestedModules: string[];
   initialNotes?: string;
 }) {
@@ -1028,9 +1150,9 @@ export async function apiHqUpdateLead(
     country: string;
     expectedUsers: string | number;
     estimatedDealValue: string | number;
-    leadOwner: string;
     leadSource: string;
-    nextFollowUpAt: string;
+    leadSourceDetail?: string;
+    nextFollowUpAt?: string;
     interestedModules: string[];
     initialNotes?: string;
     stage: HqLeadApiRow['stage'];
@@ -1316,8 +1438,11 @@ export async function apiHqListPortal() {
   }>('/hq/portal', { auth: true });
 }
 
-export async function apiHqAssignTenantPlan(body: { email: string; plan: { name: string } }) {
-  return apiFetch<{ email: string; subscriptionPlan: { name: string } | null }>(
+export async function apiHqAssignTenantPlan(body: {
+  email: string;
+  plan: { id?: string; name?: string };
+}) {
+  return apiFetch<{ email: string; subscriptionPlan: HqTenantSubscriptionPlan | null }>(
     '/hq/tenants/plan',
     { method: 'PUT', auth: true, body }
   );

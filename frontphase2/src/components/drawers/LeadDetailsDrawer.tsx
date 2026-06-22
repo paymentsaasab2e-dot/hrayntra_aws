@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import {
@@ -134,6 +135,15 @@ import {
 } from '../../lib/teamMemberFormDetails';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import {
+  AddLeadFieldLabel,
+  AddLeadIconInput,
+  AddLeadSectionCard,
+  AddLeadSelectDropdown,
+  ADD_LEAD_INPUT,
+  ADD_LEAD_INPUT_WITH_ICON,
+  useDrawerPortalDropdownPosition,
+} from './drawerFormUi';
 import { LeadSourceFields } from './LeadSourceFields';
 import type { LocationSelection } from '../LocationAutocomplete';
 import { CscLocationFields } from '../location/CscLocationFields';
@@ -517,137 +527,6 @@ const FieldRowDateTime = ({ label, value }: { label: string; value: string | nul
   );
 };
 
-type AddLeadAccent = 'blue' | 'violet' | 'emerald' | 'amber' | 'sky' | 'rose' | 'indigo';
-
-const ADD_LEAD_ACCENT_STYLES: Record<
-  AddLeadAccent,
-  { card: string; headerBg: string; icon: string; bar: string }
-> = {
-  blue: {
-    card: 'border-blue-100/90 bg-white shadow-sm shadow-blue-500/5 ring-1 ring-blue-50/80',
-    headerBg: 'bg-gradient-to-r from-blue-50/90 via-white to-white',
-    icon: 'bg-blue-100 text-blue-600 ring-1 ring-blue-200/80',
-    bar: 'bg-gradient-to-b from-blue-400 to-blue-600',
-  },
-  violet: {
-    card: 'border-violet-100/90 bg-white shadow-sm shadow-violet-500/5 ring-1 ring-violet-50/80',
-    headerBg: 'bg-gradient-to-r from-violet-50/90 via-white to-white',
-    icon: 'bg-violet-100 text-violet-600 ring-1 ring-violet-200/80',
-    bar: 'bg-gradient-to-b from-violet-400 to-violet-600',
-  },
-  emerald: {
-    card: 'border-emerald-100/90 bg-white shadow-sm shadow-emerald-500/5 ring-1 ring-emerald-50/80',
-    headerBg: 'bg-gradient-to-r from-emerald-50/90 via-white to-white',
-    icon: 'bg-emerald-100 text-emerald-600 ring-1 ring-emerald-200/80',
-    bar: 'bg-gradient-to-b from-emerald-400 to-emerald-600',
-  },
-  amber: {
-    card: 'border-amber-100/90 bg-white shadow-sm shadow-amber-500/5 ring-1 ring-amber-50/80',
-    headerBg: 'bg-gradient-to-r from-amber-50/90 via-white to-white',
-    icon: 'bg-amber-100 text-amber-600 ring-1 ring-amber-200/80',
-    bar: 'bg-gradient-to-b from-amber-400 to-amber-600',
-  },
-  sky: {
-    card: 'border-sky-100/90 bg-white shadow-sm shadow-sky-500/5 ring-1 ring-sky-50/80',
-    headerBg: 'bg-gradient-to-r from-sky-50/90 via-white to-white',
-    icon: 'bg-sky-100 text-sky-600 ring-1 ring-sky-200/80',
-    bar: 'bg-gradient-to-b from-sky-400 to-sky-600',
-  },
-  rose: {
-    card: 'border-rose-100/90 bg-white shadow-sm shadow-rose-500/5 ring-1 ring-rose-50/80',
-    headerBg: 'bg-gradient-to-r from-rose-50/90 via-white to-white',
-    icon: 'bg-rose-100 text-rose-600 ring-1 ring-rose-200/80',
-    bar: 'bg-gradient-to-b from-rose-400 to-rose-600',
-  },
-  indigo: {
-    card: 'border-indigo-100/90 bg-white shadow-sm shadow-indigo-500/5 ring-1 ring-indigo-50/80',
-    headerBg: 'bg-gradient-to-r from-indigo-50/90 via-white to-white',
-    icon: 'bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200/80',
-    bar: 'bg-gradient-to-b from-indigo-400 to-indigo-600',
-  },
-};
-
-const ADD_LEAD_INPUT =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
-
-const ADD_LEAD_INPUT_WITH_ICON =
-  'w-full rounded-xl border border-slate-200 bg-white py-2.5 pr-4 pl-10 text-sm text-slate-900 transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
-
-function AddLeadSectionCard({
-  title,
-  subtitle,
-  icon: Icon,
-  accent = 'blue',
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  accent?: AddLeadAccent;
-  children: React.ReactNode;
-}) {
-  const styles = ADD_LEAD_ACCENT_STYLES[accent];
-  return (
-    <section className={`relative overflow-hidden rounded-2xl border ${styles.card}`}>
-      <div className={`absolute left-0 top-0 h-full w-1 ${styles.bar}`} />
-      <div className={`border-b border-slate-100/80 px-5 py-4 ${styles.headerBg}`}>
-        <div className="flex items-center gap-3 pl-2">
-          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${styles.icon}`}>
-            <Icon size={16} />
-          </div>
-          <div>
-            <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
-            {subtitle ? <p className="text-xs text-slate-500">{subtitle}</p> : null}
-          </div>
-        </div>
-      </div>
-      <div className="space-y-4 px-5 py-4 pl-6">{children}</div>
-    </section>
-  );
-}
-
-function AddLeadFieldLabel({
-  label,
-  icon: Icon,
-  iconClassName = 'text-slate-400',
-  required,
-}: {
-  label: string;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
-  iconClassName?: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-      {Icon ? <Icon size={12} className={iconClassName} /> : null}
-      <span>
-        {label}
-        {required ? ' *' : ''}
-      </span>
-    </label>
-  );
-}
-
-function AddLeadIconInput({
-  icon: Icon,
-  iconClassName,
-  className,
-  ...props
-}: React.InputHTMLAttributes<HTMLInputElement> & {
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  iconClassName: string;
-}) {
-  return (
-    <div className="relative">
-      <Icon
-        size={16}
-        className={`pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 ${iconClassName}`}
-      />
-      <input className={className || ADD_LEAD_INPUT_WITH_ICON} {...props} />
-    </div>
-  );
-}
-
 function OverviewField({
   label,
   icon,
@@ -741,76 +620,87 @@ const LeadStatusDropdown = ({
   onSelect,
   onDelete,
   deleting,
+  preferUpward = false,
 }: {
   value: string;
   options: string[];
   onSelect: (status: string) => void;
   onDelete: (status: string) => void;
   deleting: boolean;
+  preferUpward?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(open, preferUpward, closeMenu);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDocumentMouseDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocumentMouseDown);
-    return () => document.removeEventListener('mousedown', onDocumentMouseDown);
-  }, [open]);
+  const menu =
+    open && menuPosition && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[80] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{
+              left: menuPosition.left,
+              width: menuPosition.width,
+              ...(menuPosition.placement === 'top'
+                ? { bottom: menuPosition.bottom }
+                : { top: menuPosition.top }),
+            }}
+          >
+            {options.map((status) => {
+              const isDefault = DEFAULT_LEAD_STATUS_SET.has(String(status || '').toLowerCase());
+              const isActive = String(value || '') === String(status || '');
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => {
+                    onSelect(status);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
+                    isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>{status}</span>
+                  {!isDefault ? (
+                    <span
+                      role="button"
+                      aria-label={`Delete ${status}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete(status);
+                      }}
+                      className={`inline-flex items-center rounded p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-600 ${
+                        deleting ? 'pointer-events-none opacity-50' : ''
+                      }`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
-    <div ref={rootRef} className="relative">
+    <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
       >
         <span>{value || 'New'}</span>
-        <ChevronDown size={16} className="text-slate-500" />
+        <ChevronDown
+          size={16}
+          className={`text-slate-500 transition-transform ${open && menuPosition?.placement === 'top' ? 'rotate-180' : ''}`}
+        />
       </button>
-
-      {open ? (
-        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-          {options.map((status) => {
-            const isDefault = DEFAULT_LEAD_STATUS_SET.has(String(status || '').toLowerCase());
-            const isActive = String(value || '') === String(status || '');
-            return (
-              <button
-                key={status}
-                type="button"
-                onClick={() => {
-                  onSelect(status);
-                  setOpen(false);
-                }}
-                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
-                  isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-800 hover:bg-slate-50'
-                }`}
-              >
-                <span>{status}</span>
-                {!isDefault ? (
-                  <span
-                    role="button"
-                    aria-label={`Delete ${status}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDelete(status);
-                    }}
-                    className={`inline-flex items-center rounded p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-600 ${
-                      deleting ? 'pointer-events-none opacity-50' : ''
-                    }`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      {menu}
     </div>
   );
 };
@@ -3298,6 +3188,7 @@ export function LeadDetailsDrawer({
                           value={addLeadForm.status ?? 'New'}
                           options={addLeadStatusOptions}
                           deleting={deletingLeadStatus}
+                          preferUpward
                           onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
                           onDelete={(status) =>
                             deleteLeadStatusOption(status, (nextStatus) =>
@@ -3340,26 +3231,24 @@ export function LeadDetailsDrawer({
                       </div>
                       <div>
                         <AddLeadFieldLabel label="Interest Level" icon={Target} iconClassName="text-amber-500" />
-                        <div className="relative">
-                          <Target
-                            size={16}
-                            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-amber-400"
-                          />
-                          <select
-                            value={addLeadForm.priority ?? 'Medium'}
-                            onChange={(e) =>
-                              setAddLeadForm((p) => ({
-                                ...p,
-                                priority: e.target.value as 'High' | 'Medium' | 'Low',
-                              }))
-                            }
-                            className={`${ADD_LEAD_INPUT_WITH_ICON} appearance-none bg-white`}
-                          >
-                            <option value="High">High</option>
-                            <option value="Medium">Medium</option>
-                            <option value="Low">Low</option>
-                          </select>
-                        </div>
+                        <AddLeadSelectDropdown
+                          value={addLeadForm.priority ?? 'Medium'}
+                          preferUpward
+                          leadingIcon={Target}
+                          leadingIconClassName="text-amber-400"
+                          triggerClassName={`${ADD_LEAD_INPUT} flex w-full items-center justify-between text-left`}
+                          options={[
+                            { value: 'High', label: 'High' },
+                            { value: 'Medium', label: 'Medium' },
+                            { value: 'Low', label: 'Low' },
+                          ]}
+                          onChange={(priority) =>
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              priority: priority as 'High' | 'Medium' | 'Low',
+                            }))
+                          }
+                        />
                       </div>
                     </div>
                   </AddLeadSectionCard>

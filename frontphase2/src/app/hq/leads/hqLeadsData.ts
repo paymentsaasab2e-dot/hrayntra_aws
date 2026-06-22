@@ -18,6 +18,7 @@ export type HqLeadRow = {
   country?: string;
   estimatedDealValue?: number;
   leadSource?: string;
+  leadSourceDetail?: string;
   interestedModules?: string[];
   initialNotes?: string;
   createdAt?: string | null;
@@ -74,12 +75,36 @@ export const HQ_LEAD_INDUSTRY_OPTIONS = [
 export const HQ_LEAD_SOURCE_OPTIONS = [
   'Referral',
   'Website',
+  'Website form fill up',
   'LinkedIn',
   'Cold Outreach',
   'Event',
   'Partner',
   'Other',
 ] as const;
+
+export type HqLeadSourceOption = (typeof HQ_LEAD_SOURCE_OPTIONS)[number];
+
+export const HQ_LEAD_SOURCE_DETAIL_FIELDS: Record<
+  HqLeadSourceOption,
+  { label: string; placeholder: string }
+> = {
+  Referral: { label: 'Referral Name', placeholder: 'Who referred this lead?' },
+  Website: { label: 'Website URL', placeholder: 'https://example.com' },
+  'Website form fill up': { label: 'Form / Page', placeholder: 'e.g. Request demo page' },
+  LinkedIn: { label: 'LinkedIn URL', placeholder: 'https://linkedin.com/...' },
+  'Cold Outreach': { label: 'Outreach Details', placeholder: 'e.g. Email sequence, cold call' },
+  Event: { label: 'Event Name', placeholder: 'e.g. HR Tech Summit 2026' },
+  Partner: { label: 'Partner Name', placeholder: 'Partner organization or contact' },
+  Other: { label: 'Source Details', placeholder: 'Describe how this lead was sourced' },
+};
+
+export function formatHqLeadSourceDisplay(source?: string, detail?: string | null): string {
+  if (!source?.trim()) return '—';
+  const trimmedDetail = String(detail || '').trim();
+  if (!trimmedDetail) return source;
+  return `${source} — ${trimmedDetail}`;
+}
 
 export function toDatetimeLocalValue(value?: string | Date | null): string {
   if (!value) return '';
@@ -130,6 +155,43 @@ export const HQ_LEAD_TABS: { id: 'all' | HqLeadStage; label: string }[] = [
   { id: 'converted', label: 'Converted' },
   { id: 'lost', label: 'Lost' },
 ];
+
+export type HqLeadsPageTab = 'all' | HqLeadStage | 'demos';
+
+export const HQ_LEADS_PAGE_TABS: { id: HqLeadsPageTab; label: string }[] = [
+  ...HQ_LEAD_TABS,
+  { id: 'demos', label: 'Demos' },
+];
+
+export type HqDemoRequestStatus = 'PENDING' | 'VERIFIED' | 'EXPIRED';
+
+export type HqDemoRequestRow = {
+  id: string;
+  fullName: string;
+  email: string;
+  organizationName: string;
+  countryCode: string;
+  dialCode: string;
+  phoneNumber: string;
+  companySize: string;
+  outcome: string;
+  status: HqDemoRequestStatus;
+  emailVerifiedAt: string | null;
+  createdAt: string | null;
+  submittedAt: string;
+};
+
+export const HQ_DEMO_STATUS_STYLES: Record<HqDemoRequestStatus, string> = {
+  VERIFIED: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  PENDING: 'bg-amber-50 text-amber-700 ring-amber-200',
+  EXPIRED: 'bg-slate-100 text-slate-600 ring-slate-200',
+};
+
+export const HQ_DEMO_STATUS_LABELS: Record<HqDemoRequestStatus, string> = {
+  VERIFIED: 'Verified',
+  PENDING: 'Pending',
+  EXPIRED: 'Expired',
+};
 
 export function countLeadsByStage(leads: HqLeadRow[] = []) {
   const counts: Record<string, number> = { all: leads.length };

@@ -132,6 +132,15 @@ export const hqController = {
     }
   },
 
+  async listDemoRequests(req, res) {
+    try {
+      const result = await hqService.listDemoRequests(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listCompanies(req, res) {
     try {
       const result = await hqService.listCompanies(req.user);
@@ -250,6 +259,42 @@ export const hqController = {
       sendResponse(res, 200, 'Tenant deleted', result);
     } catch (error) {
       console.error('[hq] deleteTenant failed:', error?.message || error);
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listPackages(req, res) {
+    try {
+      const result = await hqService.listPackages(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async createPackage(req, res) {
+    try {
+      const result = await hqService.createPackage(req.body, req.user);
+      sendResponse(res, 201, 'Package created', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updatePackage(req, res) {
+    try {
+      const result = await hqService.updatePackage(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Package updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async deletePackage(req, res) {
+    try {
+      const result = await hqService.deletePackage(req.params.id, req.user);
+      sendResponse(res, 200, 'Package deleted', result);
+    } catch (error) {
       sendError(res, 400, error.message, error);
     }
   },

@@ -18,8 +18,9 @@ import {
   apiHqAssignTenantPlan,
   apiHqDeleteTenant,
   type HqTenantRow,
-  type SubscriptionPlanOption,
+  type HqSubscriptionPackage,
 } from '../../lib/api';
+import { HqPackagesPanel } from '../../components/hq/HqPackagesPanel';
 import type { HqNavTab } from '../../components/hq/HqSidebar';
 import { HQ_NAV_ITEMS } from '../../components/hq/HqSidebar';
 import {
@@ -47,15 +48,47 @@ const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
   dashboard: 'Platform health, tenant counts, and plan distribution.',
   tenants: 'Browse and manage all provisioned tenants.',
   provision: 'Create a new tenant workspace and database.',
-  plans: 'Assign subscription plans to tenants.',
+  plans: 'Create custom packages, set user and job limits, and assign plans to tenant companies.',
   bootstrap: 'Local-only super admin credential injection.',
 };
 
-const FALLBACK_PLAN_OPTIONS: SubscriptionPlanOption[] = [
-  { id: 'basic', name: 'Basic' },
-  { id: 'pro', name: 'Pro' },
-  { id: 'enterprise', name: 'Enterprise' },
+const FALLBACK_PLAN_OPTIONS: HqSubscriptionPackage[] = [
+  {
+    id: 'basic',
+    slug: 'basic',
+    name: 'Basic',
+    description: 'Core recruitment for small teams.',
+    maxUsers: 5,
+    maxJobs: 25,
+    isSystem: true,
+  },
+  {
+    id: 'pro',
+    slug: 'pro',
+    name: 'Pro',
+    description: 'Full HR suite for growing companies.',
+    maxUsers: 25,
+    maxJobs: null,
+    isSystem: true,
+  },
+  {
+    id: 'enterprise',
+    slug: 'enterprise',
+    name: 'Enterprise',
+    description: 'Unlimited scale for large organizations.',
+    maxUsers: null,
+    maxJobs: null,
+    isSystem: true,
+  },
 ];
+
+function tenantPlanId(tenant: HqTenantRow, packages: HqSubscriptionPackage[]) {
+  if (tenant.subscriptionPlan?.id) return tenant.subscriptionPlan.id;
+  const match = packages.find(
+    (pkg) => pkg.name.toLowerCase() === String(tenant.subscriptionPlan?.name || '').toLowerCase()
+  );
+  return match?.id || '';
+}
 
 export default function HQSetupPageWrapper() {
   return (
@@ -104,7 +137,7 @@ function HQSetupPage() {
 
   const [tenants, setTenants] = useState<HqTenantRow[]>([]);
   const [stats, setStats] = useState<HqStats | null>(null);
-  const [planOptions, setPlanOptions] = useState<SubscriptionPlanOption[]>(FALLBACK_PLAN_OPTIONS);
+  const [planOptions, setPlanOptions] = useState<HqSubscriptionPackage[]>(FALLBACK_PLAN_OPTIONS);
   const [tenantsLoading, setTenantsLoading] = useState(false);
   const [tenantsError, setTenantsError] = useState<string>('');
   const [pendingPlanEmail, setPendingPlanEmail] = useState<string>('');
@@ -214,13 +247,17 @@ function HQSetupPage() {
     }
   };
 
-  const handleAssignPlan = async (email: string, planName: string) => {
-    if (!email || !planName) return;
+  const handleAssignPlan = async (email: string, planId: string) => {
+    if (!email || !planId) return;
     setPendingPlanEmail(email);
     setStatus({ type: 'idle', message: '' });
     try {
-      await apiHqAssignTenantPlan({ email, plan: { name: planName } });
-      setStatus({ type: 'success', message: `Plan for ${email} updated to ${planName}.` });
+      const pkg = planOptions.find((item) => item.id === planId);
+      await apiHqAssignTenantPlan({ email, plan: { id: planId } });
+      setStatus({
+        type: 'success',
+        message: `Plan for ${email} updated to ${pkg?.name || 'selected package'}.`,
+      });
       void refreshTenants();
     } catch (err: any) {
       setStatus({ type: 'error', message: err?.message || 'Failed to update plan' });
@@ -320,12 +357,13 @@ function HQSetupPage() {
         )}
 
         {activeTab === 'plans' && (
-          <PlansPanel
-            planOptions={planOptions}
+          <HqPackagesPanel
+            packages={planOptions}
             planSummaryRows={planSummaryRows}
             tenants={tenants}
             onAssignPlan={handleAssignPlan}
             pendingPlanEmail={pendingPlanEmail}
+            onPackagesChanged={refreshTenants}
           />
         )}
 
@@ -433,8 +471,8 @@ function TenantsPanel({
   tenants: HqTenantRow[];
   tenantsLoading: boolean;
   tenantsError: string;
-  planOptions: SubscriptionPlanOption[];
-  onAssignPlan: (email: string, planName: string) => void;
+  planOptions: HqSubscriptionPackage[];
+  onAssignPlan: (email: string, planId: string) => void;
   pendingPlanEmail: string;
   onDeleteTenant: (email: string, dbName: string) => void;
   pendingDeleteEmail: string;
@@ -470,14 +508,14 @@ function TenantsPanel({
                   <td className="py-3 pr-3 font-mono text-xs text-slate-500">{t.tenantDbName || '—'}</td>
                   <td className="py-3 pr-3">
                     <select
-                      value={t.subscriptionPlan?.name || ''}
+                      value={tenantPlanId(t, planOptions)}
                       onChange={(e) => onAssignPlan(t.email, e.target.value)}
                       disabled={pendingPlanEmail === t.email}
                       className={HQ_SELECT_CLASS}
                     >
                       <option value="">—</option>
                       {planOptions.map((opt) => (
-                        <option key={opt.id} value={opt.name}>
+                        <option key={opt.id} value={opt.id}>
                           {opt.name}
                         </option>
                       ))}
@@ -531,7 +569,7 @@ function ProvisionPanel({
   ) => void;
   onSubmit: (e: React.FormEvent) => void;
   isLoading: boolean;
-  planOptions: SubscriptionPlanOption[];
+  planOptions: HqSubscriptionPackage[];
 }) {
   return (
     <form onSubmit={onSubmit} className="max-w-2xl space-y-5">
@@ -620,7 +658,7 @@ function ProvisionPanel({
             );
           })}
         </div>
-        <p className="text-xs text-slate-400">Plan name is stored on the tenant — feature gating arrives later.</p>
+        <p className="text-xs text-slate-400">Package limits and enabled functions are stored on the tenant workspace.</p>
       </div>
 
       <HqPrimaryButton type="submit" disabled={isLoading} loading={isLoading} className="w-full">
@@ -630,77 +668,6 @@ function ProvisionPanel({
       </div>
       </HqPanel>
     </form>
-  );
-}
-
-function PlansPanel({
-  planOptions,
-  planSummaryRows,
-  tenants,
-  onAssignPlan,
-  pendingPlanEmail,
-}: {
-  planOptions: SubscriptionPlanOption[];
-  planSummaryRows: { name: string; count: number }[];
-  tenants: HqTenantRow[];
-  onAssignPlan: (email: string, planName: string) => void;
-  pendingPlanEmail: string;
-}) {
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        {planOptions.map((opt) => {
-          const count = planSummaryRows.find((r) => r.name === opt.name)?.count ?? 0;
-          return (
-            <HqPanel key={opt.id}>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Plan</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">{opt.name}</p>
-              <p className="mt-1 text-xs text-slate-500">
-                {count} tenant{count === 1 ? '' : 's'} on this plan
-              </p>
-            </HqPanel>
-          );
-        })}
-      </div>
-
-      <HqPanel>
-        <HqPanelTitle title="Send plan to a tenant" />
-        <p className="mb-4 text-sm text-slate-500">
-          Pick an existing tenant by email and assign a plan. The chosen plan will surface in their sidebar in place of
-          the “Free Trial” banner.
-        </p>
-        {tenants.length === 0 ? (
-          <p className="text-xs text-slate-500">No tenants yet.</p>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {tenants.map((t) => (
-              <div
-                key={t.id}
-                className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 p-3"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-slate-900">{t.name}</div>
-                  <div className="truncate text-xs text-slate-500">{t.email}</div>
-                </div>
-                <select
-                  value={t.subscriptionPlan?.name || ''}
-                  onChange={(e) => onAssignPlan(t.email, e.target.value)}
-                  disabled={pendingPlanEmail === t.email}
-                  className={HQ_SELECT_CLASS}
-                >
-                  <option value="">—</option>
-                  {planOptions.map((opt) => (
-                    <option key={opt.id} value={opt.name}>
-                      {opt.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
-          </div>
-        )}
-      </HqPanel>
-    </div>
   );
 }
 

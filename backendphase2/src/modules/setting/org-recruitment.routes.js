@@ -47,6 +47,10 @@ import {
   setClientPageFieldVisibility,
 } from './recruitmentMode.service.js';
 import { getOrCreateWorkspaceClient } from './workspace-client.service.js';
+import {
+  getEffectiveSubscriptionPlan,
+  getPlanUsageSnapshot,
+} from './planAccess.service.js';
 import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
 import { suggestIndustryOptions } from './industrySuggest.service.js';
 import { suggestLanguageOptions, suggestProficiencyOptions } from './languageSuggest.service.js';
@@ -60,13 +64,15 @@ router.use(authMiddleware);
 router.get('/recruitment-summary', async (req, res) => {
   try {
     const recruitmentMode = await getRecruitmentMode();
-    const subscriptionPlan = await getSubscriptionPlan();
+    const subscriptionPlan = await getEffectiveSubscriptionPlan();
+    const planUsage = await getPlanUsageSnapshot();
     const defaultCurrency = await getDefaultCurrency();
     const clientPageFieldVisibility = await getClientPageFieldVisibility();
     sendResponse(res, 200, 'OK', {
       recruitmentMode,
       billingEnabled: recruitmentMode !== 'standalone',
       subscriptionPlan,
+      planUsage,
       subscriptionPlanOptions: SUBSCRIPTION_PLAN_OPTIONS,
       defaultCurrency,
       supportedCurrencies: SUPPORTED_CURRENCIES,
@@ -230,9 +236,11 @@ router.post(
 
 router.get('/subscription-plan', async (req, res) => {
   try {
-    const plan = await getSubscriptionPlan();
+    const plan = await getEffectiveSubscriptionPlan();
+    const planUsage = await getPlanUsageSnapshot();
     sendResponse(res, 200, 'OK', {
       plan,
+      planUsage,
       options: SUBSCRIPTION_PLAN_OPTIONS,
     });
   } catch (error) {

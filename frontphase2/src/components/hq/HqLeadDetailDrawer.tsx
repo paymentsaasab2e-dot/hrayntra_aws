@@ -10,11 +10,10 @@ import {
   HQ_LEAD_FOLLOW_UP_TYPES,
   HQ_LEAD_INDUSTRY_OPTIONS,
   HQ_LEAD_MODULE_OPTIONS,
-  HQ_LEAD_SOURCE_OPTIONS,
   HQ_LEAD_STAGE_LABELS,
   HQ_LEAD_STAGE_STYLES,
   HQ_LEAD_TABS,
-  defaultNextFollowUpLocal,
+  formatHqLeadSourceDisplay,
   formatNextFollowUpDisplay,
   toDatetimeLocalValue,
   type HqLeadDrawerTab,
@@ -22,6 +21,7 @@ import {
   type HqLeadScore,
   type HqLeadStage,
 } from '@/app/hq/leads/hqLeadsData';
+import { HqLeadSourceFields, validateHqLeadSourceFields } from './HqLeadSourceFields';
 
 const DRAWER_TABS: { id: HqLeadDrawerTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'details', label: 'Details', icon: LayoutGrid },
@@ -38,8 +38,8 @@ export type EditHqLeadFormValues = {
   country: string;
   expectedUsers: string;
   estimatedDealValue: string;
-  leadOwner: string;
   leadSource: string;
+  leadSourceDetail: string;
   nextFollowUpAt: string;
   interestedModules: string[];
   initialNotes: string;
@@ -62,10 +62,9 @@ function leadToFormValues(lead: HqLeadRow): EditHqLeadFormValues {
     country: lead.country || '',
     expectedUsers: String(lead.users ?? ''),
     estimatedDealValue: String(lead.estimatedDealValue ?? ''),
-    leadOwner: lead.owner,
     leadSource: lead.leadSource || '',
-    nextFollowUpAt:
-      toDatetimeLocalValue(lead.nextFollowUpAt) || defaultNextFollowUpLocal(),
+    leadSourceDetail: lead.leadSourceDetail || '',
+    nextFollowUpAt: toDatetimeLocalValue(lead.nextFollowUpAt),
     interestedModules: [...(lead.interestedModules ?? [])],
     initialNotes: lead.initialNotes || '',
     stage: lead.stage,
@@ -330,12 +329,13 @@ export function HqLeadDetailDrawer({
       setError('Please fill in all required fields.');
       return;
     }
-    if (!form.leadOwner.trim() || !form.leadSource) {
-      setError('Lead owner and lead source are required.');
+    if (!form.leadSource) {
+      setError('Lead source is required.');
       return;
     }
-    if (!form.nextFollowUpAt.trim()) {
-      setError('Next follow-up date and time is required.');
+    const sourceError = validateHqLeadSourceFields(form.leadSource, form.leadSourceDetail);
+    if (sourceError) {
+      setError(sourceError);
       return;
     }
     if (form.interestedModules.length === 0) {
@@ -578,38 +578,21 @@ export function HqLeadDetailDrawer({
                   />
                 )}
               </div>
-              <div>
-                <FieldLabel required={isEditing}>Lead Owner</FieldLabel>
+              <div className="sm:col-span-2">
                 {isEditing ? (
-                  <input
-                    className={INPUT_CLASS}
-                    value={form.leadOwner}
-                    onChange={(e) => setForm({ ...form, leadOwner: e.target.value })}
+                  <HqLeadSourceFields
+                    leadSource={form.leadSource}
+                    leadSourceDetail={form.leadSourceDetail}
+                    onChange={(patch) => setForm({ ...form, ...patch })}
+                    required
                   />
                 ) : (
-                  <DetailValue value={lead.owner} />
-                )}
-              </div>
-              <div>
-                <FieldLabel required={isEditing}>Lead Source</FieldLabel>
-                {isEditing ? (
-                  <div className="relative">
-                    <select
-                      className={`${INPUT_CLASS} appearance-none pr-10`}
-                      value={form.leadSource}
-                      onChange={(e) => setForm({ ...form, leadSource: e.target.value })}
-                    >
-                      <option value="">Select source</option>
-                      {HQ_LEAD_SOURCE_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  </div>
-                ) : (
-                  <DetailValue value={lead.leadSource} />
+                  <>
+                    <FieldLabel>Lead Source</FieldLabel>
+                    <DetailValue
+                      value={formatHqLeadSourceDisplay(lead.leadSource, lead.leadSourceDetail)}
+                    />
+                  </>
                 )}
               </div>
               <div>
@@ -636,7 +619,7 @@ export function HqLeadDetailDrawer({
                 )}
               </div>
               <div className="sm:col-span-2">
-                <FieldLabel required={isEditing}>Next Follow-up (Date & Time)</FieldLabel>
+                <FieldLabel>Next Follow-up (Date & Time)</FieldLabel>
                 {isEditing ? (
                   <input
                     type="datetime-local"

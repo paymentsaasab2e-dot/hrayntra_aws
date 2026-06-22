@@ -23,6 +23,7 @@ import {
   NOTIFICATIONS_UPDATED_EVENT,
   isOrgBillingNavEnabled,
   getCachedOrgSubscriptionPlanName,
+  getCachedOrgPlanUsage,
   getCachedOrgRecruitmentMode,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../lib/api';
@@ -528,6 +529,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [navSearch, setNavSearch] = useState('');
   const [billingNavEnabled, setBillingNavEnabled] = useState(true);
   const [orgPlanName, setOrgPlanName] = useState<string>('');
+  const [orgPlanUsage, setOrgPlanUsage] = useState<ReturnType<typeof getCachedOrgPlanUsage>>(null);
   const [recruitmentMode, setRecruitmentMode] = useState<'agency' | 'standalone'>('agency');
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -551,6 +553,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     const sync = () => {
       setBillingNavEnabled(isOrgBillingNavEnabled());
       setOrgPlanName(getCachedOrgSubscriptionPlanName());
+      setOrgPlanUsage(getCachedOrgPlanUsage());
       setRecruitmentMode(getCachedOrgRecruitmentMode());
     };
     sync();
@@ -1266,6 +1269,17 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                   <span className="text-[10px] text-sky-400/70">Live</span>
                 </div>
                 <div className="text-sm font-bold text-sky-300 truncate">{orgPlanName}</div>
+                {orgPlanUsage ? (
+                  <div className="mt-1 text-[10px] text-sky-300/80">
+                    {orgPlanUsage.maxUsers == null
+                      ? `${orgPlanUsage.activeUsers} users`
+                      : `${orgPlanUsage.activeUsers}/${orgPlanUsage.maxUsers} users`}
+                    {' · '}
+                    {orgPlanUsage.maxJobs == null
+                      ? `${orgPlanUsage.activeJobs} jobs`
+                      : `${orgPlanUsage.activeJobs}/${orgPlanUsage.maxJobs} jobs`}
+                  </div>
+                ) : null}
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden mt-2">
                   <div className="h-full bg-gradient-to-r from-sky-500 to-indigo-400 w-full rounded-full" />
                 </div>

@@ -187,16 +187,27 @@ export async function getSubscriptionPlan() {
   const row = await findOrgSettingRow(KEY_SUBSCRIPTION_PLAN);
   const v = row?.value;
   if (v && typeof v === 'object' && typeof v.name === 'string' && v.name.trim()) {
-    return { name: normalizeSubscriptionPlanName(v.name) };
+    return {
+      id: v.id ? String(v.id) : null,
+      name: String(v.name).trim(),
+      maxUsers: v.maxUsers ?? null,
+      maxJobs: v.maxJobs ?? null,
+    };
   }
   return null;
 }
 
 export async function setSubscriptionPlan(plan) {
-  const name = normalizeSubscriptionPlanName(plan?.name ?? plan);
+  const name = String(plan?.name ?? plan ?? '').trim();
   if (!name) throw new Error('Plan name is required');
-  await upsertOrgSettingJson(KEY_SUBSCRIPTION_PLAN, { name });
-  return { name };
+  const payload = {
+    ...(plan?.id ? { id: String(plan.id) } : {}),
+    name,
+    maxUsers: plan?.maxUsers ?? null,
+    maxJobs: plan?.maxJobs ?? null,
+  };
+  await upsertOrgSettingJson(KEY_SUBSCRIPTION_PLAN, payload);
+  return payload;
 }
 
 export async function getDefaultCurrency() {

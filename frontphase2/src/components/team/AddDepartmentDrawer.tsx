@@ -1,12 +1,20 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { Building2, Shield, Users, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { createDepartment, updateDepartment, getRoles, getAllPermissions } from '../../lib/api/teamApi';
 import type { Department, Permission, Role } from '../../types/team';
 import { PortalHost } from './PortalHost';
+import {
+  DrawerFieldLabel,
+  DrawerSectionCard,
+  DRAWER_FORM_FOOTER_CLASS,
+  DRAWER_FORM_HEADER_CLASS,
+  DRAWER_FORM_INPUT,
+  DRAWER_FORM_SCROLL_BG,
+} from '../drawers/drawerFormUi';
 import {
   DepartmentRolesEditor,
   departmentRoleDraftsToPayload,
@@ -173,8 +181,18 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
           >
             <div className="w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5">
               <form onSubmit={handleSubmit} className="flex max-h-[calc(100vh-2rem)] flex-col">
-                <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
-                  <h2 className="text-lg font-bold text-slate-900">{isEditMode ? 'Modify Department' : 'Add Department'}</h2>
+                <div className={DRAWER_FORM_HEADER_CLASS}>
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
+                      <Building2 size={20} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                        {isEditMode ? 'Modify Department' : 'Add Department'}
+                      </h2>
+                      <p className="mt-0.5 text-xs text-slate-500">Configure department details and roles</p>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={handleClose}
@@ -184,85 +202,106 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6">
-                  <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:items-start">
-                    <div className="space-y-6">
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-700">Department Name *</label>
-                        <input
-                          type="text"
-                          value={formData.name}
-                          onChange={(e) => handleChange('name', e.target.value)}
-                          className={`w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${
-                            errors.name ? 'border-red-300' : 'border-slate-200'
-                          }`}
-                          placeholder="e.g. Sales, Engineering"
-                        />
-                        {errors.name && <p className="text-xs text-red-600">{errors.name}</p>}
-                      </div>
+                <div className={`flex-1 overflow-y-auto px-6 py-6 ${DRAWER_FORM_SCROLL_BG}`}>
+                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
+                    <div className="space-y-5">
+                      <DrawerSectionCard
+                        title="Department Details"
+                        subtitle="Name, description, and cross-dept access"
+                        icon={Building2}
+                        accent="blue"
+                      >
+                        <div className="space-y-4">
+                          <div>
+                            <DrawerFieldLabel label="Department Name" required />
+                            <input
+                              type="text"
+                              value={formData.name}
+                              onChange={(e) => handleChange('name', e.target.value)}
+                              className={`${DRAWER_FORM_INPUT} ${errors.name ? 'border-red-300' : ''}`}
+                              placeholder="e.g. Sales, Engineering"
+                            />
+                            {errors.name && <p className="text-xs text-red-600">{errors.name}</p>}
+                          </div>
 
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-700">Description</label>
-                        <textarea
-                          value={formData.description}
-                          onChange={(e) => handleChange('description', e.target.value)}
-                          rows={3}
-                          className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                          placeholder="Brief description of this department"
-                        />
-                      </div>
+                          <div>
+                            <DrawerFieldLabel label="Description" />
+                            <textarea
+                              value={formData.description}
+                              onChange={(e) => handleChange('description', e.target.value)}
+                              rows={3}
+                              className={`${DRAWER_FORM_INPUT} resize-none`}
+                              placeholder="Brief description of this department"
+                            />
+                          </div>
 
-                      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(formData.allowsCrossDepartmentRequests)}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              allowsCrossDepartmentRequests: e.target.checked,
-                            }))
-                          }
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span>
-                          <span className="block text-sm font-semibold text-slate-900">
-                            Allow cross-department requests
-                          </span>
-                          <span className="mt-0.5 block text-xs text-slate-600">
-                            Other department heads can send work requests to this department.
-                          </span>
-                        </span>
-                      </label>
+                          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(formData.allowsCrossDepartmentRequests)}
+                              onChange={(e) =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  allowsCrossDepartmentRequests: e.target.checked,
+                                }))
+                              }
+                              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span>
+                              <span className="block text-sm font-semibold text-slate-900">
+                                Allow cross-department requests
+                              </span>
+                              <span className="mt-0.5 block text-xs text-slate-600">
+                                Other department heads can send work requests to this department.
+                              </span>
+                            </span>
+                          </label>
+                        </div>
+                      </DrawerSectionCard>
 
-                      <div className={loadingRoles ? 'pointer-events-none opacity-60' : ''}>
+                      <DrawerSectionCard
+                        title="Department Roles"
+                        subtitle="Define roles and rank for this department"
+                        icon={Users}
+                        accent="violet"
+                      >
+                        <div className={loadingRoles ? 'pointer-events-none opacity-60' : ''}>
+                          <DepartmentRolesEditor
+                            panel="list"
+                            value={roleDrafts}
+                            onChange={setRoleDrafts}
+                            predefinedRoles={predefinedRoles}
+                            permissions={permissions}
+                            error={errors.roles}
+                            activeKey={activeRoleKey}
+                            onActiveKeyChange={setActiveRoleKey}
+                          />
+                        </div>
+                      </DrawerSectionCard>
+                    </div>
+
+                    <div className={`lg:sticky lg:top-0 ${loadingRoles ? 'pointer-events-none opacity-60' : ''}`}>
+                      <DrawerSectionCard
+                        title="Role Permissions"
+                        subtitle="Assign module access for the selected role"
+                        icon={Shield}
+                        accent="indigo"
+                      >
                         <DepartmentRolesEditor
-                          panel="list"
+                          panel="permissions"
                           value={roleDrafts}
                           onChange={setRoleDrafts}
                           predefinedRoles={predefinedRoles}
                           permissions={permissions}
-                          error={errors.roles}
                           activeKey={activeRoleKey}
                           onActiveKeyChange={setActiveRoleKey}
                         />
-                      </div>
-                    </div>
-
-                    <div className={`lg:sticky lg:top-0 ${loadingRoles ? 'pointer-events-none opacity-60' : ''}`}>
-                      <DepartmentRolesEditor
-                        panel="permissions"
-                        value={roleDrafts}
-                        onChange={setRoleDrafts}
-                        predefinedRoles={predefinedRoles}
-                        permissions={permissions}
-                        activeKey={activeRoleKey}
-                        onActiveKeyChange={setActiveRoleKey}
-                      />
+                      </DrawerSectionCard>
                     </div>
                   </div>
                 </div>
 
-                <div className="border-t border-slate-200 bg-slate-50/70 px-6 py-4">
+                <div className={DRAWER_FORM_FOOTER_CLASS}>
                   <div className="flex items-center justify-end gap-3">
                     <button
                       type="button"

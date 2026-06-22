@@ -360,8 +360,15 @@ function normalizeSubscriptionPlanForHq(value) {
     return s ? { name: s } : null;
   }
   if (typeof value === 'object') {
-    const name = String(value.name || value.id || '').trim();
-    return name ? { name } : null;
+    const name = String(value.name || '').trim();
+    const id = String(value.id || '').trim();
+    if (!name && !id) return null;
+    return {
+      ...(id ? { id } : {}),
+      name: name || id,
+      maxUsers: value.maxUsers === undefined ? null : value.maxUsers,
+      maxJobs: value.maxJobs === undefined ? null : value.maxJobs,
+    };
   }
   return null;
 }

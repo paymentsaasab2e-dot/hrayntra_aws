@@ -1519,3 +1519,29 @@ model GlobalAiInterviewMessage {
   @@map("global_ai_interview_messages")
 }
 
+// ============================================================
+// EMPLOYER DEMO REQUESTS (marketing site)
+// ============================================================
+
+model EmployerDemoRequest {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  email            String
+  otp              String?
+  otpStatus        OtpStatus @default(PENDING)
+  otpExpiresAt     DateTime?
+  emailVerifiedAt  DateTime?
+  fullName         String
+  countryCode      String
+  dialCode         String
+  phoneNumber      String
+  companySize      String
+  organizationName String
+  outcome          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([email])
+  @@index([otpStatus])
+  @@map("employer_demo_requests")
+}
+
