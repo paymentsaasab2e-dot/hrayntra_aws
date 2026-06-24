@@ -109,6 +109,7 @@ import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
+import { DrawerSectionCard, DRAWER_FORM_SCROLL_BG } from './drawerFormUi';
 
 /** Render salary as `currency min - max` (or single number when only one bound). */
 function formatJobSalaryRange(job: {
@@ -596,18 +597,23 @@ function JobDrawerAiMatchesTab({
   onOpenSubmit,
 }: JobDrawerAiMatchesTabProps) {
   return (
-    <div className="overflow-hidden rounded-xl border border-indigo-100/60 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <DrawerSectionCard
+      title="AI Matches"
+      subtitle={`4-pass AI pipeline for ${job.title}`}
+      icon={Sparkles}
+      accent="violet"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-950/80">AI Matches</h4>
-          <p className="mt-0.5 text-xs text-slate-500">
-            4-pass AI pipeline for <span className="font-semibold text-slate-700">{job.title}</span>
-          </p>
           {aiMatchCandidates.length > 0 ? (
-            <p className="mt-1 text-[11px] font-medium text-indigo-700/80">
+            <p className="text-[11px] font-medium text-indigo-700/80">
               {AI_SCORE_TIERS.map((t) => `${t.label}: ${aiTierStats[t.id]}`).join(' · ')}
             </p>
-          ) : null}
+          ) : (
+            <p className="text-xs text-slate-500">
+              Open this tab to run AI matching, or click Run AI Matches to refresh scores.
+            </p>
+          )}
         </div>
         <button
           type="button"
@@ -622,25 +628,23 @@ function JobDrawerAiMatchesTab({
       </div>
 
       {aiMatchesError ? (
-        <div className="mx-4 my-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {aiMatchesError}
         </div>
       ) : null}
 
       {aiMatchesLoading || aiPipelineRunning ? (
-        <div className="flex items-center justify-center gap-2 px-4 py-12 text-sm text-slate-500">
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
           <Loader2 className="size-5 animate-spin text-indigo-600" />
           {aiPipelineRunning ? 'Running AI matching pipeline…' : 'Loading matches…'}
         </div>
       ) : sortedAiMatchCandidates.length === 0 ? (
-        <div className="px-4 py-12 text-center">
+        <div className="py-12 text-center">
           <Sparkles size={32} className="mx-auto mb-3 text-indigo-200" />
-          <p className="text-sm text-slate-500">
-            Open this tab to run AI matching, or click Run AI Matches to refresh scores.
-          </p>
+          <p className="text-sm text-slate-500">No AI matches yet. Run the pipeline to score candidates.</p>
         </div>
       ) : (
-        <div className="no-scrollbar overflow-x-auto px-2 pb-3 pt-1 sm:px-3">
+        <div className="no-scrollbar -mx-1 overflow-x-auto">
           <MatchCandidateTable
             candidates={sortedAiMatchCandidates}
             activeView="internal"
@@ -664,7 +668,7 @@ function JobDrawerAiMatchesTab({
           />
         </div>
       )}
-    </div>
+    </DrawerSectionCard>
   );
 }
 
@@ -1559,7 +1563,8 @@ export function JobDetailsDrawer({
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
+            <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`}>
+              <div className="space-y-5 p-5">
               {activeTab === 'overview' && job && (
                 <JobOverviewTabContent job={job} />
               )}
@@ -1569,16 +1574,15 @@ export function JobDetailsDrawer({
               )}
 
               {activeTab === 'candidates' && (
-                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Candidates</h4>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        Applied, assigned, or in this job&apos;s pipeline only — scores from AI Applied Matches
-                      </p>
-                  </div>
-                                    <button
-                                      type="button"
+                <DrawerSectionCard
+                  title="Candidates"
+                  subtitle="Applied, assigned, or in this job's pipeline — scores from AI Applied Matches"
+                  icon={Users}
+                  accent="blue"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                    <button
+                      type="button"
                       onClick={() => void handleRunAppliedMatches()}
                       disabled={!job?.id || appliedPipelineRunning || appliedCandidatesLoading}
                       className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1590,8 +1594,8 @@ export function JobDetailsDrawer({
                         strokeWidth={2.25}
                       />
                       {appliedPipelineRunning ? 'Running applied matches…' : 'Run AI Applied Matches'}
-                                    </button>
-                                  </div>
+                    </button>
+                  </div>
                   {appliedCandidatesLoading || appliedPipelineRunning ? (
                     <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500">
                       <Loader2 size={18} className="animate-spin text-emerald-600" />
@@ -1648,7 +1652,7 @@ export function JobDetailsDrawer({
                       />
                     </div>
                   )}
-                </div>
+                </DrawerSectionCard>
               )}
               {activeTab === 'ai-matches' && (
                 <JobDrawerAiMatchesTab
@@ -1728,33 +1732,44 @@ export function JobDetailsDrawer({
               )}
 
               {activeTab === 'pipeline' && (
-                <div className="space-y-4">
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Stage counts</h4>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                <div className="space-y-5">
+                  <DrawerSectionCard
+                    title="Stage Counts"
+                    subtitle="Candidates per pipeline stage"
+                    icon={GitBranch}
+                    accent="emerald"
+                  >
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
                       {pipelineStageCountCards.map((stage) => (
-                        <div key={stage.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase truncate" title={stage.name}>
+                        <div key={stage.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
+                          <p className="truncate text-[10px] font-bold uppercase text-slate-400" title={stage.name}>
                             {stage.name}
                           </p>
-                          <p className="text-xl font-bold text-slate-900 mt-1">{stage.count}</p>
+                          <p className="mt-1 text-xl font-bold text-slate-900">{stage.count}</p>
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </DrawerSectionCard>
 
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-100">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pipeline configuration</h4>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {pipelineConfigLocked
-                              ? 'This job uses your organization default pipeline from Settings. Use “Customize pipeline” to define stages for this job only.'
-                              : 'Custom hiring pipeline for this job. Drag to reorder, add or remove stages.'}
-                          </p>
-                          <p className="text-[11px] text-amber-600 mt-1">Note: SLA values are currently display-only and are not persisted yet.</p>
-                        </div>
+                  <DrawerSectionCard
+                    title="Pipeline Configuration"
+                    subtitle={
+                      pipelineConfigLocked
+                        ? 'Organization default pipeline from Settings'
+                        : 'Custom hiring pipeline for this job'
+                    }
+                    icon={GitBranch}
+                    accent="indigo"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-slate-500">
+                          {pipelineConfigLocked
+                            ? 'Use “Customize pipeline” to define stages for this job only.'
+                            : 'Drag to reorder, add or remove stages.'}
+                        </p>
+                        <p className="mt-1 text-[11px] text-amber-600">Note: SLA values are currently display-only and are not persisted yet.</p>
+                      </div>
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
                           {job?.id && (
                             <button
@@ -1855,8 +1870,7 @@ export function JobDetailsDrawer({
                       {pipelineValidationError ? (
                         <p className="mt-3 text-xs font-medium text-red-600">{pipelineValidationError}</p>
                       ) : null}
-                    </div>
-                    <div className="divide-y divide-slate-100">
+                    <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
                       {pipelineStages.length === 0 ? (
                         <div className="px-4 py-8 text-center text-sm text-slate-500">
                           No stages yet. Click &quot;+ Add stage&quot; to build your pipeline, then &quot;Save pipeline&quot; when done.
@@ -1955,18 +1969,17 @@ export function JobDetailsDrawer({
                         ))
                       )}
                     </div>
-                  </div>
+                  </DrawerSectionCard>
                 </div>
               )}
               {activeTab === 'analytics' && (
-                <div className="space-y-4">
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Job analytics</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">A stats dashboard for job performance. Helps recruiters measure hiring effectiveness.</p>
-                    </div>
-                    <div className="p-5">
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <DrawerSectionCard
+                  title="Job Analytics"
+                  subtitle="Stats dashboard for job performance and hiring effectiveness"
+                  icon={BarChart2}
+                  accent="amber"
+                >
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                         <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-center">
                           <p className="text-[10px] font-bold text-slate-400 uppercase">Applications received</p>
                           <p className="text-xl font-bold text-slate-900 mt-1">{job.applied}</p>
@@ -1996,18 +2009,16 @@ export function JobDetailsDrawer({
                           <p className="text-xl font-bold text-slate-900 mt-1">—</p>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                </div>
+                </DrawerSectionCard>
               )}
               {activeTab === 'assignment' && (
-                <div className="space-y-4">
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Job assignment</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Assign recruiters responsible for this job. Define ownership and accountability.</p>
-                    </div>
-                    <div className="p-5 space-y-4">
+                <DrawerSectionCard
+                  title="Job Assignment"
+                  subtitle="Recruiters and hiring manager ownership"
+                  icon={UserCog}
+                  accent="sky"
+                >
+                    <div className="space-y-4">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Lead recruiter</label>
                         <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900">
@@ -2035,17 +2046,16 @@ export function JobDetailsDrawer({
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                </DrawerSectionCard>
               )}
               {activeTab === 'interviews' && (
-                <div className="space-y-4">
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Interviews</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Scheduled and completed interviews for this job</p>
-                    </div>
-                    <div className="divide-y divide-slate-100">
+                <DrawerSectionCard
+                  title="Interviews"
+                  subtitle="Scheduled and completed interviews for this job"
+                  icon={Calendar}
+                  accent="amber"
+                >
+                    <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
                       {loadingJobInterviews ? (
                         <div className="flex items-center justify-center gap-2 p-8 text-sm text-slate-500">
                           <Loader2 size={18} className="animate-spin text-indigo-500" />
@@ -2086,16 +2096,15 @@ export function JobDetailsDrawer({
                         })
                       )}
                     </div>
-                  </div>
-                </div>
+                </DrawerSectionCard>
               )}
               {activeTab === 'placements' && (
-                <div className="space-y-4">
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Placements</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Successful hires for this job</p>
-                    </div>
+                <DrawerSectionCard
+                  title="Placements"
+                  subtitle="Successful hires for this job"
+                  icon={UserCheck}
+                  accent="emerald"
+                >
                     {loadingJobPlacements ? (
                       <div className="flex items-center justify-center gap-2 p-8 text-sm text-slate-500">
                         <Loader2 size={18} className="animate-spin text-indigo-500" />
@@ -2107,7 +2116,7 @@ export function JobDetailsDrawer({
                         <p className="text-sm text-slate-500">No placements yet for this job.</p>
                       </div>
                     ) : (
-                      <div className="divide-y divide-slate-100">
+                      <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
                         {jobPlacements.map((placement) => {
                           const joinedDate =
                             placement.actualJoiningDate ||
@@ -2139,8 +2148,7 @@ export function JobDetailsDrawer({
                         })}
                       </div>
                     )}
-                  </div>
-                </div>
+                </DrawerSectionCard>
               )}
               {activeTab === 'activity' && (() => {
                 const ACTIVITY_TIMELINE_FILTERS: Array<'All' | 'Jobs' | 'Candidates' | 'Interviews' | 'Notes' | 'Files'> = ['All', 'Jobs', 'Candidates', 'Interviews', 'Notes', 'Files'];
@@ -2167,32 +2175,36 @@ export function JobDetailsDrawer({
                 };
                 
                 return (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <EntityAuditSummary
                       audit={job?.auditMeta ?? extractAuditMeta(job as Record<string, unknown> | undefined)}
                     />
-                    {/* Timeline filters */}
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                    <DrawerSectionCard
+                      title="Activity Filters"
+                      subtitle="Filter timeline by category"
+                      icon={Activity}
+                      accent="indigo"
+                    >
                       <div className="flex flex-wrap items-center gap-2">
                         {ACTIVITY_TIMELINE_FILTERS.map((f) => (
                           <button
                             key={f}
                             type="button"
                             onClick={() => setActivityFilter(f)}
-                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activityFilter === f ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${activityFilter === f ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                           >
                             {f}
                           </button>
                         ))}
                       </div>
-                    </div>
-                    {/* Vertical timeline */}
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Activity timeline</h4>
-                        <p className="text-xs text-slate-500">{sortedActivities.length} events</p>
-                      </div>
-                      <div className="p-4 max-h-[420px] overflow-y-auto">
+                    </DrawerSectionCard>
+                    <DrawerSectionCard
+                      title="Activity Timeline"
+                      subtitle={`${sortedActivities.length} events`}
+                      icon={Activity}
+                      accent="blue"
+                    >
+                      <div className="max-h-[420px] overflow-y-auto">
                         {loadingActivities ? (
                           <div className="py-8 text-center">
                             <p className="text-sm text-slate-500">Loading activities...</p>
@@ -2264,26 +2276,33 @@ export function JobDetailsDrawer({
                           </div>
                         )}
                       </div>
-                    </div>
+                    </DrawerSectionCard>
                   </div>
                 );
               })()}
               {activeTab === 'notes' ? (
                 job?.id ? (
-                  <NotesService
-                    entityType="job"
-                    entityId={job.id}
-                    availableTags={['Calls', 'WhatsApp', 'Emails']}
-                    onNoteCreated={() => {
-                      // Optionally refresh job data or show notification
-                    }}
-                    onNoteUpdated={() => {
-                      // Optionally refresh job data or show notification
-                    }}
-                    onNoteDeleted={() => {
-                      // Optionally refresh job data or show notification
-                    }}
-                  />
+                  <DrawerSectionCard
+                    title="Notes"
+                    subtitle="Calls, WhatsApp, and email notes for this job"
+                    icon={StickyNote}
+                    accent="rose"
+                  >
+                    <NotesService
+                      entityType="job"
+                      entityId={job.id}
+                      availableTags={['Calls', 'WhatsApp', 'Emails']}
+                      onNoteCreated={() => {
+                        // Optionally refresh job data or show notification
+                      }}
+                      onNoteUpdated={() => {
+                        // Optionally refresh job data or show notification
+                      }}
+                      onNoteDeleted={() => {
+                        // Optionally refresh job data or show notification
+                      }}
+                    />
+                  </DrawerSectionCard>
                 ) : (
                   <div className="py-8 text-center text-sm text-slate-500">
                     No job selected
@@ -2316,40 +2335,38 @@ export function JobDetailsDrawer({
                   }
                 };
                 return (
-                  <div className="space-y-4">
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <DocumentUploadButton
-                          disabled={!job?.id}
-                          isUploading={filesUploading}
-                          uploadSuccess={filesUploadSuccess}
-                          uploadPercent={filesUploadPercent}
-                          label="Upload File"
-                          onFilesSelected={async (files) => {
-                            await uploadFile(files[0], 'JD');
-                          }}
-                        />
-                        <div className="flex flex-wrap items-center gap-2">
-                          {JOB_FILE_TYPE_OPTIONS.map((type) => (
-                            <button
-                              key={type}
-                              type="button"
-                              onClick={() => setFilesTypeFilter(type)}
-                              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors shrink-0 ${filesTypeFilter === type ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                            >
-                              {type}
-                            </button>
-                          ))}
-                        </div>
+                  <DrawerSectionCard
+                    title="Files"
+                    subtitle={`${filesLoading ? 'Loading…' : `${filteredFiles.length} files`}`}
+                    icon={Paperclip}
+                    accent="indigo"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <DocumentUploadButton
+                        disabled={!job?.id}
+                        isUploading={filesUploading}
+                        uploadSuccess={filesUploadSuccess}
+                        uploadPercent={filesUploadPercent}
+                        label="Upload File"
+                        onFilesSelected={async (files) => {
+                          await uploadFile(files[0], 'JD');
+                        }}
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        {JOB_FILE_TYPE_OPTIONS.map((type) => (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => setFilesTypeFilter(type)}
+                            className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${filesTypeFilter === type ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >
+                            {type}
+                          </button>
+                        ))}
                       </div>
-                      {filesError && <p className="mt-2 text-sm text-red-600">{filesError}</p>}
                     </div>
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Files</h4>
-                        <p className="text-xs text-slate-500">{filesLoading ? 'Loading…' : `${filteredFiles.length} files`}</p>
-                      </div>
-                      <div className="overflow-x-auto custom-scrollbar">
+                    {filesError && <p className="text-sm text-red-600">{filesError}</p>}
+                    <div className="overflow-x-auto custom-scrollbar rounded-xl border border-slate-200">
                         <table className="w-full text-left border-collapse min-w-[640px]">
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-200">
@@ -2409,19 +2426,26 @@ export function JobDetailsDrawer({
                           </tbody>
                         </table>
                       </div>
-                    </div>
-                  </div>
+                  </DrawerSectionCard>
                 );
               })()}
               {activeTab === 'chat' && job ? (
-                <DrawerEntityChatTab
-                  entityType="JOB"
-                  entityId={job.id}
-                  entityLabel={job.title}
-                  isActive={activeTab === 'chat'}
-                  isOpen={isOpen}
-                />
+                <DrawerSectionCard
+                  title="Chat"
+                  subtitle={`Messages for ${job.title}`}
+                  icon={MessageSquare}
+                  accent="blue"
+                >
+                  <DrawerEntityChatTab
+                    entityType="JOB"
+                    entityId={job.id}
+                    entityLabel={job.title}
+                    isActive={activeTab === 'chat'}
+                    isOpen={isOpen}
+                  />
+                </DrawerSectionCard>
               ) : null}
+              </div>
             </div>
 
             {/* Footer */}

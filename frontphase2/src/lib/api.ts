@@ -678,9 +678,17 @@ export interface HqSubscriptionPackage {
   id: string;
   slug: string;
   name: string;
+  displayName?: string;
   description: string;
+  price?: string;
+  yearlyPrice?: string;
+  pricePeriod?: string;
+  features?: string[];
+  isPopular?: boolean;
   maxUsers: number | null;
   maxJobs: number | null;
+  annualMaxUsers?: number | null;
+  annualMaxJobs?: number | null;
   isSystem: boolean;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -691,6 +699,7 @@ export type SubscriptionPlanOption = HqSubscriptionPackage;
 export interface HqTenantSubscriptionPlan {
   id?: string;
   name: string;
+  billingCycle?: 'monthly' | 'annual';
   maxUsers?: number | null;
   maxJobs?: number | null;
 }
@@ -940,7 +949,8 @@ export async function apiHqProvisionTenant(body: {
   loginId: string;
   password: string;
   organizationType?: 'agency' | 'standalone';
-  plan?: { name: string };
+  billingCycle?: 'monthly' | 'annual';
+  plan?: { id?: string; name?: string; billingCycle?: 'monthly' | 'annual' };
 }) {
   return apiFetch<{
     tenantDbName?: string;
@@ -973,9 +983,17 @@ export async function apiHqListPackages() {
 
 export async function apiHqCreatePackage(body: {
   name: string;
+  displayName?: string;
   description?: string;
+  price?: string;
+  yearlyPrice?: string;
+  pricePeriod?: string;
+  features?: string[];
+  isPopular?: boolean;
   maxUsers?: number | null;
   maxJobs?: number | null;
+  annualMaxUsers?: number | null;
+  annualMaxJobs?: number | null;
 }) {
   return apiFetch<{ package: HqSubscriptionPackage }>('/hq/packages', {
     method: 'POST',
@@ -988,9 +1006,17 @@ export async function apiHqUpdatePackage(
   packageId: string,
   body: {
     name?: string;
+    displayName?: string;
     description?: string;
+    price?: string;
+    yearlyPrice?: string;
+    pricePeriod?: string;
+    features?: string[];
+    isPopular?: boolean;
     maxUsers?: number | null;
     maxJobs?: number | null;
+    annualMaxUsers?: number | null;
+    annualMaxJobs?: number | null;
   }
 ) {
   return apiFetch<{ package: HqSubscriptionPackage }>(`/hq/packages/${encodeURIComponent(packageId)}`, {
@@ -1440,7 +1466,8 @@ export async function apiHqListPortal() {
 
 export async function apiHqAssignTenantPlan(body: {
   email: string;
-  plan: { id?: string; name?: string };
+  billingCycle?: 'monthly' | 'annual';
+  plan: { id?: string; name?: string; billingCycle?: 'monthly' | 'annual' };
 }) {
   return apiFetch<{ email: string; subscriptionPlan: HqTenantSubscriptionPlan | null }>(
     '/hq/tenants/plan',

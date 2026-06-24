@@ -190,6 +190,7 @@ export async function getSubscriptionPlan() {
     return {
       id: v.id ? String(v.id) : null,
       name: String(v.name).trim(),
+      billingCycle: String(v.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
       maxUsers: v.maxUsers ?? null,
       maxJobs: v.maxJobs ?? null,
     };
@@ -203,6 +204,7 @@ export async function setSubscriptionPlan(plan) {
   const payload = {
     ...(plan?.id ? { id: String(plan.id) } : {}),
     name,
+    billingCycle: String(plan?.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
     maxUsers: plan?.maxUsers ?? null,
     maxJobs: plan?.maxJobs ?? null,
   };

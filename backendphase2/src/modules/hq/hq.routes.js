@@ -12,6 +12,7 @@ router.post('/provision-tenant', authMiddleware, hqController.provisionTenant);
 router.get('/tenants', authMiddleware, hqController.listTenants);
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 
+router.get('/packages/public', hqController.listPublicPackages);
 router.get('/packages', authMiddleware, hqController.listPackages);
 router.post('/packages', authMiddleware, hqController.createPackage);
 router.put('/packages/:id', authMiddleware, hqController.updatePackage);

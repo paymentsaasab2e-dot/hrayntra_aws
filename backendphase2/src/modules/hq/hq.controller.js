@@ -272,6 +272,15 @@ export const hqController = {
     }
   },
 
+  async listPublicPackages(req, res) {
+    try {
+      const result = await hqService.listPublicPackages();
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async createPackage(req, res) {
     try {
       const result = await hqService.createPackage(req.body, req.user);

@@ -14,14 +14,14 @@ import { hqPortalService } from './hq-portal.service.js';
 import { hqDemosService } from './hq-demos.service.js';
 import { hqPackagesService } from './hq-packages.service.js';
 
-async function resolvePlanInput(raw) {
-  const plan = await hqPackagesService.resolvePlanInput(raw);
+async function resolvePlanInput(raw, billingCycle) {
+  const plan = await hqPackagesService.resolvePlanInput(raw, billingCycle);
   if (plan) return plan;
   if (raw) {
     const label = typeof raw === 'string' ? raw : raw?.name || raw?.id || 'plan';
     throw new Error(`Unknown subscription package: ${label}`);
   }
-  return hqPackagesService.resolvePlanInput('Enterprise');
+  return hqPackagesService.resolvePlanInput('Enterprise', billingCycle || 'monthly');
 }
 
 function tenantMatchesPlan(tenant, pkg) {
@@ -169,7 +169,8 @@ export const hqService = {
     const organizationType =
       String(data?.organizationType || 'agency').toLowerCase() === 'standalone' ? 'standalone' : 'agency';
     const subscriptionPlan = await resolvePlanInput(
-      data?.plan ?? data?.subscriptionPlan ?? 'Enterprise'
+      data?.plan ?? data?.subscriptionPlan ?? 'Enterprise',
+      data?.billingCycle ?? data?.plan?.billingCycle ?? data?.subscriptionPlan?.billingCycle
     );
     if (!name || !email || !loginId || !password) {
       throw new Error('name, email, loginId, and password are required');
@@ -262,7 +263,10 @@ export const hqService = {
   async assignPlan(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     const email = String(data?.email || '').trim().toLowerCase();
-    const plan = await resolvePlanInput(data?.plan);
+    const plan = await resolvePlanInput(
+      data?.plan,
+      data?.billingCycle ?? data?.plan?.billingCycle
+    );
     if (!email) throw new Error('email is required');
     if (!plan) throw new Error('plan is required');
     const updated = await headquartersAuthService.setSubscriptionPlanForEmail(email, plan);
@@ -386,6 +390,13 @@ export const hqService = {
 
   async listPackages(reqUser) {
     assertPlatformProvisioner(reqUser);
+    const packages = await hqPackagesService.listPackages();
+    return {
+      packages,
+    };
+  },
+
+  async listPublicPackages() {
     const packages = await hqPackagesService.listPackages();
     return {
       packages,

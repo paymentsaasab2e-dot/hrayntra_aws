@@ -1,8 +1,10 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { Briefcase, DollarSign, FileText, GraduationCap, Link2 } from 'lucide-react';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
+import { DrawerSectionCard } from './drawerFormUi';
 import type { JobForDrawer } from './JobDetailsDrawer';
 
 function stripHtml(value: string): string {
@@ -43,13 +45,11 @@ function parseExperienceYears(experienceRequired?: string): { min: string; max: 
 function OverviewField({ label, value, required }: { label: string; value: string; required?: boolean }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
       </p>
-      <p className="mt-1 break-words whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-        {value}
-      </p>
+      <p className="mt-0.5 break-words whitespace-pre-wrap text-sm font-medium text-slate-900">{value}</p>
     </div>
   );
 }
@@ -65,17 +65,15 @@ function OverviewList({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
       {items && items.length > 0 ? (
-        <ul className="mt-2 list-inside list-disc space-y-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+        <ul className="mt-2 list-inside list-disc space-y-1 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
           {items.map((item, i) => (
             <li key={`${label}-${i}`}>{item}</li>
           ))}
         </ul>
       ) : (
-        <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-          {emptyLabel}
-        </p>
+        <p className="mt-2 text-sm text-slate-400">{emptyLabel}</p>
       )}
     </div>
   );
@@ -84,7 +82,7 @@ function OverviewList({
 function OverviewSkillTags({ label, skills }: { label: string; skills?: string[] }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
       {skills && skills.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-2">
           {skills.map((skill, index) => (
@@ -97,22 +95,9 @@ function OverviewSkillTags({ label, skills }: { label: string; skills?: string[]
           ))}
         </div>
       ) : (
-        <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-          Not provided
-        </p>
+        <p className="mt-2 text-sm text-slate-400">Not provided</p>
       )}
     </div>
-  );
-}
-
-function OverviewSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 p-5">
-        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">{title}</h4>
-      </div>
-      <div className="space-y-5 p-5">{children}</div>
-    </section>
   );
 }
 
@@ -151,21 +136,31 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
     : 0;
 
   return (
-    <div className="space-y-4">
-      <OverviewSection title="Job description">
+    <div className="space-y-5">
+      <DrawerSectionCard
+        title="Job Description"
+        subtitle="Full role description and responsibilities"
+        icon={FileText}
+        accent="blue"
+      >
         {hasHtmlDescription ? (
           <div
-            className="prose prose-sm max-w-none min-h-[80px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 prose-p:my-2 prose-ul:my-2"
+            className="prose prose-sm max-w-none min-h-[80px] rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-slate-800 prose-p:my-2 prose-ul:my-2"
             dangerouslySetInnerHTML={{ __html: job.description || '' }}
           />
         ) : (
-          <div className="min-h-[80px] whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <div className="min-h-[80px] whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
             {descriptionPlain || '—'}
           </div>
         )}
-      </OverviewSection>
+      </DrawerSectionCard>
 
-      <OverviewSection title="Job details">
+      <DrawerSectionCard
+        title="Job Details"
+        subtitle="Title, client, location, and ownership"
+        icon={Briefcase}
+        accent="blue"
+      >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <OverviewField label="Job Title" value={displayValue(job.title)} required />
           <OverviewField label="Status" value={displayValue(job.status)} />
@@ -212,9 +207,14 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
           <OverviewField label="AI Match Enabled" value={displayValue(job.aiMatch)} />
           <OverviewField label="SLA Risk" value={displayValue(job.slaRisk)} />
         </div>
-      </OverviewSection>
+      </DrawerSectionCard>
 
-      <OverviewSection title="Compensation">
+      <DrawerSectionCard
+        title="Compensation"
+        subtitle="Salary range, currency, and benefits"
+        icon={DollarSign}
+        accent="emerald"
+      >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OverviewField label="Currency" value={displayValue(job.salaryCurrency)} />
           <OverviewField
@@ -231,9 +231,14 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
           <OverviewField label="Salary Range (display)" value={displayValue(job.salaryRange)} />
         ) : null}
         <OverviewList label="Benefits" items={job.benefits} />
-      </OverviewSection>
+      </DrawerSectionCard>
 
-      <OverviewSection title="Requirements & experience">
+      <DrawerSectionCard
+        title="Requirements & Experience"
+        subtitle="Skills, education, and qualifications"
+        icon={GraduationCap}
+        accent="amber"
+      >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <OverviewField label="Minimum Years of Experience" value={minExp} />
           <OverviewField label="Maximum Years of Experience" value={maxExp} />
@@ -241,10 +246,8 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         </div>
         {overviewPlain ? (
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Job Summary</p>
-            <p className="mt-1 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              {overviewPlain}
-            </p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Job Summary</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm font-medium text-slate-900">{overviewPlain}</p>
           </div>
         ) : null}
         <OverviewList label="Key Responsibilities" items={job.keyResponsibilities} />
@@ -253,7 +256,7 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         <OverviewSkillTags label="Required Skills" skills={requiredSkills} />
         <OverviewSkillTags label="Preferred Skills" skills={preferredSkills} />
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
             Languages &amp; Proficiency
           </p>
           {job.languages && job.languages.length > 0 ? (
@@ -261,7 +264,7 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
               {job.languages.map((row, index) => (
                 <li
                   key={`${row.language}-${index}`}
-                  className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800"
+                  className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-sm text-slate-800"
                 >
                   <span className="font-medium">{displayValue(row.language, '')}</span>
                   <span className="text-slate-400">•</span>
@@ -270,14 +273,17 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
               ))}
             </ul>
           ) : (
-            <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-              Not provided
-            </p>
+            <p className="mt-2 text-sm text-slate-400">Not provided</p>
           )}
         </div>
-      </OverviewSection>
+      </DrawerSectionCard>
 
-      <OverviewSection title="Application form & apply link">
+      <DrawerSectionCard
+        title="Application Form & Apply Link"
+        subtitle="Public apply settings and screening"
+        icon={Link2}
+        accent="indigo"
+      >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <OverviewField label="Application Form Enabled" value={displayValue(job.applicationFormEnabled)} />
           <OverviewField
@@ -294,7 +300,7 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
           <OverviewField label="Note for Candidates" value={displayValue(job.applicationFormNote)} />
         ) : null}
         {Array.isArray(job.preScreenAssessments) && job.preScreenAssessments.length > 0 ? (
-          <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/50 px-4 py-3">
+          <div className="rounded-xl border border-violet-100 bg-violet-50/50 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">
               Pre-screen assessments
             </p>
@@ -309,10 +315,10 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
             </ul>
           </div>
         ) : null}
-        <p className="mt-2 text-xs text-violet-700">
+        <p className="text-xs text-violet-700">
           Candidate scores and review are in the <strong>Assessments</strong> tab.
         </p>
-      </OverviewSection>
+      </DrawerSectionCard>
     </div>
   );
 }

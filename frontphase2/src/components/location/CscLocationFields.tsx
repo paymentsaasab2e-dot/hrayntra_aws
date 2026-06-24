@@ -204,7 +204,7 @@ export function CscLocationFields({
 
   return (
     <>
-      <div className="sm:col-span-2 relative" ref={wrapperRef}>
+      <div className="relative" ref={wrapperRef}>
         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
           Location
         </label>

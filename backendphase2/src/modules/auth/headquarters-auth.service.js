@@ -366,6 +366,8 @@ function normalizeSubscriptionPlanForHq(value) {
     return {
       ...(id ? { id } : {}),
       name: name || id,
+      billingCycle:
+        String(value.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
       maxUsers: value.maxUsers === undefined ? null : value.maxUsers,
       maxJobs: value.maxJobs === undefined ? null : value.maxJobs,
     };

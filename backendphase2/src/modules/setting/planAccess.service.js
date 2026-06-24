@@ -39,13 +39,17 @@ export async function getEffectiveSubscriptionPlan({ assignIfMissing = true } = 
     current.maxUsers === undefined && current.maxJobs === undefined && !current.id;
 
   if (needsEnrichment) {
-    const resolved = await hqPackagesService.resolvePlanInput(current.name);
+    const resolved = await hqPackagesService.resolvePlanInput(
+      current.id || current.name,
+      current.billingCycle
+    );
     if (resolved) {
       current = {
         id: current.id || resolved.id,
         name: current.name || resolved.name,
-        maxUsers: current.maxUsers ?? resolved.maxUsers ?? null,
-        maxJobs: current.maxJobs ?? resolved.maxJobs ?? null,
+        billingCycle: current.billingCycle || resolved.billingCycle || 'monthly',
+        maxUsers: resolved.maxUsers ?? current.maxUsers ?? null,
+        maxJobs: resolved.maxJobs ?? current.maxJobs ?? null,
       };
       if (assignIfMissing) {
         await setSubscriptionPlan(current);
