@@ -15,20 +15,56 @@ export interface ResumeWordFileViewerProps {
   className?: string;
   /** CSS min-height, e.g. `min(78dvh, 900px)` */
   minHeight?: string;
+  /** Always use docx-preview (required for SAASA CV text editing). */
+  preferBuiltIn?: boolean;
+  /** Allow inline text edits on the rendered Word HTML. */
+  editable?: boolean;
+  /** Restored edited HTML from a previous SAASA CV save. */
+  initialDocumentHtml?: string | null;
+  onDocumentHtmlChange?: (html: string) => void;
   onReady?: () => void;
   onError?: (message: string) => void;
+}
+
+const DOCX_EDITABLE_SELECTOR =
+  '.docx-preview-resume p, .docx-preview-resume span, .docx-preview-resume li, .docx-preview-resume td, .docx-preview-resume th, .docx-preview-resume h1, .docx-preview-resume h2, .docx-preview-resume h3, .docx-preview-resume a';
+
+function applyDocxInlineEditMode(bodyEl: HTMLElement, editable: boolean): void {
+  bodyEl.contentEditable = 'false';
+  bodyEl.classList.toggle('saasa-docx-editable', editable);
+
+  const nodes = bodyEl.querySelectorAll(DOCX_EDITABLE_SELECTOR);
+  if (nodes.length) {
+    nodes.forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      node.contentEditable = editable ? 'true' : 'false';
+      node.spellcheck = false;
+      node.classList.toggle('saasa-docx-text-node', editable);
+    });
+    return;
+  }
+
+  if (editable) {
+    bodyEl.contentEditable = 'true';
+  }
 }
 
 function ResumeDocxBuiltInViewer({
   resumeUrl,
   enabled,
   minHeight,
+  editable = false,
+  initialDocumentHtml = null,
+  onDocumentHtmlChange,
   onReady,
   onError,
 }: {
   resumeUrl: string;
   enabled: boolean;
   minHeight: string;
+  editable?: boolean;
+  initialDocumentHtml?: string | null;
+  onDocumentHtmlChange?: (html: string) => void;
   onReady?: () => void;
   onError?: (message: string) => void;
 }) {
@@ -55,6 +91,15 @@ function ResumeDocxBuiltInViewer({
 
     const loadDocx = async () => {
       try {
+        const savedHtml = initialDocumentHtml?.trim();
+        if (savedHtml) {
+          bodyEl.innerHTML = savedHtml;
+          if (cancelled || loadSeqRef.current !== seq) return;
+          applyDocxInlineEditMode(bodyEl, editable);
+          onReady?.();
+          return;
+        }
+
         const response = await fetch(buildResumeDocxBytesUrl(resumeUrl), { cache: 'no-store' });
         if (!response.ok) {
           throw new Error(`Failed to load document (${response.status})`);
@@ -87,6 +132,7 @@ function ResumeDocxBuiltInViewer({
 
         if (cancelled || loadSeqRef.current !== seq) return;
         if (bodyEl.childElementCount > 0) {
+          applyDocxInlineEditMode(bodyEl, editable);
           onReady?.();
         } else {
           onError?.('No preview content was rendered');
@@ -107,13 +153,29 @@ function ResumeDocxBuiltInViewer({
     return () => {
       cancelled = true;
     };
-  }, [enabled, resumeUrl, onReady, onError]);
+  }, [enabled, resumeUrl, initialDocumentHtml, editable, onReady, onError]);
+
+  useEffect(() => {
+    const bodyEl = bodyRef.current;
+    if (!bodyEl || loading) return;
+    applyDocxInlineEditMode(bodyEl, editable);
+  }, [editable, loading]);
+
+  const handleInput = () => {
+    const html = bodyRef.current?.innerHTML ?? '';
+    onDocumentHtmlChange?.(html);
+  };
 
   return (
     <div className="relative h-full w-full" style={{ minHeight }}>
       <div ref={styleRef} className="sr-only" aria-hidden />
       <div className="h-full w-full overflow-y-auto overscroll-y-contain p-4 sm:p-6">
-        <div ref={bodyRef} className="resume-docx-body mx-auto w-full max-w-[52rem]" />
+        <div
+          ref={bodyRef}
+          className="resume-docx-body mx-auto w-full max-w-[52rem]"
+          onInput={editable ? handleInput : undefined}
+          suppressContentEditableWarning
+        />
       </div>
       {loading ? (
         <div className="absolute inset-0 z-[1] flex items-center justify-center bg-white/90">
@@ -134,14 +196,19 @@ export function ResumeWordFileViewer({
   enabled = true,
   className = '',
   minHeight = 'min(720px, calc(100vh - 14rem))',
+  preferBuiltIn = false,
+  editable = false,
+  initialDocumentHtml = null,
+  onDocumentHtmlChange,
   onReady,
   onError,
 }: ResumeWordFileViewerProps) {
   const officeEmbedUrl = useMemo(() => {
+    if (preferBuiltIn || editable) return '';
     if (!canEmbedOfficeOnlineForResume(resumeUrl)) return '';
     const fileUrl = buildResumeDocxPublicFileUrl(resumeUrl);
     return buildOfficeOnlineEmbedUrl(fileUrl);
-  }, [resumeUrl]);
+  }, [resumeUrl, preferBuiltIn, editable]);
 
   const useWordOnline = Boolean(enabled && officeEmbedUrl);
   const [officeFrameLoaded, setOfficeFrameLoaded] = useState(false);
@@ -198,6 +265,9 @@ export function ResumeWordFileViewer({
         resumeUrl={resumeUrl}
         enabled={enabled}
         minHeight={minHeight}
+        editable={editable}
+        initialDocumentHtml={initialDocumentHtml}
+        onDocumentHtmlChange={onDocumentHtmlChange}
         onReady={onReady}
         onError={onError}
       />

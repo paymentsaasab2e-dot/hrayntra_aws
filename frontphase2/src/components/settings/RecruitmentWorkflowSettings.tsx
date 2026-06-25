@@ -7,13 +7,10 @@ import {
   apiFetch,
   syncOrgRecruitmentSummaryFromApi,
   apiApplyPipelineTemplateToEmptyJobs,
-  apiGetSubscriptionPlan,
-  apiSetSubscriptionPlan,
   apiGetOrgDefaultCurrency,
   apiSetOrgDefaultCurrency,
   apiGetClientPageFieldVisibility,
   apiSetClientPageFieldVisibility,
-  type SubscriptionPlanOption,
 } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
@@ -46,9 +43,6 @@ export function RecruitmentWorkflowSettings() {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [stages, setStages] = useState<TemplateStage[]>([]);
-  const [planName, setPlanName] = useState<string>('');
-  const [planOptions, setPlanOptions] = useState<SubscriptionPlanOption[]>([]);
-  const [savingPlan, setSavingPlan] = useState(false);
   const [currency, setCurrency] = useState<string>('USD');
   const [supportedCurrencies, setSupportedCurrencies] = useState<string[]>([
     'USD', 'EUR', 'GBP', 'INR', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY',
@@ -69,9 +63,8 @@ export function RecruitmentWorkflowSettings() {
     }
     setLoading(true);
     try {
-      const [tplRes, planRes, currencyRes, clientFieldsRes] = await Promise.all([
+      const [tplRes, currencyRes, clientFieldsRes] = await Promise.all([
         apiFetch<{ stages: TemplateStage[] }>('/settings/org/pipeline-template', { auth: true }),
-        apiGetSubscriptionPlan(),
         apiGetOrgDefaultCurrency(),
         apiGetClientPageFieldVisibility(),
       ]);
@@ -84,8 +77,6 @@ export function RecruitmentWorkflowSettings() {
           systemRole: s?.systemRole ? String(s.systemRole) : '',
         }))
       );
-      setPlanName(planRes.data?.plan?.name || '');
-      setPlanOptions(planRes.data?.options || []);
       const code = String(currencyRes.data?.code || '').trim().toUpperCase();
       if (code) setCurrency(code);
       if (Array.isArray(currencyRes.data?.supportedCurrencies) && currencyRes.data!.supportedCurrencies.length > 0) {
@@ -203,21 +194,6 @@ export function RecruitmentWorkflowSettings() {
       toast.error(e?.message || 'Failed to save currency');
     } finally {
       setSavingCurrency(false);
-    }
-  };
-
-  const savePlan = async (name: string) => {
-    if (!name) return;
-    setSavingPlan(true);
-    try {
-      await apiSetSubscriptionPlan({ name });
-      setPlanName(name);
-      await syncOrgRecruitmentSummaryFromApi();
-      toast.success(`Plan set to ${name}`);
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to save plan');
-    } finally {
-      setSavingPlan(false);
     }
   };
 
@@ -402,38 +378,6 @@ export function RecruitmentWorkflowSettings() {
               </button>
             );
           })}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-900">Subscription plan</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Pick a plan to display in the sidebar instead of the “Free Trial” banner. Plan-based feature gates will land later — this only stores the plan name for now.
-          </p>
-        </div>
-        <div className="p-5 flex flex-wrap items-center gap-3">
-          {(planOptions.length > 0 ? planOptions : [{ id: 'basic', name: 'Basic' }, { id: 'pro', name: 'Pro' }, { id: 'enterprise', name: 'Enterprise' }]).map(
-            (opt) => {
-              const active = planName === opt.name;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => void savePlan(opt.name)}
-                  disabled={savingPlan}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
-                    active
-                      ? 'border-sky-500 bg-sky-50 text-sky-700 shadow-sm'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50/40'
-                  } disabled:opacity-50`}
-                >
-                  {opt.name}
-                  {active ? ' • Active' : ''}
-                </button>
-              );
-            }
-          )}
         </div>
       </div>
     </div>

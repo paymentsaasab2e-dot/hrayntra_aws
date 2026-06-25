@@ -17,10 +17,9 @@ import {
 import { usePermissions } from '../hooks/usePermissions';
 
 /**
- * Profile + Customization are always visible to any signed-in user (basic
- * personal preferences). The remaining sections expose org-wide configuration
- * and are restricted to users with `manage_settings`. Billing has its own
- * `access_billing` gate plus the org-level billing toggle.
+ * Profile, Customization, and Subscription & Plan are visible to any signed-in user.
+ * The remaining sections expose org-wide configuration and are restricted to
+ * users with `manage_settings` (or the listed permissions).
  */
 type SettingsNavItem = {
   id: string;
@@ -62,10 +61,8 @@ const baseSettingsNav: SettingsNavItem[] = [
   },
   {
     id: 'billing',
-    label: 'Billing & Commission',
+    label: 'Subscription & Plan',
     icon: CreditCard,
-    anyPermissions: ['access_billing', 'manage_settings'],
-    requiresBillingNav: true,
   },
   {
     id: 'security',

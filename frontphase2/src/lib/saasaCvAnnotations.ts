@@ -56,6 +56,10 @@ export interface SaasaCvAnnotationsStored {
   fullSnapshot?: boolean;
   /** Saved export format when known */
   snapshotFormat?: 'pdf' | 'png';
+  /** Edited DOCX/TXT HTML from built-in preview (contentEditable). */
+  documentHtml?: string | null;
+  /** Per-page PDF text-layer HTML after inline text edits. */
+  pdfTextLayerHtml?: string[] | null;
 }
 
 export const SAASA_CV_FILE_TYPE = 'SAASA_CV';
@@ -214,6 +218,10 @@ export function readSaasaCvAnnotations(
     fullSnapshot: bag.fullSnapshot === true,
     snapshotFormat:
       bag.snapshotFormat === 'pdf' || bag.snapshotFormat === 'png' ? bag.snapshotFormat : undefined,
+    documentHtml: typeof bag.documentHtml === 'string' ? bag.documentHtml : null,
+    pdfTextLayerHtml: Array.isArray(bag.pdfTextLayerHtml)
+      ? bag.pdfTextLayerHtml.filter((h): h is string => typeof h === 'string')
+      : null,
   };
 }
 
@@ -250,7 +258,20 @@ export function resolveSaasaCvPreviewUrl(
 export function hasSaasaCvSaved(stored: SaasaCvAnnotationsStored | null | undefined): boolean {
   if (!stored) return false;
   return Boolean(
-    stored.fileId || stored.fileUrl || stored.items.length > 0 || stored.companyLogo?.url
+    stored.fileId ||
+      stored.fileUrl ||
+      stored.items.length > 0 ||
+      stored.companyLogo?.url ||
+      (stored.documentHtml && stored.documentHtml.trim()) ||
+      (stored.pdfTextLayerHtml && stored.pdfTextLayerHtml.some((h) => h.trim()))
+  );
+}
+
+export function hasSaasaCvDocumentTextEdits(stored: SaasaCvAnnotationsStored | null | undefined): boolean {
+  if (!stored) return false;
+  return Boolean(
+    (stored.documentHtml && stored.documentHtml.trim()) ||
+      (stored.pdfTextLayerHtml && stored.pdfTextLayerHtml.some((h) => h.trim()))
   );
 }
 

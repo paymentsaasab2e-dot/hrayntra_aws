@@ -1,9 +1,10 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, ClipboardList, Loader2 } from 'lucide-react';
 import { getApplicationAssessmentResults } from '../../lib/api';
 import type { JobApplicationSubmission, JobForDrawer } from '../drawers/JobDetailsDrawer';
+import { DrawerSectionCard } from '../drawers/drawerFormUi';
 import {
   AssessmentReviewRow,
   AssessmentStatusSummary,
@@ -108,22 +109,25 @@ export function JobAssessmentsTabContent({ job }: { job: JobForDrawer }) {
 
   if (!columns.length) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+      <DrawerSectionCard
+        title="Assessments"
+        subtitle="Pre-screen test results"
+        icon={ClipboardList}
+        accent="violet"
+      >
         <p className="text-sm text-slate-600">No pre-screen assessments are attached to this job.</p>
         <p className="mt-1 text-xs text-slate-500">Add tests in the job editor under Application form.</p>
-      </div>
+      </DrawerSectionCard>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 px-4 py-3">
-        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Assessments</h4>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Per-candidate scores and manual review for coding, essay, and video tests.
-        </p>
-      </div>
-
+    <DrawerSectionCard
+      title="Assessments"
+      subtitle="Per-candidate scores and manual review for coding, essay, and video tests"
+      icon={ClipboardList}
+      accent="violet"
+    >
       {loading ? (
         <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500">
           <Loader2 className="size-4 animate-spin" /> Loading assessment results…
@@ -223,6 +227,6 @@ export function JobAssessmentsTabContent({ job }: { job: JobForDrawer }) {
           </table>
         </div>
       )}
-    </div>
+    </DrawerSectionCard>
   );
 }

@@ -206,6 +206,9 @@ app.use('/api/v1/internal', portalSyncRoutes);
 app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
 app.use('/api/v1/resume-preview', resumePreviewRoutes);
 app.use('/api/v1/auth', authRoutes);
+// HQ routes include a public pricing endpoint and must be mounted before
+// router-level auth middlewares mounted on generic /api/v1 routers.
+app.use('/api/v1/hq', hqRoutes);
 // Public job apply — register before any `/api/v1` router with router-level authMiddleware
 app.get('/api/v1/jobs/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
 app.post(
@@ -265,7 +268,6 @@ app.use('/api/v1/settings/twilio', twilioTestRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/ai/aria', ariaRoutes);
 app.use('/api/v1/ai', aiRoutes);
-app.use('/api/v1/hq', hqRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 // (portalSyncRoutes is mounted near the top — before any
 // router-level-auth `/api/v1` handlers — see comment above.)

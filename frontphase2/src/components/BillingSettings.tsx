@@ -1,91 +1,262 @@
-import React from 'react';
-import { CreditCard, Percent, FileText, Info } from 'lucide-react';
+'use client';
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { CreditCard, Info, RefreshCcw } from 'lucide-react';
+import {
+  apiGetSubscriptionPlan,
+  getCachedOrgDefaultCurrency,
+  type HqTenantSubscriptionPlan,
+  type SubscriptionPlanOption,
+} from '@/lib/api';
+import {
+  findPackageForPlan,
+  formatBillingCycleLabel,
+  getDisplayedPrice,
+  getPackagePresentation,
+  subscriptionPackagesWithPricing,
+} from '@/components/hq/hqPackagePresentation';
+import { formatDateDMY } from '@/utils/dateDisplay';
+import { formatCurrencyAmount } from '@/utils/currency';
+
+type PlanUsage = {
+  activeJobs: number;
+  activeUsers: number;
+  maxJobs: number | null;
+  maxUsers: number | null;
+  jobsRemaining: number | null;
+  usersRemaining: number | null;
+};
+
+function formatLimit(value: number | null | undefined, unit: string) {
+  if (value === null || value === undefined) return `Unlimited ${unit}`;
+  return `Up to ${value} ${unit}`;
+}
+
+function usagePercent(used: number, max: number | null | undefined) {
+  if (max == null || max <= 0) return null;
+  return Math.min(100, Math.round((used / max) * 100));
+}
+
+function planStatus(plan: HqTenantSubscriptionPlan | null): { label: string; tone: 'active' | 'expired' | 'unknown' } {
+  if (!plan?.planEndDate) return { label: 'ACTIVE', tone: 'active' };
+  const end = new Date(`${plan.planEndDate}T23:59:59`);
+  if (Number.isNaN(end.getTime())) return { label: 'ACTIVE', tone: 'active' };
+  if (end.getTime() < Date.now()) return { label: 'EXPIRED', tone: 'expired' };
+  return { label: 'ACTIVE', tone: 'active' };
+}
+
+function ReadOnlyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-sm font-medium text-slate-900">{value || '—'}</p>
+    </div>
+  );
+}
 
 export function BillingSettings() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [plan, setPlan] = useState<HqTenantSubscriptionPlan | null>(null);
+  const [usage, setUsage] = useState<PlanUsage | null>(null);
+  const [planOptions, setPlanOptions] = useState<SubscriptionPlanOption[]>([]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await apiGetSubscriptionPlan();
+      setPlan((res.data?.plan as HqTenantSubscriptionPlan | null) ?? null);
+      setUsage((res.data?.planUsage as PlanUsage | null) ?? null);
+      setPlanOptions(Array.isArray(res.data?.options) ? res.data.options : []);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load subscription details';
+      setError(message);
+      setPlan(null);
+      setUsage(null);
+      setPlanOptions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const status = planStatus(plan);
+  const jobsPct = usage ? usagePercent(usage.activeJobs, usage.maxJobs) : null;
+  const usersPct = usage ? usagePercent(usage.activeUsers, usage.maxUsers) : null;
+  const currency = (getCachedOrgDefaultCurrency() || 'USD').toUpperCase();
+  const billingCycle = plan?.billingCycle === 'annual' ? 'annual' : 'monthly';
+  const pricedPackages = useMemo(
+    () => subscriptionPackagesWithPricing(planOptions),
+    [planOptions]
+  );
+
+  const planPricing = useMemo(() => {
+    if (!plan) return null;
+    if (plan.isTrial) {
+      return {
+        amountLabel: 'Free',
+        periodLabel: `${plan.trialDays ?? 5}-day trial`,
+        alternateLabel: null as string | null,
+      };
+    }
+    const matched = findPackageForPlan(plan, pricedPackages);
+    if (!matched) return null;
+    const presentation = getPackagePresentation(matched);
+    const displayed = getDisplayedPrice(presentation, billingCycle);
+    if (!displayed.amount || displayed.amount === '—') return null;
+    const amount = Number.parseFloat(displayed.amount.replace(/,/g, ''));
+    const amountLabel = Number.isFinite(amount)
+      ? formatCurrencyAmount(amount, currency, { maximumFractionDigits: 0 })
+      : `$${displayed.amount}`;
+    const alternate =
+      presentation.monthlyPrice !== '—' && presentation.yearlyPrice !== '—'
+        ? billingCycle === 'monthly'
+          ? `Annual: ${formatCurrencyAmount(Number.parseFloat(presentation.yearlyPrice) || 0, currency, { maximumFractionDigits: 0 })} / month billed annually`
+          : `Monthly: ${formatCurrencyAmount(Number.parseFloat(presentation.monthlyPrice) || 0, currency, { maximumFractionDigits: 0 })} / month`
+        : null;
+    return {
+      amountLabel,
+      periodLabel: displayed.periodLabel,
+      alternateLabel: alternate,
+    };
+  }, [plan, pricedPackages, billingCycle, currency]);
+
   return (
     <div className="space-y-6">
-      {/* Commission Structure */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-          <Percent className="w-5 h-5 text-[#2b7fff]" />
-          <h2 className="text-lg font-semibold text-slate-900">Commission & Tax Settings</h2>
-        </div>
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Default Commission (%)</label>
-              <div className="relative">
-                <input type="number" defaultValue="15" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2b7fff]/20 pr-10" />
-                <span className="absolute right-3 top-2 text-slate-400 font-medium">%</span>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Calculation Type</label>
-              <select className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2b7fff]/20">
-                <option>Percentage of Annual CTC</option>
-                <option>Fixed Fee per Placement</option>
-                <option>Retainer + Success Fee</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Invoice Prefix</label>
-              <input type="text" defaultValue="INV-RA-" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2b7fff]/20" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Payment Terms</label>
-              <select className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2b7fff]/20">
-                <option>Net 30</option>
-                <option>Net 15</option>
-                <option>Due on Receipt</option>
-                <option>Custom</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Tax Percentage (%)</label>
-              <input type="number" defaultValue="18" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2b7fff]/20" />
-            </div>
-            <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-lg">
-              <div>
-                <span className="text-sm font-medium text-slate-900">Late Fee Rules</span>
-                <p className="text-xs text-slate-500">Auto-add 2% after 7 days overdue</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" className="sr-only peer" defaultChecked />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#2b7fff]"></div>
-              </label>
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-6">
+          <div className="flex items-center gap-3">
+            <CreditCard className="h-5 w-5 text-[#2b7fff]" />
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Subscription package</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Your workspace plan is assigned by HQ. Contact support to change package or billing cycle.
+              </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
         </div>
-      </div>
 
-      {/* Subscription Plan */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden text-white">
-        <div className="p-6 border-b border-white/10 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <CreditCard className="w-5 h-5 text-[#2b7fff]" />
-            <h2 className="text-lg font-semibold">Subscription Plan</h2>
+        {loading ? (
+          <div className="p-8 text-center text-sm text-slate-500">Loading subscription details…</div>
+        ) : error ? (
+          <div className="m-6 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
+        ) : (
+          <div className="p-6 space-y-6">
+            <div className="rounded-xl border border-slate-900 bg-slate-900 p-6 text-white">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm text-slate-400">Current package</p>
+                  <h3 className="mt-1 text-2xl font-bold">{plan?.name || 'Unassigned'}</h3>
+                  {planPricing ? (
+                    <div className="mt-3 flex flex-wrap items-end gap-x-2 gap-y-1">
+                      <span className="text-3xl font-bold text-white">{planPricing.amountLabel}</span>
+                      <span className="pb-1 text-sm text-slate-300">/ {planPricing.periodLabel}</span>
+                    </div>
+                  ) : null}
+                  {planPricing?.alternateLabel ? (
+                    <p className="mt-1 text-xs text-slate-400">{planPricing.alternateLabel}</p>
+                  ) : null}
+                  <p className={`text-sm text-slate-300 ${planPricing ? 'mt-2' : 'mt-2'}`}>
+                    Billing: {formatBillingCycleLabel(plan?.billingCycle)}
+                    {plan?.planStartDate ? ` · Started ${formatDateDMY(plan.planStartDate)}` : ''}
+                    {plan?.planEndDate ? ` · Ends ${formatDateDMY(plan.planEndDate)}` : ''}
+                  </p>
+                </div>
+                <span
+                  className={`self-start rounded-full border px-3 py-1 text-xs font-bold ${
+                    status.tone === 'expired'
+                      ? 'border-rose-400/40 bg-rose-500/20 text-rose-200'
+                      : 'border-[#2b7fff]/30 bg-[#2b7fff]/20 text-[#7eb8ff]'
+                  }`}
+                >
+                  {status.label}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <ReadOnlyRow
+                label="Plan cost"
+                value={
+                  planPricing
+                    ? `${planPricing.amountLabel} / ${planPricing.periodLabel}`
+                    : plan?.isTrial
+                      ? 'Free trial'
+                      : '—'
+                }
+              />
+              <ReadOnlyRow label="Billing cycle" value={formatBillingCycleLabel(plan?.billingCycle)} />
+              <ReadOnlyRow label="Package start" value={formatDateDMY(plan?.planStartDate)} />
+              <ReadOnlyRow label="Package end" value={formatDateDMY(plan?.planEndDate)} />
+              <ReadOnlyRow label="User limit" value={formatLimit(plan?.maxUsers, 'users')} />
+              <ReadOnlyRow label="Job limit" value={formatLimit(plan?.maxJobs, 'active jobs')} />
+            </div>
+
+            {usage ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-700">Active users</span>
+                    <span className="font-semibold text-slate-900">
+                      {usage.activeUsers}
+                      {usage.maxUsers != null ? ` / ${usage.maxUsers}` : ' (unlimited)'}
+                    </span>
+                  </div>
+                  {usersPct != null ? (
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-[#2b7fff] transition-all"
+                        style={{ width: `${usersPct}%` }}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">No user cap on this package.</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-700">Active jobs</span>
+                    <span className="font-semibold text-slate-900">
+                      {usage.activeJobs}
+                      {usage.maxJobs != null ? ` / ${usage.maxJobs}` : ' (unlimited)'}
+                    </span>
+                  </div>
+                  {jobsPct != null ? (
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-[#2b7fff] transition-all"
+                        style={{ width: `${jobsPct}%` }}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">No job cap on this package.</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex items-start gap-2 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs text-sky-900">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+              <p>
+                Commission, tax, invoice prefix, and payment terms are managed in the Billing module when
+                placement invoicing is enabled for your organization.
+              </p>
+            </div>
           </div>
-          <span className="px-3 py-1 bg-[#2b7fff]/20 text-[#2b7fff] text-xs font-bold rounded-full border border-[#2b7fff]/30">ACTIVE</span>
-        </div>
-        <div className="p-6 flex flex-col md:flex-row justify-between gap-6">
-          <div>
-            <p className="text-slate-400 text-sm mb-1">Current Plan</p>
-            <h3 className="text-2xl font-bold">Enterprise Pro</h3>
-            <p className="text-slate-400 text-xs mt-1">Next billing: March 15, 2026 ($299.00)</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button className="px-4 py-2 border border-white/20 rounded-lg text-sm font-semibold hover:bg-white/10 transition-colors">
-              Manage Billing
-            </button>
-            <button className="px-4 py-2 bg-white text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-100 transition-colors">
-              Upgrade Plan
-            </button>
-          </div>
-        </div>
-        <div className="px-6 py-4 bg-white/5 border-t border-white/10 flex items-center gap-2">
-          <Info className="w-4 h-4 text-[#2b7fff]" />
-          <p className="text-xs text-slate-300">Your organization has used 85% of its candidate storage limit.</p>
-        </div>
+        )}
       </div>
     </div>
   );

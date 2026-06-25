@@ -650,7 +650,7 @@ export function CandidateResumeTabPanel({
                 <p className="text-sm text-slate-500">No resume available for this candidate.</p>
                 {canEdit ? (
                   <p className="mt-2 text-xs text-slate-400">
-                    Use <span className="font-medium text-slate-600">Edit CV</span> next to Edit Candidate to
+                    Upload a resume from <span className="font-medium text-slate-600">Edit Candidate</span> to
                     create one.
                   </p>
                 ) : null}

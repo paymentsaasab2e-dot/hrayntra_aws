@@ -14,14 +14,14 @@ import { hqPortalService } from './hq-portal.service.js';
 import { hqDemosService } from './hq-demos.service.js';
 import { hqPackagesService } from './hq-packages.service.js';
 
-async function resolvePlanInput(raw) {
-  const plan = await hqPackagesService.resolvePlanInput(raw);
+async function resolvePlanInput(raw, billingCycle, planStartDate) {
+  const plan = await hqPackagesService.resolvePlanInput(raw, billingCycle, planStartDate);
   if (plan) return plan;
   if (raw) {
     const label = typeof raw === 'string' ? raw : raw?.name || raw?.id || 'plan';
     throw new Error(`Unknown subscription package: ${label}`);
   }
-  return hqPackagesService.resolvePlanInput('Enterprise');
+  return hqPackagesService.resolvePlanInput('Enterprise', billingCycle || 'monthly', planStartDate);
 }
 
 function tenantMatchesPlan(tenant, pkg) {
@@ -169,7 +169,9 @@ export const hqService = {
     const organizationType =
       String(data?.organizationType || 'agency').toLowerCase() === 'standalone' ? 'standalone' : 'agency';
     const subscriptionPlan = await resolvePlanInput(
-      data?.plan ?? data?.subscriptionPlan ?? 'Enterprise'
+      data?.plan ?? data?.subscriptionPlan ?? 'Enterprise',
+      data?.billingCycle ?? data?.plan?.billingCycle ?? data?.subscriptionPlan?.billingCycle,
+      data?.planStartDate ?? data?.plan?.planStartDate
     );
     if (!name || !email || !loginId || !password) {
       throw new Error('name, email, loginId, and password are required');
@@ -262,7 +264,17 @@ export const hqService = {
   async assignPlan(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     const email = String(data?.email || '').trim().toLowerCase();
-    const plan = await resolvePlanInput(data?.plan);
+    const tenants = await headquartersAuthService.listTenants();
+    const existing = tenants.find((t) => String(t.email || '').toLowerCase() === email);
+    const planStartDate =
+      data?.planStartDate ??
+      data?.plan?.planStartDate ??
+      existing?.subscriptionPlan?.planStartDate;
+    const plan = await resolvePlanInput(
+      data?.plan,
+      data?.billingCycle ?? data?.plan?.billingCycle,
+      planStartDate
+    );
     if (!email) throw new Error('email is required');
     if (!plan) throw new Error('plan is required');
     const updated = await headquartersAuthService.setSubscriptionPlanForEmail(email, plan);
@@ -304,6 +316,11 @@ export const hqService = {
     return hqLeadsService.updateLead(id, data, reqUser);
   },
 
+  async deleteLead(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.deleteLead(id);
+  },
+
   async addLeadFollowUp(id, data, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqLeadsService.addFollowUp(id, data, reqUser);
@@ -337,6 +354,11 @@ export const hqService = {
   async listDemoRequests(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqDemosService.listDemoRequests();
+  },
+
+  async deleteDemoRequest(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqDemosService.deleteDemoRequest(id);
   },
 
   async listCompanies(reqUser) {
@@ -386,6 +408,13 @@ export const hqService = {
 
   async listPackages(reqUser) {
     assertPlatformProvisioner(reqUser);
+    const packages = await hqPackagesService.listPackages();
+    return {
+      packages,
+    };
+  },
+
+  async listPublicPackages() {
     const packages = await hqPackagesService.listPackages();
     return {
       packages,

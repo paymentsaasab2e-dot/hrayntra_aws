@@ -175,6 +175,13 @@ export type HqDemoRequestRow = {
   phoneNumber: string;
   companySize: string;
   outcome: string;
+  requestKind: 'demo' | 'trial';
+  trialProvisioned: boolean;
+  trialTenantDbName: string;
+  trialLoginId: string;
+  trialStartsAt: string | null;
+  trialEndsAt: string | null;
+  trialLoginUrl: string;
   status: HqDemoRequestStatus;
   emailVerifiedAt: string | null;
   createdAt: string | null;

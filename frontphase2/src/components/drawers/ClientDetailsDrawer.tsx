@@ -341,12 +341,12 @@ const FieldRow = ({
   blankWhenEmpty?: boolean;
   multiline?: boolean;
 }) => (
-  <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100 last:border-0">
+  <div className="min-w-0">
     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
     <p
-      className={`text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer' : ''} ${multiline ? 'whitespace-pre-line' : 'truncate'}`}
+      className={`mt-0.5 text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer' : ''} ${multiline ? 'whitespace-pre-line' : ''} ${!multiline ? 'break-words' : ''}`}
     >
-      {value}
+      {value || (blankWhenEmpty ? '' : '—')}
     </p>
   </div>
 );
@@ -3679,7 +3679,7 @@ export function ClientDetailsDrawer({
 
             {/* Tab content */}
             <div className="relative flex min-h-0 flex-1 flex-col">
-              <div className={`flex-1 overflow-y-auto ${isAddMode ? DRAWER_FORM_SCROLL_BG : 'bg-slate-50/30'}`}>
+              <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`}>
               <div className="p-5">
                 {isAddMode ? (
                   <div className="space-y-5">
@@ -4573,208 +4573,191 @@ export function ClientDetailsDrawer({
                       onCancel={() => setShowScheduleMeetingForm(false)}
                     />
                   ) : (
-                    <div className="space-y-4">
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="space-y-5">
                       {!overviewEditMode ? (
-                        <div className="space-y-4 p-5">
-                          <div className="rounded-xl border border-slate-200 overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => toggleOverviewSection('leadInformation')}
-                              className="flex w-full items-center justify-between gap-2 bg-white px-5 py-4 text-left hover:bg-slate-50/50 transition-colors"
-                            >
-                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lead Information</h4>
-                              {overviewOpen.leadInformation ? (
-                                <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                              ) : (
-                                <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                              )}
-                            </button>
-                            {overviewOpen.leadInformation ? (
-                              <div className="border-t border-slate-100 p-5 space-y-4 bg-white">
-                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                  <div><FieldRow label="Company *" value={fullClientData?.name || client?.name || ''} /></div>
-                                  <div><FieldRow label="Company Links" value={companyLinksValue} href={!!companyLinksValue} /></div>
-                                  <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                      <FieldRow
-                                        label="Director Name"
-                                        value={formatDirectorDisplay(
-                                          fullClientData?.directorSalutation ||
-                                            client?.directorSalutation ||
-                                            directorFromOtherDetails(
-                                              fullClientData?.otherDetails || client?.otherDetails,
-                                            ).directorSalutation,
-                                          primaryClientContact?.name ||
-                                            directorFromOtherDetails(
-                                              fullClientData?.otherDetails || client?.otherDetails,
-                                            ).directorName ||
-                                            '',
-                                        )}
-                                      />
-                                      <FieldRow
-                                        label="Email *"
-                                        value={formatContactListMultiline(
-                                          fullClientData?.emails || client?.emails,
-                                          primaryClientContactEmail,
-                                        )}
-                                        href={!!primaryClientContactEmail}
-                                        multiline
-                                      />
-                                      <FieldRow
-                                        label="Mobile Number"
-                                        value={formatContactListMultiline(
-                                          fullClientData?.phones || client?.phones,
-                                          primaryClientContactPhone,
-                                        )}
-                                        multiline
-                                      />
-                                    </div>
-                                  </div>
-                                  {(() => {
-                                    const teamMembers = resolveClientTeamMembersForForm(
-                                      clientTeamMemberContacts,
-                                      fullClientData || client,
-                                      primaryClientContact?.id,
-                                    ).filter(teamMemberHasAnyValue);
-                                    if (teamMembers.length === 0) return null;
-                                    return (
-                                      <div className="sm:col-span-2 space-y-2">
-                                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</p>
-                                        {teamMembers.map((tm, index) => (
-                                          <div
-                                            key={tm.id || `client-team-member-${index}`}
-                                            className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 sm:grid-cols-3"
-                                          >
-                                            <FieldRow
-                                              label="Name"
-                                              value={formatDirectorDisplay(
-                                                tm.teamMemberSalutation,
-                                                tm.teamMemberName || tm.teamMemberDesignation,
-                                              )}
-                                            />
-                                            <FieldRow label="Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} />
-                                            <FieldRow label="Mobile Number" value={tm.teamMemberPhone ?? ''} />
-                                          </div>
-                                        ))}
-                                      </div>
-                                    );
-                                  })()}
-                                  <div><FieldRow label="Location" value={fullClientData?.location || client?.location || ''} /></div>
-                                  <div><FieldRow label="City" value={locationFields.city} /></div>
-                                  <div><FieldRow label="State" value={locationFields.state} /></div>
-                                  <div><FieldRow label="Country" value={locationFields.country} /></div>
-                                  <div><FieldRow label="Timezone" value={fullClientData?.timezone || client?.timezone || ''} /></div>
-                                  <div><FieldRow label="Industry" value={formatIndustriesDisplay(fullClientData?.industry || client?.industry || '')} /></div>
-                                  {clientFieldVisibility.status ? (
-                                    <div><FieldRow label="Status" value={statusValue} /></div>
-                                  ) : null}
-                                  {clientFieldVisibility.interestLevel ? (
-                                    <div><FieldRow label="Interest Level" value={fullClientData?.priority || client?.priority || ''} /></div>
-                                  ) : null}
-                                  {clientFieldVisibility.assignedTo ? (
-                                    <div><FieldRow label="Assigned To" value={assignedToValue} /></div>
-                                  ) : null}
+                        <>
+                          <DrawerSectionCard
+                            title="Client Information"
+                            subtitle="Company profile, contacts, and qualification"
+                            icon={Building2}
+                            accent="blue"
+                            collapsible
+                            open={overviewOpen.leadInformation}
+                            onOpenChange={() => toggleOverviewSection('leadInformation')}
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div><FieldRow label="Company *" value={fullClientData?.name || client?.name || ''} /></div>
+                              <div><FieldRow label="Company Links" value={companyLinksValue} href={!!companyLinksValue} /></div>
+                              <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                  <FieldRow
+                                    label="Director Name"
+                                    value={formatDirectorDisplay(
+                                      fullClientData?.directorSalutation ||
+                                        client?.directorSalutation ||
+                                        directorFromOtherDetails(
+                                          fullClientData?.otherDetails || client?.otherDetails,
+                                        ).directorSalutation,
+                                      primaryClientContact?.name ||
+                                        directorFromOtherDetails(
+                                          fullClientData?.otherDetails || client?.otherDetails,
+                                        ).directorName ||
+                                        '',
+                                    )}
+                                  />
+                                  <FieldRow
+                                    label="Email *"
+                                    value={formatContactListMultiline(
+                                      fullClientData?.emails || client?.emails,
+                                      primaryClientContactEmail,
+                                    )}
+                                    href={!!primaryClientContactEmail}
+                                    multiline
+                                  />
+                                  <FieldRow
+                                    label="Mobile Number"
+                                    value={formatContactListMultiline(
+                                      fullClientData?.phones || client?.phones,
+                                      primaryClientContactPhone,
+                                    )}
+                                    multiline
+                                  />
                                 </div>
-                                <div><FieldRow label="Services Needed" value={servicesNeededValue} /></div>
-                                <div><FieldRow label="Expected Business Value" value={businessValue} /></div>
-                                {viewDynamicFields.length ? (
-                                  <div className="sm:col-span-2">
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Dynamic Fields</p>
-                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                        {viewDynamicFields.map((item, index) => (
-                                          <div key={`${item.label}-${index}`} className="text-sm">
-                                            <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
-                                            <span className="text-slate-600">{item.value}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : null}
                               </div>
-                            ) : null}
-                          </div>
-
-                          <div className="rounded-xl border border-slate-200 overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => toggleOverviewSection('agreementsTerms')}
-                              className="flex w-full items-center justify-between gap-2 bg-white px-5 py-4 text-left hover:bg-slate-50/50 transition-colors"
-                            >
-                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Agreements &amp; Terms</h4>
-                              {overviewOpen.agreementsTerms ? (
-                                <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                              ) : (
-                                <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                              )}
-                            </button>
-                            {overviewOpen.agreementsTerms ? (
-                              <div className="border-t border-slate-100 p-5 space-y-4 bg-white">
-                                {(fullClientData?.agreementsFileUrl ||
-                                  client?.agreementsFileUrl ||
-                                  formatAgreementTermsSummary(
-                                    agreementTermsFromRecord(fullClientData || client),
-                                  ).length > 0) ? (
-                                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-2">
-                                    {fullClientData?.agreementsFileUrl || client?.agreementsFileUrl ? (
-                                      <a
-                                        href={String(fullClientData?.agreementsFileUrl || client?.agreementsFileUrl)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-2 text-sm text-slate-900 hover:underline"
+                              {(() => {
+                                const teamMembers = resolveClientTeamMembersForForm(
+                                  clientTeamMemberContacts,
+                                  fullClientData || client,
+                                  primaryClientContact?.id,
+                                ).filter(teamMemberHasAnyValue);
+                                if (teamMembers.length === 0) return null;
+                                return (
+                                  <div className="sm:col-span-2 space-y-2">
+                                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</p>
+                                    {teamMembers.map((tm, index) => (
+                                      <div
+                                        key={tm.id || `client-team-member-${index}`}
+                                        className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 sm:grid-cols-3"
                                       >
-                                        <Paperclip size={14} className="text-slate-500" />
-                                        <span className="truncate max-w-[280px]">
-                                          {fullClientData?.agreementsFileName ||
-                                            client?.agreementsFileName ||
-                                            'Agreement document'}
-                                        </span>
-                                      </a>
-                                    ) : null}
-                                    {formatAgreementTermsSummary(
-                                      agreementTermsFromRecord(fullClientData || client),
-                                    ).map((line) => (
-                                      <p key={line} className="text-sm text-slate-700">
-                                        {line}
-                                      </p>
+                                        <FieldRow
+                                          label="Name"
+                                          value={formatDirectorDisplay(
+                                            tm.teamMemberSalutation,
+                                            tm.teamMemberName || tm.teamMemberDesignation,
+                                          )}
+                                        />
+                                        <FieldRow label="Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} />
+                                        <FieldRow label="Mobile Number" value={tm.teamMemberPhone ?? ''} />
+                                      </div>
                                     ))}
                                   </div>
-                                ) : (
-                                  <p className="text-sm text-slate-500">No agreement details added yet.</p>
-                                )}
-                              </div>
-                            ) : null}
-                          </div>
+                                );
+                              })()}
+                              <div><FieldRow label="Location" value={fullClientData?.location || client?.location || ''} /></div>
+                              <div><FieldRow label="City" value={locationFields.city} /></div>
+                              <div><FieldRow label="State" value={locationFields.state} /></div>
+                              <div><FieldRow label="Country" value={locationFields.country} /></div>
+                              <div><FieldRow label="Timezone" value={fullClientData?.timezone || client?.timezone || ''} /></div>
+                              <div><FieldRow label="Industry" value={formatIndustriesDisplay(fullClientData?.industry || client?.industry || '')} /></div>
+                              {clientFieldVisibility.status ? (
+                                <div><FieldRow label="Status" value={statusValue} /></div>
+                              ) : null}
+                              {clientFieldVisibility.interestLevel ? (
+                                <div><FieldRow label="Interest Level" value={fullClientData?.priority || client?.priority || ''} /></div>
+                              ) : null}
+                              {clientFieldVisibility.assignedTo ? (
+                                <div><FieldRow label="Assigned To" value={assignedToValue} /></div>
+                              ) : null}
+                              <div><FieldRow label="Services Needed" value={servicesNeededValue} /></div>
+                              <div><FieldRow label="Expected Business Value" value={businessValue} /></div>
+                              {viewDynamicFields.length ? (
+                                <div className="sm:col-span-2">
+                                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+                                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Dynamic Fields</p>
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                      {viewDynamicFields.map((item, index) => (
+                                        <div key={`${item.label}-${index}`} className="text-sm">
+                                          <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
+                                          <span className="text-slate-600">{item.value}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </DrawerSectionCard>
 
-                          <div className="rounded-xl border border-slate-200 overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => toggleOverviewSection('kycForm')}
-                              className="flex w-full items-center justify-between gap-2 bg-white px-5 py-4 text-left hover:bg-slate-50/50 transition-colors"
-                            >
-                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">KYC Form</h4>
-                              {overviewOpen.kycForm ? (
-                                <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                              ) : (
-                                <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                              )}
-                            </button>
-                            {overviewOpen.kycForm ? (
-                              <div className="border-t border-slate-100 p-5 space-y-4 bg-white">
-                                <KycDocumentsView files={clientKycFiles} uploadsBase={uploadsBase} />
-                                <ClientPostServiceKycSummary
-                                  values={postServiceKycFormFromRecord(fullClientData || client)}
-                                  uploadsBase={uploadsBase}
-                                />
+                          <DrawerSectionCard
+                            title="Agreements & Terms"
+                            subtitle="Contract terms and agreement documents"
+                            icon={FileText}
+                            accent="indigo"
+                            collapsible
+                            open={overviewOpen.agreementsTerms}
+                            onOpenChange={() => toggleOverviewSection('agreementsTerms')}
+                          >
+                            {(fullClientData?.agreementsFileUrl ||
+                              client?.agreementsFileUrl ||
+                              formatAgreementTermsSummary(
+                                agreementTermsFromRecord(fullClientData || client),
+                              ).length > 0) ? (
+                              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-2">
+                                {fullClientData?.agreementsFileUrl || client?.agreementsFileUrl ? (
+                                  <a
+                                    href={String(fullClientData?.agreementsFileUrl || client?.agreementsFileUrl)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-2 text-sm text-slate-900 hover:underline"
+                                  >
+                                    <Paperclip size={14} className="text-slate-500" />
+                                    <span className="truncate max-w-[280px]">
+                                      {fullClientData?.agreementsFileName ||
+                                        client?.agreementsFileName ||
+                                        'Agreement document'}
+                                    </span>
+                                  </a>
+                                ) : null}
+                                {formatAgreementTermsSummary(
+                                  agreementTermsFromRecord(fullClientData || client),
+                                ).map((line) => (
+                                  <p key={line} className="text-sm text-slate-700">
+                                    {line}
+                                  </p>
+                                ))}
                               </div>
-                            ) : null}
-                          </div>
-                        </div>
+                            ) : (
+                              <p className="text-sm text-slate-500">No agreement details added yet.</p>
+                            )}
+                          </DrawerSectionCard>
+
+                          <DrawerSectionCard
+                            title="KYC Form"
+                            subtitle="Identity verification and compliance documents"
+                            icon={Shield}
+                            accent="emerald"
+                            collapsible
+                            open={overviewOpen.kycForm}
+                            onOpenChange={() => toggleOverviewSection('kycForm')}
+                          >
+                            <KycDocumentsView files={clientKycFiles} uploadsBase={uploadsBase} />
+                            <ClientPostServiceKycSummary
+                              values={postServiceKycFormFromRecord(fullClientData || client)}
+                              uploadsBase={uploadsBase}
+                            />
+                          </DrawerSectionCard>
+                        </>
                       ) : (
-                        <div className="p-5 space-y-4">
-                          <>
+                        <>
+                          <DrawerSectionCard
+                            title="Client Information"
+                            subtitle="Company profile, contacts, and qualification"
+                            icon={Building2}
+                            accent="blue"
+                            collapsible
+                            open={overviewOpen.leadInformation}
+                            onOpenChange={() => toggleOverviewSection('leadInformation')}
+                          >
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
@@ -4840,6 +4823,7 @@ export function ClientDetailsDrawer({
                               </div>
                               <div className="sm:col-span-2">
                                 <DirectorContactFields
+                                  boxed
                                   directorSalutation={overviewEditForm.directorSalutation}
                                   contactPerson={overviewEditForm.directorName}
                                   emails={overviewEditForm.contactEmails}
@@ -5070,96 +5054,107 @@ export function ClientDetailsDrawer({
                                   />
                                 </div>
                               ) : null}
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Services Needed</label>
-                              <ServicesNeededSelect
-                                value={overviewEditForm.servicesNeeded}
-                                onChange={(servicesNeeded) => setOverviewEditForm((p) => ({ ...p, servicesNeeded }))}
-                                industry={overviewEditForm.industry ?? ''}
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
-                              <textarea
-                                value={overviewEditForm.expectedBusinessValue}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, expectedBusinessValue: e.target.value }))}
-                                rows={3}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
-                                placeholder="e.g. Potential annual business of $50,000"
-                              />
-                            </div>
-                            <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-4 space-y-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Dynamic Fields</p>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setOverviewEditForm((p) => ({
-                                      ...p,
-                                      dynamicOtherDetails: [...p.dynamicOtherDetails, { label: '', value: '' }],
-                                    }))
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50"
-                                >
-                                  <Plus size={14} />
-                                  Add field
-                                </button>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Services Needed</label>
+                                <ServicesNeededSelect
+                                  value={overviewEditForm.servicesNeeded}
+                                  onChange={(servicesNeeded) => setOverviewEditForm((p) => ({ ...p, servicesNeeded }))}
+                                  industry={overviewEditForm.industry ?? ''}
+                                />
                               </div>
-                              {overviewEditForm.dynamicOtherDetails.length === 0 ? (
-                                <p className="text-xs text-slate-500">
-                                  No custom fields yet. Add a row or import from Excel; label and value are both required to save a field.
-                                </p>
-                              ) : (
-                                <div className="space-y-2">
-                                  {overviewEditForm.dynamicOtherDetails.map((row, idx) => (
-                                    <div key={`client-dyn-b-${idx}`} className="flex flex-wrap items-center gap-2">
-                                      <input
-                                        value={row.label}
-                                        onChange={(e) => {
-                                          const label = e.target.value;
-                                          setOverviewEditForm((p) => ({
-                                            ...p,
-                                            dynamicOtherDetails: p.dynamicOtherDetails.map((r, i) =>
-                                              i === idx ? { ...r, label } : r,
-                                            ),
-                                          }));
-                                        }}
-                                        placeholder="Field name"
-                                        className="min-w-[8rem] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                      />
-                                      <input
-                                        value={row.value}
-                                        onChange={(e) => {
-                                          const value = e.target.value;
-                                          setOverviewEditForm((p) => ({
-                                            ...p,
-                                            dynamicOtherDetails: p.dynamicOtherDetails.map((r, i) =>
-                                              i === idx ? { ...r, value } : r,
-                                            ),
-                                          }));
-                                        }}
-                                        placeholder="Value"
-                                        className="min-w-[8rem] flex-[2] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setOverviewEditForm((p) => ({
-                                            ...p,
-                                            dynamicOtherDetails: p.dynamicOtherDetails.filter((_, i) => i !== idx),
-                                          }))
-                                        }
-                                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600"
-                                        aria-label="Remove dynamic field"
-                                      >
-                                        <Trash2 size={16} />
-                                      </button>
-                                    </div>
-                                  ))}
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
+                                <textarea
+                                  value={overviewEditForm.expectedBusinessValue}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, expectedBusinessValue: e.target.value }))}
+                                  rows={3}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
+                                  placeholder="e.g. Potential annual business of $50,000"
+                                />
+                              </div>
+                              <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-4 space-y-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Dynamic Fields</p>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOverviewEditForm((p) => ({
+                                        ...p,
+                                        dynamicOtherDetails: [...p.dynamicOtherDetails, { label: '', value: '' }],
+                                      }))
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50"
+                                  >
+                                    <Plus size={14} />
+                                    Add field
+                                  </button>
                                 </div>
-                              )}
+                                {overviewEditForm.dynamicOtherDetails.length === 0 ? (
+                                  <p className="text-xs text-slate-500">
+                                    No custom fields yet. Add a row or import from Excel; label and value are both required to save a field.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {overviewEditForm.dynamicOtherDetails.map((row, idx) => (
+                                      <div key={`client-dyn-b-${idx}`} className="flex flex-wrap items-center gap-2">
+                                        <input
+                                          value={row.label}
+                                          onChange={(e) => {
+                                            const label = e.target.value;
+                                            setOverviewEditForm((p) => ({
+                                              ...p,
+                                              dynamicOtherDetails: p.dynamicOtherDetails.map((r, i) =>
+                                                i === idx ? { ...r, label } : r,
+                                              ),
+                                            }));
+                                          }}
+                                          placeholder="Field name"
+                                          className="min-w-[8rem] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                        />
+                                        <input
+                                          value={row.value}
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            setOverviewEditForm((p) => ({
+                                              ...p,
+                                              dynamicOtherDetails: p.dynamicOtherDetails.map((r, i) =>
+                                                i === idx ? { ...r, value } : r,
+                                              ),
+                                            }));
+                                          }}
+                                          placeholder="Value"
+                                          className="min-w-[8rem] flex-[2] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setOverviewEditForm((p) => ({
+                                              ...p,
+                                              dynamicOtherDetails: p.dynamicOtherDetails.filter((_, i) => i !== idx),
+                                            }))
+                                          }
+                                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                                          aria-label="Remove dynamic field"
+                                        >
+                                          <Trash2 size={16} />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             </div>
+                          </DrawerSectionCard>
+
+                          <DrawerSectionCard
+                            title="Agreements & Terms"
+                            subtitle="Contract terms and agreement documents"
+                            icon={FileText}
+                            accent="indigo"
+                            collapsible
+                            open={overviewOpen.agreementsTerms}
+                            onOpenChange={() => toggleOverviewSection('agreementsTerms')}
+                          >
                             <AgreementTermsSection
                               values={overviewEditForm}
                               onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
@@ -5216,61 +5211,53 @@ export function ClientDetailsDrawer({
                                 </>
                               }
                             />
-                            <div className="rounded-xl border border-slate-200 overflow-hidden">
-                              <button
-                                type="button"
-                                onClick={() => toggleOverviewSection('kycForm')}
-                                className="flex w-full items-center justify-between gap-2 bg-white px-5 py-4 text-left hover:bg-slate-50/50 transition-colors"
-                              >
-                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">KYC Form</h4>
-                                {overviewOpen.kycForm ? (
-                                  <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                                ) : (
-                                  <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                                )}
-                              </button>
-                              {overviewOpen.kycForm ? (
-                                <div className="border-t border-slate-100 p-5 space-y-4 bg-white">
-                                  <KycDocumentsField
-                                    pendingFiles={pendingKycFiles}
-                                    onPendingFilesChange={setPendingKycFiles}
-                                    description=""
-                                    storedFiles={clientKycFiles}
-                                    uploadsBase={uploadsBase}
-                                    onRemoveStored={async (fileId) => {
-                                      await deleteFile(fileId);
-                                      await refetchClientFiles();
-                                    }}
-                                    uploading={uploadingKyc}
-                                    uploadSuccess={kycUploadFeedback.uploadSuccess}
-                                    uploadPercent={kycUploadFeedback.uploadPercent}
-                                    disabled={uploadingAgreements}
-                                    currentForm={overviewEditForm.postServiceKycForm}
-                                    onFormExtracted={(postServiceKycForm) =>
-                                      setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
-                                    }
-                                  />
-                                  <ClientPostServiceKycFormSection
-                                    values={overviewEditForm.postServiceKycForm}
-                                    onChange={(postServiceKycForm) =>
-                                      setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
-                                    }
-                                    disabled={uploadingKyc || uploadingAgreements}
-                                    uploadsBase={uploadsBase}
-                                    pendingFilesByField={pendingPostServiceKycFiles}
-                                    onPendingFilesChange={setPendingPostServiceKycFilesForField}
-                                    onRemoveStoredFile={removeStoredPostServiceKycFile}
-                                    onFormExtracted={(postServiceKycForm) =>
-                                      setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
-                                    }
-                                  />
-                                </div>
-                              ) : null}
-                            </div>
-                          </>
-                        </div>
+                          </DrawerSectionCard>
+
+                          <DrawerSectionCard
+                            title="KYC Form"
+                            subtitle="Identity verification and compliance documents"
+                            icon={Shield}
+                            accent="emerald"
+                            collapsible
+                            open={overviewOpen.kycForm}
+                            onOpenChange={() => toggleOverviewSection('kycForm')}
+                          >
+                            <KycDocumentsField
+                              pendingFiles={pendingKycFiles}
+                              onPendingFilesChange={setPendingKycFiles}
+                              description=""
+                              storedFiles={clientKycFiles}
+                              uploadsBase={uploadsBase}
+                              onRemoveStored={async (fileId) => {
+                                await deleteFile(fileId);
+                                await refetchClientFiles();
+                              }}
+                              uploading={uploadingKyc}
+                              uploadSuccess={kycUploadFeedback.uploadSuccess}
+                              uploadPercent={kycUploadFeedback.uploadPercent}
+                              disabled={uploadingAgreements}
+                              currentForm={overviewEditForm.postServiceKycForm}
+                              onFormExtracted={(postServiceKycForm) =>
+                                setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
+                              }
+                            />
+                            <ClientPostServiceKycFormSection
+                              values={overviewEditForm.postServiceKycForm}
+                              onChange={(postServiceKycForm) =>
+                                setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
+                              }
+                              disabled={uploadingKyc || uploadingAgreements}
+                              uploadsBase={uploadsBase}
+                              pendingFilesByField={pendingPostServiceKycFiles}
+                              onPendingFilesChange={setPendingPostServiceKycFilesForField}
+                              onRemoveStoredFile={removeStoredPostServiceKycFile}
+                              onFormExtracted={(postServiceKycForm) =>
+                                setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
+                              }
+                            />
+                          </DrawerSectionCard>
+                        </>
                       )}
-                    </section>
                     <div className="hidden">
                     {/* 1. Company Snapshot Card */}
                     <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
   Building,
-  Building2,
   Database,
   Globe,
   LayoutDashboard,
@@ -16,7 +15,7 @@ import {
   Users,
 } from 'lucide-react';
 
-export type HqNavTab = 'dashboard' | 'tenants' | 'provision' | 'plans' | 'bootstrap';
+export type HqNavTab = 'dashboard' | 'tenants' | 'plans' | 'bootstrap';
 
 export const HQ_NAV_ITEMS: {
   id: HqNavTab | 'leads' | 'company' | 'portal';
@@ -26,7 +25,6 @@ export const HQ_NAV_ITEMS: {
 }[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/hq', icon: LayoutDashboard },
   { id: 'tenants', label: 'Tenants', href: '/hq?tab=tenants', icon: Users },
-  { id: 'provision', label: 'Create tenant', href: '/hq?tab=provision', icon: Building2 },
   { id: 'plans', label: 'Plans', href: '/hq?tab=plans', icon: Tag },
   { id: 'bootstrap', label: 'Local bootstrap', href: '/hq?tab=bootstrap', icon: Terminal },
   { id: 'leads', label: 'CRM Leads', href: '/hq/leads', icon: Target },

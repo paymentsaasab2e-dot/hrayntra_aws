@@ -51,6 +51,7 @@ import {
   getEffectiveSubscriptionPlan,
   getPlanUsageSnapshot,
 } from './planAccess.service.js';
+import { hqPackagesService } from '../hq/hq-packages.service.js';
 import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
 import { suggestIndustryOptions } from './industrySuggest.service.js';
 import { suggestLanguageOptions, suggestProficiencyOptions } from './languageSuggest.service.js';
@@ -238,10 +239,19 @@ router.get('/subscription-plan', async (req, res) => {
   try {
     const plan = await getEffectiveSubscriptionPlan();
     const planUsage = await getPlanUsageSnapshot();
+    let options = SUBSCRIPTION_PLAN_OPTIONS;
+    try {
+      const packages = await hqPackagesService.listPackages();
+      if (Array.isArray(packages) && packages.length > 0) {
+        options = packages;
+      }
+    } catch (err) {
+      console.warn('[subscription-plan] failed to load HQ packages:', err?.message || err);
+    }
     sendResponse(res, 200, 'OK', {
       plan,
       planUsage,
-      options: SUBSCRIPTION_PLAN_OPTIONS,
+      options,
     });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load subscription plan', error);

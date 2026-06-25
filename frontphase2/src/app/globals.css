@@ -346,3 +346,151 @@
   background: #ffffff;
   box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
 }
+
+/* SAASA CV — inline text editing on PDF / Word */
+.saasa-docx-editable .docx-preview-resume-wrapper,
+.saasa-docx-editable .docx-preview-resume {
+  /* Keep Word layout from docx-preview — do not restyle structure */
+}
+
+.saasa-direct-text-editor {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11pt;
+  line-height: 1.45;
+  color: #0f172a;
+  cursor: text;
+  background: rgb(255 255 255 / 0.92);
+  padding: 1rem 1.25rem;
+  border-radius: 0.5rem;
+}
+
+.saasa-direct-text-editor:focus {
+  outline: none;
+}
+
+.saasa-direct-text-editor .saasa-cv-text-name {
+  font-size: 16pt;
+  margin: 0 0 0.35rem;
+  text-align: center;
+}
+
+.saasa-direct-text-editor .saasa-cv-text-contact {
+  margin: 0 0 1rem;
+  text-align: center;
+  font-size: 10pt;
+}
+
+.saasa-direct-text-editor .saasa-cv-text-heading {
+  margin: 0.85rem 0 0.35rem;
+  font-size: 11pt;
+  letter-spacing: 0.04em;
+}
+
+.saasa-direct-text-editor .saasa-cv-text-body {
+  margin: 0 0 0.35rem;
+}
+
+.saasa-docx-text-node {
+  outline: none;
+  cursor: text;
+  border-radius: 1px;
+}
+
+.saasa-docx-text-node:focus {
+  box-shadow: 0 0 0 2px rgb(59 130 246 / 0.35);
+  background: rgb(255 255 255 / 0.85);
+}
+
+.saasa-pdf-page {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.saasa-pdf-page-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.saasa-pdf-inplace-layer {
+  background: transparent;
+  pointer-events: none;
+}
+
+.saasa-pdf-inplace-layer.saasa-pdf-inplace-layer--active {
+  pointer-events: auto;
+}
+
+.saasa-pdf-inplace-line {
+  outline: none;
+  box-sizing: border-box;
+  font-synthesis: weight style;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+}
+
+/* PDF.js-style: invisible until focused/edited — PDF canvas stays visible underneath */
+.saasa-pdf-inplace-line.saasa-pdf-inplace-line--focused,
+.saasa-pdf-inplace-line.saasa-pdf-inplace-line--edited,
+.saasa-pdf-inplace-line.saasa-pdf-inplace-line--cleared {
+  background: #ffffff !important;
+  color: #111827 !important;
+  overflow: hidden;
+  z-index: 3;
+}
+
+.saasa-pdf-inplace-line.saasa-pdf-inplace-line--cleared {
+  color: transparent !important;
+  min-height: 1em;
+}
+
+.saasa-pdf-line-mask {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background: #ffffff;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.saasa-pdf-inplace-line.saasa-pdf-inplace-line--focused {
+  box-shadow: 0 0 0 2px rgb(59 130 246 / 0.45);
+}
+
+.saasa-pdf-page--text-edit {
+  /* PDF canvas stays visible underneath */
+}
+
+.saasa-pdf-text-layer {
+  background: transparent;
+}
+
+.saasa-pdf-text-layer:not(.saasa-pdf-text-layer--editing) {
+  display: none !important;
+}
+
+.saasa-pdf-text-layer.saasa-pdf-text-layer--editing .saasa-pdf-text-line {
+  cursor: text;
+  background: transparent;
+  color: transparent;
+  caret-color: #0f172a;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.saasa-pdf-text-layer.saasa-pdf-text-layer--editing .saasa-pdf-text-line--focused,
+.saasa-pdf-text-layer.saasa-pdf-text-layer--editing .saasa-pdf-text-line[data-saasa-edited='1'] {
+  background: #ffffff;
+  color: #0f172a;
+  z-index: 2;
+}
+
+.saasa-pdf-text-layer.saasa-pdf-text-layer--editing .saasa-pdf-text-line--focused {
+  box-shadow: 0 0 0 2px rgb(59 130 246 / 0.4);
+}
+
+.saasa-txt-editable:focus {
+  outline: none;
+}

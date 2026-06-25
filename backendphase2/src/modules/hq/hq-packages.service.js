@@ -1,6 +1,12 @@
 import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
-import { DEFAULT_HQ_PACKAGES, toAssignablePlan } from './hq-packages.config.js';
+import {
+  DEFAULT_HQ_PACKAGES,
+  enrichPackageDoc,
+  resolveBillingCycle,
+  resolvePackageSlug,
+  toAssignablePlan,
+} from './hq-packages.config.js';
 
 const HQ_PACKAGES_COLLECTION = 'hq_subscription_packages';
 
@@ -34,13 +40,22 @@ function slugify(value) {
 }
 
 function toPackageRow(doc) {
+  const enriched = enrichPackageDoc(doc);
   return {
     id: doc._id.toString(),
     slug: doc.slug || '',
-    name: doc.name || '',
-    description: doc.description || '',
+    name: enriched.name || doc.name || '',
+    displayName: enriched.displayName,
+    description: enriched.description,
+    price: enriched.price,
+    yearlyPrice: enriched.yearlyPrice,
+    pricePeriod: enriched.pricePeriod,
+    features: enriched.features,
+    isPopular: enriched.isPopular,
     maxUsers: doc.maxUsers ?? null,
     maxJobs: doc.maxJobs ?? null,
+    annualMaxUsers: doc.annualMaxUsers ?? null,
+    annualMaxJobs: doc.annualMaxJobs ?? null,
     isSystem: Boolean(doc.isSystem),
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : doc.createdAt || null,
     updatedAt: doc.updatedAt instanceof Date ? doc.updatedAt.toISOString() : doc.updatedAt || null,
@@ -60,6 +75,14 @@ async function seedDefaultPackagesIfEmpty(collection) {
   );
 }
 
+function parseFeatures(value) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('Features must be an array of bullet points');
+  }
+  return value.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
 function parsePackageInput(data, { partial = false } = {}) {
   const name = data?.name !== undefined ? String(data.name || '').trim() : undefined;
   if (!partial && !name) {
@@ -68,6 +91,15 @@ function parsePackageInput(data, { partial = false } = {}) {
 
   const description =
     data?.description !== undefined ? String(data.description || '').trim() : undefined;
+  const displayName =
+    data?.displayName !== undefined ? String(data.displayName || '').trim() : undefined;
+  const price = data?.price !== undefined ? String(data.price || '').trim() : undefined;
+  const yearlyPrice =
+    data?.yearlyPrice !== undefined ? String(data.yearlyPrice || '').trim() : undefined;
+  const pricePeriod =
+    data?.pricePeriod !== undefined ? String(data.pricePeriod || '').trim() : undefined;
+  const features = data?.features !== undefined ? parseFeatures(data.features) : undefined;
+  const isPopular = data?.isPopular !== undefined ? Boolean(data.isPopular) : undefined;
 
   const parseLimit = (value) => {
     if (value === null || value === '' || value === undefined) return null;
@@ -80,12 +112,24 @@ function parsePackageInput(data, { partial = false } = {}) {
 
   const maxUsers = data?.maxUsers !== undefined ? parseLimit(data.maxUsers) : undefined;
   const maxJobs = data?.maxJobs !== undefined ? parseLimit(data.maxJobs) : undefined;
+  const annualMaxUsers =
+    data?.annualMaxUsers !== undefined ? parseLimit(data.annualMaxUsers) : undefined;
+  const annualMaxJobs =
+    data?.annualMaxJobs !== undefined ? parseLimit(data.annualMaxJobs) : undefined;
 
   const out = {};
   if (name !== undefined) out.name = name;
+  if (displayName !== undefined) out.displayName = displayName;
   if (description !== undefined) out.description = description;
+  if (price !== undefined) out.price = price;
+  if (yearlyPrice !== undefined) out.yearlyPrice = yearlyPrice;
+  if (pricePeriod !== undefined) out.pricePeriod = pricePeriod;
+  if (features !== undefined) out.features = features;
+  if (isPopular !== undefined) out.isPopular = isPopular;
   if (maxUsers !== undefined) out.maxUsers = maxUsers;
   if (maxJobs !== undefined) out.maxJobs = maxJobs;
+  if (annualMaxUsers !== undefined) out.annualMaxUsers = annualMaxUsers;
+  if (annualMaxJobs !== undefined) out.annualMaxJobs = annualMaxJobs;
   return out;
 }
 
@@ -105,24 +149,41 @@ export const hqPackagesService = {
     return doc ? toPackageRow(doc) : null;
   },
 
-  async resolvePlanInput(raw) {
+  async resolvePlanInput(raw, billingCycle, planStartDate) {
     const packages = await this.listPackages();
     if (!raw) return null;
 
+    const cycle = resolveBillingCycle(
+      billingCycle || (typeof raw === 'object' ? raw?.billingCycle : undefined)
+    );
+    const startDate =
+      planStartDate ?? (typeof raw === 'object' ? raw?.planStartDate : undefined);
+
     if (typeof raw === 'string') {
       const s = raw.trim();
+      const key = resolvePackageSlug(s, s);
       const found = packages.find(
-        (p) => p.id === s || p.slug === slugify(s) || p.name.toLowerCase() === s.toLowerCase()
+        (p) =>
+          p.id === s ||
+          p.slug === slugify(s) ||
+          p.slug === key ||
+          p.name.toLowerCase() === s.toLowerCase() ||
+          p.name.toLowerCase() === key
       );
-      return found ? toAssignablePlan(found) : null;
+      return found ? toAssignablePlan(found, cycle, startDate) : null;
     }
 
     const id = String(raw.id || '').trim();
     const name = String(raw.name || '').trim();
+    const key = resolvePackageSlug(id, name);
     const found =
-      packages.find((p) => (id && p.id === id) || (name && p.name.toLowerCase() === name.toLowerCase())) ||
-      null;
-    return found ? toAssignablePlan(found) : null;
+      packages.find(
+        (p) =>
+          (id && p.id === id) ||
+          (name && p.name.toLowerCase() === name.toLowerCase()) ||
+          (key && (p.slug === key || p.name.toLowerCase() === key))
+      ) || null;
+    return found ? toAssignablePlan(found, cycle, startDate) : null;
   },
 
   async createPackage(data) {
@@ -143,6 +204,12 @@ export const hqPackagesService = {
     const now = new Date();
     const doc = {
       slug,
+      displayName: parsed.displayName || parsed.name.toUpperCase(),
+      price: parsed.price || '',
+      yearlyPrice: parsed.yearlyPrice || '',
+      pricePeriod: parsed.pricePeriod || 'per month',
+      features: parsed.features || [],
+      isPopular: parsed.isPopular ?? false,
       ...parsed,
       isSystem: false,
       createdAt: now,
@@ -189,7 +256,7 @@ export const hqPackagesService = {
     const existing = await collection.findOne({ _id: objectId });
     if (!existing) throw new Error('Package not found');
     if (existing.isSystem) {
-      throw new Error('System packages (Basic, Pro, Enterprise) cannot be deleted');
+      throw new Error('System packages (Starter, Professional, Enterprise) cannot be deleted');
     }
     await collection.deleteOne({ _id: objectId });
     return { deleted: true, id };

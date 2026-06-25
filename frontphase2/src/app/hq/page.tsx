@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Hash,
   RefreshCcw,
+  Plus,
 } from 'lucide-react';
 import {
   buildApiUrl,
@@ -21,6 +22,9 @@ import {
   type HqSubscriptionPackage,
 } from '../../lib/api';
 import { HqPackagesPanel } from '../../components/hq/HqPackagesPanel';
+import { CreateTenantModal } from '../../components/hq/CreateTenantModal';
+import { getPackageOptionLabel, getPlanLabel, formatBillingCycleLabel, todayIsoDate, type BillingCycle } from '../../components/hq/hqPackagePresentation';
+import { formatDateDMY } from '../../utils/dateDisplay';
 import type { HqNavTab } from '../../components/hq/HqSidebar';
 import { HQ_NAV_ITEMS } from '../../components/hq/HqSidebar';
 import {
@@ -47,40 +51,89 @@ interface HqStats {
 const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
   dashboard: 'Platform health, tenant counts, and plan distribution.',
   tenants: 'Browse and manage all provisioned tenants.',
-  provision: 'Create a new tenant workspace and database.',
-  plans: 'Create custom packages, set user and job limits, and assign plans to tenant companies.',
+  plans: '',
   bootstrap: 'Local-only super admin credential injection.',
 };
 
 const FALLBACK_PLAN_OPTIONS: HqSubscriptionPackage[] = [
   {
-    id: 'basic',
-    slug: 'basic',
-    name: 'Basic',
-    description: 'Core recruitment for small teams.',
+    id: 'starter',
+    slug: 'starter',
+    name: 'Starter',
+    displayName: 'STARTER',
+    description: 'For small teams hiring their first roles on SAASA B2E.',
+    price: '149',
+    yearlyPrice: '119',
+    pricePeriod: 'per month',
+    features: [
+      'Up to 25 active job postings',
+      'AI CV screening & ATS scoring',
+      'Candidate pipeline & interviews',
+      'Basic analytics dashboard',
+      'Email support (48h response)',
+    ],
+    isPopular: false,
     maxUsers: 5,
     maxJobs: 25,
+    annualMaxUsers: 8,
+    annualMaxJobs: 40,
     isSystem: true,
   },
   {
-    id: 'pro',
-    slug: 'pro',
-    name: 'Pro',
-    description: 'Full HR suite for growing companies.',
+    id: 'professional',
+    slug: 'professional',
+    name: 'Professional',
+    displayName: 'PROFESSIONAL',
+    description: 'For growing companies running hiring and HR in one place.',
+    price: '399',
+    yearlyPrice: '319',
+    pricePeriod: 'per month',
+    features: [
+      'Unlimited job postings',
+      'Full AI recruitment suite',
+      'Employee management & onboarding',
+      'Performance & payroll modules',
+      'Multi-platform job publishing',
+      'Priority support (24h response)',
+      'Team collaboration & roles',
+    ],
+    isPopular: true,
     maxUsers: 25,
     maxJobs: null,
+    annualMaxUsers: 40,
+    annualMaxJobs: null,
     isSystem: true,
   },
   {
     id: 'enterprise',
     slug: 'enterprise',
     name: 'Enterprise',
-    description: 'Unlimited scale for large organizations.',
+    displayName: 'ENTERPRISE',
+    description: 'For large organizations with complex HR operations.',
+    price: '999',
+    yearlyPrice: '799',
+    pricePeriod: 'per month',
+    features: [
+      'Everything in Professional',
+      'Custom workflows & integrations',
+      'Dedicated account manager',
+      'SSO & advanced security',
+      'SLA-backed uptime',
+      'On-premise / private cloud options',
+      'Custom contracts & training',
+    ],
+    isPopular: false,
     maxUsers: null,
     maxJobs: null,
+    annualMaxUsers: null,
+    annualMaxJobs: null,
     isSystem: true,
   },
 ];
+
+function tenantBillingCycle(tenant: HqTenantRow): BillingCycle {
+  return tenant.subscriptionPlan?.billingCycle === 'annual' ? 'annual' : 'monthly';
+}
 
 function tenantPlanId(tenant: HqTenantRow, packages: HqSubscriptionPackage[]) {
   if (tenant.subscriptionPlan?.id) return tenant.subscriptionPlan.id;
@@ -109,7 +162,6 @@ function HQSetupPage() {
   const tabParam = searchParams.get('tab');
   const activeTab: HqNavTab =
     tabParam === 'tenants' ||
-    tabParam === 'provision' ||
     tabParam === 'plans' ||
     tabParam === 'bootstrap'
       ? tabParam
@@ -126,9 +178,12 @@ function HQSetupPage() {
     loginId: '',
     password: '',
     organizationType: 'agency' as 'agency' | 'standalone',
-    plan: 'Basic',
+    plan: 'starter',
+    billingCycle: 'monthly' as BillingCycle,
+    planStartDate: todayIsoDate(),
   });
   const [isProvisionLoading, setIsProvisionLoading] = useState(false);
+  const [createTenantModalOpen, setCreateTenantModalOpen] = useState(false);
 
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({
     type: 'idle',
@@ -166,6 +221,18 @@ function HQSetupPage() {
   useEffect(() => {
     void refreshTenants();
   }, [refreshTenants]);
+
+  useEffect(() => {
+    if (planOptions.length === 0) return;
+    setProvisionData((prev) => {
+      if (planOptions.some((pkg) => pkg.id === prev.plan)) return prev;
+      const starter =
+        planOptions.find((pkg) => pkg.slug === 'starter') ||
+        planOptions.find((pkg) => getPackageOptionLabel(pkg) === 'STARTER') ||
+        planOptions[0];
+      return starter ? { ...prev, plan: starter.id } : prev;
+    });
+  }, [planOptions]);
 
   const handleBootstrapSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,7 +273,15 @@ function HQSetupPage() {
         loginId: provisionData.loginId.trim(),
         password: provisionData.password,
         organizationType: provisionData.organizationType,
-        plan: provisionData.plan ? { name: provisionData.plan } : undefined,
+        billingCycle: provisionData.billingCycle,
+        planStartDate: provisionData.planStartDate,
+        plan: provisionData.plan
+          ? {
+              id: provisionData.plan,
+              billingCycle: provisionData.billingCycle,
+              planStartDate: provisionData.planStartDate,
+            }
+          : undefined,
       });
       const d = res.data as {
         tenantDbName?: string;
@@ -224,7 +299,7 @@ function HQSetupPage() {
         type: 'success',
         message: `Tenant provisioned. DB: ${d?.tenantDbName || '—'} (${
           d?.organizationType || provisionData.organizationType
-        }) — plan: ${d?.subscriptionPlan?.name || provisionData.plan || 'Unassigned'}.${emailSuffix}`,
+        }) — plan: ${getPlanLabel(d?.subscriptionPlan, planOptions) || provisionData.plan || 'Unassigned'}.${emailSuffix}`,
       });
       setProvisionData({
         name: '',
@@ -232,8 +307,11 @@ function HQSetupPage() {
         loginId: '',
         password: '',
         organizationType: 'agency',
-        plan: 'Basic',
+        plan: 'starter',
+        billingCycle: 'monthly',
+        planStartDate: todayIsoDate(),
       });
+      setCreateTenantModalOpen(false);
       void refreshTenants();
     } catch (error: any) {
       setStatus({
@@ -247,16 +325,26 @@ function HQSetupPage() {
     }
   };
 
-  const handleAssignPlan = async (email: string, planId: string) => {
+  const handleAssignPlan = async (
+    email: string,
+    planId: string,
+    billingCycle?: BillingCycle
+  ) => {
     if (!email || !planId) return;
     setPendingPlanEmail(email);
     setStatus({ type: 'idle', message: '' });
     try {
+      const tenant = tenants.find((item) => item.email === email);
+      const cycle = billingCycle ?? (tenant ? tenantBillingCycle(tenant) : 'monthly');
       const pkg = planOptions.find((item) => item.id === planId);
-      await apiHqAssignTenantPlan({ email, plan: { id: planId } });
+      await apiHqAssignTenantPlan({
+        email,
+        billingCycle: cycle,
+        plan: { id: planId, billingCycle: cycle },
+      });
       setStatus({
         type: 'success',
-        message: `Plan for ${email} updated to ${pkg?.name || 'selected package'}.`,
+        message: `Plan for ${email} updated to ${pkg ? getPackageOptionLabel(pkg) : 'selected package'} (${formatBillingCycleLabel(cycle)}).`,
       });
       void refreshTenants();
     } catch (err: any) {
@@ -297,8 +385,12 @@ function HQSetupPage() {
   const planSummaryRows = useMemo(() => {
     const counts = stats?.planCounts || {};
     const known = planOptions.map((opt) => ({
-      name: opt.name,
-      count: counts[opt.name] || 0,
+      name: getPackageOptionLabel(opt),
+      count:
+        counts[opt.name] ||
+        counts[getPackageOptionLabel(opt)] ||
+        counts[String(opt.slug || '').toLowerCase()] ||
+        0,
     }));
     const unassigned = counts['Unassigned'] ?? 0;
     return [...known, { name: 'Unassigned', count: unassigned }];
@@ -312,48 +404,53 @@ function HQSetupPage() {
         transition={{ duration: 0.4, ease: 'easeOut' }}
       >
         <HqPageContainer>
-          <HqPageHeader
-            title={activeNav?.label || 'Dashboard'}
-            subtitle={TAB_DESCRIPTIONS[activeTab]}
-            actions={
-              <HqSecondaryButton onClick={() => void refreshTenants()} disabled={tenantsLoading}>
-                <RefreshCcw className={`h-4 w-4 ${tenantsLoading ? 'animate-spin' : ''}`} />
-                Refresh data
-              </HqSecondaryButton>
-            }
-          />
+          {activeTab !== 'plans' ? (
+            <HqPageHeader
+              title={activeNav?.label || 'Dashboard'}
+              subtitle={TAB_DESCRIPTIONS[activeTab]}
+              actions={
+                <HqSecondaryButton onClick={() => void refreshTenants()} disabled={tenantsLoading}>
+                  <RefreshCcw className={`h-4 w-4 ${tenantsLoading ? 'animate-spin' : ''}`} />
+                  Refresh data
+                </HqSecondaryButton>
+              }
+            />
+          ) : null}
 
         {activeTab === 'dashboard' && (
           <DashboardPanel
             stats={stats}
             tenants={tenants}
             planSummaryRows={planSummaryRows}
+            planOptions={planOptions}
             tenantsError={tenantsError}
             tenantsLoading={tenantsLoading}
           />
         )}
 
         {activeTab === 'tenants' && (
-          <TenantsPanel
-            tenants={tenants}
-            tenantsLoading={tenantsLoading}
-            tenantsError={tenantsError}
-            planOptions={planOptions}
-            onAssignPlan={handleAssignPlan}
-            pendingPlanEmail={pendingPlanEmail}
-            onDeleteTenant={handleDeleteTenant}
-            pendingDeleteEmail={pendingDeleteEmail}
-          />
-        )}
-
-        {activeTab === 'provision' && (
-          <ProvisionPanel
-            data={provisionData}
-            onChange={setProvisionData}
-            onSubmit={handleProvisionSubmit}
-            isLoading={isProvisionLoading}
-            planOptions={planOptions}
-          />
+          <>
+            <TenantsPanel
+              tenants={tenants}
+              tenantsLoading={tenantsLoading}
+              tenantsError={tenantsError}
+              planOptions={planOptions}
+              onAssignPlan={handleAssignPlan}
+              pendingPlanEmail={pendingPlanEmail}
+              onDeleteTenant={handleDeleteTenant}
+              pendingDeleteEmail={pendingDeleteEmail}
+              onCreateTenant={() => setCreateTenantModalOpen(true)}
+            />
+            <CreateTenantModal
+              open={createTenantModalOpen}
+              onClose={() => setCreateTenantModalOpen(false)}
+              data={provisionData}
+              onChange={setProvisionData}
+              onSubmit={handleProvisionSubmit}
+              isLoading={isProvisionLoading}
+              planOptions={planOptions}
+            />
+          </>
         )}
 
         {activeTab === 'plans' && (
@@ -364,6 +461,8 @@ function HQSetupPage() {
             onAssignPlan={handleAssignPlan}
             pendingPlanEmail={pendingPlanEmail}
             onPackagesChanged={refreshTenants}
+            onRefresh={() => void refreshTenants()}
+            refreshing={tenantsLoading}
           />
         )}
 
@@ -393,12 +492,14 @@ function DashboardPanel({
   stats,
   tenants,
   planSummaryRows,
+  planOptions,
   tenantsError,
   tenantsLoading,
 }: {
   stats: HqStats | null;
   tenants: HqTenantRow[];
   planSummaryRows: { name: string; count: number }[];
+  planOptions: HqSubscriptionPackage[];
   tenantsError: string;
   tenantsLoading: boolean;
 }) {
@@ -446,7 +547,7 @@ function DashboardPanel({
                   </div>
                   <div className="shrink-0 text-right">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-sky-700">{t.organizationType}</div>
-                    <div className="text-xs text-slate-500">{t.subscriptionPlan?.name || '—'}</div>
+                    <div className="text-xs text-slate-500">{getPlanLabel(t.subscriptionPlan, planOptions) || '—'}</div>
                   </div>
                 </div>
               ))}
@@ -467,20 +568,26 @@ function TenantsPanel({
   pendingPlanEmail,
   onDeleteTenant,
   pendingDeleteEmail,
+  onCreateTenant,
 }: {
   tenants: HqTenantRow[];
   tenantsLoading: boolean;
   tenantsError: string;
   planOptions: HqSubscriptionPackage[];
-  onAssignPlan: (email: string, planId: string) => void;
+  onAssignPlan: (email: string, planId: string, billingCycle?: BillingCycle) => void;
   pendingPlanEmail: string;
   onDeleteTenant: (email: string, dbName: string) => void;
   pendingDeleteEmail: string;
+  onCreateTenant: () => void;
 }) {
   return (
     <HqPanel className="p-0">
-      <div className="border-b border-slate-100 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <HqPanelTitle title="All tenants" meta={<span className="text-[10px] text-slate-400">{tenants.length} total</span>} />
+        <HqPrimaryButton type="button" onClick={onCreateTenant}>
+          <Plus className="h-4 w-4" />
+          Create tenant
+        </HqPrimaryButton>
       </div>
       {tenantsError ? (
         <div className="m-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700">{tenantsError}</div>
@@ -496,6 +603,9 @@ function TenantsPanel({
                 <th className="py-2 pr-3">Type</th>
                 <th className="py-2 pr-3">DB</th>
                 <th className="py-2 pr-3">Plan</th>
+                <th className="py-2 pr-3">Billing</th>
+                <th className="py-2 pr-3">Start</th>
+                <th className="py-2 pr-3">End</th>
                 <th className="py-2 pl-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -509,17 +619,38 @@ function TenantsPanel({
                   <td className="py-3 pr-3">
                     <select
                       value={tenantPlanId(t, planOptions)}
-                      onChange={(e) => onAssignPlan(t.email, e.target.value)}
+                      onChange={(e) => onAssignPlan(t.email, e.target.value, tenantBillingCycle(t))}
                       disabled={pendingPlanEmail === t.email}
                       className={HQ_SELECT_CLASS}
                     >
                       <option value="">—</option>
                       {planOptions.map((opt) => (
                         <option key={opt.id} value={opt.id}>
-                          {opt.name}
+                          {getPackageOptionLabel(opt)}
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td className="py-3 pr-3">
+                    <select
+                      value={tenantBillingCycle(t)}
+                      onChange={(e) => {
+                        const planId = tenantPlanId(t, planOptions);
+                        if (!planId) return;
+                        onAssignPlan(t.email, planId, e.target.value as BillingCycle);
+                      }}
+                      disabled={pendingPlanEmail === t.email || !tenantPlanId(t, planOptions)}
+                      className={HQ_SELECT_CLASS}
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="annual">Annual</option>
+                    </select>
+                  </td>
+                  <td className="py-3 pr-3 text-xs text-slate-600">
+                    {formatDateDMY(t.subscriptionPlan?.planStartDate) || '—'}
+                  </td>
+                  <td className="py-3 pr-3 text-xs text-slate-600">
+                    {formatDateDMY(t.subscriptionPlan?.planEndDate) || '—'}
                   </td>
                   <td className="py-3 pl-3 text-right">
                     <button
@@ -539,135 +670,6 @@ function TenantsPanel({
         </div>
       )}
     </HqPanel>
-  );
-}
-
-function ProvisionPanel({
-  data,
-  onChange,
-  onSubmit,
-  isLoading,
-  planOptions,
-}: {
-  data: {
-    name: string;
-    email: string;
-    loginId: string;
-    password: string;
-    organizationType: 'agency' | 'standalone';
-    plan: string;
-  };
-  onChange: (
-    next: {
-      name: string;
-      email: string;
-      loginId: string;
-      password: string;
-      organizationType: 'agency' | 'standalone';
-      plan: string;
-    }
-  ) => void;
-  onSubmit: (e: React.FormEvent) => void;
-  isLoading: boolean;
-  planOptions: HqSubscriptionPackage[];
-}) {
-  return (
-    <form onSubmit={onSubmit} className="max-w-2xl space-y-5">
-      <HqPanel>
-      <p className="text-sm leading-relaxed text-slate-500">
-        Sign in to the main tenant app first so your access token is stored; this calls{' '}
-        <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-sky-800">POST /api/v1/hq/provision-tenant</code>.
-        Provisioning creates a workspace record + dedicated tenant DB, seeds the chosen plan, and{' '}
-        <span className="font-semibold text-emerald-700">emails the new admin their login credentials automatically</span>.
-      </p>
-
-      <div className="mt-5 space-y-5">
-      <HqFieldText
-        label="Tenant admin name"
-        icon={User}
-        value={data.name}
-        onChange={(v) => onChange({ ...data, name: v })}
-        placeholder="Acme HR Admin"
-      />
-      <HqFieldText
-        label="Email"
-        icon={Mail}
-        type="email"
-        value={data.email}
-        onChange={(v) => onChange({ ...data, email: v })}
-        placeholder="admin@tenant.com"
-      />
-      <HqFieldText
-        label="Login ID"
-        icon={Hash}
-        value={data.loginId}
-        onChange={(v) => onChange({ ...data, loginId: v })}
-        placeholder="acme_admin"
-      />
-      <HqFieldText
-        label="Password (min 8)"
-        icon={Lock}
-        type="password"
-        minLength={8}
-        value={data.password}
-        onChange={(v) => onChange({ ...data, password: v })}
-      />
-
-      <div className="space-y-2">
-        <label className="ml-1 text-xs font-bold uppercase tracking-wider text-slate-500">Organization type</label>
-        <div className="flex flex-wrap gap-4 text-sm text-slate-700">
-          <label className="inline-flex cursor-pointer items-center gap-2">
-            <input
-              type="radio"
-              name="orgType"
-              checked={data.organizationType === 'agency'}
-              onChange={() => onChange({ ...data, organizationType: 'agency' })}
-            />
-            Agency
-          </label>
-          <label className="inline-flex cursor-pointer items-center gap-2">
-            <input
-              type="radio"
-              name="orgType"
-              checked={data.organizationType === 'standalone'}
-              onChange={() => onChange({ ...data, organizationType: 'standalone' })}
-            />
-            Standalone
-          </label>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <label className="ml-1 text-xs font-bold uppercase tracking-wider text-slate-500">Plan</label>
-        <div className="flex flex-wrap gap-2">
-          {planOptions.map((opt) => {
-            const active = data.plan === opt.name;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => onChange({ ...data, plan: opt.name })}
-                className={`rounded-lg border px-4 py-2 text-xs font-bold transition-colors ${
-                  active
-                    ? 'border-sky-300 bg-sky-50 text-sky-800'
-                    : 'border-slate-200 text-slate-600 hover:border-sky-200 hover:bg-slate-50'
-                }`}
-              >
-                {opt.name}
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-xs text-slate-400">Package limits and enabled functions are stored on the tenant workspace.</p>
-      </div>
-
-      <HqPrimaryButton type="submit" disabled={isLoading} loading={isLoading} className="w-full">
-        Provision tenant
-        <ArrowRight className="h-4 w-4" />
-      </HqPrimaryButton>
-      </div>
-      </HqPanel>
-    </form>
   );
 }
 

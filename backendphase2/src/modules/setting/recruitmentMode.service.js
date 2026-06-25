@@ -190,8 +190,13 @@ export async function getSubscriptionPlan() {
     return {
       id: v.id ? String(v.id) : null,
       name: String(v.name).trim(),
+      billingCycle: String(v.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
       maxUsers: v.maxUsers ?? null,
       maxJobs: v.maxJobs ?? null,
+      ...(v.planStartDate ? { planStartDate: String(v.planStartDate).trim() } : {}),
+      ...(v.planEndDate ? { planEndDate: String(v.planEndDate).trim() } : {}),
+      ...(v.isTrial ? { isTrial: true } : {}),
+      ...(v.trialDays ? { trialDays: Number(v.trialDays) || undefined } : {}),
     };
   }
   return null;
@@ -200,12 +205,19 @@ export async function getSubscriptionPlan() {
 export async function setSubscriptionPlan(plan) {
   const name = String(plan?.name ?? plan ?? '').trim();
   if (!name) throw new Error('Plan name is required');
+  const planStartDate = String(plan?.planStartDate || '').trim();
+  const planEndDate = String(plan?.planEndDate || '').trim();
   const payload = {
     ...(plan?.id ? { id: String(plan.id) } : {}),
     name,
+    billingCycle: String(plan?.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
     maxUsers: plan?.maxUsers ?? null,
     maxJobs: plan?.maxJobs ?? null,
-  };
+      ...(planStartDate ? { planStartDate } : {}),
+      ...(planEndDate ? { planEndDate } : {}),
+      ...(plan?.isTrial ? { isTrial: true } : {}),
+      ...(plan?.trialDays ? { trialDays: Number(plan.trialDays) || undefined } : {}),
+    };
   await upsertOrgSettingJson(KEY_SUBSCRIPTION_PLAN, payload);
   return payload;
 }

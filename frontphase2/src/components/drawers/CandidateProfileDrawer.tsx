@@ -23,6 +23,7 @@ import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import type { AuditMeta } from '../../types/audit';
 import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
+import { DrawerSectionCard, DRAWER_FORM_SCROLL_BG } from './drawerFormUi';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { AnimatePresence, motion } from 'motion/react';
 import { requestSuccess } from '../../lib/appDialog';
@@ -53,6 +54,8 @@ import {
   UserCircle2,
   Video,
   X,
+  Activity,
+  Paperclip,
 } from 'lucide-react';
 import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
@@ -4253,7 +4256,7 @@ export function CandidateProfileDrawer({
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+                  <div className={`flex-1 overflow-y-auto px-5 py-5 sm:px-6 ${DRAWER_FORM_SCROLL_BG}`}>
                     {loadingCandidateProfile ? (
                       <div className="flex min-h-[20rem] flex-col items-center justify-center gap-3 text-slate-500">
                         <Loader2 size={28} className="animate-spin text-blue-600" />
@@ -4377,21 +4380,6 @@ export function CandidateProfileDrawer({
                       <SquarePen size={15} />
                       {showEditModal ? 'Editing Overview' : 'Edit Candidate'}
                     </button>
-                    {onUpdateCandidate ? (
-                      <button
-                        type="button"
-                        onClick={() => void cvEditor.openEditor()}
-                        disabled={cvEditor.busy}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {cvEditor.cvEditorLoading ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <FileText size={15} />
-                        )}
-                        Edit CV
-                      </button>
-                    ) : null}
                     {candidate?.resumeUrl?.trim() ? (
                       <button
                         type="button"
@@ -4453,7 +4441,7 @@ export function CandidateProfileDrawer({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+              <div className={`flex-1 overflow-y-auto px-5 py-5 sm:px-6 ${DRAWER_FORM_SCROLL_BG}`}>
                 {activeTab === 'Overview' && (
                   <div className="space-y-5">
                     {showEditModal && onUpdateCandidate ? (
@@ -4550,14 +4538,13 @@ export function CandidateProfileDrawer({
                   };
 
                   return (
-                    <section className="rounded-2xl border border-slate-200 bg-white p-5">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-sm font-semibold text-slate-900">Interviews</h3>
-                          <p className="mt-1 text-sm text-slate-500">
-                            View scheduled interviews and schedule new ones from this drawer.
-                          </p>
-                        </div>
+                    <DrawerSectionCard
+                      title="Interviews"
+                      subtitle="Scheduled and completed interviews for this candidate"
+                      icon={Calendar}
+                      accent="amber"
+                    >
+                      <div className="flex flex-wrap items-center justify-end gap-3">
                         <button
                           type="button"
                           onClick={() => handleAction('schedule-interview')}
@@ -4568,7 +4555,7 @@ export function CandidateProfileDrawer({
                         </button>
                       </div>
 
-                      <div className="mt-5 space-y-3">
+                      <div className="space-y-3">
                         {interviews.length === 0 ? (
                           <div className="flex min-h-[14rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
                             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
@@ -4675,7 +4662,7 @@ export function CandidateProfileDrawer({
                           ))
                         )}
                       </div>
-                    </section>
+                    </DrawerSectionCard>
                   );
                 })()}
 
@@ -4688,16 +4675,20 @@ export function CandidateProfileDrawer({
                 ) : null}
 
                 {activeTab === 'Activity' && (
-                  <section className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <div className="space-y-5">
                     <EntityAuditSummary
                       audit={
                         candidate?.auditMeta ??
                         extractAuditMeta(candidate as Record<string, unknown> | undefined)
                       }
-                      className="mb-4"
                     />
-                    <h3 className="text-sm font-semibold text-slate-900">Recent Activity</h3>
-                    <div ref={activityContainerRef} className="mt-4 max-h-[32rem] space-y-6 overflow-y-auto pr-1">
+                    <DrawerSectionCard
+                      title="Recent Activity"
+                      subtitle="Stage changes, interviews, notes, and resume parsing"
+                      icon={Activity}
+                      accent="blue"
+                    >
+                    <div ref={activityContainerRef} className="max-h-[32rem] space-y-6 overflow-y-auto pr-1">
                       {groupedActivity.length > 0 ? (
                         groupedActivity.map((group, groupIndex) => (
                           <div key={`${group.label || 'activity'}-${groupIndex}`}>
@@ -4787,11 +4778,18 @@ export function CandidateProfileDrawer({
                         </div>
                       )}
                     </div>
-                  </section>
+                    </DrawerSectionCard>
+                  </div>
                 )}
 
                 {activeTab === 'Remarks' && (
-                  <InternalNotesSection
+                  <DrawerSectionCard
+                    title="Remarks"
+                    subtitle="Internal notes and comments"
+                    icon={MessageSquareText}
+                    accent="rose"
+                  >
+                    <InternalNotesSection
                     notes={candidate.notes || []}
                     candidateId={candidate.id}
                     currentUser={fallbackCurrentUser}
@@ -4800,12 +4798,16 @@ export function CandidateProfileDrawer({
                     onDeleteNote={onDeleteNote}
                     onPinNote={onPinNote}
                   />
+                  </DrawerSectionCard>
                 )}
 
                 {activeTab === 'Tags' && (
-                  <section className="rounded-2xl border border-slate-200 bg-white p-5">
-                    <h3 className="text-sm font-semibold text-slate-900">Tags</h3>
-                    <div className="mt-4">
+                  <DrawerSectionCard
+                    title="Tags"
+                    subtitle="Organize and filter candidates"
+                    icon={Tag}
+                    accent="violet"
+                  >
                       <CandidateTagSystem
                         candidateId={candidate.id}
                         existingTags={candidate.tags || []}
@@ -4814,17 +4816,17 @@ export function CandidateProfileDrawer({
                         onRemoveTag={onRemoveTag}
                         onCreateTag={onCreateTag}
                       />
-                    </div>
-                  </section>
+                  </DrawerSectionCard>
                 )}
 
                 {activeTab === 'Files' && (
-                  <section className="rounded-2xl border border-slate-200 bg-white p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-900">Files</h3>
-                        <p className="mt-1 text-sm text-slate-500">Upload and manage candidate documents.</p>
-                      </div>
+                  <DrawerSectionCard
+                    title="Files"
+                    subtitle="Upload and manage candidate documents"
+                    icon={Paperclip}
+                    accent="indigo"
+                  >
+                    <div className="flex flex-wrap items-center justify-end gap-3">
                       <DocumentUploadButton
                         disabled={!candidate?.id}
                         isUploading={candidateFilesUploading}
@@ -4838,10 +4840,10 @@ export function CandidateProfileDrawer({
                     </div>
 
                     {candidateFilesError ? (
-                      <p className="mt-3 text-sm text-red-600">{candidateFilesError}</p>
+                      <p className="text-sm text-red-600">{candidateFilesError}</p>
                     ) : null}
 
-                    <div className="mt-4 space-y-4">
+                    <div className="space-y-4">
                       <CandidateCvFilesSection
                         candidate={candidate}
                         cvEditor={cvEditor}
@@ -4899,17 +4901,24 @@ export function CandidateProfileDrawer({
                         <p className="text-sm text-slate-500">No files uploaded.</p>
                       ) : null}
                     </div>
-                  </section>
+                  </DrawerSectionCard>
                 )}
 
                 {activeTab === 'Chat' && (
-                  <DrawerEntityChatTab
-                    entityType="CANDIDATE"
-                    entityId={candidate?.id}
-                    entityLabel={candidate?.name}
-                    isActive={activeTab === 'Chat'}
-                    isOpen={isOpen}
-                  />
+                  <DrawerSectionCard
+                    title="Chat"
+                    subtitle={`Messages with ${candidate?.name || 'candidate'}`}
+                    icon={MessageSquare}
+                    accent="blue"
+                  >
+                    <DrawerEntityChatTab
+                      entityType="CANDIDATE"
+                      entityId={candidate?.id}
+                      entityLabel={candidate?.name}
+                      isActive={activeTab === 'Chat'}
+                      isOpen={isOpen}
+                    />
+                  </DrawerSectionCard>
                 )}
               </div>
                 </div>

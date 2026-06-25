@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { ClipboardList, Loader2 } from 'lucide-react';
 import { getCandidateAssessmentResults } from '@/lib/api';
 import {
   AssessmentReviewRow,
   type AssessmentResult,
 } from '../jobs/ApplicationAssessmentResults';
+import { DrawerSectionCard } from '../drawers/drawerFormUi';
 
 type JobAssessmentGroup = {
   jobId: string;
@@ -72,48 +73,51 @@ export function CandidateAssessmentsTabPanel({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-10 text-sm text-slate-500">
-        <Loader2 className="size-4 animate-spin" />
-        Loading assessment results…
-      </div>
+      <DrawerSectionCard title="Assessments" subtitle="Loading results…" icon={ClipboardList} accent="violet">
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
+          <Loader2 className="size-4 animate-spin" />
+          Loading assessment results…
+        </div>
+      </DrawerSectionCard>
     );
   }
 
   if (error) {
     return (
-      <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
-        {error}
-      </div>
+      <DrawerSectionCard title="Assessments" subtitle="Could not load results" icon={ClipboardList} accent="violet">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
+      </DrawerSectionCard>
     );
   }
 
   if (!totalAssessments) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+      <DrawerSectionCard
+        title="Assessments"
+        subtitle="Pre-screen tests and review controls"
+        icon={ClipboardList}
+        accent="violet"
+      >
         <p className="text-sm font-medium text-slate-700">No assessments submitted yet</p>
         <p className="mt-1 text-xs text-slate-500">
-          Pre-screen tests completed by this candidate will appear here with scores, answers, and
-          review controls.
+          Pre-screen tests completed by this candidate will appear here with scores, answers, and review
+          controls.
         </p>
-      </div>
+      </DrawerSectionCard>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {visibleGroups.map((group) => (
-        <section
+        <DrawerSectionCard
           key={group.jobId || group.jobTitle}
-          className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+          title={group.jobTitle}
+          subtitle={`${group.results.length} assessment${group.results.length === 1 ? '' : 's'} submitted`}
+          icon={ClipboardList}
+          accent="violet"
         >
-          <div className="border-b border-slate-100 px-4 py-3">
-            <p className="text-sm font-semibold text-slate-900">{group.jobTitle}</p>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {group.results.length} assessment{group.results.length === 1 ? '' : 's'} submitted
-            </p>
-          </div>
-
-          <ul className="space-y-2 p-4">
+          <ul className="space-y-2">
             {group.results.map((row) => (
               <AssessmentReviewRow
                 key={row.sessionId || `${group.jobId}-${row.title}`}
@@ -135,7 +139,7 @@ export function CandidateAssessmentsTabPanel({
               />
             ))}
           </ul>
-        </section>
+        </DrawerSectionCard>
       ))}
     </div>
   );

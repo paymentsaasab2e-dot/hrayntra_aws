@@ -16,6 +16,7 @@ import {
   ImagePlus,
   Star,
   Trash2,
+  Type,
   Undo2,
   X,
 } from 'lucide-react';
@@ -47,6 +48,15 @@ import {
   type SaasaCvPdfDocumentMeta,
 } from '../../lib/saasaCvPdfRender';
 import {
+  applyInPlacePdfTextHtmlToHost,
+  attachInPlacePdfTextToHost,
+  collectInPlacePdfTextHtml,
+  collectInPlacePdfTextHtmlRaw,
+  enforcePdfPageLayout,
+  resyncInPlacePdfTextLayers,
+  setInPlacePdfTextEditing,
+} from '../../lib/saasaCvPdfTextLayer';
+import {
   clientToPaintSurfacePercent,
   type DraftPaint,
   findAnnotationsHitByEraser,
@@ -54,7 +64,13 @@ import {
   syncCanvasToDocumentSize,
 } from '../../lib/saasaCvPaintCanvas';
 
-type ActiveTool = SaasaCvAnnotationType | 'eraser' | 'scroll' | null;
+type ActiveTool = SaasaCvAnnotationType | 'eraser' | 'scroll' | 'editText' | null;
+
+type SaasaCvEditorSnapshot = {
+  annotations: SaasaCvAnnotation[];
+  documentHtml: string | null;
+  pdfTextLayerHtml: string[] | null;
+};
 
 function isAnnotateOverlayTool(tool: ActiveTool): boolean {
   return tool != null && tool !== 'scroll';
@@ -67,13 +83,19 @@ interface SaasaCvAnnotationModalProps {
   candidateName?: string;
   initialAnnotations?: SaasaCvAnnotation[];
   initialCompanyLogo?: SaasaCvCompanyLogo | null;
+  initialDocumentHtml?: string | null;
+  initialPdfTextLayerHtml?: string[] | null;
   canEdit?: boolean;
   saving?: boolean;
   onSave?: (
     items: SaasaCvAnnotation[],
     exportPayload: Blob | HTMLCanvasElement | null,
     companyLogo: SaasaCvCompanyLogo | null,
-    fullSnapshot?: boolean
+    fullSnapshot?: boolean,
+    documentEdits?: {
+      documentHtml?: string | null;
+      pdfTextLayerHtml?: string[] | null;
+    }
   ) => Promise<boolean>;
   onExportError?: (message: string) => void;
 }
@@ -94,6 +116,13 @@ const TOOL_CONFIG: {
     label: 'Scroll CV',
     hint: 'Scroll this panel to move through all CV pages',
     icon: <Hand size={16} />,
+    usesBrush: false,
+  },
+  {
+    type: 'editText',
+    label: 'Edit text',
+    hint: 'Click any line on the CV to edit text in the same position',
+    icon: <Type size={16} />,
     usesBrush: false,
   },
   {
@@ -187,6 +216,8 @@ export function SaasaCvAnnotationModal({
   candidateName = 'Candidate',
   initialAnnotations = [],
   initialCompanyLogo = null,
+  initialDocumentHtml = null,
+  initialPdfTextLayerHtml = null,
   canEdit = true,
   saving = false,
   onSave,
@@ -224,10 +255,17 @@ export function SaasaCvAnnotationModal({
   const [draft, setDraft] = useState<DraftPaint | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftText, setDraftText] = useState('');
-  const [undoStack, setUndoStack] = useState<SaasaCvAnnotation[][]>([]);
-  const [redoStack, setRedoStack] = useState<SaasaCvAnnotation[][]>([]);
+  const [undoStack, setUndoStack] = useState<SaasaCvEditorSnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<SaasaCvEditorSnapshot[]>([]);
   const [spacePanHeld, setSpacePanHeld] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [documentHtml, setDocumentHtml] = useState<string | null>(initialDocumentHtml);
+  const [pdfTextLayerHtml, setPdfTextLayerHtml] = useState<string[] | null>(initialPdfTextLayerHtml);
+  const [pdfTextEditReady, setPdfTextEditReady] = useState(false);
+  const [forcePdfEditorCapture, setForcePdfEditorCapture] = useState(false);
+
+  const initialPdfTextLayerHtmlRef = useRef(initialPdfTextLayerHtml);
+  initialPdfTextLayerHtmlRef.current = initialPdfTextLayerHtml;
 
   const surfaceRef = useRef<HTMLDivElement>(null);
   const cvScrollRef = useRef<HTMLDivElement>(null);
@@ -240,6 +278,11 @@ export function SaasaCvAnnotationModal({
   const annotationsRef = useRef(annotations);
   const paintRedrawRef = useRef<() => void>(() => {});
   const pdfLoadGenRef = useRef(0);
+  const textEditBaselineRef = useRef<SaasaCvEditorSnapshot | null>(null);
+  const textUndoPushedRef = useRef(false);
+
+  const initialDocumentHtmlRef = useRef(initialDocumentHtml);
+  initialDocumentHtmlRef.current = initialDocumentHtml;
 
   const initialRef = useRef(initialAnnotations);
   initialRef.current = initialAnnotations;
@@ -247,10 +290,92 @@ export function SaasaCvAnnotationModal({
   annotationsRef.current = annotations;
 
   const usesBrush = activeTool === 'draw' || activeTool === 'highlight';
-  const pushUndo = useCallback((snapshot: SaasaCvAnnotation[]) => {
-    setUndoStack((prev) => [...prev.slice(-(UNDO_MAX - 1)), snapshot]);
-    setRedoStack([]);
-  }, []);
+
+  const captureEditorSnapshot = useCallback((): SaasaCvEditorSnapshot => {
+    let nextDocumentHtml = documentHtml;
+    let nextPdfTextLayerHtml: string[] | null = pdfTextLayerHtml;
+
+    if (canWord && surfaceRef.current) {
+      const body = surfaceRef.current.querySelector('.resume-docx-body');
+      if (body instanceof HTMLElement) {
+        nextDocumentHtml = body.innerHTML;
+      }
+    }
+
+    if (canPdf && pdfHostRef.current) {
+      nextPdfTextLayerHtml = collectInPlacePdfTextHtmlRaw(pdfHostRef.current);
+    }
+
+    if (canText && surfaceRef.current) {
+      const pre = surfaceRef.current.querySelector('.saasa-txt-editable');
+      if (pre instanceof HTMLElement) {
+        nextDocumentHtml = pre.textContent ?? '';
+      }
+    }
+
+    return {
+      annotations: [...annotationsRef.current],
+      documentHtml: nextDocumentHtml,
+      pdfTextLayerHtml: nextPdfTextLayerHtml,
+    };
+  }, [canWord, canText, canPdf, documentHtml, pdfTextLayerHtml]);
+
+  const applyEditorSnapshot = useCallback(
+    (snap: SaasaCvEditorSnapshot) => {
+      setAnnotations(snap.annotations);
+      annotationsRef.current = snap.annotations;
+      setDocumentHtml(snap.documentHtml);
+      setPdfTextLayerHtml(snap.pdfTextLayerHtml);
+
+      if (canWord && surfaceRef.current) {
+        const body = surfaceRef.current.querySelector('.resume-docx-body');
+        if (body instanceof HTMLElement) {
+          body.innerHTML = snap.documentHtml ?? '';
+        }
+      }
+
+      if (canPdf && pdfHostRef.current) {
+        const host = pdfHostRef.current;
+        if (snap.pdfTextLayerHtml?.some((h) => h.trim())) {
+          if (host.querySelector('.saasa-pdf-inplace-layer')) {
+            applyInPlacePdfTextHtmlToHost(host, snap.pdfTextLayerHtml, false);
+          }
+        } else if (host.querySelector('.saasa-pdf-inplace-layer') && href) {
+          host.querySelectorAll('.saasa-pdf-inplace-layer').forEach((el) => el.remove());
+          setPdfTextEditReady(false);
+          if (activeTool === 'editText' || forcePdfEditorCapture) {
+            void attachInPlacePdfTextToHost(host, buildResumeViewerUrl(href), {
+              editing: true,
+              savedLayerHtml: null,
+            }).then(() => setPdfTextEditReady(true));
+          }
+        }
+      }
+
+      if (canText && surfaceRef.current) {
+        const pre = surfaceRef.current.querySelector('.saasa-txt-editable');
+        if (pre instanceof HTMLElement) {
+          pre.textContent = snap.documentHtml ?? '';
+        }
+      }
+
+      if (canPdf && pdfHostRef.current) {
+        enforcePdfPageLayout(pdfHostRef.current);
+      }
+
+      requestAnimationFrame(() => paintRedrawRef.current());
+    },
+    [canWord, canPdf, canText, href, activeTool, forcePdfEditorCapture]
+  );
+
+  const pushEditorUndo = useCallback(
+    (snapshot?: SaasaCvEditorSnapshot) => {
+      const snap = snapshot ?? captureEditorSnapshot();
+      setUndoStack((prev) => [...prev.slice(-(UNDO_MAX - 1)), snap]);
+      setRedoStack([]);
+    },
+    [captureEditorSnapshot]
+  );
 
   const paintRedraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -317,6 +442,11 @@ export function SaasaCvAnnotationModal({
     setLogoDragging(false);
     setUndoStack([]);
     setRedoStack([]);
+    setDocumentHtml(initialDocumentHtmlRef.current);
+    setPdfTextLayerHtml(initialPdfTextLayerHtmlRef.current);
+    setPdfTextEditReady(false);
+    textEditBaselineRef.current = null;
+    textUndoPushedRef.current = false;
     drawingRef.current = false;
     eraserHitIdsRef.current = new Set();
   }, [isOpen]);
@@ -343,7 +473,10 @@ export function SaasaCvAnnotationModal({
         .then((meta) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
           setPdfDocMeta(meta);
-          requestAnimationFrame(() => paintRedrawRef.current());
+          requestAnimationFrame(() => {
+            enforcePdfPageLayout(host);
+            paintRedrawRef.current();
+          });
         })
         .catch((e: unknown) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
@@ -371,6 +504,55 @@ export function SaasaCvAnnotationModal({
       cancelled = true;
     };
   }, [isOpen, canPdf, href]);
+
+  useEffect(() => {
+    if (!isOpen || !canPdf || !href || !pdfDocMeta?.totalHeight) return;
+
+    const host = pdfHostRef.current;
+    if (!host?.querySelector('canvas')) return;
+
+    if (activeTool !== 'editText' && !forcePdfEditorCapture) {
+      setInPlacePdfTextEditing(host, false);
+      return;
+    }
+
+    const existingLayers = host.querySelector(`.saasa-pdf-inplace-layer`);
+    if (existingLayers) {
+      setInPlacePdfTextEditing(host, true);
+      setPdfTextEditReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    const viewerUrl = buildResumeViewerUrl(href);
+
+    void attachInPlacePdfTextToHost(host, viewerUrl, {
+      editing: true,
+      savedLayerHtml: initialPdfTextLayerHtmlRef.current,
+    })
+      .then(() => {
+        if (cancelled) return;
+          setPdfTextEditReady(true);
+          enforcePdfPageLayout(host);
+        })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setPdfError(e instanceof Error ? e.message : 'Failed to prepare CV text for editing');
+        setPdfTextEditReady(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, canPdf, href, pdfDocMeta?.totalHeight, activeTool, forcePdfEditorCapture]);
+
+  useEffect(() => {
+    if (!canPdf || !pdfHostRef.current || !pdfTextEditReady) return;
+    setInPlacePdfTextEditing(
+      pdfHostRef.current,
+      activeTool === 'editText' || forcePdfEditorCapture
+    );
+  }, [activeTool, forcePdfEditorCapture, canPdf, pdfTextEditReady]);
 
   useEffect(() => {
     if (!isOpen || !canImage) {
@@ -404,7 +586,15 @@ export function SaasaCvAnnotationModal({
     let frame = 0;
     const ro = new ResizeObserver(() => {
       window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => paintRedrawRef.current());
+      frame = window.requestAnimationFrame(() => {
+        if (canPdf && pdfHostRef.current) {
+          resyncInPlacePdfTextLayers(pdfHostRef.current);
+        }
+        if (canPdf && pdfHostRef.current) {
+          enforcePdfPageLayout(pdfHostRef.current);
+        }
+        paintRedrawRef.current();
+      });
     });
     ro.observe(surfaceRef.current);
     return () => {
@@ -485,7 +675,7 @@ export function SaasaCvAnnotationModal({
       const pt = pointerToDocPercent(clientX, clientY);
       if (!canEdit || !pt) return;
       const { x, y } = pt;
-      pushUndo(annotationsRef.current);
+      pushEditorUndo();
       const id = newId();
       setAnnotations((prev) => [
         ...prev,
@@ -503,7 +693,7 @@ export function SaasaCvAnnotationModal({
       setEditingId(id);
       setDraftText('');
     },
-    [canEdit, pushUndo]
+    [canEdit, pushEditorUndo]
   );
 
   const finishDraft = useCallback(() => {
@@ -519,7 +709,7 @@ export function SaasaCvAnnotationModal({
     if (currentDraft.type === 'eraser') {
       eraserHitIdsRef.current = new Set();
     } else if (currentDraft.type === 'draw' && currentDraft.points.length > 2) {
-      pushUndo(annotationsRef.current);
+      pushEditorUndo();
       setAnnotations((prev) => [
         ...prev,
         {
@@ -536,7 +726,7 @@ export function SaasaCvAnnotationModal({
         },
       ]);
     } else if (currentDraft.type === 'highlight' && currentDraft.width > 0.5 && currentDraft.height > 0.5) {
-      pushUndo(annotationsRef.current);
+      pushEditorUndo();
       setAnnotations((prev) => [
         ...prev,
         {
@@ -556,7 +746,7 @@ export function SaasaCvAnnotationModal({
 
     setDraft(null);
     drawingRef.current = false;
-  }, [canEdit, brushColor, brushOpacity, brushSizePx, pushUndo]);
+  }, [canEdit, brushColor, brushOpacity, brushSizePx, pushEditorUndo]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!canEdit || !activeTool) return;
@@ -576,7 +766,7 @@ export function SaasaCvAnnotationModal({
     } else if (activeTool === 'highlight') {
       setDraft({ type: 'highlight', points: [pt], x: pt.x, y: pt.y, width: 0, height: 0 });
     } else if (activeTool === 'eraser') {
-      pushUndo(annotationsRef.current);
+      pushEditorUndo();
       eraserHitIdsRef.current = new Set();
       setDraft({ type: 'eraser', points: [pt], x: pt.x, y: pt.y, width: 0, height: 0 });
     }
@@ -639,21 +829,25 @@ export function SaasaCvAnnotationModal({
     setUndoStack((stack) => {
       if (!stack.length) return stack;
       const prev = stack[stack.length - 1];
-      setRedoStack((r) => [...r, annotationsRef.current]);
-      setAnnotations(prev);
+      setRedoStack((r) => [...r, captureEditorSnapshot()]);
+      applyEditorSnapshot(prev);
+      textEditBaselineRef.current = null;
+      textUndoPushedRef.current = false;
       return stack.slice(0, -1);
     });
-  }, []);
+  }, [applyEditorSnapshot, captureEditorSnapshot]);
 
   const handleRedo = useCallback(() => {
     setRedoStack((stack) => {
       if (!stack.length) return stack;
       const next = stack[stack.length - 1];
-      setUndoStack((u) => [...u, annotationsRef.current]);
-      setAnnotations(next);
+      setUndoStack((u) => [...u, captureEditorSnapshot()]);
+      applyEditorSnapshot(next);
+      textEditBaselineRef.current = null;
+      textUndoPushedRef.current = false;
       return stack.slice(0, -1);
     });
-  }, []);
+  }, [applyEditorSnapshot, captureEditorSnapshot]);
 
   useEffect(() => {
     if (!isOpen || !canEdit) return;
@@ -679,16 +873,63 @@ export function SaasaCvAnnotationModal({
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') setSpacePanHeld(false);
     };
-    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('keyup', onKeyUp);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp);
     };
   }, [isOpen, canEdit, handleUndo, handleRedo]);
 
+  useEffect(() => {
+    if (!isOpen || !canEdit || activeTool !== 'editText') return;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+
+    const isTextTarget = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false;
+      return (
+        el.isContentEditable ||
+        el.classList.contains('saasa-pdf-inplace-line') ||
+        el.closest('.saasa-pdf-inplace-line') != null
+      );
+    };
+
+    const onFocusIn = (e: FocusEvent) => {
+      if (!isTextTarget(e.target)) return;
+      if (!textUndoPushedRef.current) {
+        textEditBaselineRef.current = captureEditorSnapshot();
+      }
+    };
+
+    const onBeforeInput = (e: InputEvent) => {
+      if (!isTextTarget(e.target)) return;
+      if (textEditBaselineRef.current && !textUndoPushedRef.current) {
+        pushEditorUndo(textEditBaselineRef.current);
+        textUndoPushedRef.current = true;
+      }
+    };
+
+    const onFocusOut = (e: FocusEvent) => {
+      if (!isTextTarget(e.target)) return;
+      const related = e.relatedTarget as HTMLElement | null;
+      if (related && isTextTarget(related)) return;
+      textEditBaselineRef.current = null;
+      textUndoPushedRef.current = false;
+    };
+
+    surface.addEventListener('focusin', onFocusIn);
+    surface.addEventListener('beforeinput', onBeforeInput as EventListener);
+    surface.addEventListener('focusout', onFocusOut);
+    return () => {
+      surface.removeEventListener('focusin', onFocusIn);
+      surface.removeEventListener('beforeinput', onBeforeInput as EventListener);
+      surface.removeEventListener('focusout', onFocusOut);
+    };
+  }, [isOpen, canEdit, activeTool, captureEditorSnapshot, pushEditorUndo]);
+
   const removeAnnotation = (id: string) => {
-    pushUndo(annotationsRef.current);
+    pushEditorUndo();
     setAnnotations((prev) => prev.filter((a) => a.id !== id));
     if (editingId === id) {
       setEditingId(null);
@@ -698,7 +939,7 @@ export function SaasaCvAnnotationModal({
 
   const commitEdit = () => {
     if (editingId) {
-      pushUndo(annotationsRef.current);
+      pushEditorUndo();
       setAnnotations((prev) =>
         prev.map((a) => (a.id === editingId ? { ...a, text: draftText.trim() } : a))
       );
@@ -759,6 +1000,38 @@ export function SaasaCvAnnotationModal({
     }
   };
 
+  const collectDocumentEdits = useCallback(() => {
+    let nextDocumentHtml = documentHtml;
+    let nextPdfTextLayerHtml: string[] | null = null;
+
+    if (canWord && surfaceRef.current) {
+      const body = surfaceRef.current.querySelector('.resume-docx-body');
+      if (body instanceof HTMLElement) {
+        nextDocumentHtml = body.innerHTML;
+      }
+    }
+
+    if (canPdf && pdfHostRef.current) {
+      const layers = collectInPlacePdfTextHtml(pdfHostRef.current);
+      if (layers.some((h) => h.trim())) {
+        nextPdfTextLayerHtml = layers;
+        nextDocumentHtml = null;
+      }
+    }
+
+    if (canText && surfaceRef.current) {
+      const pre = surfaceRef.current.querySelector('.saasa-txt-editable');
+      if (pre instanceof HTMLElement) {
+        nextDocumentHtml = pre.textContent ?? '';
+      }
+    }
+
+    return {
+      documentHtml: nextDocumentHtml,
+      pdfTextLayerHtml: nextPdfTextLayerHtml,
+    };
+  }, [canWord, canText, canPdf, documentHtml]);
+
   const handleSave = async () => {
     if (!onSave || saving || exporting) return;
 
@@ -772,10 +1045,16 @@ export function SaasaCvAnnotationModal({
     paintRedraw();
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+    const documentEdits = collectDocumentEdits();
+    const hasTextEdits = Boolean(
+      documentEdits.documentHtml?.trim() ||
+        documentEdits.pdfTextLayerHtml?.some((h) => h.trim())
+    );
+
     setExporting(true);
     try {
       const surfaceReady =
-        Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady;
+        Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady || textPreviewReady;
       const logoPayload = companyLogo?.url?.trim() ? companyLogo : null;
       let exportPayload: Blob | HTMLCanvasElement | null = null;
       let fullSnapshot = false;
@@ -783,7 +1062,31 @@ export function SaasaCvAnnotationModal({
       const { exportSaasaCvDocumentPdf, captureSaasaCvSurfacePdf, withExportTimeout } =
         await import('../../lib/saasaCvExport');
 
-      if (canPdf && pdfDocMeta?.totalHeight && href) {
+      if (
+        hasTextEdits &&
+        surfaceRef.current &&
+        surfaceReady &&
+        (canWord || canPdf || canImage || canText)
+      ) {
+        if (canPdf && documentEdits.pdfTextLayerHtml?.some((h) => h.trim())) {
+          setForcePdfEditorCapture(true);
+          setInPlacePdfTextEditing(pdfHostRef.current, true);
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        }
+        try {
+          const blob = await captureSaasaCvSurfacePdf(surfaceRef.current);
+          if (blob) {
+            exportPayload = blob;
+            fullSnapshot = true;
+          }
+        } catch {
+          /* fall through */
+        } finally {
+          setForcePdfEditorCapture(false);
+        }
+      }
+
+      if (!exportPayload && canPdf && pdfDocMeta?.totalHeight && href) {
         try {
           const blob = await withExportTimeout(
             exportSaasaCvDocumentPdf({
@@ -836,7 +1139,7 @@ export function SaasaCvAnnotationModal({
         return;
       }
 
-      await onSave(items, exportPayload, logoPayload, fullSnapshot);
+      await onSave(items, exportPayload, logoPayload, fullSnapshot, documentEdits);
     } catch (error: unknown) {
       console.error('[SAASA CV] save failed:', error);
     } finally {
@@ -849,9 +1152,19 @@ export function SaasaCvAnnotationModal({
   const pinAnnotations = annotations.filter((a) => a.type === 'comment' || a.type === 'important');
 
   const paintSurfaceReady = Boolean(pdfDocMeta?.totalHeight);
+  const pdfEditMode = canPdf && (activeTool === 'editText' || forcePdfEditorCapture);
   const documentPreviewReady =
-    paintSurfaceReady || wordPreviewReady || imagePreviewReady || textPreviewReady;
+    (paintSurfaceReady && !pdfEditMode) ||
+    pdfTextEditReady ||
+    wordPreviewReady ||
+    imagePreviewReady ||
+    textPreviewReady;
   const docHeightPx = pdfDocMeta?.totalHeight ?? 0;
+  const showPdfPaintLayer =
+    paintSurfaceReady && activeTool !== 'editText' && !forcePdfEditorCapture;
+  const showPaintOverlay =
+    activeTool !== 'editText' &&
+    (showPdfPaintLayer || wordPreviewReady || imagePreviewReady || textPreviewReady);
 
   const renderWordPreview = () => {
     if (canPdf || canImage || !canWord || !href) return null;
@@ -867,6 +1180,10 @@ export function SaasaCvAnnotationModal({
         resumeUrl={href}
         candidateName={candidateName}
         enabled={isOpen}
+        preferBuiltIn
+        editable={canEdit && activeTool === 'editText'}
+        initialDocumentHtml={documentHtml}
+        onDocumentHtmlChange={setDocumentHtml}
         minHeight={CV_VIEWER_MIN_HEIGHT}
         className="relative z-0"
         onReady={handleWordPreviewReady}
@@ -895,6 +1212,9 @@ export function SaasaCvAnnotationModal({
         resumeUrl={href}
         candidateName={candidateName}
         mode="text"
+        editable={canEdit && activeTool === 'editText'}
+        initialTextContent={documentHtml}
+        onTextChange={setDocumentHtml}
         onReady={handleTextPreviewReady}
         onError={handleTextPreviewError}
       />
@@ -933,10 +1253,12 @@ export function SaasaCvAnnotationModal({
   };
 
   const paintOverlayActive =
-    canEdit && isAnnotateOverlayTool(activeTool) && !spacePanHeld;
+    canEdit && isAnnotateOverlayTool(activeTool) && !spacePanHeld && activeTool !== 'editText';
 
   const cursorStyle =
-    spacePanHeld || activeTool === 'scroll'
+    activeTool === 'editText'
+      ? 'text'
+      : spacePanHeld || activeTool === 'scroll'
       ? 'default'
       : activeTool === 'draw'
         ? 'crosshair'
@@ -981,7 +1303,7 @@ export function SaasaCvAnnotationModal({
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">SAASA CV</h3>
                 <p className="text-xs text-slate-500">
-                  {candidateName} · Paint on original CV (canvas brush)
+                  {candidateName} · Paint, edit PDF/Word text, and annotate
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1120,7 +1442,9 @@ export function SaasaCvAnnotationModal({
                   ) : (
                     <div
                       ref={surfaceRef}
-                      className="relative mx-auto w-full select-none rounded-xl border border-slate-200 bg-white"
+                      className={`relative mx-auto w-full rounded-xl border border-slate-200 bg-white ${
+                        pdfEditMode || (canWord && activeTool === 'editText') ? '' : 'select-none'
+                      }`}
                       style={
                         canPdf && paintSurfaceReady
                           ? {
@@ -1144,7 +1468,11 @@ export function SaasaCvAnnotationModal({
                       ) : null}
 
                       {canPdf ? (
-                        <div ref={pdfHostRef} className="relative z-0 w-full" aria-hidden={!paintSurfaceReady} />
+                        <div
+                          ref={pdfHostRef}
+                          className="relative z-0 w-full"
+                          aria-hidden={!paintSurfaceReady}
+                        />
                       ) : (
                         renderNonPdfPreview()
                       )}
@@ -1176,7 +1504,7 @@ export function SaasaCvAnnotationModal({
                         </div>
                       ) : null}
 
-                      {(documentPreviewReady || (!canPdf && !canWord && !canImage && !canText)) && (
+                      {showPaintOverlay ? (
                         <>
                           <canvas
                             ref={canvasRef}
@@ -1197,7 +1525,7 @@ export function SaasaCvAnnotationModal({
                             aria-label="SAASA CV paint layer"
                           />
                         </>
-                      )}
+                      ) : null}
 
                       {pinAnnotations.map((ann) => (
                         <div
@@ -1235,8 +1563,12 @@ export function SaasaCvAnnotationModal({
                   <p className="shrink-0 px-3 pb-2 text-center text-xs text-slate-500">
                     {spacePanHeld
                       ? 'Release Space to return to the selected tool'
-                      : activeTool === 'scroll' || documentPreviewReady
-                        ? 'Scroll this panel — paint stays fixed on the document (MS Paint style)'
+                      : activeTool === 'scroll' || activeTool === 'editText' || documentPreviewReady
+                        ? activeTool === 'editText'
+                          ? canPdf
+                            ? 'Click any line on the CV to edit text in the same position as the PDF'
+                            : 'Click and edit text in the document'
+                          : 'Scroll this panel — paint stays fixed on the document (MS Paint style)'
                         : (canPdf && pdfLoading) || (canImage && imageLoading)
                           ? 'Loading CV…'
                           : activeTool
@@ -1254,8 +1586,8 @@ export function SaasaCvAnnotationModal({
 
               <aside className="flex min-h-0 w-full max-h-[38vh] shrink-0 flex-col border-t border-slate-200 bg-slate-50 lg:max-h-none lg:w-72 lg:shrink-0 lg:border-l lg:border-t-0">
                 <div className="shrink-0 border-b border-slate-200 px-4 py-3">
-                  <h4 className="text-sm font-semibold text-slate-900">Paint tools</h4>
-                  <p className="mt-0.5 text-xs text-slate-500">Same idea as MS Paint — brush, box, eraser</p>
+                  <h4 className="text-sm font-semibold text-slate-900">Tools</h4>
+                  <p className="mt-0.5 text-xs text-slate-500">Edit text, brush, box fill, eraser, notes</p>
                 </div>
 
                 <div

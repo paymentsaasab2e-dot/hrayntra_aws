@@ -22,6 +22,7 @@ export type DirectorContactFieldsProps = {
   contactPersonError?: string;
   emailError?: string;
   onContactPersonBlur?: () => void;
+  boxed?: boolean;
 };
 
 export function DirectorContactFields({
@@ -38,6 +39,7 @@ export function DirectorContactFields({
   contactPersonError,
   emailError,
   onContactPersonBlur,
+  boxed = false,
 }: DirectorContactFieldsProps) {
   const emailRows = ensureMinContactRows(emails, 1);
   const phoneRows = ensureMinContactRows(phones, 1);
@@ -78,17 +80,18 @@ export function DirectorContactFields({
   };
 
   return (
-    <div className="space-y-2">
+    <div className={boxed ? 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-3' : undefined}>
+      <div className="space-y-2">
       <div className="hidden sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.2fr)_minmax(7rem,1fr)_2.5rem] sm:gap-2 sm:px-0">
-        <span className="col-span-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-500">
+        <span className="col-span-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
           <User size={12} />
           Director Name
         </span>
-        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-500">
+        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
           <Mail size={12} />
           Email *
         </span>
-        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-500">
+        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
           <Phone size={12} />
           Mobile Number
         </span>
@@ -176,6 +179,7 @@ export function DirectorContactFields({
       </div>
       {contactPersonError ? <p className="text-xs text-red-600">{contactPersonError}</p> : null}
       {emailError ? <p className="text-xs text-red-600">{emailError}</p> : null}
+      </div>
     </div>
   );
 }

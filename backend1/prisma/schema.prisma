@@ -1537,6 +1537,13 @@ model EmployerDemoRequest {
   companySize      String
   organizationName String
   outcome          String?
+  requestKind      String    @default("demo")
+  trialProvisioned Boolean   @default(false)
+  trialTenantDbName String?
+  trialLoginId     String?
+  trialStartsAt    String?
+  trialEndsAt      String?
+  trialLoginUrl    String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
