@@ -27,6 +27,12 @@ import {
   getCachedOrgRecruitmentMode,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../lib/api';
+import {
+  getCachedOrgSubscriptionPlan,
+  getEmployersPurchaseUrl,
+  getTrialDaysRemaining,
+  isTrialExpired,
+} from '../lib/orgTrialPlan';
 import { formatDirectorDisplay } from '../constants/salutations';
 import { formatDateDMY, formatDateTimeDMY } from '../utils/dateDisplay';
 import { NotificationDrawer } from './NotificationDrawer';
@@ -530,6 +536,9 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [billingNavEnabled, setBillingNavEnabled] = useState(true);
   const [orgPlanName, setOrgPlanName] = useState<string>('');
   const [orgPlanUsage, setOrgPlanUsage] = useState<ReturnType<typeof getCachedOrgPlanUsage>>(null);
+  const [orgSubscriptionPlan, setOrgSubscriptionPlan] = useState(
+    () => (typeof window !== 'undefined' ? getCachedOrgSubscriptionPlan() : null)
+  );
   const [recruitmentMode, setRecruitmentMode] = useState<'agency' | 'standalone'>('agency');
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -554,6 +563,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
       setBillingNavEnabled(isOrgBillingNavEnabled());
       setOrgPlanName(getCachedOrgSubscriptionPlanName());
       setOrgPlanUsage(getCachedOrgPlanUsage());
+      setOrgSubscriptionPlan(getCachedOrgSubscriptionPlan());
       setRecruitmentMode(getCachedOrgRecruitmentMode());
     };
     sync();
@@ -1262,7 +1272,39 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           {/* Plan / Trial banner — once a plan is assigned (via HQ/settings) the
               "Free Trial" banner is replaced with the active plan name. */}
           {!isCollapsed ? (
-            orgPlanName ? (
+            orgSubscriptionPlan?.isTrial ? (
+              <div className="mb-3 rounded-lg p-2.5 bg-emerald-400/8 border border-emerald-400/15">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                    {isTrialExpired(orgSubscriptionPlan) ? 'Trial ended' : '5-day trial'}
+                  </span>
+                  <span className="text-[10px] text-emerald-400/70">
+                    {isTrialExpired(orgSubscriptionPlan)
+                      ? 'Upgrade'
+                      : `${getTrialDaysRemaining(orgSubscriptionPlan) ?? '—'} days left`}
+                  </span>
+                </div>
+                <div className="text-sm font-bold text-emerald-300 truncate">
+                  {orgSubscriptionPlan.name || orgPlanName || 'Starter Trial'}
+                </div>
+                <div className="mt-1 text-[10px] text-emerald-300/80">
+                  {orgSubscriptionPlan.planStartDate
+                    ? `Started ${formatDateDMY(orgSubscriptionPlan.planStartDate)}`
+                    : 'Trial workspace'}
+                  {orgSubscriptionPlan.planEndDate
+                    ? ` · Ends ${formatDateDMY(orgSubscriptionPlan.planEndDate)}`
+                    : ''}
+                </div>
+                <a
+                  href={getEmployersPurchaseUrl()}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 flex w-full items-center justify-center rounded py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 text-[10px] font-semibold transition-colors"
+                >
+                  Purchase plan
+                </a>
+              </div>
+            ) : orgPlanName ? (
               <div className="mb-3 rounded-lg p-2.5 bg-sky-400/8 border border-sky-400/15">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400">Active Plan</span>

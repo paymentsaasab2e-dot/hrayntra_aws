@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Lock, LogIn, User } from 'lucide-react';
 import { apiLogin, formatAuthErrorMessage, getAccessToken, syncTenantDbName } from '../../lib/api';
 import { buildLoginDevicePayload } from '../../lib/sessionAuth';
 import { LoginSessionFlow } from '../../components/session/LoginSessionFlow';
+import { TrialExpiredLoginPrompt } from '../../components/trial/TrialExpiredLoginPrompt';
 import type { ActiveSessionView } from '../../lib/sessionAuth';
 
 export default function LoginPage() {
@@ -165,6 +166,9 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+      <Suspense fallback={null}>
+        <TrialExpiredLoginPrompt />
+      </Suspense>
       {duplicateSession ? (
         <LoginSessionFlow
           identifier={duplicateSession.identifier}

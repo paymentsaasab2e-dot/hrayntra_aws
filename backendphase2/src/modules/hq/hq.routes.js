@@ -27,6 +27,7 @@ router.delete('/tenants/:email', authMiddleware, hqController.deleteTenant);
 router.get('/leads', authMiddleware, hqController.listLeads);
 router.post('/leads', authMiddleware, hqController.createLead);
 router.put('/leads/:id', authMiddleware, hqController.updateLead);
+router.delete('/leads/:id', authMiddleware, hqController.deleteLead);
 router.post('/leads/:id/follow-ups', authMiddleware, hqController.addLeadFollowUp);
 router.put('/leads/:id/follow-ups/:followUpId', authMiddleware, hqController.updateLeadFollowUp);
 router.post('/leads/:id/follow-ups/:followUpId/complete', authMiddleware, hqController.completeLeadFollowUp);
@@ -35,6 +36,7 @@ router.post('/leads/:id/remarks', authMiddleware, hqController.addLeadRemark);
 router.post('/leads/:id/convert-to-company', authMiddleware, hqController.convertLeadToCompany);
 
 router.get('/demos', authMiddleware, hqController.listDemoRequests);
+router.delete('/demos/:id', authMiddleware, hqController.deleteDemoRequest);
 
 router.get('/companies', authMiddleware, hqController.listCompanies);
 router.post('/companies', authMiddleware, hqController.createCompany);

@@ -144,7 +144,11 @@ export function useSaasaCvAnnotations({
       items: SaasaCvAnnotation[],
       exportPayload: Blob | HTMLCanvasElement | null,
       companyLogo: SaasaCvCompanyLogo | null,
-      fullSnapshot = false
+      fullSnapshot = false,
+      documentEdits?: {
+        documentHtml?: string | null;
+        pdfTextLayerHtml?: string[] | null;
+      }
     ) => {
       if (!candidateId || !canEdit) {
         onToast?.('You cannot save annotations for this candidate.');
@@ -161,6 +165,10 @@ export function useSaasaCvAnnotations({
 
         const paintMarks = hasPaintMarks(items);
         const hasPins = items.some((a) => a.type === 'comment' || a.type === 'important');
+        const hasTextEdits = Boolean(
+          documentEdits?.documentHtml?.trim() ||
+            documentEdits?.pdfTextLayerHtml?.some((h) => h.trim())
+        );
         const resolvedLogo = await resolveCompanyLogoForSave(
           companyLogo,
           prevStored?.companyLogo?.url
@@ -168,7 +176,7 @@ export function useSaasaCvAnnotations({
 
         const shouldUploadSnapshot =
           Boolean(exportPayload) &&
-          (fullSnapshot || paintMarks || resolvedLogo?.url || hasPins);
+          (fullSnapshot || paintMarks || resolvedLogo?.url || hasPins || hasTextEdits);
 
         let savedFullSnapshot = fullSnapshot;
         let savedSnapshotFormat: 'pdf' | 'png' | undefined;
@@ -244,8 +252,13 @@ export function useSaasaCvAnnotations({
             fileName,
             fullSnapshot: fileUrl ? savedFullSnapshot : false,
             snapshotFormat: fileUrl ? savedSnapshotFormat : undefined,
+            documentHtml: documentEdits?.pdfTextLayerHtml?.some((h) => h.trim())
+              ? null
+              : (documentEdits?.documentHtml ?? prevStored?.documentHtml ?? null),
+            pdfTextLayerHtml:
+              documentEdits?.pdfTextLayerHtml ?? prevStored?.pdfTextLayerHtml ?? null,
           },
-          fileUrl || items.length > 0 || resolvedLogo?.url
+          fileUrl || items.length > 0 || resolvedLogo?.url || hasTextEdits
             ? { resumeCvViewMode: 'saasa' }
             : undefined
         );
@@ -390,6 +403,8 @@ export function useSaasaCvAnnotations({
       candidateName={candidateName}
       initialAnnotations={stored?.items ?? []}
       initialCompanyLogo={initialCompanyLogo}
+      initialDocumentHtml={stored?.documentHtml ?? null}
+      initialPdfTextLayerHtml={stored?.pdfTextLayerHtml ?? null}
       canEdit={canEdit}
       saving={busy}
       onSave={saveAnnotations}

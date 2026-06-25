@@ -38,6 +38,8 @@ import {
 import {
   apiHqCreateLead,
   apiHqConvertLeadToCompany,
+  apiHqDeleteDemoRequest,
+  apiHqDeleteLead,
   apiHqListDemoRequests,
   apiHqListLeads,
   apiHqUpdateLead,
@@ -45,6 +47,7 @@ import {
   type HqLeadStats,
   type HqLeadStorageInfo,
 } from '@/lib/api';
+import { formatDateDMY } from '@/utils/dateDisplay';
 import type { CreateHqLeadFormValues } from '@/components/hq/CreateHqLeadModal';
 import type { EditHqLeadFormValues } from '@/components/hq/HqLeadDetailDrawer';
 
@@ -89,7 +92,12 @@ const EMPTY_DEMO_STATS: HqDemoStats = {
   verified: 0,
   pending: 0,
   expired: 0,
+  trials: 0,
+  trialsLive: 0,
 };
+
+const DELETE_BTN_CLASS =
+  'rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-700 transition hover:bg-rose-100 disabled:opacity-50';
 
 export default function HqLeadsPage() {
   const router = useRouter();
@@ -109,6 +117,9 @@ export default function HqLeadsPage() {
   const [selectedLead, setSelectedLead] = useState<HqLeadRow | null>(null);
   const [convertingLeadId, setConvertingLeadId] = useState<string | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
+  const [pendingDeleteLeadId, setPendingDeleteLeadId] = useState<string | null>(null);
+  const [pendingDeleteDemoId, setPendingDeleteDemoId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -177,7 +188,9 @@ export default function HqLeadsPage() {
         demo.fullName.toLowerCase().includes(q) ||
         demo.email.toLowerCase().includes(q) ||
         demo.organizationName.toLowerCase().includes(q) ||
-        demo.outcome.toLowerCase().includes(q)
+        demo.outcome.toLowerCase().includes(q) ||
+        demo.trialTenantDbName.toLowerCase().includes(q) ||
+        demo.requestKind.toLowerCase().includes(q)
       );
     });
   }, [search, demos]);
@@ -223,6 +236,39 @@ export default function HqLeadsPage() {
       setConvertError(err instanceof Error ? err.message : 'Failed to convert lead to company');
     } finally {
       setConvertingLeadId(null);
+    }
+  };
+
+  const handleDeleteLead = async (lead: HqLeadRow) => {
+    const label = lead.name || lead.company || 'this lead';
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+
+    setDeleteError(null);
+    setPendingDeleteLeadId(lead.id);
+    try {
+      await apiHqDeleteLead(lead.id);
+      if (selectedLead?.id === lead.id) setSelectedLead(null);
+      await loadLeads();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete lead');
+    } finally {
+      setPendingDeleteLeadId(null);
+    }
+  };
+
+  const handleDeleteDemo = async (demo: HqDemoRequestRow) => {
+    const label = demo.fullName || demo.organizationName || 'this demo request';
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+
+    setDeleteError(null);
+    setPendingDeleteDemoId(demo.id);
+    try {
+      await apiHqDeleteDemoRequest(demo.id);
+      await loadDemos();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete demo request');
+    } finally {
+      setPendingDeleteDemoId(null);
     }
   };
 
@@ -322,13 +368,27 @@ export default function HqLeadsPage() {
           </div>
         ) : null}
 
+        {deleteError ? (
+          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {deleteError}
+            <button
+              type="button"
+              onClick={() => setDeleteError(null)}
+              className="ml-2 font-semibold underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
           {isDemosTab ? (
             <>
               <HqStatCard label="Total Requests" value={demoStats.total} />
-              <HqStatCard label="Verified" value={demoStats.verified} active />
+              <HqStatCard label="5-day Trials" value={demoStats.trials ?? 0} active />
+              <HqStatCard label="Live Workspaces" value={demoStats.trialsLive ?? 0} />
+              <HqStatCard label="Verified" value={demoStats.verified} />
               <HqStatCard label="Pending OTP" value={demoStats.pending} />
-              <HqStatCard label="Expired" value={demoStats.expired} />
             </>
           ) : (
             <>
@@ -400,21 +460,26 @@ export default function HqLeadsPage() {
                     <th className="px-4 py-3">Country</th>
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Company Size</th>
+                    <th className="px-4 py-3">Type</th>
+                    <th className="px-4 py-3">Workspace</th>
+                    <th className="px-4 py-3">Trial Start</th>
+                    <th className="px-4 py-3">Trial End</th>
                     <th className="px-4 py-3">Outcome</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Submitted</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {demosLoading ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={14} className="px-4 py-12 text-center text-sm text-slate-500">
                         Loading demo requests…
                       </td>
                     </tr>
                   ) : filteredDemos.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={14} className="px-4 py-12 text-center text-sm text-slate-500">
                         {demos.length === 0
                           ? 'No employer demo requests yet.'
                           : 'No demo requests match your search.'}
@@ -432,6 +497,36 @@ export default function HqLeadsPage() {
                         <td className="px-4 py-3.5 text-slate-600">{demo.countryCode || '—'}</td>
                         <td className="px-4 py-3.5 text-slate-600">{formatDemoPhone(demo)}</td>
                         <td className="px-4 py-3.5 text-slate-600">{demo.companySize}</td>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ring-1 ${
+                              demo.requestKind === 'trial'
+                                ? 'bg-orange-50 text-orange-700 ring-orange-200'
+                                : 'bg-sky-50 text-sky-700 ring-sky-200'
+                            }`}
+                          >
+                            {demo.requestKind === 'trial' ? '5-day trial' : 'Demo'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 font-mono text-xs text-slate-600">
+                          {demo.trialTenantDbName || '—'}
+                          {demo.trialLoginUrl ? (
+                            <a
+                              href={demo.trialLoginUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-1 block text-[10px] font-semibold text-sky-600 hover:underline"
+                            >
+                              Open workspace
+                            </a>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-600">
+                          {formatDateDMY(demo.trialStartsAt) || '—'}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-600">
+                          {formatDateDMY(demo.trialEndsAt) || '—'}
+                        </td>
                         <td className="max-w-xs px-4 py-3.5 text-slate-600">
                           <span className="line-clamp-2">{demo.outcome || '—'}</span>
                         </td>
@@ -439,6 +534,16 @@ export default function HqLeadsPage() {
                           <DemoStatusBadge status={demo.status} />
                         </td>
                         <td className="px-4 py-3.5 text-slate-600">{demo.submittedAt}</td>
+                        <td className="px-4 py-3.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteDemo(demo)}
+                            disabled={pendingDeleteDemoId === demo.id}
+                            className={DELETE_BTN_CLASS}
+                          >
+                            {pendingDeleteDemoId === demo.id ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -497,6 +602,7 @@ export default function HqLeadsPage() {
                       </td>
                       <td className="px-4 py-3.5 text-slate-600">{lead.nextFollowUp}</td>
                       <td className="px-4 py-3.5">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                         {lead.convertedToCompanyId ? (
                           <button
                             type="button"
@@ -525,6 +631,18 @@ export default function HqLeadsPage() {
                             {convertingLeadId === lead.id ? 'Converting…' : 'Convert to Company'}
                           </button>
                         )}
+                        <button
+                          type="button"
+                          disabled={pendingDeleteLeadId === lead.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeleteLead(lead);
+                          }}
+                          className={DELETE_BTN_CLASS}
+                        >
+                          {pendingDeleteLeadId === lead.id ? 'Deleting…' : 'Delete'}
+                        </button>
+                        </div>
                       </td>
                     </tr>
                   ))

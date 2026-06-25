@@ -4,6 +4,7 @@ import {
   DEFAULT_HQ_PACKAGES,
   enrichPackageDoc,
   resolveBillingCycle,
+  resolvePackageSlug,
   toAssignablePlan,
 } from './hq-packages.config.js';
 
@@ -148,28 +149,41 @@ export const hqPackagesService = {
     return doc ? toPackageRow(doc) : null;
   },
 
-  async resolvePlanInput(raw, billingCycle) {
+  async resolvePlanInput(raw, billingCycle, planStartDate) {
     const packages = await this.listPackages();
     if (!raw) return null;
 
     const cycle = resolveBillingCycle(
       billingCycle || (typeof raw === 'object' ? raw?.billingCycle : undefined)
     );
+    const startDate =
+      planStartDate ?? (typeof raw === 'object' ? raw?.planStartDate : undefined);
 
     if (typeof raw === 'string') {
       const s = raw.trim();
+      const key = resolvePackageSlug(s, s);
       const found = packages.find(
-        (p) => p.id === s || p.slug === slugify(s) || p.name.toLowerCase() === s.toLowerCase()
+        (p) =>
+          p.id === s ||
+          p.slug === slugify(s) ||
+          p.slug === key ||
+          p.name.toLowerCase() === s.toLowerCase() ||
+          p.name.toLowerCase() === key
       );
-      return found ? toAssignablePlan(found, cycle) : null;
+      return found ? toAssignablePlan(found, cycle, startDate) : null;
     }
 
     const id = String(raw.id || '').trim();
     const name = String(raw.name || '').trim();
+    const key = resolvePackageSlug(id, name);
     const found =
-      packages.find((p) => (id && p.id === id) || (name && p.name.toLowerCase() === name.toLowerCase())) ||
-      null;
-    return found ? toAssignablePlan(found, cycle) : null;
+      packages.find(
+        (p) =>
+          (id && p.id === id) ||
+          (name && p.name.toLowerCase() === name.toLowerCase()) ||
+          (key && (p.slug === key || p.name.toLowerCase() === key))
+      ) || null;
+    return found ? toAssignablePlan(found, cycle, startDate) : null;
   },
 
   async createPackage(data) {

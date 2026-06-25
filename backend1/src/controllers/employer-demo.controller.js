@@ -55,6 +55,7 @@ function validateDemoPayload(body) {
       companySize: String(companySize).trim(),
       organizationName: String(organizationName).trim(),
       outcome: String(body.outcome || '').trim() || null,
+      requestKind: String(body.requestKind || 'demo').trim().toLowerCase() === 'trial' ? 'trial' : 'demo',
     },
   };
 }
@@ -191,6 +192,47 @@ async function resendDemoRequestOtp(req, res) {
   }
 }
 
+async function syncEmployerTrialToPhase2(verified) {
+  const base =
+    process.env.PHASE2_INTERNAL_API_URL ||
+    process.env.PHASE2_API_URL ||
+    process.env.PHASE2_BASE_URL ||
+    'http://localhost:5001';
+  const secret =
+    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+
+  try {
+    const response = await fetch(`${base}/api/v1/internal/provision-employer-trial`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-phase2-portal-sync-secret': secret,
+      },
+      body: JSON.stringify({
+        requestId: verified.id,
+        fullName: verified.fullName,
+        email: verified.email,
+        countryCode: verified.countryCode,
+        dialCode: verified.dialCode,
+        phoneNumber: verified.phoneNumber,
+        companySize: verified.companySize,
+        organizationName: verified.organizationName,
+        outcome: verified.outcome || '',
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.warn('[EmployerTrial] Phase2 provision failed:', payload?.message || response.statusText);
+      return null;
+    }
+    return payload?.data || null;
+  } catch (error) {
+    console.warn('[EmployerTrial] Phase2 provision error:', error?.message || error);
+    return null;
+  }
+}
+
 async function syncEmployerDemoToHq(verified) {
   const base =
     process.env.PHASE2_INTERNAL_API_URL ||
@@ -292,14 +334,52 @@ async function verifyDemoRequestOtp(req, res) {
       }),
     );
 
-    await syncEmployerDemoToHq(verified);
+    const isTrial = String(verified.requestKind || '').toLowerCase() === 'trial';
+    let trialProvision = null;
+    if (isTrial) {
+      trialProvision = await syncEmployerTrialToPhase2(verified);
+      if (!trialProvision) {
+        return res.status(502).json({
+          success: false,
+          message: 'Email verified, but we could not start your trial workspace. Please contact support.',
+        });
+      }
+      await retryQuery(async () =>
+        prisma.employerDemoRequest.update({
+          where: { id: verified.id },
+          data: {
+            trialProvisioned: true,
+            trialTenantDbName: trialProvision.tenantDbName || null,
+            trialLoginId: trialProvision.loginId || null,
+            trialStartsAt: trialProvision.subscriptionPlan?.planStartDate || null,
+            trialEndsAt: trialProvision.trialEndsAt || null,
+            trialLoginUrl: trialProvision.loginUrl || null,
+          },
+        }),
+      );
+    } else {
+      await syncEmployerDemoToHq(verified);
+    }
 
     return res.json({
       success: true,
-      message: 'Email verified. Your demo request has been submitted.',
+      message: isTrial
+        ? 'Email verified. Your 5-day trial workspace is ready.'
+        : 'Email verified. Your demo request has been submitted.',
       data: {
         requestId: verified.id,
         email: verified.email,
+        requestKind: verified.requestKind || 'demo',
+        ...(isTrial && trialProvision
+          ? {
+              loginUrl: trialProvision.loginUrl,
+              loginId: trialProvision.loginId,
+              trialEndsAt: trialProvision.trialEndsAt,
+              tenantDbName: trialProvision.tenantDbName,
+              credentialEmailSent: trialProvision.credentialEmailSent,
+              ...(trialProvision.devPassword ? { devPassword: trialProvision.devPassword } : {}),
+            }
+          : {}),
       },
     });
   } catch (error) {

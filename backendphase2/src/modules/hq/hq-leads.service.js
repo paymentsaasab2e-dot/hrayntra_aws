@@ -430,6 +430,25 @@ export const hqLeadsService = {
     };
   },
 
+  async deleteLead(id) {
+    if (!ObjectId.isValid(id)) {
+      throw new Error('Invalid lead id');
+    }
+
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const result = await collection.deleteOne({ _id: objectId });
+    if (!result.deletedCount) {
+      throw new Error('Lead not found');
+    }
+
+    return {
+      deleted: true,
+      id,
+      storage: getStorageInfo(),
+    };
+  },
+
   async addFollowUp(id, data, reqUser) {
     if (!ObjectId.isValid(id)) {
       throw new Error('Invalid lead id');

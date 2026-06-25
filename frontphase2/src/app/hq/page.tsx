@@ -22,8 +22,9 @@ import {
   type HqSubscriptionPackage,
 } from '../../lib/api';
 import { HqPackagesPanel } from '../../components/hq/HqPackagesPanel';
-import { CreateTenantModal, ProvisionTenantFormFields } from '../../components/hq/CreateTenantModal';
-import { getPackageOptionLabel, getPlanLabel, formatBillingCycleLabel, type BillingCycle } from '../../components/hq/hqPackagePresentation';
+import { CreateTenantModal } from '../../components/hq/CreateTenantModal';
+import { getPackageOptionLabel, getPlanLabel, formatBillingCycleLabel, todayIsoDate, type BillingCycle } from '../../components/hq/hqPackagePresentation';
+import { formatDateDMY } from '../../utils/dateDisplay';
 import type { HqNavTab } from '../../components/hq/HqSidebar';
 import { HQ_NAV_ITEMS } from '../../components/hq/HqSidebar';
 import {
@@ -50,7 +51,6 @@ interface HqStats {
 const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
   dashboard: 'Platform health, tenant counts, and plan distribution.',
   tenants: 'Browse and manage all provisioned tenants.',
-  provision: 'Create a new tenant workspace and database.',
   plans: '',
   bootstrap: 'Local-only super admin credential injection.',
 };
@@ -162,7 +162,6 @@ function HQSetupPage() {
   const tabParam = searchParams.get('tab');
   const activeTab: HqNavTab =
     tabParam === 'tenants' ||
-    tabParam === 'provision' ||
     tabParam === 'plans' ||
     tabParam === 'bootstrap'
       ? tabParam
@@ -181,6 +180,7 @@ function HQSetupPage() {
     organizationType: 'agency' as 'agency' | 'standalone',
     plan: 'starter',
     billingCycle: 'monthly' as BillingCycle,
+    planStartDate: todayIsoDate(),
   });
   const [isProvisionLoading, setIsProvisionLoading] = useState(false);
   const [createTenantModalOpen, setCreateTenantModalOpen] = useState(false);
@@ -274,8 +274,13 @@ function HQSetupPage() {
         password: provisionData.password,
         organizationType: provisionData.organizationType,
         billingCycle: provisionData.billingCycle,
+        planStartDate: provisionData.planStartDate,
         plan: provisionData.plan
-          ? { id: provisionData.plan, billingCycle: provisionData.billingCycle }
+          ? {
+              id: provisionData.plan,
+              billingCycle: provisionData.billingCycle,
+              planStartDate: provisionData.planStartDate,
+            }
           : undefined,
       });
       const d = res.data as {
@@ -304,6 +309,7 @@ function HQSetupPage() {
         organizationType: 'agency',
         plan: 'starter',
         billingCycle: 'monthly',
+        planStartDate: todayIsoDate(),
       });
       setCreateTenantModalOpen(false);
       void refreshTenants();
@@ -445,16 +451,6 @@ function HQSetupPage() {
               planOptions={planOptions}
             />
           </>
-        )}
-
-        {activeTab === 'provision' && (
-          <ProvisionPanel
-            data={provisionData}
-            onChange={setProvisionData}
-            onSubmit={handleProvisionSubmit}
-            isLoading={isProvisionLoading}
-            planOptions={planOptions}
-          />
         )}
 
         {activeTab === 'plans' && (
@@ -608,6 +604,8 @@ function TenantsPanel({
                 <th className="py-2 pr-3">DB</th>
                 <th className="py-2 pr-3">Plan</th>
                 <th className="py-2 pr-3">Billing</th>
+                <th className="py-2 pr-3">Start</th>
+                <th className="py-2 pr-3">End</th>
                 <th className="py-2 pl-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -648,6 +646,12 @@ function TenantsPanel({
                       <option value="annual">Annual</option>
                     </select>
                   </td>
+                  <td className="py-3 pr-3 text-xs text-slate-600">
+                    {formatDateDMY(t.subscriptionPlan?.planStartDate) || '—'}
+                  </td>
+                  <td className="py-3 pr-3 text-xs text-slate-600">
+                    {formatDateDMY(t.subscriptionPlan?.planEndDate) || '—'}
+                  </td>
                   <td className="py-3 pl-3 text-right">
                     <button
                       type="button"
@@ -666,65 +670,6 @@ function TenantsPanel({
         </div>
       )}
     </HqPanel>
-  );
-}
-
-function ProvisionPanel({
-  data,
-  onChange,
-  onSubmit,
-  isLoading,
-  planOptions,
-}: {
-  data: {
-    name: string;
-    email: string;
-    loginId: string;
-    password: string;
-    organizationType: 'agency' | 'standalone';
-    plan: string;
-    billingCycle: BillingCycle;
-  };
-  onChange: (
-    next: {
-      name: string;
-      email: string;
-      loginId: string;
-      password: string;
-      organizationType: 'agency' | 'standalone';
-      plan: string;
-      billingCycle: BillingCycle;
-    }
-  ) => void;
-  onSubmit: (e: React.FormEvent) => void;
-  isLoading: boolean;
-  planOptions: HqSubscriptionPackage[];
-}) {
-  return (
-    <form onSubmit={onSubmit} className="max-w-2xl space-y-5">
-      <HqPanel>
-      <p className="text-sm leading-relaxed text-slate-500">
-        Sign in to the main tenant app first so your access token is stored; this calls{' '}
-        <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-sky-800">POST /api/v1/hq/provision-tenant</code>.
-        Provisioning creates a workspace record + dedicated tenant DB, seeds the chosen plan, and{' '}
-        <span className="font-semibold text-emerald-700">emails the new admin their login credentials automatically</span>.
-      </p>
-
-      <div className="mt-5 space-y-5">
-      <ProvisionTenantFormFields
-        data={data}
-        onChange={onChange}
-        planOptions={planOptions}
-        orgTypeName="provisionOrgType"
-      />
-
-      <HqPrimaryButton type="submit" disabled={isLoading} loading={isLoading} className="w-full">
-        Provision tenant
-        <ArrowRight className="h-4 w-4" />
-      </HqPrimaryButton>
-      </div>
-      </HqPanel>
-    </form>
   );
 }
 

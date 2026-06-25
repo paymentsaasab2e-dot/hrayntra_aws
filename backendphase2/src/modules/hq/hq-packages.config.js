@@ -123,6 +123,49 @@ export function resolveBillingCycle(value) {
   return String(value || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly';
 }
 
+export function parsePlanStartDate(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+export function todayPlanStartDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function computePlanEndDate(startDateIso, billingCycle = 'monthly') {
+  const start = parsePlanStartDate(startDateIso);
+  if (!start) return null;
+  const days = resolveBillingCycle(billingCycle) === 'annual' ? 365 : 30;
+  const d = new Date(`${start}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export const TRIAL_PACKAGE_DAYS = 5;
+
+export function computeTrialEndDate(startDateIso) {
+  const start = parsePlanStartDate(startDateIso) || todayPlanStartDate();
+  const d = new Date(`${start}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + TRIAL_PACKAGE_DAYS);
+  return d.toISOString().slice(0, 10);
+}
+
+export function toTrialAssignablePlan(pkg, planStartDate) {
+  const base = toAssignablePlan(pkg, 'monthly', planStartDate);
+  if (!base) return null;
+  return {
+    ...base,
+    name: `${base.name} Trial`,
+    planEndDate: computeTrialEndDate(base.planStartDate),
+    isTrial: true,
+    trialDays: TRIAL_PACKAGE_DAYS,
+  };
+}
+
 export function resolvePackageLimits(pkg, billingCycle = 'monthly') {
   const cycle = resolveBillingCycle(billingCycle);
   if (cycle === 'annual') {
@@ -145,14 +188,17 @@ export function resolvePackageLimits(pkg, billingCycle = 'monthly') {
   };
 }
 
-export function toAssignablePlan(pkg, billingCycle = 'monthly') {
+export function toAssignablePlan(pkg, billingCycle = 'monthly', planStartDate) {
   if (!pkg) return null;
   const limits = resolvePackageLimits(pkg, billingCycle);
+  const start = parsePlanStartDate(planStartDate) || todayPlanStartDate();
   return {
     id: String(pkg.id || pkg._id || ''),
     name: String(pkg.name || '').trim(),
     billingCycle: limits.billingCycle,
     maxUsers: limits.maxUsers,
     maxJobs: limits.maxJobs,
+    planStartDate: start,
+    planEndDate: computePlanEndDate(start, limits.billingCycle),
   };
 }

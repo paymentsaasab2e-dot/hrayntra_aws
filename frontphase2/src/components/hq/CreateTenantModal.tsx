@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { ArrowRight, Hash, Lock, Mail, User, X } from 'lucide-react';
+import { ArrowRight, Calendar, Hash, Lock, Mail, User, X } from 'lucide-react';
 import type { HqSubscriptionPackage } from '@/lib/api';
-import { getPackageOptionLabel, getPackageLimitsForCycle, type BillingCycle } from './hqPackagePresentation';
+import { formatDateDMY } from '@/utils/dateDisplay';
+import { getPackageOptionLabel, getPackageLimitsForCycle, computePlanEndDate, type BillingCycle } from './hqPackagePresentation';
 import { HqFieldText, HqPrimaryButton, HqSecondaryButton } from './hqUi';
 
 export type ProvisionTenantFormData = {
@@ -14,6 +15,7 @@ export type ProvisionTenantFormData = {
   organizationType: 'agency' | 'standalone';
   plan: string;
   billingCycle: BillingCycle;
+  planStartDate: string;
 };
 
 type ProvisionTenantFormFieldsProps = {
@@ -29,6 +31,8 @@ export function ProvisionTenantFormFields({
   planOptions,
   orgTypeName = 'orgType',
 }: ProvisionTenantFormFieldsProps) {
+  const planEndDate = computePlanEndDate(data.planStartDate, data.billingCycle);
+
   return (
     <div className="space-y-5">
       <HqFieldText
@@ -146,6 +150,29 @@ export function ProvisionTenantFormFields({
             );
           })}
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="ml-1 text-xs font-bold uppercase tracking-wider text-slate-500">
+          Package start date
+        </label>
+        <div className="relative">
+          <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="date"
+            value={data.planStartDate}
+            onChange={(e) => onChange({ ...data, planStartDate: e.target.value })}
+            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
+          />
+        </div>
+        <p className="text-xs text-slate-500">
+          Package ends on{' '}
+          <span className="font-semibold text-slate-700">
+            {planEndDate ? formatDateDMY(planEndDate) : '—'}
+          </span>
+          {' '}
+          ({data.billingCycle === 'annual' ? '365 days' : '30 days'} from start).
+        </p>
       </div>
     </div>
   );

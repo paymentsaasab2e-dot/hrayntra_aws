@@ -14,6 +14,7 @@ import {
 import { SaasaCvRasterResumePreview } from './SaasaCvRasterResumePreview';
 import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from '../../lib/saasaCvAnnotations';
 import { clearSaasaCvPdfBytesCache, renderSaasaPdfPages, type SaasaCvPdfDocumentMeta } from '../../lib/saasaCvPdfRender';
+import { attachInPlacePdfTextToHost } from '../../lib/saasaCvPdfTextLayer';
 import { redrawPaintCanvas, syncCanvasToDocumentSize } from '../../lib/saasaCvPaintCanvas';
 
 const CV_VIEWER_MIN_HEIGHT = 'min(78dvh, 900px)';
@@ -23,6 +24,8 @@ interface SaasaCvCompositePreviewProps {
   baseResumeUrl: string;
   annotations?: SaasaCvAnnotation[];
   companyLogo?: SaasaCvCompanyLogo | null;
+  documentHtml?: string | null;
+  pdfTextLayerHtml?: string[] | null;
   candidateName?: string;
   enabled?: boolean;
   className?: string;
@@ -33,6 +36,8 @@ export function SaasaCvCompositePreview({
   baseResumeUrl,
   annotations = [],
   companyLogo = null,
+  documentHtml = null,
+  pdfTextLayerHtml = null,
   candidateName = 'Candidate',
   enabled = true,
   className = '',
@@ -120,6 +125,28 @@ export function SaasaCvCompositePreview({
       cancelled = true;
     };
   }, [enabled, canPdf, href, pdfRenderFailed]);
+
+  useEffect(() => {
+    if (!enabled || !showPdfPreview || !paintSurfaceReady || !href) return;
+    const host = pdfHostRef.current;
+    if (!host?.querySelector('canvas')) return;
+    if (!pdfTextLayerHtml?.some((h) => h.trim())) return;
+
+    let cancelled = false;
+    void attachInPlacePdfTextToHost(host, buildResumeViewerUrl(href), {
+      editing: true,
+      readOnly: true,
+      savedLayerHtml: pdfTextLayerHtml,
+    }).catch(() => {
+      if (!cancelled) {
+        /* preview still shows PDF without text overlay */
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, showPdfPreview, paintSurfaceReady, href, pdfTextLayerHtml]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -231,6 +258,8 @@ export function SaasaCvCompositePreview({
               resumeUrl={href}
               candidateName={candidateName}
               enabled={enabled}
+              preferBuiltIn={Boolean(documentHtml?.trim())}
+              initialDocumentHtml={documentHtml}
               minHeight={CV_VIEWER_MIN_HEIGHT}
               className="relative z-0"
               onReady={() => setWordPreviewReady(true)}
@@ -248,6 +277,7 @@ export function SaasaCvCompositePreview({
               resumeUrl={href}
               candidateName={candidateName}
               mode="text"
+              initialTextContent={documentHtml}
               onReady={() => setTextPreviewReady(true)}
               onError={() => setTextPreviewReady(false)}
             />

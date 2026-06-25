@@ -38,16 +38,30 @@ import {
   apiGetClients,
   apiGetJobs,
   apiGetMe,
+  apiGetPipelineStages,
   apiGetUsers,
+  apiMoveCandidateStage,
+  apiFetch,
   type BackendCandidate,
   type BackendClient,
   type BackendJob,
   type BackendUser,
 } from "../../lib/api";
+import {
+  candidateHasRealJobAssignment,
+  resolveCandidateListStage,
+} from "../../lib/candidateListMapping";
+import { resolveSubmitJobIdFromBackend } from "../../lib/candidateSubmitToClient";
+import { isValidObjectId } from "../../lib/mapCandidateProfile";
+import { getCandidateStageBadgeClasses } from "../../utils/candidateStage";
 
 // --- Types & Constants ---
 
-type Stage = "Applied" | "Shortlisted" | "Sent to Client" | "Selected" | "Offer Released" | "Joined";
+type PipelineStageColumn = {
+  id: string;
+  label: string;
+  color?: string;
+};
 
 interface Candidate {
   id: string;
@@ -64,121 +78,17 @@ interface Candidate {
   lastActivity: string;
   followUpStatus?: "Overdue" | "Due Today" | "Upcoming" | "None";
   avatar: string;
-  stage: Stage;
+  stageId: string;
+  stageName: string;
 }
 
-const STAGES: { id: Stage; label: string; color: string }[] = [
-  { id: "Applied", label: "Applied", color: "bg-blue-50 text-blue-700 border-blue-200" },
-  { id: "Shortlisted", label: "Shortlisted", color: "bg-purple-50 text-purple-700 border-purple-200" },
-  { id: "Sent to Client", label: "Sent to Client", color: "bg-orange-50 text-orange-700 border-orange-200" },
-  { id: "Selected", label: "Selected", color: "bg-teal-50 text-teal-700 border-teal-200" },
-  { id: "Offer Released", label: "Offer Released", color: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  { id: "Joined", label: "Joined", color: "bg-green-50 text-green-700 border-green-200" },
-];
-
-const INITIAL_CANDIDATES: Candidate[] = [
-  {
-    id: "1",
-    name: "Alex Thompson",
-    jobTitle: "Senior Frontend Engineer",
-    clientName: "TechFlow Systems",
-    jobId: "job-1",
-    clientId: "client-1",
-    assignedToId: "user-1",
-    ownerName: "Recruiter One",
-    experience: "8 years",
-    location: "London (Remote)",
-    status: "Approved",
-    lastActivity: "2 hours ago",
-    followUpStatus: "Upcoming",
-    avatar: "https://images.unsplash.com/photo-1689600944138-da3b150d9cb8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDF8fHx8MTc3MDQ2NzgyM3ww&ixlib=rb-4.1.0&q=80&w=1080",
-    stage: "Applied",
-  },
-  {
-    id: "2",
-    name: "Sarah Chen",
-    jobTitle: "Product Designer",
-    clientName: "Innova Design Lab",
-    jobId: "job-2",
-    clientId: "client-2",
-    assignedToId: "user-2",
-    ownerName: "Recruiter Two",
-    experience: "5 years",
-    location: "San Francisco",
-    status: "Waiting",
-    lastActivity: "1 day ago",
-    followUpStatus: "Due Today",
-    avatar: "https://images.unsplash.com/photo-1652471949169-9c587e8898cd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx3b21hbiUyMHByb2Zlc3Npb25hbCUyMGhlYWRzaG90fGVufDF8fHx8MTc3MDQ1NzM5MXww&ixlib=rb-4.1.0&q=80&w=1080",
-    stage: "Shortlisted",
-  },
-  {
-    id: "3",
-    name: "Marcus Miller",
-    jobTitle: "Engineering Manager",
-    clientName: "Quantum Solutions",
-    jobId: "job-3",
-    clientId: "client-3",
-    assignedToId: "user-1",
-    ownerName: "Recruiter One",
-    experience: "12 years",
-    location: "Berlin",
-    status: "Stalled",
-    lastActivity: "4 days ago",
-    followUpStatus: "Overdue",
-    avatar: "https://images.unsplash.com/photo-1672685667592-0392f458f46f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtYW4lMjBwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdHxlbnwxfHx8fDE3NzA1MDI0NTV8MA&ixlib=rb-4.1.0&q=80&w=1080",
-    stage: "Sent to Client",
-  },
-  {
-    id: "4",
-    name: "Elena Rodriguez",
-    jobTitle: "DevOps Engineer",
-    clientName: "CloudScale Inc.",
-    jobId: "job-4",
-    clientId: "client-4",
-    assignedToId: "user-3",
-    ownerName: "Recruiter Three",
-    experience: "6 years",
-    location: "Madrid",
-    status: "Follow-up",
-    lastActivity: "5 hours ago",
-    followUpStatus: "Upcoming",
-    avatar: "https://images.unsplash.com/photo-1655249493799-9cee4fe983bb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxidXNpbmVzcyUyMHBlcnNvbiUyMHByb2ZpbGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzA1Mjg4MjZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
-    stage: "Selected",
-  },
-  {
-    id: "5",
-    name: "James Wilson",
-    jobTitle: "Sales Director",
-    clientName: "Global Trade Co.",
-    jobId: "job-5",
-    clientId: "client-5",
-    assignedToId: "user-2",
-    ownerName: "Recruiter Two",
-    experience: "15 years",
-    location: "New York",
-    status: "Approved",
-    lastActivity: "Yesterday",
-    followUpStatus: "None",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=1080",
-    stage: "Offer Released",
-  },
-  {
-    id: "6",
-    name: "Priya Patel",
-    jobTitle: "Data Scientist",
-    clientName: "BioTech AI",
-    jobId: "job-6",
-    clientId: "client-6",
-    assignedToId: "user-3",
-    ownerName: "Recruiter Three",
-    experience: "4 years",
-    location: "Toronto",
-    status: "Approved",
-    lastActivity: "2 days ago",
-    followUpStatus: "Upcoming",
-    avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?q=80&w=1080",
-    stage: "Joined",
-  },
+const DEFAULT_PIPELINE_STAGES: PipelineStageColumn[] = [
+  { id: "applied", label: "Applied", color: "#3b82f6" },
+  { id: "screening", label: "Screening", color: "#8b5cf6" },
+  { id: "interviewing", label: "Interviewing", color: "#f59e0b" },
+  { id: "offer", label: "Offer", color: "#10b981" },
+  { id: "hired", label: "Hired", color: "#059669" },
+  { id: "rejected", label: "Rejected", color: "#ef4444" },
 ];
 
 function extractItems<T>(payload: unknown): T[] {
@@ -189,6 +99,124 @@ function extractItems<T>(payload: unknown): T[] {
     if (Array.isArray(obj.items)) return obj.items as T[];
   }
   return [];
+}
+
+function parseCandidatesResponse(res: { data?: unknown }): BackendCandidate[] {
+  const payload = res.data as
+    | BackendCandidate[]
+    | { data?: BackendCandidate[]; items?: BackendCandidate[] }
+    | undefined;
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.items)) return payload.items;
+  return extractItems<BackendCandidate>(payload);
+}
+
+function normalizeStageKey(name: string): string {
+  return String(name || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+function parsePipelineStagesPayload(payload: unknown): PipelineStageColumn[] {
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray((payload as { data?: unknown })?.data)
+      ? ((payload as { data: unknown[] }).data as unknown[])
+      : [];
+  return rows
+    .map((row, index) => {
+      const item = row as { id?: string; name?: string; order?: number; color?: string };
+      const name = String(item?.name || '').trim();
+      if (!name) return null;
+      return {
+        id: String(item.id || normalizeStageKey(name) || `stage-${index}`),
+        label: name,
+        color: typeof item.color === 'string' ? item.color : undefined,
+      };
+    })
+    .filter((row): row is PipelineStageColumn => Boolean(row));
+}
+
+function mergePipelineStageColumns(
+  base: PipelineStageColumn[],
+  extraNames: string[]
+): PipelineStageColumn[] {
+  const merged = [...base];
+  const seen = new Set(base.map((stage) => normalizeStageKey(stage.label)));
+  for (const name of extraNames) {
+    const label = String(name || '').trim();
+    if (!label) continue;
+    const key = normalizeStageKey(label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push({
+      id: key,
+      label,
+    });
+  }
+  return merged;
+}
+
+function matchStageColumnId(stageName: string, columns: PipelineStageColumn[]): string {
+  const key = normalizeStageKey(stageName);
+  if (!key) return columns[0]?.id || 'unknown';
+
+  const exact = columns.find((col) => normalizeStageKey(col.label) === key);
+  if (exact) return exact.id;
+
+  const partial = columns.find((col) => {
+    const colKey = normalizeStageKey(col.label);
+    return key.includes(colKey) || colKey.includes(key);
+  });
+  if (partial) return partial.id;
+
+  if (key.includes('interview')) {
+    const interviewCol = columns.find((col) => normalizeStageKey(col.label).includes('interview'));
+    if (interviewCol) return interviewCol.id;
+  }
+  if (key.includes('screen') || key.includes('short') || key.includes('long')) {
+    const screenCol = columns.find((col) => /screen|short|long/.test(normalizeStageKey(col.label)));
+    if (screenCol) return screenCol.id;
+  }
+  if (key.includes('offer')) {
+    const offerCol = columns.find((col) => normalizeStageKey(col.label).includes('offer'));
+    if (offerCol) return offerCol.id;
+  }
+  if (key.includes('hire') || key.includes('join') || key.includes('placed')) {
+    const hiredCol = columns.find((col) => /hire|join|placed/.test(normalizeStageKey(col.label)));
+    if (hiredCol) return hiredCol.id;
+  }
+  if (key.includes('reject')) {
+    const rejectedCol = columns.find((col) => normalizeStageKey(col.label).includes('reject'));
+    if (rejectedCol) return rejectedCol.id;
+  }
+  if (key.includes('applied') || key.includes('submit')) {
+    const appliedCol = columns.find((col) => /applied|submit/.test(normalizeStageKey(col.label)));
+    if (appliedCol) return appliedCol.id;
+  }
+
+  return columns[0]?.id || key;
+}
+
+function resolveCandidatePipelineStage(
+  candidate: BackendCandidate,
+  jobIdFilter?: string
+): { stageName: string; stageId?: string } {
+  const linkedJobId = jobIdFilter || resolveSubmitJobIdFromBackend(candidate);
+  if (linkedJobId && Array.isArray(candidate.pipelineEntries)) {
+    const entry = candidate.pipelineEntries.find(
+      (row) => String(row.jobId || '').trim() === linkedJobId
+    );
+    const pipelineStageName = String(entry?.stage?.name || '').trim();
+    if (pipelineStageName) {
+      return {
+        stageName: pipelineStageName,
+        stageId: entry?.stage?.id ? String(entry.stage.id) : undefined,
+      };
+    }
+  }
+
+  return { stageName: resolveCandidateListStage(candidate) };
 }
 
 function getFollowUpStatus(candidate: BackendCandidate): Candidate['followUpStatus'] {
@@ -204,16 +232,40 @@ function getFollowUpStatus(candidate: BackendCandidate): Candidate['followUpStat
   return 'Upcoming';
 }
 
-function mapBackendCandidateToPipelineCandidate(candidate: BackendCandidate): Candidate {
+function mapBackendCandidateToPipelineCandidate(
+  candidate: BackendCandidate,
+  columns: PipelineStageColumn[],
+  jobIdFilter?: string
+): Candidate | null {
+  if (!candidateHasRealJobAssignment(candidate)) return null;
+
   const job = Array.isArray(candidate.matches) ? candidate.matches[0]?.job : undefined;
-  const assignedJobId = Array.isArray(candidate.assignedJobs) && candidate.assignedJobs.length > 0
-    ? candidate.assignedJobs[0]
-    : job?.id || '';
-  const jobTitle = candidate.currentTitle || candidate.assignedJobTitles?.[0] || job?.title || 'Candidate';
+  const assignedJobId =
+    jobIdFilter ||
+    resolveSubmitJobIdFromBackend(candidate) ||
+    (Array.isArray(candidate.assignedJobs) && candidate.assignedJobs.length > 0
+      ? String(candidate.assignedJobs[0])
+      : job?.id || '');
+  const jobTitle =
+    candidate.currentTitle ||
+    candidate.assignedJobTitles?.[0] ||
+    job?.title ||
+    candidate.applications?.[0]?.job?.title ||
+    'Candidate';
   const clientName = job?.client?.companyName || candidate.currentCompany || 'Client';
-  const candidateName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email;
-  const stage = String(candidate.stage || 'Applied').trim() as Stage;
-  const experience = typeof candidate.experience === 'number' ? `${candidate.experience} years` : '—';
+  const candidateName =
+    `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email;
+  const { stageName, stageId } = resolveCandidatePipelineStage(candidate, jobIdFilter);
+  const normalizedStage = String(stageName || '').trim();
+  if (!normalizedStage || normalizedStage.toLowerCase() === 'new') return null;
+
+  const experience =
+    typeof candidate.experience === 'number' ? `${candidate.experience} years` : '—';
+  const resolvedStageId =
+    stageId && columns.some((col) => col.id === stageId)
+      ? stageId
+      : matchStageColumnId(normalizedStage, columns);
+
   return {
     id: candidate.id,
     name: candidateName,
@@ -225,18 +277,36 @@ function mapBackendCandidateToPipelineCandidate(candidate: BackendCandidate): Ca
     ownerName: candidate.assignedTo?.name || undefined,
     experience,
     location: candidate.location || '—',
-    status: candidate.status === 'REJECTED' ? 'Stalled' : candidate.status === 'PLACED' ? 'Approved' : 'Waiting',
+    status:
+      candidate.status === 'REJECTED'
+        ? 'Stalled'
+        : candidate.status === 'PLACED'
+          ? 'Approved'
+          : 'Waiting',
     lastActivity: candidate.updatedAt ? formatDateDMY(candidate.updatedAt) : 'Just now',
     followUpStatus: getFollowUpStatus(candidate),
-    avatar: candidate.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(candidateName)}&background=0f172a&color=fff`,
-    stage: ([
-      "Applied",
-      "Shortlisted",
-      "Sent to Client",
-      "Selected",
-      "Offer Released",
-      "Joined",
-    ].includes(stage) ? stage : "Applied") as Stage,
+    avatar:
+      candidate.avatar ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(candidateName)}&background=0f172a&color=fff`,
+    stageId: resolvedStageId,
+    stageName: normalizedStage,
+  };
+}
+
+function stageHeaderClass(stage: PipelineStageColumn): string {
+  if (stage.color) return 'border';
+  return getCandidateStageBadgeClasses(stage.label)
+    .split(' ')
+    .filter((token) => !token.startsWith('text-'))
+    .join(' ');
+}
+
+function stageHeaderStyle(stage: PipelineStageColumn): React.CSSProperties | undefined {
+  if (!stage.color) return undefined;
+  return {
+    backgroundColor: `${stage.color}18`,
+    color: stage.color,
+    borderColor: `${stage.color}55`,
   };
 }
 
@@ -244,13 +314,11 @@ function mapBackendCandidateToPipelineCandidate(candidate: BackendCandidate): Ca
 
 const CandidateCard = ({
   candidate,
-  moveCandidate,
   onViewCandidate,
   onViewJob,
   onRemove,
 }: {
   candidate: Candidate;
-  moveCandidate: (id: string, stage: Stage) => void;
   onViewCandidate: (candidate: Candidate) => void;
   onViewJob: (candidate: Candidate) => void;
   onRemove: (candidate: Candidate) => void;
@@ -398,22 +466,22 @@ const CandidateCard = ({
 
 const PipelineColumn = ({ 
   stage, 
-  candidates, 
-  moveCandidate,
+  candidates,
+  onMoveCandidate,
   onViewCandidate,
   onViewJob,
   onRemove,
 }: { 
-  stage: typeof STAGES[0]; 
+  stage: PipelineStageColumn; 
   candidates: Candidate[];
-  moveCandidate: (id: string, stage: Stage) => void;
+  onMoveCandidate: (candidateId: string, stageId: string) => void;
   onViewCandidate: (candidate: Candidate) => void;
   onViewJob: (candidate: Candidate) => void;
   onRemove: (candidate: Candidate) => void;
 }) => {
   const [{ isOver }, drop] = useDrop(() => ({
     accept: "CANDIDATE",
-    drop: (item: { id: string }) => moveCandidate(item.id, stage.id),
+    drop: (item: { id: string }) => onMoveCandidate(item.id, stage.id),
     collect: (monitor: DropTargetMonitor) => ({
       isOver: !!monitor.isOver(),
     }),
@@ -429,7 +497,10 @@ const PipelineColumn = ({
       <div className="sticky top-0 z-10 p-4 pb-2 bg-transparent">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <span className={`px-2.5 py-0.5 rounded-lg text-xs font-bold border uppercase tracking-wider ${stage.color}`}>
+            <span
+              className={`px-2.5 py-0.5 rounded-lg text-xs font-bold border uppercase tracking-wider ${stageHeaderClass(stage)}`}
+              style={stageHeaderStyle(stage)}
+            >
               {stage.label}
             </span>
             <span className="text-xs font-medium text-slate-400 bg-white px-2 py-0.5 rounded-full shadow-sm border border-slate-200">
@@ -444,7 +515,6 @@ const PipelineColumn = ({
           <CandidateCard
             key={c.id}
             candidate={c}
-            moveCandidate={moveCandidate}
             onViewCandidate={onViewCandidate}
             onViewJob={onViewJob}
             onRemove={onRemove}
@@ -468,7 +538,8 @@ const PipelineColumn = ({
 
 export default function App() {
   const router = useRouter();
-  const [candidates, setCandidates] = useState<Candidate[]>(INITIAL_CANDIDATES);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [pipelineStages, setPipelineStages] = useState<PipelineStageColumn[]>(DEFAULT_PIPELINE_STAGES);
   const [jobs, setJobs] = useState<BackendJob[]>([]);
   const [clients, setClients] = useState<BackendClient[]>([]);
   const [owners, setOwners] = useState<BackendUser[]>([]);
@@ -481,6 +552,9 @@ export default function App() {
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedOwnerId, setSelectedOwnerId] = useState('');
   const [selectedFollowUp, setSelectedFollowUp] = useState('');
+  const [loadingCandidates, setLoadingCandidates] = useState(true);
+  const [loadingStages, setLoadingStages] = useState(true);
+  const [moveError, setMoveError] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -514,60 +588,161 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
 
-    async function loadPipelineCandidates() {
+    async function loadPipelineStages() {
+      setLoadingStages(true);
       try {
-        const candidateParams =
-          selectedOwnerId === '__me__'
-            ? { page: 1, limit: 200, mine: true }
-            : selectedOwnerId
-              ? { page: 1, limit: 200, assignedToId: selectedOwnerId }
-              : { page: 1, limit: 200 };
+        if (selectedJobId) {
+          const response = await apiGetPipelineStages(selectedJobId);
+          const parsed = parsePipelineStagesPayload(response.data);
+          if (!mounted) return;
+          setPipelineStages(parsed.length > 0 ? parsed : DEFAULT_PIPELINE_STAGES);
+          return;
+        }
 
-        const candidatesRes = await apiGetCandidates(candidateParams);
-
+        const templateRes = await apiFetch<{
+          stages?: Array<{ name?: string; order?: number; color?: string; systemRole?: string }>;
+        }>('/settings/org/pipeline-template', { auth: true });
+        const parsed = parsePipelineStagesPayload(templateRes.data?.stages);
         if (!mounted) return;
-
-        setCandidates(
-          extractItems<BackendCandidate>(candidatesRes.data).map(mapBackendCandidateToPipelineCandidate)
-        );
+        setPipelineStages(parsed.length > 0 ? parsed : DEFAULT_PIPELINE_STAGES);
       } catch (error) {
-        console.error('Failed to load pipeline candidates, using fallback candidates:', error);
+        console.error('Failed to load pipeline stages:', error);
         if (!mounted) return;
-        setCandidates(INITIAL_CANDIDATES);
+        setPipelineStages(DEFAULT_PIPELINE_STAGES);
+      } finally {
+        if (mounted) setLoadingStages(false);
       }
     }
 
-    loadPipelineCandidates();
+    void loadPipelineStages();
     return () => {
       mounted = false;
     };
-  }, [selectedOwnerId]);
+  }, [selectedJobId]);
+
+  const loadPipelineCandidates = React.useCallback(async () => {
+    setLoadingCandidates(true);
+    try {
+      const candidateParams =
+        selectedOwnerId === '__me__'
+          ? { page: 1, limit: 500, mine: true, includeCommonPool: true }
+          : selectedOwnerId
+            ? { page: 1, limit: 500, assignedToId: selectedOwnerId, includeCommonPool: true }
+            : selectedJobId
+              ? { page: 1, limit: 500, jobId: selectedJobId, includeCommonPool: true }
+              : { page: 1, limit: 500, includeCommonPool: true };
+
+      const candidatesRes = await apiGetCandidates(candidateParams);
+      const backendCandidates = parseCandidatesResponse(candidatesRes);
+      const stageColumns = pipelineStages.length > 0 ? pipelineStages : DEFAULT_PIPELINE_STAGES;
+      const extraStageNames = backendCandidates
+        .map((row) => resolveCandidatePipelineStage(row, selectedJobId || undefined).stageName)
+        .filter(Boolean);
+      const columns = mergePipelineStageColumns(stageColumns, extraStageNames);
+
+      const mapped = backendCandidates
+        .map((row) => mapBackendCandidateToPipelineCandidate(row, columns, selectedJobId || undefined))
+        .filter((row): row is Candidate => Boolean(row));
+
+      setCandidates(mapped);
+    } catch (error) {
+      console.error('Failed to load pipeline candidates:', error);
+      setCandidates([]);
+    } finally {
+      setLoadingCandidates(false);
+    }
+  }, [pipelineStages, selectedJobId, selectedOwnerId]);
+
+  useEffect(() => {
+    if (loadingStages) return;
+    void loadPipelineCandidates();
+  }, [loadPipelineCandidates, loadingStages]);
 
   // Reusable auto-refresh — re-runs candidate fetch on focus / interval / events.
   usePageAutoRefresh(
     async () => {
-      try {
-        const candidateParams =
-          selectedOwnerId === '__me__'
-            ? { page: 1, limit: 200, mine: true }
-            : selectedOwnerId
-              ? { page: 1, limit: 200, assignedToId: selectedOwnerId }
-              : { page: 1, limit: 200 };
-        const candidatesRes = await apiGetCandidates(candidateParams);
-        setCandidates(
-          extractItems<BackendCandidate>(candidatesRes.data).map(mapBackendCandidateToPipelineCandidate)
-        );
-      } catch {
-        /* keep current state on transient failure */
-      }
+      await loadPipelineCandidates();
     },
     { events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'] }
   );
 
-  const moveCandidate = (id: string, newStage: Stage) => {
-    setCandidates((prev) => 
-      prev.map((c) => (c.id === id ? { ...c, stage: newStage, lastActivity: "Just now" } : c))
+  const displayStages = useMemo(() => {
+    const extraNames = candidates.map((candidate) => candidate.stageName).filter(Boolean);
+    return mergePipelineStageColumns(
+      pipelineStages.length > 0 ? pipelineStages : DEFAULT_PIPELINE_STAGES,
+      extraNames
     );
+  }, [candidates, pipelineStages]);
+
+  const boardCandidates = useMemo(
+    () =>
+      candidates.map((candidate) => ({
+        ...candidate,
+        stageId: matchStageColumnId(candidate.stageName, displayStages),
+      })),
+    [candidates, displayStages]
+  );
+
+  const resolveStageIdForMove = async (
+    candidate: Candidate,
+    targetStageId: string
+  ): Promise<string | null> => {
+    if (isValidObjectId(targetStageId)) return targetStageId;
+    const jobId = selectedJobId || candidate.jobId;
+    if (!jobId) return null;
+    const response = await apiGetPipelineStages(jobId);
+    const stages = parsePipelineStagesPayload(response.data);
+    const targetColumn = displayStages.find((stage) => stage.id === targetStageId);
+    const targetName = targetColumn?.label || targetStageId;
+    const match = stages.find(
+      (stage) =>
+        stage.id === targetStageId ||
+        normalizeStageKey(stage.label) === normalizeStageKey(targetName)
+    );
+    return match?.id && isValidObjectId(match.id) ? match.id : null;
+  };
+
+  const moveCandidate = async (id: string, newStageId: string) => {
+    const candidate = candidates.find((row) => row.id === id);
+    if (!candidate) return;
+    const currentStageId = matchStageColumnId(candidate.stageName, displayStages);
+    if (currentStageId === newStageId) return;
+
+    const previous = candidates;
+    const targetColumn = displayStages.find((stage) => stage.id === newStageId);
+    setCandidates((prev) =>
+      prev.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              stageId: newStageId,
+              stageName: targetColumn?.label || row.stageName,
+              lastActivity: 'Just now',
+            }
+          : row
+      )
+    );
+    setMoveError('');
+
+    try {
+      const jobId = selectedJobId || candidate.jobId;
+      if (!jobId) {
+        throw new Error('Assign this candidate to a job before moving pipeline stages.');
+      }
+      const stageId = await resolveStageIdForMove(candidate, newStageId);
+      if (!stageId) {
+        throw new Error('Could not resolve the target pipeline stage for this job.');
+      }
+      await apiMoveCandidateStage(jobId, {
+        candidateId: id,
+        stageId,
+      });
+      await loadPipelineCandidates();
+    } catch (error) {
+      console.error('Failed to move candidate in pipeline:', error);
+      setCandidates(previous);
+      setMoveError(error instanceof Error ? error.message : 'Failed to move candidate');
+    }
   };
 
   const viewCandidate = (candidate: Candidate) => {
@@ -598,7 +773,7 @@ export default function App() {
 
   const filteredCandidates = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return candidates.filter((candidate) => {
+    return boardCandidates.filter((candidate) => {
       const matchesSearch =
         !query ||
         candidate.name.toLowerCase().includes(query) ||
@@ -624,7 +799,7 @@ export default function App() {
       return matchesSearch && matchesJob && matchesClient && matchesOwner && matchesFollowUp;
     });
   }, [
-    candidates,
+    boardCandidates,
     clientOptions,
     currentUserId,
     currentUserName,
@@ -771,6 +946,16 @@ export default function App() {
 
           {/* Pipeline Content */}
           <div className="flex-1 overflow-hidden relative">
+            {moveError ? (
+              <div className="mx-8 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {moveError}
+              </div>
+            ) : null}
+            {loadingCandidates || loadingStages ? (
+              <div className="flex h-64 items-center justify-center text-sm text-slate-500">
+                Loading pipeline…
+              </div>
+            ) : (
             <AnimatePresence mode="wait">
               {view === "Board" ? (
                 <motion.div 
@@ -780,18 +965,18 @@ export default function App() {
                   exit={{ opacity: 0, x: -20 }}
                   className="h-full flex gap-6 overflow-x-auto p-8 custom-scrollbar bg-slate-50/50"
                 >
-                  {STAGES.map((stage) => (
+                  {displayStages.map((stage) => (
                     <PipelineColumn 
                       key={stage.id} 
                       stage={stage} 
-                      candidates={filteredCandidates.filter(c => c.stage === stage.id)}
-                      moveCandidate={moveCandidate}
+                      candidates={filteredCandidates.filter((c) => c.stageId === stage.id)}
+                      onMoveCandidate={moveCandidate}
                       onViewCandidate={viewCandidate}
                       onViewJob={viewJob}
                       onRemove={removeCandidate}
                     />
                   ))}
-                  <div className="w-1 px-4" /> {/* Spacer for scroll end */}
+                  <div className="w-1 px-4" />
                 </motion.div>
               ) : (
                 <motion.div 
@@ -827,12 +1012,12 @@ export default function App() {
                           </td>
                           <td className="py-4 px-4">
                             <select 
-                              value={candidate.stage}
-                              onChange={(e) => moveCandidate(candidate.id, e.target.value as Stage)}
+                              value={candidate.stageId}
+                              onChange={(e) => void moveCandidate(candidate.id, e.target.value)}
                               className="bg-slate-100 border-none rounded-lg text-xs font-medium px-2 py-1 focus:ring-2 focus:ring-blue-500/20"
                             >
-                              {STAGES.map(s => (
-                                <option key={s.id} value={s.id}>{s.label}</option>
+                              {displayStages.map((stage) => (
+                                <option key={stage.id} value={stage.id}>{stage.label}</option>
                               ))}
                             </select>
                           </td>
@@ -862,6 +1047,7 @@ export default function App() {
                 </motion.div>
               )}
             </AnimatePresence>
+            )}
           </div>
 
           <AddCandidateDrawer
@@ -869,6 +1055,7 @@ export default function App() {
             onClose={() => setIsAddCandidateOpen(false)}
             onSuccess={() => {
               setIsAddCandidateOpen(false);
+              void loadPipelineCandidates();
             }}
             currentUser={{ _id: '', name: 'You', email: '', role: 'RECRUITER' }}
           />

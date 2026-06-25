@@ -38,7 +38,7 @@ export default function SettingsPage() {
         case 'security':
           return hasAnyPermission(['manage_settings']);
         case 'billing':
-          return showBillingSection && hasAnyPermission(['access_billing', 'manage_settings']);
+          return true;
         case 'activity-log':
           return isSuperAdmin();
         default:
@@ -115,7 +115,7 @@ export default function SettingsPage() {
     'notifications-triggers': 'Notifications Trigger Points',
     'alerts-management': 'Alerts Management',
     recruitment: 'Recruitment workflow',
-    billing: 'Billing & Commission',
+    billing: 'Subscription & Plan',
     security: 'Data & Security',
     'activity-log': 'Activity Log',
     customization: 'Customization',

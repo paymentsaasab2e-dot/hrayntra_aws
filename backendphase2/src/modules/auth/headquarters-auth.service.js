@@ -363,6 +363,13 @@ function normalizeSubscriptionPlanForHq(value) {
     const name = String(value.name || '').trim();
     const id = String(value.id || '').trim();
     if (!name && !id) return null;
+    const planStartDate = String(value.planStartDate || '').trim();
+    const planEndDate = String(value.planEndDate || '').trim();
+    const isTrial = value.isTrial === true || value.isTrial === 'true';
+    const trialDays =
+      value.trialDays === undefined || value.trialDays === null
+        ? undefined
+        : Number(value.trialDays) || undefined;
     return {
       ...(id ? { id } : {}),
       name: name || id,
@@ -370,6 +377,10 @@ function normalizeSubscriptionPlanForHq(value) {
         String(value.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
       maxUsers: value.maxUsers === undefined ? null : value.maxUsers,
       maxJobs: value.maxJobs === undefined ? null : value.maxJobs,
+      ...(planStartDate ? { planStartDate } : {}),
+      ...(planEndDate ? { planEndDate } : {}),
+      ...(isTrial ? { isTrial: true } : {}),
+      ...(trialDays ? { trialDays } : {}),
     };
   }
   return null;

@@ -4,7 +4,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Award,
   Briefcase,
-  ChevronDown,
   ExternalLink,
   FileText,
   GraduationCap,
@@ -67,6 +66,8 @@ import { CandidateHiringOverview } from './CandidateHiringSection';
 import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
 import { buildFileHref } from '@/utils/cloudinaryUrls';
 import { collectDocumentUrls, displayNameFromFileUrl } from '@/utils/fileDisplay';
+import { DrawerSectionCard } from '../drawers/drawerFormUi';
+import type { LucideIcon } from 'lucide-react';
 
 type SectionId = Phase1ClientSectionId;
 
@@ -139,39 +140,24 @@ function Phase1Section({
 }: {
   id: SectionId;
   title: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: LucideIcon;
   open: boolean;
   onToggle: (key: SectionId) => void;
   count?: number;
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-violet-200/80 bg-violet-50/30">
-      <button
-        type="button"
-        onClick={() => onToggle(id)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-violet-100/50"
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="rounded-lg bg-white p-2 text-violet-700 shadow-sm ring-1 ring-violet-200/80">
-            <Icon size={16} />
-          </span>
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-            {count != null ? (
-              <p className="text-[11px] text-slate-500">
-                {count} {count === 1 ? 'entry' : 'entries'}
-              </p>
-            ) : null}
-          </div>
-        </div>
-        <ChevronDown
-          size={18}
-          className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {open ? <div className="space-y-3 border-t border-violet-200/60 px-4 pb-4 pt-3">{children}</div> : null}
-    </section>
+    <DrawerSectionCard
+      title={title}
+      subtitle={count != null ? `${count} ${count === 1 ? 'entry' : 'entries'}` : undefined}
+      icon={Icon}
+      accent="violet"
+      collapsible
+      open={open}
+      onOpenChange={() => onToggle(id)}
+    >
+      {children}
+    </DrawerSectionCard>
   );
 }
 
@@ -222,7 +208,7 @@ function SkillsGrouped({ skills }: { skills: ReturnType<typeof resolvePhase1Skil
     return <p className="text-sm italic text-slate-400">Not provided</p>;
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <p className="text-sm font-semibold text-slate-900">
         {skills.length} skill{skills.length === 1 ? '' : 's'}
       </p>
@@ -425,7 +411,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
   const summaryText = snap?.summaryText || candidate.cvSummary || candidate.summary || '';
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <CandidateHiringOverview candidate={candidate} />
 
       {!hasAnyOverviewData ? (

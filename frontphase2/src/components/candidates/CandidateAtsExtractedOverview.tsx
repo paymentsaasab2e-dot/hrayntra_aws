@@ -4,13 +4,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Award,
   Briefcase,
-  ChevronDown,
   GraduationCap,
   Share2,
   User,
   FileText,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
+import { DrawerSectionCard } from '../drawers/drawerFormUi';
 import {
   buildEducationSummaryFromCvEntries,
   isGarbageEducationSummary,
@@ -106,7 +107,7 @@ function SectionBlock({
 }: {
   id: SectionKey;
   title: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: LucideIcon;
   open: boolean;
   onToggle: (key: SectionKey) => void;
   children: React.ReactNode;
@@ -114,32 +115,19 @@ function SectionBlock({
   total: number;
   extraHint?: string;
 }) {
+  const subtitle = `${filled}/${total} fields captured${extraHint ? ` · ${extraHint}` : ''}`;
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/80">
-      <button
-        type="button"
-        onClick={() => onToggle(id)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-100/80"
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="rounded-lg bg-white p-2 text-indigo-600 shadow-sm ring-1 ring-slate-200/80">
-            <Icon size={16} />
-          </span>
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-            <p className="text-[11px] text-slate-500">
-              {filled}/{total} fields captured
-              {extraHint ? ` · ${extraHint}` : ''}
-            </p>
-          </div>
-        </div>
-        <ChevronDown
-          size={18}
-          className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {open ? <div className="space-y-3 border-t border-slate-200/80 px-4 pb-4 pt-3">{children}</div> : null}
-    </section>
+    <DrawerSectionCard
+      title={title}
+      subtitle={subtitle}
+      icon={Icon}
+      accent="indigo"
+      collapsible
+      open={open}
+      onOpenChange={() => onToggle(id)}
+    >
+      {children}
+    </DrawerSectionCard>
   );
 }
 
@@ -553,7 +541,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
     summaryFilled > 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <CandidateHiringOverview candidate={candidate} />
 
       {!hasAnyExtracted ? (

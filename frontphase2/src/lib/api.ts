@@ -532,7 +532,7 @@ export function applyOrgRecruitmentSummaryPayload(
     | {
         recruitmentMode?: string;
         billingEnabled?: boolean;
-        subscriptionPlan?: { name?: string } | null;
+        subscriptionPlan?: HqTenantSubscriptionPlan | null;
         planUsage?: OrgPlanUsageCache | null;
         defaultCurrency?: string | null;
         clientPageFieldVisibility?: {
@@ -554,6 +554,30 @@ export function applyOrgRecruitmentSummaryPayload(
     localStorage.setItem('orgSubscriptionPlanName', planName);
   } else {
     localStorage.removeItem('orgSubscriptionPlanName');
+  }
+  const sp = payload?.subscriptionPlan as
+    | {
+        name?: string;
+        planStartDate?: string;
+        planEndDate?: string;
+        isTrial?: boolean;
+        trialDays?: number;
+      }
+    | null
+    | undefined;
+  if (sp && (sp.name || sp.planStartDate || sp.planEndDate)) {
+    localStorage.setItem(
+      'orgSubscriptionPlan',
+      JSON.stringify({
+        name: sp.name || planName || undefined,
+        planStartDate: sp.planStartDate || undefined,
+        planEndDate: sp.planEndDate || undefined,
+        isTrial: Boolean(sp.isTrial),
+        trialDays: sp.trialDays ?? undefined,
+      })
+    );
+  } else {
+    localStorage.removeItem('orgSubscriptionPlan');
   }
   if (payload?.planUsage) {
     localStorage.setItem(
@@ -586,7 +610,7 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
     const res = await apiFetch<{
       recruitmentMode?: string;
       billingEnabled?: boolean;
-      subscriptionPlan?: { name?: string } | null;
+      subscriptionPlan?: HqTenantSubscriptionPlan | null;
       planUsage?: OrgPlanUsageCache | null;
       defaultCurrency?: string | null;
       clientPageFieldVisibility?: {
@@ -702,13 +726,25 @@ export interface HqTenantSubscriptionPlan {
   billingCycle?: 'monthly' | 'annual';
   maxUsers?: number | null;
   maxJobs?: number | null;
+  planStartDate?: string;
+  planEndDate?: string;
+  isTrial?: boolean;
+  trialDays?: number;
 }
 
 export async function apiGetSubscriptionPlan() {
-  return apiFetch<{ plan: { name: string } | null; options: SubscriptionPlanOption[] }>(
-    '/settings/org/subscription-plan',
-    { auth: true }
-  );
+  return apiFetch<{
+    plan: HqTenantSubscriptionPlan | null;
+    planUsage?: {
+      activeJobs: number;
+      activeUsers: number;
+      maxJobs: number | null;
+      maxUsers: number | null;
+      jobsRemaining: number | null;
+      usersRemaining: number | null;
+    };
+    options: SubscriptionPlanOption[];
+  }>('/settings/org/subscription-plan', { auth: true });
 }
 
 export async function apiSetSubscriptionPlan(plan: { name: string }) {
@@ -950,7 +986,8 @@ export async function apiHqProvisionTenant(body: {
   password: string;
   organizationType?: 'agency' | 'standalone';
   billingCycle?: 'monthly' | 'annual';
-  plan?: { id?: string; name?: string; billingCycle?: 'monthly' | 'annual' };
+  planStartDate?: string;
+  plan?: { id?: string; name?: string; billingCycle?: 'monthly' | 'annual'; planStartDate?: string };
 }) {
   return apiFetch<{
     tenantDbName?: string;
@@ -1066,6 +1103,8 @@ export type HqDemoStats = {
   verified: number;
   pending: number;
   expired: number;
+  trials?: number;
+  trialsLive?: number;
 };
 
 export type HqDemoRequestApiRow = {
@@ -1078,6 +1117,13 @@ export type HqDemoRequestApiRow = {
   phoneNumber: string;
   companySize: string;
   outcome: string;
+  requestKind?: 'demo' | 'trial';
+  trialProvisioned?: boolean;
+  trialTenantDbName?: string;
+  trialLoginId?: string;
+  trialStartsAt?: string | null;
+  trialEndsAt?: string | null;
+  trialLoginUrl?: string;
   status: 'PENDING' | 'VERIFIED' | 'EXPIRED';
   emailVerifiedAt: string | null;
   createdAt: string | null;
@@ -1143,6 +1189,14 @@ export async function apiHqListDemoRequests() {
   }>('/hq/demos', { auth: true });
 }
 
+export async function apiHqDeleteDemoRequest(demoId: string) {
+  return apiFetch<{
+    deleted: boolean;
+    id: string;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/demos/${encodeURIComponent(demoId)}`, { method: 'DELETE', auth: true });
+}
+
 export async function apiHqCreateLead(body: {
   contactName: string;
   companyName: string;
@@ -1188,6 +1242,14 @@ export async function apiHqUpdateLead(
     lead: HqLeadApiRow;
     storage: HqLeadStorageInfo;
   }>(`/hq/leads/${encodeURIComponent(leadId)}`, { method: 'PUT', auth: true, body });
+}
+
+export async function apiHqDeleteLead(leadId: string) {
+  return apiFetch<{
+    deleted: boolean;
+    id: string;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}`, { method: 'DELETE', auth: true });
 }
 
 export async function apiHqAddLeadFollowUp(
@@ -2043,6 +2105,9 @@ export async function apiLogout() {
     localStorage.removeItem('tenantDbName');
     localStorage.removeItem('orgRecruitmentMode');
     localStorage.removeItem('orgBillingEnabled');
+    localStorage.removeItem('orgSubscriptionPlan');
+    localStorage.removeItem('orgSubscriptionPlanName');
+    localStorage.removeItem('orgPlanUsage');
     syncAuthCookie('accessToken', null);
     syncAuthCookie('refreshToken', null);
     syncTenantDbName(null);

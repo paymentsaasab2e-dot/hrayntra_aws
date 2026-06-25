@@ -7,6 +7,9 @@ interface SaasaCvRasterResumePreviewProps {
   resumeUrl: string;
   candidateName?: string;
   mode: 'image' | 'text';
+  editable?: boolean;
+  initialTextContent?: string | null;
+  onTextChange?: (text: string) => void;
   onReady?: () => void;
   onError?: (message: string) => void;
   className?: string;
@@ -16,6 +19,9 @@ export function SaasaCvRasterResumePreview({
   resumeUrl,
   candidateName = 'Candidate',
   mode,
+  editable = false,
+  initialTextContent = null,
+  onTextChange,
   onReady,
   onError,
   className = 'relative z-0 w-full',
@@ -50,7 +56,8 @@ export function SaasaCvRasterResumePreview({
         if (cancelled) return;
 
         if (mode === 'text' || isTextResume(resumeUrl)) {
-          const text = await blob.text();
+          const saved = initialTextContent?.trim();
+          const text = saved || (await blob.text());
           if (cancelled) return;
           setTextContent(text);
           ready();
@@ -69,7 +76,7 @@ export function SaasaCvRasterResumePreview({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [resumeUrl, mode, onReady, onError]);
+  }, [resumeUrl, mode, initialTextContent, onReady, onError]);
 
   if (loading) {
     return (
@@ -82,7 +89,18 @@ export function SaasaCvRasterResumePreview({
   if (mode === 'text' || isTextResume(resumeUrl)) {
     return (
       <div className={`${className} max-h-[min(78dvh,900px)] overflow-auto p-4 sm:p-6`}>
-        <pre className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-slate-800">
+        <pre
+          className={`whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-slate-800 ${
+            editable ? 'saasa-txt-editable min-h-[200px] rounded-lg border border-blue-200 bg-white p-3 outline-none focus:ring-2 focus:ring-blue-100' : ''
+          }`}
+          contentEditable={editable}
+          suppressContentEditableWarning
+          onInput={
+            editable
+              ? (e) => onTextChange?.((e.currentTarget.textContent ?? '').replace(/\u00a0/g, ' '))
+              : undefined
+          }
+        >
           {textContent || 'Empty file'}
         </pre>
       </div>

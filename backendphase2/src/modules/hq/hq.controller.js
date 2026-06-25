@@ -65,6 +65,15 @@ export const hqController = {
     }
   },
 
+  async deleteLead(req, res) {
+    try {
+      const result = await hqService.deleteLead(req.params.id, req.user);
+      sendResponse(res, 200, 'Lead deleted', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async addLeadFollowUp(req, res) {
     try {
       const result = await hqService.addLeadFollowUp(req.params.id, req.body, req.user);
@@ -136,6 +145,15 @@ export const hqController = {
     try {
       const result = await hqService.listDemoRequests(req.user);
       sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async deleteDemoRequest(req, res) {
+    try {
+      const result = await hqService.deleteDemoRequest(req.params.id, req.user);
+      sendResponse(res, 200, 'Demo request deleted', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

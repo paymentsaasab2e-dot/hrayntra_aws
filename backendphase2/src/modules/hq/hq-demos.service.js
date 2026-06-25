@@ -1,7 +1,34 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
 
 const EMPLOYER_DEMO_COLLECTION = 'employer_demo_requests';
+const TRIAL_PACKAGE_DAYS = 5;
+
+function isoDateFrom(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function inferTrialStartsAt(doc) {
+  return (
+    String(doc.trialStartsAt || '').trim() ||
+    String(doc.planStartDate || '').trim() ||
+    isoDateFrom(doc.emailVerifiedAt) ||
+    isoDateFrom(doc.createdAt) ||
+    null
+  );
+}
+
+function inferTrialEndsAt(doc, start) {
+  const stored = String(doc.trialEndsAt || '').trim();
+  if (stored) return stored;
+  if (!start) return null;
+  const d = new Date(`${start}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + TRIAL_PACKAGE_DAYS);
+  return d.toISOString().slice(0, 10);
+}
 
 let cachedClient = null;
 
@@ -42,6 +69,9 @@ function formatDate(value) {
 
 function toDemoRow(doc) {
   const status = String(doc.otpStatus || 'PENDING').toUpperCase();
+  const requestKind = String(doc.requestKind || 'demo').toLowerCase() === 'trial' ? 'trial' : 'demo';
+  const trialStartsAt = inferTrialStartsAt(doc);
+  const trialEndsAt = inferTrialEndsAt(doc, trialStartsAt);
   return {
     id: doc._id.toString(),
     fullName: doc.fullName || '—',
@@ -52,6 +82,13 @@ function toDemoRow(doc) {
     phoneNumber: doc.phoneNumber || '',
     companySize: doc.companySize || '—',
     outcome: doc.outcome || '',
+    requestKind,
+    trialProvisioned: Boolean(doc.trialProvisioned),
+    trialTenantDbName: doc.trialTenantDbName || '',
+    trialLoginId: doc.trialLoginId || '',
+    trialStartsAt,
+    trialEndsAt,
+    trialLoginUrl: doc.trialLoginUrl || '',
     status,
     emailVerifiedAt:
       doc.emailVerifiedAt instanceof Date
@@ -66,15 +103,23 @@ function computeStats(rows) {
   const verified = rows.filter((row) => row.status === 'VERIFIED').length;
   const pending = rows.filter((row) => row.status === 'PENDING').length;
   const expired = rows.filter((row) => row.status === 'EXPIRED').length;
+  const trials = rows.filter((row) => row.requestKind === 'trial').length;
+  const trialsLive = rows.filter((row) => row.requestKind === 'trial' && row.trialProvisioned).length;
   return {
     total: rows.length,
     verified,
     pending,
     expired,
+    trials,
+    trialsLive,
   };
 }
 
 export const hqDemosService = {
+  async getRawCollection() {
+    return getCollection();
+  },
+
   async listDemoRequests() {
     const collection = await getCollection();
     const docs = await collection.find({}).sort({ createdAt: -1 }).limit(500).toArray();
@@ -82,6 +127,29 @@ export const hqDemosService = {
     return {
       demos,
       stats: computeStats(demos),
+      storage: {
+        engine: 'mongodb',
+        database: portalDbName(),
+        collection: EMPLOYER_DEMO_COLLECTION,
+      },
+    };
+  },
+
+  async deleteDemoRequest(id) {
+    if (!ObjectId.isValid(id)) {
+      throw new Error('Invalid demo request id');
+    }
+
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const result = await collection.deleteOne({ _id: objectId });
+    if (!result.deletedCount) {
+      throw new Error('Demo request not found');
+    }
+
+    return {
+      deleted: true,
+      id,
       storage: {
         engine: 'mongodb',
         database: portalDbName(),

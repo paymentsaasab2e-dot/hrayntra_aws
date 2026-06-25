@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Briefcase, ChevronDown } from 'lucide-react';
+import { Briefcase } from 'lucide-react';
 import type { UpdateCandidatePayload } from '@/lib/api';
 import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDrawerData';
+import { DrawerSectionCard } from '../drawers/drawerFormUi';
 import type { CandidateEditFormState } from './CandidateEditAtsSections';
 import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
 
@@ -77,48 +78,30 @@ export function CandidateHiringOverview({ candidate }: HiringOverviewProps) {
   ].filter((value) => display(value)).length;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-indigo-200 bg-indigo-50/40">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-indigo-100/50"
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="rounded-lg bg-white p-2 text-indigo-700 shadow-sm ring-1 ring-indigo-200/80">
-            <Briefcase size={16} />
-          </span>
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Hiring &amp; assignment</h3>
-            <p className="text-[11px] text-slate-500">
-              {filledCount}/6 fields set
-              {assignedJob ? ` · ${assignedJob}` : ''}
-            </p>
-          </div>
-        </div>
-        <ChevronDown
-          size={18}
-          className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {open ? (
-        <div className="space-y-3 border-t border-indigo-200/60 px-4 pb-4 pt-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <OverviewField label="Assigned job" value={assignedJob} />
-            <OverviewField label="Pipeline stage" value={candidate.stage} />
-            <OverviewField label="Status" value={candidate.status} />
-            <OverviewField label="Assigned recruiter" value={candidate.recruiter} />
-            <OverviewField label="Source" value={candidate.source} />
-            <OverviewField label="Availability" value={candidate.availability} />
-          </div>
-          {pipelineSummary ? (
-            <div className="rounded-xl border border-indigo-100 bg-white px-3 py-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Pipeline jobs</p>
-              <p className="mt-1 text-sm text-slate-700">{pipelineSummary}</p>
-            </div>
-          ) : null}
+    <DrawerSectionCard
+      title="Hiring & assignment"
+      subtitle={`${filledCount}/6 fields set${assignedJob ? ` · ${assignedJob}` : ''}`}
+      icon={Briefcase}
+      accent="indigo"
+      collapsible
+      open={open}
+      onOpenChange={() => setOpen((prev) => !prev)}
+    >
+      <div className="grid gap-2 sm:grid-cols-2">
+        <OverviewField label="Assigned job" value={assignedJob} />
+        <OverviewField label="Pipeline stage" value={candidate.stage} />
+        <OverviewField label="Status" value={candidate.status} />
+        <OverviewField label="Assigned recruiter" value={candidate.recruiter} />
+        <OverviewField label="Source" value={candidate.source} />
+        <OverviewField label="Availability" value={candidate.availability} />
+      </div>
+      {pipelineSummary ? (
+        <div className="rounded-xl border border-indigo-100 bg-slate-50/80 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Pipeline jobs</p>
+          <p className="mt-1 text-sm text-slate-700">{pipelineSummary}</p>
         </div>
       ) : null}
-    </section>
+    </DrawerSectionCard>
   );
 }
 

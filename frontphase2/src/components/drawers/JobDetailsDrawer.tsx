@@ -91,7 +91,6 @@ import {
 import { useSubmitToClientModal } from '../../hooks/useSubmitToClientModal';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { NotesService } from '../NotesService';
-import { StatusChangeService } from '../StatusChangeService';
 import {
   apiGetJobActivities,
   apiUpdateJob,
@@ -1358,7 +1357,7 @@ export function JobDetailsDrawer({
         className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
       >
         {/* Header */}
-        <div className="shrink-0 border-b border-slate-200 p-5">
+        <div className="shrink-0 border-b border-slate-200 px-5 pt-5 pb-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               {job ? (
@@ -1432,7 +1431,7 @@ export function JobDetailsDrawer({
           </div>
 
           {job?.id ? (
-            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Link2 size={16} className="text-emerald-700 shrink-0" />
                 <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
@@ -1483,58 +1482,6 @@ export function JobDetailsDrawer({
               )}
             </div>
           ) : null}
-
-          {/* Right-side info panel (inline in header area) */}
-          {job && (
-            <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-              <div className="hidden">
-                <span className="text-slate-400 font-medium">Posted Date</span>
-                <p className="text-slate-700 mt-0.5">{job.postedDate ?? job.createdDate}</p>
-              </div>
-              <div className="hidden">
-                <span className="text-slate-400 font-medium">Recruiter</span>
-                <p className="text-slate-700 mt-0.5">{job.recruiter ?? job.owner}</p>
-              </div>
-              <div className="hidden">
-                <span className="text-slate-400 font-medium">Hiring Manager</span>
-                <p className="text-slate-700 mt-0.5">{job.hiringManager ?? '—'}</p>
-              </div>
-              <div className="col-span-2 hidden">
-                <span className="text-slate-400 font-medium">Status</span>
-                <div className="mt-0.5">
-                  {!showStatusChange ? (
-                    <button
-                      onClick={() => setShowStatusChange(true)}
-                      className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${STATUS_STYLES[job.status]} hover:opacity-80 cursor-pointer transition-opacity`}
-                    >
-                      {job.status}
-                    </button>
-                  ) : (
-                    <StatusChangeService
-                      currentStatus={job.status}
-                      availableStatuses={['Active', 'On Hold', 'Closed']}
-                      onStatusChange={async (newStatus, remark) => {
-                        try {
-                          await apiUpdateJob(job.id, {
-                            status: newStatus === 'Active' ? 'OPEN' : newStatus === 'On Hold' ? 'ON_HOLD' : 'CLOSED',
-                            statusRemark: remark,
-                          } as any);
-                          setShowStatusChange(false);
-                          // Refresh job data
-                          window.location.reload(); // Simple refresh for now
-                        } catch (error: any) {
-                          console.error('Failed to update job status:', error);
-                          void requestError(error.message || 'Failed to update job status');
-                        }
-                      }}
-                      onCancel={() => setShowStatusChange(false)}
-                      title="Change Job Status"
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {job ? (

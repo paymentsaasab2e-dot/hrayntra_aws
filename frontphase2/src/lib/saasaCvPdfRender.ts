@@ -214,19 +214,33 @@ export async function renderSaasaPdfPages(
     const ctx = canvas.getContext('2d');
     if (!ctx) continue;
 
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-    canvas.className = 'block w-full max-w-full';
+    const ph = Math.floor(viewport.height);
+    const pw = Math.floor(viewport.width);
+
+    const pageWrap = document.createElement('div');
+    pageWrap.className = 'saasa-pdf-page bg-white';
+    pageWrap.dataset.pageNumber = String(pageNum);
+    if (pageNum < pdf.numPages) pageWrap.classList.add('border-b', 'border-slate-200');
+    pageWrap.style.position = 'relative';
+    pageWrap.style.width = '100%';
+    pageWrap.style.maxWidth = `${pw}px`;
+    pageWrap.style.height = `${ph}px`;
+    pageWrap.style.margin = '0 auto';
+    pageWrap.style.overflow = 'hidden';
+    pageWrap.style.isolation = 'isolate';
+
+    canvas.width = pw;
+    canvas.height = ph;
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    canvas.className = 'saasa-pdf-page-canvas';
 
     await page.render({ canvasContext: ctx, viewport }).promise;
 
-    const pageWrap = document.createElement('div');
-    pageWrap.className = 'bg-white';
-    if (pageNum < pdf.numPages) pageWrap.className += ' border-b border-slate-200';
     pageWrap.appendChild(canvas);
     host.appendChild(pageWrap);
 
-    const ph = Math.floor(viewport.height);
     pageHeightsPx.push(ph);
     totalHeight += ph;
   }
