@@ -66,6 +66,31 @@ function getTeamAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+async function parseTeamFetchJson(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(
+      res.ok
+        ? 'Server returned an empty response. Check that the backend is running on port 5001 and try again.'
+        : `Request failed (${res.status}). The server did not return a response body.`,
+    );
+  }
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      res.ok
+        ? 'Server returned an invalid response. Please try again.'
+        : `Request failed (${res.status}). The server response could not be read.`,
+    );
+  }
+}
+
+function throwTeamApiError(json: Record<string, unknown>, res: Response): never {
+  const message = String(json?.message || `Request failed with status ${res.status}`);
+  throw new Error(message);
+}
+
 const normalizeArrayPayload = <T>(payload: unknown): T[] => {
   if (Array.isArray(payload)) return payload as T[];
 
@@ -291,26 +316,20 @@ export async function getTeamMemberById(id: string) {
  */
 export async function createTeamMember(payload: CreateMemberPayload) {
   const path = buildPath('/team');
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
+
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'POST',
-    headers,
+    headers: getTeamAuthHeaders(),
     body: JSON.stringify(payload),
+    cache: 'no-store',
   });
-  
-  const json = await res.json();
+
+  const json = await parseTeamFetchJson(res);
   if (!res.ok || json?.success === false) {
-    throw new Error(json?.message || `Request failed with status ${res.status}`);
+    throwTeamApiError(json, res);
   }
-  
-  return { data: json.data, success: json.success };
+
+  return { data: json.data, success: Boolean(json.success) };
 }
 
 /**
@@ -318,24 +337,18 @@ export async function createTeamMember(payload: CreateMemberPayload) {
  */
 export async function updateTeamMember(id: string, payload: UpdateMemberPayload) {
   const path = buildPath(`/team/${id}`);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
+
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'PATCH',
-    headers,
+    headers: getTeamAuthHeaders(),
     body: JSON.stringify(payload),
+    cache: 'no-store',
   });
-  
-  const json = await res.json();
-  
+
+  const json = await parseTeamFetchJson(res);
+
   if (!res.ok || json?.success === false) {
-    throw new Error(json?.message || `Request failed with status ${res.status}`);
+    throwTeamApiError(json, res);
   }
 
   // If the admin re-assigned a role, immediately refresh the acting user's

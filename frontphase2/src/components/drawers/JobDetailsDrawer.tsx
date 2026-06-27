@@ -107,6 +107,7 @@ import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
+import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
 import { DrawerSectionCard, DRAWER_FORM_SCROLL_BG } from './drawerFormUi';
 
@@ -1513,7 +1514,14 @@ export function JobDetailsDrawer({
             <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`}>
               <div className="space-y-5 p-5">
               {activeTab === 'overview' && job && (
-                <JobOverviewTabContent job={job} />
+                <div className="space-y-5">
+                  <AiRecommendationPanel
+                    entityType="JOB"
+                    entityId={job.id}
+                    entityLabel={job.title || 'Job'}
+                  />
+                  <JobOverviewTabContent job={job} />
+                </div>
               )}
 
               {activeTab === 'assessments' && job && (

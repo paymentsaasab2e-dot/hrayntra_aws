@@ -62,6 +62,10 @@ import { notifyInterviewScheduleChange } from '../notification/interviewNotifica
 import { AI_MATCH_AUTHOR_WHERE } from '../match/matchQueryHelpers.js';
 import { permanentDeleteCandidateById } from '../../services/candidatePermanentDelete.service.js';
 import { detachCandidateFromJobLink } from '../internal/portal-job-detach.service.js';
+import {
+  queueAiEntryRecommendation,
+  buildEntitySnapshot,
+} from '../../services/aiEntryRecommendation.service.js';
 
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
 const NOTE_ACTIVITY_KIND = 'candidate-note';
@@ -3403,6 +3407,18 @@ export const candidateService = {
       });
     }
 
+    const entityName =
+      `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email || 'Candidate';
+    queueAiEntryRecommendation({
+      entityType: 'CANDIDATE',
+      entityId: candidate.id,
+      entityLabel: entityName,
+      snapshot: buildEntitySnapshot('CANDIDATE', candidate),
+      recipientUserId: candidate.assignedToId || createdByUserId,
+      actorUserId: createdByUserId,
+      trigger: 'create',
+    });
+
     return candidate;
   },
 
@@ -4732,6 +4748,18 @@ export const candidateService = {
       meetingLink: generatedMeetingLink,
       schedulerUserId: userId,
       panelUserIds: interviewers.map((item) => item.id).filter(Boolean),
+    });
+
+    const interviewCandidateName =
+      `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email || 'Candidate';
+    queueAiEntryRecommendation({
+      entityType: 'INTERVIEW',
+      entityId: interview.id,
+      entityLabel: `${interviewCandidateName} — ${job.title}`,
+      snapshot: buildEntitySnapshot('INTERVIEW', { ...interview, candidate, job, client }),
+      recipientUserId: leadInterviewer?.id || userId,
+      actorUserId: userId,
+      trigger: 'create',
     });
 
     return interview;

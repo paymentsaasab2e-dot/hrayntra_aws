@@ -20,5 +20,7 @@ router.post('/undo', aiController.executeUndo);
 router.get('/assistant-history/:pageKey', aiController.getAssistantHistory);
 router.put('/assistant-history/:pageKey', aiController.saveAssistantHistory);
 router.delete('/assistant-history/:pageKey', aiController.deleteAssistantHistory);
+router.get('/entry-recommendations', aiController.listEntryRecommendations);
+router.post('/entry-recommendations/regenerate', aiController.regenerateEntryRecommendation);
 
 export default router;

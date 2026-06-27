@@ -187,6 +187,7 @@ import { CrossDepartmentClientHandoff } from '../team/CrossDepartmentClientHando
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { ClientAiChatDrawer } from '../clients/ClientAiChatDrawer';
+import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 import {
   clientAiHasAgreementData,
   clientAiHasKycData,
@@ -4576,6 +4577,13 @@ export function ClientDetailsDrawer({
                     <div className="space-y-5">
                       {!overviewEditMode ? (
                         <>
+                          {client?.id ? (
+                            <AiRecommendationPanel
+                              entityType="CLIENT"
+                              entityId={client.id}
+                              entityLabel={fullClientData?.name || client?.name || 'Client'}
+                            />
+                          ) : null}
                           <DrawerSectionCard
                             title="Client Information"
                             subtitle="Company profile, contacts, and qualification"

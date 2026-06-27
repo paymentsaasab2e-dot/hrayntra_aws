@@ -11,6 +11,10 @@ import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import activityService from '../../services/activityService.js';
 import { notifyTaskAssignment, notifyTaskStatusChange, notifyTaskAwaitingApproval, notifyTaskCompletionApproved, notifyTaskCompletionRejected } from './taskWorkflow.js';
 import { assertCanAssignTask, listTaskAssigneeCandidates, assertValidTaskCompletionApprover, assertCanSetSelfAsTaskCompletionApprover } from '../../services/taskAssignmentScope.service.js';
+import {
+  queueAiEntryRecommendation,
+  buildEntitySnapshot,
+} from '../../services/aiEntryRecommendation.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -341,6 +345,16 @@ export const taskService = {
       });
     }
 
+    queueAiEntryRecommendation({
+      entityType: 'TASK',
+      entityId: task.id,
+      entityLabel: task.title || 'Task',
+      snapshot: buildEntitySnapshot('TASK', task),
+      recipientUserId: task.assignedToId || actorId,
+      actorUserId: actorId,
+      trigger: 'create',
+    });
+
     return task;
   },
 
@@ -530,6 +544,16 @@ export const taskService = {
         newStatus: 'DONE',
       });
     }
+
+    queueAiEntryRecommendation({
+      entityType: 'TASK',
+      entityId: updated.id,
+      entityLabel: updated.title || 'Task',
+      snapshot: buildEntitySnapshot('TASK', updated),
+      recipientUserId: updated.assignedToId || performerId,
+      actorUserId: performerId,
+      trigger: 'update',
+    });
 
     return updated;
   },

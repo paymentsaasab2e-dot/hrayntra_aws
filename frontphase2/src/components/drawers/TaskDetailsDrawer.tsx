@@ -36,6 +36,7 @@ import { TaskForm } from '../TaskForm';
 import { TaskActivityLog } from '../TaskActivityLog';
 import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
+import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 import type { AuditMeta } from '../../types/audit';
 import { TaskCommunicationHistory } from '../TaskCommunicationHistory';
 import { CandidateInteractionLogs } from '../CandidateInteractionLogs';
@@ -1379,6 +1380,11 @@ export function TaskDetailsDrawer({
                 <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
                   {task && activeTab === 'overview' && (
                     <div className="space-y-4">
+                      <AiRecommendationPanel
+                        entityType="TASK"
+                        entityId={task.id}
+                        entityLabel={task.title || 'Task'}
+                      />
                       {showDelegatePanel ? (
                         <div className="rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 p-5 shadow-sm">
                           <p className="text-xs font-bold uppercase tracking-wider text-violet-700">

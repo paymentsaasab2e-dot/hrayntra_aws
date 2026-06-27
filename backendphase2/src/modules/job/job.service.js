@@ -40,6 +40,10 @@ import {
 } from './jobPublicApply.service.js';
 import { upsertPortalJobDocument } from '../../utils/portalJobRawSync.util.js';
 import { preScreenAssessmentService } from '../pre-screen-assessment/assessment.service.js';
+import {
+  queueAiEntryRecommendation,
+  buildEntitySnapshot,
+} from '../../services/aiEntryRecommendation.service.js';
 
 async function enrichJobWithApplyLink(job) {
   if (!job?.id) return job;
@@ -1383,6 +1387,16 @@ export const jobService = {
     } catch (syncError) {
       console.error(`Failed to sync job ${job.id} to job portal DB:`, syncError?.message || syncError);
     }
+
+    queueAiEntryRecommendation({
+      entityType: 'JOB',
+      entityId: job.id,
+      entityLabel: job.title || 'Job',
+      snapshot: buildEntitySnapshot('JOB', job),
+      recipientUserId: job.assignedToId || createdByUserId,
+      actorUserId: createdByUserId,
+      trigger: 'create',
+    });
 
     return enrichJobWithAssessments(job);
   },

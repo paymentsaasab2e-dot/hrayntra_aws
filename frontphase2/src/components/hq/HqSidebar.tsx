@@ -11,7 +11,6 @@ import {
   Shield,
   Tag,
   Target,
-  Terminal,
   Users,
 } from 'lucide-react';
 
@@ -26,7 +25,6 @@ export const HQ_NAV_ITEMS: {
   { id: 'dashboard', label: 'Dashboard', href: '/hq', icon: LayoutDashboard },
   { id: 'tenants', label: 'Tenants', href: '/hq?tab=tenants', icon: Users },
   { id: 'plans', label: 'Plans', href: '/hq?tab=plans', icon: Tag },
-  { id: 'bootstrap', label: 'Local bootstrap', href: '/hq?tab=bootstrap', icon: Terminal },
   { id: 'leads', label: 'CRM Leads', href: '/hq/leads', icon: Target },
   { id: 'company', label: 'Companies', href: '/hq/company', icon: Building },
   { id: 'portal', label: 'Portal', href: '/hq/portal', icon: Globe },

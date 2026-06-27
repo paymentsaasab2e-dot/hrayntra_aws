@@ -33,6 +33,10 @@ import {
 } from '../../utils/directorOtherDetails.js';
 import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
+import {
+  queueAiEntryRecommendation,
+  buildEntitySnapshot,
+} from '../../services/aiEntryRecommendation.service.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -845,6 +849,16 @@ export const leadService = {
       }
     }
 
+    queueAiEntryRecommendation({
+      entityType: 'LEAD',
+      entityId: lead.id,
+      entityLabel: lead.companyName || 'Lead',
+      snapshot: buildEntitySnapshot('LEAD', lead),
+      recipientUserId: lead.assignedToId || data.performedById,
+      actorUserId: data.performedById,
+      trigger: 'create',
+    });
+
     return lead;
   },
 
@@ -1293,6 +1307,16 @@ export const leadService = {
         // Don't throw - activity logging is non-critical
       }
     }
+
+    queueAiEntryRecommendation({
+      entityType: 'LEAD',
+      entityId: updated.id,
+      entityLabel: updated.companyName || 'Lead',
+      snapshot: buildEntitySnapshot('LEAD', updated),
+      recipientUserId: updated.assignedToId || data.performedById || req?.user?.id,
+      actorUserId: data.performedById || req?.user?.id,
+      trigger: 'update',
+    });
 
     return updated;
   },

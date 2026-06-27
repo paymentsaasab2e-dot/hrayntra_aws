@@ -17,6 +17,7 @@ import {
 } from '../../utils/placements';
 import type { Placement, PlacementStatus } from '../../types/placement';
 import { EntityAuditSummary } from '../table/TableAuditCell';
+import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 
 interface PlacementDetailsDrawerProps {
   isOpen: boolean;
@@ -159,6 +160,11 @@ export function PlacementDetailsDrawer({
                 <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-red-700">{error}</div>
               ) : placement ? (
                 <div className="space-y-6">
+                  <AiRecommendationPanel
+                    entityType="PLACEMENT"
+                    entityId={placement.id}
+                    entityLabel={`${placement.candidate.firstName} ${placement.candidate.lastName} — ${placement.job.title}`}
+                  />
                   <div className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
                     <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
                       <div>
