@@ -28,16 +28,21 @@ if (nodeMajor === 20 && (nodeMinor > 19 || (nodeMinor === 20 && nodePatch >= 2))
 
 const prismaClientDir = path.join(root, 'node_modules', '.prisma', 'client');
 const prismaIndex = path.join(prismaClientDir, 'index.js');
+const prismaDefault = path.join(prismaClientDir, 'default.js');
 if (!fs.existsSync(prismaIndex)) {
   fail(
-    'Prisma client not generated. Run:\n  cd backendphase2 && npx prisma generate',
+    'Prisma client not generated. Run:\n  cd backendphase2 && npm install && npx prisma generate',
   );
 }
 
-const prismaStat = fs.statSync(prismaIndex);
-if (prismaStat.size < 100) {
-  fail('Prisma client index.js looks empty/corrupt. Run: npx prisma generate');
+for (const f of [prismaIndex, prismaDefault]) {
+  if (!fs.existsSync(f) || fs.statSync(f).size < 50) {
+    fail(`Prisma file missing or empty: ${path.basename(f)}\nRun: npx prisma generate`);
+  }
 }
+
+console.log('[prestart-check] Running empty-deps scan...');
+await import('./scan-empty-deps.mjs');
 
 const criticalFiles = [
   'node_modules/@prisma/client/default.js',
