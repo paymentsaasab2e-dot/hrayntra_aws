@@ -96,21 +96,23 @@ interface AddMemberDrawerProps {
   onSuccess: (member?: TeamMember) => void;
 }
 
+const INITIAL_FORM_DATA: CreateMemberPayload = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  designation: '',
+  location: '',
+  departmentId: '',
+  roleId: '',
+  managerId: '',
+  status: 'ACTIVE',
+  generateCredentials: true,
+  sendInvite: true,
+};
+
 export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClose, onSuccess }) => {
-  const [formData, setFormData] = useState<CreateMemberPayload>({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    designation: '',
-    location: '',
-    departmentId: '',
-    roleId: '',
-    managerId: '',
-    status: 'ACTIVE',
-    generateCredentials: true,
-    sendInvite: true,
-  });
+  const [formData, setFormData] = useState<CreateMemberPayload>(INITIAL_FORM_DATA);
 
   const [roles, setRoles] = useState<Role[]>([]);
   const [departments, setDepartments] = useState<DepartmentWithRoles[]>([]);
@@ -122,11 +124,14 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [createdMember, setCreatedMember] = useState<TeamMember | null>(null);
 
-  // Load options
+  // Reset form when opening; parent may close without calling handleClose (e.g. onSuccess).
   useEffect(() => {
-    if (isOpen) {
-      loadOptions();
-    }
+    if (!isOpen) return;
+    setFormData({ ...INITIAL_FORM_DATA });
+    setErrors({});
+    setCreatedMember(null);
+    setIsSubmitting(false);
+    loadOptions();
   }, [isOpen]);
 
   const loadOptions = async () => {
@@ -331,22 +336,10 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
   };
 
   const handleClose = () => {
-    setFormData({
-      firstName: '',
-      lastName: '',
-      email: '',
-      phone: '',
-      designation: '',
-      location: '',
-      departmentId: '',
-      roleId: '',
-      managerId: '',
-      status: 'ACTIVE',
-      generateCredentials: true,
-      sendInvite: true,
-    });
+    setFormData({ ...INITIAL_FORM_DATA });
     setErrors({});
     setCreatedMember(null);
+    setIsSubmitting(false);
     onClose();
   };
 
