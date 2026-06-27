@@ -6,13 +6,15 @@
   "main": "src/server.js",
   "scripts": {
     "preinstall": "node -e \"process.exit(0)\"",
+    "setup": "npm install && npm run db:generate && node scripts/scan-empty-deps.mjs",
+    "reinstall": "node -e \"require('fs').rmSync('node_modules',{recursive:true,force:true})\" && npm install && npm run db:generate",
     "clean": "rimraf node_modules && npm install",
     "dev": "nodemon --exec tsx --ext ts,js src/server.js",
     "dev:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
     "start": "node src/server.js",
     "start:tsx": "tsx src/server.js",
     "prestart": "node scripts/prestart-check.mjs",
-    "postinstall": "prisma generate || true",
+    "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
@@ -23,7 +25,7 @@
     "seed:hq-admin": "node scripts/seed-hq-platform-admin.js",
     "create:role-users": "node scripts/create-role-users.js",
     "disable-password-reset": "node scripts/disable-password-reset.js",
-    "seed:team": "pnpm db:seed",
+    "seed:team": "npm run db:seed",
     "migrate:external-urls-to-s3": "node scripts/migrate-external-urls-to-s3.mjs",
     "purge:bulkcv-emails": "node scripts/purge-bulkcv-email-candidates.js",
     "purge:bulkcv-emails:execute": "node scripts/purge-bulkcv-email-candidates.js --execute",
@@ -41,7 +43,7 @@
   "author": "",
   "license": "ISC",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=20.19.0"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.758.0",
