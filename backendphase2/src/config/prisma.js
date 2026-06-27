@@ -1,25 +1,7 @@
 import { AsyncLocalStorage } from 'async_hooks';
-import { createRequire } from 'module';
+import { PrismaClient } from '@prisma/client';
 import { env } from './env.js';
 import logger from '../utils/logger.js';
-
-const require = createRequire(import.meta.url);
-
-function clearPrismaModuleCache() {
-  for (const key of Object.keys(require.cache)) {
-    if (
-      key.includes('.prisma\\client') ||
-      key.includes('.prisma/client') ||
-      key.includes('@prisma/client')
-    ) {
-      delete require.cache[key];
-    }
-  }
-}
-
-function loadPrismaClientCtor() {
-  return require('@prisma/client').PrismaClient;
-}
 
 const tenantContext = new AsyncLocalStorage();
 const clientsByUrl = new Map();
@@ -168,7 +150,6 @@ function withQueryLogging(client) {
 }
 
 function createClientForUrl(url) {
-  const PrismaClient = loadPrismaClientCtor();
   const client = new PrismaClient({
     datasources: {
       db: { url },
@@ -198,7 +179,6 @@ function getClientForUrl(url, { forceRecreate = false } = {}) {
       clientsByUrl.delete(url);
       client.$disconnect?.().catch(() => {});
     }
-    clearPrismaModuleCache();
     client = createClientForUrl(url);
     clientsByUrl.set(url, client);
   } else if (!client) {
