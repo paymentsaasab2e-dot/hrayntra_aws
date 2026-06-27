@@ -768,41 +768,41 @@ function TenantsPanel({
                   </td>
                   <td className="py-3 pl-3 text-right">
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                      {!t.isLandingSignupOnly ? (
-                        <>
-                      {isTenantPaused(t) ? (
-                        <button
-                          type="button"
-                          onClick={() => onSetTenantPause(t.email, false)}
-                          disabled={pendingPauseEmail === t.email}
-                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
-                          title="Resume tenant operations in Phase 2"
-                        >
-                          {pendingPauseEmail === t.email ? '…' : 'Continue'}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => onSetTenantPause(t.email, true)}
-                          disabled={pendingPauseEmail === t.email}
-                          className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
-                          title="Pause tenant — users see a blocking notice in Phase 2"
-                        >
-                          {pendingPauseEmail === t.email ? '…' : 'Pause'}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onDeleteTenant(t.email, t.tenantDbName)}
-                        disabled={pendingDeleteEmail === t.email}
-                        className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
-                        title="Permanently delete this tenant and drop its database"
-                      >
-                        {pendingDeleteEmail === t.email ? 'Deleting…' : 'Delete'}
-                      </button>
-                        </>
-                      ) : (
+                      {t.isLandingSignupOnly ? (
                         <span className="text-[10px] text-slate-400">View only</span>
+                      ) : (
+                        <>
+                          {isTenantPaused(t) ? (
+                            <button
+                              type="button"
+                              onClick={() => onSetTenantPause(t.email, false)}
+                              disabled={pendingPauseEmail === t.email}
+                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+                              title="Resume tenant operations in Phase 2"
+                            >
+                              {pendingPauseEmail === t.email ? '…' : 'Continue'}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onSetTenantPause(t.email, true)}
+                              disabled={pendingPauseEmail === t.email}
+                              className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                              title="Pause tenant — users see a blocking notice in Phase 2"
+                            >
+                              {pendingPauseEmail === t.email ? '…' : 'Pause'}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => onDeleteTenant(t.email, t.tenantDbName)}
+                            disabled={pendingDeleteEmail === t.email}
+                            className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                            title="Permanently delete this tenant and drop its database"
+                          >
+                            {pendingDeleteEmail === t.email ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
