@@ -14,9 +14,15 @@ import { jobService } from '../job/job.service.js';
 import { candidateService } from '../candidate/candidate.service.js';
 import { taskService } from '../task/task.service.js';
 import { placementService } from '../placement/placement.service.js';
+import { interviewService } from '../../services/interview.service.js';
 import { undoService } from './undo.service.js';
 import * as locationResolveService from '../../services/locationResolve.service.js';
 import { parseSmartSearchPrompt } from '../../services/smartSearch.service.js';
+import {
+  listAiRecommendations,
+  generateAiEntryRecommendation,
+  buildEntitySnapshot,
+} from '../../services/aiEntryRecommendation.service.js';
 
 const jobDescriptionJsonSchema = {
   name: 'job_description_payload',
@@ -966,6 +972,85 @@ export const aiController = {
     } catch (error) {
       console.error('[ARIA Undo] Error:', error);
       return sendError(res, 500, 'Failed to execute undo', error);
+    }
+  },
+
+  async listEntryRecommendations(req, res) {
+    try {
+      const entityType = String(req.query?.entityType || '').trim();
+      const entityId = String(req.query?.entityId || '').trim();
+      if (!entityType || !entityId) {
+        return sendError(res, 400, 'entityType and entityId are required');
+      }
+      const recommendations = await listAiRecommendations(entityType, entityId);
+      return sendResponse(res, 200, 'AI recommendations loaded', {
+        recommendations,
+        configured: hasLlmProvider(),
+      });
+    } catch (error) {
+      console.error('[listEntryRecommendations]', error);
+      return sendError(res, 500, error.message || 'Failed to load AI recommendations', error);
+    }
+  },
+
+  async regenerateEntryRecommendation(req, res) {
+    try {
+      if (!hasLlmProvider()) {
+        return sendError(res, 503, 'AI recommendations are not configured (set OPENAI_API_KEY)');
+      }
+      const { entityType, entityId, entityLabel, snapshot, trigger } = req.body || {};
+      const type = String(entityType || '').trim();
+      const id = String(entityId || '').trim();
+      if (!type || !id) {
+        return sendError(res, 400, 'entityType and entityId are required');
+      }
+
+      let resolvedSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : null;
+      if (!resolvedSnapshot) {
+        const upper = type.toUpperCase();
+        if (upper === 'LEAD') {
+          const row = await leadService.getById(id, req);
+          if (row) resolvedSnapshot = buildEntitySnapshot('LEAD', row);
+        } else if (upper === 'CLIENT') {
+          const row = await clientService.getById(id, req);
+          if (row) resolvedSnapshot = buildEntitySnapshot('CLIENT', row);
+        } else if (upper === 'CANDIDATE') {
+          const row = await candidateService.getById(id, req);
+          if (row) resolvedSnapshot = buildEntitySnapshot('CANDIDATE', row);
+        } else if (upper === 'JOB') {
+          const row = await jobService.getById(id, req);
+          if (row) resolvedSnapshot = buildEntitySnapshot('JOB', row);
+        } else if (upper === 'TASK') {
+          const row = await taskService.getById(id, req);
+          if (row) resolvedSnapshot = buildEntitySnapshot('TASK', row);
+        } else if (upper === 'PLACEMENT') {
+          const row = await placementService.getById(id);
+          if (row) resolvedSnapshot = buildEntitySnapshot('PLACEMENT', row);
+        } else if (upper === 'INTERVIEW') {
+          const row = await interviewService.getById(id, req);
+          if (row) resolvedSnapshot = buildEntitySnapshot('INTERVIEW', row);
+        }
+      }
+
+      const recommendation = await generateAiEntryRecommendation({
+        entityType: type,
+        entityId: id,
+        entityLabel: String(entityLabel || '').trim() || type,
+        snapshot: resolvedSnapshot || {},
+        recipientUserId: req.user?.id,
+        actorUserId: req.user?.id,
+        trigger: trigger || 'manual',
+        skipDedup: true,
+      });
+
+      if (!recommendation) {
+        return sendError(res, 422, 'Could not generate AI recommendation');
+      }
+
+      return sendResponse(res, 200, 'AI recommendation generated', { recommendation });
+    } catch (error) {
+      console.error('[regenerateEntryRecommendation]', error);
+      return sendError(res, 500, error.message || 'Failed to generate AI recommendation', error);
     }
   },
 };

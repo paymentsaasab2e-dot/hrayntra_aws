@@ -358,6 +358,45 @@ export async function getTeamMemberById(req, res) {
   }
 }
 
+function normalizeTeamMemberForApi(member, credentialData = null) {
+  if (!member) return null;
+  return {
+    id: member.id,
+    firstName: member.firstName,
+    lastName: member.lastName,
+    name: member.name,
+    email: member.email,
+    phone: member.phone,
+    designation: member.designation,
+    location: member.location,
+    status: member.status,
+    isActive: member.isActive,
+    departmentId: member.departmentId,
+    roleId: member.roleId,
+    managerId: member.managerId,
+    createdAt: member.createdAt,
+    updatedAt: member.updatedAt,
+    role: member.systemRole
+      ? {
+          id: member.systemRole.id,
+          roleName: member.systemRole.roleName,
+          color: member.systemRole.color,
+        }
+      : null,
+    department: member.departmentRelation
+      ? { id: member.departmentRelation.id, name: member.departmentRelation.name }
+      : null,
+    manager: member.managerRelation
+      ? {
+          id: member.managerRelation.id,
+          firstName: member.managerRelation.firstName,
+          lastName: member.managerRelation.lastName,
+        }
+      : null,
+    credentialData: credentialData || null,
+  };
+}
+
 /**
  * Create new team member
  * POST /api/team
@@ -535,27 +574,33 @@ export async function createTeamMember(req, res) {
     if (req.user?.id && createdMember) {
       const memberName =
         `${createdMember.firstName || ''} ${createdMember.lastName || ''}`.trim() || createdMember.name || email;
-      await activityService.logTeamActivity({
-        entityId: createdMember.id,
-        performedById: req.user.id,
-        action: 'Team member added',
-        description: `${memberName} was added to the team${createdMember.systemRole?.roleName ? ` as ${createdMember.systemRole.roleName}` : ''}.`,
-        relatedLabel: memberName,
-        metadata: {
-          memberId: createdMember.id,
-          email: createdMember.email,
-          roleId: createdMember.roleId,
-          roleName: createdMember.systemRole?.roleName,
-        },
-      });
+      try {
+        await activityService.logTeamActivity({
+          entityId: createdMember.id,
+          performedById: req.user.id,
+          action: 'Team member added',
+          description: `${memberName} was added to the team${createdMember.systemRole?.roleName ? ` as ${createdMember.systemRole.roleName}` : ''}.`,
+          relatedLabel: memberName,
+          metadata: {
+            memberId: createdMember.id,
+            email: createdMember.email,
+            roleId: createdMember.roleId,
+            roleName: createdMember.systemRole?.roleName,
+          },
+        });
+      } catch (activityErr) {
+        logger.warn({
+          route: req.originalUrl || req.url,
+          message: `Team member created but activity log failed: ${activityErr?.message || activityErr}`,
+        });
+      }
     }
+
+    const normalizedMember = normalizeTeamMemberForApi(createdMember, credentialData);
 
     return res.status(201).json({
       success: true,
-      data: {
-        ...createdMember,
-        credentialData,
-      },
+      data: normalizedMember,
       message: 'Team member created successfully',
     });
   } catch (error) {

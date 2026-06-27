@@ -27,6 +27,10 @@ import {
 import { prepareListWithAuditMeta } from '../../utils/listAuditMeta.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
 import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
+import {
+  queueAiEntryRecommendation,
+  buildEntitySnapshot,
+} from '../../services/aiEntryRecommendation.service.js';
 
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
 const DEFAULT_LIMIT = 20;
@@ -925,6 +929,24 @@ export const placementService = {
       );
     }
 
+    const placementCandidateName =
+      `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'Candidate';
+    queueAiEntryRecommendation({
+      entityType: 'PLACEMENT',
+      entityId: placementResult.id,
+      entityLabel: `${placementCandidateName} — ${job.title}`,
+      snapshot: buildEntitySnapshot('PLACEMENT', {
+        ...placementResult,
+        candidate,
+        job,
+        client,
+        recruiter,
+      }),
+      recipientUserId: recruiter.id || userId,
+      actorUserId: userId,
+      trigger: 'create',
+    });
+
     // Placement was just created successfully; return it directly instead of
     // re-fetching, which was occasionally throwing "Placement not found".
     return placementResult;
@@ -1075,7 +1097,21 @@ export const placementService = {
       );
     }
 
-    return fetchPlacementOrThrow(updatedPlacement.id);
+    const refreshedPlacement = await fetchPlacementOrThrow(updatedPlacement.id);
+    queueAiEntryRecommendation({
+      entityType: 'PLACEMENT',
+      entityId: refreshedPlacement.id,
+      entityLabel: refreshedPlacement.candidate
+        ? `${refreshedPlacement.candidate.firstName || ''} ${refreshedPlacement.candidate.lastName || ''}`.trim() +
+          (refreshedPlacement.job?.title ? ` — ${refreshedPlacement.job.title}` : '')
+        : 'Placement',
+      snapshot: buildEntitySnapshot('PLACEMENT', refreshedPlacement),
+      recipientUserId: refreshedPlacement.recruiterId || userId,
+      actorUserId: userId,
+      trigger: 'update',
+    });
+
+    return refreshedPlacement;
   },
 
   /**

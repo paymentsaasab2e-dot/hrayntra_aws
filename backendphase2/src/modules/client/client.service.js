@@ -36,6 +36,10 @@ import {
 } from '../../utils/listAuditMeta.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
+import {
+  queueAiEntryRecommendation,
+  buildEntitySnapshot,
+} from '../../services/aiEntryRecommendation.service.js';
 
 /**
  * Recruiters / portal users: clients assigned to them, or they created/sourced (createdById).
@@ -728,6 +732,16 @@ export const clientService = {
 
     await mirrorClientRowToJobPortalDb(client);
 
+    queueAiEntryRecommendation({
+      entityType: 'CLIENT',
+      entityId: client.id,
+      entityLabel: client.companyName || 'Client',
+      snapshot: buildEntitySnapshot('CLIENT', client),
+      recipientUserId: client.assignedToId || data.performedById,
+      actorUserId: data.performedById,
+      trigger: 'create',
+    });
+
     return client;
   },
 
@@ -969,6 +983,16 @@ export const clientService = {
         console.warn('[client.update] lifecycle alert failed:', alertErr?.message || alertErr);
       }
     }
+
+    queueAiEntryRecommendation({
+      entityType: 'CLIENT',
+      entityId: updated.id,
+      entityLabel: updated.companyName || 'Client',
+      snapshot: buildEntitySnapshot('CLIENT', updated),
+      recipientUserId: updated.assignedToId || data.performedById || req?.user?.id,
+      actorUserId: data.performedById || req?.user?.id,
+      trigger: 'update',
+    });
 
     return updated;
   },

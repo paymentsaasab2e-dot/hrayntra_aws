@@ -10,6 +10,7 @@ import { DrawerFilesTab } from './DrawerFilesTab';
 import { DrawerClientTab } from './DrawerClientTab';
 import { DrawerNotesTab } from './DrawerNotesTab';
 import { DrawerOverviewTab } from './DrawerOverviewTab';
+import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 import { DrawerPanelTab } from './DrawerPanelTab';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 import type { DrawerTab, Interview } from '../../types/interview.types';
@@ -228,7 +229,21 @@ export function InterviewDrawer({
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-5">
-              {activeTab === 'overview' ? <DrawerOverviewTab interview={interview} /> : null}
+              {activeTab === 'overview' ? (
+                <div className="space-y-5">
+                  {interview?.id ? (
+                    <AiRecommendationPanel
+                      entityType="INTERVIEW"
+                      entityId={interview.id}
+                      entityLabel={
+                        [interview.candidate?.name, interview.job?.title].filter(Boolean).join(' — ') ||
+                        'Interview'
+                      }
+                    />
+                  ) : null}
+                  <DrawerOverviewTab interview={interview} />
+                </div>
+              ) : null}
               {activeTab === 'panel' && onOpenPanelAssignment ? (
                 <DrawerPanelTab panel={interview.panel} onOpenPanelAssignment={onOpenPanelAssignment} />
               ) : null}

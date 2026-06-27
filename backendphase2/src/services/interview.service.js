@@ -21,6 +21,10 @@ import { ENTITY_TYPES } from './activityService.js';
 import { canViewAllAssignments } from '../utils/permissionScope.js';
 import { notifyInterviewScheduleChange } from '../modules/notification/interviewNotifications.js';
 import {
+  queueAiEntryRecommendation,
+  buildEntitySnapshot,
+} from './aiEntryRecommendation.service.js';
+import {
   notifyInterviewCancelled,
   notifyMatchClientReviewCompleted,
 } from '../modules/setting/alert-notify.helpers.js';
@@ -1048,6 +1052,20 @@ export const interviewService = {
         .filter(Boolean),
     });
 
+    const interviewCandidateName =
+      `${result.candidate?.firstName || ''} ${result.candidate?.lastName || ''}`.trim() ||
+      result.candidate?.email ||
+      'Candidate';
+    queueAiEntryRecommendation({
+      entityType: 'INTERVIEW',
+      entityId: result.id,
+      entityLabel: `${interviewCandidateName} — ${result.job?.title || job.title}`,
+      snapshot: buildEntitySnapshot('INTERVIEW', result),
+      recipientUserId: result.interviewerId || user?.id,
+      actorUserId: user?.id,
+      trigger: 'create',
+    });
+
     return {
       ...result,
       meetingLinkError,
@@ -1139,6 +1157,21 @@ export const interviewService = {
     if (!refreshed) {
       throw new Error('Interview not found after update');
     }
+
+    const interviewCandidateName =
+      `${refreshed.candidate?.firstName || ''} ${refreshed.candidate?.lastName || ''}`.trim() ||
+      refreshed.candidate?.email ||
+      'Candidate';
+    queueAiEntryRecommendation({
+      entityType: 'INTERVIEW',
+      entityId: refreshed.id,
+      entityLabel: `${interviewCandidateName} — ${refreshed.job?.title || 'Interview'}`,
+      snapshot: buildEntitySnapshot('INTERVIEW', refreshed),
+      recipientUserId: refreshed.interviewerId || user?.id,
+      actorUserId: user?.id,
+      trigger: 'update',
+    });
+
     return refreshed;
   },
 
@@ -1257,6 +1290,20 @@ export const interviewService = {
       panelUserIds: (updated.panel || [])
         .map((member) => member?.userId || member?.user?.id)
         .filter(Boolean),
+    });
+
+    const interviewCandidateName =
+      `${updated.candidate?.firstName || ''} ${updated.candidate?.lastName || ''}`.trim() ||
+      updated.candidate?.email ||
+      'Candidate';
+    queueAiEntryRecommendation({
+      entityType: 'INTERVIEW',
+      entityId: updated.id,
+      entityLabel: `${interviewCandidateName} — ${updated.job?.title || 'Interview'}`,
+      snapshot: buildEntitySnapshot('INTERVIEW', updated),
+      recipientUserId: updated.interviewerId || user?.id,
+      actorUserId: user?.id,
+      trigger: 'update',
     });
 
     return {

@@ -111,6 +111,7 @@ import { apiGetLeadAssignableMembers } from '../../lib/api';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
+import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 import type { LeadAiGeneratedPayload } from '@/lib/leadAiHelpers';
 import {
   mergeAiCompanyLinks,
@@ -3621,6 +3622,13 @@ export function LeadDetailsDrawer({
                 <div className="space-y-5">
                       {!overviewEditMode ? (
                         <>
+                          {lead?.id ? (
+                            <AiRecommendationPanel
+                              entityType="LEAD"
+                              entityId={lead.id}
+                              entityLabel={lead.companyName || 'Lead'}
+                            />
+                          ) : null}
                           <AddLeadSectionCard
                             title="Company Details"
                             subtitle="Organization name and online presence"

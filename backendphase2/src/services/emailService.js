@@ -1314,3 +1314,52 @@ export async function sendLifecycleAlertEmail({ senderUserId, toEmail, subject, 
     return { success: false, error: error.message || 'Failed to send email' };
   }
 }
+
+export async function sendAiRecommendationEmail({
+  toEmail,
+  recipientName,
+  entityType,
+  entityLabel,
+  summary,
+  actions = [],
+  tags = [],
+  priority = 'MEDIUM',
+  actionPath,
+}) {
+  const actionItems = (actions || [])
+    .map(
+      (a, i) =>
+        `<li style="margin-bottom:8px;"><strong>${i + 1}. ${a.title}</strong><br/><span style="color:#475569;">${a.detail || ''}</span></li>`
+    )
+    .join('');
+  const tagHtml = (tags || [])
+    .map(
+      (t) =>
+        `<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border-radius:999px;background:#ede9fe;color:#5b21b6;font-size:11px;font-weight:600;">${t}</span>`
+    )
+    .join('');
+
+  const html = `
+<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a;max-width:640px;margin:0 auto;padding:24px;">
+  <div style="background:linear-gradient(135deg,#312e81,#4f46e5);padding:20px;border-radius:12px 12px 0 0;color:#fff;">
+    <p style="margin:0;font-size:12px;opacity:.85;text-transform:uppercase;letter-spacing:.08em;">AI Recommendation · ${priority}</p>
+    <h1 style="margin:8px 0 0;font-size:20px;">${entityLabel}</h1>
+    <p style="margin:6px 0 0;font-size:13px;opacity:.9;">${entityType}</p>
+  </div>
+  <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;padding:20px;background:#fff;">
+    <p style="margin:0 0 12px;">Hi ${recipientName},</p>
+    <p style="margin:0 0 16px;">${summary}</p>
+    ${tagHtml ? `<div style="margin-bottom:16px;">${tagHtml}</div>` : ''}
+    ${actionItems ? `<p style="font-size:13px;font-weight:700;color:#334155;margin:0 0 8px;">Suggested next steps</p><ul style="padding-left:18px;margin:0 0 16px;">${actionItems}</ul>` : ''}
+    ${actionPath ? `<p style="text-align:center;margin:20px 0 0;"><a href="${actionPath}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Open in HRYANTRA</a></p>` : ''}
+  </div>
+</body></html>`;
+
+  return sendLifecycleAlertEmail({
+    toEmail,
+    subject: `AI recommendation: ${entityLabel}`,
+    html,
+    triggerId: 'alert.ai_recommendation',
+  });
+}
