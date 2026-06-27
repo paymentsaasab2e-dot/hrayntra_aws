@@ -50,6 +50,16 @@ async function proxyRequest(req: NextRequest, pathParts: string[]) {
     respHeaders.delete('transfer-encoding');
     respHeaders.delete('connection');
 
+    if (response.status >= 500 && response.headers.get('content-length') === '0') {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Backend returned ${response.status} with no response body. The API server may be down.`,
+        },
+        { status: response.status, headers: respHeaders }
+      );
+    }
+
     return new NextResponse(response.body, {
       status: response.status,
       statusText: response.statusText,

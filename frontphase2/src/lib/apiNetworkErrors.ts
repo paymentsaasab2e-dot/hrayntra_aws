@@ -103,8 +103,8 @@ export function normalizeFetchError(error: unknown): ApiRequestError {
         window.location.hostname === '127.0.0.1' ||
         window.location.hostname.endsWith('.local'));
     const friendly = isLocalDev
-      ? 'Backend unreachable — the API on port 5001 may be restarting or overloaded. Retrying…'
-      : 'Network error — could not reach the server. The API may be busy; retrying…';
+      ? 'Backend unreachable — the API on port 5001 may be restarting or overloaded.'
+      : 'Network error — could not reach the server. The API may be busy; try again shortly.';
     return new ApiRequestError(friendly, { kind: 'network', retryable: true, cause: error });
   }
 
