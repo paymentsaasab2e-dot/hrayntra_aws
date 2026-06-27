@@ -105,6 +105,64 @@ export async function sendCredentialInvite({
 }
 
 /**
+ * Employer package purchase — login credentials for Phase 2 workspace.
+ */
+export async function sendEmployerPurchaseCredentialsEmail({
+  email,
+  loginId,
+  tempPassword,
+  tenantDbName,
+  packageName,
+  organizationName,
+}) {
+  const base = env.FRONTEND_URL;
+  const tenantQ = tenantQuerySuffix(tenantDbName);
+  const loginLink = `${base}/login?token=${encodeURIComponent(tempPassword)}${tenantQ}`;
+  const planLabel = String(packageName || 'Starter').trim();
+  const orgLabel = String(organizationName || '').trim();
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Your HRYANTRA workspace is ready</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #072654 0%, #2b7fff 100%); padding: 28px; text-align: center; border-radius: 8px 8px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 26px;">Your workspace is ready</h1>
+    <p style="color: #dbeafe; margin: 8px 0 0; font-size: 14px;">${planLabel} package activated</p>
+  </div>
+  <div style="background: #fff; padding: 32px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+    <p style="font-size: 16px;">Hello${orgLabel ? ` from <strong>${orgLabel}</strong>` : ''},</p>
+    <p style="font-size: 16px;">Thank you for your purchase. Use the credentials below to sign in to your employer workspace:</p>
+    <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 8px; font-size: 13px; color: #64748b; font-weight: 600;">Login ID</p>
+      <p style="margin: 0 0 16px; font-family: monospace; font-size: 16px; background: #fff; padding: 10px; border-radius: 4px;">${loginId}</p>
+      <p style="margin: 0 0 8px; font-size: 13px; color: #64748b; font-weight: 600;">Temporary password</p>
+      <p style="margin: 0; font-family: monospace; font-size: 16px; background: #fff; padding: 10px; border-radius: 4px;">${tempPassword}</p>
+    </div>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="${loginLink}" style="display: inline-block; background: #2b7fff; color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 700;">Log in to HRYANTRA</a>
+    </div>
+    <p style="font-size: 13px; color: #64748b;">Login URL: <a href="${loginLink}" style="color: #2b7fff;">${loginLink}</a></p>
+    <p style="font-size: 14px; color: #64748b; margin-top: 24px;">Keep this email safe. You may change your password after signing in.</p>
+  </div>
+</body>
+</html>`;
+
+  try {
+    const result = await resend.emails.send({
+      from: getEmailFromForTrigger('client.followup_email'),
+      to: email,
+      subject: `Your HRYANTRA ${planLabel} workspace login credentials`,
+      html,
+    });
+    return { success: true, messageId: result.id };
+  } catch (error) {
+    console.error('Error sending employer purchase credentials email:', error);
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
+}
+
+/**
  * Send password reset email
  */
 export async function sendPasswordResetEmail({

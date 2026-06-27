@@ -9,6 +9,85 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+async function persistEmployerDemoProvision(requestId, patch = {}) {
+  const id = String(requestId || '').trim();
+  if (!id) return;
+
+  const set = {
+    trialProvisioned: true,
+    updatedAt: new Date(),
+  };
+  if (patch.tenantDbName) set.trialTenantDbName = String(patch.tenantDbName);
+  if (patch.loginId) set.trialLoginId = String(patch.loginId);
+  if (patch.loginUrl) set.trialLoginUrl = String(patch.loginUrl);
+  if (patch.planStartDate) set.trialStartsAt = String(patch.planStartDate);
+  if (patch.planEndDate) set.trialEndsAt = String(patch.planEndDate);
+
+  try {
+    await retryQuery(() =>
+      prisma.employerDemoRequest.update({
+        where: { id },
+        data: set,
+      }),
+    );
+  } catch (err) {
+    const message = String(err?.message || err || '');
+    if (!message.includes('Unknown argument')) {
+      throw err;
+    }
+    // Stale Prisma client in a long-running dev server — write via Mongo command instead.
+    await retryQuery(() =>
+      prisma.$runCommandRaw({
+        update: 'employer_demo_requests',
+        updates: [
+          {
+            q: { _id: { $oid: id } },
+            u: { $set: set },
+          },
+        ],
+      }),
+    );
+  }
+}
+
+function buildProvisionResponse(requestId, email, provision) {
+  return {
+    requestId,
+    email,
+    loginUrl: provision?.loginUrl,
+    loginId: provision?.loginId,
+    tenantDbName: provision?.tenantDbName,
+    subscriptionPlan: provision?.subscriptionPlan,
+    credentialEmailSent: provision?.credentialEmailSent,
+    credentialEmailError: provision?.credentialEmailError,
+    ...(provision?.devPassword ? { devPassword: provision.devPassword } : {}),
+  };
+}
+
+function encodePurchaseOutcome(packageSlug, billingCycle, userOutcome) {
+  const slug = String(packageSlug || 'starter').trim().toLowerCase();
+  const cycle = String(billingCycle || 'monthly').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly';
+  const prefix = `[package:${slug};cycle:${cycle}]`;
+  const note = String(userOutcome || '').trim();
+  return note ? `${prefix}\n${note}` : prefix;
+}
+
+function parsePurchaseOutcome(outcome) {
+  const match = String(outcome || '').match(/\[package:([^;\]]+);cycle:([^\]]+)\]/i);
+  if (!match) return null;
+  return {
+    packageSlug: String(match[1] || 'starter').trim().toLowerCase(),
+    billingCycle: String(match[2] || 'monthly').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
+  };
+}
+
+function normalizeOrganizationType(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'standalone') return 'standalone';
+  if (raw === 'agency') return 'agency';
+  return null;
+}
+
 function validateDemoPayload(body) {
   const {
     email,
@@ -44,6 +123,21 @@ function validateDemoPayload(body) {
     return { error: 'Organization name is required' };
   }
 
+  const organizationType = normalizeOrganizationType(body.organizationType);
+  if (!organizationType) {
+    return { error: 'Please choose Agency or Standalone workspace type' };
+  }
+
+  const requestKindRaw = String(body.requestKind || 'demo').trim().toLowerCase();
+  let requestKind = 'demo';
+  if (requestKindRaw === 'trial') requestKind = 'trial';
+  else if (requestKindRaw === 'purchase') requestKind = 'purchase';
+
+  let outcome = String(body.outcome || '').trim() || null;
+  if (requestKind === 'purchase') {
+    outcome = encodePurchaseOutcome(body.packageSlug, body.billingCycle, outcome);
+  }
+
   return {
     normalizedEmail,
     payload: {
@@ -54,8 +148,9 @@ function validateDemoPayload(body) {
       phoneNumber: cleanPhone,
       companySize: String(companySize).trim(),
       organizationName: String(organizationName).trim(),
-      outcome: String(body.outcome || '').trim() || null,
-      requestKind: String(body.requestKind || 'demo').trim().toLowerCase() === 'trial' ? 'trial' : 'demo',
+      organizationType,
+      outcome,
+      requestKind,
     },
   };
 }
@@ -82,16 +177,45 @@ async function sendDemoRequestOtp(req, res) {
 
     await expirePendingDemoOtps(normalizedEmail);
 
-    const record = await retryQuery(async () =>
-      prisma.employerDemoRequest.create({
-        data: {
-          ...payload,
-          otp,
-          otpStatus: OtpStatus.PENDING,
-          otpExpiresAt: expiresAt,
-        },
-      }),
-    );
+    let record;
+    try {
+      record = await retryQuery(async () =>
+        prisma.employerDemoRequest.create({
+          data: {
+            ...payload,
+            otp,
+            otpStatus: OtpStatus.PENDING,
+            otpExpiresAt: expiresAt,
+          },
+        }),
+      );
+    } catch (createErr) {
+      const message = String(createErr?.message || createErr || '');
+      if (!message.includes('Unknown argument')) {
+        throw createErr;
+      }
+      const { ObjectId } = require('mongodb');
+      const id = new ObjectId();
+      const now = new Date();
+      await retryQuery(() =>
+        prisma.$runCommandRaw({
+          insert: 'employer_demo_requests',
+          documents: [
+            {
+              _id: { $oid: id.toString() },
+              ...payload,
+              otp,
+              otpStatus: OtpStatus.PENDING,
+              otpExpiresAt: { $date: expiresAt.toISOString() },
+              trialProvisioned: false,
+              createdAt: { $date: now.toISOString() },
+              updatedAt: { $date: now.toISOString() },
+            },
+          ],
+        }),
+      );
+      record = { id: id.toString() };
+    }
 
     const phoneDisplay = `${payload.dialCode}${payload.phoneNumber}`;
     const emailResult = await sendOTPEmail(otp, normalizedEmail, phoneDisplay);
@@ -217,6 +341,7 @@ async function syncEmployerTrialToPhase2(verified) {
         phoneNumber: verified.phoneNumber,
         companySize: verified.companySize,
         organizationName: verified.organizationName,
+        organizationType: verified.organizationType || 'agency',
         outcome: verified.outcome || '',
       }),
     });
@@ -229,6 +354,53 @@ async function syncEmployerTrialToPhase2(verified) {
     return payload?.data || null;
   } catch (error) {
     console.warn('[EmployerTrial] Phase2 provision error:', error?.message || error);
+    return null;
+  }
+}
+
+async function syncEmployerPaidToPhase2(verified, paymentReference) {
+  const base =
+    process.env.PHASE2_INTERNAL_API_URL ||
+    process.env.PHASE2_API_URL ||
+    process.env.PHASE2_BASE_URL ||
+    'http://localhost:5001';
+  const secret =
+    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+  const purchaseMeta = parsePurchaseOutcome(verified.outcome);
+
+  try {
+    const response = await fetch(`${base}/api/v1/internal/provision-employer-paid`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-phase2-portal-sync-secret': secret,
+      },
+      body: JSON.stringify({
+        requestId: verified.id,
+        fullName: verified.fullName,
+        email: verified.email,
+        countryCode: verified.countryCode,
+        dialCode: verified.dialCode,
+        phoneNumber: verified.phoneNumber,
+        companySize: verified.companySize,
+        organizationName: verified.organizationName,
+        organizationType: verified.organizationType || 'agency',
+        outcome: verified.outcome || '',
+        requestKind: verified.requestKind || 'purchase',
+        paymentReference,
+        packageSlug: purchaseMeta?.packageSlug,
+        billingCycle: purchaseMeta?.billingCycle,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.warn('[EmployerPurchase] Phase2 provision failed:', payload?.message || response.statusText);
+      return null;
+    }
+    return payload?.data || null;
+  } catch (error) {
+    console.warn('[EmployerPurchase] Phase2 provision error:', error?.message || error);
     return null;
   }
 }
@@ -258,6 +430,7 @@ async function syncEmployerDemoToHq(verified) {
         phoneNumber: verified.phoneNumber,
         companySize: verified.companySize,
         organizationName: verified.organizationName,
+        organizationType: verified.organizationType || 'agency',
         outcome: verified.outcome || '',
       }),
     });
@@ -335,6 +508,7 @@ async function verifyDemoRequestOtp(req, res) {
     );
 
     const isTrial = String(verified.requestKind || '').toLowerCase() === 'trial';
+    const isPurchase = String(verified.requestKind || '').toLowerCase() === 'purchase';
     let trialProvision = null;
     if (isTrial) {
       trialProvision = await syncEmployerTrialToPhase2(verified);
@@ -344,19 +518,27 @@ async function verifyDemoRequestOtp(req, res) {
           message: 'Email verified, but we could not start your trial workspace. Please contact support.',
         });
       }
-      await retryQuery(async () =>
-        prisma.employerDemoRequest.update({
-          where: { id: verified.id },
-          data: {
-            trialProvisioned: true,
-            trialTenantDbName: trialProvision.tenantDbName || null,
-            trialLoginId: trialProvision.loginId || null,
-            trialStartsAt: trialProvision.subscriptionPlan?.planStartDate || null,
-            trialEndsAt: trialProvision.trialEndsAt || null,
-            trialLoginUrl: trialProvision.loginUrl || null,
-          },
-        }),
-      );
+      await persistEmployerDemoProvision(verified.id, {
+        tenantDbName: trialProvision.tenantDbName,
+        loginId: trialProvision.loginId,
+        loginUrl: trialProvision.loginUrl,
+        planStartDate: trialProvision.subscriptionPlan?.planStartDate || trialProvision.trialStartsAt,
+        planEndDate: trialProvision.trialEndsAt || trialProvision.subscriptionPlan?.planEndDate,
+      });
+    } else if (isPurchase) {
+      const purchaseMeta = parsePurchaseOutcome(verified.outcome);
+      return res.json({
+        success: true,
+        message: 'Email verified. Continue to payment.',
+        data: {
+          requestId: verified.id,
+          email: verified.email,
+          requestKind: 'purchase',
+          readyForPayment: true,
+          packageSlug: purchaseMeta?.packageSlug || 'starter',
+          billingCycle: purchaseMeta?.billingCycle || 'monthly',
+        },
+      });
     } else {
       await syncEmployerDemoToHq(verified);
     }
@@ -392,8 +574,100 @@ async function verifyDemoRequestOtp(req, res) {
   }
 }
 
+async function completeEmployerPurchase(req, res) {
+  try {
+    const { requestId, email, paymentReference } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+    const paymentRef = String(paymentReference || '').trim();
+
+    if (!requestId || !normalizedEmail || !paymentRef) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request id, email, and payment reference are required',
+      });
+    }
+
+    const verified = await retryQuery(async () =>
+      prisma.employerDemoRequest.findFirst({
+        where: {
+          id: requestId,
+          email: normalizedEmail,
+          otpStatus: OtpStatus.VERIFIED,
+          requestKind: 'purchase',
+        },
+      }),
+    );
+
+    if (!verified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verified purchase request not found. Please complete signup again.',
+      });
+    }
+
+    if (verified.trialProvisioned) {
+      const paidProvision = await syncEmployerPaidToPhase2(verified, paymentRef);
+      if (paidProvision) {
+        return res.json({
+          success: true,
+          message: paidProvision.credentialEmailSent
+            ? 'Login credentials sent to your email.'
+            : 'Workspace already provisioned.',
+          data: buildProvisionResponse(verified.id, verified.email, paidProvision),
+        });
+      }
+      return res.json({
+        success: true,
+        message: 'Workspace already provisioned',
+        data: {
+          requestId: verified.id,
+          email: verified.email,
+          loginUrl: verified.trialLoginUrl,
+          loginId: verified.trialLoginId,
+          tenantDbName: verified.trialTenantDbName,
+          credentialEmailSent: false,
+        },
+      });
+    }
+
+    const paidProvision = await syncEmployerPaidToPhase2(verified, paymentRef);
+    if (!paidProvision) {
+      return res.status(502).json({
+        success: false,
+        message: 'Payment recorded, but workspace provisioning failed. Please contact support.',
+      });
+    }
+
+    await persistEmployerDemoProvision(verified.id, {
+      tenantDbName: paidProvision.tenantDbName,
+      loginId: paidProvision.loginId,
+      loginUrl: paidProvision.loginUrl,
+      planStartDate: paidProvision.subscriptionPlan?.planStartDate,
+      planEndDate: paidProvision.subscriptionPlan?.planEndDate,
+    });
+
+    return res.json({
+      success: true,
+      message: paidProvision.credentialEmailSent
+        ? 'Payment confirmed. Login credentials sent to your email.'
+        : paidProvision.alreadyProvisioned
+          ? 'Workspace is ready.'
+          : 'Payment confirmed. Your workspace is ready.',
+      data: buildProvisionResponse(verified.id, verified.email, paidProvision),
+    });
+  } catch (error) {
+    console.error('completeEmployerPurchase error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to complete purchase',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   sendDemoRequestOtp,
   resendDemoRequestOtp,
   verifyDemoRequestOtp,
+  completeEmployerPurchase,
 };

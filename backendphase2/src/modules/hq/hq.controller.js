@@ -38,6 +38,15 @@ export const hqController = {
     }
   },
 
+  async setTenantPause(req, res) {
+    try {
+      const result = await hqService.setTenantPause(req.body, req.user);
+      sendResponse(res, 200, result.status === 'PAUSED' ? 'Tenant paused' : 'Tenant resumed', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listLeads(req, res) {
     try {
       const result = await hqService.listLeads(req.user);

@@ -51,6 +51,15 @@ import {
   INTERVIEWS_SMART_SEARCH_EXAMPLES,
   parseInterviewsSmartSearchPrompt,
 } from '../../lib/smart-search/parsers';
+import Link from 'next/link';
+import {
+  InterviewModuleTabs,
+  type InterviewModuleTab,
+} from '../../components/interviews/InterviewModuleTabs';
+import { InterviewApplicationsTab } from '../../components/interviews/InterviewApplicationsTab';
+import { InterviewerApplicationsTab } from '../../components/interviews/InterviewerApplicationsTab';
+import { InterviewApplicationReviewDrawer } from '../../components/interviews/InterviewApplicationReviewDrawer';
+import type { InterviewApplicationRow } from '../../lib/api';
 
 // Force CSR — every interactive bit on this tab is client-driven.
 export const dynamic = 'force-dynamic';
@@ -118,6 +127,9 @@ export default function InterviewsPage() {
   const [rejectInterview, setRejectInterview] = useState<Interview | null>(null);
   const [editInterview, setEditInterview] = useState<Interview | null>(null);
   const [smartSearchInterviewIds, setSmartSearchInterviewIds] = useState<string[]>([]);
+  const [moduleTab, setModuleTab] = useState<InterviewModuleTab>('scheduled');
+  const [reviewApplicationId, setReviewApplicationId] = useState<string | null>(null);
+  const [applicationsRefreshKey, setApplicationsRefreshKey] = useState(0);
   const drawer = useInterviewDrawer();
   const modals = useInterviewModals();
   const {
@@ -381,6 +393,14 @@ export default function InterviewsPage() {
     );
   };
 
+  const openApplicationReview = (row: InterviewApplicationRow) => {
+    setReviewApplicationId(row.id);
+  };
+
+  const bumpApplicationsRefresh = () => {
+    setApplicationsRefreshKey((k) => k + 1);
+  };
+
   const viewSegmented = (
     <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
       <button
@@ -512,6 +532,7 @@ export default function InterviewsPage() {
               >
                 <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
                   </button>
+              {moduleTab === 'scheduled' ? (
                   <button
                     type="button"
                 onClick={() => void openExportModal()}
@@ -521,7 +542,19 @@ export default function InterviewsPage() {
                 <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
                 <span>Export</span>
                   </button>
-              {canCreateInterview ? (
+              ) : null}
+              <Link
+                href="/interviews/forms"
+                className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.98] ${
+                  moduleTab === 'applications' || moduleTab === 'interviewer'
+                    ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 hover:opacity-95'
+                    : 'border border-indigo-200/70 bg-white text-indigo-900 hover:bg-indigo-50/90'
+                }`}
+              >
+                <Plus size={16} strokeWidth={2.5} className={moduleTab === 'scheduled' ? 'text-indigo-600' : 'text-white'} />
+                <span>Create interview form</span>
+              </Link>
+              {moduleTab === 'scheduled' && canCreateInterview ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -539,6 +572,22 @@ export default function InterviewsPage() {
 
           <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto max-w-[1600px]">
+              <div className="mb-5">
+                <InterviewModuleTabs active={moduleTab} onChange={setModuleTab} />
+              </div>
+
+              {moduleTab === 'applications' ? (
+                <InterviewApplicationsTab
+                  key={applicationsRefreshKey}
+                  onReview={openApplicationReview}
+                />
+              ) : moduleTab === 'interviewer' ? (
+                <InterviewerApplicationsTab
+                  key={applicationsRefreshKey}
+                  onReview={openApplicationReview}
+                />
+              ) : (
+              <>
               <div className="mb-5">
                 {loading ? (
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
@@ -731,6 +780,8 @@ export default function InterviewsPage() {
                   </div>
               </motion.div>
             )}
+              </>
+              )}
           </div>
         </div>
       </main>
@@ -895,6 +946,12 @@ export default function InterviewsPage() {
             setPanelModalOpen(false);
           } catch {}
         }}
+      />
+
+      <InterviewApplicationReviewDrawer
+        applicationId={reviewApplicationId}
+        onClose={() => setReviewApplicationId(null)}
+        onUpdated={bumpApplicationsRefresh}
       />
 
       <ExportColumnsModal

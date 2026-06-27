@@ -8,6 +8,7 @@ import {
 import { applyPortalTailoredCvSync } from './portal-tailored-cv.service.js';
 import { hqLeadsService } from '../hq/hq-leads.service.js';
 import { hqTrialService } from '../hq/hq-trial.service.js';
+import { hqPaidProvisionService } from '../hq/hq-paid-provision.service.js';
 
 export async function postSyncPortalApplication(req, res) {
   try {
@@ -135,6 +136,22 @@ export async function postProvisionEmployerTrial(req, res) {
     });
   } catch (error) {
     const message = String(error?.message || 'Employer trial provisioning failed');
+    return res.status(400).json({ success: false, message });
+  }
+}
+
+export async function postProvisionEmployerPaid(req, res) {
+  try {
+    const result = await hqPaidProvisionService.provisionEmployerPaidRequest(req.body || {});
+    return res.json({
+      success: true,
+      message: result.alreadyProvisioned
+        ? 'Workspace already exists for this email'
+        : 'Paid workspace provisioned',
+      data: result,
+    });
+  } catch (error) {
+    const message = String(error?.message || 'Employer paid provisioning failed');
     return res.status(400).json({ success: false, message });
   }
 }

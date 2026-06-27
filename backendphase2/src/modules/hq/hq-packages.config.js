@@ -202,3 +202,15 @@ export function toAssignablePlan(pkg, billingCycle = 'monthly', planStartDate) {
     planEndDate: computePlanEndDate(start, limits.billingCycle),
   };
 }
+
+export const PACKAGE_TIER_ORDER = {
+  starter: 1,
+  professional: 2,
+  enterprise: 3,
+};
+
+export function getPackageTierRank(slugOrName) {
+  const key = resolvePackageSlug(slugOrName, slugOrName);
+  if (!key || key.includes('trial')) return 0;
+  return PACKAGE_TIER_ORDER[key] ?? 0;
+}

@@ -52,10 +52,21 @@ import {
   getPlanUsageSnapshot,
 } from './planAccess.service.js';
 import { hqPackagesService } from '../hq/hq-packages.service.js';
+import {
+  listUpgradeOptions,
+  upgradeSubscriptionPlan,
+} from './subscriptionUpgrade.service.js';
+import {
+  createSubscriptionUpgradeOrder,
+  getRazorpayPublicConfig,
+  verifySubscriptionUpgradePayment,
+} from './subscriptionPayment.service.js';
 import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
 import { suggestIndustryOptions } from './industrySuggest.service.js';
 import { suggestLanguageOptions, suggestProficiencyOptions } from './languageSuggest.service.js';
 import { hasLlmProvider } from '../../services/llmChatFallback.service.js';
+import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
+import { getActiveTenantDbName } from '../../config/prisma.js';
 
 const router = express.Router();
 
@@ -69,6 +80,18 @@ router.get('/recruitment-summary', async (req, res) => {
     const planUsage = await getPlanUsageSnapshot();
     const defaultCurrency = await getDefaultCurrency();
     const clientPageFieldVisibility = await getClientPageFieldVisibility();
+    const tenantDbName = String(getActiveTenantDbName() || '').trim();
+    let tenantPaused = false;
+    let tenantPausedAt = null;
+    if (tenantDbName) {
+      try {
+        const hqTenant = await headquartersAuthService.findTenantByDbName(tenantDbName);
+        tenantPaused = headquartersAuthService.isTenantPaused(hqTenant);
+        tenantPausedAt = hqTenant?.pausedAt || null;
+      } catch (err) {
+        console.warn('[recruitment-summary] tenant pause lookup failed:', err?.message || err);
+      }
+    }
     sendResponse(res, 200, 'OK', {
       recruitmentMode,
       billingEnabled: recruitmentMode !== 'standalone',
@@ -78,6 +101,8 @@ router.get('/recruitment-summary', async (req, res) => {
       defaultCurrency,
       supportedCurrencies: SUPPORTED_CURRENCIES,
       clientPageFieldVisibility,
+      tenantPaused,
+      tenantPausedAt,
     });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load org summary', error);
@@ -248,13 +273,83 @@ router.get('/subscription-plan', async (req, res) => {
     } catch (err) {
       console.warn('[subscription-plan] failed to load HQ packages:', err?.message || err);
     }
+    let upgradeOptions = { currentPlan: plan, upgradePackages: [], canUpgrade: false };
+    try {
+      upgradeOptions = await listUpgradeOptions();
+    } catch (err) {
+      console.warn('[subscription-plan] failed to load upgrade options:', err?.message || err);
+    }
     sendResponse(res, 200, 'OK', {
       plan,
       planUsage,
       options,
+      upgradeOptions,
     });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load subscription plan', error);
+  }
+});
+
+router.get('/subscription-plan/razorpay-config', async (req, res) => {
+  try {
+    sendResponse(res, 200, 'OK', getRazorpayPublicConfig());
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load Razorpay config', error);
+  }
+});
+
+router.post('/subscription-plan/payment-order', requireAnyPermission(['manage_settings']), async (req, res) => {
+  try {
+    const { packageId, billingCycle } = req.body || {};
+    const order = await createSubscriptionUpgradeOrder({
+      packageId,
+      billingCycle,
+      userEmail: req.user?.email,
+    });
+    sendResponse(res, 200, 'Payment order created', order);
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to create payment order', error);
+  }
+});
+
+router.post('/subscription-plan/upgrade', requireAnyPermission(['manage_settings']), async (req, res) => {
+  try {
+    const {
+      packageId,
+      billingCycle,
+      paymentReference,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+    } = req.body || {};
+
+    let verifiedPaymentReference = String(paymentReference || '').trim();
+    if (razorpayOrderId && razorpayPaymentId && razorpaySignature) {
+      const verified = await verifySubscriptionUpgradePayment({
+        packageId,
+        billingCycle,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature,
+      });
+      verifiedPaymentReference = verified.paymentReference;
+    } else if (!verifiedPaymentReference) {
+      throw new Error('Complete Razorpay payment is required to upgrade');
+    }
+
+    const result = await upgradeSubscriptionPlan({
+      packageId,
+      billingCycle,
+      paymentReference: verifiedPaymentReference,
+      upgradedBy: req.user?.email || req.user?.id,
+    });
+    const planUsage = await getPlanUsageSnapshot();
+    sendResponse(res, 200, 'Subscription upgraded successfully', {
+      plan: result.plan,
+      planUsage,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to upgrade subscription plan', error);
   }
 });
 

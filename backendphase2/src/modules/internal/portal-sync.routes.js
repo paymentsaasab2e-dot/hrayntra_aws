@@ -9,6 +9,7 @@ import {
   postPortalInterviewFeedbackLookup,
   postSyncEmployerDemoVerified,
   postProvisionEmployerTrial,
+  postProvisionEmployerPaid,
 } from './portal-sync.controller.js';
 
 const router = Router();
@@ -98,6 +99,11 @@ router.post(
   '/provision-employer-trial',
   portalSyncSecretMiddleware,
   postProvisionEmployerTrial
+);
+router.post(
+  '/provision-employer-paid',
+  portalSyncSecretMiddleware,
+  postProvisionEmployerPaid
 );
 
 export default router;

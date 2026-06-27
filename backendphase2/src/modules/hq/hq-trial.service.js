@@ -18,6 +18,10 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+function normalizeOrganizationType(value) {
+  return String(value || '').trim().toLowerCase() === 'standalone' ? 'standalone' : 'agency';
+}
+
 function slugLoginPart(value) {
   return String(value || '')
     .toLowerCase()
@@ -96,7 +100,7 @@ export const hqTrialService = {
     const subscriptionPlan = await resolveStarterTrialPlan();
     const loginId = buildTrialLoginId(email, name);
     const password = generateTempPassword();
-    const organizationType = 'standalone';
+    const organizationType = normalizeOrganizationType(demo?.organizationType);
 
     const hqUser = await headquartersAuthService.registerWorkspaceUserAndProvisionTenant({
       name,
@@ -104,6 +108,8 @@ export const hqTrialService = {
       password,
       loginId,
       organizationType,
+      organizationName,
+      signupSource: 'landing_trial',
       subscriptionPlan: {
         ...subscriptionPlan,
         employerDemoRequestId: requestId || null,

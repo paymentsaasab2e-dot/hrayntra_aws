@@ -60,6 +60,31 @@ async function getCollection() {
   return cachedClient.db().collection(EMPLOYER_DEMO_COLLECTION);
 }
 
+function parsePurchaseOutcome(outcome) {
+  const match = String(outcome || '').match(/\[package:([^;\]]+);cycle:([^\]]+)\]/i);
+  if (!match) return null;
+  return {
+    packageSlug: String(match[1] || '').trim().toLowerCase(),
+    billingCycle: String(match[2] || 'monthly').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
+  };
+}
+
+function normalizeRequestKind(raw) {
+  const kind = String(raw || 'demo').toLowerCase();
+  if (kind === 'trial') return 'trial';
+  if (kind === 'purchase') return 'purchase';
+  return 'demo';
+}
+
+function inferPackageLabel(outcome, purchaseMeta) {
+  const paidMatch = String(outcome || '').match(/Paid signup — ([^(]+)/i);
+  if (paidMatch) return String(paidMatch[1] || '').trim();
+  if (purchaseMeta?.packageSlug) {
+    return purchaseMeta.packageSlug.charAt(0).toUpperCase() + purchaseMeta.packageSlug.slice(1);
+  }
+  return '';
+}
+
 function formatDate(value) {
   if (!value) return '—';
   const d = value instanceof Date ? value : new Date(value);
@@ -69,7 +94,9 @@ function formatDate(value) {
 
 function toDemoRow(doc) {
   const status = String(doc.otpStatus || 'PENDING').toUpperCase();
-  const requestKind = String(doc.requestKind || 'demo').toLowerCase() === 'trial' ? 'trial' : 'demo';
+  const requestKind = normalizeRequestKind(doc.requestKind);
+  const purchaseMeta = requestKind === 'purchase' ? parsePurchaseOutcome(doc.outcome) : null;
+  const packageName = requestKind === 'purchase' ? inferPackageLabel(doc.outcome, purchaseMeta) : '';
   const trialStartsAt = inferTrialStartsAt(doc);
   const trialEndsAt = inferTrialEndsAt(doc, trialStartsAt);
   return {
@@ -77,12 +104,16 @@ function toDemoRow(doc) {
     fullName: doc.fullName || '—',
     email: doc.email || '',
     organizationName: doc.organizationName || '—',
+    organizationType: String(doc.organizationType || 'agency').toLowerCase() === 'standalone' ? 'standalone' : 'agency',
     countryCode: doc.countryCode || '',
     dialCode: doc.dialCode || '',
     phoneNumber: doc.phoneNumber || '',
     companySize: doc.companySize || '—',
     outcome: doc.outcome || '',
     requestKind,
+    packageSlug: purchaseMeta?.packageSlug || '',
+    packageName,
+    billingCycle: purchaseMeta?.billingCycle || '',
     trialProvisioned: Boolean(doc.trialProvisioned),
     trialTenantDbName: doc.trialTenantDbName || '',
     trialLoginId: doc.trialLoginId || '',
@@ -105,6 +136,8 @@ function computeStats(rows) {
   const expired = rows.filter((row) => row.status === 'EXPIRED').length;
   const trials = rows.filter((row) => row.requestKind === 'trial').length;
   const trialsLive = rows.filter((row) => row.requestKind === 'trial' && row.trialProvisioned).length;
+  const purchases = rows.filter((row) => row.requestKind === 'purchase').length;
+  const purchasesLive = rows.filter((row) => row.requestKind === 'purchase' && row.trialProvisioned).length;
   return {
     total: rows.length,
     verified,
@@ -112,6 +145,8 @@ function computeStats(rows) {
     expired,
     trials,
     trialsLive,
+    purchases,
+    purchasesLive,
   };
 }
 

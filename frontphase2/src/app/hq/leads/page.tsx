@@ -94,7 +94,25 @@ const EMPTY_DEMO_STATS: HqDemoStats = {
   expired: 0,
   trials: 0,
   trialsLive: 0,
+  purchases: 0,
+  purchasesLive: 0,
 };
+
+function demoTypeBadgeClass(kind: HqDemoRequestRow['requestKind']) {
+  if (kind === 'trial') return 'bg-orange-50 text-orange-700 ring-orange-200';
+  if (kind === 'purchase') return 'bg-violet-50 text-violet-700 ring-violet-200';
+  return 'bg-sky-50 text-sky-700 ring-sky-200';
+}
+
+function demoTypeLabel(demo: HqDemoRequestRow) {
+  if (demo.requestKind === 'trial') return '5-day trial';
+  if (demo.requestKind === 'purchase') {
+    const plan = demo.packageName || demo.packageSlug || 'Plan';
+    const cycle = demo.billingCycle === 'annual' ? 'annual' : 'monthly';
+    return `${plan} · ${cycle}`;
+  }
+  return 'Demo request';
+}
 
 const DELETE_BTN_CLASS =
   'rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-700 transition hover:bg-rose-100 disabled:opacity-50';
@@ -189,6 +207,8 @@ export default function HqLeadsPage() {
         demo.email.toLowerCase().includes(q) ||
         demo.organizationName.toLowerCase().includes(q) ||
         demo.outcome.toLowerCase().includes(q) ||
+        (demo.packageName || '').toLowerCase().includes(q) ||
+        (demo.packageSlug || '').toLowerCase().includes(q) ||
         demo.trialTenantDbName.toLowerCase().includes(q) ||
         demo.requestKind.toLowerCase().includes(q)
       );
@@ -317,7 +337,7 @@ export default function HqLeadsPage() {
 
         {isDemosTab && demoStorage ? (
           <p className="mb-4 text-xs text-slate-500">
-            Demo requests stored in {demoStorage.engine} database{' '}
+            Landing page signups (demo, trial, and paid plans) stored in {demoStorage.engine} database{' '}
             <span className="font-semibold text-slate-700">{demoStorage.database}</span> collection{' '}
             <span className="font-semibold text-slate-700">{demoStorage.collection}</span>
           </p>
@@ -384,11 +404,11 @@ export default function HqLeadsPage() {
         <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
           {isDemosTab ? (
             <>
-              <HqStatCard label="Total Requests" value={demoStats.total} />
-              <HqStatCard label="5-day Trials" value={demoStats.trials ?? 0} active />
-              <HqStatCard label="Live Workspaces" value={demoStats.trialsLive ?? 0} />
+              <HqStatCard label="Total Signups" value={demoStats.total} />
+              <HqStatCard label="Paid Plans" value={demoStats.purchases ?? 0} active />
+              <HqStatCard label="Active Workspaces" value={demoStats.purchasesLive ?? 0} />
+              <HqStatCard label="5-day Trials" value={demoStats.trials ?? 0} />
               <HqStatCard label="Verified" value={demoStats.verified} />
-              <HqStatCard label="Pending OTP" value={demoStats.pending} />
             </>
           ) : (
             <>
@@ -437,7 +457,7 @@ export default function HqLeadsPage() {
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={
                   isDemosTab
-                    ? 'Search demos by name, email, organization, or outcome...'
+                    ? 'Search by name, email, organization, or plan...'
                     : 'Search leads by name, company, or source...'
                 }
                 className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-10 pr-4 text-sm text-slate-800 outline-none transition focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-200"
@@ -460,10 +480,10 @@ export default function HqLeadsPage() {
                     <th className="px-4 py-3">Country</th>
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Company Size</th>
-                    <th className="px-4 py-3">Type</th>
+                    <th className="px-4 py-3">Type / Plan</th>
                     <th className="px-4 py-3">Workspace</th>
-                    <th className="px-4 py-3">Trial Start</th>
-                    <th className="px-4 py-3">Trial End</th>
+                    <th className="px-4 py-3">Plan Start</th>
+                    <th className="px-4 py-3">Plan End</th>
                     <th className="px-4 py-3">Outcome</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Submitted</th>
@@ -481,8 +501,8 @@ export default function HqLeadsPage() {
                     <tr>
                       <td colSpan={14} className="px-4 py-12 text-center text-sm text-slate-500">
                         {demos.length === 0
-                          ? 'No employer demo requests yet.'
-                          : 'No demo requests match your search.'}
+                          ? 'No landing page signups yet.'
+                          : 'No signups match your search.'}
                       </td>
                     </tr>
                   ) : (
@@ -499,14 +519,15 @@ export default function HqLeadsPage() {
                         <td className="px-4 py-3.5 text-slate-600">{demo.companySize}</td>
                         <td className="px-4 py-3.5">
                           <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ring-1 ${
-                              demo.requestKind === 'trial'
-                                ? 'bg-orange-50 text-orange-700 ring-orange-200'
-                                : 'bg-sky-50 text-sky-700 ring-sky-200'
-                            }`}
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ring-1 ${demoTypeBadgeClass(demo.requestKind)}`}
                           >
-                            {demo.requestKind === 'trial' ? '5-day trial' : 'Demo'}
+                            {demoTypeLabel(demo)}
                           </span>
+                          {demo.requestKind === 'purchase' && demo.trialProvisioned ? (
+                            <span className="mt-1 block text-[10px] font-semibold text-emerald-600">
+                              Paid &amp; provisioned
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3.5 font-mono text-xs text-slate-600">
                           {demo.trialTenantDbName || '—'}

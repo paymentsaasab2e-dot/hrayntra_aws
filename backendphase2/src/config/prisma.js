@@ -4,7 +4,22 @@ import { env } from './env.js';
 import logger from '../utils/logger.js';
 
 const require = createRequire(import.meta.url);
-const { PrismaClient } = require('@prisma/client');
+
+function clearPrismaModuleCache() {
+  for (const key of Object.keys(require.cache)) {
+    if (
+      key.includes('.prisma\\client') ||
+      key.includes('.prisma/client') ||
+      key.includes('@prisma/client')
+    ) {
+      delete require.cache[key];
+    }
+  }
+}
+
+function loadPrismaClientCtor() {
+  return require('@prisma/client').PrismaClient;
+}
 
 const tenantContext = new AsyncLocalStorage();
 const clientsByUrl = new Map();
@@ -153,6 +168,7 @@ function withQueryLogging(client) {
 }
 
 function createClientForUrl(url) {
+  const PrismaClient = loadPrismaClientCtor();
   const client = new PrismaClient({
     datasources: {
       db: { url },
@@ -163,14 +179,33 @@ function createClientForUrl(url) {
   return withQueryLogging(client);
 }
 
-function getClientForUrl(url) {
+function isStalePrismaClient(client) {
+  return !client || typeof client.interviewApplicationForm === 'undefined';
+}
+
+function getClientForUrl(url, { forceRecreate = false } = {}) {
   if (!url) {
     throw new Error('Database URL is required');
   }
-  if (!clientsByUrl.has(url)) {
-    clientsByUrl.set(url, createClientForUrl(url));
+  if (forceRecreate && clientsByUrl.has(url)) {
+    const stale = clientsByUrl.get(url);
+    clientsByUrl.delete(url);
+    stale?.$disconnect?.().catch(() => {});
   }
-  return clientsByUrl.get(url);
+  let client = clientsByUrl.get(url);
+  if (isStalePrismaClient(client)) {
+    if (client) {
+      clientsByUrl.delete(url);
+      client.$disconnect?.().catch(() => {});
+    }
+    clearPrismaModuleCache();
+    client = createClientForUrl(url);
+    clientsByUrl.set(url, client);
+  } else if (!client) {
+    clientsByUrl.set(url, createClientForUrl(url));
+    client = clientsByUrl.get(url);
+  }
+  return client;
 }
 
 function buildTenantDatabaseUrl(tenantDbName) {
@@ -190,10 +225,18 @@ if (!defaultDbUrl) {
   throw new Error('DATABASE_URL is not set in environment');
 }
 
-const defaultClient = getClientForUrl(defaultDbUrl);
+let defaultClient = getClientForUrl(defaultDbUrl);
 defaultClient.$connect().catch((error) => {
   logger.error({ route: 'database', message: `Failed to connect to default database: ${error.message}` });
 });
+
+function getDefaultClientInstance() {
+  if (isStalePrismaClient(defaultClient)) {
+    defaultClient = getClientForUrl(defaultDbUrl, { forceRecreate: true });
+    defaultClient.$connect().catch(() => {});
+  }
+  return defaultClient;
+}
 
 function getScopedClient() {
   const store = tenantContext.getStore();
@@ -212,7 +255,7 @@ function getScopedClient() {
   if (process.env.PRISMA_TENANT_DEBUG === 'true') {
     console.log('[prisma] Falling back to defaultClient');
   }
-  return defaultClient;
+  return getDefaultClientInstance();
 }
 
 export function runWithTenantContext(tenantDbName, fn) {
@@ -257,7 +300,7 @@ export const prisma = new Proxy(defaultClient, {
 });
 
 export function getDefaultPrismaClient() {
-  return defaultClient;
+  return getDefaultClientInstance();
 }
 
 /** Prisma client for the job portal DB (applications timeline, portal-side candidate stage). */

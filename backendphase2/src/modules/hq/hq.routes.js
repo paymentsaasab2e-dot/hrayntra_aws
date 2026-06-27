@@ -11,6 +11,7 @@ router.post('/setup', hqController.setupSuperAdmin);
 router.post('/provision-tenant', authMiddleware, hqController.provisionTenant);
 router.get('/tenants', authMiddleware, hqController.listTenants);
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
+router.put('/tenants/pause', authMiddleware, hqController.setTenantPause);
 
 router.get('/packages/public', hqController.listPublicPackages);
 router.get('/packages', authMiddleware, hqController.listPackages);

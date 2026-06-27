@@ -18,6 +18,7 @@ import {
   apiHqListTenants,
   apiHqAssignTenantPlan,
   apiHqDeleteTenant,
+  apiHqSetTenantPause,
   type HqTenantRow,
   type HqSubscriptionPackage,
 } from '../../lib/api';
@@ -45,12 +46,14 @@ interface HqStats {
   total: number;
   agency: number;
   standalone: number;
+  landingPurchases?: number;
+  landingTrials?: number;
   planCounts: Record<string, number>;
 }
 
 const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
   dashboard: 'Platform health, tenant counts, and plan distribution.',
-  tenants: 'Browse and manage all provisioned tenants.',
+  tenants: 'All Phase 2 workspaces — including employers who purchased from the landing page.',
   plans: '',
   bootstrap: 'Local-only super admin credential injection.',
 };
@@ -197,6 +200,7 @@ function HQSetupPage() {
   const [tenantsError, setTenantsError] = useState<string>('');
   const [pendingPlanEmail, setPendingPlanEmail] = useState<string>('');
   const [pendingDeleteEmail, setPendingDeleteEmail] = useState<string>('');
+  const [pendingPauseEmail, setPendingPauseEmail] = useState<string>('');
 
   const refreshTenants = useCallback(async () => {
     setTenantsLoading(true);
@@ -354,6 +358,26 @@ function HQSetupPage() {
     }
   };
 
+  const handleSetTenantPause = async (email: string, paused: boolean) => {
+    if (!email) return;
+    setPendingPauseEmail(email);
+    setStatus({ type: 'idle', message: '' });
+    try {
+      await apiHqSetTenantPause({ email, paused });
+      setStatus({
+        type: 'success',
+        message: paused
+          ? `Tenant ${email} paused. Users will see a blocking notice in Phase 2.`
+          : `Tenant ${email} resumed. Operations can continue.`,
+      });
+      void refreshTenants();
+    } catch (err: any) {
+      setStatus({ type: 'error', message: err?.message || 'Failed to update tenant status' });
+    } finally {
+      setPendingPauseEmail('');
+    }
+  };
+
   const handleDeleteTenant = async (email: string, dbName: string) => {
     if (!email) return;
     // Use a native confirm so this stays consistent with existing destructive
@@ -432,6 +456,7 @@ function HQSetupPage() {
           <>
             <TenantsPanel
               tenants={tenants}
+              tenantStats={stats}
               tenantsLoading={tenantsLoading}
               tenantsError={tenantsError}
               planOptions={planOptions}
@@ -439,6 +464,8 @@ function HQSetupPage() {
               pendingPlanEmail={pendingPlanEmail}
               onDeleteTenant={handleDeleteTenant}
               pendingDeleteEmail={pendingDeleteEmail}
+              onSetTenantPause={handleSetTenantPause}
+              pendingPauseEmail={pendingPauseEmail}
               onCreateTenant={() => setCreateTenantModalOpen(true)}
             />
             <CreateTenantModal
@@ -506,8 +533,9 @@ function DashboardPanel({
   const recent = tenants.slice(0, 5);
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <HqStatCard label="Tenants" value={stats?.total ?? (tenantsLoading ? '…' : 0)} active />
+        <HqStatCard label="Landing purchases" value={stats?.landingPurchases ?? tenants.filter((t) => t.signupSource === 'landing_purchase').length} />
         <HqStatCard label="Agency" value={stats?.agency ?? 0} />
         <HqStatCard label="Standalone" value={stats?.standalone ?? 0} />
         <HqStatCard label="On a plan" value={tenants.filter((t) => t.subscriptionPlan?.name).length} />
@@ -559,8 +587,34 @@ function DashboardPanel({
   );
 }
 
+function formatPlanLimits(plan: HqTenantRow['subscriptionPlan']) {
+  if (!plan) return '—';
+  const users = plan.maxUsers == null ? '∞ users' : `${plan.maxUsers} users`;
+  const jobs = plan.maxJobs == null ? '∞ jobs' : `${plan.maxJobs} jobs`;
+  return `${users} · ${jobs}`;
+}
+
+function isTenantPaused(tenant: HqTenantRow) {
+  return String(tenant.status || 'ACTIVE').toUpperCase() === 'PAUSED';
+}
+
+function tenantSignupSourceLabel(source?: string) {
+  if (source === 'landing_purchase') return 'Landing purchase';
+  if (source === 'landing_trial') return 'Landing trial';
+  if (source === 'hq_manual') return 'HQ created';
+  return 'Platform tenant';
+}
+
+function tenantSignupSourceClass(source?: string) {
+  if (source === 'landing_purchase') return 'bg-violet-50 text-violet-700 ring-violet-100';
+  if (source === 'landing_trial') return 'bg-orange-50 text-orange-700 ring-orange-100';
+  if (source === 'hq_manual') return 'bg-slate-100 text-slate-600 ring-slate-200';
+  return 'bg-sky-50 text-sky-700 ring-sky-100';
+}
+
 function TenantsPanel({
   tenants,
+  tenantStats,
   tenantsLoading,
   tenantsError,
   planOptions,
@@ -568,9 +622,12 @@ function TenantsPanel({
   pendingPlanEmail,
   onDeleteTenant,
   pendingDeleteEmail,
+  onSetTenantPause,
+  pendingPauseEmail,
   onCreateTenant,
 }: {
   tenants: HqTenantRow[];
+  tenantStats: HqStats | null;
   tenantsLoading: boolean;
   tenantsError: string;
   planOptions: HqSubscriptionPackage[];
@@ -578,12 +635,24 @@ function TenantsPanel({
   pendingPlanEmail: string;
   onDeleteTenant: (email: string, dbName: string) => void;
   pendingDeleteEmail: string;
+  onSetTenantPause: (email: string, paused: boolean) => void;
+  pendingPauseEmail: string;
   onCreateTenant: () => void;
 }) {
+  const landingPurchases = tenantStats?.landingPurchases ?? tenants.filter((t) => t.signupSource === 'landing_purchase').length;
+  const landingTrials = tenantStats?.landingTrials ?? tenants.filter((t) => t.signupSource === 'landing_trial').length;
+
   return (
     <HqPanel className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-        <HqPanelTitle title="All tenants" meta={<span className="text-[10px] text-slate-400">{tenants.length} total</span>} />
+        <HqPanelTitle
+          title="All tenants"
+          meta={
+            <span className="text-[10px] text-slate-400">
+              {tenants.length} total · {landingPurchases} landing purchases · {landingTrials} landing trials
+            </span>
+          }
+        />
         <HqPrimaryButton type="button" onClick={onCreateTenant}>
           <Plus className="h-4 w-4" />
           Create tenant
@@ -600,37 +669,71 @@ function TenantsPanel({
               <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 <th className="py-2 pr-3">Name</th>
                 <th className="py-2 pr-3">Email</th>
+                <th className="py-2 pr-3">Source</th>
                 <th className="py-2 pr-3">Type</th>
                 <th className="py-2 pr-3">DB</th>
                 <th className="py-2 pr-3">Plan</th>
+                <th className="py-2 pr-3">Limits</th>
                 <th className="py-2 pr-3">Billing</th>
                 <th className="py-2 pr-3">Start</th>
                 <th className="py-2 pr-3">End</th>
+                <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pl-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {tenants.map((t) => (
                 <tr key={t.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60">
-                  <td className="py-3 pr-3 font-semibold text-slate-900">{t.name}</td>
+                  <td className="py-3 pr-3">
+                    <p className="font-semibold text-slate-900">{t.name}</p>
+                    {t.organizationName ? (
+                      <p className="text-[10px] text-slate-500">{t.organizationName}</p>
+                    ) : null}
+                  </td>
                   <td className="py-3 pr-3 text-slate-600">{t.email}</td>
+                  <td className="py-3 pr-3">
+                    <span
+                      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${tenantSignupSourceClass(t.signupSource)}`}
+                    >
+                      {tenantSignupSourceLabel(t.signupSource)}
+                    </span>
+                    {t.isLandingSignupOnly ? (
+                      <p className="mt-1 text-[10px] font-medium text-amber-600">Provisioned — sync pending</p>
+                    ) : null}
+                  </td>
                   <td className="py-3 pr-3 font-semibold text-sky-700">{t.organizationType}</td>
                   <td className="py-3 pr-3 font-mono text-xs text-slate-500">{t.tenantDbName || '—'}</td>
                   <td className="py-3 pr-3">
-                    <select
-                      value={tenantPlanId(t, planOptions)}
-                      onChange={(e) => onAssignPlan(t.email, e.target.value, tenantBillingCycle(t))}
-                      disabled={pendingPlanEmail === t.email}
-                      className={HQ_SELECT_CLASS}
-                    >
-                      <option value="">—</option>
-                      {planOptions.map((opt) => (
-                        <option key={opt.id} value={opt.id}>
-                          {getPackageOptionLabel(opt)}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="space-y-1">
+                      <select
+                        value={tenantPlanId(t, planOptions)}
+                        onChange={(e) => onAssignPlan(t.email, e.target.value, tenantBillingCycle(t))}
+                        disabled={pendingPlanEmail === t.email || t.isLandingSignupOnly}
+                        className={HQ_SELECT_CLASS}
+                      >
+                        <option value="">—</option>
+                        {planOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {getPackageOptionLabel(opt)}
+                          </option>
+                        ))}
+                      </select>
+                      {t.subscriptionPlan?.upgradedAt ? (
+                        <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
+                          Self-upgraded
+                        </span>
+                      ) : null}
+                      {t.subscriptionPlan?.upgradedFrom ? (
+                        <p className="text-[10px] text-slate-500">
+                          from {t.subscriptionPlan.upgradedFrom}
+                          {t.subscriptionPlan.upgradedAt
+                            ? ` · ${formatDateDMY(String(t.subscriptionPlan.upgradedAt).slice(0, 10))}`
+                            : ''}
+                        </p>
+                      ) : null}
+                    </div>
                   </td>
+                  <td className="py-3 pr-3 text-xs font-medium text-slate-600">{formatPlanLimits(t.subscriptionPlan)}</td>
                   <td className="py-3 pr-3">
                     <select
                       value={tenantBillingCycle(t)}
@@ -639,7 +742,7 @@ function TenantsPanel({
                         if (!planId) return;
                         onAssignPlan(t.email, planId, e.target.value as BillingCycle);
                       }}
-                      disabled={pendingPlanEmail === t.email || !tenantPlanId(t, planOptions)}
+                      disabled={pendingPlanEmail === t.email || !tenantPlanId(t, planOptions) || t.isLandingSignupOnly}
                       className={HQ_SELECT_CLASS}
                     >
                       <option value="monthly">Monthly</option>
@@ -652,16 +755,56 @@ function TenantsPanel({
                   <td className="py-3 pr-3 text-xs text-slate-600">
                     {formatDateDMY(t.subscriptionPlan?.planEndDate) || '—'}
                   </td>
+                  <td className="py-3 pr-3">
+                    {isTenantPaused(t) ? (
+                      <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-amber-100">
+                        Paused
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
+                        Running
+                      </span>
+                    )}
+                  </td>
                   <td className="py-3 pl-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onDeleteTenant(t.email, t.tenantDbName)}
-                      disabled={pendingDeleteEmail === t.email}
-                      className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
-                      title="Permanently delete this tenant and drop its database"
-                    >
-                      {pendingDeleteEmail === t.email ? 'Deleting…' : 'Delete'}
-                    </button>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {!t.isLandingSignupOnly ? (
+                        <>
+                      {isTenantPaused(t) ? (
+                        <button
+                          type="button"
+                          onClick={() => onSetTenantPause(t.email, false)}
+                          disabled={pendingPauseEmail === t.email}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+                          title="Resume tenant operations in Phase 2"
+                        >
+                          {pendingPauseEmail === t.email ? '…' : 'Continue'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onSetTenantPause(t.email, true)}
+                          disabled={pendingPauseEmail === t.email}
+                          className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                          title="Pause tenant — users see a blocking notice in Phase 2"
+                        >
+                          {pendingPauseEmail === t.email ? '…' : 'Pause'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTenant(t.email, t.tenantDbName)}
+                        disabled={pendingDeleteEmail === t.email}
+                        className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                        title="Permanently delete this tenant and drop its database"
+                      >
+                        {pendingDeleteEmail === t.email ? 'Deleting…' : 'Delete'}
+                      </button>
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-slate-400">View only</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

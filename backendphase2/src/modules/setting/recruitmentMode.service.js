@@ -197,6 +197,10 @@ export async function getSubscriptionPlan() {
       ...(v.planEndDate ? { planEndDate: String(v.planEndDate).trim() } : {}),
       ...(v.isTrial ? { isTrial: true } : {}),
       ...(v.trialDays ? { trialDays: Number(v.trialDays) || undefined } : {}),
+      ...(v.upgradedAt ? { upgradedAt: String(v.upgradedAt) } : {}),
+      ...(v.upgradedFrom ? { upgradedFrom: String(v.upgradedFrom) } : {}),
+      ...(v.lastPaymentReference ? { lastPaymentReference: String(v.lastPaymentReference) } : {}),
+      ...(v.upgradedBy ? { upgradedBy: String(v.upgradedBy) } : {}),
     };
   }
   return null;
@@ -217,6 +221,10 @@ export async function setSubscriptionPlan(plan) {
       ...(planEndDate ? { planEndDate } : {}),
       ...(plan?.isTrial ? { isTrial: true } : {}),
       ...(plan?.trialDays ? { trialDays: Number(plan.trialDays) || undefined } : {}),
+      ...(plan?.upgradedAt ? { upgradedAt: String(plan.upgradedAt) } : {}),
+      ...(plan?.upgradedFrom ? { upgradedFrom: String(plan.upgradedFrom) } : {}),
+      ...(plan?.lastPaymentReference ? { lastPaymentReference: String(plan.lastPaymentReference) } : {}),
+      ...(plan?.upgradedBy ? { upgradedBy: String(plan.upgradedBy) } : {}),
     };
   await upsertOrgSettingJson(KEY_SUBSCRIPTION_PLAN, payload);
   return payload;

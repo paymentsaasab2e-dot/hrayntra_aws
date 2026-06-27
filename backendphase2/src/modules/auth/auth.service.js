@@ -295,6 +295,52 @@ export const authService = {
     await ensureWorkspaceClientForTenant(headquartersUser.tenantDbName, localUser, headquartersUser.name);
   },
 
+  async updateHeadquartersAdminCredentials(headquartersUser, plainPassword) {
+    if (!headquartersUser?.tenantDbName) {
+      throw new Error('tenantDbName is required');
+    }
+    const password = String(plainPassword || '').trim();
+    const loginId = String(headquartersUser.loginId || headquartersUser.email || '').trim();
+    if (!password || !loginId) {
+      throw new Error('loginId and password are required');
+    }
+    return runWithTenantContext(headquartersUser.tenantDbName, async () => {
+      const email = String(headquartersUser.email || '').trim().toLowerCase();
+      const user =
+        (email
+          ? await prisma.user.findFirst({
+              where: { email },
+            })
+          : null) ||
+        (await prisma.user.findFirst({
+          where: { role: 'SUPER_ADMIN', isActive: true },
+          orderBy: { createdAt: 'asc' },
+        }));
+      if (!user) throw new Error('Tenant admin user not found');
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await prisma.userCredential.upsert({
+        where: { userId: user.id },
+        update: {
+          loginId,
+          hashedPassword,
+          tempPasswordFlag: true,
+          isLocked: false,
+          failedAttempts: 0,
+        },
+        create: {
+          userId: user.id,
+          loginId,
+          hashedPassword,
+          tempPasswordFlag: true,
+          isLocked: false,
+          failedAttempts: 0,
+        },
+      });
+      return user;
+    });
+  },
+
   async register(data) {
     const { name, email, password } = data;
     const normalizedEmail = String(email || '').trim().toLowerCase();

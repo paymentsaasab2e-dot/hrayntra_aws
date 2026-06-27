@@ -3,6 +3,7 @@ const {
   sendDemoRequestOtp,
   resendDemoRequestOtp,
   verifyDemoRequestOtp,
+  completeEmployerPurchase,
 } = require('../controllers/employer-demo.controller');
 
 const router = Router();
@@ -10,5 +11,6 @@ const router = Router();
 router.post('/send-otp', sendDemoRequestOtp);
 router.post('/resend-otp', resendDemoRequestOtp);
 router.post('/verify-otp', verifyDemoRequestOtp);
+router.post('/complete-purchase', completeEmployerPurchase);
 
 module.exports = router;
