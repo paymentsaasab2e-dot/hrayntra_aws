@@ -90,8 +90,21 @@ function mergeAbortSignals(
 }
 
 // Determination of API base based on environment
+/** Deployed app hosts should call `/api/proxy` (same origin) — avoids CORS and hides 502 as "network error". */
+function shouldUseProductionProxy(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname.toLowerCase();
+  if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')) return false;
+  return (
+    host.endsWith('.hryantra.com') ||
+    host.endsWith('.vercel.app') ||
+    host.endsWith('.saasab2e.com')
+  );
+}
+
 function resolveApiBase(): string {
   if (isLocalBrowser) return LOCAL_API_BASE;
+  if (shouldUseProductionProxy()) return PROD_PROXY_BASE;
   const publicApi = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (publicApi) return publicApi.replace(/\/$/, '');
   return PROD_PROXY_BASE;
@@ -136,10 +149,26 @@ export function formatAuthErrorMessage(
 
   if (
     status === 502 ||
+    status === 503 ||
+    status === 504 ||
     lowered.includes('backend is unreachable') ||
-    lowered.includes('unable to connect to server')
+    lowered.includes('unable to connect to server') ||
+    lowered.includes('bad gateway') ||
+    lowered.includes('gateway error') ||
+    lowered.includes('service unavailable') ||
+    lowered.includes('gateway timeout') ||
+    lowered.includes('invalid server response') ||
+    lowered.includes('invalid response')
   ) {
-    return 'Unable to reach the server. Please try again in a moment.';
+    return 'Unable to reach the server. The API may be temporarily down — please try again in a moment.';
+  }
+
+  if (
+    lowered.includes('network error') ||
+    lowered.includes('could not reach the server') ||
+    lowered.includes('failed to fetch')
+  ) {
+    return 'Unable to reach the server. Check your connection and try again.';
   }
 
   return raw || fallback;
