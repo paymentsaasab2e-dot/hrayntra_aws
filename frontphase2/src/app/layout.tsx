@@ -5,6 +5,7 @@ import { GlobalAlertHost } from "../components/GlobalAlertHost";
 import { PageTitleSync } from "../components/PageTitleSync";
 import { UserPermissionsSync } from "../components/UserPermissionsSync";
 import { TrialPlanHost } from "../components/trial/TrialPlanHost";
+import { TenantPausedHost } from "../components/tenant/TenantPausedHost";
 import "./globals.css";
 import "../styles/nexus-dashboard.css";
 
@@ -29,6 +30,7 @@ export default function RootLayout({
         <UserPermissionsSync />
         <GlobalAlertHost />
         <TrialPlanHost />
+        <TenantPausedHost />
         <ActiveSessionManager />
         <FloatingBotMount />
       </body>

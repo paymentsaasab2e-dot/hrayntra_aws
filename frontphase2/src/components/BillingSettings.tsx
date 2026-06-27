@@ -5,9 +5,12 @@ import { CreditCard, Info, RefreshCcw } from 'lucide-react';
 import {
   apiGetSubscriptionPlan,
   getCachedOrgDefaultCurrency,
+  type HqSubscriptionPackage,
   type HqTenantSubscriptionPlan,
   type SubscriptionPlanOption,
 } from '@/lib/api';
+import { PackageUpgradeSection } from '@/components/billing/PackageUpgradeSection';
+import type { BillingCycle } from '@/components/hq/hqPackagePresentation';
 import {
   findPackageForPlan,
   formatBillingCycleLabel,
@@ -60,6 +63,8 @@ export function BillingSettings() {
   const [plan, setPlan] = useState<HqTenantSubscriptionPlan | null>(null);
   const [usage, setUsage] = useState<PlanUsage | null>(null);
   const [planOptions, setPlanOptions] = useState<SubscriptionPlanOption[]>([]);
+  const [upgradePackages, setUpgradePackages] = useState<HqSubscriptionPackage[]>([]);
+  const [upgradeMessage, setUpgradeMessage] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,12 +74,14 @@ export function BillingSettings() {
       setPlan((res.data?.plan as HqTenantSubscriptionPlan | null) ?? null);
       setUsage((res.data?.planUsage as PlanUsage | null) ?? null);
       setPlanOptions(Array.isArray(res.data?.options) ? res.data.options : []);
+      setUpgradePackages(Array.isArray(res.data?.upgradeOptions?.upgradePackages) ? res.data.upgradeOptions.upgradePackages : []);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load subscription details';
       setError(message);
       setPlan(null);
       setUsage(null);
       setPlanOptions([]);
+      setUpgradePackages([]);
     } finally {
       setLoading(false);
     }
@@ -125,6 +132,15 @@ export function BillingSettings() {
     };
   }, [plan, pricedPackages, billingCycle, currency]);
 
+  const handleUpgrade = useCallback(
+    async (pkg: HqSubscriptionPackage, cycle: BillingCycle) => {
+      setUpgradeMessage('');
+      await load();
+      setUpgradeMessage(`Upgraded to ${pkg.displayName || pkg.name}. Your user and job limits have been increased.`);
+    },
+    [load],
+  );
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -134,7 +150,7 @@ export function BillingSettings() {
             <div>
               <h2 className="text-lg font-semibold text-slate-900">Subscription package</h2>
               <p className="mt-0.5 text-sm text-slate-500">
-                Your workspace plan is assigned by HQ. Contact support to change package or billing cycle.
+                View your current package, usage limits, and upgrade to Professional or Enterprise when you need more capacity.
               </p>
             </div>
           </div>
@@ -174,6 +190,11 @@ export function BillingSettings() {
                     {plan?.planStartDate ? ` · Started ${formatDateDMY(plan.planStartDate)}` : ''}
                     {plan?.planEndDate ? ` · Ends ${formatDateDMY(plan.planEndDate)}` : ''}
                   </p>
+                  {plan?.upgradedAt ? (
+                    <p className="mt-2 text-xs text-emerald-300">
+                      Upgraded from {plan.upgradedFrom || 'previous plan'} on {formatDateDMY(plan.upgradedAt.slice(0, 10))}
+                    </p>
+                  ) : null}
                 </div>
                 <span
                   className={`self-start rounded-full border px-3 py-1 text-xs font-bold ${
@@ -247,6 +268,20 @@ export function BillingSettings() {
                 </div>
               </div>
             ) : null}
+
+            {upgradeMessage ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                {upgradeMessage}
+              </div>
+            ) : null}
+
+            <PackageUpgradeSection
+              currentPlan={plan}
+              upgradePackages={upgradePackages}
+              billingCycle={billingCycle}
+              currency={currency}
+              onUpgrade={handleUpgrade}
+            />
 
             <div className="flex items-start gap-2 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs text-sky-900">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />

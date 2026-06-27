@@ -106,6 +106,7 @@ model User {
   interviewFeedbacks     InterviewFeedback[]    @relation("InterviewFeedbackAuthor")
   interviewNotes         InterviewNote[]        @relation("InterviewNoteAuthor")
   interviewLogs          InterviewActivityLog[] @relation("InterviewActivityActor")
+  createdInterviewApplicationForms InterviewApplicationForm[] @relation("InterviewApplicationFormCreator")
   createdMatches         Match[]
   pipelineMovedBy        PipelineEntry[]
   settings               Setting[]
@@ -568,7 +569,8 @@ model Candidate {
   matches         Match[]
   pipelineEntries PipelineEntry[]
   files           CandidateFile[]
-  applications    Application[]
+  applications         Application[]
+  interviewApplications InterviewApplication[]
 
   @@index([status])
   @@index([assignedToId])
@@ -1368,6 +1370,70 @@ model InterviewActivityLog {
   @@index([userId])
   @@index([timestamp])
   @@map("interview_activity_logs")
+}
+
+enum InterviewApplicationFormStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum InterviewApplicationStatus {
+  SUBMITTED
+  PENDING_REVIEW
+  IN_INTERVIEW
+  INTERVIEW_COMPLETED
+  APPROVED
+  REJECTED
+}
+
+/// Tenant-scoped interview application forms (Phase 2 creates, Phase 1 candidates apply).
+model InterviewApplicationForm {
+  id          String                         @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  schema      Json
+  status      InterviewApplicationFormStatus @default(DRAFT)
+  publicToken String                         @unique
+  publishedAt DateTime?
+  createdById String?                        @db.ObjectId
+  createdAt   DateTime                       @default(now())
+  updatedAt   DateTime                       @updatedAt
+
+  createdBy    User?                  @relation("InterviewApplicationFormCreator", fields: [createdById], references: [id])
+  applications InterviewApplication[]
+
+  @@index([status])
+  @@index([createdById])
+  @@map("interview_application_forms")
+}
+
+/// Candidate submissions from Phase 1 interview forms.
+model InterviewApplication {
+  id                    String                     @id @default(auto()) @map("_id") @db.ObjectId
+  interviewFormId       String                     @db.ObjectId
+  candidateId           String                     @db.ObjectId
+  phase1SubmissionId    String?
+  responses             Json?
+  resumeUrl             String?
+  status                InterviewApplicationStatus @default(SUBMITTED)
+  assignedInterviewerIds String[]                  @default([]) @db.ObjectId
+  interviewNotes        String?
+  rating                Int?
+  feedback              String?
+  recommendation        String?
+  reviewedAt            DateTime?
+  decidedAt             DateTime?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  form      InterviewApplicationForm @relation(fields: [interviewFormId], references: [id], onDelete: Cascade)
+  candidate Candidate                @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([interviewFormId])
+  @@index([candidateId])
+  @@index([status])
+  @@map("interview_applications")
 }
 
 // ── PLACEMENT ──

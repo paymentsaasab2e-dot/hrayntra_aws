@@ -527,6 +527,14 @@ export function getCachedOrgDefaultCurrency(): string {
   return v && v.length === 3 ? v.toUpperCase() : 'USD';
 }
 
+export function getCachedTenantPaused(): { paused: boolean; pausedAt: string | null } {
+  if (typeof window === 'undefined') return { paused: false, pausedAt: null };
+  return {
+    paused: localStorage.getItem('orgTenantPaused') === '1',
+    pausedAt: localStorage.getItem('orgTenantPausedAt') || null,
+  };
+}
+
 export function applyOrgRecruitmentSummaryPayload(
   payload:
     | {
@@ -535,6 +543,8 @@ export function applyOrgRecruitmentSummaryPayload(
         subscriptionPlan?: HqTenantSubscriptionPlan | null;
         planUsage?: OrgPlanUsageCache | null;
         defaultCurrency?: string | null;
+        tenantPaused?: boolean;
+        tenantPausedAt?: string | null;
         clientPageFieldVisibility?: {
           interestLevel?: boolean;
           status?: boolean;
@@ -599,6 +609,17 @@ export function applyOrgRecruitmentSummaryPayload(
       normalizeClientPageFieldVisibility(payload.clientPageFieldVisibility),
     );
   }
+  if (payload?.tenantPaused) {
+    localStorage.setItem('orgTenantPaused', '1');
+    if (payload.tenantPausedAt) {
+      localStorage.setItem('orgTenantPausedAt', String(payload.tenantPausedAt));
+    } else {
+      localStorage.removeItem('orgTenantPausedAt');
+    }
+  } else if (payload && Object.prototype.hasOwnProperty.call(payload, 'tenantPaused')) {
+    localStorage.setItem('orgTenantPaused', '0');
+    localStorage.removeItem('orgTenantPausedAt');
+  }
   window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
 }
 
@@ -612,6 +633,8 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
       billingEnabled?: boolean;
       subscriptionPlan?: HqTenantSubscriptionPlan | null;
       planUsage?: OrgPlanUsageCache | null;
+      tenantPaused?: boolean;
+      tenantPausedAt?: string | null;
       defaultCurrency?: string | null;
       clientPageFieldVisibility?: {
         interestLevel?: boolean;
@@ -730,6 +753,12 @@ export interface HqTenantSubscriptionPlan {
   planEndDate?: string;
   isTrial?: boolean;
   trialDays?: number;
+  upgradedAt?: string;
+  upgradedFrom?: string;
+  lastPaymentReference?: string;
+  purchasedAt?: string;
+  employerDemoRequestId?: string;
+  upgradedBy?: string;
 }
 
 export async function apiGetSubscriptionPlan() {
@@ -744,7 +773,76 @@ export async function apiGetSubscriptionPlan() {
       usersRemaining: number | null;
     };
     options: SubscriptionPlanOption[];
+    upgradeOptions?: {
+      currentPlan: HqTenantSubscriptionPlan | null;
+      upgradePackages: SubscriptionPlanOption[];
+      canUpgrade: boolean;
+    };
   }>('/settings/org/subscription-plan', { auth: true });
+}
+
+export async function apiUpgradeSubscriptionPlan(body: {
+  packageId: string;
+  billingCycle: 'monthly' | 'annual';
+  paymentReference?: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  razorpaySignature?: string;
+}) {
+  return apiFetch<{
+    plan: HqTenantSubscriptionPlan;
+    planUsage?: {
+      activeJobs: number;
+      activeUsers: number;
+      maxJobs: number | null;
+      maxUsers: number | null;
+      jobsRemaining: number | null;
+      usersRemaining: number | null;
+    };
+  }>('/settings/org/subscription-plan/upgrade', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export type SubscriptionPaymentOrder = {
+  mode?: 'clone' | 'live';
+  orderId: string;
+  amount: number;
+  amountPaise: number;
+  amountInr?: string;
+  currency: string;
+  keyId?: string;
+  merchantName: string;
+  merchantUpi: string;
+  packageName: string;
+  billingCycle: 'monthly' | 'annual';
+  packageId: string;
+  description: string;
+  upiPayLink?: string;
+};
+
+export async function apiCreateSubscriptionPaymentOrder(body: {
+  packageId: string;
+  billingCycle: 'monthly' | 'annual';
+}) {
+  return apiFetch<SubscriptionPaymentOrder>('/settings/org/subscription-plan/payment-order', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiGetRazorpayConfig() {
+  return apiFetch<{
+    enabled: boolean;
+    mode?: 'clone' | 'live';
+    keyId: string;
+    merchantName: string;
+    merchantUpi: string;
+    currency: string;
+  }>('/settings/org/subscription-plan/razorpay-config', { auth: true });
 }
 
 export async function apiSetSubscriptionPlan(plan: { name: string }) {
@@ -1005,11 +1103,17 @@ export interface HqTenantRow {
   email: string;
   loginId: string;
   organizationType: 'agency' | 'standalone';
+  organizationName?: string;
+  signupSource?: 'landing_purchase' | 'landing_trial' | 'hq_manual' | string;
   subscriptionPlan: HqTenantSubscriptionPlan | null;
   tenantDbName: string;
   tenantProvisioningMode: string;
+  status?: string;
+  pausedAt?: string | null;
+  pausedBy?: string;
   createdAt: string | null;
   updatedAt: string | null;
+  isLandingSignupOnly?: boolean;
 }
 
 export async function apiHqListPackages() {
@@ -1077,6 +1181,8 @@ export async function apiHqListTenants() {
       total: number;
       agency: number;
       standalone: number;
+      landingPurchases?: number;
+      landingTrials?: number;
       planCounts: Record<string, number>;
     };
     planOptions: HqSubscriptionPackage[];
@@ -1105,6 +1211,8 @@ export type HqDemoStats = {
   expired: number;
   trials?: number;
   trialsLive?: number;
+  purchases?: number;
+  purchasesLive?: number;
 };
 
 export type HqDemoRequestApiRow = {
@@ -1117,7 +1225,10 @@ export type HqDemoRequestApiRow = {
   phoneNumber: string;
   companySize: string;
   outcome: string;
-  requestKind?: 'demo' | 'trial';
+  requestKind?: 'demo' | 'trial' | 'purchase';
+  packageSlug?: string;
+  packageName?: string;
+  billingCycle?: string;
   trialProvisioned?: boolean;
   trialTenantDbName?: string;
   trialLoginId?: string;
@@ -1535,6 +1646,15 @@ export async function apiHqAssignTenantPlan(body: {
     '/hq/tenants/plan',
     { method: 'PUT', auth: true, body }
   );
+}
+
+export async function apiHqSetTenantPause(body: { email: string; paused: boolean }) {
+  return apiFetch<{
+    email: string;
+    status: string;
+    pausedAt?: string | null;
+    pausedBy?: string;
+  }>('/hq/tenants/pause', { method: 'PUT', auth: true, body });
 }
 
 export interface InvoiceActivityEvent {
@@ -2108,6 +2228,8 @@ export async function apiLogout() {
     localStorage.removeItem('orgSubscriptionPlan');
     localStorage.removeItem('orgSubscriptionPlanName');
     localStorage.removeItem('orgPlanUsage');
+    localStorage.removeItem('orgTenantPaused');
+    localStorage.removeItem('orgTenantPausedAt');
     syncAuthCookie('accessToken', null);
     syncAuthCookie('refreshToken', null);
     syncTenantDbName(null);
@@ -4136,6 +4258,169 @@ export const apiDeleteInterviewNote = async (id: string, noteId: string) => {
 
 export const apiGetInterviewKpis = async () => {
   return apiFetch<BackendInterviewKpis>('/interviews/kpis', {
+    auth: true,
+  });
+};
+
+// ────────────────────────────────────────────────────────────
+// Interview application forms & Phase 1 submissions
+// ────────────────────────────────────────────────────────────
+
+export type InterviewApplicationFormStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+
+export type InterviewApplicationStatus =
+  | 'SUBMITTED'
+  | 'PENDING_REVIEW'
+  | 'IN_INTERVIEW'
+  | 'INTERVIEW_COMPLETED'
+  | 'APPROVED'
+  | 'REJECTED';
+
+export type InterviewApplicationForm = {
+  id: string;
+  title: string;
+  description?: string | null;
+  schema: unknown;
+  status: InterviewApplicationFormStatus;
+  publicToken: string;
+  publishedAt?: string | null;
+  createdById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  applicationCount?: number;
+};
+
+export type InterviewApplicationRow = {
+  id: string;
+  interviewFormId: string;
+  formName: string;
+  candidateId: string;
+  candidateName: string;
+  candidateEmail?: string | null;
+  candidatePhone?: string | null;
+  resumeUrl?: string | null;
+  responses?: unknown;
+  status: InterviewApplicationStatus;
+  assignedInterviewerIds: string[];
+  interviewNotes?: string | null;
+  rating?: number | null;
+  feedback?: string | null;
+  recommendation?: string | null;
+  phase1SubmissionId?: string | null;
+  reviewedAt?: string | null;
+  decidedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  source?: string;
+  formSchema?: unknown;
+  candidate?: Record<string, unknown>;
+};
+
+export const apiListInterviewForms = async () => {
+  return apiFetch<InterviewApplicationForm[]>('/interview-applications/forms', { auth: true });
+};
+
+export const apiGetInterviewForm = async (id: string) => {
+  return apiFetch<InterviewApplicationForm>(`/interview-applications/forms/${id}`, { auth: true });
+};
+
+export const apiCreateInterviewForm = async (payload: {
+  title: string;
+  description?: string;
+  schema?: unknown;
+}) => {
+  return apiFetch<InterviewApplicationForm>('/interview-applications/forms', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const apiUpdateInterviewForm = async (
+  id: string,
+  payload: { title?: string; description?: string; schema?: unknown },
+) => {
+  return apiFetch<InterviewApplicationForm>(`/interview-applications/forms/${id}`, {
+    method: 'PATCH',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const apiPublishInterviewForm = async (id: string) => {
+  return apiFetch<InterviewApplicationForm>(`/interview-applications/forms/${id}/publish`, {
+    method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiUnpublishInterviewForm = async (id: string) => {
+  return apiFetch<InterviewApplicationForm>(`/interview-applications/forms/${id}/unpublish`, {
+    method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiArchiveInterviewForm = async (id: string) => {
+  return apiFetch<InterviewApplicationForm>(`/interview-applications/forms/${id}/archive`, {
+    method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiDeleteInterviewForm = async (id: string) => {
+  return apiFetch<{ deleted: boolean }>(`/interview-applications/forms/${id}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+};
+
+export const apiListInterviewApplications = async (params?: {
+  formId?: string;
+  status?: string;
+  search?: string;
+}) => {
+  const query = new URLSearchParams();
+  if (params?.formId) query.set('formId', params.formId);
+  if (params?.status) query.set('status', params.status);
+  if (params?.search) query.set('search', params.search);
+  const qs = query.toString();
+  return apiFetch<InterviewApplicationRow[]>(
+    `/interview-applications/applications${qs ? `?${qs}` : ''}`,
+    { auth: true },
+  );
+};
+
+export const apiListInterviewerApplications = async (params?: { status?: string }) => {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  const qs = query.toString();
+  return apiFetch<InterviewApplicationRow[]>(
+    `/interview-applications/applications/interviewer${qs ? `?${qs}` : ''}`,
+    { auth: true },
+  );
+};
+
+export const apiGetInterviewApplication = async (id: string) => {
+  return apiFetch<InterviewApplicationRow>(`/interview-applications/applications/${id}`, {
+    auth: true,
+  });
+};
+
+export const apiUpdateInterviewApplication = async (
+  id: string,
+  payload: Partial<{
+    status: InterviewApplicationStatus;
+    interviewNotes: string;
+    rating: number;
+    feedback: string;
+    recommendation: string;
+    assignedInterviewerIds: string[];
+  }>,
+) => {
+  return apiFetch<InterviewApplicationRow>(`/interview-applications/applications/${id}`, {
+    method: 'PATCH',
+    body: payload,
     auth: true,
   });
 };

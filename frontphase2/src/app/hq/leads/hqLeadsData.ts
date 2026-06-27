@@ -160,7 +160,7 @@ export type HqLeadsPageTab = 'all' | HqLeadStage | 'demos';
 
 export const HQ_LEADS_PAGE_TABS: { id: HqLeadsPageTab; label: string }[] = [
   ...HQ_LEAD_TABS,
-  { id: 'demos', label: 'Demos' },
+  { id: 'demos', label: 'Landing signups' },
 ];
 
 export type HqDemoRequestStatus = 'PENDING' | 'VERIFIED' | 'EXPIRED';
@@ -175,7 +175,10 @@ export type HqDemoRequestRow = {
   phoneNumber: string;
   companySize: string;
   outcome: string;
-  requestKind: 'demo' | 'trial';
+  requestKind: 'demo' | 'trial' | 'purchase';
+  packageSlug?: string;
+  packageName?: string;
+  billingCycle?: string;
   trialProvisioned: boolean;
   trialTenantDbName: string;
   trialLoginId: string;

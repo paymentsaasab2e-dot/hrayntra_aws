@@ -86,6 +86,142 @@ function assertPlatformProvisioner(reqUser) {
   }
 }
 
+function normalizeTenantEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function findLandingDemoForTenant(tenant, demos) {
+  const email = normalizeTenantEmail(tenant.email);
+  const dbName = String(tenant.tenantDbName || '').trim();
+  return (
+    demos.find((d) => normalizeTenantEmail(d.email) === email) ||
+    (dbName ? demos.find((d) => String(d.trialTenantDbName || '').trim() === dbName) : null) ||
+    null
+  );
+}
+
+function inferSignupSource(tenant, demo) {
+  const stored = String(tenant.signupSource || '').trim();
+  if (stored) return stored;
+
+  const plan = tenant.subscriptionPlan || {};
+  if (plan.purchasedAt || plan.employerDemoRequestId) return 'landing_purchase';
+  if (plan.isTrial && demo?.requestKind === 'trial') return 'landing_trial';
+
+  if (demo?.requestKind === 'purchase') return 'landing_purchase';
+  if (demo?.requestKind === 'trial') return 'landing_trial';
+
+  if (plan.lastPaymentReference && !plan.upgradedAt) return 'landing_purchase';
+  return 'hq_manual';
+}
+
+function buildSubscriptionPlanFromDemo(demo) {
+  const packageName = String(demo.packageName || demo.packageSlug || '').trim();
+  const billingCycle = demo.billingCycle === 'annual' ? 'annual' : 'monthly';
+  if (!packageName && !demo.trialStartsAt) return null;
+  return {
+    ...(packageName ? { name: packageName } : { name: 'Starter' }),
+    billingCycle,
+    ...(demo.trialStartsAt ? { planStartDate: demo.trialStartsAt } : {}),
+    ...(demo.trialEndsAt ? { planEndDate: demo.trialEndsAt } : {}),
+    ...(demo.requestKind === 'trial' ? { isTrial: true } : {}),
+    ...(demo.requestKind === 'purchase' ? { employerDemoRequestId: demo.id } : {}),
+  };
+}
+
+function mapTenantForHqResponse(tenant) {
+  return {
+    id: tenant.id,
+    name: tenant.name,
+    email: tenant.email,
+    loginId: tenant.loginId,
+    organizationType: tenant.organizationType,
+    organizationName: tenant.organizationName || '',
+    signupSource: tenant.signupSource || 'hq_manual',
+    subscriptionPlan: tenant.subscriptionPlan,
+    tenantDbName: tenant.tenantDbName,
+    tenantProvisioningMode: tenant.tenantProvisioningMode,
+    status: tenant.status || 'ACTIVE',
+    pausedAt: tenant.pausedAt || null,
+    pausedBy: tenant.pausedBy || '',
+    createdAt: tenant.createdAt,
+    updatedAt: tenant.updatedAt,
+    isLandingSignupOnly: Boolean(tenant.isLandingSignupOnly),
+  };
+}
+
+async function enrichTenantsFromLandingSignups(tenants) {
+  let demos = [];
+  try {
+    const demoResult = await hqDemosService.listDemoRequests();
+    demos = demoResult?.demos || [];
+  } catch (err) {
+    console.warn('[hq] landing signup enrichment skipped:', err?.message || err);
+    return tenants.map((tenant) => {
+      const demo = findLandingDemoForTenant(tenant, demos);
+      return {
+        ...tenant,
+        organizationName: tenant.organizationName || demo?.organizationName || '',
+        signupSource: inferSignupSource(tenant, demo),
+      };
+    });
+  }
+
+  const byEmail = new Set(tenants.map((t) => normalizeTenantEmail(t.email)).filter(Boolean));
+  const byDb = new Set(tenants.map((t) => String(t.tenantDbName || '').trim()).filter(Boolean));
+
+  const enriched = tenants.map((tenant) => {
+    const demo = findLandingDemoForTenant(tenant, demos);
+    return {
+      ...tenant,
+      organizationName: tenant.organizationName || demo?.organizationName || '',
+      signupSource: inferSignupSource(tenant, demo),
+    };
+  });
+
+  const provisionedLanding = demos.filter(
+    (demo) =>
+      demo.trialProvisioned &&
+      (demo.requestKind === 'purchase' || demo.requestKind === 'trial') &&
+      (normalizeTenantEmail(demo.email) || String(demo.trialTenantDbName || '').trim()),
+  );
+
+  for (const demo of provisionedLanding) {
+    const email = normalizeTenantEmail(demo.email);
+    const dbName = String(demo.trialTenantDbName || '').trim();
+    if ((email && byEmail.has(email)) || (dbName && byDb.has(dbName))) continue;
+
+    enriched.push({
+      id: `landing-${demo.id}`,
+      name: demo.fullName || demo.organizationName || demo.email,
+      email: demo.email,
+      loginId: demo.trialLoginId || demo.email,
+      organizationType:
+        String(demo.organizationType || '').toLowerCase() === 'standalone' ? 'standalone' : 'agency',
+      organizationName: demo.organizationName || '',
+      signupSource: demo.requestKind === 'purchase' ? 'landing_purchase' : 'landing_trial',
+      subscriptionPlan: buildSubscriptionPlanFromDemo(demo),
+      tenantDbName: dbName,
+      tenantProvisioningMode: 'DEDICATED',
+      status: 'ACTIVE',
+      pausedAt: null,
+      pausedBy: '',
+      createdAt: demo.createdAt || null,
+      updatedAt: demo.emailVerifiedAt || demo.createdAt || null,
+      isLandingSignupOnly: true,
+    });
+
+    if (email) byEmail.add(email);
+    if (dbName) byDb.add(dbName);
+  }
+
+  return enriched.sort((a, b) => {
+    const aTime = new Date(a.createdAt || 0).getTime();
+    const bTime = new Date(b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
 export const hqService = {
   async setupSuperAdmin(data) {
     const { name, email, userId, password } = data; // userId is used as loginId
@@ -186,6 +322,7 @@ export const hqService = {
       loginId,
       organizationType,
       subscriptionPlan,
+      signupSource: 'hq_manual',
     });
     const localUser = await authService.provisionHeadquartersMappedTenant(hqUser);
     await authService.finalizeHeadquartersTenantWorkspace(hqUser, localUser);
@@ -236,26 +373,20 @@ export const hqService = {
     assertPlatformProvisioner(reqUser);
     let tenants = await headquartersAuthService.listTenants();
     tenants = await backfillUnassignedTenantPlans(tenants);
+    tenants = await enrichTenantsFromLandingSignups(tenants);
     const packages = await hqPackagesService.listPackages();
+    const landingPurchases = tenants.filter((t) => t.signupSource === 'landing_purchase').length;
+    const landingTrials = tenants.filter((t) => t.signupSource === 'landing_trial').length;
     const stats = {
       total: tenants.length,
       agency: tenants.filter((t) => t.organizationType === 'agency').length,
       standalone: tenants.filter((t) => t.organizationType === 'standalone').length,
+      landingPurchases,
+      landingTrials,
       planCounts: buildPlanCounts(tenants, packages),
     };
     return {
-      tenants: tenants.map((t) => ({
-        id: t.id,
-        name: t.name,
-        email: t.email,
-        loginId: t.loginId,
-        organizationType: t.organizationType,
-        subscriptionPlan: t.subscriptionPlan,
-        tenantDbName: t.tenantDbName,
-        tenantProvisioningMode: t.tenantProvisioningMode,
-        createdAt: t.createdAt,
-        updatedAt: t.updatedAt,
-      })),
+      tenants: tenants.map(mapTenantForHqResponse),
       stats,
       planOptions: packages,
     };
@@ -287,6 +418,25 @@ export const hqService = {
       }
     }
     return { email: updated.email, subscriptionPlan: updated.subscriptionPlan };
+  },
+
+  async setTenantPause(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    const paused = Boolean(data?.paused);
+    if (!email) throw new Error('email is required');
+    const updated = await headquartersAuthService.setTenantPauseForEmail(
+      email,
+      paused,
+      reqUser?.email || reqUser?.id,
+    );
+    if (!updated) throw new Error('Tenant not found');
+    return {
+      email: updated.email,
+      status: updated.status,
+      pausedAt: updated.pausedAt,
+      pausedBy: updated.pausedBy,
+    };
   },
 
   async deleteTenant(data, reqUser) {

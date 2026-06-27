@@ -1536,6 +1536,7 @@ model EmployerDemoRequest {
   phoneNumber      String
   companySize      String
   organizationName String
+  organizationType String    @default("agency")
   outcome          String?
   requestKind      String    @default("demo")
   trialProvisioned Boolean   @default(false)

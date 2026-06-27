@@ -325,12 +325,16 @@ export const hqLeadsService = {
     const country = String(demo?.countryCode || '').trim();
     const companySize = String(demo?.companySize || '').trim();
     const outcome = String(demo?.outcome || '').trim();
+    const requestKind = String(demo?.requestKind || 'demo').toLowerCase();
+    const isPurchase = requestKind === 'purchase';
     const expectedUsers = companySizeToExpectedUsers(companySize);
     const estimatedDealValue = Math.max(expectedUsers * 25, 500);
     const initialNotes = [
       outcome ? `Outcome: ${outcome}` : '',
       companySize ? `Company size: ${companySize}` : '',
+      demo?.organizationType ? `Workspace type: ${String(demo.organizationType).toLowerCase() === 'standalone' ? 'Standalone' : 'Agency'}` : '',
       requestId ? `Employer demo request: ${requestId}` : '',
+      isPurchase ? 'Source: Employer landing page — paid plan signup' : '',
     ]
       .filter(Boolean)
       .join('\n');
@@ -346,10 +350,12 @@ export const hqLeadsService = {
       estimatedDealValue,
       leadOwner: '',
       leadSource: EMPLOYER_DEMO_LEAD_SOURCE,
-      leadSourceDetail: 'Employer request demo form',
+      leadSourceDetail: isPurchase
+        ? 'Employer landing page — paid plan'
+        : 'Employer request demo form',
       interestedModules: ['Recruitment'],
       initialNotes,
-      stage: 'new',
+      stage: isPurchase ? 'qualified' : 'new',
       score: inferScore(estimatedDealValue, expectedUsers),
       nextFollowUpAt: (() => {
         const d = new Date();

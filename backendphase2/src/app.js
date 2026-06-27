@@ -31,6 +31,7 @@ import kycRoutes from './modules/kyc/kyc.routes.js';
 import pipelineRoutes from './modules/pipeline/pipeline.routes.js';
 import matchRoutes from './modules/match/match.routes.js';
 import interviewRoutes from './modules/interview/interview.routes.js';
+import interviewApplicationRoutes from './modules/interview-application/interviewApplication.routes.js';
 import placementRoutes from './modules/placement/placement.routes.js';
 import billingRoutes from './modules/billing/billing.routes.js';
 import taskRoutes from './modules/task/task.routes.js';
@@ -219,6 +220,8 @@ app.post(
 );
 // Public candidate pre-screen sessions — MUST be before addCandidateRouter (router-level auth on /api/v1)
 app.use('/api/v1/pre-screen-assessments', preScreenAssessmentRoutes);
+// Public interview application forms (Phase 1) — before auth routers
+app.use('/api/v1/interview-applications', interviewApplicationRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/linkedin', linkedinRoutes);
 app.use('/api/v1/oauth', oauthRoutes);

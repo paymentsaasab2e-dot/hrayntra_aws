@@ -381,6 +381,12 @@ function normalizeSubscriptionPlanForHq(value) {
       ...(planEndDate ? { planEndDate } : {}),
       ...(isTrial ? { isTrial: true } : {}),
       ...(trialDays ? { trialDays } : {}),
+      ...(value.upgradedAt ? { upgradedAt: String(value.upgradedAt) } : {}),
+      ...(value.upgradedFrom ? { upgradedFrom: String(value.upgradedFrom) } : {}),
+      ...(value.lastPaymentReference ? { lastPaymentReference: String(value.lastPaymentReference) } : {}),
+      ...(value.purchasedAt ? { purchasedAt: String(value.purchasedAt) } : {}),
+      ...(value.employerDemoRequestId ? { employerDemoRequestId: String(value.employerDemoRequestId) } : {}),
+      ...(value.upgradedBy ? { upgradedBy: String(value.upgradedBy) } : {}),
     };
   }
   return null;
@@ -396,9 +402,13 @@ function normalizeHeadquartersUser(document) {
     organizationType: normalizeOrgType(document.organizationType),
     subscriptionPlan: normalizeSubscriptionPlanForHq(document.subscriptionPlan),
     role: String(document.role || ''),
-    status: String(document.status || ''),
+    status: String(document.status || 'ACTIVE'),
+    pausedAt: document.pausedAt ? new Date(document.pausedAt).toISOString() : null,
+    pausedBy: document.pausedBy ? String(document.pausedBy) : '',
     companyId: document.companyId ? String(document.companyId) : '',
     name: String(document.name || document.fullName || document.email || 'Super Admin'),
+    organizationName: String(document.organizationName || '').trim(),
+    signupSource: String(document.signupSource || '').trim(),
     tenantDbName: String(document.tenantDbName || ''),
     tenantDatabaseUrl: String(document.tenantDatabaseUrl || ''),
     tenantProvisioningMode: String(document.tenantProvisioningMode || 'DEDICATED'),
@@ -449,6 +459,8 @@ export const headquartersAuthService = {
     const tenantDatabaseUrl = provisioning.tenantDatabaseUrl;
 
     const now = new Date();
+    const organizationName = normalizeLookupValue(data?.organizationName);
+    const signupSource = normalizeLookupValue(data?.signupSource);
     const newDocument = {
       name: normalizedName,
       email: normalizedEmail,
@@ -462,6 +474,8 @@ export const headquartersAuthService = {
       tenantDbName,
       tenantDatabaseUrl,
       tenantProvisioningMode: provisioning.provisioningMode,
+      ...(organizationName ? { organizationName } : {}),
+      ...(signupSource ? { signupSource } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -589,6 +603,67 @@ export const headquartersAuthService = {
       .sort({ createdAt: -1, _id: -1 })
       .toArray();
     return docs.map((doc) => normalizeHeadquartersUser(doc)).filter(Boolean);
+  },
+
+  async findTenantByDbName(tenantDbName) {
+    const collection = await getCollection();
+    const dbName = String(tenantDbName || '').trim();
+    if (!collection || !dbName) return null;
+    const doc = await collection.findOne({ tenantDbName: dbName });
+    return normalizeHeadquartersUser(doc);
+  },
+
+  async findWorkspaceUserByEmail(email) {
+    const collection = await getCollection();
+    const normalizedEmail = normalizeEmail(email);
+    if (!collection || !normalizedEmail) return null;
+    const doc = await collection.findOne({ email: normalizedEmail });
+    return normalizeHeadquartersUser(doc);
+  },
+
+  async updateWorkspacePasswordForEmail(email, password) {
+    const collection = await getCollection();
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedPassword = normalizeLookupValue(password);
+    if (!collection || !normalizedEmail || !normalizedPassword) {
+      throw new Error('Email and password are required');
+    }
+    await collection.updateOne(
+      { email: normalizedEmail },
+      { $set: { password: normalizedPassword, updatedAt: new Date() } },
+    );
+    const doc = await collection.findOne({ email: normalizedEmail });
+    return normalizeHeadquartersUser(doc);
+  },
+
+  async setTenantPauseForEmail(email, paused, pausedBy) {
+    const collection = await getCollection();
+    if (!collection) return null;
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return null;
+
+    const status = paused ? 'PAUSED' : 'ACTIVE';
+    const update = paused
+      ? {
+          $set: {
+            status,
+            pausedAt: new Date(),
+            pausedBy: String(pausedBy || '').trim(),
+            updatedAt: new Date(),
+          },
+        }
+      : {
+          $set: { status, updatedAt: new Date() },
+          $unset: { pausedAt: '', pausedBy: '' },
+        };
+
+    await collection.updateOne({ email: normalizedEmail }, update);
+    const updated = await collection.findOne({ email: normalizedEmail });
+    return normalizeHeadquartersUser(updated);
+  },
+
+  isTenantPaused(tenant) {
+    return String(tenant?.status || 'ACTIVE').toUpperCase() === 'PAUSED';
   },
 
   async setSubscriptionPlanForEmail(email, plan) {
