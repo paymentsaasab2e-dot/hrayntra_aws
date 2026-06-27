@@ -1,5 +1,5 @@
 /**
- * Validates backend can boot. Run automatically via `pnpm start` (prestart hook).
+ * Validates backend can boot. Run automatically via `npm start` (prestart hook).
  * Manual: node scripts/prestart-check.mjs
  */
 import fs from 'fs';
@@ -11,6 +11,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function fail(message) {
   console.error(`\n[prestart-check] ${message}\n`);
   process.exit(1);
+}
+
+if (fs.existsSync(path.join(root, 'node_modules', '.pnpm'))) {
+  fail(
+    'Detected pnpm-style node_modules (.pnpm folder). npm and pnpm must not be mixed.\n' +
+      'Fix:\n' +
+      '  cd backendphase2\n' +
+      '  rm -rf node_modules\n' +
+      '  rm -f pnpm-lock.yaml\n' +
+      '  npm install\n' +
+      '  npx prisma generate',
+  );
 }
 
 const nodeMajor = Number(process.versions.node.split('.')[0]);

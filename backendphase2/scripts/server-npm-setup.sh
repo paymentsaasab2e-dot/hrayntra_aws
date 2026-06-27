@@ -14,9 +14,10 @@ fi
 echo "==> Removing old installs (pnpm + npm artifacts)"
 rm -rf node_modules
 rm -f pnpm-lock.yaml
+rm -f package-lock.json
 
-echo "==> npm install"
-npm install
+echo "==> npm install (clean — do not mix with pnpm)"
+npm install --legacy-peer-deps
 
 echo "==> prisma generate"
 npx prisma generate
@@ -33,5 +34,23 @@ node scripts/scan-empty-deps.mjs
 echo "==> Testing imports (find-startup-crash)"
 node scripts/find-startup-crash.mjs
 
+echo "==> Starting with PM2 (if installed)"
+if command -v pm2 >/dev/null 2>&1; then
+  pm2 delete backendphase2 2>/dev/null || true
+  pm2 start ecosystem.config.cjs --update-env
+  pm2 save 2>/dev/null || true
+  sleep 3
+  if curl -sf "http://127.0.0.1:5001/health" >/dev/null; then
+    echo "==> Health check OK: http://127.0.0.1:5001/health"
+  else
+    echo "WARN: Local health check failed. Run: pm2 logs backendphase2"
+    pm2 logs backendphase2 --lines 30 --nostream 2>/dev/null || true
+    exit 1
+  fi
+else
+  echo "PM2 not installed. Start manually: npm start"
+  echo "Or install PM2: npm install -g pm2"
+fi
+
 echo ""
-echo "Setup OK. Start with: npm start"
+echo "Setup OK. Public URL should respond after nginx: https://api2.hryantra.com/health"
