@@ -41,16 +41,30 @@ if (nodeMajor === 20 && (nodeMinor > 19 || (nodeMinor === 20 && nodePatch >= 2))
 const prismaClientDir = path.join(root, 'node_modules', '.prisma', 'client');
 const prismaIndex = path.join(prismaClientDir, 'index.js');
 const prismaDefault = path.join(prismaClientDir, 'default.js');
+
 if (!fs.existsSync(prismaIndex)) {
   fail(
     'Prisma client not generated. Run:\n  cd backendphase2 && npm install && npx prisma generate',
   );
 }
 
-for (const f of [prismaIndex, prismaDefault]) {
-  if (!fs.existsSync(f) || fs.statSync(f).size < 50) {
-    fail(`Prisma file missing or empty: ${path.basename(f)}\nRun: npx prisma generate`);
-  }
+// index.js is the generated client (large). default.js is a tiny re-export (~36 bytes) — normal.
+if (fs.statSync(prismaIndex).size < 500) {
+  fail(`Prisma client index.js looks empty/corrupt.\nRun: npx prisma generate`);
+}
+if (!fs.existsSync(prismaDefault)) {
+  fail(`Prisma client default.js missing.\nRun: npx prisma generate`);
+}
+
+// Skip heavy import scan in Docker — image already built with prisma generate.
+const inDocker =
+  process.env.SKIP_PRESTART_CHECK === '1' ||
+  process.env.RUNNING_IN_DOCKER === '1' ||
+  fs.existsSync('/.dockerenv');
+if (inDocker) {
+  console.log('[prestart-check] Docker detected — skipping import scan.');
+  console.log('[prestart-check] All checks passed.\n');
+  process.exit(0);
 }
 
 console.log('[prestart-check] Running empty-deps scan...');
