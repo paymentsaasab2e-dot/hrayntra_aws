@@ -19,6 +19,7 @@ COPY package*.json ./
 COPY prisma ./prisma
 
 RUN npm config set legacy-peer-deps true
+# postinstall runs prisma generate when prisma/ is present (no scripts/ needed yet)
 RUN npm install --legacy-peer-deps
 
 COPY . .
