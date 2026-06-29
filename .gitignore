@@ -4,3 +4,12 @@ dist/
 uploads/
 temp/
 *.log
+
+# AWS / server Docker deploy files (keep on EC2 only — not in git)
+/docker-compose.yml
+/docker-compose.*.yml
+!/docker-compose.example.yml
+/backendphase2/Dockerfile
+/backendphase2/.dockerignore
+/backend1/Dockerfile
+/backend1/.dockerignore
