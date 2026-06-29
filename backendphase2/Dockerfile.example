@@ -27,6 +27,7 @@ COPY . .
 RUN npx prisma generate
 
 ENV NODE_ENV=production
+ENV RUNNING_IN_DOCKER=1
 EXPOSE 5001
 
 CMD ["node", "src/server.js"]
