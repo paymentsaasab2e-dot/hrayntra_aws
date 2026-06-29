@@ -18,7 +18,7 @@
     "start": "node src/server.js",
     "start:tsx": "tsx src/server.js",
     "prestart": "node scripts/prestart-check.mjs",
-    "postinstall": "node scripts/postinstall.mjs",
+    "postinstall": "node -e \"const fs=require('fs'),cp=require('child_process');if(!fs.existsSync('prisma/schema.prisma')){console.log('[postinstall] skip prisma generate');process.exit(0)}cp.execSync('npx prisma generate',{stdio:'inherit'})\"",
     "prisma:generate": "prisma generate",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
