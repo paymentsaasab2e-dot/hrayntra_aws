@@ -1,3 +1,6 @@
+# Copy to docker-compose.yml on your AWS server (not tracked by git).
+#   cp docker-compose.example.yml docker-compose.yml
+
 services:
   backendphase2:
     build:
@@ -11,12 +14,6 @@ services:
       - "5001:5001"
     volumes:
       - backendphase2_uploads:/app/uploads
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 45s
 
   backend1:
     build:

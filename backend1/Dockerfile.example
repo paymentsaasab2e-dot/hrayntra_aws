@@ -1,3 +1,5 @@
+# Copy to backend1/Dockerfile on AWS (not tracked by git).
+
 FROM node:20-bookworm-slim
 
 WORKDIR /app
