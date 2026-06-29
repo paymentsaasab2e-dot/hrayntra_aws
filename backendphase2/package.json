@@ -18,7 +18,7 @@
     "start": "node src/server.js",
     "start:tsx": "tsx src/server.js",
     "prestart": "node scripts/prestart-check.mjs",
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/postinstall.mjs",
     "prisma:generate": "prisma generate",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",

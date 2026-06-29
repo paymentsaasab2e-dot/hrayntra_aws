@@ -1,0 +1,36 @@
+services:
+  backendphase2:
+    build:
+      context: ./backendphase2
+      dockerfile: Dockerfile
+    container_name: hrayntra-backendphase2
+    restart: unless-stopped
+    env_file:
+      - ./backendphase2/.env
+    ports:
+      - "5001:5001"
+    volumes:
+      - backendphase2_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+  backend1:
+    build:
+      context: ./backend1
+      dockerfile: Dockerfile
+    container_name: hrayntra-backend1
+    restart: unless-stopped
+    env_file:
+      - ./backend1/.env
+    ports:
+      - "5000:5000"
+    volumes:
+      - backend1_uploads:/app/uploads
+
+volumes:
+  backendphase2_uploads:
+  backend1_uploads:
