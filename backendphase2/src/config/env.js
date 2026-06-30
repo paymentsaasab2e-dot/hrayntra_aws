@@ -45,19 +45,22 @@ export function isLoopbackPublicUrl(url) {
  */
 export function resolvePublicFrontendUrl() {
   const keys = [
+    'EMPLOYERS_APP_URL',
+    'PHASE2_FRONTEND_URL',
     'FRONTEND_URL',
     'CLIENT_URL',
     'NEXT_PUBLIC_APP_URL',
     'APP_PUBLIC_URL',
     'PUBLIC_APP_URL',
-    'EMPLOYERS_APP_URL',
-    'PHASE2_FRONTEND_URL',
   ];
   for (const key of keys) {
     const v = process.env[key];
     if (v != null && String(v).trim()) {
       return normalizePublicUrl(v);
     }
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return 'https://employers.hryantra.com';
   }
   return 'http://localhost:3001';
 }

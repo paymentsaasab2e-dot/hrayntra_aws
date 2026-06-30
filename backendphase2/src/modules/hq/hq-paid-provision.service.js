@@ -100,6 +100,44 @@ async function trySendPurchaseCredentialsEmail({
   }
 }
 
+async function resolveExistingWorkspace(email) {
+  const normalizedEmail = normalizeEmail(email);
+  const existingTenants = await headquartersAuthService.listTenants();
+  let existing =
+    existingTenants.find((t) => normalizeEmail(t.email) === normalizedEmail) || null;
+
+  if (!existing) {
+    existing = await headquartersAuthService.findWorkspaceUserByEmail(normalizedEmail);
+  }
+
+  if (existing && !existing.tenantDbName) {
+    try {
+      await headquartersAuthService.ensureTenantProvisioning(normalizedEmail);
+      existing = await headquartersAuthService.findWorkspaceUserByEmail(normalizedEmail);
+    } catch (err) {
+      console.warn('[hq-paid] ensureTenantProvisioning failed:', err?.message || err);
+    }
+  }
+
+  return existing;
+}
+
+async function applyPaidSubscriptionPlan(email, tenantDbName, subscriptionPlan) {
+  try {
+    await headquartersAuthService.setSubscriptionPlanForEmail(email, subscriptionPlan);
+  } catch (err) {
+    console.warn('[hq-paid] HQ subscription plan update failed:', err?.message || err);
+  }
+
+  if (tenantDbName && subscriptionPlan) {
+    try {
+      await runWithTenantContext(tenantDbName, () => setSubscriptionPlan(subscriptionPlan));
+    } catch (err) {
+      console.warn('[hq-paid] tenant subscription plan update failed:', err?.message || err);
+    }
+  }
+}
+
 async function resendCredentialsForExistingTenant({
   existing,
   email,
@@ -158,9 +196,9 @@ export const hqPaidProvisionService = {
 
     const subscriptionPlan = await resolvePaidPlan(purchaseMeta.packageSlug, purchaseMeta.billingCycle);
 
-    const existingTenants = await headquartersAuthService.listTenants();
-    const existing = existingTenants.find((t) => normalizeEmail(t.email) === email);
+    const existing = await resolveExistingWorkspace(email);
     if (existing?.tenantDbName) {
+      await applyPaidSubscriptionPlan(email, existing.tenantDbName, subscriptionPlan);
       const packageName = subscriptionPlan?.name || purchaseMeta.packageSlug;
       const resent = await resendCredentialsForExistingTenant({
         existing,
@@ -203,16 +241,55 @@ export const hqPaidProvisionService = {
     const password = generateTempPassword();
     const organizationType = normalizeOrganizationType(demo?.organizationType);
 
-    const hqUser = await headquartersAuthService.registerWorkspaceUserAndProvisionTenant({
-      name,
-      email,
-      password,
-      loginId,
-      organizationType,
-      organizationName,
-      signupSource: 'landing_purchase',
-      subscriptionPlan: paidPlan,
-    });
+    let hqUser;
+    try {
+      hqUser = await headquartersAuthService.registerWorkspaceUserAndProvisionTenant({
+        name,
+        email,
+        password,
+        loginId,
+        organizationType,
+        organizationName,
+        signupSource: 'landing_purchase',
+        subscriptionPlan: paidPlan,
+      });
+    } catch (registerErr) {
+      const registerMessage = String(registerErr?.message || registerErr || '');
+      const existingAfterConflict = await resolveExistingWorkspace(email);
+      if (
+        existingAfterConflict?.tenantDbName &&
+        (registerMessage.includes('already exists') || registerMessage.includes('already in use'))
+      ) {
+        await applyPaidSubscriptionPlan(email, existingAfterConflict.tenantDbName, subscriptionPlan);
+        const resent = await resendCredentialsForExistingTenant({
+          existing: existingAfterConflict,
+          email,
+          organizationName,
+          packageName: paidPlan.name,
+        });
+        const loginUrl = buildLoginUrl(existingAfterConflict.tenantDbName);
+        await markDemoRequestProvisioned(requestId, {
+          requestKind: 'purchase',
+          trialProvisioned: true,
+          trialTenantDbName: existingAfterConflict.tenantDbName,
+          trialLoginId: resent.loginId,
+          trialStartsAt: paidPlan?.planStartDate || null,
+          trialEndsAt: paidPlan?.planEndDate || null,
+          trialLoginUrl: loginUrl,
+        });
+        return {
+          alreadyProvisioned: true,
+          tenantDbName: existingAfterConflict.tenantDbName,
+          loginId: resent.loginId,
+          loginUrl,
+          subscriptionPlan: paidPlan,
+          credentialEmailSent: resent.credentialEmailSent,
+          credentialEmailError: resent.credentialEmailError,
+          devPassword: process.env.NODE_ENV === 'development' ? resent.password : undefined,
+        };
+      }
+      throw registerErr;
+    }
 
     const localUser = await authService.provisionHeadquartersMappedTenant(hqUser);
     await authService.finalizeHeadquartersTenantWorkspace(hqUser, localUser);
