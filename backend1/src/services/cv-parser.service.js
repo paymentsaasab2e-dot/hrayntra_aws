@@ -74,10 +74,14 @@ function extractLinkedIn(text) {
  * Extract name from CV (usually first line or after "Name:" label)
  */
 function extractName(text) {
+  const { extractNameFromResumeText, normalizePersonalInformation } = require('../utils/person-name.util');
+  const fromHeader = extractNameFromResumeText(text);
+  if (fromHeader) return normalizePersonalInformation({ fullName: fromHeader }).fullName;
+
   const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
   
   // Look for "Name:" pattern
-  const namePattern = /(?:name|full name|fullname)[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i;
+  const namePattern = /(?:name|full name|fullname)[\s:]+([A-Za-z][A-Za-z.'\-\s]{2,60})/i;
   const nameMatch = text.match(namePattern);
   if (nameMatch) {
     return nameMatch[1].trim();
@@ -86,8 +90,7 @@ function extractName(text) {
   // If no pattern found, use first substantial line (usually name)
   if (lines.length > 0 && lines[0].length > 3 && lines[0].length < 50) {
     const firstLine = lines[0];
-    // Check if it looks like a name (has capital letters, no special chars)
-    if (/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+$/.test(firstLine)) {
+    if (/^[A-Za-z][A-Za-z.'\-\s]+$/.test(firstLine) && firstLine.split(/\s+/).length >= 2) {
       return firstLine;
     }
   }

@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const { prisma } = require('../lib/prisma');
 const { Proficiency, Gender, MaritalStatus, EmploymentStatus, WorkMode, EmploymentType, SalaryType } = require('@prisma/client');
 const { resolvePhoneNumberForCvSave } = require('../utils/phone.util');
+const { normalizePersonalInformation } = require('../utils/person-name.util');
 
 const INTERNSHIP_ENTRIES_PREFIX = '__INTERNSHIP_ENTRIES__:';
 const PROJECT_ENTRIES_PREFIX = '__PROJECT_ENTRIES__:';
@@ -144,7 +145,11 @@ async function persistExtractedCvProfile(candidateId, parsedData, { candidate } 
     portfolioLinks: 0,
   };
 
-  const pi = parsedData.personalInformation || {};
+  const rawPi = parsedData.personalInformation || {};
+  const pi =
+    rawPi && Object.keys(rawPi).length > 0
+      ? { ...rawPi, ...normalizePersonalInformation(rawPi) }
+      : rawPi;
 
   if (pi && Object.keys(pi).length > 0) {
     const genderEnum = normalizeGender(pi.gender);
@@ -160,7 +165,6 @@ async function persistExtractedCvProfile(candidateId, parsedData, { candidate } 
 
     const fullName =
       pi.fullName ||
-      [pi.firstName, pi.middleName, pi.lastName].filter(Boolean).join(' ').trim() ||
       existingProfile?.fullName ||
       '';
 
@@ -190,10 +194,8 @@ async function persistExtractedCvProfile(candidateId, parsedData, { candidate } 
     }
     stats.profile = true;
 
-    const firstName = pi.firstName || fullName.split(/\s+/)[0] || null;
-    const lastName =
-      pi.lastName ||
-      (fullName.split(/\s+/).length > 1 ? fullName.split(/\s+/).slice(-1)[0] : null);
+    const firstName = pi.firstName || null;
+    const lastName = pi.lastName || null;
 
     try {
       await prisma.candidate.update({

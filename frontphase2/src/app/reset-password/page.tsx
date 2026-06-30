@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { buildApiUrl } from '../../lib/api';
+import { apiGetMe, buildApiUrl } from '../../lib/api';
+import { resolveStoredLoginId } from '../../lib/sessionAuth';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -17,20 +18,32 @@ export default function ResetPasswordPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    // Get loginId from currentUser
-    if (typeof window !== 'undefined') {
+    let cancelled = false;
+
+    async function loadLoginId() {
+      const fromStorage = resolveStoredLoginId();
+      if (fromStorage) {
+        if (!cancelled) setLoginId(fromStorage);
+        return;
+      }
+
       try {
-        const currentUser = localStorage.getItem('currentUser');
-        if (currentUser) {
-          const user = JSON.parse(currentUser);
-          // Try to get loginId from credential or use email
-          // For now, we'll use email as fallback
-          setLoginId(user.email || '');
+        const meRes = await apiGetMe();
+        const resolved =
+          String(meRes.data?.loginId || '').trim() ||
+          String(meRes.data?.email || '').trim();
+        if (!cancelled && resolved) {
+          setLoginId(resolved);
         }
       } catch (error) {
-        console.error('Failed to load user data:', error);
+        console.error('Failed to load login ID:', error);
       }
     }
+
+    loadLoginId();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const validate = (): boolean => {
@@ -58,7 +71,6 @@ export default function ResetPasswordPage() {
 
     setLoading(true);
     try {
-      // Get userId from currentUser
       const currentUser = localStorage.getItem('currentUser');
       if (!currentUser) {
         throw new Error('User not found. Please log in again.');
@@ -67,7 +79,6 @@ export default function ResetPasswordPage() {
       const user = JSON.parse(currentUser);
       const userId = user.id;
 
-      // Call change password API
       const token = localStorage.getItem('accessToken');
       const res = await fetch(buildApiUrl('/auth/change-password'), {
         method: 'POST',
@@ -86,7 +97,6 @@ export default function ResetPasswordPage() {
         throw new Error(json?.message || 'Failed to change password');
       }
 
-      // Update requirePasswordReset flag
       const updatedUser = {
         ...user,
         requirePasswordReset: false,
@@ -115,18 +125,17 @@ export default function ResetPasswordPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Login ID (read-only) */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">Login ID</label>
             <input
               type="text"
               value={loginId}
               readOnly
+              placeholder="Your login ID"
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono text-slate-600 cursor-not-allowed"
             />
           </div>
 
-          {/* New Password */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">
               New Password <span className="text-red-500">*</span>
@@ -161,7 +170,6 @@ export default function ResetPasswordPage() {
             {errors.newPassword && <p className="text-xs text-red-600 mt-1">{errors.newPassword}</p>}
           </div>
 
-          {/* Confirm Password */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">
               Confirm New Password <span className="text-red-500">*</span>

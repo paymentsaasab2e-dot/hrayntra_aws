@@ -3,6 +3,8 @@
  * Maps to Prisma models in backend1/prisma/schema.prisma.
  */
 
+const { normalizePersonalInformation } = require('../utils/person-name.util');
+
 const FULL_CV_EXTRACTION_JSON_TEMPLATE = `{
   "personalInformation": {
     "firstName": "",
@@ -212,7 +214,7 @@ Return ONLY valid JSON matching this exact structure (use null for missing scala
 ${FULL_CV_EXTRACTION_JSON_TEMPLATE}
 
 Extraction rules:
-1. Split the candidate name into firstName, middleName, lastName AND fullName (e.g. RUSHABH / A. / LAMKHADE).
+1. Extract the COMPLETE candidate name from the resume header — never return only an initial (e.g. "V.") without the rest of the name. Split into firstName, middleName, lastName AND fullName (e.g. V. / Bindu / Vijayan → fullName "V. Bindu Vijayan"). For Indian names with a leading initial, keep the initial in firstName and put given + family names in middleName/lastName.
 2. Parse phone as digits only in phoneNumber; put country code in countryCode when visible (default +91 for Indian numbers).
 3. Convert all dates to YYYY-MM-DD when a full date is known; use YYYY-MM-01 when only month+year; use YYYY-01-01 when only year for start/end dates.
 4. Education: map 10th/12th/BE/B.Tech/MBA etc. to degree; infer educationLevel (High School, Diploma, Bachelor's, Master's, etc.).
@@ -267,23 +269,11 @@ function migrateLegacyExtraction(data) {
   }
 
   const pi = out.personalInformation || {};
-  if (!pi.fullName && (pi.firstName || pi.lastName)) {
-    pi.fullName = [pi.firstName, pi.middleName, pi.lastName].filter(Boolean).join(' ').trim();
-  }
-  if (pi.fullName && !pi.firstName) {
-    const parts = String(pi.fullName).trim().split(/\s+/).filter(Boolean);
-    if (parts.length >= 3) {
-      pi.firstName = parts[0];
-      pi.middleName = parts.slice(1, -1).join(' ');
-      pi.lastName = parts[parts.length - 1];
-    } else if (parts.length === 2) {
-      pi.firstName = parts[0];
-      pi.lastName = parts[1];
-    } else if (parts.length === 1) {
-      pi.firstName = parts[0];
-    }
-  }
-  out.personalInformation = pi;
+  const normalizedNames = normalizePersonalInformation(pi);
+  out.personalInformation = {
+    ...pi,
+    ...normalizedNames,
+  };
 
   return out;
 }

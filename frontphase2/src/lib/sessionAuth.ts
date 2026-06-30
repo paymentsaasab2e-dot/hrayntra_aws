@@ -61,6 +61,7 @@ export function clearAuthStorage() {
     'currentUser',
     'userPermissions',
     'requirePasswordReset',
+    'lastLoginId',
     'tenantDbName',
     'orgRecruitmentMode',
     'orgBillingEnabled',
@@ -222,6 +223,36 @@ export async function buildLoginDevicePayload(): Promise<LoginDevicePayload> {
   };
 }
 
+export function resolveStoredLoginId(storedUser?: Record<string, unknown> | null): string {
+  let user = storedUser;
+  if (user === undefined && typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('currentUser');
+      user = raw ? JSON.parse(raw) : null;
+    } catch {
+      user = null;
+    }
+  }
+
+  const loginId = String(user?.loginId || (user?.credential as { loginId?: string } | undefined)?.loginId || '').trim();
+  if (loginId) return loginId;
+
+  if (typeof window !== 'undefined') {
+    const lastLoginId = String(localStorage.getItem('lastLoginId') || '').trim();
+    if (lastLoginId) return lastLoginId;
+  }
+
+  return String(user?.email || '').trim();
+}
+
+export function persistLastLoginId(loginId: string | null | undefined) {
+  if (typeof window === 'undefined') return;
+  const trimmed = String(loginId || '').trim();
+  if (trimmed) {
+    localStorage.setItem('lastLoginId', trimmed);
+  }
+}
+
 export function buildLoginIdentifierFields(identifier: string) {
   const trimmed = identifier.trim();
   if (trimmed.includes('@')) {
@@ -253,11 +284,14 @@ export async function finalizeAuthAfterTokens(data: {
 
   const userData = {
     ...user,
+    loginId: user?.loginId || resolveStoredLoginId(user as Record<string, unknown>),
     roleName: resolvedRoleName,
     roleColor: permRes.data?.roleColor || user?.roleColor || '',
     permissions,
     requirePasswordReset: data.requirePasswordReset || false,
   };
+
+  persistLastLoginId(userData.loginId);
 
   localStorage.setItem('currentUser', JSON.stringify(userData));
   localStorage.setItem('userPermissions', JSON.stringify(permissions));

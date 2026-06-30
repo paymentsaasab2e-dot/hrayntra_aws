@@ -156,7 +156,7 @@ async function sendOTP(req, res) {
     if (!whatsappNumber || !countryCode || !email) {
       return res.status(400).json({
         success: false,
-        message: 'WhatsApp number, country code, and Gmail are required',
+        message: 'WhatsApp number, country code, and email are required',
       });
     }
 
@@ -181,7 +181,7 @@ async function sendOTP(req, res) {
 
     const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
 
-    // Deterministic candidate id from email (same Gmail = same account)
+    // Deterministic candidate id from email (same email = same account)
     const candidateId = generateCandidateIdFromEmail(normalizedEmail);
 
     let candidate = await getOrCreateCandidateForOtp({
@@ -551,7 +551,7 @@ async function resendOTP(req, res) {
     if (!whatsappNumber || !countryCode || !email) {
       return res.status(400).json({
         success: false,
-        message: 'WhatsApp number, country code, and Gmail are required',
+        message: 'WhatsApp number, country code, and email are required',
       });
     }
 

@@ -1994,6 +1994,7 @@ interface AuthUser {
   id: string;
   name: string;
   email: string;
+  loginId?: string;
   role?: string;
   roleName?: string;
   roleColor?: string;
@@ -2081,9 +2082,17 @@ export async function apiLogin(
         ? res.data.user.role.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
         : '');
 
+    const resolvedLoginId =
+      res.data.user?.loginId ||
+      (!email.includes('@') ? email.trim() : '');
+    if (resolvedLoginId) {
+      localStorage.setItem('lastLoginId', resolvedLoginId);
+    }
+
     // Store user data with permissions
     const userData = {
       ...res.data.user,
+      loginId: resolvedLoginId || res.data.user?.loginId || '',
       roleName: resolvedRoleName,
       roleColor: res.data.user?.roleColor || '',
       permissions,
@@ -2251,6 +2260,7 @@ export async function apiLogout() {
     localStorage.removeItem('currentUser');
     localStorage.removeItem('userPermissions');
     localStorage.removeItem('requirePasswordReset');
+    localStorage.removeItem('lastLoginId');
     localStorage.removeItem('tenantDbName');
     localStorage.removeItem('orgRecruitmentMode');
     localStorage.removeItem('orgBillingEnabled');
@@ -2275,6 +2285,7 @@ export interface BackendUser {
   firstName?: string | null;
   lastName?: string | null;
   email: string;
+  loginId?: string | null;
   role: string;
   department?: string | null;
   designation?: string | null;
