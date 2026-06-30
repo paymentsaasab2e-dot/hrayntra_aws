@@ -1,6 +1,7 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { generateOTP, getOTPExpiration, isOTPExpired } = require('../utils/otp.util');
 const { sendOTPEmail } = require('../services/email.service');
+const { postPhase2Internal } = require('../utils/phase2InternalApi.util');
 const { OtpStatus } = require('@prisma/client');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -316,134 +317,78 @@ async function resendDemoRequestOtp(req, res) {
   }
 }
 
+function logPhase2SyncFailure(label, result) {
+  console.warn(`[${label}] Phase2 call failed`, {
+    url: result?.url,
+    status: result?.status,
+    message: result?.data?.message,
+    networkError: result?.networkError || false,
+  });
+}
+
 async function syncEmployerTrialToPhase2(verified) {
-  const base =
-    process.env.PHASE2_INTERNAL_API_URL ||
-    process.env.PHASE2_API_URL ||
-    process.env.PHASE2_BASE_URL ||
-    'http://localhost:5001';
-  const secret =
-    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+  const result = await postPhase2Internal('provision-employer-trial', {
+    requestId: verified.id,
+    fullName: verified.fullName,
+    email: verified.email,
+    countryCode: verified.countryCode,
+    dialCode: verified.dialCode,
+    phoneNumber: verified.phoneNumber,
+    companySize: verified.companySize,
+    organizationName: verified.organizationName,
+    organizationType: verified.organizationType || 'agency',
+    outcome: verified.outcome || '',
+  });
 
-  try {
-    const response = await fetch(`${base}/api/v1/internal/provision-employer-trial`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-phase2-portal-sync-secret': secret,
-      },
-      body: JSON.stringify({
-        requestId: verified.id,
-        fullName: verified.fullName,
-        email: verified.email,
-        countryCode: verified.countryCode,
-        dialCode: verified.dialCode,
-        phoneNumber: verified.phoneNumber,
-        companySize: verified.companySize,
-        organizationName: verified.organizationName,
-        organizationType: verified.organizationType || 'agency',
-        outcome: verified.outcome || '',
-      }),
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      console.warn('[EmployerTrial] Phase2 provision failed:', payload?.message || response.statusText);
-      return null;
-    }
-    return payload?.data || null;
-  } catch (error) {
-    console.warn('[EmployerTrial] Phase2 provision error:', error?.message || error);
+  if (!result.ok) {
+    logPhase2SyncFailure('EmployerTrial', result);
     return null;
   }
+  return result.data?.data || null;
 }
 
 async function syncEmployerPaidToPhase2(verified, paymentReference) {
-  const base =
-    process.env.PHASE2_INTERNAL_API_URL ||
-    process.env.PHASE2_API_URL ||
-    process.env.PHASE2_BASE_URL ||
-    'http://localhost:5001';
-  const secret =
-    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
   const purchaseMeta = parsePurchaseOutcome(verified.outcome);
+  const result = await postPhase2Internal('provision-employer-paid', {
+    requestId: verified.id,
+    fullName: verified.fullName,
+    email: verified.email,
+    countryCode: verified.countryCode,
+    dialCode: verified.dialCode,
+    phoneNumber: verified.phoneNumber,
+    companySize: verified.companySize,
+    organizationName: verified.organizationName,
+    organizationType: verified.organizationType || 'agency',
+    outcome: verified.outcome || '',
+    requestKind: verified.requestKind || 'purchase',
+    paymentReference,
+    packageSlug: purchaseMeta?.packageSlug,
+    billingCycle: purchaseMeta?.billingCycle,
+  });
 
-  try {
-    const response = await fetch(`${base}/api/v1/internal/provision-employer-paid`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-phase2-portal-sync-secret': secret,
-      },
-      body: JSON.stringify({
-        requestId: verified.id,
-        fullName: verified.fullName,
-        email: verified.email,
-        countryCode: verified.countryCode,
-        dialCode: verified.dialCode,
-        phoneNumber: verified.phoneNumber,
-        companySize: verified.companySize,
-        organizationName: verified.organizationName,
-        organizationType: verified.organizationType || 'agency',
-        outcome: verified.outcome || '',
-        requestKind: verified.requestKind || 'purchase',
-        paymentReference,
-        packageSlug: purchaseMeta?.packageSlug,
-        billingCycle: purchaseMeta?.billingCycle,
-      }),
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      console.warn('[EmployerPurchase] Phase2 provision failed:', payload?.message || response.statusText);
-      return null;
-    }
-    return payload?.data || null;
-  } catch (error) {
-    console.warn('[EmployerPurchase] Phase2 provision error:', error?.message || error);
-    return null;
+  if (!result.ok) {
+    logPhase2SyncFailure('EmployerPurchase', result);
+    return { error: result.data?.message || 'Workspace provisioning failed', phase2Status: result.status };
   }
+  return result.data?.data || null;
 }
 
 async function syncEmployerDemoToHq(verified) {
-  const base =
-    process.env.PHASE2_INTERNAL_API_URL ||
-    process.env.PHASE2_API_URL ||
-    process.env.PHASE2_BASE_URL ||
-    'http://localhost:5001';
-  const secret =
-    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+  const result = await postPhase2Internal('sync-employer-demo-verified', {
+    requestId: verified.id,
+    fullName: verified.fullName,
+    email: verified.email,
+    countryCode: verified.countryCode,
+    dialCode: verified.dialCode,
+    phoneNumber: verified.phoneNumber,
+    companySize: verified.companySize,
+    organizationName: verified.organizationName,
+    organizationType: verified.organizationType || 'agency',
+    outcome: verified.outcome || '',
+  });
 
-  try {
-    const response = await fetch(`${base}/api/v1/internal/sync-employer-demo-verified`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-phase2-portal-sync-secret': secret,
-      },
-      body: JSON.stringify({
-        requestId: verified.id,
-        fullName: verified.fullName,
-        email: verified.email,
-        countryCode: verified.countryCode,
-        dialCode: verified.dialCode,
-        phoneNumber: verified.phoneNumber,
-        companySize: verified.companySize,
-        organizationName: verified.organizationName,
-        organizationType: verified.organizationType || 'agency',
-        outcome: verified.outcome || '',
-      }),
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      console.warn(
-        '[EmployerDemo] HQ lead sync failed:',
-        payload?.message || response.statusText,
-      );
-    }
-  } catch (error) {
-    console.warn('[EmployerDemo] HQ lead sync error:', error?.message || error);
+  if (!result.ok) {
+    logPhase2SyncFailure('EmployerDemo', result);
   }
 }
 
@@ -607,7 +552,7 @@ async function completeEmployerPurchase(req, res) {
 
     if (verified.trialProvisioned) {
       const paidProvision = await syncEmployerPaidToPhase2(verified, paymentRef);
-      if (paidProvision) {
+      if (paidProvision && !paidProvision.error) {
         return res.json({
           success: true,
           message: paidProvision.credentialEmailSent
@@ -631,10 +576,13 @@ async function completeEmployerPurchase(req, res) {
     }
 
     const paidProvision = await syncEmployerPaidToPhase2(verified, paymentRef);
-    if (!paidProvision) {
+    if (!paidProvision || paidProvision.error) {
+      const detail = paidProvision?.error ? String(paidProvision.error) : '';
+      console.error('[EmployerPurchase] provisioning failed:', detail);
       return res.status(502).json({
         success: false,
         message: 'Payment recorded, but workspace provisioning failed. Please contact support.',
+        ...(process.env.NODE_ENV === 'development' && detail ? { error: detail } : {}),
       });
     }
 
