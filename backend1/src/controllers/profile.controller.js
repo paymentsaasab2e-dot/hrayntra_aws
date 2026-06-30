@@ -14,6 +14,7 @@ const {
   syncCandidateCommonFromDashboard,
 } = require('../services/candidateCommonSync.service');
 const { filterPortfolioLinks } = require('../utils/portfolioLinkFilter.util');
+const { resolvePersonalInfoNames } = require('../utils/person-name.util');
 
 function isPlaceholderProfileEmail(email) {
   const value = String(email || '').trim().toLowerCase();
@@ -251,15 +252,11 @@ async function getProfileData(req, res) {
 
     const displayEmail = resolveProfileDisplayEmail(candidate);
 
-    const fullNameParts = String(candidate.profile?.fullName || '')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-    const fallbackFirstName = fullNameParts[0] || '';
-    const fallbackMiddleName =
-      fullNameParts.length > 2 ? fullNameParts.slice(1, -1).join(' ') : '';
-    const fallbackLastName =
-      fullNameParts.length > 1 ? fullNameParts[fullNameParts.length - 1] : '';
+    const resolvedNames = resolvePersonalInfoNames({
+      candidate,
+      profile: candidate.profile,
+      resumeJson: candidate.resume?.resumeJson,
+    });
 
     const gapExplanations = extractGapEntries(candidate.gapExplanation);
     const latestGapExplanation = gapExplanations.length > 0
@@ -296,10 +293,9 @@ async function getProfileData(req, res) {
       whatsappNumber: candidate.whatsappNumber || '',
       countryCode: candidate.countryCode || '+91',
       personalInfo: candidate.profile ? {
-        // Prefer Candidate model firstName/lastName (updated by user), fallback to split fullName
-        firstName: candidate.firstName || fallbackFirstName,
-        middleName: candidate.middleName || fallbackMiddleName,
-        lastName: candidate.lastName ?? (fallbackLastName || null),
+        firstName: resolvedNames.firstName || '',
+        middleName: resolvedNames.middleName || '',
+        lastName: resolvedNames.lastName || '',
         email: displayEmail,
         profilePhotoUrl: candidate.profile.profilePhotoUrl || '',
         phone: resolveCandidateLocalPhone(candidate),

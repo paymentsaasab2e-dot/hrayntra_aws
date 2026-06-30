@@ -10,6 +10,7 @@ const {
   emptyExtraction,
   isKnownLanguage,
 } = require('./cv-extraction-schema');
+const { enrichPersonalInformationFromResumeText } = require('../utils/person-name.util');
 
 /** Treat placeholder .env values as unset so fallbacks can run. */
 function isConfiguredApiKey(value) {
@@ -498,6 +499,10 @@ function normalizeData(validatedData) {
         pi[key] = null;
       }
     });
+
+    const enriched = enrichPersonalInformationFromResumeText(pi, normalized._resumeTextForNameFallback);
+    normalized.personalInformation = enriched;
+    delete normalized._resumeTextForNameFallback;
   }
   
   // Normalize education
@@ -640,7 +645,10 @@ async function parseResumeFromBuffer(buffer, mimeType, fileName) {
     const validatedData = validateData(structuredData);
     
     // STEP 6: Normalize Data
-    const normalizedData = normalizeData(validatedData);
+    const normalizedData = normalizeData({
+      ...validatedData,
+      _resumeTextForNameFallback: cleanResumeText,
+    });
     
     const finalData = {
       ...emptyExtraction(),

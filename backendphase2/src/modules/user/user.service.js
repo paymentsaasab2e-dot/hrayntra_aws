@@ -54,7 +54,7 @@ export const userService = {
   },
 
   async getById(id) {
-    return prisma.user.findUnique({
+    const user = await prisma.user.findUnique({
       where: { id },
       select: {
         id: true,
@@ -73,8 +73,21 @@ export const userService = {
         lastLogin: true,
         createdAt: true,
         updatedAt: true,
+        credential: {
+          select: {
+            loginId: true,
+          },
+        },
       },
     });
+
+    if (!user) return null;
+
+    const { credential, ...profile } = user;
+    return {
+      ...profile,
+      loginId: credential?.loginId || null,
+    };
   },
 
   async update(id, data) {
