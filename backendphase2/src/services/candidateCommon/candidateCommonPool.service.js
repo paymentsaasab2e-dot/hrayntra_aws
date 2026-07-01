@@ -132,6 +132,7 @@ export function applyProfileSnapshotFields(mapped, row) {
   const withSnapshot = {
     ...mapped,
     firstName: mapped.firstName || pi.firstName || null,
+    middleName: mapped.middleName || pi.middleName || null,
     lastName: mapped.lastName || pi.lastName || null,
     email: mapped.email || pi.email || null,
     phone: mapped.phone || pi.phone || null,
@@ -229,6 +230,7 @@ export function mapCandidateCommonRowToCandidate(row) {
   const mapped = {
     id,
     firstName: row.firstName ?? null,
+    middleName: row.middleName ?? null,
     lastName: row.lastName ?? null,
     email: row.email ?? null,
     phone: row.phone ?? null,

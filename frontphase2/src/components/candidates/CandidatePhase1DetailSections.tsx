@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import { getPhase1ProfileSnapshot, resolvePhase1PersonalInfo } from '@/lib/phase1ProfileSnapshot';
+import { joinCandidateNameParts } from '@/lib/mapCandidateProfile';
 import type { Phase1ClientSectionId, Phase1ClientSectionVisibility } from '@/lib/phase1ClientPresentationSections';
 import {
   resolvePhase1AcademicAchievements,
@@ -373,7 +374,11 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
   const personInfoRows = useMemo(() => {
     const pi = resolvePhase1PersonalInfo(snap, candidate);
     const fullName =
-      [pi.firstName, pi.middleName, pi.lastName].filter(Boolean).join(' ').trim() ||
+      joinCandidateNameParts(
+        pi.firstName || candidate.firstName,
+        pi.middleName || candidate.middleName,
+        pi.lastName || candidate.lastName,
+      ) ||
       candidate.name ||
       '';
     const phoneParts = [pi.phoneCode, pi.phone].map((v) => display(v)).filter(Boolean);

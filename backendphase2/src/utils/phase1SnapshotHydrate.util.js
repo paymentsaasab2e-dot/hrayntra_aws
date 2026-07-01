@@ -35,9 +35,14 @@ function splitFullName(fullName) {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
-  if (!parts.length) return { firstName: null, lastName: null };
-  if (parts.length === 1) return { firstName: parts[0], lastName: null };
-  return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
+  if (!parts.length) return { firstName: null, middleName: null, lastName: null };
+  if (parts.length === 1) return { firstName: parts[0], middleName: null, lastName: null };
+  if (parts.length === 2) return { firstName: parts[0], middleName: null, lastName: parts[1] };
+  return {
+    firstName: parts[0],
+    middleName: parts.slice(1, -1).join(' '),
+    lastName: parts[parts.length - 1],
+  };
 }
 
 function pickPortalValue(portalValue, existingValue) {
@@ -123,6 +128,7 @@ export function patchPhase1SnapshotPersonalInfo(snapshot, profile, { preferPorta
 
   const fromName = splitFullName(profile.fullName);
   if (fromName.firstName) apply('firstName', fromName.firstName);
+  if (fromName.middleName) apply('middleName', fromName.middleName);
   if (fromName.lastName) apply('lastName', fromName.lastName);
 
   return {
@@ -141,6 +147,7 @@ export function mergeLivePortalProfileIntoSnapshot(snapshot, profile) {
 function applyPortalScalarsToCandidate(candidate, profile) {
   const fromName = splitFullName(profile.fullName);
   if (fromName.firstName) candidate.firstName = fromName.firstName;
+  if (fromName.middleName) candidate.middleName = fromName.middleName;
   if (fromName.lastName) candidate.lastName = fromName.lastName;
 
   const email = String(profile.email || '').trim();

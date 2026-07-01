@@ -44,6 +44,7 @@ export interface CandidateProfileDrawerData {
   id: string;
   name: string;
   firstName?: string | null;
+  middleName?: string | null;
   lastName?: string | null;
   avatar?: string | null;
   currentTitle?: string | null;

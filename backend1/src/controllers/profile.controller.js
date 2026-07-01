@@ -114,6 +114,43 @@ async function syncResumeJsonEmail(candidateId, email) {
   });
 }
 
+async function syncResumeJsonPersonalInfo(candidateId, personalInfo) {
+  const resume = await prisma.resume.findUnique({
+    where: { candidateId },
+    select: { id: true, resumeJson: true },
+  });
+  if (!resume) return;
+
+  const resumeJson =
+    resume.resumeJson && typeof resume.resumeJson === 'object' && !Array.isArray(resume.resumeJson)
+      ? { ...resume.resumeJson }
+      : {};
+  const existing =
+    resumeJson.personalInformation &&
+    typeof resumeJson.personalInformation === 'object' &&
+    !Array.isArray(resumeJson.personalInformation)
+      ? { ...resumeJson.personalInformation }
+      : {};
+
+  const firstName = String(personalInfo.firstName || '').trim();
+  const middleName = String(personalInfo.middleName || '').trim();
+  const lastName = String(personalInfo.lastName || '').trim();
+  const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ').trim();
+
+  resumeJson.personalInformation = {
+    ...existing,
+    firstName: firstName || existing.firstName || null,
+    middleName: middleName || null,
+    lastName: lastName || existing.lastName || null,
+    fullName: fullName || existing.fullName || null,
+  };
+
+  await prisma.resume.update({
+    where: { id: resume.id },
+    data: { resumeJson },
+  });
+}
+
 async function uploadDocumentsToCloudinary(files, { candidateId, folder }) {
   const uploadedFiles = [];
 
@@ -744,6 +781,16 @@ async function updatePersonalInfo(req, res) {
       await syncResumeJsonEmail(saveCandidateId, emailToPersist);
     } catch (e) {
       console.warn('Resume JSON email sync failed:', e.message);
+    }
+
+    try {
+      await syncResumeJsonPersonalInfo(saveCandidateId, {
+        firstName: normalizedInfo.firstName,
+        middleName: normalizedInfo.middleName,
+        lastName: normalizedInfo.lastName,
+      });
+    } catch (e) {
+      console.warn('Resume JSON personal info sync failed:', e.message);
     }
 
     // Prepare log data (only show actual saved values, not duplicates)

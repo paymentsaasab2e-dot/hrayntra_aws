@@ -2890,6 +2890,7 @@ export const apiDeleteJob = async (id: string) => {
 export interface BackendCandidate {
   id: string;
   firstName: string;
+  middleName?: string | null;
   lastName: string;
   email: string;
   phone?: string | null;

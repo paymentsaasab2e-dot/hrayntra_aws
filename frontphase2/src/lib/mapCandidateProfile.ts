@@ -128,13 +128,77 @@ function joinNameParts(...parts: Array<string | null | undefined>): string {
     .trim();
 }
 
+/** Avoid "First Middle Middle Last" when lastName already contains middleName from legacy sync. */
+export function joinCandidateNameParts(
+  firstName?: string | null,
+  middleName?: string | null,
+  lastName?: string | null,
+): string {
+  const first = String(firstName || '').trim();
+  let middle = String(middleName || '').trim();
+  let last = String(lastName || '').trim();
+  const middleLower = middle.toLowerCase();
+
+  if (middle && last) {
+    const lastLower = last.toLowerCase();
+    if (lastLower === middleLower) {
+      last = '';
+    } else if (lastLower.startsWith(`${middleLower} `)) {
+      last = last.slice(middle.length).trim();
+    }
+  }
+
+  if (middle && first) {
+    const firstLower = first.toLowerCase();
+    if (firstLower.endsWith(` ${middleLower}`) || firstLower === middleLower) {
+      middle = '';
+    }
+  }
+
+  return joinNameParts(first, middle, last);
+}
+
+function splitCanonicalDisplayName(displayName: string): {
+  firstName: string;
+  middleName: string;
+  lastName: string;
+} {
+  const tokens = String(displayName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!tokens.length) return { firstName: '', middleName: '', lastName: '' };
+  if (tokens.length === 1) return { firstName: tokens[0], middleName: '', lastName: '' };
+  if (tokens.length === 2) return { firstName: tokens[0], middleName: '', lastName: tokens[1] };
+  return {
+    firstName: tokens[0],
+    middleName: tokens.slice(1, -1).join(' '),
+    lastName: tokens[tokens.length - 1],
+  };
+}
+
+/** Canonical display + split parts for table, drawer header, and Basic Information. */
+export function resolveCandidateNameParts(
+  raw: BackendCandidate,
+  opts?: { alreadyEnriched?: boolean },
+): { firstName: string; middleName: string; lastName: string; displayName: string } {
+  const displayName = resolveCandidateDisplayName(raw, opts);
+  const parts = splitCanonicalDisplayName(displayName);
+  return { ...parts, displayName };
+}
+
+function nameDisplayScore(name: string): number {
+  const tokens = name.split(/\s+/).filter(Boolean);
+  const unique = new Set(tokens.map((token) => token.toLowerCase()));
+  return unique.size * 10 + tokens.length;
+}
+
 function pickRicherDisplayName(...candidates: string[]): string {
   const valid = candidates.map((value) => value.trim()).filter(Boolean);
   if (!valid.length) return '';
   return valid.sort((a, b) => {
-    const aTokens = a.split(/\s+/).filter(Boolean).length;
-    const bTokens = b.split(/\s+/).filter(Boolean).length;
-    if (bTokens !== aTokens) return bTokens - aTokens;
+    const scoreDiff = nameDisplayScore(b) - nameDisplayScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
     return b.length - a.length;
   })[0];
 }
@@ -155,9 +219,9 @@ export function resolveCandidateDisplayName(
     (c as BackendCandidate & { middleName?: string | null }).middleName || pi.middleName || '',
   ).trim();
 
-  const phase1Full = joinNameParts(pi.firstName, pi.middleName, pi.lastName);
-  const enrichedFull = joinNameParts(c.firstName, middleName, c.lastName);
-  const basicFull = joinNameParts(c.firstName, c.lastName);
+  const phase1Full = joinCandidateNameParts(pi.firstName, pi.middleName, pi.lastName);
+  const enrichedFull = joinCandidateNameParts(c.firstName, middleName, c.lastName);
+  const basicFull = joinCandidateNameParts(c.firstName, null, c.lastName);
 
   const namePart =
     c.isPhase1Candidate && phase1Full
@@ -291,6 +355,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
         : null;
 
   const fullName = resolveCandidateDisplayName(c, { alreadyEnriched: true });
+  const nameParts = resolveCandidateNameParts(c, { alreadyEnriched: true });
   const latestMatch = c.matches?.[0];
   const latestInterview = c.interviews?.[0];
   const salary = formatSalary(c.salary);
@@ -506,8 +571,9 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
   return {
     id: c.id,
     name: fullName,
-    firstName: c.firstName || null,
-    lastName: c.lastName || null,
+    firstName: nameParts.firstName || c.firstName || null,
+    middleName: nameParts.middleName || null,
+    lastName: nameParts.lastName || c.lastName || null,
     avatar: c.avatar || phase1Snap?.personalInfo?.profilePhotoUrl || null,
     currentTitle: c.currentTitle || null,
     currentCompany: c.currentCompany || null,
