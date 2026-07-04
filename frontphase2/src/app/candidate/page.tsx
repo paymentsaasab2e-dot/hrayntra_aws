@@ -623,7 +623,7 @@ function CandidatesPageContent() {
           : undefined,
         status: !debouncedColumnFilters.stage && filters.status ? filters.status : undefined,
         mine: activeListTab === 'mine',
-        includeCommonPool: activeListTab !== 'mine',
+        includeCommonPool: true,
         matchingCandidateIds: smartSearchCandidateIds,
       });
 
@@ -934,9 +934,7 @@ function CandidatesPageContent() {
       } else if (filters.status) {
         queryParams.status = filters.status;
       }
-      if (listTab === 'all') {
-        queryParams.includeCommonPool = true;
-      }
+      queryParams.includeCommonPool = true;
       return queryParams;
     },
     [debouncedColumnFilters, filters.search, filters.status, listTab],

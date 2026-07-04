@@ -457,6 +457,13 @@ function candidateHasListIdentity(candidate) {
   );
 }
 
+/** CRM list merges Phase 1 common pool by default; pass includeCommonPool=false to opt out. */
+function parseIncludeCommonPoolQuery(query = {}) {
+  const raw = query?.includeCommonPool;
+  if (raw === 'false' || raw === '0' || raw === false) return false;
+  return true;
+}
+
 function shouldShowOnCrmCandidatesList(candidate, options = {}) {
   if (!candidate) return false;
   const includeCommonPool = options.includeCommonPool === true;
@@ -2934,11 +2941,9 @@ export const candidateService = {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, assignedToId, search, ids } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
-    const includeCommonPool =
-      req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
+    const loadCommonPool = parseIncludeCommonPoolQuery(req.query);
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
-    const loadCommonPool = includeCommonPool;
     const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
     const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
 
@@ -4918,11 +4923,9 @@ export const candidateService = {
   },
 
   async getStats(req = {}) {
-    const includeCommonPool =
-      req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
+    const loadCommonPool = parseIncludeCommonPoolQuery(req.query);
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
-    const loadCommonPool = includeCommonPool;
     const userId = req.user?.id;
     const myJobIds = mine && userId ? await getMyJobIds(userId) : [];
     const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;

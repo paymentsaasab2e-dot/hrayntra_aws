@@ -478,9 +478,9 @@ export function CandidatePhase1SubmitEditSections({
         clientVisible={sectionVisible('personal')}
       >
         <div className="grid gap-3 sm:grid-cols-2">
-          <EditField label="First name" value={str(pi.firstName || candidate.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
-          <EditField label="Middle name" value={str(pi.middleName)} onChange={(v) => patchPersonal({ middleName: v })} />
-          <EditField label="Last name" value={str(pi.lastName || candidate.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
+          <EditField label="First name" value={str(candidate.firstName || pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
+          <EditField label="Middle name" value={str(candidate.middleName || pi.middleName)} onChange={(v) => patchPersonal({ middleName: v })} />
+          <EditField label="Last name" value={str(candidate.lastName || pi.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
           <EditField label="Email" value={str(pi.email || candidate.email)} onChange={(v) => patchPersonal({ email: v })} />
           <EditField label="Phone code" value={str(pi.phoneCode)} onChange={(v) => patchPersonal({ phoneCode: v })} />
           <EditField label="Mobile" value={str(pi.phone || candidate.phone)} onChange={(v) => patchPersonal({ phone: v })} />

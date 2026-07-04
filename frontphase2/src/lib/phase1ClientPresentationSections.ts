@@ -1,4 +1,5 @@
 import type { ClientReviewField, ClientReviewSection } from './clientPresentationSections';
+import { joinCandidateNameParts } from './mapCandidateProfile';
 import {
   certificationRecordToSnapshotRow,
   normalizeCertificationRecord,
@@ -191,7 +192,7 @@ export function buildPhase1ClientReviewSections(
   const pi = snapshot.personalInfo || {};
 
   if (isSectionVisible('personal', visible)) {
-    const fullName = [pi.firstName, pi.middleName, pi.lastName].filter(Boolean).join(' ').trim();
+    const fullName = joinCandidateNameParts(pi.firstName, pi.middleName, pi.lastName);
     const phone = [pi.phoneCode, pi.phone].map((v) => str(v)).filter(Boolean).join(' ');
     appendVisibleSection(
       sections,

@@ -22,6 +22,8 @@ function isIncompleteNameParts({ firstName, middleName, lastName, fullName }) {
   const hasMiddle = Boolean(String(middleName || '').trim());
   const partCount = [firstName, middleName, lastName].filter((p) => String(p || '').trim()).length;
 
+  // fullName can include a middle segment while explicit middleName is still empty
+  if (fullParts.length > partCount) return true;
   if (hasLast && fullParts.length >= 2) return false;
   if (!hasLast && fullParts.length > 1) return true;
   if (fullParts.length <= 1 && isWeakNamePart(firstName)) return true;
@@ -178,6 +180,7 @@ function enrichPersonalInformationFromResumeText(pi, resumeText) {
 function resolvePersonalInfoNames({ candidate, profile, resumeJson }) {
   const fromProfile = normalizePersonalInformation({
     firstName: candidate?.firstName,
+    middleName: resumeJson?.personalInformation?.middleName,
     lastName: candidate?.lastName,
     fullName: profile?.fullName,
   });

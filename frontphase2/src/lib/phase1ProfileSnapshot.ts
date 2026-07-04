@@ -403,6 +403,11 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
   return {
     ...c,
     firstName: editorCvSaved ? (c.firstName ?? null) : c.firstName || mergedPi.firstName || c.firstName,
+    middleName: editorCvSaved
+      ? ((c as BackendCandidate & { middleName?: string | null }).middleName ?? null)
+      : (c as BackendCandidate & { middleName?: string | null }).middleName ||
+        mergedPi.middleName ||
+        null,
     lastName: editorCvSaved ? (c.lastName ?? null) : c.lastName || mergedPi.lastName || c.lastName,
     email: editorCvSaved ? (c.email ?? null) : c.email || mergedPi.email || c.email,
     phone: editorCvSaved ? (c.phone ?? null) : c.phone || mergedPi.phone || c.phone,
