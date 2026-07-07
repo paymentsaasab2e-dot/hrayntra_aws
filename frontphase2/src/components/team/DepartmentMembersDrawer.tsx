@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { getDepartmentById, getDepartments, updateTeamMember } from '../../lib/api/teamApi';
 import type { Department, TeamMember } from '../../types/team';
 import { PortalHost } from './PortalHost';
+import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 
 interface DepartmentMembersDrawerProps {
   isOpen: boolean;
@@ -172,6 +173,14 @@ export const DepartmentMembersDrawer: React.FC<DepartmentMembersDrawerProps> = (
               >
                 <X size={20} />
               </button>
+            </div>
+
+            <div className="px-6 pt-4">
+              <EntityWorkspaceAlertsPanel
+                entityType="DEPARTMENT"
+                entityId={department.id}
+                entityLabel={department.name}
+              />
             </div>
 
             {/* Search */}

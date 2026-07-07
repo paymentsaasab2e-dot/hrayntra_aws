@@ -6146,6 +6146,8 @@ export interface BackendGlobalActivity {
   relatedLabel?: string | null;
   metadata?: unknown;
   createdAt: string;
+  displaySummary?: string | null;
+  displayKind?: 'create' | 'update' | 'delete' | 'info' | string | null;
   performedBy: {
     id: string;
     name?: string;
@@ -7189,6 +7191,13 @@ export type AlertChannelSettings = {
   portal: boolean;
 };
 
+export type AlertExamplePreview = {
+  portalTitle: string;
+  portalBody: string;
+  emailSubject: string;
+  shownIn: string;
+};
+
 export type AlertDefinition = {
   id: string;
   module: string;
@@ -7199,6 +7208,7 @@ export type AlertDefinition = {
   severity: 'info' | 'warning' | 'critical' | string;
   defaultEmail: boolean;
   defaultPortal: boolean;
+  examplePreview?: AlertExamplePreview | null;
 };
 
 export type AlertCatalogGroup = {

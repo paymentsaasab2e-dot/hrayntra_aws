@@ -9,7 +9,11 @@ import {
   ChevronRight,
   History,
   Loader2,
+  Minus,
+  Plus,
+  RefreshCw,
   Search,
+  Trash2,
   User,
   Users,
   Globe,
@@ -25,6 +29,16 @@ import {
   type BackendGlobalActivity,
 } from '../../lib/api';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
+import {
+  activityKindTone,
+  activityModuleTone,
+  buildActivityHeadline,
+  formatActivityKindLabel,
+  formatActivityModule,
+  formatActivitySummary,
+  resolveActivityKind,
+  type PresentedActivity,
+} from '../../lib/activityFeedPresentation';
 import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
@@ -43,9 +57,6 @@ const MODULE_OPTIONS = [
   { value: 'CONTACT', label: 'Contacts' },
   { value: 'USER', label: 'Team' },
 ];
-
-const TABLE_HEAD_ROW =
-  'border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-indigo-50/30 to-violet-50/20 text-[10px] font-bold uppercase tracking-wider text-slate-500';
 
 function memberDisplayName(member: ActivityViewableMember): string {
   const full = `${member.firstName || ''} ${member.lastName || ''}`.trim();
@@ -83,15 +94,79 @@ function toIsoDayEnd(ymd: string) {
   return new Date(`${ymd}T23:59:59.999`).toISOString();
 }
 
-function formatActivityDetails(row: BackendGlobalActivity): string {
-  const raw = row.description || row.relatedLabel || '';
-  if (!raw) return '—';
-  if (typeof raw === 'string') return raw;
-  try {
-    return JSON.stringify(raw);
-  } catch {
-    return '—';
+function activityKindIcon(kind: ReturnType<typeof resolveActivityKind>) {
+  switch (kind) {
+    case 'create':
+      return Plus;
+    case 'delete':
+      return Trash2;
+    case 'update':
+      return RefreshCw;
+    default:
+      return Minus;
   }
+}
+
+function ActivityTimeline({
+  rows,
+  showPerformer = false,
+}: {
+  rows: PresentedActivity[];
+  showPerformer?: boolean;
+}) {
+  return (
+    <ul className="divide-y divide-slate-100">
+      {rows.map((row) => {
+        const moduleLabel = formatActivityModule(row);
+        const kind = resolveActivityKind(row);
+        const KindIcon = activityKindIcon(kind);
+        const performer = performerName(row);
+        const headline = buildActivityHeadline(row, performer, { showPerformer });
+        const summary = formatActivitySummary(row);
+        const kindLabel = formatActivityKindLabel(row);
+
+        return (
+          <li key={row.id} className="flex gap-3 px-4 py-4 sm:px-6 hover:bg-indigo-50/20">
+            <div
+              className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${activityKindTone(kind)}`}
+              title={kindLabel}
+            >
+              <KindIcon className="h-4 w-4" aria-hidden />
+            </div>
+
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <p className="text-sm font-medium leading-6 text-slate-900">{headline}</p>
+
+              {showPerformer && summary !== headline ? (
+                <p className="text-xs leading-5 text-slate-500">{summary}</p>
+              ) : null}
+
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                <span className="whitespace-nowrap">{formatDateTimeDMY(row.createdAt)}</span>
+                <span className="text-slate-300">·</span>
+                <span
+                  className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${activityModuleTone(moduleLabel)}`}
+                >
+                  {moduleLabel}
+                </span>
+                <span
+                  className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${activityKindTone(kind)}`}
+                >
+                  {kindLabel}
+                </span>
+                {row.relatedLabel ? (
+                  <>
+                    <span className="text-slate-300">·</span>
+                    <span className="truncate font-medium text-slate-600">{row.relatedLabel}</span>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 function ActivityFilters({
@@ -134,7 +209,7 @@ function ActivityFilters({
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search action or description…"
+          placeholder="Search people, jobs, candidates, actions…"
           className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white pl-10 pr-3 text-xs text-slate-800"
         />
       </div>
@@ -215,52 +290,6 @@ function ActivityFilters({
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-function ActivityTable({
-  rows,
-  showPerformer = false,
-}: {
-  rows: BackendGlobalActivity[];
-  showPerformer?: boolean;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-sm text-left">
-        <thead>
-          <tr className={TABLE_HEAD_ROW}>
-            <th className="px-4 py-3">When</th>
-            {showPerformer ? <th className="px-4 py-3">Member</th> : null}
-            <th className="px-4 py-3">Action</th>
-            <th className="px-4 py-3">Module</th>
-            <th className="px-4 py-3">Details</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {rows.map((row) => (
-            <tr key={row.id} className="hover:bg-indigo-50/30">
-              <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
-                {formatDateTimeDMY(row.createdAt)}
-              </td>
-              {showPerformer ? (
-                <td className="px-4 py-3 text-xs text-slate-700">{performerName(row)}</td>
-              ) : null}
-              <td className="px-4 py-3 text-xs font-semibold text-slate-800">{row.action}</td>
-              <td className="px-4 py-3 text-xs text-slate-600">
-                {row.category || row.entityType || '—'}
-              </td>
-              <td
-                className="max-w-md px-4 py-3 text-xs text-slate-600 truncate"
-                title={formatActivityDetails(row)}
-              >
-                {formatActivityDetails(row)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -564,7 +593,7 @@ export default function ActivityFeedPage() {
     setRows([]);
   };
 
-  const showPerformerColumn = feedMode === 'department' || feedMode === 'tenant' || feedMode === 'member';
+  const showPerformerInTimeline = feedMode === 'department' || feedMode === 'tenant';
 
   const tabBar = showTabs ? (
     <div className="flex flex-wrap gap-2">
@@ -662,13 +691,13 @@ export default function ActivityFeedPage() {
 
   const detailSubtitle =
     feedMode === 'tenant'
-      ? 'Every team member action across modules — full remarks and flow'
+      ? 'See who did what across hiring, team, leads, and requests'
       : feedMode === 'member' && selectedMember
-      ? selectedMember.email
+      ? `${selectedMember.email} — actions in plain language`
       : feedMode === 'department' && selectedDepartment
-        ? `${selectedDepartment.memberCount} active member${selectedDepartment.memberCount === 1 ? '' : 's'}`
+        ? `${selectedDepartment.memberCount} active member${selectedDepartment.memberCount === 1 ? '' : 's'} in this department`
         : capabilities?.level === 'self'
-          ? 'Your actions across modules'
+          ? 'Your recent actions in plain language'
           : 'Your personal activity timeline';
 
   if (feedMode) {
@@ -731,7 +760,7 @@ export default function ActivityFeedPage() {
           ) : rows.length === 0 ? (
             <div className="py-16 text-center text-sm text-slate-500">No activity found with these filters.</div>
           ) : (
-            <ActivityTable rows={rows} showPerformer={showPerformerColumn} />
+            <ActivityTimeline rows={rows} showPerformer={showPerformerInTimeline} />
           )}
 
           {!activityLoading && rows.length > 0 ? (

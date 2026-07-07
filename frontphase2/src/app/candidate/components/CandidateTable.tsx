@@ -23,6 +23,8 @@ import { WhatsAppIcon } from '../../../components/icons/WhatsAppIcon';
 import { displayMatchBand, scoreBadgeClass } from '../../../components/matches/types';
 import type { AuditMeta } from '../../../types/audit';
 import { TableAuditColumnHeader, TableAuditCell } from '../../../components/table/TableAuditCell';
+import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../../components/ai/WorkspaceAlertTableCell';
 
 export type { CandidateTableColumnFilters } from './CandidateTableFilters';
 export { EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS } from './CandidateTableFilters';
@@ -93,6 +95,7 @@ interface CandidateTableProps {
   canSubmitToClient?: (candidate: Candidate) => boolean;
   /** Row id currently opening submit modal */
   submittingToClientCandidateId?: string | null;
+  workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
 }
 
 export const CandidateTable: React.FC<CandidateTableProps> = ({
@@ -112,8 +115,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   onSubmitToClient,
   canSubmitToClient,
   submittingToClientCandidateId,
+  workspaceAlertsByEntityId,
 }) => {
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
+  const showAiAlertColumn = Boolean(
+    workspaceAlertsByEntityId &&
+      Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
+  );
 
   return (
     <div className="overflow-hidden">
@@ -139,6 +147,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
               <th className="px-3 py-2 sm:px-4">Assigned job</th>
               <th className="px-3 py-2 sm:px-4">Stage</th>
               <th className="px-3 py-2 sm:px-4">Owner</th>
+              {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
               <TableAuditColumnHeader />
               <th className="px-3 py-2 text-right sm:px-4">Actions</th>
             </tr>
@@ -278,6 +287,11 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     <span className="text-sm text-slate-600 truncate max-w-[80px]">{candidate.owner}</span>
                   </div>
                 </td>
+                {showAiAlertColumn ? (
+                  <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                    <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[candidate.id]} />
+                  </td>
+                ) : null}
                 <TableAuditCell audit={candidate.auditMeta} />
                 <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">
                   {/* Colored action icons — matches the design used on the

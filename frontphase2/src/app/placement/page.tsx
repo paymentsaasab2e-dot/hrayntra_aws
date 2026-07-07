@@ -18,6 +18,7 @@ import { usePlacements } from '../../hooks/usePlacements';
 import { apiRejectCandidate } from '../../lib/api';
 import type { Placement, PlacementFilters } from '../../types/placement';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { requestConfirm } from '../../lib/appDialog';
 import PaginationAll from '../../components/PaginationAll';
 import { coerceTablePageSize, TABLE_PAGE_SIZE_OPTIONS } from '../../constants/tablePagination';
@@ -137,6 +138,10 @@ function PlacementsPageContent() {
     exportPlacements,
     refresh,
   } = usePlacements(apiFilters);
+  const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
+    'PLACEMENT',
+    placements.map((placement) => placement.id),
+  );
 
   const handleRevertPlacement = async (
     placement: Placement,
@@ -552,6 +557,7 @@ function PlacementsPageContent() {
                               : undefined
                           }
                           onPageChange={(page) => updateFilters({ page })}
+                          workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                         />
                       </div>
                     </div>

@@ -11,6 +11,7 @@ import { useDashboardTabLayout } from '@/lib/dashboard/useDashboardTabLayout';
 import { DashboardModuleTabs } from './DashboardModuleTabs';
 import { ModuleCommandCenter } from './ModuleCommandCenter';
 import { DashboardWelcomeFallback } from './DashboardWelcomeFallback';
+import { AiWorkspaceBriefPanel } from '@/components/ai/AiWorkspaceBriefPanel';
 
 function DashboardModuleTabsSkeleton() {
   return (
@@ -143,6 +144,8 @@ function DashboardV2PageInner() {
         </>
       ) : visibleTabs.length > 0 ? (
         <>
+          <AiWorkspaceBriefPanel />
+
           <DashboardModuleTabs
             tabs={visibleTabs.map((t) => ({ key: t.key, label: t.label }))}
             active={activeModule}
@@ -172,10 +175,13 @@ function DashboardV2PageInner() {
           </p>
         </>
       ) : (
-        <DashboardWelcomeFallback
-          title="Your dashboard"
-          description="No command-center modules are available for your role. Use the links below to open what you can access."
-        />
+        <>
+          <AiWorkspaceBriefPanel />
+          <DashboardWelcomeFallback
+            title="Your dashboard"
+            description="No command-center modules are available for your role. Use the links below to open what you can access."
+          />
+        </>
       )}
     </div>
   );

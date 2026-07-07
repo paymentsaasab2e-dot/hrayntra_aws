@@ -78,6 +78,7 @@ import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../c
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { CsvColumn } from '../../utils/csv';
 import { mergeCatalogOptions } from '../../components/forms/CatalogOptionDropdown';
+import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import {
   backendStatusToStage,
   clientStatusLabelToBackend,
@@ -513,6 +514,10 @@ export default function App() {
     const start = (currentPage - 1) * pageSize;
     return sortedClients.slice(start, start + pageSize);
   }, [sortedClients, currentPage, pageSize]);
+  const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
+    'CLIENT',
+    pagedClients.map((client) => client.id),
+  );
   const tabCounts = useMemo(
     () => ({
       all: advancedFilteredClients.length,
@@ -1320,6 +1325,7 @@ export default function App() {
                     onToggleClientNameSortOrder={() => {
                       setClientNameSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
                     }}
+                    workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                   />
                 </div>
               </div>

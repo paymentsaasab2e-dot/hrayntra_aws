@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import { presentActivityForFeed } from '../../utils/activityPresentation.js';
 import { emitTenantActionFromActivity } from '../../utils/tenantAuditLog.js';
 import { applyActivityVisibilityWhere,
   assertCanViewMemberActivity,
@@ -115,7 +116,7 @@ export const activityService = {
       prisma.activity.count({ where }),
     ]);
 
-    return formatPaginationResponse(activities, page, limit, total);
+    return formatPaginationResponse(activities.map(presentActivityForFeed), page, limit, total);
   },
 
   async getById(id, req) {
@@ -141,7 +142,7 @@ export const activityService = {
       await assertCanViewMemberActivity(req.user.id, activity.performedById);
     }
 
-    return activity;
+    return presentActivityForFeed(activity);
   },
 
   async create(data) {
@@ -174,7 +175,7 @@ export const activityService = {
       },
     });
     emitTenantActionFromActivity(activity);
-    return activity;
+    return presentActivityForFeed(activity);
   },
 
   async delete(id) {

@@ -84,6 +84,7 @@ import {
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
+import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
 import { CandidatePhase1SubmitEditSections } from '../candidates/CandidatePhase1SubmitEditSections';
 import { applyHiringFieldsFromEditForm, CandidateHiringEditSection } from '../candidates/CandidateHiringSection';
@@ -4458,11 +4459,18 @@ export function CandidateProfileDrawer({
                     ) : (
                       <>
                         {candidate?.id ? (
-                          <AiRecommendationPanel
-                            entityType="CANDIDATE"
-                            entityId={candidate.id}
-                            entityLabel={candidate.name || candidate.email || 'Candidate'}
-                          />
+                          <>
+                            <EntityWorkspaceAlertsPanel
+                              entityType="CANDIDATE"
+                              entityId={candidate.id}
+                              entityLabel={candidate.name || candidate.email || 'Candidate'}
+                            />
+                            <AiRecommendationPanel
+                              entityType="CANDIDATE"
+                              entityId={candidate.id}
+                              entityLabel={candidate.name || candidate.email || 'Candidate'}
+                            />
+                          </>
                         ) : null}
                         {isPhase1PortalCandidate(candidate) ? (
                           <CandidatePhase1DetailSections key={overviewContentKey} candidate={candidate} />

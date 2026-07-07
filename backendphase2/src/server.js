@@ -10,6 +10,13 @@ import { startAlertScheduler } from './modules/setting/alert-scheduler.service.j
 
 const PORT = env.PORT || 5001;
 
+// Safety net: a transient DB/network outage in a background job (session
+// cleanup, alert scheduler, etc.) should log — not crash the whole server.
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  console.warn('[unhandledRejection] background task error (server kept alive):', message);
+});
+
 const SOCKET_CORS_ORIGINS = (
   process.env.FRONTEND_URLS ||
   `${env.FRONTEND_URL},http://localhost:3000,http://localhost:3001,https://frontendphase2.vercel.app,https://phase2.saasab2e.com`
@@ -55,8 +62,14 @@ function startServer() {
   console.log('[session] Socket.IO attached for single active session');
 
   setInterval(() => {
-    void sessionService.runInactivityCleanup();
-    void sessionService.expireStaleTransfers();
+    // Background maintenance must never crash the server on a transient DB
+    // outage — swallow and log rejections instead of leaving them unhandled.
+    Promise.resolve()
+      .then(() => sessionService.runInactivityCleanup())
+      .catch((err) => console.warn('[session] inactivity cleanup skipped:', err?.message || err));
+    Promise.resolve()
+      .then(() => sessionService.expireStaleTransfers())
+      .catch((err) => console.warn('[session] stale transfer cleanup skipped:', err?.message || err));
   }, 60 * 1000);
 
   startAlertScheduler();

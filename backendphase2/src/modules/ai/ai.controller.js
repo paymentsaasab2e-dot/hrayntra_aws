@@ -23,6 +23,13 @@ import {
   generateAiEntryRecommendation,
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
+import {
+  generateWorkspaceBrief,
+  getLatestWorkspaceBrief,
+  getWorkspaceBriefAlertsForEntity,
+  getWorkspaceBriefAlertsByEntityIds,
+  isAiWorkspaceBriefConfigured,
+} from '../../services/aiWorkspaceBrief.service.js';
 
 const jobDescriptionJsonSchema = {
   name: 'job_description_payload',
@@ -1051,6 +1058,88 @@ export const aiController = {
     } catch (error) {
       console.error('[regenerateEntryRecommendation]', error);
       return sendError(res, 500, error.message || 'Failed to generate AI recommendation', error);
+    }
+  },
+
+  async getWorkspaceBrief(req, res) {
+    try {
+      const brief = await getLatestWorkspaceBrief(req.user?.id);
+      return sendResponse(res, 200, 'OK', {
+        brief,
+        configured: isAiWorkspaceBriefConfigured(),
+      });
+    } catch (error) {
+      console.error('[getWorkspaceBrief]', error);
+      return sendError(res, 500, error.message || 'Failed to load AI workspace brief', error);
+    }
+  },
+
+  async generateWorkspaceBrief(req, res) {
+    try {
+      if (!isAiWorkspaceBriefConfigured()) {
+        return sendError(res, 422, 'OpenAI or Mistral API key is not configured');
+      }
+      const sendEmail = req.body?.sendEmail !== false;
+      const brief = await generateWorkspaceBrief({
+        userId: req.user?.id,
+        trigger: 'manual',
+        skipDedup: Boolean(req.body?.force),
+        sendEmail,
+        sendNotification: true,
+        reqUser: req.user,
+      });
+      if (!brief) {
+        return sendError(res, 422, 'Could not generate AI workspace brief');
+      }
+      return sendResponse(res, 200, 'AI workspace brief generated', { brief });
+    } catch (error) {
+      console.error('[generateWorkspaceBrief]', error);
+      return sendError(res, 500, error.message || 'Failed to generate AI workspace brief', error);
+    }
+  },
+
+  async getWorkspaceBriefEntityAlerts(req, res) {
+    try {
+      const entityType = String(req.query?.entityType || '').trim();
+      const entityId = String(req.query?.entityId || '').trim();
+      if (!entityType || !entityId) {
+        return sendError(res, 400, 'entityType and entityId are required');
+      }
+      const alerts = await getWorkspaceBriefAlertsForEntity(req.user?.id, entityType, entityId);
+      return sendResponse(res, 200, 'OK', {
+        alerts,
+        configured: isAiWorkspaceBriefConfigured(),
+      });
+    } catch (error) {
+      console.error('[getWorkspaceBriefEntityAlerts]', error);
+      return sendError(res, 500, error.message || 'Failed to load entity workspace alerts', error);
+    }
+  },
+
+  async getWorkspaceBriefEntityAlertsBatch(req, res) {
+    try {
+      const entityType = String(req.query?.entityType || '').trim();
+      const rawIds = String(req.query?.entityIds || '').trim();
+      if (!entityType || !rawIds) {
+        return sendError(res, 400, 'entityType and entityIds are required');
+      }
+      const entityIds = rawIds
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .slice(0, 100);
+      const alertsByEntityId = await getWorkspaceBriefAlertsByEntityIds(
+        req.user?.id,
+        entityType,
+        entityIds,
+      );
+      return sendResponse(res, 200, 'OK', {
+        alertsByEntityId,
+        configured: isAiWorkspaceBriefConfigured(),
+      });
+    } catch (error) {
+      console.error('[getWorkspaceBriefEntityAlertsBatch]', error);
+      return sendError(res, 500, error.message || 'Failed to load entity workspace alerts', error);
     }
   },
 };

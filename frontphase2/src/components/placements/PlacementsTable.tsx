@@ -27,6 +27,8 @@ import { buildFileHref } from '../../utils/cloudinaryUrls';
 import PaginationAll from '../PaginationAll';
 import { TableSkeleton } from '../ui/Skeleton';
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
+import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../ai/WorkspaceAlertTableCell';
 
 interface PlacementsTableProps {
   data: Placement[];
@@ -54,6 +56,7 @@ interface PlacementsTableProps {
   onPageChange: (page: number) => void;
   /** Parent provides frosted card + footer pagination (Leads-style). */
   embedded?: boolean;
+  workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
 }
 
 function SortableHeader({
@@ -301,8 +304,13 @@ export function PlacementsTable({
   onStatusChange,
   onPageChange,
   embedded = false,
+  workspaceAlertsByEntityId,
 }: PlacementsTableProps) {
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const showAiAlertColumn = Boolean(
+    workspaceAlertsByEntityId &&
+      Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
+  );
 
   const handleStatusChange = async (placement: Placement, status: PlacementStatus) => {
     if (!onStatusChange || placement.status === status) return;
@@ -385,6 +393,7 @@ export function PlacementsTable({
               </th>
               <th className={thPad}>Type</th>
               <th className={thPad}>Status</th>
+              {showAiAlertColumn ? <WorkspaceAlertTableHeader className={thPad} /> : null}
               <TableAuditColumnHeader className={thPad} />
               <th className={`${thPad} text-right`}>Actions</th>
             </tr>
@@ -467,6 +476,12 @@ export function PlacementsTable({
                       </span>
                     )}
                   </td>
+
+                  {showAiAlertColumn ? (
+                    <td className={tdPad}>
+                      <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[placement.id]} />
+                    </td>
+                  ) : null}
 
                   <TableAuditCell audit={placement.auditMeta} className={tdPad} />
 

@@ -2,6 +2,7 @@ import { prisma } from '../../config/prisma.js';
 import { sendLeadFollowUpEmail } from '../../emails/email.service.js';
 import { sendClientFollowUpReminderEmail } from '../../services/emailService.js';
 import { dispatchScheduledAlert } from './alert-dispatch.service.js';
+import { processScheduledWorkspaceBriefs } from '../../services/aiWorkspaceBrief.service.js';
 import {
   notifyInterviewTodayReminder,
   notifyJobNearSla,
@@ -682,6 +683,7 @@ export async function runAlertScheduler() {
       processPlacementReminders(),
       processJobSlaAndApplicants(),
       processInterviewTodayReminders(),
+      processScheduledWorkspaceBriefs(),
     ]);
     console.log(`[alert-scheduler] completed in ${Date.now() - started}ms`);
   } catch (error) {

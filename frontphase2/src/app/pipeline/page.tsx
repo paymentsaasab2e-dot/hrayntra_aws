@@ -33,6 +33,8 @@ import { ImageWithFallback, initialsFromDisplayName } from "../../components/Ima
 import { formatDateDMY } from "../../utils/dateDisplay";
 import AddCandidateDrawer from "../../components/candidates/AddCandidateDrawer";
 import { usePageAutoRefresh } from "../../hooks/usePageAutoRefresh";
+import { useWorkspaceEntityAlerts } from "../../hooks/useWorkspaceEntityAlerts";
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from "../../components/ai/WorkspaceAlertTableCell";
 import {
   apiGetCandidates,
   apiGetClients,
@@ -812,6 +814,9 @@ export default function App() {
     selectedOwnerId,
   ]);
 
+  const { alertsByEntityId: workspaceAlertsByEntityId, showAlertColumn: showPipelineAiAlertColumn } =
+    useWorkspaceEntityAlerts('CANDIDATE', filteredCandidates.map((candidate) => candidate.id));
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="w-full min-h-screen bg-white font-sans text-slate-900">
@@ -993,6 +998,9 @@ export default function App() {
                         <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Stage</th>
                         <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Client & Job</th>
                         <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                        {showPipelineAiAlertColumn ? (
+                          <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">AI Alert</th>
+                        ) : null}
                         <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Last Activity</th>
                       </tr>
                     </thead>
@@ -1036,6 +1044,11 @@ export default function App() {
                               {candidate.status.toUpperCase()}
                             </span>
                           </td>
+                          {showPipelineAiAlertColumn ? (
+                            <td className="py-4 px-4">
+                              <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[candidate.id]} />
+                            </td>
+                          ) : null}
                           <td className="py-4 px-4 text-right">
                             <p className="text-xs font-medium text-slate-600">{candidate.lastActivity}</p>
                             <p className="text-[10px] text-slate-400 mt-0.5">Updated</p>

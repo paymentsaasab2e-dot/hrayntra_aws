@@ -1998,7 +1998,21 @@ export const jobService = {
     if (!job) {
       throw new Error('Deleted job not found');
     }
-    await prisma.job.delete({ where: { id } });
+
+    await prisma.$transaction(async (tx) => {
+      // Application → Job has no onDelete:Cascade in the schema, so applications
+      // must be removed before the job row can be hard-deleted.
+      await tx.application.deleteMany({ where: { jobId: id } });
+
+      // Rows keyed by jobId without a Prisma FK cascade to Job.
+      await tx.assessmentSession.deleteMany({ where: { jobId: id } });
+      await tx.pipelineEntry.deleteMany({ where: { jobId: id } });
+
+      // Remaining relations (matches, interviews, placements, pipeline stages, etc.)
+      // use onDelete:Cascade on the Job side.
+      await tx.job.delete({ where: { id } });
+    });
+
     return { message: 'Job permanently deleted' };
   },
 
@@ -2011,13 +2025,17 @@ export const jobService = {
 
     const mineFilter = req?.query?.mine === 'true' || req?.query?.mine === '1';
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    const scope = superAdminScope || (
+    const ownerScope = superAdminScope || (
       mineFilter && req?.user?.id
         ? { createdById: req.user.id }
         : !canViewAllJobs(req) && req?.user?.id
           ? { OR: buildAssigneeVisibilityOr(req.user.id) }
           : {}
     );
+
+    // Recycle Bin: exclude soft-deleted jobs from every metric so counts match
+    // the Jobs list. `not: true` matches false, null, and legacy missing-field rows.
+    const scope = { AND: [ownerScope, { isDeleted: { not: true } }] };
 
     // Active Jobs (status = OPEN)
     const activeJobs = await prisma.job.count({

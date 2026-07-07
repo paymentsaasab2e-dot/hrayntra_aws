@@ -27,6 +27,8 @@ import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fe
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
+import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../components/ai/WorkspaceAlertTableCell';
 import type { AuditMeta } from '../../types/audit';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
@@ -126,6 +128,7 @@ import type {
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import {
@@ -413,6 +416,7 @@ interface JobsListViewProps {
   onRemarkChange: (remark: string) => void;
   onSaveStatusEdit: () => void;
   onCancelStatusEdit: () => void;
+  workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
 }
 
 // No fallback mock data - use empty array if API fails
@@ -512,7 +516,13 @@ const PipelineSnapshot = ({ applied, interviewed, offered, joined, stages }: Pip
   );
 };
 
-const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit }: JobsListViewProps) => (
+const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit, workspaceAlertsByEntityId }: JobsListViewProps) => {
+  const showAiAlertColumn = Boolean(
+    workspaceAlertsByEntityId &&
+      Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
+  );
+
+  return (
   <div className="overflow-hidden">
     <div className="no-scrollbar overflow-x-auto">
       <table className="w-full min-w-[760px] text-left border-collapse">
@@ -526,6 +536,7 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
             <th className="px-3 py-2 sm:px-4">Status</th>
             <th className="px-3 py-2 sm:px-4">Pipeline</th>
             <th className="px-3 py-2 sm:px-4">Details</th>
+            {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
             <TableAuditColumnHeader />
             <th className="px-3 py-2 sm:px-4 text-right">Actions</th>
         </tr>
@@ -533,7 +544,7 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
         <tbody className="divide-y divide-slate-100/80">
           {jobs.length === 0 ? (
             <tr>
-              <td colSpan={8} className="px-4 py-12 text-center">
+              <td colSpan={showAiAlertColumn ? 9 : 8} className="px-4 py-12 text-center">
                 <p className="text-xs font-medium text-slate-500">No jobs match your filters</p>
                 <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
               </td>
@@ -629,6 +640,11 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
                     <span className="text-[10px] text-slate-500">{job.createdDate}</span>
               </div>
             </td>
+                {showAiAlertColumn ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[job.id]} />
+                  </td>
+                ) : null}
                 <TableAuditCell audit={job.auditMeta} />
                 <td className="px-3 py-2 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
@@ -675,7 +691,8 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
     </table>
     </div>
   </div>
-);
+  );
+};
 
 function mapBackendStatus(status: string): JobStatus {
   switch (status) {
@@ -1435,6 +1452,10 @@ export default function JobsPage() {
   // `jobportal:jobs-changed`. Same pattern is now reused on candidates / leads /
   // clients / interviews / dashboard so they stay in sync without manual reload.
   usePageAutoRefresh(loadJobsPageData);
+  const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
+    'JOB',
+    jobs.map((job) => job.id),
+  );
 
   const [loadingJobDetails, setLoadingJobDetails] = useState(false);
   const [jobDetails, setJobDetails] = useState<JobForDrawer | null>(null);
@@ -2256,6 +2277,7 @@ export default function JobsPage() {
                     onRemarkChange={handleRemarkChange}
                     onSaveStatusEdit={handleSaveStatusEdit}
                     onCancelStatusEdit={handleCancelStatusEdit}
+                    workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                   />
                       <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                     <PaginationAll

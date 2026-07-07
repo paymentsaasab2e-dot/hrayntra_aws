@@ -15,6 +15,8 @@ import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback
 import AIAnalysisPanel from './AIAnalysisPanel';
 import type { ActiveView, MatchCandidate, MatchStatus } from './types';
 import { displayMatchBand, scoreBadgeClass } from './types';
+import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../ai/WorkspaceAlertTableCell';
 
 const statusColors: Record<MatchStatus, string> = {
   New: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -43,6 +45,7 @@ interface MatchCandidateTableProps {
   onOpenSubmit: (candidateId: string) => void;
   onOpenReject: (candidateId: string) => void;
   onRateMatch: (candidateId: string, rating: number) => void;
+  workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
 }
 
 export default function MatchCandidateTable({
@@ -62,9 +65,14 @@ export default function MatchCandidateTable({
   onOpenSubmit,
   onOpenReject,
   onRateMatch,
+  workspaceAlertsByEntityId,
 }: MatchCandidateTableProps) {
   const allSelected = candidates.length > 0 && selectedCandidates.length === candidates.length;
-  const colCount = showMatchScore ? 8 : 7;
+  const showAiAlertColumn = Boolean(
+    workspaceAlertsByEntityId &&
+      Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
+  );
+  const colCount = showMatchScore ? (showAiAlertColumn ? 9 : 8) : showAiAlertColumn ? 8 : 7;
 
   return (
     <div className="overflow-hidden rounded-lg border border-indigo-100/60 bg-white/80">
@@ -86,6 +94,7 @@ export default function MatchCandidateTable({
               <th className="px-3 py-2 text-center sm:px-4">Exp</th>
               <th className="px-3 py-2 sm:px-4">Location</th>
               <th className="px-3 py-2 sm:px-4">Status</th>
+              {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
               <th className="px-3 py-2 text-right sm:px-4">Actions</th>
             </tr>
           </thead>
@@ -205,6 +214,11 @@ export default function MatchCandidateTable({
                         {candidate.status}
                       </span>
                     </td>
+                    {showAiAlertColumn ? (
+                      <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                        <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[candidate.id]} />
+                      </td>
+                    ) : null}
                     <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">
                       <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
                         <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">

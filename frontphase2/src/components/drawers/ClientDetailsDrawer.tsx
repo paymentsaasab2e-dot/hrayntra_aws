@@ -188,6 +188,7 @@ import { requestConfirm, requestError, requestSuccess, requestWarning } from '..
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { ClientAiChatDrawer } from '../clients/ClientAiChatDrawer';
 import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
+import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import {
   clientAiHasAgreementData,
   clientAiHasKycData,
@@ -4578,11 +4579,18 @@ export function ClientDetailsDrawer({
                       {!overviewEditMode ? (
                         <>
                           {client?.id ? (
-                            <AiRecommendationPanel
-                              entityType="CLIENT"
-                              entityId={client.id}
-                              entityLabel={fullClientData?.name || client?.name || 'Client'}
-                            />
+                            <>
+                              <EntityWorkspaceAlertsPanel
+                                entityType="CLIENT"
+                                entityId={client.id}
+                                entityLabel={fullClientData?.name || client?.name || 'Client'}
+                              />
+                              <AiRecommendationPanel
+                                entityType="CLIENT"
+                                entityId={client.id}
+                                entityLabel={fullClientData?.name || client?.name || 'Client'}
+                              />
+                            </>
                           ) : null}
                           <DrawerSectionCard
                             title="Client Information"

@@ -69,6 +69,8 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../components/ai/WorkspaceAlertTableCell';
 import { useLeadConversionStatuses } from '../../hooks/useLeadConversionStatuses';
 import { canInitiateSentRequest } from '../../lib/sentRequestStatus';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -909,6 +911,8 @@ export default function RecruitmentAgencyDashboard() {
 
   // Rows come from GET /leads — filters (status, source, recruiter, priority, search) run in the database.
   const filteredLeads = leads;
+  const { alertsByEntityId: workspaceAlertsByEntityId, showAlertColumn: showLeadAiAlertColumn } =
+    useWorkspaceEntityAlerts('LEAD', filteredLeads.map((lead) => lead.id));
 
   const hasActiveTableFilters =
     statusFilter !== 'All' ||
@@ -2163,6 +2167,7 @@ export default function RecruitmentAgencyDashboard() {
                         <th className="px-3 sm:px-4 py-2">Status</th>
                         <th className="px-3 sm:px-4 py-2">Assigned To</th>
                         <th className="px-3 sm:px-4 py-2">Last Follow-up</th>
+                        {showLeadAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
                         <TableAuditColumnHeader />
                         <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
                       </tr>
@@ -2333,6 +2338,11 @@ export default function RecruitmentAgencyDashboard() {
                                 nextFollowUp={lead.nextFollowUp}
                               />
                             </td>
+                            {showLeadAiAlertColumn ? (
+                              <td className="px-3 sm:px-4 py-2">
+                                <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[lead.id]} />
+                              </td>
+                            ) : null}
                             <TableAuditCell audit={lead.auditMeta} hideUnchangedUpdated />
                             <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">

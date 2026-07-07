@@ -3,6 +3,8 @@ import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown, ArrowRigh
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../constants/tableUi';
 import { TableBrandAvatar } from './ui/TableBrandAvatar';
 import type { Client } from '@/app/client/types';
+import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from './ai/WorkspaceAlertTableCell';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
 import { requestError, requestWarning } from '../lib/appDialog';
 import { TableAuditColumnHeader, TableAuditCell } from './table/TableAuditCell';
@@ -41,6 +43,10 @@ interface ClientTableProps {
   onToggleClientNameSortOrder: () => void;
   showStatusColumn?: boolean;
   showRecruiterColumn?: boolean;
+  /** Latest AI workspace brief alerts keyed by entity id (from Analyze). */
+  workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
+  /** @deprecated Use workspaceAlertsByEntityId */
+  workspaceAlertsByClientId?: Record<string, AiWorkspaceBriefAlert[]>;
 }
 
 // Custom Checkbox Component for better design tool compatibility
@@ -78,6 +84,8 @@ export function ClientTable({
   onToggleClientNameSortOrder,
   showStatusColumn = false,
   showRecruiterColumn = false,
+  workspaceAlertsByEntityId,
+  workspaceAlertsByClientId,
 }: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
@@ -138,6 +146,14 @@ export function ClientTable({
     }
   };
 
+  const resolvedWorkspaceAlerts =
+    workspaceAlertsByEntityId ?? workspaceAlertsByClientId ?? undefined;
+
+  const showAiAlertColumn = Boolean(
+    resolvedWorkspaceAlerts &&
+      Object.values(resolvedWorkspaceAlerts).some((alerts) => alerts.length > 0),
+  );
+
   return (
     <>
       <input
@@ -181,6 +197,7 @@ export function ClientTable({
               ))}
               {showStatusColumn ? <th className="px-3 sm:px-4 py-2">Status</th> : null}
               {showRecruiterColumn ? <th className="px-3 sm:px-4 py-2">Recruiter</th> : null}
+              {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
               <TableAuditColumnHeader />
               <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
             </tr>
@@ -318,6 +335,11 @@ export function ClientTable({
                       />
                       <span className="text-[11px] font-medium text-slate-700">{client.owner.name}</span>
                     </div>
+                  </td>
+                ) : null}
+                {showAiAlertColumn ? (
+                  <td className="px-3 sm:px-4 py-2">
+                    <WorkspaceAlertTableCell alerts={resolvedWorkspaceAlerts?.[client.id]} />
                   </td>
                 ) : null}
                 <TableAuditCell audit={client.auditMeta} />

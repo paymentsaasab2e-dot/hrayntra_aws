@@ -56,6 +56,8 @@ import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/T
 import type { BackendCandidate, BackendClient, BackendInterviewListItem, BackendJob, BackendTask } from '../../lib/api';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../components/ai/WorkspaceAlertTableCell';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import {
   PH2_TABLE_CARD_CLASS,
@@ -931,6 +933,8 @@ export default function App() {
 
   const totalPages = Math.max(Math.ceil(filteredTasks.length / pageSize), 1);
   const visibleTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const { alertsByEntityId: workspaceAlertsByEntityId, showAlertColumn: showTaskAiAlertColumn } =
+    useWorkspaceEntityAlerts('TASK', visibleTasks.map((task) => task.id));
   const showingStart = filteredTasks.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const showingEnd = filteredTasks.length === 0 ? 0 : Math.min(currentPage * pageSize, filteredTasks.length);
 
@@ -1326,6 +1330,7 @@ export default function App() {
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Created by</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Assigned to</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Delegated to</th>
+                    {showTaskAiAlertColumn ? <WorkspaceAlertTableHeader className="px-6 py-4" /> : null}
                     <TableAuditColumnHeader className="px-6 py-4" />
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
                   </tr>
@@ -1407,6 +1412,11 @@ export default function App() {
                           <span className="text-[13px] text-gray-400">—</span>
                         )}
                       </td>
+                      {showTaskAiAlertColumn ? (
+                        <td className="px-6 py-4">
+                          <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[task.id]} />
+                        </td>
+                      ) : null}
                       <TableAuditCell audit={task.auditMeta} className="px-6 py-4" />
                       <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                         {/* Colored action icons — same design language as

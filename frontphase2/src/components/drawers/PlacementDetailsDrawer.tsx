@@ -18,6 +18,7 @@ import {
 import type { Placement, PlacementStatus } from '../../types/placement';
 import { EntityAuditSummary } from '../table/TableAuditCell';
 import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
+import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 
 interface PlacementDetailsDrawerProps {
   isOpen: boolean;
@@ -160,6 +161,11 @@ export function PlacementDetailsDrawer({
                 <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-red-700">{error}</div>
               ) : placement ? (
                 <div className="space-y-6">
+                  <EntityWorkspaceAlertsPanel
+                    entityType="PLACEMENT"
+                    entityId={placement.id}
+                    entityLabel={`${placement.candidate.firstName} ${placement.candidate.lastName} — ${placement.job.title}`}
+                  />
                   <AiRecommendationPanel
                     entityType="PLACEMENT"
                     entityId={placement.id}

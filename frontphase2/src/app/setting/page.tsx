@@ -137,7 +137,9 @@ export default function SettingsPage() {
         <div className="min-w-0 flex-1 overflow-y-auto">
           <div
             className={`mx-auto px-6 py-8 lg:px-10 ${
-              activeSection === 'activity-log' ? 'max-w-[90rem]' : 'max-w-5xl'
+              activeSection === 'activity-log' || activeSection === 'alerts-management'
+                ? 'max-w-[90rem]'
+                : 'max-w-5xl'
             }`}
           >
             <header className="mb-8 border-b border-slate-200 pb-6">
@@ -149,9 +151,11 @@ export default function SettingsPage() {
                 <span className="text-slate-900">{sectionTitle}</span>
               </nav>
               <h2 className="text-2xl font-bold tracking-tight text-slate-900">{sectionTitle}</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Configure {sectionTitle.toLowerCase()} for your workspace.
-              </p>
+              {activeSection !== 'alerts-management' ? (
+                <p className="mt-1 text-sm text-slate-500">
+                  Configure {sectionTitle.toLowerCase()} for your workspace.
+                </p>
+              ) : null}
             </header>
 
             {renderContent()}

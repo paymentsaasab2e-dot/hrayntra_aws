@@ -22,6 +22,7 @@ import { SubmitToClientDrawer } from '../../components/interviews/SubmitToClient
 import { useInterviewDrawer } from '../../hooks/useInterviewDrawer';
 import { useInterviews } from '../../hooks/useInterviews';
 import { useInterviewModals } from '../../hooks/useInterviewModals';
+import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import type { Interview, InterviewFiltersState, UpdateInterviewPayload } from '../../types/interview.types';
 import type { InterviewAction } from '../../components/interviews/ActionsDropdown';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -167,6 +168,10 @@ export default function InterviewsPage() {
     markNoShow,
     fetchAllInterviewsForExport,
   } = useInterviews({ smartSearchInterviewIds });
+  const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
+    'INTERVIEW',
+    paginatedInterviews.map((interview) => interview.id),
+  );
 
   const selectedInterview = useMemo(
     () => interviews.find((interview) => interview.id === drawer.selectedInterviewId) || null,
@@ -472,6 +477,7 @@ export default function InterviewsPage() {
       <InterviewTable
         hidePagination
         interviews={paginatedInterviews}
+        workspaceAlertsByEntityId={workspaceAlertsByEntityId}
         selectedIds={selectedIds}
         page={pagination.page}
         totalPages={totalPages}

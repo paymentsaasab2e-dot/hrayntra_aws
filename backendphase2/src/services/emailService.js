@@ -1363,3 +1363,50 @@ export async function sendAiRecommendationEmail({
     triggerId: 'alert.ai_recommendation',
   });
 }
+
+export async function sendAiWorkspaceBriefEmail({
+  toEmail,
+  recipientName,
+  headline,
+  summary,
+  alerts = [],
+  recommendations = [],
+  priority = 'MEDIUM',
+  dashboardPath,
+}) {
+  const alertItems = (alerts || [])
+    .map(
+      (a) =>
+        `<li style="margin-bottom:10px;"><strong style="color:#0f172a;">${a.title}</strong> <span style="font-size:11px;color:#64748b;">(${a.area || 'General'} · ${a.priority || 'MEDIUM'})</span><br/><span style="color:#475569;">${a.detail || ''}</span></li>`
+    )
+    .join('');
+  const recItems = (recommendations || [])
+    .map(
+      (r, i) =>
+        `<li style="margin-bottom:8px;"><strong>${i + 1}. ${r.title}</strong><br/><span style="color:#475569;">${r.detail || ''}</span></li>`
+    )
+    .join('');
+
+  const html = `
+<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a;max-width:640px;margin:0 auto;padding:24px;">
+  <div style="background:linear-gradient(135deg,#0f172a,#312e81);padding:20px;border-radius:12px 12px 0 0;color:#fff;">
+    <p style="margin:0;font-size:12px;opacity:.85;text-transform:uppercase;letter-spacing:.08em;">AI Workspace Brief · ${priority}</p>
+    <h1 style="margin:8px 0 0;font-size:20px;">${headline}</h1>
+  </div>
+  <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;padding:20px;background:#fff;">
+    <p style="margin:0 0 12px;">Hi ${recipientName},</p>
+    <p style="margin:0 0 16px;">${summary}</p>
+    ${alertItems ? `<p style="font-size:13px;font-weight:700;color:#334155;margin:0 0 8px;">Priority alerts</p><ul style="padding-left:18px;margin:0 0 16px;">${alertItems}</ul>` : ''}
+    ${recItems ? `<p style="font-size:13px;font-weight:700;color:#334155;margin:0 0 8px;">Recommended actions</p><ul style="padding-left:18px;margin:0 0 16px;">${recItems}</ul>` : ''}
+    ${dashboardPath ? `<p style="text-align:center;margin:20px 0 0;"><a href="${dashboardPath}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Open dashboard</a></p>` : ''}
+  </div>
+</body></html>`;
+
+  return sendLifecycleAlertEmail({
+    toEmail,
+    subject: `AI brief: ${headline}`,
+    html,
+    triggerId: 'alert.ai_workspace_brief',
+  });
+}

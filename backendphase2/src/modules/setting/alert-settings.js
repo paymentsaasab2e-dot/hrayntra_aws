@@ -6,6 +6,7 @@ import {
   getAlertDefinition,
   getAlertByEmailTriggerId,
 } from './alert-catalog.js';
+import { enrichCatalogWithExamples } from './alert-catalog-examples.js';
 
 export const ALERT_MANAGEMENT_SETTINGS_KEY = 'alert_management_v1';
 
@@ -112,11 +113,11 @@ export async function isAlertPortalEnabled(alertId, userId = null) {
 export async function getAlertManagementPayload(userId = null) {
   const { channels, scope, updatedAt } = await getAlertManagementSettings(userId);
   return {
-    catalog: getAlertCatalogGrouped(),
+    catalog: enrichCatalogWithExamples(getAlertCatalogGrouped()),
     channels,
     scope,
     updatedAt,
   };
 }
 
-export { getAlertDefinition, getAlertByEmailTriggerId, ALERT_CATALOG };
+export { getAlertDefinition, getAlertByEmailTriggerId };
