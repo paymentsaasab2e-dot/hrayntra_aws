@@ -1757,7 +1757,7 @@ model Activity {
   id            String             @id @default(auto()) @map("_id") @db.ObjectId
   action        String // Action title (e.g., "Job created", "Payment received")
   description   String? // Action description/details
-  performedById String             @db.ObjectId
+  performedById String?            @db.ObjectId
   entityType    ActivityEntityType // CLIENT, JOB, CANDIDATE, INTERVIEW, PLACEMENT, etc.
   entityId      String? // ID of the related entity (clientId, jobId, etc.)
   category      String? // Category for filtering (Jobs, Candidates, Interviews, Billing, Notes, Files)
@@ -1767,7 +1767,7 @@ model Activity {
   metadata      Json? // Additional metadata
   createdAt     DateTime           @default(now())
 
-  performedBy User    @relation(fields: [performedById], references: [id])
+  performedBy User?   @relation(fields: [performedById], references: [id])
   Client      Client? @relation(fields: [clientId], references: [id])
   clientId    String? @db.ObjectId
 

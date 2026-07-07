@@ -113,6 +113,7 @@ import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import {
   PH2_TABLE_CARD_CLASS,
@@ -914,6 +915,10 @@ function CandidatesPageContent() {
   }, []);
 
   const filteredCandidates = candidates;
+  const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
+    'CANDIDATE',
+    filteredCandidates.map((candidate) => candidate.id),
+  );
 
   const buildCandidatesExportQueryParams = useCallback(
     (page: number, limit: number): Record<string, string | number | boolean> => {
@@ -1969,6 +1974,7 @@ function CandidatesPageContent() {
                   }
                   canSubmitToClient={canSubmitToClient ? candidateRowCanSubmitToClient : undefined}
                   submittingToClientCandidateId={submitClientRowId}
+                  workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                 />
                       </div>
                     </div>

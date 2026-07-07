@@ -108,6 +108,7 @@ import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
 import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
+import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
 import { DrawerSectionCard, DRAWER_FORM_SCROLL_BG } from './drawerFormUi';
 
@@ -1515,6 +1516,11 @@ export function JobDetailsDrawer({
               <div className="space-y-5 p-5">
               {activeTab === 'overview' && job && (
                 <div className="space-y-5">
+                  <EntityWorkspaceAlertsPanel
+                    entityType="JOB"
+                    entityId={job.id}
+                    entityLabel={job.title || 'Job'}
+                  />
                   <AiRecommendationPanel
                     entityType="JOB"
                     entityId={job.id}

@@ -91,6 +91,14 @@ export function BillingSettings() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [load]);
+
   const status = planStatus(plan);
   const jobsPct = usage ? usagePercent(usage.activeJobs, usage.maxJobs) : null;
   const usersPct = usage ? usagePercent(usage.activeUsers, usage.maxUsers) : null;

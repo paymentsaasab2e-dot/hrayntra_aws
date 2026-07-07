@@ -22,5 +22,9 @@ router.put('/assistant-history/:pageKey', aiController.saveAssistantHistory);
 router.delete('/assistant-history/:pageKey', aiController.deleteAssistantHistory);
 router.get('/entry-recommendations', aiController.listEntryRecommendations);
 router.post('/entry-recommendations/regenerate', aiController.regenerateEntryRecommendation);
+router.get('/workspace-brief', aiController.getWorkspaceBrief);
+router.post('/workspace-brief/generate', aiController.generateWorkspaceBrief);
+router.get('/workspace-brief/alerts', aiController.getWorkspaceBriefEntityAlerts);
+router.get('/workspace-brief/entity-alerts', aiController.getWorkspaceBriefEntityAlertsBatch);
 
 export default router;

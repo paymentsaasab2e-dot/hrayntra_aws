@@ -22,6 +22,7 @@ import { LoginHistoryDrawer } from './LoginHistoryDrawer';
 import { PortalHost } from './PortalHost';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
+import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 
 interface MemberProfileDrawerProps {
   isOpen: boolean;
@@ -421,6 +422,11 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                   ) : (
                   <>
                   <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    <EntityWorkspaceAlertsPanel
+                      entityType="USER"
+                      entityId={member.id}
+                      entityLabel={`${member.firstName} ${member.lastName}`.trim()}
+                    />
                     {/* Credential Snapshot */}
                     <section>
                       <h3 className="text-sm font-bold text-slate-800 mb-3">Credential Snapshot</h3>

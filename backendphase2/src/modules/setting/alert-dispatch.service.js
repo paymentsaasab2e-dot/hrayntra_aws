@@ -294,6 +294,15 @@ function samplePortalDescription(alertId) {
     'job.portal_application': 'John Smith applied to Senior Developer.',
     'job.candidate_reapplied':
       'John Smith applied to Senior Developer (previously rejected — moved back to Applied).',
+    'ai.workspace_brief': '3 overdue follow-ups and 2 interviews today — review your AI workspace brief.',
+    'ai.client.followup_overdue': 'Globex client follow-up was due yesterday.',
+    'ai.lead.followup_overdue': 'Acme Corp lead follow-up is overdue.',
+    'ai.task.overdue': 'Send contract to Globex — task overdue since Monday.',
+    'ai.job.low_applicants': 'Senior Developer has only 1 applicant — sourcing needed.',
+    'ai.candidate.pipeline_followup_overdue': 'John Smith pipeline follow-up is overdue.',
+    'ai.interview.today': 'Interview with John Smith for Senior Developer at 2:00 PM today.',
+    'ai.placement.joining_overdue': 'John Smith joining date passed — confirm status.',
+    'ai.team.request_pending': 'Admin requested client handoff approval.',
   };
   return samples[alertId] || null;
 }

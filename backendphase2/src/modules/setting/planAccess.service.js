@@ -1,7 +1,100 @@
-import { prisma } from '../../config/prisma.js';
+import { getActiveTenantDbName, prisma, runWithTenantContext } from '../../config/prisma.js';
+import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { getSubscriptionPlan, setSubscriptionPlan } from './recruitmentMode.service.js';
-import { DEFAULT_HQ_PACKAGES, toAssignablePlan } from '../hq/hq-packages.config.js';
+import {
+  DEFAULT_HQ_PACKAGES,
+  resolvePackageSlug,
+  toAssignablePlan,
+} from '../hq/hq-packages.config.js';
 import { hqPackagesService } from '../hq/hq-packages.service.js';
+
+function planIdentity(plan) {
+  if (!plan) return '';
+  const slug = resolvePackageSlug(plan.id, plan.name);
+  const cycle =
+    String(plan.billingCycle || 'monthly').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly';
+  return `${slug || String(plan.name || '').trim().toLowerCase()}:${cycle}`;
+}
+
+function planRecordsMatch(local, target) {
+  if (!local && !target) return true;
+  if (!local || !target) return false;
+  return (
+    planIdentity(local) === planIdentity(target) &&
+    (local.maxUsers ?? null) === (target.maxUsers ?? null) &&
+    (local.maxJobs ?? null) === (target.maxJobs ?? null) &&
+    String(local.planStartDate || '') === String(target.planStartDate || '') &&
+    String(local.planEndDate || '') === String(target.planEndDate || '')
+  );
+}
+
+function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
+  if (!resolvedPlan) return null;
+  return {
+    ...resolvedPlan,
+    ...(hqPlan?.upgradedAt ? { upgradedAt: String(hqPlan.upgradedAt) } : {}),
+    ...(hqPlan?.upgradedFrom ? { upgradedFrom: String(hqPlan.upgradedFrom) } : {}),
+    ...(hqPlan?.upgradedBy ? { upgradedBy: String(hqPlan.upgradedBy) } : {}),
+    ...(hqPlan?.lastPaymentReference
+      ? { lastPaymentReference: String(hqPlan.lastPaymentReference) }
+      : {}),
+    ...(hqPlan?.isTrial ? { isTrial: true } : {}),
+    ...(hqPlan?.trialDays ? { trialDays: Number(hqPlan.trialDays) || undefined } : {}),
+    ...(hqPlan?.purchasedAt ? { purchasedAt: String(hqPlan.purchasedAt) } : {}),
+  };
+}
+
+/** Push the HQ-assigned plan into the active tenant workspace (Phase 2 org settings). */
+export async function applyTenantSubscriptionPlan(tenantDbName, plan, { throwOnFailure = false } = {}) {
+  const dbName = String(tenantDbName || '').trim();
+  if (!dbName || !plan) return;
+  try {
+    await runWithTenantContext(dbName, () => setSubscriptionPlan(plan));
+  } catch (err) {
+    console.warn('[planAccess] failed to update tenant subscription plan:', err?.message || err);
+    if (throwOnFailure) throw err;
+  }
+}
+
+/**
+ * HQ is the source of truth for tenant packages. When HQ assigns Starter → Enterprise,
+ * Phase 2 reads the updated plan on the next API call.
+ */
+export async function syncSubscriptionPlanFromHq() {
+  const tenantDbName = String(getActiveTenantDbName() || '').trim();
+  if (!tenantDbName) return null;
+
+  let hqTenant = null;
+  try {
+    hqTenant = await headquartersAuthService.findTenantByDbName(tenantDbName);
+  } catch (err) {
+    console.warn('[planAccess] HQ tenant lookup failed:', err?.message || err);
+    return null;
+  }
+
+  const hqPlan = hqTenant?.subscriptionPlan;
+  if (!hqPlan?.name && !hqPlan?.id) return null;
+
+  let resolvedPlan = null;
+  try {
+    resolvedPlan = await hqPackagesService.resolvePlanInput(
+      hqPlan.id || hqPlan.name,
+      hqPlan.billingCycle,
+      hqPlan.planStartDate
+    );
+  } catch (err) {
+    console.warn('[planAccess] failed to resolve HQ plan:', err?.message || err);
+  }
+
+  const targetPlan = mergeHqPlanMetadata(resolvedPlan, hqPlan) || hqPlan;
+  const localPlan = await getSubscriptionPlan();
+  if (planRecordsMatch(localPlan, targetPlan)) {
+    return localPlan;
+  }
+
+  await setSubscriptionPlan(targetPlan);
+  return targetPlan;
+}
 
 function enterpriseFallbackPlan() {
   const pkg = DEFAULT_HQ_PACKAGES.find((item) => item.slug === 'enterprise');
@@ -22,6 +115,14 @@ async function resolveEnterprisePlan() {
 }
 
 export async function getEffectiveSubscriptionPlan({ assignIfMissing = true } = {}) {
+  if (assignIfMissing) {
+    try {
+      await syncSubscriptionPlanFromHq();
+    } catch (err) {
+      console.warn('[planAccess] HQ plan sync failed:', err?.message || err);
+    }
+  }
+
   let current = await getSubscriptionPlan();
 
   if (!current?.name) {

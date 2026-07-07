@@ -11,6 +11,7 @@ import { DrawerClientTab } from './DrawerClientTab';
 import { DrawerNotesTab } from './DrawerNotesTab';
 import { DrawerOverviewTab } from './DrawerOverviewTab';
 import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
+import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { DrawerPanelTab } from './DrawerPanelTab';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 import type { DrawerTab, Interview } from '../../types/interview.types';
@@ -232,14 +233,24 @@ export function InterviewDrawer({
               {activeTab === 'overview' ? (
                 <div className="space-y-5">
                   {interview?.id ? (
-                    <AiRecommendationPanel
-                      entityType="INTERVIEW"
-                      entityId={interview.id}
-                      entityLabel={
-                        [interview.candidate?.name, interview.job?.title].filter(Boolean).join(' — ') ||
-                        'Interview'
-                      }
-                    />
+                    <>
+                      <EntityWorkspaceAlertsPanel
+                        entityType="INTERVIEW"
+                        entityId={interview.id}
+                        entityLabel={
+                          [interview.candidate?.name, interview.job?.title].filter(Boolean).join(' — ') ||
+                          'Interview'
+                        }
+                      />
+                      <AiRecommendationPanel
+                        entityType="INTERVIEW"
+                        entityId={interview.id}
+                        entityLabel={
+                          [interview.candidate?.name, interview.job?.title].filter(Boolean).join(' — ') ||
+                          'Interview'
+                        }
+                      />
+                    </>
                   ) : null}
                   <DrawerOverviewTab interview={interview} />
                 </div>

@@ -13,6 +13,8 @@ import type { Interview } from '../../types/interview.types';
 import PaginationAll from '../PaginationAll';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
+import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../ai/WorkspaceAlertTableCell';
 
 interface InterviewGroup {
   key: string;
@@ -87,6 +89,7 @@ interface InterviewTableProps {
   onPageSizeChange?: (pageSize: number) => void;
   /** Parent renders pagination in a shared card footer (Leads-style layout). */
   hidePagination?: boolean;
+  workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
 }
 
 const statusClasses = {
@@ -148,8 +151,13 @@ export function InterviewTable({
   pageSizeOptions,
   onPageSizeChange,
   hidePagination = false,
+  workspaceAlertsByEntityId,
 }: InterviewTableProps) {
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
+  const showAiAlertColumn = Boolean(
+    workspaceAlertsByEntityId &&
+      Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
+  );
   const allIdsOnPage = useMemo(() => interviews.map((i) => i.id), [interviews]);
   const allSelected =
     allIdsOnPage.length > 0 && allIdsOnPage.every((id) => selectedIds.includes(id));
@@ -331,6 +339,7 @@ export function InterviewTable({
                 INT
               </th>
               <th className="min-w-[16rem] border-l border-indigo-100/40 pl-10 pr-3 py-2 sm:pl-12 sm:pr-4 sm:py-2">Status</th>
+              {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
               <TableAuditColumnHeader />
               <th className="px-3 py-2 text-right sm:px-4">Actions</th>
             </tr>
@@ -484,6 +493,11 @@ export function InterviewTable({
                       </div>
                     ) : null}
                   </td>
+                  {showAiAlertColumn ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[primary.id]} />
+                    </td>
+                  ) : null}
                   <TableAuditCell audit={primary.auditMeta} />
                   <td className="px-3 py-2.5 text-right sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-1">

@@ -35,6 +35,8 @@ import { EditMemberDrawer } from '../EditMemberDrawer';
 import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { TeamMemberRowActionsMenu } from '../TeamMemberRowActionsMenu';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { useWorkspaceEntityAlerts } from '../../../hooks/useWorkspaceEntityAlerts';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../ai/WorkspaceAlertTableCell';
 import { requestConfirm } from '../../../lib/appDialog';
 import PaginationAll from '../../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/tablePagination';
@@ -203,6 +205,9 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
       roles: roles.length,
     };
   }, [departments, roles]);
+
+  const { alertsByEntityId: workspaceAlertsByEntityId, showAlertColumn: showMemberAiAlertColumn } =
+    useWorkspaceEntityAlerts('USER', members.map((member) => member.id));
 
   const memberMatchesFilters = useCallback(
     (member: TeamMember) => {
@@ -574,6 +579,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                     <th className={TEAM_TH}>Assigned leads</th>
                     <th className={TEAM_TH}>Credential</th>
                     <th className={TEAM_TH}>Status</th>
+                    {showMemberAiAlertColumn ? <WorkspaceAlertTableHeader className={TEAM_TH} /> : null}
                     <th className={`${TEAM_TH} text-right`}>Actions</th>
                   </tr>
                 </thead>
@@ -645,6 +651,11 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                             </span>
                           )}
                         </td>
+                        {showMemberAiAlertColumn ? (
+                          <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                            <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[member.id]} />
+                          </td>
+                        ) : null}
                         <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5">
                           <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
                             {SHOW_TABLE_ROW_EDIT_ICON && hasPermission('edit_team_member') ? (

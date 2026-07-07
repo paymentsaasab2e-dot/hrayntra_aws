@@ -68,6 +68,7 @@ import {
   mapCandidateProfile,
 } from '../../lib/mapCandidateProfile';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 
 // Show every match candidate by default (AI and manual). Recruiters can
 // tighten filters via the FilterBar; the legacy 75% / 5-10 yrs preset hid
@@ -708,6 +709,11 @@ export default function MatchesPage() {
     });
   }, [activeTab, candidates, filters, savedMatches, sortBy]);
 
+  const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
+    'CANDIDATE',
+    filteredCandidates.map((candidate) => candidate.id),
+  );
+
   const resetFilters = () => setFilters(CLEAR_FILTERS);
 
   const toggleCandidateSelection = (candidateId: string) => {
@@ -1085,6 +1091,7 @@ export default function MatchesPage() {
           updateCandidate(candidateId, (candidate) => ({ ...candidate, matchRating: rating }))
         }
         onResetFilters={resetFilters}
+        workspaceAlertsByEntityId={workspaceAlertsByEntityId}
       />
           </div>
         </div>

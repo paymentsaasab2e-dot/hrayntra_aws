@@ -1,5 +1,10 @@
 import { prisma } from '../config/prisma.js';
 import { emitTenantActionFromActivity } from '../utils/tenantAuditLog.js';
+import {
+  buildActivityFieldChangeCopy,
+  shouldSkipActivityField,
+  valuesAreSemanticallyEqual,
+} from '../utils/activityPresentation.js';
 import { appendEntityActivityVisibilityToWhere } from './activityVisibility.service.js';
 
 /**
@@ -160,10 +165,15 @@ export async function logFieldChanges({
   const fieldsToTrack = trackedFields || Object.keys(newData);
 
   for (const field of fieldsToTrack) {
+    if (shouldSkipActivityField(field)) continue;
+
     const oldValue = oldData[field];
     const newValue = newData[field];
 
-    if (oldValue !== newValue && (oldValue !== undefined || newValue !== undefined)) {
+    if (
+      (oldValue !== undefined || newValue !== undefined) &&
+      !valuesAreSemanticallyEqual(field, oldValue, newValue)
+    ) {
       changes.push({
         field,
         oldValue: oldValue ?? null,
@@ -173,7 +183,7 @@ export async function logFieldChanges({
   }
 
   if (changes.length === 0) {
-    return; // No changes detected
+    return;
   }
 
   // Determine category based on entity type
@@ -191,57 +201,66 @@ export async function logFieldChanges({
 
   const category = categoryMap[entityType] || ACTIVITY_CATEGORIES.GENERAL;
 
-  // Log each change
   for (const change of changes) {
-    const fieldLabel = fieldLabelMapper
-      ? fieldLabelMapper(change.field)
-      : change.field.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+    let copy = buildActivityFieldChangeCopy({
+      field: change.field,
+      oldValue: change.oldValue,
+      newValue: change.newValue,
+    });
 
-    const formattedOldValue = valueFormatter
-      ? valueFormatter(change.field, change.oldValue)
-      : change.oldValue;
-    const formattedNewValue = valueFormatter
-      ? valueFormatter(change.field, change.newValue)
-      : change.newValue;
+    if (valueFormatter) {
+      const formattedOldValue = valueFormatter(change.field, change.oldValue);
+      const formattedNewValue = valueFormatter(change.field, change.newValue);
+      if (formattedOldValue === formattedNewValue) continue;
+    }
 
-    let action = 'Field Updated';
-    let description = `${fieldLabel} changed from "${formattedOldValue || 'N/A'}" to "${formattedNewValue || 'N/A'}"`;
+    if (!copy) continue;
 
-    // Special handling for common fields
-    if (change.field === 'status') {
-      action = 'Status Changed';
-    } else if (change.field === 'assignedToId' || change.field === 'assignedTo') {
-      action = 'Assignment Changed';
-      // Try to fetch user names
+    let { action, description } = copy;
+
+    if (change.field === 'assignedToId' || change.field === 'assignedTo') {
+      action = 'Assignment changed';
       try {
-        let oldUserName = 'Unassigned';
-        let newUserName = 'Unassigned';
+        let oldUserName = null;
+        let newUserName = null;
 
         if (change.oldValue) {
           const oldUser = await prisma.user.findUnique({
             where: { id: change.oldValue },
-            select: { firstName: true, lastName: true },
+            select: { firstName: true, lastName: true, name: true },
           });
           if (oldUser) {
-            oldUserName = `${oldUser.firstName || ''} ${oldUser.lastName || ''}`.trim();
+            oldUserName =
+              String(oldUser.name || '').trim() ||
+              `${oldUser.firstName || ''} ${oldUser.lastName || ''}`.trim();
           }
         }
         if (change.newValue) {
           const newUser = await prisma.user.findUnique({
             where: { id: change.newValue },
-            select: { firstName: true, lastName: true },
+            select: { firstName: true, lastName: true, name: true },
           });
           if (newUser) {
-            newUserName = `${newUser.firstName || ''} ${newUser.lastName || ''}`.trim();
+            newUserName =
+              String(newUser.name || '').trim() ||
+              `${newUser.firstName || ''} ${newUser.lastName || ''}`.trim();
           }
         }
 
-        description = `Assigned to changed from "${oldUserName}" to "${newUserName}"`;
+        if (oldUserName && newUserName) {
+          description = `Assignee changed from "${oldUserName}" to "${newUserName}".`;
+        } else if (newUserName) {
+          description = `Assigned to "${newUserName}".`;
+        } else if (oldUserName) {
+          description = `Assignee removed (was "${oldUserName}").`;
+        } else {
+          description = 'Assignee updated.';
+        }
       } catch (err) {
         console.error('Failed to fetch user names for activity log:', err);
       }
     } else if (change.field === 'companyName' || change.field === 'name') {
-      action = entityType === ENTITY_TYPES.CLIENT ? 'Company Name Updated' : 'Name Updated';
+      action = entityType === ENTITY_TYPES.CLIENT ? 'Company name updated' : 'Name updated';
     }
 
     await logActivity({

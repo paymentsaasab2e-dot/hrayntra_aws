@@ -780,31 +780,42 @@ export async function completeTransferLogin({ requestId, loginIdentifier, passwo
 
 export async function runInactivityCleanup() {
   if (!isEnabled()) return { expired: 0 };
-  const cutoff = new Date(Date.now() - inactivityMs());
-  const stale = await prisma.activeSession.findMany({
-    where: { sessionStatus: SESSION_STATUS_ACTIVE, lastActivity: { lt: cutoff } },
-    take: 200,
-  });
-  for (const row of stale) {
-    await expireSession(row, 'INACTIVITY_TIMEOUT');
+  try {
+    const cutoff = new Date(Date.now() - inactivityMs());
+    const stale = await prisma.activeSession.findMany({
+      where: { sessionStatus: SESSION_STATUS_ACTIVE, lastActivity: { lt: cutoff } },
+      take: 200,
+    });
+    for (const row of stale) {
+      await expireSession(row, 'INACTIVITY_TIMEOUT');
+    }
+    return { expired: stale.length };
+  } catch (err) {
+    // Transient DB outage — retry on the next scheduled tick.
+    console.warn('[session] runInactivityCleanup failed:', err?.message || err);
+    return { expired: 0, error: true };
   }
-  return { expired: stale.length };
 }
 
 export async function expireStaleTransfers() {
-  const now = new Date();
-  const pending = await prisma.sessionTransferRequest.findMany({
-    where: { status: 'PENDING', expiresAt: { lt: now } },
-    take: 100,
-  });
-  for (const row of pending) {
-    await prisma.sessionTransferRequest.update({
-      where: { id: row.id },
-      data: { status: 'EXPIRED', resolvedAt: now },
+  try {
+    const now = new Date();
+    const pending = await prisma.sessionTransferRequest.findMany({
+      where: { status: 'PENDING', expiresAt: { lt: now } },
+      take: 100,
     });
-    emitSessionTransferResolved(row.requestId, { status: 'EXPIRED' });
+    for (const row of pending) {
+      await prisma.sessionTransferRequest.update({
+        where: { id: row.id },
+        data: { status: 'EXPIRED', resolvedAt: now },
+      });
+      emitSessionTransferResolved(row.requestId, { status: 'EXPIRED' });
+    }
+    return { expired: pending.length };
+  } catch (err) {
+    console.warn('[session] expireStaleTransfers failed:', err?.message || err);
+    return { expired: 0, error: true };
   }
-  return { expired: pending.length };
 }
 
 export const sessionService = {

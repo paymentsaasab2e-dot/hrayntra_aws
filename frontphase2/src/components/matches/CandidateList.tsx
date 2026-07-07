@@ -12,6 +12,7 @@ import {
   type MatchMode,
   tierForScore,
 } from './types';
+import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 
 interface CandidateListProps {
   candidates: MatchCandidate[];
@@ -35,6 +36,7 @@ interface CandidateListProps {
   onResetFilters: () => void;
   embedded?: boolean;
   loading?: boolean;
+  workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
 }
 
 export default function CandidateList(props: CandidateListProps) {
@@ -60,6 +62,7 @@ export default function CandidateList(props: CandidateListProps) {
     onResetFilters,
     embedded = false,
     loading = false,
+    workspaceAlertsByEntityId,
   } = props;
 
   const heading = savedOnly
@@ -125,6 +128,7 @@ export default function CandidateList(props: CandidateListProps) {
     onOpenSubmit,
     onOpenReject,
     onRateMatch,
+    workspaceAlertsByEntityId,
   };
 
   const renderTable = (list: MatchCandidate[], keyPrefix: string) => (

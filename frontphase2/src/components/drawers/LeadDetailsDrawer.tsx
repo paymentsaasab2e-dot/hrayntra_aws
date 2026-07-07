@@ -112,6 +112,7 @@ import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
 import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
+import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import type { LeadAiGeneratedPayload } from '@/lib/leadAiHelpers';
 import {
   mergeAiCompanyLinks,
@@ -3623,11 +3624,18 @@ export function LeadDetailsDrawer({
                       {!overviewEditMode ? (
                         <>
                           {lead?.id ? (
-                            <AiRecommendationPanel
-                              entityType="LEAD"
-                              entityId={lead.id}
-                              entityLabel={lead.companyName || 'Lead'}
-                            />
+                            <>
+                              <EntityWorkspaceAlertsPanel
+                                entityType="LEAD"
+                                entityId={lead.id}
+                                entityLabel={lead.companyName || 'Lead'}
+                              />
+                              <AiRecommendationPanel
+                                entityType="LEAD"
+                                entityId={lead.id}
+                                entityLabel={lead.companyName || 'Lead'}
+                              />
+                            </>
                           ) : null}
                           <AddLeadSectionCard
                             title="Company Details"

@@ -4,9 +4,9 @@ import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { authService } from '../auth/auth.service.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { env } from '../../config/env.js';
-import {
-  setSubscriptionPlan,
-} from '../setting/recruitmentMode.service.js';
+import { applyTenantSubscriptionPlan } from '../setting/planAccess.service.js';
+import { setSubscriptionPlan } from '../setting/recruitmentMode.service.js';
+import { resolvePackageSlug, todayPlanStartDate } from './hq-packages.config.js';
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { hqLeadsService } from './hq-leads.service.js';
 import { hqCompaniesService } from './hq-companies.service.js';
@@ -21,7 +21,7 @@ async function resolvePlanInput(raw, billingCycle, planStartDate) {
     const label = typeof raw === 'string' ? raw : raw?.name || raw?.id || 'plan';
     throw new Error(`Unknown subscription package: ${label}`);
   }
-  return hqPackagesService.resolvePlanInput('Enterprise', billingCycle || 'monthly', planStartDate);
+  return hqPackagesService.resolvePlanInput('Starter', billingCycle || 'monthly', planStartDate);
 }
 
 function tenantMatchesPlan(tenant, pkg) {
@@ -305,7 +305,7 @@ export const hqService = {
     const organizationType =
       String(data?.organizationType || 'agency').toLowerCase() === 'standalone' ? 'standalone' : 'agency';
     const subscriptionPlan = await resolvePlanInput(
-      data?.plan ?? data?.subscriptionPlan ?? 'Enterprise',
+      data?.plan ?? data?.subscriptionPlan ?? 'Starter',
       data?.billingCycle ?? data?.plan?.billingCycle ?? data?.subscriptionPlan?.billingCycle,
       data?.planStartDate ?? data?.plan?.planStartDate
     );
@@ -395,28 +395,46 @@ export const hqService = {
   async assignPlan(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     const email = String(data?.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email is required');
+
     const tenants = await headquartersAuthService.listTenants();
     const existing = tenants.find((t) => String(t.email || '').toLowerCase() === email);
+    const previousPlan = existing?.subscriptionPlan || null;
+    const billingCycle = data?.billingCycle ?? data?.plan?.billingCycle;
+
+    const previousSlug = resolvePackageSlug(previousPlan?.id, previousPlan?.name);
+    const requestedStartDate = data?.planStartDate ?? data?.plan?.planStartDate;
     const planStartDate =
-      data?.planStartDate ??
-      data?.plan?.planStartDate ??
-      existing?.subscriptionPlan?.planStartDate;
-    const plan = await resolvePlanInput(
-      data?.plan,
-      data?.billingCycle ?? data?.plan?.billingCycle,
-      planStartDate
-    );
-    if (!email) throw new Error('email is required');
+      requestedStartDate ??
+      (previousPlan?.planStartDate && previousSlug ? previousPlan.planStartDate : todayPlanStartDate());
+
+    let plan = await resolvePlanInput(data?.plan, billingCycle, planStartDate);
     if (!plan) throw new Error('plan is required');
-    const updated = await headquartersAuthService.setSubscriptionPlanForEmail(email, plan);
-    if (!updated) throw new Error('Tenant not found');
-    if (updated.tenantDbName) {
-      try {
-        await runWithTenantContext(updated.tenantDbName, () => setSubscriptionPlan(plan));
-      } catch (err) {
-        console.warn('[hq] failed to update tenant settings plan:', err?.message || err);
-      }
+
+    const newSlug = resolvePackageSlug(plan.id, plan.name);
+    const tierChanged = Boolean(previousSlug && newSlug && previousSlug !== newSlug);
+    if (tierChanged && !requestedStartDate) {
+      plan = await resolvePlanInput(data?.plan, billingCycle, todayPlanStartDate());
     }
+
+    const enrichedPlan = {
+      ...plan,
+      ...(tierChanged && previousPlan?.name
+        ? {
+            upgradedFrom: String(previousPlan.name),
+            upgradedAt: new Date().toISOString(),
+            upgradedBy: 'hq',
+          }
+        : {}),
+    };
+
+    const updated = await headquartersAuthService.setSubscriptionPlanForEmail(email, enrichedPlan);
+    if (!updated) throw new Error('Tenant not found');
+
+    if (updated.tenantDbName) {
+      await applyTenantSubscriptionPlan(updated.tenantDbName, enrichedPlan, { throwOnFailure: true });
+    }
+
     return { email: updated.email, subscriptionPlan: updated.subscriptionPlan };
   },
 

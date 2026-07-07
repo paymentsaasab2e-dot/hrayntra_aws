@@ -12,6 +12,8 @@ import { DepartmentMembersDrawer } from '../DepartmentMembersDrawer';
 import PaginationAll from '../../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/tablePagination';
 import { formatDateDMY } from '../../../utils/dateDisplay';
+import { useWorkspaceEntityAlerts } from '../../../hooks/useWorkspaceEntityAlerts';
+import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../ai/WorkspaceAlertTableCell';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -76,6 +78,9 @@ export const DepartmentsTab: React.FC = () => {
     const start = (currentPage - 1) * pageSize;
     return departments.slice(start, start + pageSize);
   }, [currentPage, pageSize, departments]);
+
+  const { alertsByEntityId: workspaceAlertsByEntityId, showAlertColumn: showDepartmentAiAlertColumn } =
+    useWorkspaceEntityAlerts('DEPARTMENT', visibleDepartments.map((dept) => dept.id));
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(totalDepartments / pageSize));
@@ -168,6 +173,9 @@ export const DepartmentsTab: React.FC = () => {
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Members</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Member Avatars</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Created</th>
+                    {showDepartmentAiAlertColumn ? (
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">AI Alert</th>
+                    ) : null}
                     <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -218,6 +226,11 @@ export const DepartmentsTab: React.FC = () => {
                         <td className="px-6 py-4 text-sm text-slate-600">
                           {formatDate(dept.createdAt)}
                         </td>
+                        {showDepartmentAiAlertColumn ? (
+                          <td className="px-6 py-4">
+                            <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[dept.id]} />
+                          </td>
+                        ) : null}
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
                             {SHOW_TABLE_ROW_EDIT_ICON ? (
