@@ -51,6 +51,22 @@ const resolveUploadUrl = (raw?: string | null): string => {
     /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i,
     backendOrigin,
   );
+  const relative = rewritten.startsWith('/uploads/')
+    ? rewritten
+    : (() => {
+        try {
+          const pathname = new URL(rewritten).pathname || '';
+          return pathname.startsWith('/uploads/') ? pathname : '';
+        } catch {
+          return '';
+        }
+      })();
+  if (
+    relative.startsWith('/uploads/placements/') ||
+    relative.startsWith('/uploads/interview-client-review/')
+  ) {
+    return `${backendOrigin}/api/v1/public/uploads/${relative.replace(/^\/uploads\//, '')}`;
+  }
   if (rewritten.startsWith('/uploads')) return `${backendOrigin}${rewritten}`;
   return rewritten;
 };

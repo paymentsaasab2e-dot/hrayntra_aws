@@ -1,4 +1,6 @@
 import { prisma } from '../../config/prisma.js';
+import { getActiveTenantDbName } from '../../config/prisma.js';
+import { mirrorLocalUploadToS3 } from '../../utils/publicUploads.util.js';
 import { getCandidateOrThrow } from '../candidate/candidate.service.js';
 import {
   sendJoiningScheduledCandidateEmail,
@@ -283,6 +285,18 @@ function getPublicFileUrl(filePath) {
   const normalized = String(filePath).replace(/\\/g, '/');
   const uploadsIndex = normalized.lastIndexOf('/uploads/');
   return uploadsIndex >= 0 ? normalized.slice(uploadsIndex) : normalized;
+}
+
+async function persistPlacementOfferFile(file) {
+  if (!file?.path) return null;
+  await mirrorLocalUploadToS3({
+    localPath: file.path,
+    subdir: 'placements',
+    originalFilename: file.originalname || file.filename,
+    tenantDbName: getActiveTenantDbName(),
+    contentType: 'application/pdf',
+  });
+  return getPublicFileUrl(file.path);
 }
 
 function formatPlacementListItem(placement) {
@@ -773,7 +787,7 @@ export const placementService = {
 
       let offerLetterSync = null;
       if (file?.path) {
-        const fileUrl = getPublicFileUrl(file.path);
+        const fileUrl = await persistPlacementOfferFile(file);
         await tx.placementDocument.create({
           data: {
             placementId: createdPlacement.id,
@@ -1676,7 +1690,7 @@ export const placementService = {
       });
 
       if (file?.path) {
-        const fileUrl = getPublicFileUrl(file.path);
+        const fileUrl = await persistPlacementOfferFile(file);
         await tx.placementDocument.create({
           data: {
             placementId: id,

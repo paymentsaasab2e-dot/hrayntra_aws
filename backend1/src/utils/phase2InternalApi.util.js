@@ -54,36 +54,59 @@ function resolvePhase2InternalApiOrigin() {
 
 /**
  * Rewrite CRM offer-letter URLs stored during local dev (`localhost:5001`)
- * to the public phase2 origin so the job portal can open them in production.
+ * to the public phase2 uploads API so the job portal can open them in production.
  */
+function toPublicUploadsApiUrl(origin, input) {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+  if (raw.includes('/api/v1/public/uploads/')) return raw;
+
+  let relative = '';
+  if (raw.startsWith('/uploads/')) {
+    relative = raw;
+  } else if (/^https?:\/\//i.test(raw)) {
+    try {
+      relative = new URL(raw).pathname || '';
+    } catch {
+      return raw;
+    }
+  } else {
+    return raw;
+  }
+
+  if (
+    !relative.startsWith('/uploads/placements/') &&
+    !relative.startsWith('/uploads/interview-client-review/')
+  ) {
+    if (relative.startsWith('/uploads/')) {
+      return `${String(origin || '').replace(/\/+$/, '')}${relative}`;
+    }
+    return raw;
+  }
+
+  const subPath = relative.replace(/^\/uploads\//, '');
+  return `${String(origin || '').replace(/\/+$/, '')}/api/v1/public/uploads/${subPath}`;
+}
+
 function resolvePhase2UploadUrl(rawUrl, relativeUrl) {
   const origin = resolvePhase2InternalApiOrigin();
   const relative = String(relativeUrl || '').trim();
   if (relative.startsWith('/uploads/')) {
-    return `${origin}${relative}`;
+    return toPublicUploadsApiUrl(origin, relative);
   }
 
   const raw = String(rawUrl || '').trim();
   if (!raw) return '';
 
   if (isLoopbackHost(raw) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(raw)) {
-    try {
-      const normalized = raw.match(/^https?:\/\//i) ? raw : `http://${raw.replace(/^\/+/, '')}`;
-      const path = new URL(normalized).pathname;
-      if (path.startsWith('/uploads/')) {
-        return `${origin}${path}`;
-      }
-    } catch {
-      /* fall through */
-    }
-    return raw.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, origin);
+    return toPublicUploadsApiUrl(origin, raw);
   }
 
   if (raw.startsWith('/uploads/')) {
-    return `${origin}${raw}`;
+    return toPublicUploadsApiUrl(origin, raw);
   }
 
-  return raw;
+  return toPublicUploadsApiUrl(origin, raw) || raw;
 }
 
 function resolvePhase2PortalSyncSecret() {
