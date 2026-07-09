@@ -151,7 +151,26 @@ export function createHttpApiError(
   return normalizeHttpError(status, message, meta);
 }
 
-export function normalizeInvalidResponseError(status?: number): ApiRequestError {
+const PAYLOAD_TOO_LARGE_RE = /request entity too large|payload too large|body exceeded|entity too large|file too large|maximum.*size|413/i;
+
+/**
+ * A 413 (or a proxy/platform "Request Entity Too Large" plain-text body) is the
+ * usual reason a JSON parse fails on an upload — surface something the user can
+ * act on instead of the cryptic `Unexpected token 'R'...`.
+ */
+export function isPayloadTooLarge(status?: number, rawText?: string): boolean {
+  if (status === 413) return true;
+  return typeof rawText === 'string' && PAYLOAD_TOO_LARGE_RE.test(rawText);
+}
+
+export function normalizeInvalidResponseError(status?: number, rawText?: string): ApiRequestError {
+  if (isPayloadTooLarge(status, rawText)) {
+    return new ApiRequestError(
+      'The file is too large to upload. Please attach a smaller file (under 4 MB) and try again.',
+      { status: status ?? 413, kind: 'invalid_response', retryable: false },
+    );
+  }
+
   const retryable = typeof status === 'number' && isRetryableHttpStatus(status);
   const message =
     status === 502 || status === 503 || status === 504
@@ -163,6 +182,33 @@ export function normalizeInvalidResponseError(status?: number): ApiRequestError 
     kind: 'invalid_response',
     retryable,
   });
+}
+
+/**
+ * Read a fetch Response body as JSON without throwing the browser's cryptic
+ * `Unexpected token 'R', "Request En"... is not valid JSON`. Reads the body as
+ * text once, then parses. On non-JSON bodies it raises a friendly, actionable
+ * ApiRequestError (payload-too-large aware).
+ */
+export async function readApiJson<T = unknown>(res: Response): Promise<T> {
+  let rawText = '';
+  try {
+    rawText = await res.text();
+  } catch (error) {
+    throw normalizeInvalidResponseError(res.status);
+  }
+
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    if (res.ok) return undefined as unknown as T;
+    throw normalizeInvalidResponseError(res.status);
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw normalizeInvalidResponseError(res.status, trimmed);
+  }
 }
 
 export function isRetryableApiError(error: unknown): boolean {

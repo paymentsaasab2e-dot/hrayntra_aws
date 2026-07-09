@@ -23,7 +23,7 @@ export const errorMiddleware = (err, req, res, next) => {
   }
 
   if (err.code === 'LIMIT_FILE_SIZE') {
-    return sendError(res, 400, 'File is too large. Maximum size is 5MB.', err);
+    return sendError(res, 413, 'File is too large. Please attach a file under 4 MB.', err);
   }
 
   if (err.name === 'MulterError' || /only pdf|file type/i.test(String(err.message || ''))) {

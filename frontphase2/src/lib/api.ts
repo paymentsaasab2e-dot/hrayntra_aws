@@ -3,7 +3,7 @@
 import {
   createHttpApiError,
   normalizeFetchError,
-  normalizeInvalidResponseError,
+  readApiJson,
 } from './apiNetworkErrors';
 import type {
   BillingSettingsSnapshot,
@@ -358,12 +358,7 @@ export async function apiFetch<T>(
     throw normalizeFetchError(fetchError);
   }
 
-  let json: any;
-  try {
-    json = await res.json();
-  } catch {
-    throw normalizeInvalidResponseError(res.status);
-  }
+  const json = await readApiJson<any>(res);
 
   if (!res.ok || json?.success === false) {
     if (debugApiLogs) {
@@ -413,12 +408,7 @@ export async function apiFetch<T>(
               cache: 'no-store',
             });
 
-            let retryJson: any;
-            try {
-              retryJson = await retryRes.json();
-            } catch {
-              throw normalizeInvalidResponseError(retryRes.status);
-            }
+            const retryJson = await readApiJson<any>(retryRes);
 
             if (retryRes.ok && retryJson?.success !== false) {
               return retryJson as ApiResponse<T>;
@@ -1862,9 +1852,7 @@ export async function apiFetchFormData<T>(
     throw normalizeFetchError(fetchError);
   }
 
-  const json = await res.json().catch(() => {
-    throw normalizeInvalidResponseError(res.status);
-  });
+  const json = await readApiJson<any>(res);
 
   if (!res.ok || json?.success === false) {
     if (debugApiLogs) {
@@ -1952,9 +1940,7 @@ export async function apiBulkCvReleaseZip(
     throw normalizeFetchError(fetchError);
   }
 
-  const json = await res.json().catch(() => {
-    throw normalizeInvalidResponseError(res.status);
-  });
+  const json = await readApiJson<any>(res);
   if (!res.ok || json?.success === false) {
     throw createHttpApiError(res.status, json?.message || `Request failed with status ${res.status}`, {
       data: json?.data,

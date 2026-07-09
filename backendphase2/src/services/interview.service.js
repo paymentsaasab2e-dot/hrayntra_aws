@@ -281,7 +281,9 @@ const getClientRecipients = async (clientId) => {
     where: {
       companyId: clientId,
       contactType: 'CLIENT',
-      email: { not: null },
+      // `Contact.email` is required (non-nullable), so `{ not: null }` is both
+      // redundant and rejected by Prisma. Filter empty strings in JS below.
+      email: { not: '' },
     },
     select: { email: true },
     orderBy: { createdAt: 'asc' },

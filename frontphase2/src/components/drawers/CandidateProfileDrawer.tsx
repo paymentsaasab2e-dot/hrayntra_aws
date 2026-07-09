@@ -614,11 +614,25 @@ type ScheduleClientContactOption = {
   email?: string | null;
 };
 
+export interface ScheduleInterviewCandidateOption {
+  id: string;
+  name: string;
+  phone?: string | null;
+  assignedJob?: string | null;
+  assignedJobId?: string | null;
+}
+
 interface ScheduleInterviewModalProps {
   candidate: Pick<
     CandidateProfileDrawerData,
     'id' | 'name' | 'phone' | 'stage' | 'assignedJob' | 'assignedJobId'
   > | null;
+  /**
+   * When provided (and `candidate` is null), the popup renders a candidate
+   * picker so it can be used standalone — e.g. the /interviews "Schedule
+   * Interview" button, where no single candidate is pre-selected.
+   */
+  candidateOptions?: ScheduleInterviewCandidateOption[];
   linkedJobLabel?: string;
   linkedJobTitle?: string;
   linkedJobCompany?: string;
@@ -634,8 +648,9 @@ interface ScheduleInterviewModalProps {
   onScheduledSuccess?: (message: string) => void;
 }
 
-function ScheduleInterviewModal({
-  candidate,
+export function ScheduleInterviewModal({
+  candidate: fixedCandidate,
+  candidateOptions,
   linkedJobLabel,
   linkedJobTitle,
   linkedJobCompany,
@@ -651,6 +666,7 @@ function ScheduleInterviewModal({
   onScheduledSuccess,
 }: ScheduleInterviewModalProps) {
   const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
+  const [standaloneCandidateId, setStandaloneCandidateId] = useState('');
   const [interviewType, setInterviewType] = useState('');
   const [roundNumber, setRoundNumber] = useState(1);
   const [date, setDate] = useState('');
@@ -705,6 +721,25 @@ function ScheduleInterviewModal({
 
   const selectedJob = scheduleJobOptions.find((job) => job.id === selectedJobId);
   const selectedClient = clientOptions.find((client) => client.id === selectedClientId);
+
+  // Standalone usage (e.g. /interviews page): pick the candidate here instead of
+  // inheriting it from a profile drawer. When a fixed candidate is passed, the
+  // picker stays hidden and `candidate` simply mirrors that prop.
+  const allowCandidatePick =
+    !fixedCandidate && Array.isArray(candidateOptions) && candidateOptions.length > 0;
+  const candidate = useMemo(() => {
+    if (fixedCandidate) return fixedCandidate;
+    const picked = candidateOptions?.find((option) => option.id === standaloneCandidateId);
+    if (!picked) return null;
+    return {
+      id: picked.id,
+      name: picked.name,
+      phone: picked.phone ?? null,
+      stage: null,
+      assignedJob: picked.assignedJob ?? null,
+      assignedJobId: picked.assignedJobId ?? null,
+    };
+  }, [fixedCandidate, candidateOptions, standaloneCandidateId]);
 
   const interviewSlotDescriptors = useMemo(() => generateStandardInterviewSlotDescriptors(), []);
   const visibleTimeSlots = useMemo(
@@ -770,6 +805,7 @@ function ScheduleInterviewModal({
       setSelectedClientContacts([]);
       setClientContactSearch('');
       setClientContactOpen(false);
+      setStandaloneCandidateId('');
     }
   }, [candidate?.phone, existingInterviews?.length, isOpen]);
 
@@ -1102,6 +1138,7 @@ function ScheduleInterviewModal({
 
   const validate = () => {
     const nextErrors: Record<string, string | undefined> = {};
+    if (allowCandidatePick && !standaloneCandidateId) nextErrors.candidate = 'Candidate is required';
     if (!status) nextErrors.status = 'Status is required';
     if (!interviewType) nextErrors.interviewType = 'Interview type is required';
     if (!roundNumber || roundNumber < 1) nextErrors.roundNumber = 'Round number is required';
@@ -1126,6 +1163,7 @@ function ScheduleInterviewModal({
   };
 
   const isFormValid =
+    (!allowCandidatePick || Boolean(standaloneCandidateId)) &&
     Boolean(status && interviewType && roundNumber >= 1 && date && time && duration && mode) &&
     Boolean(selectedJobId) &&
     selectedInterviewers.length > 0 &&
@@ -1292,6 +1330,33 @@ function ScheduleInterviewModal({
                 <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <h4 className="text-sm font-semibold text-slate-900">Interview Details</h4>
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {allowCandidatePick ? (
+                      <div className="sm:col-span-2">
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Candidate <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={standaloneCandidateId}
+                          onChange={(e) => {
+                            setStandaloneCandidateId(e.target.value);
+                            setErrors((prev) => ({ ...prev, candidate: undefined }));
+                          }}
+                          className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
+                            errors.candidate ? 'border-red-300' : 'border-slate-200'
+                          } focus:border-blue-400 focus:ring-2 focus:ring-blue-100`}
+                        >
+                          <option value="">Select candidate</option>
+                          {candidateOptions?.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.name}
+                            </option>
+                          ))}
+                        </select>
+                        {errors.candidate ? (
+                          <p className="mt-1 text-xs text-red-600">{errors.candidate}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="sm:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-slate-700">
                         Status <span className="text-red-500">*</span>

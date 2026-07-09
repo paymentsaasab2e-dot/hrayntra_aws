@@ -61,7 +61,10 @@ const clientReviewStorage = multer.diskStorage({
 
 const clientReviewUpload = multer({
   storage: clientReviewStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  // 4 MB keeps uploads under the serverless proxy/platform request-body cap
+  // (~4.5 MB on Vercel) so the frontend never receives a plain-text
+  // "Request Entity Too Large" it can't JSON-parse.
+  limits: { fileSize: 4 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     // Tightening to PDF here matches the placement flow and stops accidental
     // images / executables from a public upload surface.

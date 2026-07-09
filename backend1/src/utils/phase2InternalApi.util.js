@@ -52,6 +52,40 @@ function resolvePhase2InternalApiOrigin() {
   return candidates[0] || 'http://localhost:5001';
 }
 
+/**
+ * Rewrite CRM offer-letter URLs stored during local dev (`localhost:5001`)
+ * to the public phase2 origin so the job portal can open them in production.
+ */
+function resolvePhase2UploadUrl(rawUrl, relativeUrl) {
+  const origin = resolvePhase2InternalApiOrigin();
+  const relative = String(relativeUrl || '').trim();
+  if (relative.startsWith('/uploads/')) {
+    return `${origin}${relative}`;
+  }
+
+  const raw = String(rawUrl || '').trim();
+  if (!raw) return '';
+
+  if (isLoopbackHost(raw) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(raw)) {
+    try {
+      const normalized = raw.match(/^https?:\/\//i) ? raw : `http://${raw.replace(/^\/+/, '')}`;
+      const path = new URL(normalized).pathname;
+      if (path.startsWith('/uploads/')) {
+        return `${origin}${path}`;
+      }
+    } catch {
+      /* fall through */
+    }
+    return raw.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, origin);
+  }
+
+  if (raw.startsWith('/uploads/')) {
+    return `${origin}${raw}`;
+  }
+
+  return raw;
+}
+
 function resolvePhase2PortalSyncSecret() {
   const configured = String(process.env.PHASE2_PORTAL_SYNC_SECRET || '').trim();
   if (configured) return configured;
@@ -108,6 +142,7 @@ module.exports = {
   DEV_FALLBACK_SECRET,
   PRODUCTION_PHASE2_API_ORIGIN,
   resolvePhase2InternalApiOrigin,
+  resolvePhase2UploadUrl,
   resolvePhase2PortalSyncSecret,
   buildPhase2InternalUrl,
   postPhase2Internal,

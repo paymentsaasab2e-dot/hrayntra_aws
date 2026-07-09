@@ -69,6 +69,10 @@ function personName(person) {
   return String(person.name || '').trim() || [person.firstName, person.lastName].filter(Boolean).join(' ').trim();
 }
 
+function isValidEmail(value) {
+  return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 async function getCollection() {
   if (typeof prisma?.$runCommandRaw !== 'function') return null;
   return {
@@ -892,10 +896,19 @@ export async function processScheduledWorkspaceBriefs() {
   if (process.env.AI_WORKSPACE_BRIEF_ENABLED === 'false') return;
   if (!hasLlmProvider()) return;
 
-  const since = new Date(Date.now() - 20 * 60 * 60 * 1000);
+  // Only re-brief a user once per window. Keep it at least as long as the
+  // scheduler interval so the same brief isn't re-sent every hourly cycle.
+  const windowMs = Math.max(
+    DEDUP_MS,
+    Number(process.env.AI_WORKSPACE_BRIEF_INTERVAL_MS) || 20 * 60 * 60 * 1000,
+  );
+  const emailEnabled = process.env.AI_WORKSPACE_BRIEF_EMAIL !== 'false';
+
   const users = await prisma.user.findMany({
-    where: { isActive: true, email: { not: null } },
-    select: { id: true },
+    // `email` is a required (non-nullable) field on User, so `{ not: null }` is
+    // both redundant and rejected by Prisma ("Argument `not` must not be null").
+    where: { isActive: true },
+    select: { id: true, email: true },
     take: 50,
   });
 
@@ -904,13 +917,23 @@ export async function processScheduledWorkspaceBriefs() {
 
   for (const user of users) {
     try {
-      const recent = await col.findRecentForUser(user.id, since);
-      if (recent) continue;
+      // Robust dedup: read the latest brief and compare timestamps in JS. The
+      // previous raw `$gte:{$date}` filter could silently miss existing rows
+      // (BSON date type mismatch), causing the same brief to be re-emailed on
+      // every hourly scheduler run.
+      const latest = toRow(await col.findLatestForUser(user.id));
+      if (latest?.createdAt) {
+        const ageMs = Date.now() - new Date(latest.createdAt).getTime();
+        if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < windowMs) continue;
+      }
+
       await generateWorkspaceBrief({
         userId: user.id,
         trigger: 'scheduled',
         skipDedup: true,
-        sendEmail: process.env.AI_WORKSPACE_BRIEF_EMAIL !== 'false',
+        // Only email addresses that actually look like emails — the default DB
+        // seed users include non-email values (e.g. "superadmin_basic5").
+        sendEmail: emailEnabled && isValidEmail(user.email),
         sendNotification: true,
       });
     } catch (err) {

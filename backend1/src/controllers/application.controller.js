@@ -7,6 +7,7 @@ const {
   resolvePublicCompanyName,
   shouldShowClientNamePublicly,
 } = require('../utils/formatPortalJob.util');
+const { resolvePhase2UploadUrl } = require('../utils/phase2InternalApi.util');
 
 /** True for Prisma Mongo write conflicts / transient transaction failures (case + message fallbacks). */
 function isMongoTransientWriteConflict(e) {
@@ -1918,7 +1919,10 @@ async function getApplicationById(req, res) {
       try {
         const parsed = JSON.parse(application.offerDetails);
         if (parsed && typeof parsed === 'object') {
-          offerLetterUrl = parsed.offerLetterUrl || null;
+          offerLetterUrl = resolvePhase2UploadUrl(
+            parsed.offerLetterUrl || null,
+            parsed.offerLetterRelativeUrl || null,
+          );
           offerLetterFileName = parsed.offerLetterFileName || null;
           offerLetterUploadedAt = parsed.offerLetterUploadedAt || null;
           offerDetailsText = parsed.legacyOfferText || null;
