@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { getJobPortalPrismaClient } from '../../config/prisma.js';
+import { env, isLoopbackPublicUrl, normalizePublicUrl } from '../../config/env.js';
 import {
   notifyCandidateHired,
   notifyCandidateStageChanged,
@@ -328,12 +329,27 @@ function buildAbsoluteUploadsUrl(relativeUrl) {
   if (!relativeUrl) return null;
   const url = String(relativeUrl).trim();
   if (!url) return null;
-  if (/^https?:\/\//i.test(url)) return url;
   const base = String(
     process.env.BACKEND_PUBLIC_URL ||
       process.env.PUBLIC_BACKEND_URL ||
+      env.BACKEND_PUBLIC_URL ||
       `http://localhost:${process.env.PORT || '5001'}`
   ).replace(/\/+$/, '');
+  if (/^https?:\/\//i.test(url)) {
+    // Rebuild loopback absolute URLs saved during local dev so portal links
+    // point at the public CRM host in production.
+    if (isLoopbackPublicUrl(url)) {
+      try {
+        const path = new URL(normalizePublicUrl(url)).pathname;
+        if (path.startsWith('/uploads/')) {
+          return `${base}${path}`;
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+    return url;
+  }
   const path = url.startsWith('/') ? url : `/${url}`;
   return `${base}${path}`;
 }

@@ -67,8 +67,12 @@ export function resolvePublicFrontendUrl() {
 
 const publicFrontendUrl = resolvePublicFrontendUrl();
 const publicBackendUrl = normalizePublicUrl(
-  process.env.BACKEND_PUBLIC_URL,
-  `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
+  process.env.BACKEND_PUBLIC_URL || process.env.PUBLIC_BACKEND_URL,
+  // Never fall back to localhost in production — a localhost `/uploads/...` link
+  // in a client email/review is unreachable for the external recipient.
+  process.env.NODE_ENV === 'production'
+    ? 'https://api2.hryantra.com'
+    : `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
 );
 
 export const env = {

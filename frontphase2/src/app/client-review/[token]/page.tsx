@@ -11,16 +11,48 @@ import {
   type ClientReviewBatchRow,
   type ClientReviewData,
 } from '../../../lib/clientReviewTypes';
+import { getApiErrorMessage, readApiJson } from '../../../lib/apiNetworkErrors';
 
 const LOCAL_API_BASE = 'http://127.0.0.1:5001/api/v1';
 const PROD_PROXY_BASE = '/api/proxy';
 
+const LOCAL_BACKEND_ORIGIN = 'http://127.0.0.1:5001';
+const PROD_BACKEND_ORIGIN =
+  process.env.NEXT_PUBLIC_BACKEND_ORIGIN || 'https://api2.hryantra.com';
+
+// Keep under the serverless proxy/platform request-body limit (~4.5 MB on
+// Vercel). A larger PDF is rejected by the platform with a plain-text
+// "Request Entity Too Large" before it reaches the API, which the browser then
+// fails to JSON-parse ("Unexpected token 'R'..."). Block it client-side first.
+const MAX_OFFER_FILE_BYTES = 4 * 1024 * 1024;
+
+const isLocalHost = () => {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local');
+};
+
 const resolveApiBase = () => {
   if (typeof window === 'undefined') return PROD_PROXY_BASE;
-  const host = window.location.hostname;
-  return host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')
-    ? LOCAL_API_BASE
-    : PROD_PROXY_BASE;
+  return isLocalHost() ? LOCAL_API_BASE : PROD_PROXY_BASE;
+};
+
+/**
+ * Uploaded files are served by the backend's `/uploads/...` static handler on a
+ * different origin than this SPA. Stored URLs can be relative (`/uploads/...`)
+ * or an absolute dev URL (`http://localhost:5001/...`) — either would 404 when
+ * opened from employers.hryantra.com, so rewrite them to the real backend host.
+ */
+const resolveUploadUrl = (raw?: string | null): string => {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  const backendOrigin = isLocalHost() ? LOCAL_BACKEND_ORIGIN : PROD_BACKEND_ORIGIN;
+  const rewritten = value.replace(
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i,
+    backendOrigin,
+  );
+  if (rewritten.startsWith('/uploads')) return `${backendOrigin}${rewritten}`;
+  return rewritten;
 };
 
 export default function ClientReviewPage() {
@@ -65,7 +97,7 @@ export default function ClientReviewPage() {
     void (async () => {
       try {
         const response = await fetch(`${apiBase}/interviews/public/review/${encodeURIComponent(token)}`);
-        const payload = await response.json();
+        const payload = await readApiJson<any>(response);
         if (!response.ok || !payload?.success) {
           throw new Error(payload?.message || 'Invalid or expired review link');
         }
@@ -78,7 +110,7 @@ export default function ClientReviewPage() {
         setSelectedTag(initialOptions[0]);
       } catch (err: unknown) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Unable to load review details');
+        setError(getApiErrorMessage(err) || 'Unable to load review details');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -97,6 +129,18 @@ export default function ClientReviewPage() {
         throw new Error('Please attach the signed offer letter (PDF).');
       }
 
+      if (offerLetterFile) {
+        if (offerLetterFile.type && !/^application\/pdf$/i.test(offerLetterFile.type)) {
+          throw new Error('Only PDF files are allowed. Please attach a PDF.');
+        }
+        if (offerLetterFile.size > MAX_OFFER_FILE_BYTES) {
+          const sizeMb = (offerLetterFile.size / (1024 * 1024)).toFixed(1);
+          throw new Error(
+            `The selected file is ${sizeMb} MB. Please attach a PDF under 4 MB and try again.`,
+          );
+        }
+      }
+
       const formData = new FormData();
       formData.append('tag', selectedTag);
       if (comments) formData.append('comments', comments);
@@ -110,7 +154,7 @@ export default function ClientReviewPage() {
           body: formData,
         },
       );
-      const payload = await response.json();
+      const payload = await readApiJson<any>(response);
       if (!response.ok || !payload?.success) {
         throw new Error(payload?.message || 'Unable to submit your response');
       }
@@ -131,7 +175,7 @@ export default function ClientReviewPage() {
         setOfferLetterFile(null);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Unable to submit your response');
+      setError(getApiErrorMessage(err) || 'Unable to submit your response');
     } finally {
       setSubmitting(false);
     }
@@ -197,14 +241,14 @@ export default function ClientReviewPage() {
               </h2>
               <p className="mt-1 text-xs text-[#6B7280]">
                 {isOfferFlow
-                  ? 'Attach the signed offer letter (PDF, max 5 MB) so the recruiter can finalize the placement.'
-                  : 'Optionally attach any supporting document (PDF, max 5 MB).'}
+                  ? 'Attach the signed offer letter (PDF, max 4 MB) so the recruiter can finalize the placement.'
+                  : 'Optionally attach any supporting document (PDF, max 4 MB).'}
               </p>
               {reviewData.offerLetterUrl ? (
                 <p className="mt-2 text-xs text-emerald-700">
                   Already on file:&nbsp;
                   <a
-                    href={reviewData.offerLetterUrl}
+                    href={resolveUploadUrl(reviewData.offerLetterUrl)}
                     target="_blank"
                     rel="noreferrer"
                     className="font-semibold underline"

@@ -18,6 +18,7 @@ import { PanelAssignmentModal } from '../../components/interviews/PanelAssignmen
 import { RejectCandidateModal } from '../../components/interviews/RejectCandidateModal';
 import { RescheduleModal } from '../../components/interviews/RescheduleModal';
 import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
+import { ScheduleInterviewModal as CandidateScheduleInterviewModal } from '../../components/drawers/CandidateProfileDrawer';
 import { SubmitToClientDrawer } from '../../components/interviews/SubmitToClientDrawer';
 import { useInterviewDrawer } from '../../hooks/useInterviewDrawer';
 import { useInterviews } from '../../hooks/useInterviews';
@@ -29,7 +30,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { requestConfirm } from '../../lib/appDialog';
 import { combineInterviewDateAndTimeToIso } from '../../lib/interview-schedule-helpers';
-import { apiRejectCandidate } from '../../lib/api';
+import { apiRejectCandidate, apiScheduleCandidateInterview } from '../../lib/api';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import PaginationAll from '../../components/PaginationAll';
@@ -847,8 +848,61 @@ export default function InterviewsPage() {
         }}
       />
 
+      <CandidateScheduleInterviewModal
+        isOpen={modals.isModalOpen('schedule') && !editInterview && canCreateInterview}
+        candidate={null}
+        candidateOptions={candidateOptions.map((candidate) => ({
+          id: candidate.id,
+          name: candidate.name,
+        }))}
+        jobs={jobOptions.map((job) => ({
+          id: job.id,
+          title: job.title,
+          clientId: job.clientId ?? null,
+          clientName: job.client ?? null,
+        }))}
+        interviewers={interviewerOptions.map((member) => ({
+          id: member.userId || member.id,
+          name: member.name,
+          role: member.role,
+          department: member.department,
+        }))}
+        existingInterviews={[]}
+        onClose={() => {
+          modals.close();
+          setEditInterview(null);
+        }}
+        onScheduledSuccess={(message) => setToast(message)}
+        onSchedule={async (interviewData) => {
+          await apiScheduleCandidateInterview(interviewData.candidateId, {
+            jobId: interviewData.jobId,
+            clientId: interviewData.clientId || undefined,
+            type: interviewData.type,
+            round: interviewData.round,
+            date: interviewData.date,
+            time: interviewData.time,
+            duration: interviewData.duration,
+            mode: interviewData.mode,
+            platform:
+              interviewData.platform === 'Google Meet'
+                ? 'GOOGLE_MEET'
+                : interviewData.platform === 'Zoom'
+                  ? 'ZOOM'
+                  : null,
+            meetingLink: interviewData.meetingLink,
+            location: interviewData.location,
+            phoneNumber: interviewData.phoneNumber,
+            interviewers: interviewData.interviewers,
+            notes: interviewData.notes,
+            sendCandidateInvite: interviewData.sendCandidateInvite,
+            sendInterviewerInvite: interviewData.sendInterviewerInvite,
+          });
+          await retryLoad();
+        }}
+      />
+
       <ScheduleInterviewModal
-        isOpen={modals.isModalOpen('schedule') && (canCreateInterview || !!editInterview)}
+        isOpen={modals.isModalOpen('schedule') && !!editInterview && canUpdateInterview}
         candidates={candidateOptions}
         jobs={jobOptions}
         interviewers={interviewerOptions}
