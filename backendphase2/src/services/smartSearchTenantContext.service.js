@@ -118,18 +118,32 @@ export function buildJobsListScopeWhere(req) {
   return { AND: [scopedWhere, { isDeleted: { not: true } }] };
 }
 
-function compactJobRowForAi(job, recruiterNameById = new Map(), clientNameById = new Map()) {
+function compactJobRowForAi(job, recruiterNameById = new Map(), clientNameById = new Map(), managerNameById = new Map()) {
   return {
     id: job.id,
     title: clip(job.title, 80),
     status: clip(job.status, 30),
     location: clip(job.location, 60),
     type: clip(job.type, 30),
+    priority: clip(job.priority, 20),
+    nationality: clip(job.nationality, 40),
+    country: clip(job.country, 40),
+    state: clip(job.state, 40),
+    city: clip(job.city, 40),
+    workMode: clip(job.workMode, 30),
+    experienceRequired: clip(job.experienceRequired, 40),
+    education: clip(job.education, 80),
+    hiringManager: clip(job.hiringManager, 60),
     skills: clip((job.skills || []).join(', '), 100),
+    responsibilities: clip((job.keyResponsibilities || []).join(', '), 120),
+    requirements: clip((job.candidateRequirements || job.requirements || []).join(', '), 120),
     clientName: clip(clientNameById.get(job.clientId) || '', 60),
     clientId: job.clientId || '',
     assignedTo: clip(recruiterNameById.get(job.assignedToId) || '', 60),
     assignedToId: job.assignedToId || '',
+    manager: clip(managerNameById.get(job.managerId) || '', 60),
+    managerId: job.managerId || '',
+    descriptionSnippet: clip(job.description, 160),
   };
 }
 
@@ -148,38 +162,60 @@ export async function loadJobsTenantSearchContext(req) {
       status: true,
       location: true,
       type: true,
+      priority: true,
+      nationality: true,
+      country: true,
+      state: true,
+      city: true,
+      workMode: true,
+      experienceRequired: true,
+      education: true,
+      hiringManager: true,
+      description: true,
       skills: true,
+      keyResponsibilities: true,
+      candidateRequirements: true,
+      requirements: true,
       clientId: true,
       assignedToId: true,
+      managerId: true,
     },
   });
 
   const clientIds = [...new Set(rawJobs.map((job) => job.clientId).filter(Boolean))];
   const recruiterIds = [...new Set(rawJobs.map((job) => job.assignedToId).filter(Boolean))];
+  const managerIds = [...new Set(rawJobs.map((job) => job.managerId).filter(Boolean))];
+  const userIds = [...new Set([...recruiterIds, ...managerIds])];
 
-  const [clients, recruiters] = await Promise.all([
+  const [clients, users] = await Promise.all([
     clientIds.length
       ? prisma.client.findMany({
           where: { id: { in: clientIds } },
           select: { id: true, companyName: true },
         })
       : [],
-    recruiterIds.length
+    userIds.length
       ? prisma.user.findMany({
-          where: { id: { in: recruiterIds } },
+          where: { id: { in: userIds } },
           select: { id: true, name: true, email: true },
         })
       : [],
   ]);
 
+  const recruiters = users.filter((user) => recruiterIds.includes(user.id));
   const clientNameById = new Map(clients.map((client) => [client.id, client.companyName]));
   const recruiterNameById = new Map(recruiters.map((user) => [user.id, user.name]));
-  const allJobs = rawJobs.map((job) => compactJobRowForAi(job, recruiterNameById, clientNameById));
+  const managerNameById = new Map(users.map((user) => [user.id, user.name]));
+  const allJobs = rawJobs.map((job) =>
+    compactJobRowForAi(job, recruiterNameById, clientNameById, managerNameById),
+  );
   const allJobIds = new Set(allJobs.map((job) => job.id));
 
   return {
     ...buildTenantMeta(tenantDbName, totalJobs, allJobs.length, allJobIds, 'totalJobs', 'jobsLoadedForAi'),
     statuses: uniqueNonEmpty(rawJobs.map((job) => job.status)),
+    priorities: uniqueNonEmpty(rawJobs.map((job) => job.priority)),
+    employmentTypes: uniqueNonEmpty(rawJobs.map((job) => job.type)),
     clients: clients.map((client) => ({ id: client.id, name: client.companyName })),
     recruiters,
     allJobs,
@@ -199,6 +235,15 @@ export function normalizeJobsAiFiltersAgainstTenant(filters = {}, keywords = [],
   }
   if (nextFilters.recruiterId) {
     nextFilters.recruiterId = resolveRecruiterId(nextFilters.recruiterId, tenantDb.recruiters || []);
+  }
+  if (nextFilters.priority) {
+    nextFilters.priority =
+      findClosestMatch(nextFilters.priority, tenantDb.priorities || []) || nextFilters.priority;
+  }
+  if (nextFilters.employmentType) {
+    nextFilters.employmentType =
+      findClosestMatch(nextFilters.employmentType, tenantDb.employmentTypes || []) ||
+      nextFilters.employmentType;
   }
 
   for (let i = 0; i < nextKeywords.length; i += 1) {
@@ -229,19 +274,41 @@ export function normalizeJobsAiFiltersAgainstTenant(filters = {}, keywords = [],
 
 // —— Clients ——
 
+function flattenJsonForSearch(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(flattenJsonForSearch).join(' ');
+  if (typeof value === 'object') {
+    return Object.values(value).map(flattenJsonForSearch).join(' ');
+  }
+  return '';
+}
+
 function compactClientRowForAi(client, recruiterNameById = new Map()) {
   return {
     id: client.id,
     companyName: clip(client.companyName, 80),
     status: clip(client.status, 30),
+    leadStatus: clip(client.leadStatus, 30),
     industry: clip(client.industry, 50),
     location: clip(client.location, 60),
     city: clip(client.city, 40),
+    state: clip(client.state, 40),
     country: clip(client.country, 40),
     priority: clip(client.priority, 20),
     hot: Boolean(client.hot),
     assignedTo: clip(recruiterNameById.get(client.assignedToId) || '', 60),
     assignedToId: client.assignedToId || '',
+    website: clip(client.website, 80),
+    servicesNeeded: clip(client.servicesNeeded, 80),
+    expectedBusinessValue: clip(client.expectedBusinessValue, 60),
+    teamMemberEmail: clip(client.teamMemberEmail, 60),
+    teamMemberDesignation: clip(client.teamMemberDesignation, 60),
+    agreementLevel: clip(client.agreementLevel, 40),
+    agreementServiceChargePercent: clip(client.agreementServiceChargePercent, 20),
+    agreementTimePeriod: clip(client.agreementTimePeriod, 80),
+    kycSummary: clip(flattenJsonForSearch(client.postServiceKycForm), 220),
   };
 }
 
@@ -258,13 +325,24 @@ export async function loadClientsTenantSearchContext(req) {
       id: true,
       companyName: true,
       status: true,
+      leadStatus: true,
       industry: true,
       location: true,
       city: true,
+      state: true,
       country: true,
       priority: true,
       hot: true,
       assignedToId: true,
+      website: true,
+      servicesNeeded: true,
+      expectedBusinessValue: true,
+      teamMemberEmail: true,
+      teamMemberDesignation: true,
+      agreementLevel: true,
+      agreementServiceChargePercent: true,
+      agreementTimePeriod: true,
+      postServiceKycForm: true,
     },
   });
 
@@ -364,6 +442,9 @@ function compactCandidateRowForAi(candidate, recruiterNameById = new Map(), jobT
     ...(candidate.applications || []).map((app) => app.jobId).filter(Boolean),
   ].filter(Boolean);
   const jobTitles = [...new Set(jobIds.map((id) => jobTitleById.get(id)).filter(Boolean))].join(', ');
+  const workSnippet = flattenJsonForSearch(candidate.cvWorkExperienceEntries);
+  const educationSnippet = flattenJsonForSearch(candidate.cvEducationEntries);
+  const portfolioSnippet = flattenJsonForSearch(candidate.cvPortfolioLinks);
 
   return {
     id: candidate.id,
@@ -372,11 +453,21 @@ function compactCandidateRowForAi(candidate, recruiterNameById = new Map(), jobT
     phone: clip(candidate.phone, 40),
     status: clip(candidate.status, 30),
     stage: clip(candidate.stage, 30),
+    source: clip(candidate.source, 30),
     currentCompany: clip(candidate.currentCompany, 60),
     currentTitle: clip(candidate.currentTitle, 60),
+    designation: clip(candidate.designation, 60),
     location: clip(candidate.location, 60),
-    experience: candidate.experience ?? null,
+    city: clip(candidate.city, 40),
+    country: clip(candidate.country, 40),
+    experience: candidate.experience ?? candidate.experienceYears ?? null,
+    availability: clip(candidate.availability, 40),
     skills: clip((candidate.skills || []).join(', '), 100),
+    education: clip(candidate.education, 80),
+    cvSummary: clip(candidate.cvSummary, 160),
+    workSnippet: clip(workSnippet, 160),
+    educationSnippet: clip(educationSnippet, 120),
+    portfolioSnippet: clip(portfolioSnippet, 120),
     assignedTo: clip(recruiterNameById.get(candidate.assignedToId) || '', 60),
     assignedToId: candidate.assignedToId || '',
     jobs: clip(jobTitles, 100),
@@ -400,10 +491,21 @@ export async function loadCandidatesTenantSearchContext(req) {
       phone: true,
       status: true,
       stage: true,
+      source: true,
       currentCompany: true,
       currentTitle: true,
+      designation: true,
       location: true,
+      city: true,
+      country: true,
       experience: true,
+      experienceYears: true,
+      availability: true,
+      education: true,
+      cvSummary: true,
+      cvEducationEntries: true,
+      cvWorkExperienceEntries: true,
+      cvPortfolioLinks: true,
       skills: true,
       assignedToId: true,
       assignedJobs: true,
@@ -451,6 +553,8 @@ export async function loadCandidatesTenantSearchContext(req) {
       'candidatesLoadedForAi',
     ),
     stages: uniqueNonEmpty(rawCandidates.map((candidate) => candidate.stage || candidate.status)),
+    statuses: uniqueNonEmpty(rawCandidates.map((candidate) => candidate.status)),
+    sources: uniqueNonEmpty(rawCandidates.map((candidate) => candidate.source)),
     jobs: jobs.map((job) => ({ id: job.id, name: job.title })),
     recruiters,
     allCandidates,
@@ -471,6 +575,14 @@ export function normalizeCandidatesAiFiltersAgainstTenant(filters = {}, keywords
   }
   if (nextFilters.jobId) {
     nextFilters.jobId = resolveNamedId(nextFilters.jobId, tenantDb.jobs || []);
+  }
+  if (nextFilters.status) {
+    nextFilters.status =
+      findClosestMatch(nextFilters.status, tenantDb.statuses || []) || nextFilters.status;
+  }
+  if (nextFilters.source) {
+    nextFilters.source =
+      findClosestMatch(nextFilters.source, tenantDb.sources || []) || nextFilters.source;
   }
 
   return { filters: nextFilters, keywords: nextKeywords };

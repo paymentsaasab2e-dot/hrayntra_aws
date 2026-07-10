@@ -1,5 +1,9 @@
 const { Resend } = require('resend');
 const { generateOTPEmailHTML, generateOTPEmailText } = require('../templates/otpEmail.template');
+const {
+  generateJobRecommendationEmailHTML,
+  generateJobRecommendationEmailText,
+} = require('../templates/jobRecommendationEmail.template');
 const { getEmailFromForTrigger } = require('../config/emailFromAddresses');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -76,6 +80,56 @@ async function sendOTPEmail(otp, recipientEmail, whatsappNumber) {
   }
 }
 
+async function sendJobRecommendationEmail({
+  toEmail,
+  candidateName,
+  jobTitle,
+  companyName,
+  matchScore,
+  jobUrl,
+}) {
+  try {
+    const recipientEmail = String(toEmail || '').trim();
+    if (!recipientEmail) {
+      return { success: false, error: 'Recipient email is required' };
+    }
+
+    if (!process.env.RESEND_API_KEY) {
+      console.warn('[email] RESEND_API_KEY missing — skipping job recommendation email');
+      return { success: false, error: 'Email service not configured' };
+    }
+
+    const payload = {
+      candidateName,
+      jobTitle,
+      companyName,
+      matchScore,
+      jobUrl,
+      supportEmail: 'support@saasab2e.com',
+      year: new Date().getFullYear(),
+    };
+
+    const { data, error } = await resend.emails.send({
+      from: getEmailFromForTrigger('job.recommendation'),
+      to: recipientEmail,
+      subject: `Recommended for you: ${jobTitle} (${matchScore}% CV fit)`,
+      html: generateJobRecommendationEmailHTML(payload),
+      text: generateJobRecommendationEmailText(payload),
+    });
+
+    if (error) {
+      console.error('[email] job recommendation failed:', error);
+      return { success: false, error: error.message || 'Failed to send email' };
+    }
+
+    return { success: true, messageId: data?.id };
+  } catch (error) {
+    console.error('[email] job recommendation exception:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
 module.exports = {
   sendOTPEmail,
+  sendJobRecommendationEmail,
 };

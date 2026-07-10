@@ -29,6 +29,7 @@ import {
   getMemberRoleId,
   pickDefaultManagerId,
   mergeReportingManagerLists,
+  mergeRolesWithDepartmentEmbedded,
   type DepartmentWithRoles,
 } from '../../lib/teamReporting';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -140,7 +141,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
         designation: member.designation || '',
         location: member.location || '',
         departmentId: member.department?.id || '',
-        roleId: member.role?.id || '',
+        roleId: getMemberRoleId(member) || '',
         managerId: member.manager?.id || member.managerRelation?.id || '',
         status: member.status || 'ACTIVE',
       });
@@ -152,9 +153,11 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
     setLoadingOptions(true);
     try {
       const [rolesRes, deptsRes] = await Promise.all([getRoles(), getDepartments()]);
+      const departmentList = deptsRes.data || [];
+      const mergedRoles = mergeRolesWithDepartmentEmbedded(rolesRes.data || [], departmentList);
 
-      setRoles(rolesRes.data || []);
-      setDepartments(deptsRes.data || []);
+      setRoles(mergedRoles);
+      setDepartments(departmentList);
       setReportingManagers([]);
     } catch (error: any) {
       toast.error('Failed to load options');
@@ -173,12 +176,14 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
     roles.find((r) => String(r.id) === String(formData.roleId));
 
   useEffect(() => {
+    if (loadingOptions) return;
     if (!formData.departmentId) {
       setReportingManagers([]);
       return;
     }
     if (
       formData.roleId &&
+      availableRoles.length > 0 &&
       !availableRoles.some((r) => String(r.id) === String(formData.roleId))
     ) {
       setFormData((prev) => ({ ...prev, roleId: '', managerId: '' }));
@@ -249,6 +254,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
       cancelled = true;
     };
   }, [
+    loadingOptions,
     formData.departmentId,
     formData.roleId,
     availableRoles,

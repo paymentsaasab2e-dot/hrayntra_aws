@@ -49,5 +49,6 @@ router.delete('/companies/:id/follow-ups/:followUpId', authMiddleware, hqControl
 router.post('/companies/:id/remarks', authMiddleware, hqController.addCompanyRemark);
 
 router.get('/portal', authMiddleware, hqController.getPortalOverview);
+router.delete('/portal/jobs/:id', authMiddleware, hqController.deletePortalJob);
 
 export default router;

@@ -47,15 +47,36 @@ export function useSmartSearch<TParsed extends { keywords: SmartSearchKeywordChi
         setActiveKeywords(parsed.keywords);
         if (options?.toastOnSuccess !== false) {
           const aiParsed = parsed as {
-            tenantDatabase?: { totalLeads?: number; leadsLoadedForAi?: number };
+            tenantDatabase?: {
+              totalLeads?: number;
+              leadsLoadedForAi?: number;
+              totalJobs?: number;
+              jobsLoadedForAi?: number;
+              totalRecords?: number;
+              recordsLoadedForAi?: number;
+            };
             matchingLeadIds?: string[];
+            matchingJobIds?: string[];
+            matchingClientIds?: string[];
           };
-          const matched = aiParsed.matchingLeadIds?.length ?? 0;
+          const matched =
+            aiParsed.matchingLeadIds?.length ??
+            aiParsed.matchingJobIds?.length ??
+            aiParsed.matchingClientIds?.length ??
+            0;
           const tenantHint =
             usedAi && matched > 0
-              ? ` — ${matched} lead${matched === 1 ? '' : 's'} selected from your database`
-              : usedAi && aiParsed.tenantDatabase?.totalLeads != null
-                ? ` — AI read ${aiParsed.tenantDatabase.leadsLoadedForAi ?? aiParsed.tenantDatabase.totalLeads} rows from your tenant database`
+              ? ` — ${matched} record${matched === 1 ? '' : 's'} selected from your database`
+              : usedAi && aiParsed.tenantDatabase
+                ? ` — AI read ${
+                    aiParsed.tenantDatabase.leadsLoadedForAi ??
+                    aiParsed.tenantDatabase.jobsLoadedForAi ??
+                    aiParsed.tenantDatabase.recordsLoadedForAi ??
+                    aiParsed.tenantDatabase.totalLeads ??
+                    aiParsed.tenantDatabase.totalJobs ??
+                    aiParsed.tenantDatabase.totalRecords ??
+                    0
+                  } rows from your tenant database`
                 : '';
           toast.success(usedAi ? `AI: ${parsed.summary}${tenantHint}` : parsed.summary);
         }

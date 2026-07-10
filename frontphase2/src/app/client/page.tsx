@@ -51,6 +51,7 @@ import { buildClientsListApiParams } from '../../lib/smart-search/entitySmartSea
 import {
   CLIENTS_SMART_SEARCH_EXAMPLES,
   clientMatchesSmartKeywordChips,
+  mergeClientsSmartSearchResult,
   parseClientsSmartSearchPrompt,
 } from '../../lib/smart-search/parsers';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
@@ -107,11 +108,11 @@ function getClientDynamicFieldValue(client: Client, label: string): string {
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   switch (activeTab) {
     case 'active':
-      return clients.filter((client) => client.stage === 'Active');
+      return clients.filter((client) => resolveClientStatusLabel(client) === 'Active');
     case 'on-hold':
-      return clients.filter((client) => client.stage === 'On Hold');
+      return clients.filter((client) => resolveClientStatusLabel(client) === 'On Hold');
     case 'inactive':
-      return clients.filter((client) => client.stage === 'Inactive');
+      return clients.filter((client) => resolveClientStatusLabel(client) === 'Inactive');
     case 'hot':
       return clients.filter((client) => client.priority === 'High');
     case 'all':
@@ -462,11 +463,17 @@ export default function App() {
   );
   const clientSmartSearch = useSmartSearch({
     parsePrompt: parseClientsSmartSearchPrompt,
-    parsePromptWithAi: (text) =>
-      parseSmartSearchWithAi('clients', text, { useTenantDatabase: true }, mapAiToClientsResult),
+    parsePromptWithAi: async (text) => {
+      const local = parseClientsSmartSearchPrompt(text);
+      const ai = await parseSmartSearchWithAi('clients', text, { useTenantDatabase: true }, mapAiToClientsResult);
+      if (!ai) return null;
+      return mergeClientsSmartSearchResult(local, ai);
+    },
     applyParsed: (parsed) => {
       setCurrentPage(1);
-      if (parsed.activeTab) setActiveTab(parsed.activeTab);
+      const stageChip = parsed.keywords.find((chip) => chip.kind === 'stage');
+      const nextTab = parsed.activeTab || stageChip?.value || null;
+      if (nextTab) setActiveTab(nextTab);
       if (parsed.priority) {
         setAdvancedFilters((previous) => ({ ...previous, priority: parsed.priority as ClientFilters['priority'] }));
       }
@@ -499,7 +506,7 @@ export default function App() {
 
   const sortedClients = useMemo(() => {
     let list = [...filteredClients];
-    if (clientSmartSearch.activeKeywords.length > 0 && smartSearchClientIds.length === 0) {
+    if (clientSmartSearch.activeKeywords.length > 0) {
       list = list.filter((client) =>
         clientMatchesSmartKeywordChips(client, clientSmartSearch.activeKeywords, currentUserName),
       );
@@ -509,7 +516,7 @@ export default function App() {
       return clientNameSortOrder === 'asc' ? comparison : -comparison;
     });
     return list;
-  }, [filteredClients, clientNameSortOrder, clientSmartSearch.activeKeywords, currentUserName, smartSearchClientIds.length]);
+  }, [filteredClients, clientNameSortOrder, clientSmartSearch.activeKeywords, currentUserName]);
   const pagedClients = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return sortedClients.slice(start, start + pageSize);
@@ -521,9 +528,9 @@ export default function App() {
   const tabCounts = useMemo(
     () => ({
       all: advancedFilteredClients.length,
-      active: advancedFilteredClients.filter((c) => c.stage === 'Active').length,
-      'on-hold': advancedFilteredClients.filter((c) => c.stage === 'On Hold').length,
-      inactive: advancedFilteredClients.filter((c) => c.stage === 'Inactive').length,
+      active: advancedFilteredClients.filter((c) => resolveClientStatusLabel(c) === 'Active').length,
+      'on-hold': advancedFilteredClients.filter((c) => resolveClientStatusLabel(c) === 'On Hold').length,
+      inactive: advancedFilteredClients.filter((c) => resolveClientStatusLabel(c) === 'Inactive').length,
       hot: advancedFilteredClients.filter((c) => c.priority === 'High').length,
     }),
     [advancedFilteredClients]

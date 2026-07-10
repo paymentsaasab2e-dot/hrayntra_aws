@@ -316,6 +316,24 @@ export const clientService = {
         { companyName: { contains: escaped, mode: 'insensitive' } },
         { industry: { contains: escaped, mode: 'insensitive' } },
         { website: { contains: escaped, mode: 'insensitive' } },
+        { linkedin: { contains: escaped, mode: 'insensitive' } },
+        { location: { contains: escaped, mode: 'insensitive' } },
+        { city: { contains: escaped, mode: 'insensitive' } },
+        { state: { contains: escaped, mode: 'insensitive' } },
+        { country: { contains: escaped, mode: 'insensitive' } },
+        { leadStatus: { contains: escaped, mode: 'insensitive' } },
+        { servicesNeeded: { contains: escaped, mode: 'insensitive' } },
+        { expectedBusinessValue: { contains: escaped, mode: 'insensitive' } },
+        { hiringLocations: { contains: escaped, mode: 'insensitive' } },
+        { teamMemberDesignation: { contains: escaped, mode: 'insensitive' } },
+        { teamMemberEmail: { contains: escaped, mode: 'insensitive' } },
+        { teamMemberPhone: { contains: escaped, mode: 'insensitive' } },
+        { directorSalutation: { contains: escaped, mode: 'insensitive' } },
+        { agreementLevel: { contains: escaped, mode: 'insensitive' } },
+        { agreementTimePeriod: { contains: escaped, mode: 'insensitive' } },
+        { agreementsFileName: { contains: escaped, mode: 'insensitive' } },
+        { emails: { hasSome: [search] } },
+        { phones: { hasSome: [search] } },
       ];
     }
     if (req.query.hot !== undefined) where.hot = req.query.hot === 'true';
@@ -698,7 +716,7 @@ export const clientService = {
     dbLogger.logCreate('CLIENT', clientData);
 
     if (data.performedById && clientData.assignedToId) {
-      await assertCanAssignCrm(data.performedById, clientData.assignedToId);
+      await assertCanAssignCrm(data.performedById, clientData.assignedToId, { req });
     }
 
     const client = await prisma.client.create({
@@ -908,7 +926,11 @@ export const clientService = {
     dbLogger.logUpdate('CLIENT', id, updateData);
 
     if (data.performedById && data.assignedToId !== undefined && data.assignedToId) {
-      await assertCanAssignCrm(data.performedById, data.assignedToId);
+      const currentAssignee = String(currentClient?.assignedToId || '').trim();
+      const nextAssignee = String(data.assignedToId || '').trim();
+      if (nextAssignee && nextAssignee !== currentAssignee) {
+        await assertCanAssignCrm(data.performedById, data.assignedToId, { req });
+      }
     }
 
     const updated = await prisma.client.update({

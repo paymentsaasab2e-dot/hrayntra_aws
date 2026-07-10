@@ -81,10 +81,20 @@ function appendCandidateFilterParts(andParts, filters) {
   const jobId = String(filters.jobId || '').trim();
   const experienceRange = String(filters.experienceRange || '').trim();
   const stage = String(filters.stage || '').trim();
+  const status = String(filters.status || '').trim();
+  const source = String(filters.source || '').trim();
   const range = CANDIDATE_EXPERIENCE_RANGES[experienceRange];
 
   const stageClause = buildStagePrismaWhereClause(stage);
   if (stageClause) andParts.push(stageClause);
+
+  if (status) {
+    const normalized = normalizeEnumToken(status, 'CandidateStatus');
+    if (normalized) andParts.push({ status: normalized });
+  }
+  if (source) {
+    andParts.push({ source: { contains: source, mode: 'insensitive' } });
+  }
 
   if (company) {
     andParts.push({
@@ -146,10 +156,30 @@ function appendCandidateFilterParts(andParts, filters) {
 function mapClientActiveTabToWhere(activeTab) {
   const tab = String(activeTab || '').trim().toLowerCase();
   if (tab === 'active') {
-    return { OR: [{ status: 'ACTIVE' }, { status: 'PROSPECT' }] };
+    return {
+      OR: [
+        { status: 'ACTIVE' },
+        { status: 'PROSPECT' },
+        { leadStatus: { equals: 'Active', mode: 'insensitive' } },
+      ],
+    };
   }
-  if (tab === 'on-hold') return { status: 'ON_HOLD' };
-  if (tab === 'inactive') return { status: 'INACTIVE' };
+  if (tab === 'on-hold') {
+    return {
+      OR: [
+        { status: 'ON_HOLD' },
+        { leadStatus: { equals: 'On Hold', mode: 'insensitive' } },
+      ],
+    };
+  }
+  if (tab === 'inactive') {
+    return {
+      OR: [
+        { status: 'INACTIVE' },
+        { leadStatus: { equals: 'Inactive', mode: 'insensitive' } },
+      ],
+    };
+  }
   if (tab === 'hot') return { priority: 'High' };
   return null;
 }
@@ -195,6 +225,13 @@ async function queryJobIds(filters, req) {
   }
   if (filters.recruiterId && isValidObjectId(filters.recruiterId)) {
     andParts.push({ assignedToId: filters.recruiterId });
+  }
+  if (filters.priority) {
+    andParts.push({ priority: { equals: String(filters.priority).trim(), mode: 'insensitive' } });
+  }
+  if (filters.employmentType) {
+    const jobType = normalizeEnumToken(filters.employmentType, 'JobType');
+    if (jobType) andParts.push({ type: jobType });
   }
   const searchFilter = buildSchemaTextSearchWhere('jobs', filters.searchText);
   if (searchFilter) andParts.push(searchFilter);

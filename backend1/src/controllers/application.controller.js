@@ -756,12 +756,32 @@ function applyInterviewOutcomeToRound(round, outcomeEntry = {}) {
   };
 }
 
+/** CRM pipeline stage moves — not a recruiter-scheduled interview with date/time/panel. */
+function isGenericPipelineStageInterviewRow(item) {
+  const title = String(item?.title || '').trim().toLowerCase();
+  const desc = String(item?.description || '').trim().toLowerCase();
+  if (desc === 'interviewing stage' || desc === 'interview stage') return true;
+  if (
+    (title === 'interviewing' || title === 'interview') &&
+    !desc.includes('when:') &&
+    !desc.includes('type:') &&
+    !desc.includes('interviewer:') &&
+    !desc.includes('meeting link:') &&
+    !/recruiter scheduled/i.test(desc)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function buildInterviewRoundsFromTimeline(rawTimeline, interviewOutcomes = []) {
   const rows = (rawTimeline || [])
     .filter((item) => String(item?.status || '').toUpperCase() === 'INTERVIEW')
     .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
 
-  const scheduledRows = rows.filter((item) => !/interview completed/i.test(String(item.title || '')));
+  const scheduledRows = rows
+    .filter((item) => !/interview completed/i.test(String(item.title || '')))
+    .filter((item) => !isGenericPipelineStageInterviewRow(item));
   const completedRows = rows.filter((item) => /interview completed/i.test(String(item.title || '')));
   const total = scheduledRows.length;
 
@@ -911,12 +931,12 @@ function reconcileInterviewRounds(rounds) {
     return [merged];
   }
 
-  const merged = scheduled.map((sched, index) => {
+  const merged = scheduled.map((sched) => {
     const labelMatch = completed.find((comp) =>
       interviewRoundLabelsEquivalent(sched.roundLabel, comp.roundLabel)
     );
-    const source = pickRichestInterviewOutcome([labelMatch, completed[index], ...completed]);
-    return source ? applyInterviewOutcomeToRound(sched, source) : sched;
+    if (!labelMatch) return sched;
+    return applyInterviewOutcomeToRound(sched, labelMatch);
   });
 
   for (const comp of completed) {

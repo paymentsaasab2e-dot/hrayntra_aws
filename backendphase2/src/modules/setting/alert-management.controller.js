@@ -20,11 +20,21 @@ export const alertManagementController = {
 
   async update(req, res) {
     try {
-      const { channels, scope = 'ORG' } = req.body || {};
-      if (!channels || typeof channels !== 'object') {
-        return sendError(res, 400, 'channels object is required');
+      const { channels, scheduledAnalysis, scope = 'ORG' } = req.body || {};
+      if (
+        (!channels || typeof channels !== 'object') &&
+        (scheduledAnalysis === undefined || scheduledAnalysis === null)
+      ) {
+        return sendError(res, 400, 'channels or scheduledAnalysis is required');
       }
-      await saveAlertManagementSettings(req.user.id, channels, scope);
+      await saveAlertManagementSettings(
+        req.user.id,
+        {
+          ...(channels && typeof channels === 'object' ? { channels } : {}),
+          ...(scheduledAnalysis !== undefined ? { scheduledAnalysis } : {}),
+        },
+        scope,
+      );
       const payload = await getAlertManagementPayload(req.user.id);
       sendResponse(res, 200, 'Alert management settings updated', payload);
     } catch (error) {

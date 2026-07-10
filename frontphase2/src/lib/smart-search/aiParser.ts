@@ -131,14 +131,26 @@ export function mapAiToLeadsResult(ai: AiSmartSearchResponse): LeadsSmartSearchP
 
 export function mapAiToJobsResult(ai: AiSmartSearchResponse): JobsSmartSearchResult {
   const filters = ai.filters || {};
+  const statusChip = ai.keywords.find((chip) => chip.kind === 'status');
+  const priorityChip = ai.keywords.find((chip) => chip.kind === 'priority');
+  const employmentChip = ai.keywords.find((chip) => chip.kind === 'employment');
+  const rawStatus = filters.status || statusChip?.value || null;
+  const status =
+    rawStatus === 'on hold' || rawStatus === 'onhold'
+      ? 'ON_HOLD'
+      : rawStatus === 'open' || rawStatus === 'active'
+        ? 'OPEN'
+        : rawStatus;
   const searchText =
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
     keywords: ai.keywords,
-    status: filters.status || null,
+    status,
     clientId: filters.clientId || null,
     recruiterId: filters.recruiterId || null,
+    priority: filters.priority || priorityChip?.value || null,
+    employmentType: filters.employmentType || employmentChip?.value || null,
     searchText,
     matchingJobIds: Array.isArray(ai.matchingJobIds) ? ai.matchingJobIds : [],
     summary: ai.summary,
@@ -147,12 +159,18 @@ export function mapAiToJobsResult(ai: AiSmartSearchResponse): JobsSmartSearchRes
 
 export function mapAiToClientsResult(ai: AiSmartSearchResponse): ClientsSmartSearchResult {
   const filters = ai.filters || {};
+  const stageChip = ai.keywords.find((chip) => chip.kind === 'stage');
+  const rawTab = filters.activeTab || stageChip?.value || null;
+  const activeTab =
+    rawTab === 'on hold' || rawTab === 'onhold'
+      ? 'on-hold'
+      : rawTab;
   const searchText =
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
     keywords: ai.keywords,
-    activeTab: filters.activeTab || null,
+    activeTab,
     priority: filters.priority || null,
     ownerScope: filters.ownerScope === 'me' ? 'me' : null,
     searchText,
@@ -163,16 +181,22 @@ export function mapAiToClientsResult(ai: AiSmartSearchResponse): ClientsSmartSea
 
 export function mapAiToCandidatesResult(ai: AiSmartSearchResponse): CandidatesSmartSearchResult {
   const filters = ai.filters || {};
+  const stageChip = ai.keywords.find((chip) => chip.kind === 'stage');
+  const statusChip = ai.keywords.find((chip) => chip.kind === 'status');
+  const recruiterChip = ai.keywords.find((chip) => chip.kind === 'recruiter');
+  const jobChip = ai.keywords.find((chip) => chip.kind === 'client');
   const searchText =
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
     keywords: ai.keywords,
-    stage: filters.stage || '',
-    ownerId: filters.ownerId || '',
+    stage: filters.stage || stageChip?.value || '',
+    status: filters.status || statusChip?.value || '',
+    source: filters.source || '',
+    ownerId: filters.ownerId || recruiterChip?.value || '',
     company: filters.company || '',
     location: filters.location || '',
-    jobId: filters.jobId || '',
+    jobId: filters.jobId || jobChip?.value || '',
     experienceRange: filters.experienceRange || '',
     searchText,
     matchingCandidateIds: Array.isArray(ai.matchingCandidateIds) ? ai.matchingCandidateIds : [],

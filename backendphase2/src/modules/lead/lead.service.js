@@ -31,7 +31,7 @@ import {
   resolveDirectorNameFromLeadContext,
   resolveDirectorSalutationFromLeadContext,
 } from '../../utils/directorOtherDetails.js';
-import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
+import { assertCanAssignCrm, newlyAddedAssigneeIds, currentLeadAssigneeIds } from '../../services/crmAssignmentScope.service.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import {
   queueAiEntryRecommendation,
@@ -810,7 +810,7 @@ export const leadService = {
 
     if (data.performedById && leadData.assignedToIds?.length) {
       for (const assigneeId of leadData.assignedToIds) {
-        if (assigneeId) await assertCanAssignCrm(data.performedById, assigneeId);
+        if (assigneeId) await assertCanAssignCrm(data.performedById, assigneeId, { req });
       }
     }
 
@@ -1109,8 +1109,12 @@ export const leadService = {
         : updateData.assignedToId
           ? [updateData.assignedToId]
           : [];
-      for (const assigneeId of nextAssignees) {
-        if (assigneeId) await assertCanAssignCrm(data.performedById, assigneeId);
+      const addedAssignees = newlyAddedAssigneeIds(
+        currentLeadAssigneeIds(currentLead),
+        nextAssignees,
+      );
+      for (const assigneeId of addedAssignees) {
+        await assertCanAssignCrm(data.performedById, assigneeId, { req });
       }
     }
 

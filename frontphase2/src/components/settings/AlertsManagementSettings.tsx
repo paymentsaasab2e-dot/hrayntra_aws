@@ -6,6 +6,7 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
+  Clock,
   Eye,
   Loader2,
   Mail,
@@ -19,8 +20,98 @@ import {
   type AlertCatalogGroup,
   type AlertChannelSettings,
   type AlertExamplePreview,
+  type ScheduledAnalysisSettings,
 } from '@/lib/api';
 import { PH2_TABLE_CARD_CLASS } from '../layout/Ph2ModulePageLayout';
+
+const DEFAULT_SCHEDULED_ANALYSIS: ScheduledAnalysisSettings = {
+  enabled: true,
+  time: '10:00',
+  timezone: 'Asia/Kolkata',
+};
+
+const TIMEZONE_OPTIONS = [
+  'Asia/Kolkata',
+  'Asia/Dubai',
+  'Asia/Singapore',
+  'Europe/London',
+  'America/New_York',
+  'America/Los_Angeles',
+  'UTC',
+];
+
+function ScheduledAnalysisCard({
+  schedule,
+  saving,
+  onChange,
+}: {
+  schedule: ScheduledAnalysisSettings;
+  saving: boolean;
+  onChange: (next: ScheduledAnalysisSettings) => void;
+}) {
+  return (
+    <section className={PH2_TABLE_CARD_CLASS}>
+      <div className="border-b border-indigo-100/40 bg-gradient-to-r from-violet-50/60 via-indigo-50/40 to-white px-4 py-3.5 sm:px-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Clock className="h-4 w-4 shrink-0 text-violet-600" />
+              <h3 className="text-sm font-bold text-slate-900">Automatic Daily Analyze</h3>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-violet-800/80">
+              Runs Analyze once per day at the time you choose. Manual Analyze on the dashboard still
+              works anytime.
+            </p>
+          </div>
+          <label className="flex shrink-0 items-center gap-2 text-[11px] font-medium text-slate-600">
+            Enabled
+            <Toggle
+              checked={schedule.enabled}
+              onChange={(enabled) => onChange({ ...schedule, enabled })}
+              label="Enable automatic daily Analyze"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 sm:px-5">
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Run at
+          </span>
+          <input
+            type="time"
+            value={schedule.time}
+            disabled={!schedule.enabled || saving}
+            onChange={(e) => onChange({ ...schedule, time: e.target.value })}
+            className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Timezone
+          </span>
+          <select
+            value={schedule.timezone}
+            disabled={!schedule.enabled || saving}
+            onChange={(e) => onChange({ ...schedule, timezone: e.target.value })}
+            className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {TIMEZONE_OPTIONS.map((tz) => (
+              <option key={tz} value={tz}>
+                {tz}
+              </option>
+            ))}
+            {!TIMEZONE_OPTIONS.includes(schedule.timezone) ? (
+              <option value={schedule.timezone}>{schedule.timezone}</option>
+            ) : null}
+          </select>
+        </label>
+      </div>
+    </section>
+  );
+}
 
 function Toggle({
   checked,
@@ -295,6 +386,9 @@ export function AlertsManagementSettings() {
   const [saving, setSaving] = useState(false);
   const [catalog, setCatalog] = useState<AlertCatalogGroup[]>([]);
   const [channels, setChannels] = useState<Record<string, AlertChannelSettings>>({});
+  const [scheduledAnalysis, setScheduledAnalysis] = useState<ScheduledAnalysisSettings>(
+    DEFAULT_SCHEDULED_ANALYSIS,
+  );
   const [testingEmailId, setTestingEmailId] = useState<string | null>(null);
   const [testingPortalId, setTestingPortalId] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());
@@ -306,6 +400,10 @@ export function AlertsManagementSettings() {
       const data = res.data;
       setCatalog(Array.isArray(data?.catalog) ? data.catalog : []);
       setChannels(data?.channels || {});
+      setScheduledAnalysis({
+        ...DEFAULT_SCHEDULED_ANALYSIS,
+        ...(data?.scheduledAnalysis || {}),
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load alerts');
     } finally {
@@ -320,14 +418,39 @@ export function AlertsManagementSettings() {
   const persistChannels = async (next: Record<string, AlertChannelSettings>) => {
     try {
       setSaving(true);
-      const res = await apiUpdateAlertManagement(next);
+      const res = await apiUpdateAlertManagement({ channels: next });
       setChannels(res.data?.channels || next);
+      if (res.data?.scheduledAnalysis) {
+        setScheduledAnalysis({ ...DEFAULT_SCHEDULED_ANALYSIS, ...res.data.scheduledAnalysis });
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save alert settings');
       throw error;
     } finally {
       setSaving(false);
     }
+  };
+
+  const persistSchedule = async (next: ScheduledAnalysisSettings) => {
+    const prev = scheduledAnalysis;
+    setScheduledAnalysis(next);
+    try {
+      setSaving(true);
+      const res = await apiUpdateAlertManagement({ scheduledAnalysis: next });
+      if (res.data?.scheduledAnalysis) {
+        setScheduledAnalysis({ ...DEFAULT_SCHEDULED_ANALYSIS, ...res.data.scheduledAnalysis });
+      }
+      toast.success('Automatic Analyze schedule saved');
+    } catch (error) {
+      setScheduledAnalysis(prev);
+      toast.error(error instanceof Error ? error.message : 'Failed to save schedule');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleScheduleChange = (next: ScheduledAnalysisSettings) => {
+    void persistSchedule(next);
   };
 
   const handleChannelChange = async (
@@ -414,6 +537,12 @@ export function AlertsManagementSettings() {
       {saving ? (
         <p className="text-xs font-medium text-blue-600">Saving…</p>
       ) : null}
+
+      <ScheduledAnalysisCard
+        schedule={scheduledAnalysis}
+        saving={saving}
+        onChange={handleScheduleChange}
+      />
 
       {sortedCatalog.map((group) => (
         <AlertSection

@@ -676,8 +676,12 @@ export async function getRoles() {
     const roles = normalizeArrayPayload<Role>(json.data);
     writeCache(TEAM_CACHE_KEYS.roles, roles);
     return { data: roles, success: json.success };
-  } catch {
-    return { data: readCache<Role[]>(TEAM_CACHE_KEYS.roles) || [], success: true };
+  } catch (error) {
+    const cached = readCache<Role[]>(TEAM_CACHE_KEYS.roles);
+    if (cached?.length) {
+      return { data: cached, success: true };
+    }
+    throw error;
   }
 }
 

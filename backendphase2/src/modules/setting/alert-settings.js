@@ -7,6 +7,7 @@ import {
   getAlertByEmailTriggerId,
 } from './alert-catalog.js';
 import { enrichCatalogWithExamples } from './alert-catalog-examples.js';
+import { normalizeScheduledAnalysis } from './scheduled-analysis-settings.js';
 
 export const ALERT_MANAGEMENT_SETTINGS_KEY = 'alert_management_v1';
 
@@ -58,28 +59,52 @@ function normalizeChannels(raw) {
 export async function getAlertManagementSettings(userId = null) {
   try {
     const record = await findSettingsRecord(userId);
-    const raw = isObject(record?.value?.channels) ? record.value.channels : {};
+    const value = isObject(record?.value) ? record.value : {};
+    const raw = isObject(value.channels) ? value.channels : {};
     const channels = normalizeChannels(raw);
+    const scheduledAnalysis = normalizeScheduledAnalysis(value.scheduledAnalysis);
     return {
       channels,
+      scheduledAnalysis,
       scope: record?.scope || 'ORG',
       updatedAt: record?.updatedAt || null,
     };
   } catch (error) {
     console.error('[alert-settings] load failed, using defaults:', error?.message || error);
-    return { channels: buildDefaultAlertChannels(), scope: 'ORG', updatedAt: null };
+    return {
+      channels: buildDefaultAlertChannels(),
+      scheduledAnalysis: normalizeScheduledAnalysis(),
+      scope: 'ORG',
+      updatedAt: null,
+    };
   }
 }
 
-export async function saveAlertManagementSettings(userId, channels, scope = 'ORG') {
-  const normalized = normalizeChannels(channels);
+export async function saveAlertManagementSettings(
+  userId,
+  { channels, scheduledAnalysis } = {},
+  scope = 'ORG',
+) {
   const existing = await findSettingsRecord(userId);
+  const existingValue = isObject(existing?.value) ? existing.value : {};
+
+  const normalizedChannels = normalizeChannels(
+    channels ?? (isObject(existingValue.channels) ? existingValue.channels : {}),
+  );
+  const normalizedSchedule = normalizeScheduledAnalysis(
+    scheduledAnalysis ?? existingValue.scheduledAnalysis,
+  );
+
+  const nextValue = {
+    channels: normalizedChannels,
+    scheduledAnalysis: normalizedSchedule,
+  };
 
   if (existing) {
     return prisma.setting.update({
       where: { id: existing.id },
       data: {
-        value: { channels: normalized },
+        value: nextValue,
         scope,
         userId: scope === 'ORG' ? null : userId,
       },
@@ -91,7 +116,7 @@ export async function saveAlertManagementSettings(userId, channels, scope = 'ORG
       key: ALERT_MANAGEMENT_SETTINGS_KEY,
       scope,
       userId: scope === 'ORG' ? null : userId,
-      value: { channels: normalized },
+      value: nextValue,
     },
   });
 }
@@ -111,10 +136,11 @@ export async function isAlertPortalEnabled(alertId, userId = null) {
 }
 
 export async function getAlertManagementPayload(userId = null) {
-  const { channels, scope, updatedAt } = await getAlertManagementSettings(userId);
+  const { channels, scheduledAnalysis, scope, updatedAt } = await getAlertManagementSettings(userId);
   return {
     catalog: enrichCatalogWithExamples(getAlertCatalogGrouped()),
     channels,
+    scheduledAnalysis,
     scope,
     updatedAt,
   };

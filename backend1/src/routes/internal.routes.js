@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const { createCandidateNotification } = require('../services/notification.service');
+const { notifyHighFitCandidatesForJob } = require('../services/job-match-alert.service');
 
 const router = Router();
 
@@ -85,6 +86,28 @@ router.post('/portal-notification', sharedSecretMiddleware, async (req, res) => 
     return res
       .status(500)
       .json({ success: false, message: 'Failed to record notification' });
+  }
+});
+
+/**
+ * POST /api/internal/job-match-alerts
+ * Body: { jobId }
+ *
+ * After a job is mirrored to the portal DB, score candidates and notify those
+ * with CV fit above the configured threshold (default 80%).
+ */
+router.post('/job-match-alerts', sharedSecretMiddleware, async (req, res) => {
+  try {
+    const jobId = String(req.body?.jobId || '').trim();
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'jobId is required' });
+    }
+
+    const result = await notifyHighFitCandidatesForJob(jobId);
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('[internal] job-match-alerts failed:', error);
+    return res.status(500).json({ success: false, message: 'Failed to process job match alerts' });
   }
 });
 

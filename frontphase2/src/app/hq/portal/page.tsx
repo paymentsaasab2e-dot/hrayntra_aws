@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Briefcase, RefreshCw, Search, UserRound } from 'lucide-react';
+import { Briefcase, Loader2, RefreshCw, Search, Trash2, UserRound } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   HqPageContainer,
   HqPageHeader,
@@ -10,6 +11,7 @@ import {
   HqStatCard,
 } from '@/components/hq/hqUi';
 import {
+  apiHqDeletePortalJob,
   apiHqListPortal,
   type HqPortalCandidateRow,
   type HqPortalJobRow,
@@ -84,6 +86,9 @@ function StatusPill({ value }: { value: string }) {
   );
 }
 
+const DELETE_BTN_CLASS =
+  'inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700 transition hover:bg-rose-100 disabled:opacity-50';
+
 export default function HqPortalPage() {
   const [activeTab, setActiveTab] = useState<PortalTab>('candidates');
   const [candidates, setCandidates] = useState<HqPortalCandidateRow[]>([]);
@@ -93,6 +98,7 @@ export default function HqPortalPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [deletingJobKey, setDeletingJobKey] = useState<string | null>(null);
 
   const loadPortal = useCallback(async () => {
     setLoading(true);
@@ -157,6 +163,42 @@ export default function HqPortalPage() {
       return hay.includes(needle);
     });
   }, [jobs, needle]);
+
+  const handleDeleteJob = async (row: HqPortalJobRow) => {
+    const label = row.title || 'this job';
+    const scope = row.tenantDbName
+      ? `tenant ${row.tenantDbName}, Phase 1 portal, and Phase 2 CRM`
+      : 'Phase 1 portal';
+
+    const confirmed = window.confirm(
+      `Delete "${label}" permanently?\n\nThis removes the job from ${scope}. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    const rowKey = `${row.origin}-${row.tenantDbName || 'none'}-${row.id}`;
+    setDeletingJobKey(rowKey);
+    try {
+      await apiHqDeletePortalJob(row.id, {
+        tenantDbName: row.tenantDbName || undefined,
+      });
+      setJobs((prev) =>
+        prev.filter(
+          (job) =>
+            !(
+              job.id === row.id &&
+              job.tenantDbName === row.tenantDbName &&
+              job.origin === row.origin
+            ),
+        ),
+      );
+      toast.success('Job deleted from tenant and portal');
+      void loadPortal();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete job');
+    } finally {
+      setDeletingJobKey(null);
+    }
+  };
 
   return (
     <HqPageMain>
@@ -352,12 +394,13 @@ export default function HqPortalPage() {
                     <th className="px-4 py-3">Posted by</th>
                     <th className="px-4 py-3">Openings</th>
                     <th className="px-4 py-3">Posted</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredJobs.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                      <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                         {loading ? 'Loading jobs…' : 'No jobs found.'}
                       </td>
                     </tr>
@@ -389,6 +432,21 @@ export default function HqPortalPage() {
                         </td>
                         <td className="px-4 py-3 text-slate-700">{row.openings}</td>
                         <td className="px-4 py-3 text-slate-500">{formatDate(row.postedDate)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            title="Delete job from tenant and portal"
+                            disabled={deletingJobKey === `${row.origin}-${row.tenantDbName || 'none'}-${row.id}`}
+                            onClick={() => void handleDeleteJob(row)}
+                            className={DELETE_BTN_CLASS}
+                          >
+                            {deletingJobKey === `${row.origin}-${row.tenantDbName || 'none'}-${row.id}` ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}

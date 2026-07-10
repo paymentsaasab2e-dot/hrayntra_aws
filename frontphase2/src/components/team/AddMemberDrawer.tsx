@@ -28,6 +28,7 @@ import {
   getMemberRoleId,
   pickDefaultManagerId,
   mergeReportingManagerLists,
+  mergeRolesWithDepartmentEmbedded,
   type DepartmentWithRoles,
 } from '../../lib/teamReporting';
 
@@ -142,9 +143,11 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
         getDepartments(),
         getAllTeamMembersForDirectory(),
       ]);
+      const departmentList = deptsRes.data || [];
+      const mergedRoles = mergeRolesWithDepartmentEmbedded(rolesRes.data || [], departmentList);
 
-      setRoles(rolesRes.data || []);
-      setDepartments(deptsRes.data || []);
+      setRoles(mergedRoles);
+      setDepartments(departmentList);
       setTeamDirectory(directory);
       setReportingManagers([]);
     } catch (error: any) {
@@ -170,12 +173,14 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
     roles.find((r) => String(r.id) === String(formData.roleId));
 
   useEffect(() => {
+    if (loadingOptions) return;
     if (!formData.departmentId) {
       setReportingManagers([]);
       return;
     }
     if (
       formData.roleId &&
+      availableRoles.length > 0 &&
       !availableRoles.some((r) => String(r.id) === String(formData.roleId))
     ) {
       setFormData((prev) => ({ ...prev, roleId: '', managerId: '' }));
@@ -245,6 +250,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
       cancelled = true;
     };
   }, [
+    loadingOptions,
     formData.departmentId,
     formData.roleId,
     availableRoles,

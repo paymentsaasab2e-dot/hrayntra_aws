@@ -50,7 +50,7 @@ import {
 import { useSmartSearch } from '../../hooks/useSmartSearch';
 import { mapAiToJobsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import { buildJobsListApiParams } from '../../lib/smart-search/entitySmartSearch';
-import { parseJobsSmartSearchPrompt, JOBS_SMART_SEARCH_EXAMPLES } from '../../lib/smart-search/parsers';
+import { parseJobsSmartSearchPrompt, JOBS_SMART_SEARCH_EXAMPLES, jobMatchesSmartKeywordChips, mergeJobsSmartSearchResult } from '../../lib/smart-search/parsers';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
   apiAddCandidateNote,
@@ -201,8 +201,10 @@ interface Job {
   id: string;
   title: string;
   client: string;
+  clientId?: string;
   location: string;
   status: JobStatus;
+  backendStatus?: string;
   jobLocationType?: string;
   applied: number;
   interviewed: number;
@@ -210,6 +212,7 @@ interface Job {
   joined: number;
   openings: number;
   owner: string;
+  recruiterId?: string;
   createdDate: string;
   hot: boolean;
   aiMatch: boolean;
@@ -219,6 +222,26 @@ interface Job {
   slaRisk: boolean;
   pipelineStages?: JobPipelineStageSummary[];
   auditMeta?: AuditMeta;
+  priority?: string;
+  employmentType?: string;
+  nationality?: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  industry?: string;
+  description?: string;
+  experienceRequired?: string;
+  education?: string;
+  hiringManager?: string;
+  managerName?: string;
+  workMode?: string;
+  skills?: string[];
+  requirements?: string[];
+  keyResponsibilities?: string[];
+  preferredSkills?: string[];
+  candidateRequirements?: string[];
+  benefits?: string[];
+  languages?: Array<{ language?: string; proficiency?: string }>;
 }
 
 /** Map list Job to drawer JobForDrawer - uses only backend data, no mock data */
@@ -800,8 +823,10 @@ function mapBackendJob(job: BackendJob): Job {
     id: job.id,
     title: job.title,
     client: job.client?.companyName ?? '-',
+    clientId: job.client?.id,
     location: job.location ?? '-',
     status: mapBackendStatus(job.status),
+    backendStatus: job.status,
     jobLocationType: job.jobLocationType ?? undefined,
     applied,
     interviewed,
@@ -809,6 +834,7 @@ function mapBackendJob(job: BackendJob): Job {
     joined,
     openings: job.openings,
     owner: job.assignedTo?.name ?? 'Unassigned',
+    recruiterId: job.assignedToId || job.assignedTo?.id,
     createdDate: job.createdAt ? formatDateDMY(job.createdAt) : '-',
     hot: (job as any).hot ?? false,
     aiMatch: (job as any).aiMatch ?? false,
@@ -821,6 +847,26 @@ function mapBackendJob(job: BackendJob): Job {
     slaRisk: (job as any).slaRisk ?? false,
     pipelineStages: pipelineStagesDeduped.length ? pipelineStagesDeduped : undefined,
     auditMeta: extractAuditMeta(job as Record<string, unknown>),
+    priority: job.priority || undefined,
+    employmentType: job.type || undefined,
+    nationality: job.nationality || undefined,
+    country: job.country || undefined,
+    state: job.state || undefined,
+    city: job.city || undefined,
+    industry: job.jobCategory || job.department || undefined,
+    description: job.description || job.overview || undefined,
+    experienceRequired: job.experienceRequired || undefined,
+    education: job.education || undefined,
+    hiringManager: job.hiringManager || undefined,
+    managerName: job.manager?.name || undefined,
+    workMode: job.workMode || undefined,
+    skills: job.skills || undefined,
+    requirements: job.requirements || undefined,
+    keyResponsibilities: job.keyResponsibilities || undefined,
+    preferredSkills: job.preferredSkills || undefined,
+    candidateRequirements: job.candidateRequirements || undefined,
+    benefits: job.benefits || undefined,
+    languages: job.languages || undefined,
   };
 }
 
@@ -1104,13 +1150,23 @@ export default function JobsPage() {
         clients: clientOptions,
         recruiters: recruiterOptions,
       }),
-    parsePromptWithAi: (text) =>
-      parseSmartSearchWithAi('jobs', text, { useTenantDatabase: true }, mapAiToJobsResult),
+    parsePromptWithAi: async (text) => {
+      const local = parseJobsSmartSearchPrompt(text, {
+        clients: clientOptions,
+        recruiters: recruiterOptions,
+      });
+      const ai = await parseSmartSearchWithAi('jobs', text, { useTenantDatabase: true }, mapAiToJobsResult);
+      if (!ai) return null;
+      return mergeJobsSmartSearchResult(local, ai);
+    },
     applyParsed: (parsed) => {
       setCurrentPage(1);
-      setStatusFilter(parsed.status || '');
-      setClientFilterId(parsed.clientId || '');
-      setRecruiterFilterId(parsed.recruiterId || '');
+      const statusChip = parsed.keywords.find((chip) => chip.kind === 'status');
+      const clientChip = parsed.keywords.find((chip) => chip.kind === 'client');
+      const recruiterChip = parsed.keywords.find((chip) => chip.kind === 'recruiter');
+      setStatusFilter(parsed.status || statusChip?.value || '');
+      setClientFilterId(parsed.clientId || clientChip?.value || '');
+      setRecruiterFilterId(parsed.recruiterId || recruiterChip?.value || '');
       setSearchFilter(parsed.searchText);
       setSmartSearchJobIds(
         parsed.matchingJobIds && parsed.matchingJobIds.length > 0 ? parsed.matchingJobIds : [],
@@ -1128,6 +1184,11 @@ export default function JobsPage() {
     examples: JOBS_SMART_SEARCH_EXAMPLES,
   });
 
+  const displayJobs = useMemo(() => {
+    if (jobSmartSearch.activeKeywords.length === 0) return jobs;
+    return jobs.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
+  }, [jobs, jobSmartSearch.activeKeywords]);
+
   const hasActiveFilters = Boolean(
     smartSearchJobIds.length > 0 ||
     searchFilter ||
@@ -1136,6 +1197,16 @@ export default function JobsPage() {
       recruiterFilterId ||
       jobSmartSearch.activeKeywords.length > 0,
   );
+
+  const handleClearToolbar = useCallback(() => {
+    setCurrentPage(1);
+    setSearchFilter('');
+    setStatusFilter('');
+    setClientFilterId(isStandaloneMode ? workspaceClientId : '');
+    setRecruiterFilterId('');
+    setSmartSearchJobIds([]);
+    jobSmartSearch.clearSmartSearch();
+  }, [isStandaloneMode, jobSmartSearch, workspaceClientId]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportJobs, setExportJobs] = useState<Job[]>([]);
   const [exportJobsLoading, setExportJobsLoading] = useState(false);
@@ -2131,90 +2202,79 @@ export default function JobsPage() {
                     size={16}
                     strokeWidth={2.25}
                   />
-                    <input
-                      type="text"
+                  <input
+                    type="text"
                     placeholder="Search jobs, client, location…"
-                      value={searchFilter}
+                    value={searchFilter}
+                    onChange={(e) => {
+                      setSearchFilter(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <SmartSearchToggleButton
+                    open={jobSmartSearch.open}
+                    onToggle={() => jobSmartSearch.setOpen((value) => !value)}
+                  />
+                  <select
+                    className={PH2_TOOLBAR_SELECT_CLASS}
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value="">All Status</option>
+                    <option value="OPEN">Active (open)</option>
+                    <option value="ON_HOLD">On hold</option>
+                    <option value="CLOSED">Closed</option>
+                    <option value="DRAFT">Draft</option>
+                    <option value="FILLED">Filled</option>
+                  </select>
+                  {!isStandaloneMode ? (
+                    <select
+                      className={PH2_TOOLBAR_SELECT_CLASS}
+                      value={clientFilterId}
                       onChange={(e) => {
-                        setSearchFilter(e.target.value);
+                        setClientFilterId(e.target.value);
                         setCurrentPage(1);
                       }}
-                    className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                    />
-                  </div>
-                <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-end">
-                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                    <SmartSearchToggleButton
-                      open={jobSmartSearch.open}
-                      onToggle={() => jobSmartSearch.setOpen((value) => !value)}
-                    />
-                        <select
-                      className={PH2_TOOLBAR_SELECT_CLASS}
-                          value={statusFilter}
-                          onChange={(e) => {
-                            setStatusFilter(e.target.value);
-                            setCurrentPage(1);
-                          }}
                     >
-                      <option value="">All Status</option>
-                      <option value="OPEN">Active (open)</option>
-                      <option value="ON_HOLD">On hold</option>
-                          <option value="CLOSED">Closed</option>
-                          <option value="DRAFT">Draft</option>
-                          <option value="FILLED">Filled</option>
-                        </select>
-                        {!isStandaloneMode ? (
-                        <select
-                      className={PH2_TOOLBAR_SELECT_CLASS}
-                          value={clientFilterId}
-                          onChange={(e) => {
-                            setClientFilterId(e.target.value);
-                            setCurrentPage(1);
-                          }}
-                        >
                       <option value="">All clients</option>
-                          {clientOptions.map((client) => (
-                            <option key={client.id} value={client.id}>
-                              {client.name}
-                            </option>
-                          ))}
-                        </select>
-                        ) : null}
-                        <select
-                      className={PH2_TOOLBAR_SELECT_CLASS}
-                          value={recruiterFilterId}
-                          onChange={(e) => {
-                            setRecruiterFilterId(e.target.value);
-                            setCurrentPage(1);
-                          }}
-                        >
-                      <option value="">All recruiters</option>
-                          {recruiterOptions.map((recruiter) => (
-                            <option key={recruiter.id} value={recruiter.id}>
-                              {recruiter.name}
-                            </option>
-                          ))}
-                        </select>
-                    {hasActiveFilters ? (
-                      <button
-                        type="button"
-                        className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
-                        onClick={() => {
-                          setSearchFilter('');
-                          setStatusFilter('');
-                          setClientFilterId(isStandaloneMode ? workspaceClientId : '');
-                          setRecruiterFilterId('');
-                          setSmartSearchJobIds([]);
-                          jobSmartSearch.clearSmartSearch();
-                          setCurrentPage(1);
-                        }}
-                      >
-                        <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
-                        Clear
-                      </button>
-                    ) : null}
-                      </div>
-                    </div>
+                      {clientOptions.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <select
+                    className={PH2_TOOLBAR_SELECT_CLASS}
+                    value={recruiterFilterId}
+                    onChange={(e) => {
+                      setRecruiterFilterId(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value="">All recruiters</option>
+                    {recruiterOptions.map((recruiter) => (
+                      <option key={recruiter.id} value={recruiter.id}>
+                        {recruiter.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                    onClick={handleClearToolbar}
+                  >
+                    <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+                    Clear
+                  </button>
+                </div>
+              </div>
 
               {jobSmartSearch.open ? (
                 <SmartSearchPromptPanel
@@ -2226,79 +2286,70 @@ export default function JobsPage() {
                   onExampleClick={jobSmartSearch.handleExample}
                   entityLabel="jobs"
                   applying={jobSmartSearch.applying}
-                  placeholder="e.g. open jobs from LinkedIn for Acme in Bangalore"
+                  placeholder="e.g. open React jobs in Bengaluru for QuantumByte with high priority"
                 />
               ) : null}
 
               <SmartSearchActiveKeywordsBar
                 chips={jobSmartSearch.activeChips}
-                onClearAll={() => {
-                  setSearchFilter('');
-                  setStatusFilter('');
-                  setClientFilterId('');
-                  setRecruiterFilterId('');
-                  setSmartSearchJobIds([]);
-                  jobSmartSearch.clearSmartSearch();
-                  setCurrentPage(1);
-                }}
-                resultCount={jobs.length}
+                onClearAll={handleClearToolbar}
+                resultCount={displayJobs.length}
                 showResultCount={!loading && !error}
               />
-            </div>
 
               {error ? (
                 <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
               ) : (
-            <motion.div
+                <motion.div
                   initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
+                  animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.22 }}
                 >
-                <>
-                  <JobsListView 
-                    jobs={jobs} 
-                    onJobClick={openJobDrawer} 
-                        onEditJob={
-                          canUpdateJob
-                            ? (job) => {
-                      setEditingJobId(job.id);
-                      setEditJobDrawerOpen(true);
-                              }
-                            : undefined
-                        }
-                    onAddCandidate={handleAddCandidateForJob}
-                    onDeleteJob={canDeleteJob ? handleDeleteJob : undefined} 
-                    deletingJobId={deletingJobId}
-                    canUpdateJob={canUpdateJob}
-                    canDeleteJob={canDeleteJob}
-                    canAddCandidate={canAddCandidate}
-                    statusEdit={statusEdit}
-                    onStatusChange={handleInlineStatusChange}
-                    onRemarkChange={handleRemarkChange}
-                    onSaveStatusEdit={handleSaveStatusEdit}
-                    onCancelStatusEdit={handleCancelStatusEdit}
-                    workspaceAlertsByEntityId={workspaceAlertsByEntityId}
-                  />
-                      <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
+                  <div className="overflow-hidden">
+                    <JobsListView
+                      jobs={displayJobs}
+                      onJobClick={openJobDrawer}
+                      onEditJob={
+                        canUpdateJob
+                          ? (job) => {
+                              setEditingJobId(job.id);
+                              setEditJobDrawerOpen(true);
+                            }
+                          : undefined
+                      }
+                      onAddCandidate={handleAddCandidateForJob}
+                      onDeleteJob={canDeleteJob ? handleDeleteJob : undefined}
+                      deletingJobId={deletingJobId}
+                      canUpdateJob={canUpdateJob}
+                      canDeleteJob={canDeleteJob}
+                      canAddCandidate={canAddCandidate}
+                      statusEdit={statusEdit}
+                      onStatusChange={handleInlineStatusChange}
+                      onRemarkChange={handleRemarkChange}
+                      onSaveStatusEdit={handleSaveStatusEdit}
+                      onCancelStatusEdit={handleCancelStatusEdit}
+                      workspaceAlertsByEntityId={workspaceAlertsByEntityId}
+                    />
+                  </div>
+                  <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                     <PaginationAll
                       initialPage={currentPage}
-                          totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
+                      totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
                       totalCount={totalEntries}
                       pageSize={pageSize}
-                          pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
-                          onPageSizeChange={(n) => {
-                            if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
-                            setPageSize(n as TablePageSize);
-                            setCurrentPage(1);
-                          }}
+                      pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                      onPageSizeChange={(n) => {
+                        if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                        setPageSize(n as TablePageSize);
+                        setCurrentPage(1);
+                      }}
                       itemLabel="jobs"
                       onPageChange={setCurrentPage}
                     />
                   </div>
-                </>
-            </motion.div>
+                </motion.div>
               )}
-          </div>
+            </div>
           )}
         </div>
       </Ph2ModulePageLayout>
