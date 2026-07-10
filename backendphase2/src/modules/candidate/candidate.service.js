@@ -19,6 +19,7 @@ import {
   mapPlacementStatusToCrmStageLabel,
 } from '../stage/candidateStage.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import { resolveCandidateListExperienceYears } from '../../utils/candidateExperienceYears.util.js';
 import {
   applyResumeJsonToCandidate,
@@ -494,14 +495,47 @@ function candidateListSortTimestamp(candidate) {
 function buildCandidateSearchWhereClause(search) {
   const term = String(search || '').trim();
   if (!term) return null;
+  const escaped = escapePrismaRegex(term);
   return {
     OR: [
-      { firstName: { contains: term, mode: 'insensitive' } },
-      { lastName: { contains: term, mode: 'insensitive' } },
-      { email: { contains: term, mode: 'insensitive' } },
-      { phone: { contains: term, mode: 'insensitive' } },
+      { firstName: { contains: escaped, mode: 'insensitive' } },
+      { lastName: { contains: escaped, mode: 'insensitive' } },
+      { email: { contains: escaped, mode: 'insensitive' } },
+      { phone: { contains: escaped, mode: 'insensitive' } },
+      { linkedIn: { contains: escaped, mode: 'insensitive' } },
+      { currentTitle: { contains: escaped, mode: 'insensitive' } },
+      { currentCompany: { contains: escaped, mode: 'insensitive' } },
+      { designation: { contains: escaped, mode: 'insensitive' } },
+      { location: { contains: escaped, mode: 'insensitive' } },
+      { address: { contains: escaped, mode: 'insensitive' } },
+      { city: { contains: escaped, mode: 'insensitive' } },
+      { country: { contains: escaped, mode: 'insensitive' } },
+      { preferredLocation: { contains: escaped, mode: 'insensitive' } },
+      { education: { contains: escaped, mode: 'insensitive' } },
+      { recruiterEducation: { contains: escaped, mode: 'insensitive' } },
+      { cvSummary: { contains: escaped, mode: 'insensitive' } },
+      { notes: { contains: escaped, mode: 'insensitive' } },
+      { recruiterNotes: { contains: escaped, mode: 'insensitive' } },
+      { source: { contains: escaped, mode: 'insensitive' } },
+      { availability: { contains: escaped, mode: 'insensitive' } },
+      { stage: { contains: escaped, mode: 'insensitive' } },
+      { skills: { hasSome: [term] } },
+      { recruiterSkills: { hasSome: [term] } },
+      { certifications: { hasSome: [term] } },
+      { languages: { hasSome: [term] } },
     ],
   };
+}
+
+function flattenCandidateJsonForSearch(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(flattenCandidateJsonForSearch).join(' ');
+  if (typeof value === 'object') {
+    return Object.values(value).map(flattenCandidateJsonForSearch).join(' ');
+  }
+  return '';
 }
 
 /** Case-insensitive match for name, email, phone (used after merge / common pool). */
@@ -513,7 +547,34 @@ function candidateMatchesSearch(candidate, search) {
   const firstName = String(candidate?.firstName || '').toLowerCase();
   const lastName = String(candidate?.lastName || '').toLowerCase();
   const fullName = `${firstName} ${lastName}`.trim();
-  const hay = [firstName, lastName, fullName, candidate?.email, candidate?.phone]
+  const hay = [
+    firstName,
+    lastName,
+    fullName,
+    candidate?.email,
+    candidate?.phone,
+    candidate?.linkedIn,
+    candidate?.currentTitle,
+    candidate?.currentCompany,
+    candidate?.designation,
+    candidate?.location,
+    candidate?.city,
+    candidate?.country,
+    candidate?.preferredLocation,
+    candidate?.education,
+    candidate?.cvSummary,
+    candidate?.source,
+    candidate?.availability,
+    candidate?.stage,
+    candidate?.status,
+    ...(Array.isArray(candidate?.skills) ? candidate.skills : []),
+    ...(Array.isArray(candidate?.languages) ? candidate.languages : []),
+    ...(Array.isArray(candidate?.certifications) ? candidate.certifications : []),
+    flattenCandidateJsonForSearch(candidate?.cvWorkExperienceEntries),
+    flattenCandidateJsonForSearch(candidate?.cvEducationEntries),
+    flattenCandidateJsonForSearch(candidate?.cvPortfolioLinks),
+    flattenCandidateJsonForSearch(candidate?.extraData),
+  ]
     .map((value) => String(value || '').toLowerCase())
     .join(' ');
 

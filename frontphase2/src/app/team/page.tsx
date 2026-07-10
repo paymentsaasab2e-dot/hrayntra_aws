@@ -72,8 +72,6 @@ function TeamPageContent() {
     switch (activeTab) {
       case 'members':
         return 'Add Member';
-      case 'roles':
-        return 'Add Role';
       case 'departments':
         return 'Add Department';
       case 'targets':
@@ -97,18 +95,6 @@ function TeamPageContent() {
     if (activeTab === 'members' && hasPermission('add_team_member')) {
       return (
         <button type="button" onClick={() => setShowAddMemberDrawer(true)} className={btnClass}>
-          <Plus size={16} className="text-white" strokeWidth={2.5} />
-          <span>{actionButtonLabel}</span>
-        </button>
-      );
-    }
-    if (activeTab === 'roles') {
-      return (
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new CustomEvent('addRole'))}
-          className={btnClass}
-        >
           <Plus size={16} className="text-white" strokeWidth={2.5} />
           <span>{actionButtonLabel}</span>
         </button>

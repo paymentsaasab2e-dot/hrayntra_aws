@@ -66,6 +66,21 @@ export interface Candidate {
   isJobAppliedCandidate?: boolean;
   /** Bulk duplicate copy badge, e.g. "Copy 1" */
   bulkCopyLabel?: string | null;
+  /** Smart-search haystack fields (optional, not shown in table). */
+  assignedToId?: string;
+  backendStatus?: string;
+  city?: string;
+  country?: string;
+  cvSummary?: string;
+  education?: string;
+  languagesList?: string[];
+  certificationsList?: string[];
+  availability?: string;
+  linkedIn?: string;
+  portfolio?: string;
+  preferredLocation?: string;
+  workExperienceText?: string;
+  projectsText?: string;
 }
 
 interface CandidateTableProps {
@@ -199,21 +214,9 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                         {candidate.name}
                       </button>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                        {candidate.isJobAppliedCandidate ? (
-                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-700">
-                            Applied
-                          </span>
-                        ) : null}
-                        {candidate.isPhase1Candidate &&
-                        !candidate.isJobAppliedCandidate &&
-                        !(candidate.assignedJobs?.length > 0) ? (
+                        {candidate.isPhase1Candidate ? (
                           <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-700">
                             Phase 1
-                          </span>
-                        ) : null}
-                        {candidate.bulkCopyLabel ? (
-                          <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-800">
-                            {candidate.bulkCopyLabel}
                           </span>
                         ) : null}
                       </div>

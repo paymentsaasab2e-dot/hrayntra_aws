@@ -18,6 +18,7 @@ import {
   buildInitialParticipantIds,
   stampVisibilityOnAssigneeChange,
 } from '../../services/memberVisibility.service.js';
+import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import {
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
@@ -398,6 +399,29 @@ async function invalidatePortalJobsListCache() {
   }
 }
 
+function queueCandidateJobMatchAlerts(jobId) {
+  const id = String(jobId || '').trim();
+  const base = String(env.JOB_PORTAL_API_URL || '').trim().replace(/\/$/, '');
+  if (!id || !base) return;
+
+  const secret =
+    String(process.env.PHASE2_PORTAL_SYNC_SECRET || '').trim() ||
+    'phase2-portal-sync-2026-shared-secret';
+
+  setImmediate(() => {
+    fetch(`${base}/api/internal/job-match-alerts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-phase2-portal-sync-secret': secret,
+      },
+      body: JSON.stringify({ jobId: id }),
+    }).catch((error) => {
+      console.warn('[job.service] job-match-alerts request failed:', error?.message || error);
+    });
+  });
+}
+
 /** Re-mirror a job to the candidate portal (e.g. after assessment links change). */
 export async function refreshJobPortalMirror(jobId) {
   const job = await prisma.job.findUnique({ where: { id: jobId } });
@@ -651,9 +675,7 @@ async function safeDeleteJobRow(client, jobId) {
   }
 }
 
-async function deleteMirroredJobForPhase1(jobId) {
-  if (!getActiveTenantDbName()) return;
-
+export async function removeJobFromPortalDatabases(jobId) {
   const defaultDb = getDefaultPrismaClient();
   const portalDb = getJobPortalPrismaClient();
 
@@ -662,18 +684,24 @@ async function deleteMirroredJobForPhase1(jobId) {
       await deleteAppsForJob(tx, jobId);
       await safeDeleteJobRow(tx, jobId);
     });
-    return;
+  } else {
+    await portalDb.$transaction(async (tx) => {
+      await deleteAppsForJob(tx, jobId);
+      await safeDeleteJobRow(tx, jobId);
+    });
+
+    await defaultDb.$transaction(async (tx) => {
+      await deleteAppsForJob(tx, jobId);
+      await safeDeleteJobRow(tx, jobId);
+    });
   }
 
-  await portalDb.$transaction(async (tx) => {
-    await deleteAppsForJob(tx, jobId);
-    await safeDeleteJobRow(tx, jobId);
-  });
+  await invalidatePortalJobsListCache();
+}
 
-  await defaultDb.$transaction(async (tx) => {
-    await deleteAppsForJob(tx, jobId);
-    await safeDeleteJobRow(tx, jobId);
-  });
+async function deleteMirroredJobForPhase1(jobId) {
+  if (!getActiveTenantDbName()) return;
+  await removeJobFromPortalDatabases(jobId);
 }
 
 function isTenantScopedRequest() {
@@ -987,7 +1015,31 @@ export const jobService = {
       where.OR = buildAssigneeVisibilityOr(req.user.id);
     }
     if (search) {
-      where.title = { contains: search, mode: 'insensitive' };
+      const escaped = escapePrismaRegex(search);
+      where.OR = [
+        { title: { contains: escaped, mode: 'insensitive' } },
+        { description: { contains: escaped, mode: 'insensitive' } },
+        { overview: { contains: escaped, mode: 'insensitive' } },
+        { location: { contains: escaped, mode: 'insensitive' } },
+        { country: { contains: escaped, mode: 'insensitive' } },
+        { state: { contains: escaped, mode: 'insensitive' } },
+        { city: { contains: escaped, mode: 'insensitive' } },
+        { nationality: { contains: escaped, mode: 'insensitive' } },
+        { experienceRequired: { contains: escaped, mode: 'insensitive' } },
+        { education: { contains: escaped, mode: 'insensitive' } },
+        { hiringManager: { contains: escaped, mode: 'insensitive' } },
+        { department: { contains: escaped, mode: 'insensitive' } },
+        { jobCategory: { contains: escaped, mode: 'insensitive' } },
+        { workMode: { contains: escaped, mode: 'insensitive' } },
+        { priority: { contains: escaped, mode: 'insensitive' } },
+        { skills: { hasSome: [search] } },
+        { requirements: { hasSome: [search] } },
+        { keyResponsibilities: { hasSome: [search] } },
+        { preferredSkills: { hasSome: [search] } },
+        { candidateRequirements: { hasSome: [search] } },
+        { benefits: { hasSome: [search] } },
+        { client: { companyName: { contains: escaped, mode: 'insensitive' } } },
+      ];
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     let scopedWhere = mergeWhereWithScope(where, superAdminScope);
@@ -1384,6 +1436,9 @@ export const jobService = {
 
     try {
       await syncJobToPortal(job, data);
+      if (String(job.status || '').toUpperCase() === 'OPEN') {
+        queueCandidateJobMatchAlerts(job.id);
+      }
     } catch (syncError) {
       console.error(`Failed to sync job ${job.id} to job portal DB:`, syncError?.message || syncError);
     }
@@ -1999,21 +2054,28 @@ export const jobService = {
       throw new Error('Deleted job not found');
     }
 
-    await prisma.$transaction(async (tx) => {
-      // Application → Job has no onDelete:Cascade in the schema, so applications
-      // must be removed before the job row can be hard-deleted.
-      await tx.application.deleteMany({ where: { jobId: id } });
+    await this.purgeCompletely(id);
+    return { message: 'Job permanently deleted' };
+  },
 
-      // Rows keyed by jobId without a Prisma FK cascade to Job.
+  /** Hard-delete a tenant job regardless of recycle-bin state (HQ cascade delete). */
+  async purgeCompletely(id) {
+    const job = await prisma.job.findFirst({
+      where: { id },
+      select: { id: true },
+    });
+    if (!job) {
+      return { deleted: false };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.application.deleteMany({ where: { jobId: id } });
       await tx.assessmentSession.deleteMany({ where: { jobId: id } });
       await tx.pipelineEntry.deleteMany({ where: { jobId: id } });
-
-      // Remaining relations (matches, interviews, placements, pipeline stages, etc.)
-      // use onDelete:Cascade on the Job side.
       await tx.job.delete({ where: { id } });
     });
 
-    return { message: 'Job permanently deleted' };
+    return { deleted: true };
   },
 
   async getMetrics(req) {

@@ -34,6 +34,8 @@ import { mapAiToCandidatesResult, parseSmartSearchWithAi } from '../../lib/smart
 import { buildCandidatesListApiParams } from '../../lib/smart-search/entitySmartSearch';
 import {
   CANDIDATES_SMART_SEARCH_EXAMPLES,
+  candidateMatchesSmartKeywordChips,
+  mergeCandidatesSmartSearchResult,
   parseCandidatesSmartSearchPrompt,
 } from '../../lib/smart-search/parsers';
 import {
@@ -128,6 +130,7 @@ import {
 import { normalizeCandidateSkillLabels } from '../../lib/normalizeCandidateSkills';
 import {
   enrichBackendCandidateFromPhase1Snapshot,
+  isPhase1PortalCandidate,
 } from '../../lib/phase1ProfileSnapshot';
 import {
   extractApiData,
@@ -250,6 +253,17 @@ function mergeCompanyFilterOptions(existing: string[], next: string[]): string[]
   );
 }
 
+function flattenCandidateJsonForSearch(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(flattenCandidateJsonForSearch).join(' ');
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).map(flattenCandidateJsonForSearch).join(' ');
+  }
+  return '';
+}
+
 function mapBackendCandidate(raw: BackendCandidate): Candidate {
   const c = enrichBackendCandidateFromPhase1Snapshot(raw);
   const name = resolveCandidateDisplayName(c, { alreadyEnriched: true });
@@ -287,11 +301,25 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
     source: c.source || '',
     rating: c.rating ?? 0,
     pipelineJobId: resolveSubmitJobIdFromBackend(c),
-    isPhase1Candidate: c.isPhase1Candidate === true,
+    isPhase1Candidate: isPhase1PortalCandidate(c),
     isNewCandidate: Boolean(c.isNewCandidate),
     isJobAppliedCandidate: c.isJobAppliedCandidate === true || candidateShowsAppliedTag(c),
     bulkCopyLabel: parseBulkCopyLabel(c.lastName || basicFullName),
     auditMeta: extractAuditMeta(c as Record<string, unknown>),
+    assignedToId: c.assignedTo?.id || undefined,
+    backendStatus: c.status || undefined,
+    city: c.city || undefined,
+    country: c.country || undefined,
+    cvSummary: c.cvSummary || undefined,
+    education: c.education || undefined,
+    languagesList: c.languages || undefined,
+    certificationsList: c.certifications || undefined,
+    availability: c.availability || undefined,
+    linkedIn: c.linkedIn || undefined,
+    portfolio: c.portfolio || undefined,
+    preferredLocation: c.preferredLocation || undefined,
+    workExperienceText: flattenCandidateJsonForSearch(c.cvWorkExperienceEntries),
+    projectsText: flattenCandidateJsonForSearch(c.cvPortfolioLinks),
   };
 }
 
@@ -758,21 +786,29 @@ function CandidatesPageContent() {
 
   const candidateSmartSearch = useSmartSearch({
     parsePrompt: (text) => parseCandidatesSmartSearchPrompt(text, candidateSmartSearchOptions),
-    parsePromptWithAi: (text) =>
-      parseSmartSearchWithAi('candidates', text, { useTenantDatabase: true }, mapAiToCandidatesResult),
+    parsePromptWithAi: async (text) => {
+      const local = parseCandidatesSmartSearchPrompt(text, candidateSmartSearchOptions);
+      const ai = await parseSmartSearchWithAi('candidates', text, { useTenantDatabase: true }, mapAiToCandidatesResult);
+      if (!ai) return null;
+      return mergeCandidatesSmartSearchResult(local, ai);
+    },
     applyParsed: (parsed) => {
       setCurrentPage(1);
+      const stageChip = parsed.keywords.find((chip) => chip.kind === 'stage');
+      const statusChip = parsed.keywords.find((chip) => chip.kind === 'status');
+      const recruiterChip = parsed.keywords.find((chip) => chip.kind === 'recruiter');
+      const jobChip = parsed.keywords.find((chip) => chip.kind === 'client');
       setFilters((prev) => ({
         ...prev,
-        search: parsed.searchText,
-        ...(parsed.stage ? { status: '' } : {}),
+        search: [parsed.searchText, parsed.source].filter(Boolean).join(' ').trim(),
+        status: parsed.status || statusChip?.value || '',
       }));
       setColumnFilters({
-        stage: parsed.stage || '',
-        ownerId: parsed.ownerId || '',
+        stage: parsed.stage || stageChip?.value || '',
+        ownerId: parsed.ownerId || recruiterChip?.value || '',
         company: parsed.company || '',
         location: parsed.location || '',
-        jobId: parsed.jobId || '',
+        jobId: parsed.jobId || jobChip?.value || '',
         experienceRange: parsed.experienceRange || '',
       });
       setSmartSearchCandidateIds(
@@ -785,6 +821,9 @@ function CandidatesPageContent() {
       setCurrentPage(1);
       if (removed.kind === 'stage') {
         setColumnFilters((prev) => ({ ...prev, stage: '' }));
+      }
+      if (removed.kind === 'status') {
+        setFilters((prev) => ({ ...prev, status: '' }));
       }
       if (removed.kind === 'recruiter') {
         setColumnFilters((prev) => ({ ...prev, ownerId: '' }));
@@ -914,7 +953,44 @@ function CandidatesPageContent() {
     };
   }, []);
 
-  const filteredCandidates = candidates;
+  const filteredCandidates = useMemo(() => {
+    if (candidateSmartSearch.activeKeywords.length === 0) return candidates;
+    return candidates.filter((candidate) =>
+      candidateMatchesSmartKeywordChips(
+        {
+          name: candidate.name,
+          email: candidate.email,
+          phone: candidate.phone,
+          designation: candidate.designation,
+          company: candidate.company,
+          experience: candidate.experience,
+          location: candidate.location,
+          city: candidate.city,
+          country: candidate.country,
+          stage: candidate.stage,
+          owner: candidate.owner,
+          assignedToId: candidate.assignedToId,
+          source: candidate.source,
+          backendStatus: candidate.backendStatus,
+          skills: candidate.skills,
+          availability: candidate.availability,
+          noticePeriod: candidate.noticePeriod,
+          education: candidate.education,
+          cvSummary: candidate.cvSummary,
+          languages: candidate.languagesList,
+          certifications: candidate.certificationsList,
+          linkedIn: candidate.linkedIn,
+          portfolio: candidate.portfolio,
+          preferredLocation: candidate.preferredLocation,
+          assignedJobs: candidate.assignedJobs,
+          jobId: candidate.pipelineJobId,
+          workExperienceText: candidate.workExperienceText,
+          projectsText: candidate.projectsText,
+        },
+        candidateSmartSearch.activeKeywords,
+      ),
+    );
+  }, [candidates, candidateSmartSearch.activeKeywords]);
   const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
     'CANDIDATE',
     filteredCandidates.map((candidate) => candidate.id),
@@ -1793,14 +1869,14 @@ function CandidatesPageContent() {
                     onExampleClick={candidateSmartSearch.handleExample}
                     entityLabel="candidates"
                     applying={candidateSmartSearch.applying}
-                    placeholder="e.g. interviewing candidates in Bangalore with 5+ years"
+                    placeholder="e.g. React developers in Panvel interviewing on Accounts Assistant assigned to Himanshu"
                   />
                 ) : null}
 
                 <SmartSearchActiveKeywordsBar
                   chips={candidateSmartSearch.activeChips}
                   onClearAll={handleClearToolbar}
-                  resultCount={totalEntries}
+                  resultCount={filteredCandidates.length}
                   showResultCount={!loading && !error}
                 />
 

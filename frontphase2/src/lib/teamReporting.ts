@@ -72,6 +72,26 @@ function resolveMemberRankInDepartment(
   return null;
 }
 
+/** Merge API roles with roles embedded on department role links (covers failed /roles fetch). */
+export function mergeRolesWithDepartmentEmbedded(
+  allRoles: Role[],
+  departments: DepartmentWithRoles[],
+): Role[] {
+  const byId = new Map<string, Role>();
+  for (const role of allRoles) {
+    byId.set(idStr(role.id), role);
+  }
+  for (const dept of departments) {
+    for (const link of dept.departmentRoles || []) {
+      if (!link.role?.id) continue;
+      const key = idStr(link.role.id);
+      const existing = byId.get(key);
+      byId.set(key, existing ? { ...existing, ...link.role } : link.role);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 export function getRoleRankInDepartment(
   departmentId: string | undefined,
   roleId: string | undefined,
@@ -79,7 +99,7 @@ export function getRoleRankInDepartment(
   roleName?: string | null,
 ): number | null {
   if (!departmentId || (!roleId && !roleName)) return null;
-  const dept = departments.find((d) => d.id === departmentId);
+  const dept = departments.find((d) => idStr(d.id) === idStr(departmentId));
   const rankByRoleId = buildDepartmentRankMap(dept);
   const rankByRoleName = buildDepartmentRankNameMap(dept);
   if (roleId) {
@@ -93,6 +113,15 @@ export function getRoleRankInDepartment(
   return null;
 }
 
+function resolveDepartmentRoleOption(
+  link: DepartmentRoleLink,
+  allRoles: Role[],
+): (Role & { rank?: number }) | null {
+  const role = link.role || allRoles.find((r) => idStr(r.id) === idStr(link.roleId));
+  if (!role?.id) return null;
+  return { ...role, rank: Number(link.rank) };
+}
+
 /** Roles available for a member in the selected department (falls back to all roles if none configured). */
 export function getRolesForDepartment(
   departmentId: string | undefined,
@@ -101,17 +130,18 @@ export function getRolesForDepartment(
 ): Array<Role & { rank?: number }> {
   if (!departmentId) return allRoles;
 
-  const dept = departments.find((d) => d.id === departmentId);
+  const dept = departments.find((d) => idStr(d.id) === idStr(departmentId));
   const links = getDepartmentRoleLinks(dept);
   if (links.length === 0) return allRoles;
 
-  return links
-    .map((link) => {
-      const role = link.role || allRoles.find((r) => idStr(r.id) === idStr(link.roleId));
-      if (!role) return null;
-      return { ...role, rank: Number(link.rank) };
-    })
+  const mapped = links
+    .map((link) => resolveDepartmentRoleOption(link, allRoles))
     .filter(Boolean) as Array<Role & { rank?: number }>;
+
+  if (mapped.length > 0) return mapped;
+
+  // Links exist but could not be resolved — fall back so the dropdown is not empty.
+  return allRoles;
 }
 
 export function isSuperAdminMember(member: TeamMember): boolean {

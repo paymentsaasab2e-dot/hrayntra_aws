@@ -21,7 +21,7 @@ export const ALERT_CATALOG = [
     module: 'AI Analysis',
     label: 'Scheduled Daily Analysis',
     description:
-      'Automatic AI workspace analysis and delivery (when scheduled analysis is enabled on the server).',
+      'Email and portal notification when the automatic daily Analyze runs at your configured time (Settings → Alerts Management).',
     category: 'SYSTEM',
     severity: 'info',
     defaultEmail: true,

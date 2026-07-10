@@ -6,6 +6,7 @@ import {
   runWithTenantContext,
 } from '../../config/prisma.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
+import { jobService, removeJobFromPortalDatabases } from '../job/job.service.js';
 
 const LIST_LIMIT = Math.min(
   10000,
@@ -58,6 +59,14 @@ function fullName(first, last) {
 
 function candidateKey(origin, id, tenantDbName = '') {
   return `${origin}:${tenantDbName || ''}:${id}`;
+}
+
+function notSoftDeletedWhere() {
+  // MongoDB nullable booleans: legacy portal rows store isDeleted as null/unset.
+  // `{ not: true }` excludes those rows; match Phase 1 listing behavior instead.
+  return {
+    OR: [{ isDeleted: false }, { isDeleted: { isSet: false } }],
+  };
 }
 
 function jobKey(id, tenantDbName = '') {
@@ -144,7 +153,7 @@ async function fetchPhase2Candidates(tenantDbNames) {
       try {
         return await runWithTenantContext(tenantDbName, async () => {
           const rows = await prisma.candidate.findMany({
-            where: { isDeleted: { not: true } },
+            where: notSoftDeletedWhere(),
             orderBy: { updatedAt: 'desc' },
             take: perTenant,
             select: CANDIDATE_SELECT,
@@ -180,7 +189,7 @@ async function fetchPhase2OpenJobs(tenantDbNames) {
         return await runWithTenantContext(tenantDbName, async () => {
           const rows = await prisma.job.findMany({
             where: {
-              isDeleted: { not: true },
+              ...notSoftDeletedWhere(),
               status: 'OPEN',
             },
             orderBy: { updatedAt: 'desc' },
@@ -207,6 +216,67 @@ async function fetchPhase2OpenJobs(tenantDbNames) {
 }
 
 export const hqPortalService = {
+  /**
+   * Permanently remove a job from Phase 2 tenant DB and Phase 1 portal mirror.
+   * Portal-only jobs (no tenant row) are removed from the shared portal DB only.
+   */
+  async deletePortalJob({ jobId, tenantDbName = '' }) {
+    const id = String(jobId || '').trim();
+    if (!id) {
+      throw new Error('Job ID is required');
+    }
+
+    const tenant = String(tenantDbName || '').trim();
+    let deletedFromTenant = false;
+    let deletedFromPortal = false;
+
+    if (tenant) {
+      await runWithTenantContext(tenant, async () => {
+        const tenantJob = await prisma.job.findFirst({
+          where: { id },
+          select: { id: true },
+        });
+        if (!tenantJob) return;
+
+        try {
+          await removeJobFromPortalDatabases(id);
+          deletedFromPortal = true;
+        } catch (error) {
+          console.warn(
+            `[hq-portal] portal mirror delete failed for job ${id}:`,
+            error?.message || error,
+          );
+        }
+
+        const result = await jobService.purgeCompletely(id);
+        deletedFromTenant = Boolean(result?.deleted);
+      });
+    }
+
+    if (!deletedFromPortal) {
+      const portal = getJobPortalPrismaClient();
+      const portalJob = await portal.job.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (portalJob) {
+        await removeJobFromPortalDatabases(id);
+        deletedFromPortal = true;
+      }
+    }
+
+    if (!deletedFromTenant && !deletedFromPortal) {
+      throw new Error('Job not found in tenant or Phase 1 portal');
+    }
+
+    return {
+      jobId: id,
+      tenantDbName: tenant,
+      deletedFromTenant,
+      deletedFromPortal,
+    };
+  },
+
   async getPortalOverview() {
     const portal = getJobPortalPrismaClient();
     const common = getCandidateCommonPrismaClient();
@@ -220,7 +290,7 @@ export const hqPortalService = {
       phase2Jobs,
     ] = await Promise.all([
       portal.candidate.findMany({
-        where: { isDeleted: { not: true } },
+        where: notSoftDeletedWhere(),
         orderBy: { updatedAt: 'desc' },
         take: LIST_LIMIT,
         select: CANDIDATE_SELECT,
@@ -248,7 +318,7 @@ export const hqPortalService = {
           })
         : Promise.resolve([]),
       portal.job.findMany({
-        where: { isDeleted: { not: true } },
+        where: notSoftDeletedWhere(),
         orderBy: { updatedAt: 'desc' },
         take: LIST_LIMIT,
         include: {

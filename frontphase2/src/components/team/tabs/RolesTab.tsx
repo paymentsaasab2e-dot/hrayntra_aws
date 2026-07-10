@@ -174,17 +174,6 @@ export const RolesTab: React.FC = () => {
     setShowMembersDrawer(true);
   };
 
-  // Wire up the Add Role button from parent
-  useEffect(() => {
-    const handleAddRole = () => {
-      setShowAddDrawer(true);
-    };
-
-    // Listen for custom event from parent page
-    window.addEventListener('addRole', handleAddRole);
-    return () => window.removeEventListener('addRole', handleAddRole);
-  }, []);
-
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950">

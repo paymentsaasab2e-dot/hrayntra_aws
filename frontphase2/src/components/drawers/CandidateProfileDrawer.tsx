@@ -88,11 +88,9 @@ import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
 import { CandidatePhase1SubmitEditSections } from '../candidates/CandidatePhase1SubmitEditSections';
 import { applyHiringFieldsFromEditForm, CandidateHiringEditSection } from '../candidates/CandidateHiringSection';
-import { mergeProfileWithClientPresentation, readClientPresentation } from '../../lib/clientPresentationDraft';
 import {
   buildUpdatePayloadFromPhase1EditSnapshot,
   initPhase1EditSnapshotFromProfile,
-  mergeProfileWithPhase1ClientPresentation,
 } from '../../lib/phase1ClientPresentation';
 import { isPhase1PortalCandidate, type Phase1ProfileSnapshot } from '../../lib/phase1ProfileSnapshot';
 import {
@@ -203,7 +201,6 @@ interface CandidateProfileDrawerProps {
 
 type DrawerTab =
   | 'Overview'
-  | 'Client'
   | 'Resume'
   | 'Interviews'
   | 'Assessments'
@@ -215,7 +212,6 @@ type DrawerTab =
 
 const TABS: DrawerTab[] = [
   'Overview',
-  'Client',
   'Resume',
   'Interviews',
   'Assessments',
@@ -3992,11 +3988,6 @@ export function CandidateProfileDrawer({
     return groups;
   }, [candidate?.activity]);
 
-  const clientPresentationProfile = useMemo(
-    () => (candidate ? mergeProfileWithClientPresentation(candidate) : null),
-    [candidate]
-  );
-
   const overviewContentKey = useMemo(() => {
     if (!candidate) return 'overview-empty';
     return [
@@ -4008,11 +3999,6 @@ export function CandidateProfileDrawer({
       JSON.stringify(candidate.extraData ?? null),
     ].join('|');
   }, [candidate]);
-
-  const phase1ClientPresentationProfile = useMemo(
-    () => (candidate ? mergeProfileWithPhase1ClientPresentation(candidate) : null),
-    [candidate]
-  );
 
   useEffect(() => {
     if (isOpen && activeTab === 'Activity' && activityContainerRef.current) {
@@ -4543,42 +4529,6 @@ export function CandidateProfileDrawer({
                           <CandidateAtsExtractedOverview key={overviewContentKey} candidate={candidate} />
                         )}
                       </>
-                    )}
-                  </div>
-                )}
-
-                {activeTab === 'Client' && (
-                  <div className="space-y-5">
-                    {phase1ClientPresentationProfile ? (
-                      <>
-                        <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
-                          Copy prepared for client submission. Edits here do not change the Overview tab — update
-                          them from Submit to Client.
-                        </p>
-                        <CandidatePhase1DetailSections
-                          candidate={phase1ClientPresentationProfile}
-                          sectionVisibility={readClientPresentation(candidate.extraData)?.phase1VisibleSections}
-                        />
-                      </>
-                    ) : clientPresentationProfile ? (
-                      <>
-                        <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
-                          Copy prepared for client submission. Edits here do not change the Overview tab — update
-                          them from Submit to Client.
-                        </p>
-                        <CandidateAtsExtractedOverview
-                          candidate={clientPresentationProfile}
-                          sectionVisibility={readClientPresentation(candidate.extraData)?.visibleSections}
-                        />
-                      </>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
-                        <p className="text-sm font-medium text-slate-700">No client presentation saved yet</p>
-                        <p className="mt-2 text-sm text-slate-500">
-                          Open Submit to Client, review the candidate, and save. The client copy will appear here
-                          without changing the main profile.
-                        </p>
-                      </div>
                     )}
                   </div>
                 )}

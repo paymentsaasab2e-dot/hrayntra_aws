@@ -1656,6 +1656,22 @@ export async function apiHqListPortal() {
   }>('/hq/portal', { auth: true });
 }
 
+export async function apiHqDeletePortalJob(
+  jobId: string,
+  body: { tenantDbName?: string } = {},
+) {
+  return apiFetch<{
+    jobId: string;
+    tenantDbName: string;
+    deletedFromTenant: boolean;
+    deletedFromPortal: boolean;
+  }>(`/hq/portal/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+    auth: true,
+    body,
+  });
+}
+
 export async function apiHqAssignTenantPlan(body: {
   email: string;
   billingCycle?: 'monthly' | 'annual';
@@ -7202,9 +7218,18 @@ export type AlertCatalogGroup = {
   alerts: AlertDefinition[];
 };
 
+export type ScheduledAnalysisSettings = {
+  enabled: boolean;
+  /** 24-hour local time HH:mm */
+  time: string;
+  /** IANA timezone */
+  timezone: string;
+};
+
 export type AlertManagementPayload = {
   catalog: AlertCatalogGroup[];
   channels: Record<string, AlertChannelSettings>;
+  scheduledAnalysis?: ScheduledAnalysisSettings;
   scope?: string;
   updatedAt?: string | null;
 };
@@ -7213,13 +7238,14 @@ export const apiGetAlertManagement = async () => {
   return apiFetch<AlertManagementPayload>('/settings/alert-management', { auth: true });
 };
 
-export const apiUpdateAlertManagement = async (
-  channels: Record<string, AlertChannelSettings>,
-) => {
+export const apiUpdateAlertManagement = async (payload: {
+  channels?: Record<string, AlertChannelSettings>;
+  scheduledAnalysis?: ScheduledAnalysisSettings;
+}) => {
   return apiFetch<AlertManagementPayload>('/settings/alert-management', {
     method: 'PATCH',
     auth: true,
-    body: { channels, scope: 'ORG' },
+    body: { ...payload, scope: 'ORG' },
   });
 };
 

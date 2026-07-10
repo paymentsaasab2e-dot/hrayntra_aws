@@ -262,6 +262,19 @@ export const hqController = {
     }
   },
 
+  async deletePortalJob(req, res) {
+    try {
+      const jobId = String(req.params?.id || '').trim();
+      if (!jobId) {
+        return sendError(res, 400, 'Job ID is required');
+      }
+      const result = await hqService.deletePortalJob(jobId, req.body || {}, req.user);
+      sendResponse(res, 200, 'Job deleted from tenant and portal', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async deleteTenant(req, res) {
     try {
       // Accept email via body, URL params, or query — the HQ UI uses the

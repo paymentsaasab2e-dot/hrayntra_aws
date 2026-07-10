@@ -114,8 +114,8 @@ Map recruiter to recruiterId filter. Put unmapped terms in searchText.`,
     textSearchFields: [
       'title',
       'description',
-      'location',
       'overview',
+      'location',
       'experienceRequired',
       'education',
       'hiringManager',
@@ -130,18 +130,36 @@ Map recruiter to recruiterId filter. Put unmapped terms in searchText.`,
       'city',
       'forecastRevenue',
       'visibility',
+      'jdFileName',
+      'videoMediaLink',
+      'applicationFormNote',
     ],
-    arraySearchFields: ['requirements', 'skills', 'keyResponsibilities', 'preferredSkills', 'benefits'],
+    arraySearchFields: [
+      'requirements',
+      'skills',
+      'keyResponsibilities',
+      'preferredSkills',
+      'candidateRequirements',
+      'benefits',
+    ],
     filterMap: {
       status: { field: 'status', type: 'enum', enumKey: 'JobStatus' },
       clientId: { field: 'clientId', type: 'objectId' },
       recruiterId: { field: 'assignedToId', type: 'objectId' },
+      priority: { field: 'priority', type: 'string' },
+      employmentType: { field: 'type', type: 'enum', enumKey: 'JobType' },
       searchText: { type: 'text' },
     },
-    distinctHintFields: ['status', 'title', 'location', 'type', 'priority', 'city', 'country'],
-    aiGuide: `Prisma model Job: title, description, location, skills[], requirements[], status (DRAFT|OPEN|ON_HOLD|CLOSED|FILLED),
-type (FULL_TIME|PART_TIME|CONTRACT|FREELANCE|INTERNSHIP), clientId, assignedToId, department, workMode, city, state, country, priority, hot.
-Map client to clientId; recruiter to recruiterId (assignedToId). Put title/skills/location in searchText.`,
+    distinctHintFields: ['status', 'title', 'location', 'type', 'priority', 'city', 'country', 'nationality', 'workMode'],
+    aiGuide: `Prisma model Job searchable fields:
+title, description, overview, location, country, state, city, nationality, workMode, jobLocationType,
+status (DRAFT|OPEN|ON_HOLD|CLOSED|FILLED), type/employmentType (FULL_TIME|PART_TIME|CONTRACT|FREELANCE|INTERNSHIP),
+priority (Low|Medium|High|Urgent), openings, clientId, assignedToId (recruiter), managerId (assign manager),
+hiringManager, department, jobCategory, experienceRequired, education, expectedClosureDate (target hire date),
+skills[], requirements[], keyResponsibilities[], preferredSkills[], candidateRequirements[], benefits[],
+languages (JSON: language + proficiency), salary (JSON: min/max/currency), jdFileName, publicFieldVisibility.
+Map client name to clientId; recruiter/manager name to recruiterId or managerId.
+Put job title, skills, location, industry, responsibilities, qualifications in searchText when not a structured filter.`,
   },
 
   clients: {
@@ -152,10 +170,10 @@ Map client to clientId; recruiter to recruiterId (assignedToId). Put title/skill
       'companyName',
       'industry',
       'website',
+      'linkedin',
       'location',
       'companySize',
       'hiringLocations',
-      'linkedin',
       'servicesNeeded',
       'expectedBusinessValue',
       'leadStatus',
@@ -164,12 +182,27 @@ Map client to clientId; recruiter to recruiterId (assignedToId). Put title/skill
       'city',
       'state',
       'country',
+      'timezone',
       'directorSalutation',
       'teamMemberDesignation',
       'teamMemberEmail',
       'teamMemberPhone',
       'healthStatus',
       'avgTimeToFill',
+      'agreementsFileName',
+      'agreementTotalPayment',
+      'agreementLevel',
+      'agreementServiceChargePercent',
+      'agreementContractValidity',
+      'agreementContractStartDate',
+      'agreementContractEndDate',
+      'agreementTimePeriod',
+      'agreementAdvancePaymentPercent',
+      'agreementFreeReplacementUnit',
+      'revenueGenerated',
+      'billingTotalRevenue',
+      'billingOutstanding',
+      'billingPaid',
     ],
     arraySearchFields: ['emails', 'phones'],
     filterMap: {
@@ -178,11 +211,22 @@ Map client to clientId; recruiter to recruiterId (assignedToId). Put title/skill
       ownerScope: { type: 'ownerScope' },
       searchText: { type: 'text' },
     },
-    distinctHintFields: ['status', 'priority', 'companyName', 'industry', 'city', 'country'],
-    aiGuide: `Prisma model Client: companyName, industry, website, location, status (ACTIVE|PROSPECT|ON_HOLD|INACTIVE),
-priority (High|Medium|Low), assignedToId, createdById, city, state, country, servicesNeeded, hiringLocations.
-activeTab: active→ACTIVE/PROSPECT, on-hold→ON_HOLD, inactive→INACTIVE, hot→priority High.
-ownerScope "me" = assignedToId or createdById = current user. searchText searches company/industry/location fields.`,
+    distinctHintFields: ['status', 'priority', 'companyName', 'industry', 'city', 'country', 'leadStatus'],
+    aiGuide: `Prisma model Client searchable fields:
+companyName, industry, website, linkedin, location, city, state, country, timezone,
+status (ACTIVE|PROSPECT|ON_HOLD|INACTIVE), leadStatus (display label e.g. Active, On Hold),
+priority (High|Medium|Low), assignedToId, createdById, servicesNeeded, expectedBusinessValue,
+companySize, hiringLocations, directorSalutation, emails[], phones[],
+teamMemberDesignation, teamMemberEmail, teamMemberPhone,
+agreements: agreementsFileName, agreementLevel, agreementServiceChargePercent, agreementContractStartDate,
+agreementContractEndDate, agreementTimePeriod, agreementAdvancePaymentPercent, agreementTotalPayment,
+agreementFreeReplacementValue, agreementFreeReplacementUnit,
+postServiceKycForm (JSON: company/trade name, tax id, bank, shareholders, KYC checklist, approval),
+otherDetails (JSON label-value custom fields).
+activeTab: active→ACTIVE/PROSPECT or leadStatus Active, on-hold→ON_HOLD or leadStatus On Hold,
+inactive→INACTIVE, hot→priority High.
+ownerScope "me" = assignedToId or createdById = current user.
+Put company names, locations, industries, director/team/KYC/agreement terms in searchText when not a structured filter.`,
   },
 
   candidates: {
@@ -227,6 +271,8 @@ ownerScope "me" = assignedToId or createdById = current user. searchText searche
     ],
     filterMap: {
       stage: { field: 'stage', type: 'stage' },
+      status: { field: 'status', type: 'enum', enumKey: 'CandidateStatus' },
+      source: { field: 'source', type: 'contains' },
       ownerId: { field: 'assignedToId', type: 'objectId' },
       company: { field: 'currentCompany', type: 'contains' },
       location: { field: 'location', type: 'contains' },
@@ -234,11 +280,18 @@ ownerScope "me" = assignedToId or createdById = current user. searchText searche
       experienceRange: { field: 'experience', type: 'experienceRange' },
       searchText: { type: 'text' },
     },
-    distinctHintFields: ['stage', 'status', 'currentCompany', 'location', 'city', 'country', 'source'],
-    aiGuide: `Prisma model Candidate: firstName, lastName, email, phone, skills[], stage, status (NEW|ACTIVE|PLACED|INACTIVE|BLACKLISTED),
-currentCompany, currentTitle, designation, location, city, country, experience, experienceYears, assignedToId, assignedJobs[],
-applications, pipelineEntries. stage filter values: new, applied, shortlist, screening, interviewing, offered, hired, rejected.
-experienceRange: 0-2, 2-5, 5-10, 10+. ownerId = assignedToId. jobId matches assignedJobs/applications/pipelineEntries.`,
+    distinctHintFields: ['stage', 'status', 'currentCompany', 'location', 'city', 'country', 'source', 'availability'],
+    aiGuide: `Prisma model Candidate searchable profile fields:
+firstName, lastName, email, phone, linkedIn, currentTitle, currentCompany, designation,
+location, address, city, country, preferredLocation, nationality (often in cvSummary/extraData),
+status (NEW|ACTIVE|PLACED|INACTIVE|BLACKLISTED), recruiterStatus, stage, source (e.g. phase1),
+assignedToId (recruiter), assignedJobs[], experience, experienceYears, availability, noticePeriod,
+skills[], recruiterSkills[], education, recruiterEducation, certifications[], languages[],
+cvSummary, notes, recruiterNotes, cvEducationEntries (JSON), cvWorkExperienceEntries (JSON),
+cvPortfolioLinks (JSON), extraData (JSON: gender, projects, accomplishments, visa, assessments).
+stage filter values: new, applied, shortlist, screening, interviewing, offered, hired, rejected.
+experienceRange: 0-2, 2-5, 5-10, 10+. ownerId = assignedToId. jobId matches assignedJobs/applications/pipeline.
+Put skills (React, Python), job titles (SDE, Frontend), employers, education, project names in searchText.`,
   },
 
   interviews: {

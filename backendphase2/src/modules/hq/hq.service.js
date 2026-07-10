@@ -574,6 +574,14 @@ export const hqService = {
     return hqPortalService.getPortalOverview();
   },
 
+  async deletePortalJob(jobId, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqPortalService.deletePortalJob({
+      jobId,
+      tenantDbName: data?.tenantDbName,
+    });
+  },
+
   async listPackages(reqUser) {
     assertPlatformProvisioner(reqUser);
     const packages = await hqPackagesService.listPackages();

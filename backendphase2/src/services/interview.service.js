@@ -1,4 +1,5 @@
 import { prisma, getActiveTenantDbName, getDefaultPrismaClient, runWithTenantContext } from '../config/prisma.js';
+import { mirrorLocalUploadToS3 } from '../utils/publicUploads.util.js';
 import { getCandidateOrThrow } from '../modules/candidate/candidate.service.js';
 import {
   PIPELINE_STAGES,
@@ -1777,6 +1778,15 @@ export const interviewService = {
       let placementOfferAttached = false;
       if (file) {
         const fileUrl = `/uploads/interview-client-review/${file.filename}`;
+        if (file.path) {
+          await mirrorLocalUploadToS3({
+            localPath: file.path,
+            subdir: 'interview-client-review',
+            originalFilename: file.originalname || file.filename,
+            tenantDbName,
+            contentType: 'application/pdf',
+          });
+        }
         // Tag the candidate file based on what stage of the funnel produced
         // it. Offer-confirmation uploads go in as 'Offer' so the Placements
         // tab can pick them up; everything else lands as a generic 'Other'

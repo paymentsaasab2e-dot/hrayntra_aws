@@ -15,7 +15,7 @@ export const ALERT_EXAMPLE_PREVIEWS = {
     portalTitle: 'Your daily AI workspace brief is ready',
     portalBody: 'Scheduled analysis found 4 priority alerts across clients, jobs, and tasks.',
     emailSubject: 'Daily AI Workspace Brief — Jun 23, 2026',
-    shownIn: 'Morning bell + email (when scheduled analysis is enabled)',
+    shownIn: 'Daily bell + email at your scheduled Analyze time',
   },
   'ai.client.followup_overdue': {
     portalTitle: 'Overdue Client Follow-Up',

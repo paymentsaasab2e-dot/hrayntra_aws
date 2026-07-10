@@ -63,6 +63,7 @@ import integrationRoutes from './modules/integration/integration.routes.js';
 import userCommunicationRoutes from './modules/user-communication/user-communication.routes.js';
 import twilioTestRoutes from './modules/twilio-test/twilio-test.routes.js';
 import pdfProxyRoutes from './routes/pdfProxy.routes.js';
+import publicUploadsRoutes from './routes/publicUploads.routes.js';
 import resumePreviewRoutes from './routes/resumePreview.routes.js';
 import hqRoutes from './modules/hq/hq.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
@@ -205,6 +206,7 @@ app.get('/api/v1/auth/test', (req, res) => {
 app.use('/api/v1/internal', portalSyncRoutes);
 // Public document proxies — must be registered before `/api/v1` routers that apply authMiddleware globally
 app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
+app.use('/api/v1/public/uploads', publicUploadsRoutes);
 app.use('/api/v1/resume-preview', resumePreviewRoutes);
 app.use('/api/v1/auth', authRoutes);
 // HQ routes include a public pricing endpoint and must be mounted before

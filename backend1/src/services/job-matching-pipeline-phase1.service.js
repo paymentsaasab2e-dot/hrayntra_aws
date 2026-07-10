@@ -1352,6 +1352,66 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
   };
 }
 
+function resolveCandidateResumeText(candidate) {
+  if (!candidate?.resume) return '';
+  if (typeof candidate.resume.resumeText === 'string') return candidate.resume.resumeText;
+  if (typeof candidate.resume.cleanedText === 'string') return candidate.resume.cleanedText;
+  if (candidate.resume.resumeJson) return JSON.stringify(candidate.resume.resumeJson);
+  return '';
+}
+
+/**
+ * Score one candidate against one job using the same blend as the personalized pipeline.
+ */
+async function scoreCandidateAgainstJob({ candidate, cleanedResumeText = '', job }) {
+  if (!candidate || !job?.id) return null;
+
+  const normalizedCandidate = summarizeCandidate(candidate);
+  if (cleanedResumeText) {
+    buildCandidateSummaryText(normalizedCandidate, cleanedResumeText);
+  }
+
+  const [validated] = await validateAndNormalizeJobs([{ ...job, source: 'db' }]);
+  if (!validated) return null;
+
+  const candidateFeatures = buildCandidateFeatures(normalizedCandidate);
+  const deterministic = scoreDeterministic(candidateFeatures, validated.jobFeatures);
+  let finalScore = deterministic.deterministicScore;
+  let aiEnhanced = false;
+  let aiScore = null;
+
+  if (finalScore >= 55) {
+    try {
+      const aiData = await getAIMatchScore(normalizedCandidate, validated.rawJob);
+      if (aiData && Number.isFinite(Number(aiData.finalScore))) {
+        aiScore = Number(aiData.finalScore);
+        finalScore = Math.min(
+          100,
+          deterministic.deterministicScore * 0.6 + aiScore * 0.4,
+        );
+        aiEnhanced = true;
+      }
+    } catch (error) {
+      console.warn('[job-match-alert] AI score failed:', error?.message || error);
+    }
+  }
+
+  finalScore = Math.round(finalScore * 100) / 100;
+  const matchScore = Math.round(Math.max(0, Math.min(100, finalScore)));
+
+  return {
+    finalScore,
+    matchScore,
+    deterministicScore: deterministic.deterministicScore,
+    aiScore,
+    aiEnhanced,
+    matchedSkills: deterministic.matchedSkills,
+    missingSkills: deterministic.missingSkills,
+  };
+}
+
 module.exports = {
   runJobMatchingPipeline,
+  scoreCandidateAgainstJob,
+  resolveCandidateResumeText,
 };
