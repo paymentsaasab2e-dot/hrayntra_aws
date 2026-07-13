@@ -133,6 +133,12 @@ router.post(
   validateRequest({ params: idParamSchema, body: submitToClientSchema }),
   interviewController.submitToClient
 );
+router.get(
+  '/:id/client-review',
+  requireAnyPermission(['interviews_read']),
+  validateRequest({ params: idParamSchema }),
+  interviewController.getInterviewClientReviewContext
+);
 
 router.get('/:id/feedback', requireAnyPermission(['interviews_read']), validateRequest({ params: idParamSchema }), interviewFeedbackController.list);
 router.post(

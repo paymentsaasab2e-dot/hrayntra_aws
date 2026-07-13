@@ -130,10 +130,53 @@ export async function notifyInterviewScheduleChange({
         meetingLink: meetingLink || null,
         event,
       },
-    });
+    }    );
   } catch (error) {
     console.warn(
       '[interviewNotifications] notify failed (non-fatal):',
+      error?.message || error
+    );
+  }
+}
+
+/** Job-portal candidate bell when an interview is cancelled. Best-effort — never throws. */
+export async function notifyInterviewCancelledForPortal({
+  portalCandidateId,
+  jobTitle,
+  jobId,
+  interviewId,
+  scheduledAt,
+  reason,
+}) {
+  try {
+    const candId = String(portalCandidateId || '').trim();
+    if (!candId || !interviewId) return;
+
+    const role = String(jobTitle || '').trim() || 'your role';
+    const whenLabel = formatInterviewWhenLabel(scheduledAt);
+    const actionPath = jobId
+      ? await resolvePortalApplicationActionPath(candId, String(jobId))
+      : '/applications';
+
+    void pushPortalNotification(candId, {
+      type: 'interview',
+      title: 'Interview cancelled',
+      description: reason
+        ? `Your interview for ${role} on ${whenLabel} was cancelled. Reason: ${reason}.`
+        : `Your interview for ${role} on ${whenLabel} was cancelled.`,
+      actionButton: 'View application',
+      actionPath,
+      metadata: {
+        interviewId,
+        jobId: jobId ? String(jobId) : null,
+        scheduledAt:
+          scheduledAt instanceof Date ? scheduledAt.toISOString() : scheduledAt,
+        event: 'cancelled',
+      },
+    });
+  } catch (error) {
+    console.warn(
+      '[interviewNotifications] cancel portal notify failed (non-fatal):',
       error?.message || error
     );
   }

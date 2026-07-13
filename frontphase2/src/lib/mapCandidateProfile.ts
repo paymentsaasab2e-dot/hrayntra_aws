@@ -158,6 +158,28 @@ export function joinCandidateNameParts(
   return joinNameParts(first, middle, last);
 }
 
+function normalizeNameToken(token: string): string {
+  const word = String(token || '').trim();
+  if (!word) return '';
+  if (word.length > 1 && word === word.toUpperCase() && /[A-Z]/.test(word)) {
+    return word.charAt(0) + word.slice(1).toLowerCase();
+  }
+  if (word === word.toLowerCase()) {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }
+  return word;
+}
+
+/** Title-case stray ALL CAPS / lowercase tokens so list rows match profile names. */
+export function normalizePersonDisplayName(name: string): string {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(normalizeNameToken)
+    .join(' ');
+}
+
 function splitCanonicalDisplayName(displayName: string): {
   firstName: string;
   middleName: string;
@@ -223,20 +245,19 @@ export function resolveCandidateDisplayName(
   const enrichedFull = joinCandidateNameParts(c.firstName, middleName, c.lastName);
   const basicFull = joinCandidateNameParts(c.firstName, null, c.lastName);
 
-  const namePart =
-    c.isPhase1Candidate && phase1Full
-      ? phase1Full
-      : pickRicherDisplayName(phase1Full, enrichedFull, basicFull);
+  const namePart = phase1Full
+    ? phase1Full
+    : pickRicherDisplayName(phase1Full, enrichedFull, basicFull);
 
   const emailPart = displayCandidateEmail(c.email?.trim() || '');
   const phonePart = c.phone?.trim() || '';
   const shortId = c.id && c.id.length >= 6 ? c.id.slice(-6) : c.id;
 
-  return (
+  return normalizePersonDisplayName(
     namePart ||
-    emailPart ||
-    phonePart ||
-    (shortId ? `Candidate …${shortId}` : 'Candidate')
+      emailPart ||
+      phonePart ||
+      (shortId ? `Candidate …${shortId}` : 'Candidate'),
   );
 }
 

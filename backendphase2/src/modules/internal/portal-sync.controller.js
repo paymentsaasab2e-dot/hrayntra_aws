@@ -4,6 +4,7 @@ import {
   applyPlacementOfferResponse,
   backfillPortalJobTenantDbNames,
   lookupPortalInterviewFeedback,
+  lookupPortalInterviewRounds,
 } from './portal-sync.service.js';
 import { applyPortalTailoredCvSync } from './portal-tailored-cv.service.js';
 import { hqLeadsService } from '../hq/hq-leads.service.js';
@@ -169,6 +170,22 @@ export async function postPortalInterviewFeedbackLookup(req, res) {
     return res.json({ success: true, data });
   } catch (error) {
     const message = String(error?.message || 'Interview feedback lookup failed');
+    const status = message.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, message });
+  }
+}
+
+export async function postPortalInterviewRoundsLookup(req, res) {
+  try {
+    const { tenantDbName, candidateId, jobId } = req.body || {};
+    const data = await lookupPortalInterviewRounds({
+      tenantDbName,
+      candidateId,
+      jobId,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    const message = String(error?.message || 'Interview rounds lookup failed');
     const status = message.includes('not found') ? 404 : 400;
     return res.status(status).json({ success: false, message });
   }

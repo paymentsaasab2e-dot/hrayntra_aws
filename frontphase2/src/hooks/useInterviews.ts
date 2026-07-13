@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   apiAddInterviewNote,
   apiAddInterviewPanelMember,
@@ -25,7 +25,7 @@ import {
 } from '../lib/api';
 import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../utils/dateDisplay';
 import { MY_JOBS_LIST_PARAMS } from '../lib/myJobsListParams';
-import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend } from '../lib/interview-schedule-helpers';
+import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend, buildInterviewRoundNumberById } from '../lib/interview-schedule-helpers';
 import type {
     CancelInterviewPayload,
     FeedbackPayload,
@@ -44,6 +44,8 @@ import { fetchAllPaginated } from '../lib/export/fetchAllPaginated';
 import { buildInterviewsListApiParams } from '../lib/smart-search/entitySmartSearch';
 import { extractAuditMeta } from '../utils/auditMeta';
 import type { AuditMeta } from '../types/audit';
+import { resolveCandidateDisplayName } from '../lib/mapCandidateProfile';
+import { enrichBackendCandidateFromPhase1Snapshot } from '../lib/phase1ProfileSnapshot';
 
 const defaultFilters: InterviewFiltersState = {
   date: 'This Week',
@@ -64,6 +66,36 @@ const statusMap: Record<string, Interview['status']> = {
   FEEDBACK_SUBMITTED: 'Completed',
   IN_PROGRESS: 'Scheduled',
   CONFIRMED: 'Scheduled',
+};
+
+const uiStatusToBackend: Record<Interview['status'], string> = {
+  Scheduled: 'SCHEDULED',
+  Completed: 'COMPLETED',
+  Cancelled: 'CANCELLED',
+  Rescheduled: 'RESCHEDULED',
+  'No Show': 'NO_SHOW',
+};
+
+const mapInterviewStatusToBackend = (status: Interview['status'] | string): string | undefined => {
+  const direct = uiStatusToBackend[status as Interview['status']];
+  if (direct) return direct;
+  const normalized = String(status || '').trim().toUpperCase().replace(/\s+/g, '_');
+  return normalized || undefined;
+};
+
+const mapPanelRoleToBackend = (
+  role: string,
+): 'HR' | 'TECHNICAL' | 'CLIENT' | 'HIRING_MANAGER' => {
+  const map: Record<string, 'HR' | 'TECHNICAL' | 'CLIENT' | 'HIRING_MANAGER'> = {
+    HR: 'HR',
+    Technical: 'TECHNICAL',
+    Client: 'CLIENT',
+    'Hiring Manager': 'HIRING_MANAGER',
+    TECHNICAL: 'TECHNICAL',
+    CLIENT: 'CLIENT',
+    HIRING_MANAGER: 'HIRING_MANAGER',
+  };
+  return map[String(role || '').trim()] || 'TECHNICAL';
 };
 
 const feedbackStatusMap = (item: BackendInterviewListItem): Interview['feedbackStatus'] => {
@@ -114,11 +146,22 @@ const initialsFromName = (value?: string | null, fallback = 'NA') => {
   return initials || fallback;
 };
 
-const extractDisplayName = (firstName?: string | null, lastName?: string | null) => {
-  const name = [safeDisplayText(firstName, ''), safeDisplayText(lastName, '')].filter(Boolean).join(' ').trim();
-  if (!name) return 'Unknown Candidate';
-  return name;
-};
+function resolveInterviewCandidateName(
+  candidate: BackendInterviewListItem['candidate'],
+): string {
+  const enriched = enrichBackendCandidateFromPhase1Snapshot({
+    id: candidate.id,
+    firstName: candidate.firstName,
+    middleName: candidate.middleName ?? null,
+    lastName: candidate.lastName,
+    email: candidate.email,
+    phone: candidate.phone ?? null,
+    extraData: candidate.extraData,
+    isPhase1Candidate: candidate.isPhase1Candidate,
+    status: candidate.status || 'ACTIVE',
+  });
+  return resolveCandidateDisplayName(enriched, { alreadyEnriched: true });
+}
 
 const sanitizeEmail = (value?: string | null) => {
   const email = String(value || '').trim();
@@ -139,7 +182,7 @@ const mapInterview = (item: BackendInterviewListItem): Interview => ({
   scheduledAt: item.scheduledAt,
   candidate: {
     id: item.candidate.id,
-    name: extractDisplayName(item.candidate.firstName, item.candidate.lastName),
+    name: resolveInterviewCandidateName(item.candidate),
     email: sanitizeEmail(item.candidate.email),
     avatar: isLikelyUrl(item.candidate.avatar) ? undefined : item.candidate.avatar || undefined,
     stage: item.candidate.stage || mapCandidateStageFallback(item.candidate.status),
@@ -258,9 +301,11 @@ const mapUsersToPanel = (users: BackendUser[]): InterviewPanelMember[] =>
 const mapCandidates = (candidates: BackendCandidate[]) =>
   candidates.map((candidate) => ({
     id: candidate.id,
-    name: extractDisplayName(candidate.firstName, candidate.lastName),
+    name: resolveCandidateDisplayName(candidate, { alreadyEnriched: true }),
     email: sanitizeEmail(candidate.email),
     avatar: undefined,
+    assignedJobId: candidate.assignedJobs?.[0] || undefined,
+    assignedJob: candidate.assignedJobTitles?.[0] || undefined,
   }));
 
 const mapJobs = (jobs: BackendJob[]) =>
@@ -314,6 +359,21 @@ function mergeInterviewerOptionsFromInterviews(
   return Array.from(map.values());
 }
 
+function withCanonicalCandidateNames(
+  list: Interview[],
+  nameById: Map<string, string>,
+): Interview[] {
+  if (!nameById.size) return list;
+  return list.map((interview) => {
+    const canonical = nameById.get(interview.candidate.id);
+    if (!canonical || canonical === interview.candidate.name) return interview;
+    return {
+      ...interview,
+      candidate: { ...interview.candidate, name: canonical },
+    };
+  });
+}
+
 const DELETED_INTERVIEWS_STORAGE_KEY = 'interviews.deletedIds.v1';
 
 const readPersistedDeletedInterviewIds = (): string[] => {
@@ -345,6 +405,11 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
   const [jobOptions, setJobOptions] = useState<Interview['job'][]>([]);
   const [interviewerOptions, setInterviewerOptions] = useState<InterviewPanelMember[]>([]);
   const [totalPages, setTotalPages] = useState(1);
+  const [interviewRoundById, setInterviewRoundById] = useState<Record<string, number>>({});
+  const interviewerOptionsRef = useRef(interviewerOptions);
+  const jobOptionsRef = useRef(jobOptions);
+  interviewerOptionsRef.current = interviewerOptions;
+  jobOptionsRef.current = jobOptions;
   const deletedInterviewIdSet = useMemo(() => new Set(deletedInterviewIds), [deletedInterviewIds]);
 
   useEffect(() => {
@@ -362,12 +427,19 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
       apiGetCandidates({ limit: 100 }),
       apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
       apiGetUsers({ isActive: true, limit: 100 }),
+      apiGetInterviews({ limit: 500 }),
     ]);
 
-    const [candidatesRes, jobsRes, usersRes] = settled;
+    const [candidatesRes, jobsRes, usersRes, allInterviewsRes] = settled;
 
     if (candidatesRes.status === 'fulfilled') {
-      setCandidateOptions(mapCandidates(unwrapCollection(candidatesRes.value.data)));
+      setCandidateOptions(
+        mapCandidates(
+          unwrapCollection(candidatesRes.value.data).map((candidate) =>
+            enrichBackendCandidateFromPhase1Snapshot(candidate),
+          ),
+        ),
+      );
     } else {
       setCandidateOptions([]);
     }
@@ -383,11 +455,19 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     } else {
       setInterviewerOptions([]);
     }
+
+    if (allInterviewsRes.status === 'fulfilled') {
+      const snapshot = normalizeInterviewListResponse(allInterviewsRes.value.data);
+      setInterviewRoundById(buildInterviewRoundNumberById(snapshot.interviews));
+    }
   }, []);
 
-  const fetchInterviews = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchInterviews = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const response = await apiGetInterviews(
         buildInterviewsListApiParams({
@@ -404,11 +484,11 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
           mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
           interviewerId:
             filters.interviewer !== 'All Interviewers'
-              ? interviewerOptions.find((user) => user.name === filters.interviewer)?.id
+              ? interviewerOptionsRef.current.find((user) => user.name === filters.interviewer)?.id
               : undefined,
           jobId:
             filters.clientJob !== 'All Clients'
-              ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
+              ? jobOptionsRef.current.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
               : undefined,
           search: searchQuery || undefined,
           matchingInterviewIds: smartSearchInterviewIds,
@@ -420,10 +500,17 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
       setTotalPages(snapshot.totalPages);
       setTotalEntries(snapshot.totalEntries);
       setKpis(snapshot.kpis);
+      setCandidateOptions((current) => mergeCandidateOptionsFromInterviews(current, snapshot.interviews));
+      setJobOptions((current) => mergeJobOptionsFromInterviews(current, snapshot.interviews));
+      setInterviewerOptions((current) => mergeInterviewerOptionsFromInterviews(current, snapshot.interviews));
     } catch (fetchError: any) {
-      setError(fetchError.message || 'Unable to load interviews');
+      if (!silent) {
+        setError(fetchError.message || 'Unable to load interviews');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [
     filters.clientJob,
@@ -431,8 +518,6 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     filters.mode,
     filters.round,
     filters.status,
-    interviewerOptions,
-    jobOptions,
     pagination.page,
     pagination.pageSize,
     searchQuery,
@@ -447,9 +532,22 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     void fetchInterviews();
   }, [fetchInterviews]);
 
+  const candidateNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    candidateOptions.forEach((candidate) => {
+      if (candidate.id && candidate.name) map.set(candidate.id, candidate.name);
+    });
+    return map;
+  }, [candidateOptions]);
+
+  const interviewsWithCanonicalNames = useMemo(
+    () => withCanonicalCandidateNames(interviews, candidateNameById),
+    [interviews, candidateNameById],
+  );
+
   const filteredInterviews = useMemo(
-    () => interviews.filter((interview) => !deletedInterviewIdSet.has(interview.id)),
-    [deletedInterviewIdSet, interviews]
+    () => interviewsWithCanonicalNames.filter((interview) => !deletedInterviewIdSet.has(interview.id)),
+    [deletedInterviewIdSet, interviewsWithCanonicalNames],
   );
   const paginatedInterviews = useMemo(() => filteredInterviews, [filteredInterviews]);
 
@@ -550,18 +648,26 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
           date: payload.date,
           duration: payload.duration,
           timezone: payload.timezone,
-          meetingPlatform: payload.meetingPlatform
-            ? payload.meetingPlatform === 'Zoom'
-              ? 'ZOOM'
-              : payload.meetingPlatform === 'Google Meet'
-              ? 'GOOGLE_MEET'
-              : 'MS_TEAMS'
-            : null,
+          meetingPlatform:
+            payload.mode === 'Online' && payload.meetingPlatform
+              ? payload.meetingPlatform === 'Zoom'
+                ? 'ZOOM'
+                : payload.meetingPlatform === 'Google Meet'
+                  ? 'GOOGLE_MEET'
+                  : 'MS_TEAMS'
+              : null,
           location: payload.location,
           notes: payload.notes,
-          status: payload.status,
+          status: payload.status ? mapInterviewStatusToBackend(payload.status) : undefined,
           panelUserIds: payload.panelUserIds,
-          panelRoles: payload.panelRoles,
+          panelRoles: payload.panelRoles
+            ? Object.fromEntries(
+                Object.entries(payload.panelRoles).map(([userId, role]) => [
+                  userId,
+                  mapPanelRoleToBackend(role),
+                ]),
+              )
+            : undefined,
         });
         setToast('Interview updated');
         await fetchInterviews();
@@ -737,9 +843,12 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     setToast('Recording attached locally');
   }, []);
 
-  const retryLoad = useCallback(() => {
-    void fetchMeta();
-    void fetchInterviews();
+  const retryLoad = useCallback((opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) {
+      void fetchMeta();
+    }
+    void fetchInterviews({ silent });
   }, [fetchMeta, fetchInterviews]);
 
   const fetchAllInterviewsForExport = useCallback(async (): Promise<Interview[]> => {
@@ -771,8 +880,13 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
       },
     });
 
-    return all.filter((interview) => !deletedInterviewIdSet.has(interview.id));
+    return all.filter((interview) => !deletedInterviewIdSet.has(interview.id)).map((interview) => {
+      const canonical = candidateOptions.find((c) => c.id === interview.candidate.id)?.name;
+      if (!canonical || canonical === interview.candidate.name) return interview;
+      return { ...interview, candidate: { ...interview.candidate, name: canonical } };
+    });
   }, [
+    candidateOptions,
     deletedInterviewIdSet,
     filters.clientJob,
     filters.interviewer,
@@ -785,7 +899,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
   ]);
 
   return {
-    interviews,
+    interviews: interviewsWithCanonicalNames,
     filteredInterviews,
     paginatedInterviews,
     filters,
@@ -810,6 +924,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     candidateOptions,
     jobOptions,
     interviewerOptions,
+    interviewRoundById,
     scheduleInterview,
     rescheduleInterview,
     updateInterview,

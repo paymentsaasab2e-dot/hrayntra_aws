@@ -119,6 +119,15 @@ export const interviewController = {
     }
   },
 
+  async getInterviewClientReviewContext(req, res) {
+    try {
+      const result = await interviewService.getInterviewClientReviewContext(req.params.id);
+      sendResponse(res, 200, 'Interview client review context retrieved successfully', result);
+    } catch (error) {
+      sendError(res, error.message === 'Interview not found' ? 404 : 400, error.message, error);
+    }
+  },
+
   async submitPublicClientTag(req, res) {
     try {
       const result = await interviewService.submitPublicClientTag(

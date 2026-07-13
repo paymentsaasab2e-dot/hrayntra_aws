@@ -3,6 +3,8 @@ import { mirrorLocalUploadToS3 } from '../utils/publicUploads.util.js';
 import { getCandidateOrThrow } from '../modules/candidate/candidate.service.js';
 import {
   PIPELINE_STAGES,
+  humanizePortalInterviewRoundLabel,
+  syncApplicationInterviewCancelled,
   syncApplicationOfferLetter,
   updateCandidateStage,
 } from '../modules/stage/candidateStage.service.js';
@@ -20,7 +22,7 @@ import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../utils/list
 import { filterInterviewUserRowsForViewer } from './activityVisibility.service.js';
 import { ENTITY_TYPES } from './activityService.js';
 import { canViewAllAssignments } from '../utils/permissionScope.js';
-import { notifyInterviewScheduleChange } from '../modules/notification/interviewNotifications.js';
+import { notifyInterviewScheduleChange, notifyInterviewCancelledForPortal } from '../modules/notification/interviewNotifications.js';
 import {
   queueAiEntryRecommendation,
   buildEntitySnapshot,
@@ -357,6 +359,83 @@ const readCandidateCvShareMode = (candidate) => {
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
   return normalizeCvShareMode(extra.cvSubmission?.shareMode);
 };
+
+function inferSubmissionTypeFromNotes(notes) {
+  const lines = String(notes || '').split('\n');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i].trim();
+    if (!line.startsWith('[Submitted to client]')) continue;
+    const rest = line.replace('[Submitted to client]', '').trim();
+    const beforeArrow = rest.split('→')[0].trim();
+    const normalized = beforeArrow.toUpperCase().replace(/\s+/g, '_');
+    const typed = normalizeSubmissionType(normalized);
+    if (typed) return typed;
+  }
+  return '';
+}
+
+function parseClientReviewResponsesFromNotes(notes) {
+  const responses = [];
+  const lines = String(notes || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (line.startsWith('[Client Tag]')) {
+      const rest = line.replace('[Client Tag]', '').trim();
+      const dashIdx = rest.indexOf(' - ');
+      const tag = dashIdx >= 0 ? rest.slice(0, dashIdx).trim() : rest;
+      const comments = dashIdx >= 0 ? rest.slice(dashIdx + 3).trim() : '';
+      responses.push({
+        tag,
+        comments,
+        documentLabel: null,
+        documentFileName: null,
+        documentUrl: null,
+      });
+      continue;
+    }
+    if (line.startsWith('[Client Upload]')) {
+      const rest = line.replace('[Client Upload]', '').trim();
+      const colonIdx = rest.indexOf(':');
+      const documentLabel = colonIdx >= 0 ? rest.slice(0, colonIdx).trim() : rest;
+      const documentFileName = colonIdx >= 0 ? rest.slice(colonIdx + 1).trim() : '';
+      const last = responses[responses.length - 1];
+      if (last && !last.documentFileName) {
+        last.documentLabel = documentLabel;
+        last.documentFileName = documentFileName;
+      } else {
+        responses.push({
+          tag: '',
+          comments: '',
+          documentLabel,
+          documentFileName,
+          documentUrl: null,
+        });
+      }
+    }
+  }
+  return responses;
+}
+
+function attachDocumentUrlsToResponses(responses, files = []) {
+  return responses.map((row) => {
+    const fileName = String(row.documentFileName || '').trim();
+    if (!fileName) return row;
+    const match =
+      files.find((file) => String(file.fileName || '').trim() === fileName) ||
+      files.find((file) => {
+        const url = String(file.fileUrl || '');
+        const sanitized = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+        return url.includes(sanitized) || url.endsWith(fileName);
+      });
+    return {
+      ...row,
+      documentUrl: match?.fileUrl || row.documentUrl,
+    };
+  });
+}
 
 const readCandidateCvSubmissionSnapshot = (candidate) => {
   const extra = candidate?.extraData;
@@ -1011,6 +1090,7 @@ export const interviewService = {
         skipStageActivity: true,
         metadata: {
           scheduledAt: scheduledAt.toISOString(),
+          interviewTitle: humanizePortalInterviewRoundLabel(payload.round) || payload.round || payload.type,
           type: payload.type,
           mode: payload.mode,
           locationLine: payload.mode === 'OFFLINE' ? payload.location || null : null,
@@ -1316,6 +1396,7 @@ export const interviewService = {
   },
 
   async cancel(id, payload, user) {
+    const current = await getInterviewOrThrow(id);
     const updated = await prisma.interview.update({
       where: { id },
       data: {
@@ -1337,6 +1418,45 @@ export const interviewService = {
 
     if (payload.notifyCandidate) {
       await sendInterviewCancelled(updated.candidate, updated);
+    }
+
+    try {
+      const recipientIds = [
+        updated.interviewerId,
+        updated.createdById,
+        ...(updated.panel || []).map((member) => member?.userId || member?.user?.id),
+      ];
+      await notifyInterviewCancelled({
+        interview: updated,
+        candidate: updated.candidate,
+        job: updated.job,
+        recipientUserIds: recipientIds,
+        reason: payload.reason || payload.notes || 'Interview cancelled',
+        performedById: user.id,
+      });
+    } catch (alertErr) {
+      console.warn('[interview.cancel] CRM alert failed:', alertErr?.message || alertErr);
+    }
+
+    try {
+      await syncApplicationInterviewCancelled(updated.candidateId, updated.jobId, {
+        reason: payload.reason,
+        notes: payload.notes,
+        scheduledAt: current.scheduledAt,
+      });
+    } catch (portalErr) {
+      console.warn('[interview.cancel] portal timeline sync failed:', portalErr?.message || portalErr);
+    }
+
+    if (payload.notifyCandidate) {
+      void notifyInterviewCancelledForPortal({
+        portalCandidateId: updated.candidateId,
+        jobTitle: updated.job?.title || 'a role',
+        jobId: updated.jobId,
+        interviewId: updated.id,
+        scheduledAt: current.scheduledAt,
+        reason: payload.reason || payload.notes || null,
+      });
     }
 
     return updated;
@@ -1990,6 +2110,71 @@ export const interviewService = {
       interviewId: result.updatedRecordId,
       offerLetterUrl: result.offerLetterUrl,
       placementOfferAttached: result.placementOfferAttached,
+    };
+  },
+
+  async getInterviewClientReviewContext(interviewId) {
+    const interview = await getInterviewOrThrow(interviewId);
+    const submissionType =
+      inferSubmissionTypeFromNotes(interview.notes) ||
+      inferSubmissionType(interview) ||
+      'GENERAL';
+    const cvShareMode = readCandidateCvShareMode(interview.candidate) || 'edited';
+
+    const [offerLetterFile, candidateFiles, matchReviewActivities] = await Promise.all([
+      prisma.candidateFile.findFirst({
+        where: { candidateId: interview.candidateId, fileType: 'Offer' },
+        orderBy: { uploadDate: 'desc' },
+      }),
+      prisma.candidateFile.findMany({
+        where: { candidateId: interview.candidateId },
+        orderBy: { uploadDate: 'desc' },
+      }),
+      prisma.activity.findMany({
+        where: {
+          entityType: 'CANDIDATE',
+          entityId: interview.candidateId,
+          relatedId: interview.jobId,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+    ]);
+
+    const reviewPayload = serializeInterviewForClientReview(interview, {
+      submissionType,
+      cvShareMode,
+      offerLetterFile,
+      matchId: interview.id,
+    });
+
+    let clientResponses = attachDocumentUrlsToResponses(
+      parseClientReviewResponsesFromNotes(interview.notes),
+      candidateFiles,
+    );
+
+    if (!clientResponses.length) {
+      clientResponses = matchReviewActivities
+        .filter((row) => row?.metadata?.kind === 'match-client-review')
+        .map((row) => {
+          const metadata = row.metadata || {};
+          const fileName = metadata.offerLetterUrl
+            ? String(metadata.offerLetterUrl).split('/').pop() || ''
+            : '';
+          return {
+            tag: String(metadata.tag || '').trim(),
+            comments: String(metadata.comments || row.description || '').trim(),
+            documentLabel: metadata.offerLetterUrl ? 'Document received' : null,
+            documentFileName: fileName || null,
+            documentUrl: metadata.offerLetterUrl || null,
+          };
+        });
+    }
+
+    return {
+      ...reviewPayload,
+      clientResponses,
+      submittedToClient: inferSubmissionTypeFromNotes(interview.notes) || null,
     };
   },
 

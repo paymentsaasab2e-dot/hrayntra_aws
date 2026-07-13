@@ -1215,6 +1215,12 @@ function mapInterviewType(type, mode) {
   const normalizedType = String(type || '').toLowerCase();
   const normalizedMode = String(mode || '').toLowerCase();
 
+  if (
+    (normalizedType.includes('hr') && normalizedType.includes('screen')) ||
+    (normalizedType.includes('screening') && !normalizedType.includes('technical'))
+  ) {
+    return 'VIDEO';
+  }
   if (normalizedType.includes('technical')) return 'TECHNICAL';
   if (normalizedType.includes('final')) return 'FINAL';
   if (normalizedMode === 'phone') return 'PHONE';
@@ -3204,17 +3210,29 @@ export const candidateService = {
       }
       if (portalClientForList) {
         await batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList);
-        await Promise.all(
-          candidates.map((row) =>
-            persistCandidateCvProfileToTenant(row).catch((err) => {
-              console.warn(
-                '[candidate.service] list CV persist failed:',
-                row?.id,
-                err?.message || err,
-              );
-            }),
-          ),
-        );
+        const candidateIds = candidates
+          .map((row) => String(row?.id || '').trim())
+          .filter(Boolean);
+        if (candidateIds.length) {
+          const existingTenantRows = await prisma.candidate.findMany({
+            where: { id: { in: candidateIds } },
+            select: { id: true },
+          });
+          const existingTenantIds = new Set(existingTenantRows.map((row) => row.id));
+          await Promise.all(
+            candidates
+              .filter((row) => row?.id && !existingTenantIds.has(row.id))
+              .map((row) =>
+                persistCandidateCvProfileToTenant(row).catch((err) => {
+                  console.warn(
+                    '[candidate.service] list CV stub persist failed:',
+                    row?.id,
+                    err?.message || err,
+                  );
+                }),
+              ),
+          );
+        }
       }
     }
 

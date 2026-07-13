@@ -1143,7 +1143,7 @@ function getMatchLabel(score) {
   return 'Closest Match';
 }
 
-async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
+async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, skipAi = false }) {
   const pipelineStartedAt = Date.now();
   const normalizedCandidate = summarizeCandidate(candidate);
   const candidateFeatures = buildCandidateFeatures(normalizedCandidate);
@@ -1250,69 +1250,83 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
 
   let aiApplied = false;
   const aiStartedAt = Date.now();
-  console.log('[PIPELINE MODE] AI_MATCH_V2_ACTIVE');
-  await Promise.all(
-    topJobs.map(async (job) => {
-      try {
-        let aiData = null;
-
+  if (skipAi) {
+    for (const job of topJobs) {
+      job.breakdown.aiScore = 0;
+      job.breakdown.semanticBoost = 0;
+      job.finalScore = job.deterministicScore;
+      job.explanation = 'Deterministic match generated.';
+      job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
+      const confidence = computeConfidence(job, null);
+      job.confidenceScore = confidence.confidenceScore;
+      job.confidenceLevel = confidence.confidenceLevel;
+      job.aiEnhanced = false;
+    }
+  } else {
+    console.log('[PIPELINE MODE] AI_MATCH_V2_ACTIVE');
+    await Promise.all(
+      topJobs.map(async (job) => {
         try {
-          aiData = await getAIMatchScore(normalizedCandidate, job.rawJob);
-        } catch (err) {
-          console.error('AI MATCH ERROR', err);
-        }
+          let aiData = null;
 
-        let finalScore = job.deterministicScore;
-        if (aiData && Number.isFinite(Number(aiData.finalScore))) {
-          finalScore = Math.min(
-            100,
-            (job.deterministicScore * 0.6) + (Number(aiData.finalScore) * 0.4)
-          );
-        }
+          try {
+            aiData = await getAIMatchScore(normalizedCandidate, job.rawJob);
+          } catch (err) {
+            console.error('AI MATCH ERROR', err);
+          }
 
-        const aiMatchedSkills = sanitizeSkillList(aiData?.matchedSkills || []);
-        const aiMissingSkills = sanitizeSkillList(aiData?.missingCriticalSkills || []);
+          let finalScore = job.deterministicScore;
+          if (aiData && Number.isFinite(Number(aiData.finalScore))) {
+            finalScore = Math.min(
+              100,
+              (job.deterministicScore * 0.6) + (Number(aiData.finalScore) * 0.4)
+            );
+          }
 
-        job.breakdown.aiScore = aiData?.finalScore ?? 0;
-        job.breakdown.semanticBoost = 0;
-        job.finalScore = Math.round(finalScore * 100) / 100;
-        if (aiMatchedSkills.length) {
-          job.matchedSkills = aiMatchedSkills;
-        }
-        if (aiMissingSkills.length) {
-          job.missingSkills = aiMissingSkills;
-        }
-        job.aiScore = aiData?.finalScore || null;
-        job.matchLabel = aiData?.verdict || 'Closest Match';
-        job.aiAnalysis = aiData?.analysis || null;
-        job.explanation = aiData?.analysis?.summary || 'Deterministic match generated.';
-        job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
-        const confidence = computeConfidence(job, aiData?.finalScore ?? null);
-        job.confidenceScore = confidence.confidenceScore;
-        job.confidenceLevel = confidence.confidenceLevel;
-        job.aiEnhanced = Boolean(aiData);
-        aiApplied = aiApplied || Boolean(aiData);
+          const aiMatchedSkills = sanitizeSkillList(aiData?.matchedSkills || []);
+          const aiMissingSkills = sanitizeSkillList(aiData?.missingCriticalSkills || []);
 
-        console.log('[AI MATCH V2]');
-        console.log(`Deterministic Score: ${job.deterministicScore}`);
-        console.log(`AI Score: ${aiData?.finalScore ?? 0}`);
-        console.log(`Combined Score: ${job.finalScore}`);
-        console.log(`Matched Skills: ${job.matchedSkills.join(', ') || '-'}`);
-        console.log(`Missing Skills: ${job.missingSkills.join(', ') || '-'}`);
-      } catch (error) {
-        console.log('[AI ERROR FALLBACK]');
-        job.breakdown.aiScore = 0;
-        job.breakdown.semanticBoost = 0;
-        job.finalScore = job.deterministicScore;
-        job.explanation = `You match this role through ${job.matchedSkills.slice(0, 3).join(', ') || 'strong core alignment'}. Adding ${job.missingSkills.slice(0, 2).join(', ') || 'clearer role-specific evidence'} would improve your fit.`;
-        job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
-        const confidence = computeConfidence(job, null);
-        job.confidenceScore = confidence.confidenceScore;
-        job.confidenceLevel = confidence.confidenceLevel;
-        job.aiEnhanced = false;
-      }
-    })
-  );
+          job.breakdown.aiScore = aiData?.finalScore ?? 0;
+          job.breakdown.semanticBoost = 0;
+          job.finalScore = Math.round(finalScore * 100) / 100;
+          if (aiMatchedSkills.length) {
+            job.matchedSkills = aiMatchedSkills;
+          }
+          if (aiMissingSkills.length) {
+            job.missingSkills = aiMissingSkills;
+          }
+          job.aiScore = aiData?.finalScore || null;
+          job.matchLabel = aiData?.verdict || 'Closest Match';
+          job.aiAnalysis = aiData?.analysis || null;
+          job.explanation = aiData?.analysis?.summary || 'Deterministic match generated.';
+          job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
+          const confidence = computeConfidence(job, aiData?.finalScore ?? null);
+          job.confidenceScore = confidence.confidenceScore;
+          job.confidenceLevel = confidence.confidenceLevel;
+          job.aiEnhanced = Boolean(aiData);
+          aiApplied = aiApplied || Boolean(aiData);
+
+          console.log('[AI MATCH V2]');
+          console.log(`Deterministic Score: ${job.deterministicScore}`);
+          console.log(`AI Score: ${aiData?.finalScore ?? 0}`);
+          console.log(`Combined Score: ${job.finalScore}`);
+          console.log(`Matched Skills: ${job.matchedSkills.join(', ') || '-'}`);
+          console.log(`Missing Skills: ${job.missingSkills.join(', ') || '-'}`);
+        } catch (error) {
+          console.log('[AI ERROR FALLBACK]');
+          job.breakdown.aiScore = 0;
+          job.breakdown.semanticBoost = 0;
+          job.finalScore = job.deterministicScore;
+          job.explanation = `You match this role through ${job.matchedSkills.slice(0, 3).join(', ') || 'strong core alignment'}. Adding ${job.missingSkills.slice(0, 2).join(', ') || 'clearer role-specific evidence'} would improve your fit.`;
+          job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
+          const confidence = computeConfidence(job, null);
+          job.confidenceScore = confidence.confidenceScore;
+          job.confidenceLevel = confidence.confidenceLevel;
+          job.aiEnhanced = false;
+        }
+      })
+    );
+  }
   const aiDurationMs = Date.now() - aiStartedAt;
 
   // Return every scored job so brand-new roles are not hidden when their deterministic

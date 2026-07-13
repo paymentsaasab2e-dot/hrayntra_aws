@@ -80,6 +80,14 @@ import { resolveMatchIdForSubmit } from '../../lib/jobAppliedMatches';
 import { resolveSubmitJobIdFromBackend } from '../../lib/candidateSubmitToClient';
 import { extractApiData, isValidObjectId } from '../../lib/mapCandidateProfile';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
+import { SubmitToClientClientDetailsPanel } from './SubmitToClientClientDetailsPanel';
+import {
+  clientToSubmitForm,
+  emptySubmitToClientClientForm,
+  submitFormToDirectorContactPatch,
+  submitFormToUpdatePayload,
+  type SubmitToClientClientFormState,
+} from '../../lib/submitToClientClientForm';
 
 export type BulkSubmitCandidateEntry = {
   candidateId: string;
@@ -160,51 +168,15 @@ function inferSubmissionType(interview: Interview | null): SubmissionTypeValue |
   return '';
 }
 
-interface ClientFormState {
-  companyName: string;
-  industry: string;
-  website: string;
-  location: string;
-  companySize: string;
-  hiringLocations: string;
-  servicesNeeded: string;
-  expectedBusinessValue: string;
-  linkedin: string;
-  priority: string;
-}
-
-interface ClientContactFormState {
-  id: string;
-  firstName: string;
-  lastName: string;
-  designation: string;
-  email: string;
-  phone: string;
-}
-
 interface ClientSlotState {
   clientId: string;
   companyName: string;
   isPrimary: boolean;
   client: BackendClient | null;
-  clientForm: ClientFormState;
-  contactsForm: ClientContactFormState[];
+  clientForm: SubmitToClientClientFormState;
   saved: boolean;
   loading: boolean;
 }
-
-const emptyClientForm: ClientFormState = {
-  companyName: '',
-  industry: '',
-  website: '',
-  location: '',
-  companySize: '',
-  hiringLocations: '',
-  servicesNeeded: '',
-  expectedBusinessValue: '',
-  linkedin: '',
-  priority: '',
-};
 
 function createClientSlot(clientId: string, isPrimary: boolean, companyName = ''): ClientSlotState {
   return {
@@ -212,11 +184,31 @@ function createClientSlot(clientId: string, isPrimary: boolean, companyName = ''
     companyName,
     isPrimary,
     client: null,
-    clientForm: { ...emptyClientForm },
-    contactsForm: [],
+    clientForm: emptySubmitToClientClientForm(),
     saved: false,
     loading: false,
   };
+}
+
+async function resolveClientContacts(
+  clientId: string,
+  embedded?: BackendClient['contacts'],
+): Promise<BackendContact[]> {
+  try {
+    const contactsRaw = await apiGetContacts({ clientId, limit: 100 });
+    const contactsPayload = extractApiData<any>(contactsRaw);
+    const contacts = Array.isArray(contactsPayload)
+      ? contactsPayload
+      : Array.isArray(contactsPayload?.data)
+        ? contactsPayload.data
+        : [];
+    if (contacts.length > 0) {
+      return contacts as BackendContact[];
+    }
+  } catch {
+    // Fall back to contacts embedded on the client record.
+  }
+  return (embedded || []) as BackendContact[];
 }
 
 function seedProfile(partial: {
@@ -266,43 +258,6 @@ function editFormFromDisplayName(name: string, email?: string): CandidateEditFor
       name,
     }),
   );
-}
-
-function toClientForm(client: BackendClient): ClientFormState {
-  return {
-    companyName: client.companyName || '',
-    industry: client.industry || '',
-    website: client.website || '',
-    location: client.location || '',
-    companySize: client.companySize || '',
-    hiringLocations: client.hiringLocations || '',
-    servicesNeeded: client.servicesNeeded || '',
-    expectedBusinessValue: client.expectedBusinessValue || '',
-    linkedin: client.linkedin || '',
-    priority: client.priority || '',
-  };
-}
-
-function toClientContactForm(contacts: BackendClient['contacts']): ClientContactFormState[] {
-  return (contacts || []).map((contact) => ({
-    id: contact.id,
-    firstName: contact.firstName || '',
-    lastName: contact.lastName || '',
-    designation: contact.designation || '',
-    email: contact.email || '',
-    phone: contact.phone || '',
-  }));
-}
-
-function toClientContactFormFromBackendContacts(contacts: BackendContact[]): ClientContactFormState[] {
-  return (contacts || []).map((contact) => ({
-    id: contact.id,
-    firstName: contact.firstName || '',
-    lastName: contact.lastName || '',
-    designation: contact.designation || '',
-    email: contact.email || '',
-    phone: contact.phone || '',
-  }));
 }
 
 export function SubmitToClientDrawer({
@@ -527,13 +482,7 @@ export function SubmitToClientDrawer({
     try {
       const raw = await apiGetClient(clientId);
       const data = extractApiData<BackendClient>(raw);
-      const contactsRaw = await apiGetContacts({ clientId, limit: 100 });
-      const contactsPayload = extractApiData<any>(contactsRaw);
-      const contacts = Array.isArray(contactsPayload)
-        ? contactsPayload
-        : Array.isArray(contactsPayload?.data)
-          ? contactsPayload.data
-          : [];
+      const contacts = await resolveClientContacts(clientId, data.contacts);
       setSelectedClients((prev) =>
         prev.map((slot) =>
           slot.clientId === clientId
@@ -541,8 +490,7 @@ export function SubmitToClientDrawer({
                 ...slot,
                 client: data,
                 companyName: data.companyName || slot.companyName,
-                clientForm: toClientForm(data),
-                contactsForm: toClientContactFormFromBackendContacts(contacts as BackendContact[]),
+                clientForm: clientToSubmitForm(data, contacts),
                 loading: false,
               }
             : slot,
@@ -582,25 +530,12 @@ export function SubmitToClientDrawer({
     });
   };
 
-  const patchActiveClientForm = (patch: Partial<ClientFormState>) => {
+  const patchActiveClientForm = (patch: Partial<SubmitToClientClientFormState>) => {
     if (!activeClientId) return;
     setSelectedClients((prev) =>
       prev.map((slot) =>
         slot.clientId === activeClientId
           ? { ...slot, clientForm: { ...slot.clientForm, ...patch }, saved: false }
-          : slot,
-      ),
-    );
-  };
-
-  const patchActiveClientContacts = (
-    updater: (contacts: ClientContactFormState[]) => ClientContactFormState[],
-  ) => {
-    if (!activeClientId) return;
-    setSelectedClients((prev) =>
-      prev.map((slot) =>
-        slot.clientId === activeClientId
-          ? { ...slot, contactsForm: updater(slot.contactsForm), saved: false }
           : slot,
       ),
     );
@@ -1223,38 +1158,21 @@ export function SubmitToClientDrawer({
     const slotId = activeClientSlot.clientId;
     setSaving(true);
     try {
-      const { clientForm, contactsForm } = activeClientSlot;
-      const updatedRaw = await apiUpdateClient(activeClientSlot.client.id, {
-        companyName: activeClientSlot.clientForm.companyName.trim(),
-        industry: activeClientSlot.clientForm.industry.trim() || undefined,
-        website: activeClientSlot.clientForm.website.trim() || undefined,
-        location: activeClientSlot.clientForm.location.trim() || undefined,
-        companySize: activeClientSlot.clientForm.companySize.trim() || undefined,
-        hiringLocations: activeClientSlot.clientForm.hiringLocations.trim() || undefined,
-        servicesNeeded: activeClientSlot.clientForm.servicesNeeded.trim() || undefined,
-        expectedBusinessValue: activeClientSlot.clientForm.expectedBusinessValue.trim() || undefined,
-        linkedin: activeClientSlot.clientForm.linkedin.trim() || undefined,
-        priority: activeClientSlot.clientForm.priority.trim() || undefined,
-      });
-      const updated = extractApiData<BackendClient>(updatedRaw);
-      await Promise.all(
-        contactsForm.map((contact) =>
-          apiUpdateContact(contact.id, {
-            firstName: contact.firstName.trim(),
-            lastName: contact.lastName.trim(),
-            designation: contact.designation.trim() || undefined,
-            email: contact.email.trim() || undefined,
-            phone: contact.phone.trim() || undefined,
-          }),
-        ),
+      const { clientForm } = activeClientSlot;
+      const updatedRaw = await apiUpdateClient(
+        activeClientSlot.client.id,
+        submitFormToUpdatePayload(clientForm),
       );
-      const contactsRaw = await apiGetContacts({ clientId: slotId, limit: 100 });
-      const contactsPayload = extractApiData<any>(contactsRaw);
-      const contacts = Array.isArray(contactsPayload)
-        ? contactsPayload
-        : Array.isArray(contactsPayload?.data)
-          ? contactsPayload.data
-          : [];
+      const updated = extractApiData<BackendClient>(updatedRaw);
+      const directorPatch = submitFormToDirectorContactPatch(clientForm);
+      if (clientForm.directorContactId && directorPatch) {
+        try {
+          await apiUpdateContact(clientForm.directorContactId, directorPatch);
+        } catch {
+          // Client-level save already succeeded; contact sync is best-effort.
+        }
+      }
+      const contacts = await resolveClientContacts(slotId, updated.contacts);
       setSelectedClients((prev) =>
         prev.map((slot) =>
           slot.clientId === slotId
@@ -1262,8 +1180,7 @@ export function SubmitToClientDrawer({
                 ...slot,
                 client: updated,
                 companyName: updated.companyName || slot.companyName,
-                clientForm: toClientForm(updated),
-                contactsForm: toClientContactFormFromBackendContacts(contacts as BackendContact[]),
+                clientForm: clientToSubmitForm(updated, contacts),
                 saved: true,
               }
             : slot,
@@ -1331,7 +1248,7 @@ export function SubmitToClientDrawer({
     }
 
     const clientRecipients = selectedClients.map((slot) => {
-      const toEmail = slot.contactsForm.find((contact) => contact.email.trim())?.email.trim() || '';
+      const toEmail = slot.clientForm.directorEmail.trim();
       return { clientId: slot.clientId, companyName: slot.companyName, toEmail };
     });
     const missingEmail = clientRecipients.find((item) => !item.toEmail);
@@ -1901,47 +1818,19 @@ export function SubmitToClientDrawer({
                   </div>
                 ) : activeClientSlot.client ? (
                   <div className="space-y-6">
+                    <p className="text-sm text-[#6B7280]">
+                      Same client details as the client drawer. Review and update before submitting.
+                    </p>
                     <ClientOfferLetterCard
                       files={candidateFiles}
                       uploadsBase={uploadsBase}
                       loading={candidateFilesLoading}
                     />
-                    <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
-                      <h3 className="text-sm font-semibold text-[#111827]">Client Information</h3>
-                      <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <label className="text-xs font-semibold uppercase text-[#6B7280]">Company Name<input value={activeClientSlot.clientForm.companyName} onChange={(e) => patchActiveClientForm({ companyName: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <label className="text-xs font-semibold uppercase text-[#6B7280]">Industry<input value={activeClientSlot.clientForm.industry} onChange={(e) => patchActiveClientForm({ industry: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <label className="text-xs font-semibold uppercase text-[#6B7280]">Website<input value={activeClientSlot.clientForm.website} onChange={(e) => patchActiveClientForm({ website: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <label className="text-xs font-semibold uppercase text-[#6B7280]">Location<input value={activeClientSlot.clientForm.location} onChange={(e) => patchActiveClientForm({ location: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <label className="text-xs font-semibold uppercase text-[#6B7280]">Company Size<input value={activeClientSlot.clientForm.companySize} onChange={(e) => patchActiveClientForm({ companySize: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <label className="text-xs font-semibold uppercase text-[#6B7280]">Hiring Locations<input value={activeClientSlot.clientForm.hiringLocations} onChange={(e) => patchActiveClientForm({ hiringLocations: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <label className="text-xs font-semibold uppercase text-[#6B7280]">Services Needed<input value={activeClientSlot.clientForm.servicesNeeded} onChange={(e) => patchActiveClientForm({ servicesNeeded: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <div><p className="text-xs font-semibold uppercase text-[#6B7280]">Client Since</p><p className="mt-1 text-sm text-[#111827]">{activeClientSlot.client.clientSince || '-'}</p></div>
-                        <label className="text-xs font-semibold uppercase text-[#6B7280]">Priority<input value={activeClientSlot.clientForm.priority} onChange={(e) => patchActiveClientForm({ priority: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <label className="sm:col-span-2 text-xs font-semibold uppercase text-[#6B7280]">Expected Business Value<input value={activeClientSlot.clientForm.expectedBusinessValue} onChange={(e) => patchActiveClientForm({ expectedBusinessValue: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                        <label className="sm:col-span-2 text-xs font-semibold uppercase text-[#6B7280]">LinkedIn<input value={activeClientSlot.clientForm.linkedin} onChange={(e) => patchActiveClientForm({ linkedin: e.target.value })} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium normal-case text-[#111827]" /></label>
-                      </div>
-                    </section>
-                    <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
-                      <h3 className="text-sm font-semibold text-[#111827]">Client Contacts</h3>
-                      {activeClientSlot.contactsForm.length > 0 ? (
-                        <div className="mt-3 space-y-3">
-                          {activeClientSlot.contactsForm.map((contact, index) => (
-                            <div key={contact.id} className="rounded-lg border border-[#F1F5F9] bg-[#FAFAFA] p-3">
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                <label className="text-xs font-semibold uppercase text-[#6B7280]">First Name<input value={contact.firstName} onChange={(e) => patchActiveClientContacts((curr) => curr.map((item, i) => i === index ? { ...item, firstName: e.target.value } : item))} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm normal-case text-[#111827]" /></label>
-                                <label className="text-xs font-semibold uppercase text-[#6B7280]">Last Name<input value={contact.lastName} onChange={(e) => patchActiveClientContacts((curr) => curr.map((item, i) => i === index ? { ...item, lastName: e.target.value } : item))} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm normal-case text-[#111827]" /></label>
-                                <label className="text-xs font-semibold uppercase text-[#6B7280]">Designation<input value={contact.designation} onChange={(e) => patchActiveClientContacts((curr) => curr.map((item, i) => i === index ? { ...item, designation: e.target.value } : item))} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm normal-case text-[#111827]" /></label>
-                                <label className="text-xs font-semibold uppercase text-[#6B7280]">Email<input value={contact.email} onChange={(e) => patchActiveClientContacts((curr) => curr.map((item, i) => i === index ? { ...item, email: e.target.value } : item))} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm normal-case text-[#111827]" /></label>
-                                <label className="text-xs font-semibold uppercase text-[#6B7280] sm:col-span-2">Phone<input value={contact.phone} onChange={(e) => patchActiveClientContacts((curr) => curr.map((item, i) => i === index ? { ...item, phone: e.target.value } : item))} className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm normal-case text-[#111827]" /></label>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-3 text-sm text-[#6B7280]">No contacts available for this client.</p>
-                      )}
-                    </section>
+                    <SubmitToClientClientDetailsPanel
+                      client={activeClientSlot.client}
+                      form={activeClientSlot.clientForm}
+                      onPatchForm={patchActiveClientForm}
+                    />
                   </div>
                 ) : (
                   <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 text-sm text-[#6B7280]">

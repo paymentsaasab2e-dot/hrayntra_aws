@@ -632,3 +632,50 @@ export async function lookupPortalInterviewFeedback({
 
   return outcomes;
 }
+
+const PORTAL_INTERVIEW_COMPLETED_STATUSES = new Set([
+  'COMPLETED',
+  'FEEDBACK_PENDING',
+  'FEEDBACK_SUBMITTED',
+]);
+
+/** All active CRM interviews for a candidate+job — used to build Phase 1 round cards. */
+export async function lookupPortalInterviewRounds({ tenantDbName, candidateId, jobId }) {
+  const tdb = String(tenantDbName || '').trim();
+  const candId = String(candidateId || '').trim();
+  const jId = String(jobId || '').trim();
+  if (!tdb || !candId || !jId) {
+    throw new Error('tenantDbName, candidateId, and jobId are required');
+  }
+
+  return runWithTenantContext(tdb, async () => {
+    const rows = await prisma.interview.findMany({
+      where: {
+        candidateId: candId,
+        jobId: jId,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      select: {
+        id: true,
+        round: true,
+        type: true,
+        status: true,
+        scheduledAt: true,
+        meetingLink: true,
+        location: true,
+        mode: true,
+      },
+    });
+
+    return rows.map((row) => ({
+      interviewId: row.id,
+      roundLabel: resolveInterviewRoundLabelForPortal(row),
+      scheduledAt: row.scheduledAt ? new Date(row.scheduledAt).toISOString() : null,
+      meetingLink: row.meetingLink || null,
+      location: row.location || null,
+      mode: row.mode || null,
+      isCompleted: PORTAL_INTERVIEW_COMPLETED_STATUSES.has(String(row.status || '').toUpperCase()),
+    }));
+  });
+}

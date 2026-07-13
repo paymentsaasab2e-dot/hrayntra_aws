@@ -10,6 +10,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
+import { isInterviewCompleted } from '../../types/interview.types';
 import PaginationAll from '../PaginationAll';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
@@ -67,6 +68,14 @@ function mergedPanel(rounds: Interview[]): Interview['panel'] {
   return Array.from(byKey.values());
 }
 
+function resolveInterviewRoundLabel(
+  interview: Interview,
+  index: number,
+  roundNumberByInterviewId?: Record<string, number>,
+): number {
+  return roundNumberByInterviewId?.[interview.id] ?? index + 1;
+}
+
 interface InterviewTableProps {
   interviews: Interview[];
   selectedIds: string[];
@@ -90,6 +99,8 @@ interface InterviewTableProps {
   /** Parent renders pagination in a shared card footer (Leads-style layout). */
   hidePagination?: boolean;
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
+  /** Absolute round index per interview id (R1/R2 across full history, not just filtered rows). */
+  roundNumberByInterviewId?: Record<string, number>;
 }
 
 const statusClasses = {
@@ -152,6 +163,7 @@ export function InterviewTable({
   onPageSizeChange,
   hidePagination = false,
   workspaceAlertsByEntityId,
+  roundNumberByInterviewId,
 }: InterviewTableProps) {
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
   const showAiAlertColumn = Boolean(
@@ -240,20 +252,22 @@ export function InterviewTable({
             <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#6B7280]">
               Per round
             </div>
-            {roundMenuGroup.rounds.map((interview, index) => (
+            {roundMenuGroup.rounds.map((interview, index) => {
+              const roundLabel = resolveInterviewRoundLabel(interview, index, roundNumberByInterviewId);
+              return (
               <div
                 key={interview.id}
                 className="border-t border-[#F3F4F6] px-2 py-2 first:border-t-0"
               >
                 <p className="truncate px-1 text-[11px] font-semibold text-[#111827]">
-                  R{index + 1} · {interview.round}
+                  R{roundLabel} · {interview.round}
                 </p>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {SHOW_TABLE_ROW_EDIT_ICON ? (
+                  {SHOW_TABLE_ROW_EDIT_ICON && !isInterviewCompleted(interview) ? (
                     <button
                       type="button"
                       className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB]"
-                      title={`Edit round ${index + 1}`}
+                      title={`Edit round ${roundLabel}`}
                       onClick={() => {
                         closeRoundMenu();
                         onEditInterview(interview);
@@ -262,17 +276,19 @@ export function InterviewTable({
                       <FilePenLine className="size-3.5" />
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB]"
-                    title={`No-show round ${index + 1}`}
-                    onClick={() => {
-                      closeRoundMenu();
-                      onNoShowInterview(interview);
-                    }}
-                  >
-                    <FlagTriangleRight className="size-3.5" />
-                  </button>
+                  {!isInterviewCompleted(interview) ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB]"
+                      title={`No-show round ${roundLabel}`}
+                      onClick={() => {
+                        closeRoundMenu();
+                        onNoShowInterview(interview);
+                      }}
+                    >
+                      <FlagTriangleRight className="size-3.5" />
+                    </button>
+                  ) : null}
                   {onMarkInterviewCompleted ? (
                     <button
                       type="button"
@@ -285,7 +301,7 @@ export function InterviewTable({
                       title={
                         interview.status === 'Completed'
                           ? 'Already completed'
-                          : `Complete round ${index + 1} (submit feedback)`
+                          : `Complete round ${roundLabel} (submit feedback)`
                       }
                       onClick={() => {
                         if (
@@ -304,7 +320,8 @@ export function InterviewTable({
                   ) : null}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>,
           document.body
         )
@@ -421,7 +438,13 @@ export function InterviewTable({
                   </td>
                   <td className="min-w-[7.5rem] max-w-[12rem] px-2 py-2.5 sm:py-2.5">
                     <div className="flex flex-row flex-wrap items-center gap-1">
-                      {rounds.map((interview, index) => (
+                      {rounds.map((interview, index) => {
+                        const roundLabel = resolveInterviewRoundLabel(
+                          interview,
+                          index,
+                          roundNumberByInterviewId,
+                        );
+                        return (
                         <button
                           key={interview.id}
                           type="button"
@@ -431,11 +454,12 @@ export function InterviewTable({
                           }}
                           className="inline-flex shrink-0 cursor-pointer rounded-md bg-[#EFF6FF] px-2 py-0.5 text-[11px] font-bold tracking-wide text-[#1D4ED8] transition hover:bg-[#DBEAFE] hover:ring-1 hover:ring-[#BFDBFE] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB] focus-visible:ring-offset-1"
                           title={`${interview.round} · ${interview.date} ${interview.time}`}
-                          aria-label={`Open interview drawer for round ${index + 1}`}
+                          aria-label={`Open interview drawer for round ${roundLabel}`}
                         >
-                          R{index + 1}
+                          R{roundLabel}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </td>
                   <td className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2.5 sm:py-2.5">
@@ -459,13 +483,19 @@ export function InterviewTable({
                   </td>
                   <td className="min-w-[16rem] border-l border-slate-100/90 pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-2.5">
                     <div className="flex flex-col gap-y-0.5 leading-tight">
-                      {rounds.map((interview, index) => (
+                      {rounds.map((interview, index) => {
+                        const roundLabel = resolveInterviewRoundLabel(
+                          interview,
+                          index,
+                          roundNumberByInterviewId,
+                        );
+                        return (
                         <div
                           key={interview.id}
                           className="font-mono text-[11px] tabular-nums text-[#374151]"
-                          title={`Round ${index + 1}: ${interview.status}, feedback ${interview.feedbackStatus}`}
+                          title={`Round ${roundLabel}: ${interview.status}, feedback ${interview.feedbackStatus}`}
                         >
-                          <span className="font-semibold text-[#2563EB]">R{index + 1}</span>
+                          <span className="font-semibold text-[#2563EB]">R{roundLabel}</span>
                           <span className="text-[#64748B]"> · </span>
                           <span
                             className={
@@ -481,7 +511,8 @@ export function InterviewTable({
                             {interview.feedbackStatus}
                           </span>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     {statusBadge ? (
                       <div className="mt-1.5">
@@ -501,49 +532,55 @@ export function InterviewTable({
                   <TableAuditCell audit={primary.auditMeta} />
                   <td className="px-3 py-2.5 text-right sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onEditInterview(primary)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827]"
-                        title="Edit interview"
-                        aria-label="Edit interview"
-                      >
-                        <FilePenLine className="size-3.5" />
-                      </button>
-                      <div className="relative" data-interview-actions-menu-root>
+                      {!isInterviewCompleted(primary) ? (
                         <button
                           type="button"
-                          onClick={(e) => {
-                            const btn = e.currentTarget;
-                            setRoundMenuOpenFor((key) => {
-                              if (key === group.key) {
-                                roundMenuAnchorRef.current = null;
-                                return null;
-                              }
-                              roundMenuAnchorRef.current = btn;
-                              return group.key;
-                            });
-                          }}
-                          className={`inline-flex h-7 items-center gap-0.5 rounded-md border border-[#E5E7EB] px-1.5 text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827] ${
-                            roundMenuOpenFor === group.key ? 'bg-[#F3F4F6]' : ''
-                          }`}
-                          title="Edit or mark no-show for a specific round"
-                          aria-expanded={roundMenuOpenFor === group.key}
-                          aria-haspopup="true"
+                          onClick={() => onEditInterview(primary)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827]"
+                          title="Edit interview"
+                          aria-label="Edit interview"
                         >
-                          <MoreHorizontal className="size-3.5" />
-                          <ChevronDown className="size-3" />
+                          <FilePenLine className="size-3.5" />
                         </button>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onRejectCandidate(primary)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
-                        title="Reject candidate"
-                        aria-label="Reject candidate"
-                      >
-                        <XCircle className="size-3.5" />
-                      </button>
+                      ) : null}
+                      {rounds.some((round) => !isInterviewCompleted(round)) ? (
+                        <div className="relative" data-interview-actions-menu-root>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              const btn = e.currentTarget;
+                              setRoundMenuOpenFor((key) => {
+                                if (key === group.key) {
+                                  roundMenuAnchorRef.current = null;
+                                  return null;
+                                }
+                                roundMenuAnchorRef.current = btn;
+                                return group.key;
+                              });
+                            }}
+                            className={`inline-flex h-7 items-center gap-0.5 rounded-md border border-[#E5E7EB] px-1.5 text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827] ${
+                              roundMenuOpenFor === group.key ? 'bg-[#F3F4F6]' : ''
+                            }`}
+                            title="Edit or mark no-show for a specific round"
+                            aria-expanded={roundMenuOpenFor === group.key}
+                            aria-haspopup="true"
+                          >
+                            <MoreHorizontal className="size-3.5" />
+                            <ChevronDown className="size-3" />
+                          </button>
+                        </div>
+                      ) : null}
+                      {!isInterviewCompleted(primary) ? (
+                        <button
+                          type="button"
+                          onClick={() => onRejectCandidate(primary)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                          title="Reject candidate"
+                          aria-label="Reject candidate"
+                        >
+                          <XCircle className="size-3.5" />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
