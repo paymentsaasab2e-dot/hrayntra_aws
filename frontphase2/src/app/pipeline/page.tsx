@@ -769,7 +769,7 @@ export default function App() {
     [clients]
   );
   const ownerOptions = useMemo(
-    () => owners.map((owner) => ({ id: owner.id, label: owner.name || owner.email || 'Unknown Owner' })),
+    () => owners.map((owner) => ({ id: owner.id, label: owner.name || owner.email || 'Unknown team member' })),
     [owners]
   );
 
@@ -901,13 +901,13 @@ export default function App() {
 
               <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
                 <User className="w-3.5 h-3.5 text-slate-400" />
-                <span>Owner:</span>
+                <span>Team Member:</span>
                 <select
                   value={selectedOwnerId}
                   onChange={(e) => setSelectedOwnerId(e.target.value)}
                   className="bg-transparent text-slate-900 outline-none"
                 >
-                  <option value="">All Owners</option>
+                  <option value="">All team members</option>
                   <option value="__me__">Myself</option>
                   {ownerOptions.map((owner) => (
                     <option key={owner.id} value={owner.id}>

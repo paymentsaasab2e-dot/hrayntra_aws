@@ -492,7 +492,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       description: `${fullName} was added to the hiring pipeline.`,
       timestamp: c.createdAt,
       performedBy: {
-        name: c.assignedTo?.name || 'Recruiter',
+        name: c.assignedTo?.name || 'Team Member',
       },
       relatedJob: latestMatch.job?.title || null,
     });
@@ -506,7 +506,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       description: `Interview status: ${latestInterview.status || 'scheduled'}.`,
       timestamp: latestInterview.scheduledAt,
       performedBy: {
-        name: c.assignedTo?.name || 'Recruiter',
+        name: c.assignedTo?.name || 'Team Member',
       },
       relatedJob: latestMatch?.job?.title || null,
     });
@@ -521,7 +521,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       createdAt: c.createdAt,
       recruiter: {
         id: c.assignedTo?.id,
-        name: c.assignedTo?.name || 'Recruiter',
+        name: c.assignedTo?.name || 'Team Member',
         avatar: c.assignedTo?.avatar || null,
       },
       tags: ['Screening', c.resume ? 'Resume' : 'Follow-up'],
@@ -536,7 +536,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       createdAt: latestInterview.scheduledAt,
       recruiter: {
         id: c.assignedTo?.id,
-        name: c.assignedTo?.name || 'Recruiter',
+        name: c.assignedTo?.name || 'Team Member',
         avatar: c.assignedTo?.avatar || null,
       },
       tags: ['Interview', 'Follow-up'],

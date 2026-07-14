@@ -384,7 +384,7 @@ export function PlacementsTable({
             <tr className={theadRow}>
               <th className={thPad}>Candidate</th>
               <th className={thPad}>Client / Job</th>
-              <th className={thPad}>Recruiter</th>
+              <th className={thPad}>Team Member</th>
               <th className={thPad}>
                 <SortableHeader label="Offer Date" column="offerDate" sortBy={sortBy} onSort={onSort} />
               </th>

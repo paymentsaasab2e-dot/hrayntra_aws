@@ -5466,7 +5466,7 @@ export function ClientDetailsDrawer({
                             </div>
                           </div>
                           <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100">
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Recruiter team</p>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team members</p>
                             <p className="text-sm font-medium text-slate-900">
                               {client.recruiterTeam?.length ? client.recruiterTeam.join(', ') : client.owner.name}
                             </p>
@@ -6203,7 +6203,7 @@ export function ClientDetailsDrawer({
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Job title</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Department</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Location</th>
-                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Recruiter</th>
+                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-center">Openings</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pipeline</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
@@ -6316,7 +6316,7 @@ export function ClientDetailsDrawer({
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Candidate name</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Job / role</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Placement date</th>
-                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Recruiter</th>
+                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Fee type</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Amount</th>
                               <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Warranty (days left)</th>

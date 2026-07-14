@@ -115,7 +115,7 @@ export default function PipelineModal({
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-700">Assign Recruiter</label>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-700">Assign team member</label>
                 <select
                   value={recruiterId}
                   onChange={(event) => setRecruiterId(event.target.value)}

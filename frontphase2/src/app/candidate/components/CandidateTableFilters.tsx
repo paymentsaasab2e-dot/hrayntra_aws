@@ -1,7 +1,7 @@
 'use client';
 
-import React from 'react';
-import { PH2_TOOLBAR_SELECT_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
+import React, { useMemo } from 'react';
+import { SearchableToolbarFilterSelect } from '../../../components/forms/SearchableToolbarFilterSelect';
 
 export interface CandidateTableColumnFilters {
   company: string;
@@ -21,12 +21,11 @@ export const EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS: CandidateTableColumnFilters =
   ownerId: '',
 };
 
-const TOOLBAR_FILTER_SELECT_EXP_CLASS = `${PH2_TOOLBAR_SELECT_CLASS} h-9 w-[5.75rem] min-w-0 shrink-0`;
-
-const TOOLBAR_FILTER_SELECT_WIDE_CLASS = `${PH2_TOOLBAR_SELECT_CLASS} h-9 w-[10rem] min-w-0 shrink-0 max-w-[12rem]`;
+/** Width only — border/padding live on the button inside SearchableToolbarFilterSelect. */
+const FILTER_EXP_WIDTH = 'w-[7.25rem]';
+const FILTER_WIDE_WIDTH = 'w-[10rem] max-w-[12rem]';
 
 const EXPERIENCE_FILTER_OPTIONS = [
-  { value: '', label: 'All exp' },
   { value: '0-2', label: '0–2 yrs' },
   { value: '2-5', label: '2–5 yrs' },
   { value: '5-10', label: '5–10 yrs' },
@@ -34,7 +33,6 @@ const EXPERIENCE_FILTER_OPTIONS = [
 ] as const;
 
 const STAGE_FILTER_OPTIONS = [
-  { value: '', label: 'All stages' },
   { value: 'new', label: 'New' },
   { value: 'applied', label: 'Applied' },
   { value: 'longlist', label: 'Longlist' },
@@ -70,88 +68,95 @@ export const CandidateTableFilters: React.FC<CandidateTableFiltersProps> = ({
     onChange({ ...filters, ...patch });
   };
 
+  const companyFilterOptions = useMemo(
+    () => companyOptions.map((company) => ({ value: company, label: company })),
+    [companyOptions],
+  );
+
+  const locationFilterOptions = useMemo(
+    () => locationOptions.map((location) => ({ value: location, label: location })),
+    [locationOptions],
+  );
+
+  const jobFilterOptions = useMemo(
+    () => jobOptions.map((job) => ({ value: job.id, label: job.title, searchText: job.id })),
+    [jobOptions],
+  );
+
+  const ownerFilterOptions = useMemo(
+    () => [
+      { value: 'unassigned', label: 'Unassigned' },
+      ...ownerOptions.map((owner) => ({
+        value: owner.id,
+        label: owner.name,
+        searchText: owner.id,
+      })),
+    ],
+    [ownerOptions],
+  );
+
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-      <select
+      <SearchableToolbarFilterSelect
         value={filters.company}
-        onChange={(e) => patch({ company: e.target.value })}
-        className={TOOLBAR_FILTER_SELECT_WIDE_CLASS}
-        aria-label="Filter by client"
-        title={filters.company || 'All clients'}
-      >
-        <option value="">All clients</option>
-        {companyOptions.map((company) => (
-          <option key={company} value={company}>
-            {company}
-          </option>
-        ))}
-      </select>
-      <select
+        onChange={(company) => patch({ company })}
+        options={companyFilterOptions}
+        placeholder="All clients"
+        allLabel="All clients"
+        className={FILTER_WIDE_WIDTH}
+        ariaLabel="Filter by client"
+        searchPlaceholder="Search clients…"
+      />
+      <SearchableToolbarFilterSelect
         value={filters.experienceRange}
-        onChange={(e) => patch({ experienceRange: e.target.value })}
-        className={TOOLBAR_FILTER_SELECT_EXP_CLASS}
-        aria-label="Filter by experience"
-      >
-        {EXPERIENCE_FILTER_OPTIONS.map((opt) => (
-          <option key={opt.value || 'all'} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      <select
+        onChange={(experienceRange) => patch({ experienceRange })}
+        options={EXPERIENCE_FILTER_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+        placeholder="All exp"
+        allLabel="All exp"
+        className={FILTER_EXP_WIDTH}
+        ariaLabel="Filter by experience"
+        searchPlaceholder="Search experience…"
+      />
+      <SearchableToolbarFilterSelect
         value={filters.location}
-        onChange={(e) => patch({ location: e.target.value })}
-        className={TOOLBAR_FILTER_SELECT_WIDE_CLASS}
-        aria-label="Filter by location"
-        title={filters.location || 'All locations'}
-      >
-        <option value="">All locations</option>
-        {locationOptions.map((location) => (
-          <option key={location} value={location}>
-            {location}
-          </option>
-        ))}
-      </select>
-      <select
+        onChange={(location) => patch({ location })}
+        options={locationFilterOptions}
+        placeholder="All locations"
+        allLabel="All locations"
+        className={FILTER_WIDE_WIDTH}
+        ariaLabel="Filter by location"
+        searchPlaceholder="Search locations…"
+      />
+      <SearchableToolbarFilterSelect
         value={filters.jobId}
-        onChange={(e) => patch({ jobId: e.target.value })}
-        className={TOOLBAR_FILTER_SELECT_WIDE_CLASS}
-        aria-label="Filter by job"
-        title={jobOptions.find((j) => j.id === filters.jobId)?.title || 'All jobs'}
-      >
-        <option value="">All jobs</option>
-        {jobOptions.map((job) => (
-          <option key={job.id} value={job.id}>
-            {job.title}
-          </option>
-        ))}
-      </select>
-      <select
+        onChange={(jobId) => patch({ jobId })}
+        options={jobFilterOptions}
+        placeholder="All jobs"
+        allLabel="All jobs"
+        className={FILTER_WIDE_WIDTH}
+        ariaLabel="Filter by job"
+        searchPlaceholder="Search jobs…"
+      />
+      <SearchableToolbarFilterSelect
         value={filters.stage}
-        onChange={(e) => patch({ stage: e.target.value })}
-        className={TOOLBAR_FILTER_SELECT_WIDE_CLASS}
-        aria-label="Filter by stage"
-      >
-        {STAGE_FILTER_OPTIONS.map((opt) => (
-          <option key={opt.value || 'all'} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      <select
+        onChange={(stage) => patch({ stage })}
+        options={STAGE_FILTER_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+        placeholder="All stages"
+        allLabel="All stages"
+        className={FILTER_WIDE_WIDTH}
+        ariaLabel="Filter by stage"
+        searchPlaceholder="Search stages…"
+      />
+      <SearchableToolbarFilterSelect
         value={filters.ownerId}
-        onChange={(e) => patch({ ownerId: e.target.value })}
-        className={TOOLBAR_FILTER_SELECT_WIDE_CLASS}
-        aria-label="Filter by owner"
-      >
-        <option value="">All owners</option>
-        <option value="unassigned">Unassigned</option>
-        {ownerOptions.map((owner) => (
-          <option key={owner.id} value={owner.id}>
-            {owner.name}
-          </option>
-        ))}
-      </select>
+        onChange={(ownerId) => patch({ ownerId })}
+        options={ownerFilterOptions}
+        placeholder="All team members"
+        allLabel="All team members"
+        className={FILTER_WIDE_WIDTH}
+        ariaLabel="Filter by team member"
+        searchPlaceholder="Search team members…"
+      />
     </div>
   );
 };

@@ -83,7 +83,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, fil
                   onChange={(e) => setLocalFilters(prev => ({ ...prev, search: e.target.value }))}
                 />
                 <FilterField 
-                  label="Recruiter / Owner" 
+                  label="Team Member" 
                   placeholder="Select owner..."
                   value={localFilters.assignedToId}
                   onChange={(e) => setLocalFilters(prev => ({ ...prev, assignedToId: e.target.value }))}

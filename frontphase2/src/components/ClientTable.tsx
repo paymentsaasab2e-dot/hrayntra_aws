@@ -196,7 +196,7 @@ export function ClientTable({
                 </th>
               ))}
               {showStatusColumn ? <th className="px-3 sm:px-4 py-2">Status</th> : null}
-              {showRecruiterColumn ? <th className="px-3 sm:px-4 py-2">Recruiter</th> : null}
+              {showRecruiterColumn ? <th className="px-3 sm:px-4 py-2">Team Member</th> : null}
               {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
               <TableAuditColumnHeader />
               <th className="px-3 sm:px-4 py-2 text-right">Actions</th>

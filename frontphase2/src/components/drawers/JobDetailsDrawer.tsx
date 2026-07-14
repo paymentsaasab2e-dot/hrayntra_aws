@@ -1969,19 +1969,19 @@ export function JobDetailsDrawer({
               {activeTab === 'assignment' && (
                 <DrawerSectionCard
                   title="Job Assignment"
-                  subtitle="Recruiters and hiring manager ownership"
+                  subtitle="Team members and hiring manager ownership"
                   icon={UserCog}
                   accent="sky"
                 >
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Lead recruiter</label>
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Lead team member</label>
                         <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900">
                           {job.recruiter ?? job.owner ?? '—'}
                         </div>
                       </div>
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Supporting recruiters</label>
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Supporting team members</label>
                         <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-700">
                           {loadingAssignmentMeta ? (
                             <span className="inline-flex items-center gap-2 text-slate-500">
@@ -1992,7 +1992,7 @@ export function JobDetailsDrawer({
                             supportingRecruiterNames
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1">Additional recruiters helping with this job</p>
+                        <p className="text-[11px] text-slate-400 mt-1">Additional team members helping with this job</p>
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Hiring manager</label>

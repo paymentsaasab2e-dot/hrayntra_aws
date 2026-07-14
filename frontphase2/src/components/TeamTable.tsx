@@ -16,7 +16,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
           <input 
             type="text" 
-            placeholder="Search recruiters..." 
+            placeholder="Search team members…" 
             className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
           />
         </div>
@@ -41,7 +41,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
         <table className="w-full text-left">
           <thead className="bg-slate-50/50">
             <tr className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              <th className="px-6 py-4">Recruiter</th>
+              <th className="px-6 py-4">Team Member</th>
               <th className="px-6 py-4">Role</th>
               <th className="px-6 py-4">Contact</th>
               <th className="px-6 py-4 text-center">Load</th>

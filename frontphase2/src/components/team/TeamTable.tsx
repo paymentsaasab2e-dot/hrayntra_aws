@@ -225,7 +225,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
             <table className="w-full text-left">
               <thead className="bg-slate-50/50">
                 <tr className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="px-6 py-4">Recruiter</th>
+                  <th className="px-6 py-4">Team Member</th>
                   <th className="px-6 py-4">Role</th>
                   <th className="px-6 py-4">Department</th>
                   <th className="px-6 py-4">Email</th>

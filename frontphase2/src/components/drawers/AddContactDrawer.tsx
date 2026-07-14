@@ -201,7 +201,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ isOpen, onCl
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-700">Owner / Recruiter</label>
+                    <label className="text-xs font-semibold text-slate-700">Team Member</label>
                     <select className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none">
                       <option>Alex Rivera</option>
                       <option>Sarah Johnson</option>

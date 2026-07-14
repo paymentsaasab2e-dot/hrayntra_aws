@@ -161,7 +161,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
               <th className="px-3 py-2 sm:px-4">Location</th>
               <th className="px-3 py-2 sm:px-4">Assigned job</th>
               <th className="px-3 py-2 sm:px-4">Stage</th>
-              <th className="px-3 py-2 sm:px-4">Owner</th>
+              <th className="px-3 py-2 sm:px-4">Team Member</th>
               {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
               <TableAuditColumnHeader />
               <th className="px-3 py-2 text-right sm:px-4">Actions</th>

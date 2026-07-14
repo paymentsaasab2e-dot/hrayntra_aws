@@ -290,7 +290,7 @@ export function PlacementDetailsDrawer({
                         <h4 className="text-lg font-semibold text-[#111827]">Placement Details</h4>
                         <div className="mt-4 grid gap-4 md:grid-cols-2">
                           <div>
-                            <p className="text-sm text-[#6B7280]">Recruiter</p>
+                            <p className="text-sm text-[#6B7280]">Team Member</p>
                             <p className="font-medium text-[#111827]">{placement.recruiter?.name || '—'}</p>
                           </div>
                           <div>

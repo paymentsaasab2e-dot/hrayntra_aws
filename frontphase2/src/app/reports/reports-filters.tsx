@@ -230,9 +230,9 @@ export function ReportsTopBar({
           value={draftFilters.recruiterId}
           onChange={(event) => onPatch('recruiterId', event.target.value)}
           className={PH2_TOOLBAR_SELECT_CLASS}
-          aria-label="Recruiter"
+          aria-label="Team Member"
         >
-          <option value="">All Recruiters</option>
+          <option value="">All team members</option>
           {(options?.recruiters || []).map((recruiter) => (
             <option key={recruiter.id} value={recruiter.id}>
               {recruiter.name}
@@ -423,9 +423,9 @@ export function ReportsFiltersToolbar({
           value={draftFilters.recruiterId}
           onChange={(event) => onPatch('recruiterId', event.target.value)}
           className={PH2_TOOLBAR_SELECT_CLASS}
-          aria-label="Recruiter"
+          aria-label="Team Member"
         >
-          <option value="">All Recruiters</option>
+          <option value="">All team members</option>
           {(options?.recruiters || []).map((recruiter) => (
             <option key={recruiter.id} value={recruiter.id}>
               {recruiter.name}

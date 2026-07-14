@@ -136,8 +136,8 @@ import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
-  PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 
 // Force CSR so the page hydrates skeleton placeholders before the first data
 // fetch resolves — every interactive bit on this tab is client-driven.
@@ -658,7 +658,7 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
             </td>
                 <td className="px-3 py-2 sm:px-4">
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Recruiter</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Team Member</span>
                     <span className="text-xs text-slate-700">{job.owner}</span>
                     <span className="text-[10px] text-slate-500">{job.createdDate}</span>
               </div>
@@ -2218,53 +2218,61 @@ export default function JobsPage() {
                     open={jobSmartSearch.open}
                     onToggle={() => jobSmartSearch.setOpen((value) => !value)}
                   />
-                  <select
-                    className={PH2_TOOLBAR_SELECT_CLASS}
+                  <SearchableToolbarFilterSelect
                     value={statusFilter}
-                    onChange={(e) => {
-                      setStatusFilter(e.target.value);
+                    onChange={(next) => {
+                      setStatusFilter(next);
                       setCurrentPage(1);
                     }}
-                  >
-                    <option value="">All Status</option>
-                    <option value="OPEN">Active (open)</option>
-                    <option value="ON_HOLD">On hold</option>
-                    <option value="CLOSED">Closed</option>
-                    <option value="DRAFT">Draft</option>
-                    <option value="FILLED">Filled</option>
-                  </select>
+                    options={[
+                      { value: 'OPEN', label: 'Active (open)' },
+                      { value: 'ON_HOLD', label: 'On hold' },
+                      { value: 'CLOSED', label: 'Closed' },
+                      { value: 'DRAFT', label: 'Draft' },
+                      { value: 'FILLED', label: 'Filled' },
+                    ]}
+                    placeholder="All Status"
+                    allLabel="All Status"
+                    className="w-[9.5rem]"
+                    ariaLabel="Filter by status"
+                    searchPlaceholder="Search status…"
+                  />
                   {!isStandaloneMode ? (
-                    <select
-                      className={PH2_TOOLBAR_SELECT_CLASS}
+                    <SearchableToolbarFilterSelect
                       value={clientFilterId}
-                      onChange={(e) => {
-                        setClientFilterId(e.target.value);
+                      onChange={(next) => {
+                        setClientFilterId(next);
                         setCurrentPage(1);
                       }}
-                    >
-                      <option value="">All clients</option>
-                      {clientOptions.map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.name}
-                        </option>
-                      ))}
-                    </select>
+                      options={clientOptions.map((client) => ({
+                        value: client.id,
+                        label: client.name,
+                        searchText: client.id,
+                      }))}
+                      placeholder="All clients"
+                      allLabel="All clients"
+                      className="w-[10rem] max-w-[12rem]"
+                      ariaLabel="Filter by client"
+                      searchPlaceholder="Search clients…"
+                    />
                   ) : null}
-                  <select
-                    className={PH2_TOOLBAR_SELECT_CLASS}
+                  <SearchableToolbarFilterSelect
                     value={recruiterFilterId}
-                    onChange={(e) => {
-                      setRecruiterFilterId(e.target.value);
+                    onChange={(next) => {
+                      setRecruiterFilterId(next);
                       setCurrentPage(1);
                     }}
-                  >
-                    <option value="">All recruiters</option>
-                    {recruiterOptions.map((recruiter) => (
-                      <option key={recruiter.id} value={recruiter.id}>
-                        {recruiter.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={recruiterOptions.map((recruiter) => ({
+                      value: recruiter.id,
+                      label: recruiter.name,
+                      searchText: recruiter.id,
+                    }))}
+                    placeholder="All team members"
+                    allLabel="All team members"
+                    className="w-[10.5rem] max-w-[13rem]"
+                    ariaLabel="Filter by team member"
+                    searchPlaceholder="Search team members…"
+                  />
                   <button
                     type="button"
                     className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"

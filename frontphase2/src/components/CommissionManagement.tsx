@@ -41,7 +41,7 @@ export const CommissionView = () => {
           <table className="w-full">
             <thead className="bg-slate-50/50">
               <tr className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                <th className="px-6 py-4">Recruiter</th>
+                <th className="px-6 py-4">Team Member</th>
                 <th className="px-6 py-4">Placement Reference</th>
                 <th className="px-6 py-4">Commission %</th>
                 <th className="px-6 py-4">Amount</th>

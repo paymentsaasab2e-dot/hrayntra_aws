@@ -78,7 +78,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
     onSubmitToClient
       ? { key: 'submit-to-client', label: 'Submit to Client', icon: Send, onClick: onSubmitToClient }
       : null,
-    onAssignRecruiter ? { key: 'assign', label: 'Assign Recruiter', icon: User, onClick: onAssignRecruiter } : null,
+    onAssignRecruiter ? { key: 'assign', label: 'Assign team member', icon: User, onClick: onAssignRecruiter } : null,
     onSendEmail ? { key: 'email', label: 'Send Email', icon: Mail, onClick: onSendEmail } : null,
     onAddTag ? { key: 'tag', label: 'Add Tag', icon: Tag, onClick: onAddTag } : null,
     onExport ? { key: 'export', label: 'Export', icon: Download, onClick: onExport } : null,

@@ -641,7 +641,7 @@ export const clientService = {
     }
   },
 
-  async create(data) {
+  async create(data, req = null) {
     // Handle hiringLocations - convert array to string or set to null
     let hiringLocationsValue = null;
     if (data.hiringLocations) {

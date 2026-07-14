@@ -180,7 +180,7 @@ const DEFAULT_COLUMNS: Record<Exclude<BillingTab, 'Taxes & Compliance' | 'Billin
   Invoices: ['Invoice #', 'Client', 'Candidate', 'Job', 'Date', 'Due Date', 'Amount', 'Total', 'Status'],
   Payments: ['Receipt #', 'Client', 'Amount', 'Mode', 'Date', 'Received By', 'Status'],
   'Clients & Contracts': ['Client', 'Status', 'Industry', 'Location', 'Owner', 'SLA'],
-  'Commission & Payouts': ['Recruiter', 'Placement', 'Commission %', 'Amount', 'Status', 'Payout Date'],
+  'Commission & Payouts': ['Team Member', 'Placement', 'Commission %', 'Amount', 'Status', 'Payout Date'],
 };
 
 function formatCurrency(value: number, currency = 'USD') {
@@ -628,7 +628,7 @@ export default function BillingPage() {
     if (activeTab === 'Commission & Payouts') {
       return data.commissions.map((row) => ({
         id: row.id ?? `${row.recruiter}-${row.placement}-${row.date}`,
-        Recruiter: row.recruiter,
+        'Team Member': row.recruiter,
         Placement: row.placement,
         'Commission %': `${row.percentage}%`,
         Amount: Number(row.amount || 0),
@@ -1128,7 +1128,7 @@ export default function BillingPage() {
                   value={filters.recruiterId}
                   onChange={(e) => patchFilter({ recruiterId: e.target.value })}
                 >
-                  <option value="">All Recruiters</option>
+                  <option value="">All team members</option>
                   {(data?.options.recruiters || []).map((recruiter) => (
                     <option key={recruiter.id} value={recruiter.id}>
                       {recruiter.name}
