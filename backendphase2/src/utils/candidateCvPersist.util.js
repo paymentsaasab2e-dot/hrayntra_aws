@@ -21,6 +21,54 @@ function resolveResumeUrl(candidate) {
   return pickFirstNonEmpty(candidate?.resumeUrl) || null;
 }
 
+function stripVolatileExtraFields(extra) {
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return {};
+  const { resumeJsonSyncedAt, ...rest } = extra;
+  return rest;
+}
+
+function jsonEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function cvPersistPayloadChanged(existingRow, data, mergedExtra) {
+  if (!existingRow) return true;
+
+  const existingExtra =
+    existingRow.extraData && typeof existingRow.extraData === 'object' && !Array.isArray(existingRow.extraData)
+      ? existingRow.extraData
+      : {};
+
+  if (
+    !jsonEqual(stripVolatileExtraFields(existingExtra), stripVolatileExtraFields(mergedExtra))
+  ) {
+    return true;
+  }
+
+  if (existingExtra.cvEditorContentSaved === true) {
+    return false;
+  }
+
+  const compareFields = [
+    'cvSummary',
+    'cvWorkExperienceEntries',
+    'cvEducationEntries',
+    'skills',
+    'recruiterSkills',
+    'experience',
+    'experienceYears',
+    'currentTitle',
+    'currentCompany',
+    'location',
+    'resume',
+    'resumeUrl',
+    'noticePeriod',
+    'availability',
+  ];
+
+  return compareFields.some((field) => !jsonEqual(existingRow[field] ?? null, data[field] ?? null));
+}
+
 /** Profile + CV fields written to tenant DB (never overwrites workflow fields on update). */
 export function buildCandidateCvPersistPayload(candidate) {
   if (!candidate?.id) return null;
@@ -103,6 +151,15 @@ export async function persistCandidateCvProfileToTenant(candidate) {
         cvEducationEntries: true,
         skills: true,
         recruiterSkills: true,
+        experience: true,
+        experienceYears: true,
+        currentTitle: true,
+        currentCompany: true,
+        location: true,
+        resume: true,
+        resumeUrl: true,
+        noticePeriod: true,
+        availability: true,
       },
     });
     const existingExtra =
@@ -115,12 +172,15 @@ export async function persistCandidateCvProfileToTenant(candidate) {
         : {};
     const mergedExtra = mergeCandidateRecruiterExtraData(existingExtra, incomingExtra);
 
+    if (!cvPersistPayloadChanged(existingRow, data, mergedExtra)) {
+      return existingRow;
+    }
+
     if (existingExtra.cvEditorContentSaved === true) {
       return prisma.candidate.update({
         where: { id },
         data: {
           extraData: mergedExtra,
-          lastActivity: data.lastActivity,
         },
       });
     }

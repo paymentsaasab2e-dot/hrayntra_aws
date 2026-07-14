@@ -17,7 +17,6 @@ import { NoShowModal } from '../../components/interviews/NoShowModal';
 import { PanelAssignmentModal } from '../../components/interviews/PanelAssignmentModal';
 import { RejectCandidateModal } from '../../components/interviews/RejectCandidateModal';
 import { RescheduleModal } from '../../components/interviews/RescheduleModal';
-import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
 import { ScheduleInterviewModal as CandidateScheduleInterviewModal } from '../../components/drawers/CandidateProfileDrawer';
 import { SubmitToClientDrawer } from '../../components/interviews/SubmitToClientDrawer';
 import { useInterviewDrawer } from '../../hooks/useInterviewDrawer';
@@ -25,11 +24,12 @@ import { useInterviews } from '../../hooks/useInterviews';
 import { useInterviewModals } from '../../hooks/useInterviewModals';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import type { Interview, InterviewFiltersState, UpdateInterviewPayload } from '../../types/interview.types';
+import { COMPLETED_INTERVIEW_LOCKED_ACTIONS, isInterviewCompleted } from '../../types/interview.types';
 import type { InterviewAction } from '../../components/interviews/ActionsDropdown';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { requestConfirm } from '../../lib/appDialog';
-import { combineInterviewDateAndTimeToIso } from '../../lib/interview-schedule-helpers';
+import { mapCandidateScheduledToUpdatePayload, mapInterviewToCandidateScheduled } from '../../lib/interview-schedule-helpers';
 import { apiRejectCandidate, apiScheduleCandidateInterview } from '../../lib/api';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
@@ -128,6 +128,7 @@ export default function InterviewsPage() {
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectInterview, setRejectInterview] = useState<Interview | null>(null);
   const [editInterview, setEditInterview] = useState<Interview | null>(null);
+  const [scheduleNextRoundFrom, setScheduleNextRoundFrom] = useState<Interview | null>(null);
   const [smartSearchInterviewIds, setSmartSearchInterviewIds] = useState<string[]>([]);
   const [moduleTab, setModuleTab] = useState<InterviewModuleTab>('scheduled');
   const [reviewApplicationId, setReviewApplicationId] = useState<string | null>(null);
@@ -158,7 +159,7 @@ export default function InterviewsPage() {
     candidateOptions,
     jobOptions,
     interviewerOptions,
-    scheduleInterview,
+    interviewRoundById,
     rescheduleInterview,
     updateInterview,
     cancelInterview,
@@ -188,7 +189,7 @@ export default function InterviewsPage() {
   // Reusable auto-refresh: poll while visible, refresh on tab focus and on
   // interview/job change events. `retryLoad` is the same function the page
   // already calls for explicit reloads.
-  usePageAutoRefresh(() => retryLoad(), {
+  usePageAutoRefresh((opts) => retryLoad(opts), {
     events: ['jobportal:interviews-changed', 'jobportal:jobs-changed'],
   });
 
@@ -196,6 +197,88 @@ export default function InterviewsPage() {
     () => jobOptions.map((job) => `${job.client} • ${job.title}`),
     [jobOptions]
   );
+
+  const scheduleCandidateOptions = useMemo(() => {
+    const latestByCandidate = new Map<
+      string,
+      { jobId: string; jobTitle: string; clientId?: string; scheduledAt: number }
+    >();
+    for (const interview of interviews) {
+      const candidateId = interview.candidate.id;
+      const scheduledAt = new Date(interview.scheduledAt || 0).getTime();
+      const existing = latestByCandidate.get(candidateId);
+      if (!existing || scheduledAt > existing.scheduledAt) {
+        latestByCandidate.set(candidateId, {
+          jobId: interview.job.id,
+          jobTitle: interview.job.title,
+          clientId: interview.job.clientId,
+          scheduledAt,
+        });
+      }
+    }
+
+    return candidateOptions.map((candidate) => {
+      const fromInterview = latestByCandidate.get(candidate.id);
+      const candidateWithJob = candidate as typeof candidate & {
+        assignedJobId?: string;
+        assignedJob?: string;
+      };
+      return {
+        id: candidate.id,
+        name: candidate.name,
+        assignedJobId: candidateWithJob.assignedJobId || fromInterview?.jobId,
+        assignedJob: candidateWithJob.assignedJob || fromInterview?.jobTitle,
+        assignedClientId: fromInterview?.clientId,
+      };
+    });
+  }, [candidateOptions, interviews]);
+
+  const editInterviewForPopup = useMemo(() => {
+    if (!editInterview) return null;
+    return mapInterviewToCandidateScheduled(
+      editInterview,
+      interviewRoundById[editInterview.id] || 1,
+    );
+  }, [editInterview, interviewRoundById]);
+
+  const editInterviewCandidate = useMemo(() => {
+    if (!editInterview) return null;
+    return {
+      id: editInterview.candidate.id,
+      name: editInterview.candidate.name,
+      phone: null,
+      stage: editInterview.candidate.stage ?? null,
+      assignedJob: editInterview.job.title,
+      assignedJobId: editInterview.job.id,
+    };
+  }, [editInterview]);
+
+  const scheduleNextRoundCandidate = useMemo(() => {
+    if (!scheduleNextRoundFrom) return null;
+    return {
+      id: scheduleNextRoundFrom.candidate.id,
+      name: scheduleNextRoundFrom.candidate.name,
+      phone: null,
+      stage: scheduleNextRoundFrom.candidate.stage ?? null,
+      assignedJob: scheduleNextRoundFrom.job.title,
+      assignedJobId: scheduleNextRoundFrom.job.id,
+    };
+  }, [scheduleNextRoundFrom]);
+
+  const scheduleNextRoundExistingInterviews = useMemo(() => {
+    if (!scheduleNextRoundFrom) return [];
+    const candidateId = scheduleNextRoundFrom.candidate.id;
+    const jobId = scheduleNextRoundFrom.job.id;
+    return interviews
+      .filter((inv) => inv.candidate.id === candidateId && inv.job.id === jobId)
+      .sort(
+        (a, b) =>
+          new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime(),
+      )
+      .map((inv, index) =>
+        mapInterviewToCandidateScheduled(inv, interviewRoundById[inv.id] || index + 1),
+      );
+  }, [interviews, interviewRoundById, scheduleNextRoundFrom]);
 
   const interviewSmartSearchOptions = useMemo(
     () => ({
@@ -291,18 +374,35 @@ export default function InterviewsPage() {
   };
 
   const openEditFlow = (interview: Interview) => {
+    if (isInterviewCompleted(interview)) return;
+    setScheduleNextRoundFrom(null);
     setEditInterview(interview);
     drawer.closeDrawer();
     window.setTimeout(() => modals.open('schedule'), 260);
   };
 
   const openRejectFlow = (interview: Interview) => {
+    if (isInterviewCompleted(interview)) return;
     setRejectInterview(interview);
     drawer.closeDrawer();
     window.setTimeout(() => setRejectModalOpen(true), 260);
   };
 
+  const openScheduleNextRoundFlow = (interview: Interview) => {
+    if (!isInterviewCompleted(interview)) return;
+    setEditInterview(null);
+    setScheduleNextRoundFrom(interview);
+    drawer.closeDrawer();
+    window.setTimeout(() => modals.open('schedule'), 260);
+  };
+
   const handleAction = (action: InterviewAction, interview: Interview) => {
+    if (
+      (COMPLETED_INTERVIEW_LOCKED_ACTIONS as readonly InterviewAction[]).includes(action) &&
+      isInterviewCompleted(interview)
+    ) {
+      return;
+    }
     if (action === 'feedback' || action === 'edit' || action === 'reschedule' || action === 'noShow' || action === 'reject') {
       if (!canUpdateInterview) return;
     }
@@ -464,6 +564,7 @@ export default function InterviewsPage() {
               type="button"
               onClick={() => {
                 setEditInterview(null);
+                setScheduleNextRoundFrom(null);
                 modals.open('schedule');
               }}
               className="mt-5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700"
@@ -479,6 +580,7 @@ export default function InterviewsPage() {
         hidePagination
         interviews={paginatedInterviews}
         workspaceAlertsByEntityId={workspaceAlertsByEntityId}
+        roundNumberByInterviewId={interviewRoundById}
         selectedIds={selectedIds}
         page={pagination.page}
         totalPages={totalPages}
@@ -566,6 +668,7 @@ export default function InterviewsPage() {
                   type="button"
                   onClick={() => {
                     setEditInterview(null);
+                    setScheduleNextRoundFrom(null);
                     modals.open('schedule');
                   }}
                   className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
@@ -798,7 +901,6 @@ export default function InterviewsPage() {
         interview={selectedInterview}
         onClose={drawer.closeDrawer}
         onOpenFeedback={canUpdateInterview ? () => modals.open('feedback') : undefined}
-        onOpenReschedule={canUpdateInterview ? () => modals.open('reschedule') : undefined}
         onOpenCancel={canDeleteInterview ? () => modals.open('cancel') : undefined}
         onOpenPanelAssignment={canUpdateInterview ? () => setPanelModalOpen(true) : undefined}
         onOpenReject={canUpdateInterview && selectedInterview ? () => openRejectFlow(selectedInterview) : undefined}
@@ -807,6 +909,11 @@ export default function InterviewsPage() {
             ? () => {
                 setSubmitToClientOpen(true);
               }
+            : undefined
+        }
+        onScheduleNextRound={
+          canCreateInterview && selectedInterview && isInterviewCompleted(selectedInterview)
+            ? () => openScheduleNextRoundFlow(selectedInterview)
             : undefined
         }
         onAction={selectedInterview ? (action) => handleAction(action, selectedInterview) : undefined}
@@ -849,12 +956,17 @@ export default function InterviewsPage() {
       />
 
       <CandidateScheduleInterviewModal
-        isOpen={modals.isModalOpen('schedule') && !editInterview && canCreateInterview}
-        candidate={null}
-        candidateOptions={candidateOptions.map((candidate) => ({
-          id: candidate.id,
-          name: candidate.name,
-        }))}
+        isOpen={
+          modals.isModalOpen('schedule') &&
+          ((!editInterview && !scheduleNextRoundFrom && canCreateInterview) ||
+            (!!editInterview && canUpdateInterview) ||
+            (!!scheduleNextRoundFrom && canCreateInterview))
+        }
+        candidate={editInterview ? editInterviewCandidate : scheduleNextRoundCandidate}
+        candidateOptions={
+          editInterview || scheduleNextRoundFrom ? undefined : scheduleCandidateOptions
+        }
+        initialJobId={scheduleNextRoundFrom?.job.id ?? editInterview?.job.id ?? undefined}
         jobs={jobOptions.map((job) => ({
           id: job.id,
           title: job.title,
@@ -867,10 +979,12 @@ export default function InterviewsPage() {
           role: member.role,
           department: member.department,
         }))}
-        existingInterviews={[]}
+        existingInterviews={scheduleNextRoundExistingInterviews}
+        editInterview={editInterviewForPopup}
         onClose={() => {
           modals.close();
           setEditInterview(null);
+          setScheduleNextRoundFrom(null);
         }}
         onScheduledSuccess={(message) => setToast(message)}
         onSchedule={async (interviewData) => {
@@ -897,49 +1011,20 @@ export default function InterviewsPage() {
             sendCandidateInvite: interviewData.sendCandidateInvite,
             sendInterviewerInvite: interviewData.sendInterviewerInvite,
           });
+          setScheduleNextRoundFrom(null);
           await retryLoad();
         }}
-      />
-
-      <ScheduleInterviewModal
-        isOpen={modals.isModalOpen('schedule') && !!editInterview && canUpdateInterview}
-        candidates={candidateOptions}
-        jobs={jobOptions}
-        interviewers={interviewerOptions}
-        editInterview={editInterview}
-        onClose={() => {
-          modals.close();
-          setEditInterview(null);
+        onUpdate={async (interviewId, interviewData) => {
+          await updateInterview(
+            interviewId,
+            mapCandidateScheduledToUpdatePayload(
+              interviewData,
+              editInterview?.timezone,
+              editInterview?.notes,
+            ),
+          );
+          await retryLoad();
         }}
-        onSchedule={async (payload) => {
-          try {
-            if (editInterview) {
-              await updateInterview(editInterview.id, {
-                round: payload.round,
-                type: payload.type,
-                mode: payload.mode,
-                date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
-                duration: payload.duration,
-                timezone: payload.timezone,
-                meetingPlatform:
-                  payload.mode === 'Online'
-                    ? payload.meetingPlatform === 'Google Meet'
-                      ? 'Google Meet'
-                      : payload.meetingPlatform === 'MS Teams'
-                      ? 'MS Teams'
-                      : 'Zoom'
-                    : null,
-                location: payload.mode === 'Offline' ? payload.location || null : null,
-                notes: payload.notes || null,
-                panelUserIds: payload.panelIds,
-                panelRoles: payload.panelRoles,
-              });
-            } else {
-              await scheduleInterview(payload);
-            }
-          } catch {}
-        }}
-        onUpdate={updateInterview}
       />
 
       <RescheduleModal

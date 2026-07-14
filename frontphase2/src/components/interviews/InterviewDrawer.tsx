@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
-import { Edit2, RotateCcw, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
+import { CalendarPlus, Edit2, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { InterviewAction } from './ActionsDropdown';
 import { DrawerActivityLog } from './DrawerActivityLog';
@@ -10,11 +10,11 @@ import { DrawerFilesTab } from './DrawerFilesTab';
 import { DrawerClientTab } from './DrawerClientTab';
 import { DrawerNotesTab } from './DrawerNotesTab';
 import { DrawerOverviewTab } from './DrawerOverviewTab';
-import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { DrawerPanelTab } from './DrawerPanelTab';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 import type { DrawerTab, Interview } from '../../types/interview.types';
+import { isInterviewCompleted } from '../../types/interview.types';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
 
 interface InterviewDrawerProps {
@@ -22,11 +22,11 @@ interface InterviewDrawerProps {
   interview: Interview | null;
   onClose: () => void;
   onOpenFeedback?: () => void;
-  onOpenReschedule?: () => void;
   onOpenCancel?: () => void;
   onOpenPanelAssignment?: () => void;
   onOpenReject?: () => void;
   onOpenSubmitToClient?: () => void;
+  onScheduleNextRound?: () => void;
   onAddNote?: (text: string) => Promise<void>;
   onAction?: (action: InterviewAction) => void;
 }
@@ -47,17 +47,18 @@ export function InterviewDrawer({
   interview,
   onClose,
   onOpenFeedback,
-  onOpenReschedule,
   onOpenCancel,
   onOpenPanelAssignment,
   onOpenReject,
   onOpenSubmitToClient,
+  onScheduleNextRound,
   onAddNote,
   onAction,
 }: InterviewDrawerProps) {
   usePageDrawerLifecycle(isOpen);
   const [activeTab, setActiveTab] = useState<DrawerTab>('overview');
   const router = useRouter();
+  const interviewLocked = interview ? isInterviewCompleted(interview) : false;
 
   return (
     <AnimatePresence>
@@ -125,20 +126,27 @@ export function InterviewDrawer({
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
-                {onOpenFeedback && (
+                {onOpenFeedback && interview.status !== 'Completed' ? (
                   <button
                     type="button"
                     onClick={onOpenFeedback}
-                    disabled={interview.status === 'Completed'}
-                    className={`inline-flex w-full items-center justify-center rounded-md px-2 py-1.5 text-[11px] font-semibold text-white ${
-                      interview.status === 'Completed'
-                        ? 'cursor-default bg-green-600 opacity-90'
-                        : 'bg-[#2563EB] hover:bg-[#1D4ED8]'
-                    }`}
+                    className="inline-flex w-full items-center justify-center rounded-md bg-[#2563EB] px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-[#1D4ED8]"
                   >
                     Completed
                   </button>
-                )}
+                ) : null}
+                {interviewLocked && onScheduleNextRound ? (
+                  <button
+                    type="button"
+                    onClick={onScheduleNextRound}
+                    className="inline-flex w-full items-center justify-center rounded-md bg-[#2563EB] px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-[#1D4ED8]"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <CalendarPlus className="size-3" />
+                      Schedule Next Round
+                    </span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
@@ -160,17 +168,16 @@ export function InterviewDrawer({
                     Submit to Client
                   </button>
                 )}
-                {onOpenReschedule && (
-                  <button type="button" onClick={onOpenReschedule} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
-                    <span className="inline-flex items-center gap-1"><RotateCcw className="size-3" />Reschedule</span>
+                {onAction && !interviewLocked ? (
+                  <button
+                    type="button"
+                    onClick={() => onAction('noShow')}
+                    className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]"
+                  >
+                    <span className="inline-flex items-center gap-1"><UserRoundX className="size-3" />Mark No Show</span>
                   </button>
-                )}
-                {onOpenCancel && (
-                  <button type="button" onClick={onOpenCancel} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
-                    <span className="inline-flex items-center gap-1"><XCircle className="size-3" />Cancel Interview</span>
-                  </button>
-                )}
-                {onAction ? (
+                ) : null}
+                {onAction && !interviewLocked ? (
                   <>
                     <button
                       type="button"
@@ -189,13 +196,11 @@ export function InterviewDrawer({
                     >
                       <span className="inline-flex items-center gap-1"><XCircle className="size-3" />Reject Candidate</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onAction('noShow')}
-                      className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]"
-                    >
-                      <span className="inline-flex items-center gap-1"><UserRoundX className="size-3" />Mark No Show</span>
-                    </button>
+                    {onOpenCancel ? (
+                      <button type="button" onClick={onOpenCancel} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
+                        <span className="inline-flex items-center gap-1"><XCircle className="size-3" />Cancel Interview</span>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => onAction('delete')}
@@ -242,14 +247,6 @@ export function InterviewDrawer({
                           'Interview'
                         }
                       />
-                      <AiRecommendationPanel
-                        entityType="INTERVIEW"
-                        entityId={interview.id}
-                        entityLabel={
-                          [interview.candidate?.name, interview.job?.title].filter(Boolean).join(' — ') ||
-                          'Interview'
-                        }
-                      />
                     </>
                   ) : null}
                   <DrawerOverviewTab interview={interview} />
@@ -261,13 +258,7 @@ export function InterviewDrawer({
               {activeTab === 'feedback' && onOpenFeedback ? (
                 <DrawerFeedbackTab feedbackEntries={interview.feedbackEntries} onOpenFeedback={onOpenFeedback} />
               ) : null}
-              {activeTab === 'client' ? (
-                <DrawerClientTab
-                  candidateId={interview.candidate.id}
-                  notes={interview.notes}
-                  feedbackEntries={interview.feedbackEntries}
-                />
-              ) : null}
+              {activeTab === 'client' ? <DrawerClientTab interviewId={interview.id} /> : null}
               {activeTab === 'notes' && onAddNote ? <DrawerNotesTab notes={interview.internalNotes} onAddNote={onAddNote} /> : null}
               {activeTab === 'activity' ? (
                 <DrawerActivityLog items={interview.activityLog} audit={interview.auditMeta} />

@@ -7,6 +7,7 @@ import {
   postPlacementOfferResponse,
   postBackfillPortalJobTenants,
   postPortalInterviewFeedbackLookup,
+  postPortalInterviewRoundsLookup,
   postSyncEmployerDemoVerified,
   postProvisionEmployerTrial,
   postProvisionEmployerPaid,
@@ -89,6 +90,11 @@ router.post(
   '/portal-interview-feedback-lookup',
   portalSyncSecretMiddleware,
   postPortalInterviewFeedbackLookup
+);
+router.post(
+  '/portal-interview-rounds-lookup',
+  portalSyncSecretMiddleware,
+  postPortalInterviewRoundsLookup
 );
 router.post(
   '/sync-employer-demo-verified',

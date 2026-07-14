@@ -72,11 +72,15 @@ export function applyResumeJsonToCandidate(candidate, resumeJson) {
       candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
         ? candidate.extraData
         : {};
-    candidate.extraData = {
-      ...prevExtra,
-      workHistory: pickFirstNonEmpty(prevExtra.workHistory, mergedNarrative) || mergedNarrative,
-      resumeJsonSyncedAt: new Date().toISOString(),
-    };
+    const nextWorkHistory =
+      pickFirstNonEmpty(prevExtra.workHistory, mergedNarrative) || mergedNarrative;
+    if (String(prevExtra.workHistory || '').trim() !== String(nextWorkHistory || '').trim()) {
+      candidate.extraData = {
+        ...prevExtra,
+        workHistory: nextWorkHistory,
+        resumeJsonSyncedAt: new Date().toISOString(),
+      };
+    }
   }
 
   const computedExp = resolveCandidateListExperienceYears(candidate);

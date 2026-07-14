@@ -63,15 +63,20 @@ import { useFiles } from '../../hooks/useFiles';
 import { DocumentUploadButton } from '../import/documentUploadUi';
 import {
   apiGenerateCandidateInterviewMeetingLink,
+  apiGetCandidate,
   apiGetClient,
   apiGetClients,
+  apiGetInterviews,
   apiGetJob,
   apiGetJobs,
   apiGetWorkspaceClient,
   apiUploadCandidateAvatar,
   getCachedOrgRecruitmentMode,
+  type BackendCandidate,
+  type BackendInterviewListItem,
   type UpdateCandidatePayload,
 } from '../../lib/api';
+import { extractApiData } from '../../lib/mapCandidateProfile';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { toast } from 'sonner';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
@@ -81,9 +86,13 @@ import {
   generateStandardInterviewSlotDescriptors,
   getLocalDateInputMinToday,
 } from '../../utils/dateInputConstraints';
+import {
+  computeNextInterviewRound,
+  extractEditableInterviewNotes,
+  mergeEditableInterviewNotesWithAudit,
+} from '../../lib/interview-schedule-helpers';
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
-import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
 import { CandidatePhase1SubmitEditSections } from '../candidates/CandidatePhase1SubmitEditSections';
@@ -616,6 +625,61 @@ export interface ScheduleInterviewCandidateOption {
   phone?: string | null;
   assignedJob?: string | null;
   assignedJobId?: string | null;
+  assignedClientId?: string | null;
+}
+
+function mapInterviewListItemToScheduled(
+  item: BackendInterviewListItem,
+  roundIndex: number,
+): CandidateScheduledInterview {
+  const scheduledAt = String(item.scheduledAt || '');
+  const status = String(item.status || '').toUpperCase();
+  return {
+    id: item.id,
+    candidateId: item.candidate.id,
+    jobId: item.job?.id || null,
+    jobTitle: item.job?.title || null,
+    type: item.round || item.type || 'Interview',
+    round: roundIndex,
+    date: scheduledAt.split('T')[0] || '',
+    time: scheduledAt
+      ? new Date(scheduledAt).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : '',
+    duration: item.duration ? `${item.duration} mins` : '1 hour',
+    mode:
+      item.mode === 'OFFLINE'
+        ? 'in-person'
+        : item.type === 'PHONE'
+          ? 'phone'
+          : 'video',
+    platform:
+      item.platform === 'GOOGLE_MEET'
+        ? 'Google Meet'
+        : item.platform === 'ZOOM'
+          ? 'Zoom'
+          : null,
+    meetingLink: item.meetingLink || null,
+    location: item.location || null,
+    phoneNumber: null,
+    interviewers: (item.panel || []).map((member) => ({
+      id: member.user.id,
+      name: member.user.name,
+      role: 'Interviewer' as const,
+    })),
+    notes: item.notes || '',
+    sendCandidateInvite: true,
+    sendInterviewerInvite: true,
+    status:
+      status === 'COMPLETED' ? 'completed' : status === 'CANCELLED' ? 'cancelled' : 'scheduled',
+  };
+}
+
+function isActiveScheduledInterview(status?: string | null): boolean {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized !== 'cancelled';
 }
 
 interface ScheduleInterviewModalProps {
@@ -706,6 +770,7 @@ export function ScheduleInterviewModal({
   const [loadingTeamMembers, setLoadingTeamMembers] = useState(false);
   const [workspaceClientName, setWorkspaceClientName] = useState('Your organization');
   const [workspaceClientId, setWorkspaceClientId] = useState('');
+  const [fetchedCandidateInterviews, setFetchedCandidateInterviews] = useState<CandidateScheduledInterview[]>([]);
   const prevAutoPanelJobIdRef = useRef('');
 
   const typeRef = useRef<HTMLDivElement | null>(null);
@@ -744,6 +809,26 @@ export function ScheduleInterviewModal({
   );
   const isEditingInterview = Boolean(editInterview);
   const minimumDate = getLocalDateInputMinToday();
+
+  const relevantExistingInterviews = useMemo(() => {
+    const merged = new Map<string, CandidateScheduledInterview>();
+    for (const interview of [...existingInterviews, ...fetchedCandidateInterviews]) {
+      if (!interview?.id) continue;
+      merged.set(interview.id, interview);
+    }
+    if (!candidate?.id) return [];
+    return Array.from(merged.values()).filter((interview) => {
+      if (interview.candidateId !== candidate.id) return false;
+      if (selectedJobId && interview.jobId && interview.jobId !== selectedJobId) return false;
+      return isActiveScheduledInterview(interview.status);
+    });
+  }, [
+    candidate?.id,
+    existingInterviews,
+    fetchedCandidateInterviews,
+    selectedJobId,
+  ]);
+
   const panelMemberOptions = useMemo(() => {
     if (!isStandaloneMode) return interviewers;
 
@@ -802,6 +887,7 @@ export function ScheduleInterviewModal({
       setClientContactSearch('');
       setClientContactOpen(false);
       setStandaloneCandidateId('');
+      setFetchedCandidateInterviews([]);
     }
   }, [candidate?.phone, existingInterviews?.length, isOpen]);
 
@@ -911,6 +997,82 @@ export function ScheduleInterviewModal({
     };
   }, [isOpen, isStandaloneMode, jobsProp]);
 
+  const applyDefaultJobSelection = useCallback(
+    (jobId: string, clientId?: string | null) => {
+      const normalizedJobId = String(jobId || '').trim();
+      if (!normalizedJobId) return false;
+      const job = scheduleJobOptions.find((item) => item.id === normalizedJobId);
+      if (!job) return false;
+      setSelectedJobId(normalizedJobId);
+      const resolvedClientId = String(clientId || job.clientId || '').trim();
+      if (resolvedClientId) {
+        setSelectedClientId(resolvedClientId);
+      }
+      return true;
+    },
+    [scheduleJobOptions],
+  );
+
+  useEffect(() => {
+    if (!isOpen || isEditingInterview || !allowCandidatePick) return;
+    if (!standaloneCandidateId) {
+      setSelectedJobId('');
+      setSelectedClientId('');
+      return;
+    }
+
+    const picked = candidateOptions?.find((option) => option.id === standaloneCandidateId);
+    if (picked?.assignedJobId && applyDefaultJobSelection(picked.assignedJobId, picked.assignedClientId)) {
+      if (picked.phone) setPhoneNumber(picked.phone);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const raw = await apiGetCandidate(standaloneCandidateId);
+        const data = extractApiData<BackendCandidate>(raw);
+        if (cancelled || !data?.id) return;
+
+        if (data.phone) setPhoneNumber(String(data.phone));
+
+        const assignedJobId = String(data.assignedJobs?.[0] || '').trim();
+        if (assignedJobId && applyDefaultJobSelection(assignedJobId)) {
+          return;
+        }
+
+        const interviewRes = await apiGetInterviews({
+          candidateId: standaloneCandidateId,
+          limit: 20,
+        });
+        const rows = Array.isArray(interviewRes.data?.data) ? interviewRes.data.data : [];
+        const latest = [...rows].sort(
+          (a, b) =>
+            new Date(b.scheduledAt || 0).getTime() - new Date(a.scheduledAt || 0).getTime(),
+        )[0];
+        if (!cancelled && latest?.job?.id) {
+          applyDefaultJobSelection(
+            latest.job.id,
+            latest.client?.id || latest.job.client?.id || null,
+          );
+        }
+      } catch {
+        /* best effort — user can still pick job/client manually */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    allowCandidatePick,
+    applyDefaultJobSelection,
+    candidateOptions,
+    isEditingInterview,
+    isOpen,
+    standaloneCandidateId,
+  ]);
+
   useEffect(() => {
     if (!isOpen) return;
     const defaultJobId =
@@ -922,7 +1084,15 @@ export function ScheduleInterviewModal({
     if (defaultJobId) {
       setSelectedJobId(String(defaultJobId));
     }
-  }, [isOpen, editInterview?.jobId, initialJobId, candidate?.assignedJobId, linkedJobTitle, scheduleJobOptions]);
+  }, [
+    isOpen,
+    editInterview?.jobId,
+    initialJobId,
+    candidate?.assignedJobId,
+    candidate?.id,
+    linkedJobTitle,
+    scheduleJobOptions,
+  ]);
 
   useEffect(() => {
     if (!selectedJobId) return;
@@ -1068,16 +1238,57 @@ export function ScheduleInterviewModal({
     if (editInterview.jobId) setSelectedJobId(String(editInterview.jobId));
     setSendCandidateInvite(Boolean(editInterview.sendCandidateInvite));
     setSendInterviewerInvite(Boolean(editInterview.sendInterviewerInvite));
-    setAdditionalNotes(editInterview.notes || '');
+    setAdditionalNotes(extractEditableInterviewNotes(editInterview.notes));
     setStatus(editInterview.status || 'scheduled');
   }, [editInterview, isOpen, candidate?.phone]);
 
   useEffect(() => {
-    if (isOpen) {
-      setRoundNumber(Math.max(1, (existingInterviews?.length || 0) + 1));
-      setPhoneNumber(candidate?.phone || '');
+    if (!isOpen || !candidate?.id || isEditingInterview) {
+      if (!isOpen) setFetchedCandidateInterviews([]);
+      return;
     }
-  }, [candidate?.phone, existingInterviews, isOpen]);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await apiGetInterviews({
+          candidateId: candidate.id,
+          ...(selectedJobId ? { jobId: selectedJobId } : {}),
+          limit: 100,
+        });
+        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+        if (cancelled) return;
+        const sorted = [...rows].sort(
+          (a, b) =>
+            new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime(),
+        );
+        setFetchedCandidateInterviews(
+          sorted.map((item, index) => mapInterviewListItemToScheduled(item, index + 1)),
+        );
+      } catch {
+        if (!cancelled) setFetchedCandidateInterviews([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [candidate?.id, isEditingInterview, isOpen, selectedJobId]);
+
+  useEffect(() => {
+    if (!isOpen || isEditingInterview) return;
+    setRoundNumber(
+      computeNextInterviewRound(relevantExistingInterviews, candidate?.id || '', selectedJobId || null),
+    );
+    setPhoneNumber(candidate?.phone || '');
+  }, [
+    candidate?.id,
+    candidate?.phone,
+    isEditingInterview,
+    isOpen,
+    relevantExistingInterviews,
+    selectedJobId,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -1130,7 +1341,7 @@ export function ScheduleInterviewModal({
   }, [selectedClientId, selectedJobId, jobsForClient]);
 
   const isInterviewerBooked = (interviewerId: string) =>
-    Boolean(date && time && existingInterviews.some((interview) => interview.date === date && interview.time === time && interview.interviewers.some((item) => item.id === interviewerId)));
+    Boolean(date && time && relevantExistingInterviews.some((interview) => interview.date === date && interview.time === time && interview.interviewers.some((item) => item.id === interviewerId)));
 
   const validate = () => {
     const nextErrors: Record<string, string | undefined> = {};
@@ -1233,7 +1444,10 @@ export function ScheduleInterviewModal({
             .map((c) => `${c.name}${c.designation ? ` (${c.designation})` : ''}`)
             .join(', ')}`
         : '';
-    const mergedNotes = [additionalNotes.trim(), clientPanelNote].filter(Boolean).join('\n');
+    const userFacingNotes = [additionalNotes.trim(), clientPanelNote].filter(Boolean).join('\n');
+    const mergedNotes = editInterview?.id
+      ? mergeEditableInterviewNotesWithAudit(userFacingNotes, editInterview.notes)
+      : userFacingNotes;
 
     const payload: CandidateScheduledInterview = {
       id: editInterview?.id || `interview-${Date.now()}`,
@@ -4516,11 +4730,6 @@ export function CandidateProfileDrawer({
                               entityId={candidate.id}
                               entityLabel={candidate.name || candidate.email || 'Candidate'}
                             />
-                            <AiRecommendationPanel
-                              entityType="CANDIDATE"
-                              entityId={candidate.id}
-                              entityLabel={candidate.name || candidate.email || 'Candidate'}
-                            />
                           </>
                         ) : null}
                         {isPhase1PortalCandidate(candidate) ? (
@@ -4633,17 +4842,19 @@ export function CandidateProfileDrawer({
                                   </p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditInterview(it);
-                                      setShowScheduleInterviewModal(true);
-                                    }}
-                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                                  >
-                                    <SquarePen size={16} />
-                                    Edit
-                                  </button>
+                                  {it.status !== 'completed' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditInterview(it);
+                                        setShowScheduleInterviewModal(true);
+                                      }}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                    >
+                                      <SquarePen size={16} />
+                                      Edit
+                                    </button>
+                                  ) : null}
                                   {it.meetingLink ? (
                                     <a
                                       href={it.meetingLink}

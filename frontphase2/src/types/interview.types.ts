@@ -200,3 +200,16 @@ export interface PaginationState {
   page: number;
   pageSize: number;
 }
+
+/** Completed interviews are read-only for schedule / panel / rejection actions. */
+export function isInterviewCompleted(interview: Pick<Interview, 'status'>): boolean {
+  return interview.status === 'Completed';
+}
+
+export const COMPLETED_INTERVIEW_LOCKED_ACTIONS = [
+  'edit',
+  'reject',
+  'cancel',
+  'delete',
+  'noShow',
+] as const;

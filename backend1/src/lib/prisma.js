@@ -48,7 +48,7 @@ async function testConnection(retries = 3, delay = 2000) {
 }
 
 // Helper function to retry database queries
-async function retryQuery(queryFn, retries = 5, delay = 3000) {
+async function retryQuery(queryFn, retries = 3, delay = 1000) {
   for (let i = 0; i < retries; i++) {
     try {
       return await queryFn();

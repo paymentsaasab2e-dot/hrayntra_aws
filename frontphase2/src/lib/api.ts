@@ -21,6 +21,7 @@ import type {
   ScheduleJoiningPayload,
 } from '../types/placement';
 import type { PostServiceKycFormValues } from './clientKycForm';
+import type { InterviewClientReviewContext } from './clientReviewTypes';
 import { cacheClientPageFieldVisibility, normalizeClientPageFieldVisibility } from './clientPageFieldVisibility';
 
 export type { BillingSettingsSnapshot, CreatePlacementInvoicePayload };
@@ -3909,11 +3910,15 @@ export interface BackendInterviewListItem {
   candidate: {
     id: string;
     firstName: string;
+    middleName?: string | null;
     lastName: string;
     email: string;
+    phone?: string | null;
     avatar?: string | null;
     stage?: string | null;
     status?: string | null;
+    extraData?: BackendCandidate['extraData'];
+    isPhase1Candidate?: boolean;
   };
   job: {
     id: string;
@@ -4196,6 +4201,12 @@ export const apiGetPublicClientReview = async (token: string) => {
       auth: false,
     }
   );
+};
+
+export const apiGetInterviewClientReviewContext = async (interviewId: string) => {
+  return apiFetch<InterviewClientReviewContext>(`/interviews/${interviewId}/client-review`, {
+    auth: true,
+  });
 };
 
 export const apiSubmitPublicClientTag = async (

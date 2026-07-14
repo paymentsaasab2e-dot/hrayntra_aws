@@ -617,26 +617,51 @@ export function mapFeedbackRecommendationLabelForPortal(recommendation) {
 }
 
 export function resolveInterviewRoundLabelForPortal(interviewLike = {}) {
-  const fromRound = String(interviewLike.round || '').trim();
+  const fromRound = humanizePortalInterviewRoundLabel(interviewLike.round);
   if (fromRound) return fromRound;
-  const rawType = String(interviewLike.type || '').trim();
-  if (!rawType) return 'Interview';
-  const upper = rawType.replace(/[\s-]+/g, '_').toUpperCase();
-  const map = {
-    PHONE: 'Phone screening',
-    VIDEO: 'Video interview',
-    IN_PERSON: 'In-person interview',
-    TECHNICAL_TEST: 'Technical test',
-    ASSESSMENT: 'Assessment',
-    GROUP_DISCUSSION: 'Group discussion',
-    ONSITE: 'On-site interview',
-    TECHNICAL: 'Technical round',
-    FINAL: 'Final interview',
-    SCREENING: 'HR screening',
-    HR_SCREENING: 'HR screening',
-  };
-  if (map[upper]) return map[upper];
-  return rawType
+  const fromType = humanizePortalInterviewRoundLabel(interviewLike.type);
+  if (fromType) return fromType;
+  return 'Interview';
+}
+
+const PORTAL_INTERVIEW_LABEL_MAP = new Map([
+  ['PHONE', 'Phone screening'],
+  ['VIDEO', 'Video interview'],
+  ['IN_PERSON', 'In-person interview'],
+  ['TECHNICAL_TEST', 'Technical test'],
+  ['ASSESSMENT', 'Assessment'],
+  ['GROUP_DISCUSSION', 'Group discussion'],
+  ['ONSITE', 'On-site interview'],
+  ['TECHNICAL', 'Technical round'],
+  ['FINAL', 'Final interview'],
+  ['SCREENING', 'HR screening'],
+  ['HR_SCREENING', 'HR screening'],
+  ['HR', 'HR screening'],
+  ['MANAGERIAL', 'Managerial round'],
+  ['CLIENT', 'Client interview'],
+]);
+
+/** Normalize CRM `round` / `type` tokens and schedule-popup labels for the candidate portal. */
+export function humanizePortalInterviewRoundLabel(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+
+  const upper = s.replace(/[\s_-]+/g, '_').toUpperCase();
+  if (PORTAL_INTERVIEW_LABEL_MAP.has(upper)) {
+    return PORTAL_INTERVIEW_LABEL_MAP.get(upper);
+  }
+
+  const compact = upper.replace(/_/g, '');
+  for (const [key, label] of PORTAL_INTERVIEW_LABEL_MAP) {
+    if (key.replace(/_/g, '') === compact) return label;
+  }
+
+  // Schedule popup labels ("HR Screening", "Technical Round 1") — keep readable text as-is.
+  if (/\s/.test(s) || /round\s*\d/i.test(s)) {
+    return s;
+  }
+
+  return s
     .replace(/_/g, ' ')
     .toLowerCase()
     .replace(/\b\w/g, (char) => char.toUpperCase());
@@ -1039,6 +1064,51 @@ export async function updateCandidateStage({
       },
     });
   }
+}
+
+/**
+ * Portal DB only: append a cancellation row to the application timeline without
+ * changing application status or pipeline stage.
+ */
+export async function syncApplicationInterviewCancelled(
+  candidateId,
+  jobId,
+  { reason, notes, scheduledAt } = {},
+) {
+  const portal = getJobPortalPrismaClient();
+  const app = await portal.application.findUnique({
+    where: {
+      candidateId_jobId: { candidateId, jobId },
+    },
+    select: { id: true, status: true },
+  });
+
+  if (!app) {
+    return;
+  }
+
+  const whenLabel = scheduledAt
+    ? new Date(scheduledAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+    : null;
+  const descriptionLines = [
+    whenLabel ? `When: ${whenLabel}` : null,
+    reason ? `Reason: ${reason}` : null,
+    notes ? `Notes: ${notes}` : null,
+  ].filter(Boolean);
+
+  await portal.applicationTimeline.create({
+    data: {
+      applicationId: app.id,
+      status: app.status || 'INTERVIEW',
+      title: 'Interview cancelled',
+      description: descriptionLines.length ? descriptionLines.join('\n') : 'Interview cancelled by recruiter.',
+    },
+  });
+
+  await portal.candidate.update({
+    where: { id: candidateId },
+    data: { lastActivity: new Date() },
+  });
 }
 
 function buildInterviewTimelineDescription(metadata) {

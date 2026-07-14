@@ -187,7 +187,6 @@ import { CrossDepartmentClientHandoff } from '../team/CrossDepartmentClientHando
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { ClientAiChatDrawer } from '../clients/ClientAiChatDrawer';
-import { AiRecommendationPanel } from '../ai/AiRecommendationPanel';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import {
   clientAiHasAgreementData,
@@ -4581,11 +4580,6 @@ export function ClientDetailsDrawer({
                           {client?.id ? (
                             <>
                               <EntityWorkspaceAlertsPanel
-                                entityType="CLIENT"
-                                entityId={client.id}
-                                entityLabel={fullClientData?.name || client?.name || 'Client'}
-                              />
-                              <AiRecommendationPanel
                                 entityType="CLIENT"
                                 entityId={client.id}
                                 entityLabel={fullClientData?.name || client?.name || 'Client'}

@@ -1087,10 +1087,16 @@ async function getPersonalizedJobs(req, res) {
             ? JSON.stringify(candidate.resume.resumeJson)
             : '';
 
+    const skipAi =
+      String(req.query.skipAi || '').toLowerCase() === 'true' ||
+      req.query.skipAi === '1' ||
+      String(req.query.fast || '').toLowerCase() === 'true';
+
     const pipelineResult = await runJobMatchingPipelinePhase1({
       candidate,
       cleanedResumeText,
       limit: req.query.limit,
+      skipAi,
     });
 
     return res.json({

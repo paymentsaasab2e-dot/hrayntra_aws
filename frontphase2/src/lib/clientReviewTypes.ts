@@ -64,6 +64,19 @@ export interface ClientReviewBatchRow {
   detail: ClientReviewData;
 }
 
+export interface ClientReviewResponse {
+  tag: string;
+  comments: string;
+  documentLabel?: string | null;
+  documentFileName?: string | null;
+  documentUrl?: string | null;
+}
+
+export interface InterviewClientReviewContext extends ClientReviewData {
+  clientResponses?: ClientReviewResponse[];
+  submittedToClient?: string | null;
+}
+
 export const TAG_OPTIONS_BY_TYPE: Record<string, string[]> = {
   INITIAL_REVIEW: ['Proceed to Interview', 'Need Clarification', 'Hold', 'Not a Fit'],
   INTERIM_REVIEW: ['Proceed to Next Round', 'Need Clarification', 'Hold', 'Reject'],

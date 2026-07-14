@@ -457,10 +457,21 @@ function parseInterviewDetailsFromDescription(description, title) {
 }
 
 function interviewRoundLabelsEquivalent(a, b) {
-  const left = String(a || '').trim().toLowerCase();
-  const right = String(b || '').trim().toLowerCase();
+  const normalize = (value) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\bround\s*\d+\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const left = normalize(a);
+  const right = normalize(b);
   if (!left || !right) return false;
-  return left === right || left.includes(right) || right.includes(left);
+  if (left === right) return true;
+  const stripHr = (value) => value.replace(/^hr\s+/, '').trim();
+  if (stripHr(left) === stripHr(right)) return true;
+  return left.includes(right) || right.includes(left);
 }
 
 function interviewRoundFeedbackRichness(round = {}) {
@@ -576,12 +587,9 @@ function interviewOutcomeNeedsPhase2Backfill(outcome = {}) {
   );
 }
 
-async function fetchPhase2PortalInterviewFeedback({
-  tenantDbName,
-  candidateId,
-  jobId,
-  interviewIds = [],
-}) {
+const PHASE2_FETCH_TIMEOUT_MS = Number(process.env.PHASE2_PORTAL_FETCH_TIMEOUT_MS || 4000);
+
+async function fetchPhase2Internal(url, body) {
   const base =
     process.env.PHASE2_INTERNAL_API_URL ||
     process.env.PHASE2_API_URL ||
@@ -589,21 +597,36 @@ async function fetchPhase2PortalInterviewFeedback({
     'http://localhost:5001';
   const secret =
     process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
-  const url = `${String(base).replace(/\/$/, '')}/api/v1/internal/portal-interview-feedback-lookup`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PHASE2_FETCH_TIMEOUT_MS);
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-phase2-portal-sync-secret': secret,
-    },
-    body: JSON.stringify({
-      tenantDbName,
-      candidateId,
-      jobId,
-      interviewIds,
-      repairPortal: true,
-    }),
+  try {
+    return await fetch(`${String(base).replace(/\/$/, '')}${url}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-phase2-portal-sync-secret': secret,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchPhase2PortalInterviewFeedback({
+  tenantDbName,
+  candidateId,
+  jobId,
+  interviewIds = [],
+}) {
+  const res = await fetchPhase2Internal('/api/v1/internal/portal-interview-feedback-lookup', {
+    tenantDbName,
+    candidateId,
+    jobId,
+    interviewIds,
+    repairPortal: false,
   });
 
   if (!res.ok) {
@@ -616,6 +639,92 @@ async function fetchPhase2PortalInterviewFeedback({
   return Array.isArray(payload?.data) ? payload.data : [];
 }
 
+async function fetchPhase2PortalInterviewRounds({ tenantDbName, candidateId, jobId }) {
+  const res = await fetchPhase2Internal('/api/v1/internal/portal-interview-rounds-lookup', {
+    tenantDbName,
+    candidateId,
+    jobId,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.warn('[Application] Phase2 interview rounds lookup failed:', res.status, text);
+    return [];
+  }
+
+  const payload = await res.json().catch(() => null);
+  return Array.isArray(payload?.data) ? payload.data : [];
+}
+
+function mergeInterviewRoundsWithPhase2(timelineRounds, phase2Rounds, interviewOutcomes = []) {
+  if (!Array.isArray(phase2Rounds) || phase2Rounds.length === 0) {
+    return reconcileInterviewRounds(timelineRounds);
+  }
+
+  const outcomeByInterviewId = new Map();
+  for (const outcome of interviewOutcomes) {
+    if (outcome?.interviewId) {
+      outcomeByInterviewId.set(String(outcome.interviewId), outcome);
+    }
+  }
+
+  const timelineByInterviewId = new Map();
+  for (const round of timelineRounds || []) {
+    if (round?.interviewId) {
+      timelineByInterviewId.set(String(round.interviewId), round);
+    }
+  }
+
+  const merged = phase2Rounds.map((phase2) => {
+    const interviewId = phase2?.interviewId ? String(phase2.interviewId) : null;
+    const outcome = interviewId ? outcomeByInterviewId.get(interviewId) : null;
+    let timeline =
+      (interviewId ? timelineByInterviewId.get(interviewId) : null) ||
+      (timelineRounds || []).find((round) =>
+        interviewRoundLabelsEquivalent(round?.roundLabel, phase2?.roundLabel)
+      ) ||
+      null;
+
+    let round = {
+      interviewId,
+      timelineId: timeline?.timelineId || null,
+      timelineTitle: timeline?.timelineTitle || phase2.roundLabel || 'Interview',
+      scheduledAt: phase2.scheduledAt || timeline?.scheduledAt || null,
+      roundLabel: phase2.roundLabel || timeline?.roundLabel || null,
+      format: timeline?.format || null,
+      meetingLink: phase2.meetingLink || timeline?.meetingLink || null,
+      location: phase2.location || timeline?.location || null,
+      notes: timeline?.notes || null,
+      interviewerNames: Array.isArray(timeline?.interviewerNames) ? timeline.interviewerNames : [],
+      recruiterName: timeline?.recruiterName || null,
+      isCompleted: Boolean(phase2.isCompleted || timeline?.isCompleted),
+      outcome: timeline?.outcome || null,
+      remark: timeline?.remark || null,
+      overallRating: timeline?.overallRating ?? null,
+      completedAt: timeline?.completedAt || null,
+    };
+
+    if (outcome) {
+      round = applyInterviewOutcomeToRound(round, {
+        ...outcome,
+        roundLabel: phase2.roundLabel || outcome.roundLabel,
+      });
+    }
+
+    return round;
+  });
+
+  return sortInterviewRoundsChronologically(reconcileInterviewRounds(merged));
+}
+
+function sortInterviewRoundsChronologically(rounds) {
+  return [...(rounds || [])].sort((a, b) => {
+    const aTime = a?.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+    const bTime = b?.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+    return aTime - bTime;
+  });
+}
+
 async function enrichInterviewOutcomesForPortal({
   interviewOutcomes,
   candidateId,
@@ -623,9 +732,7 @@ async function enrichInterviewOutcomesForPortal({
   tenantDbName,
 }) {
   const stored = Array.isArray(interviewOutcomes) ? interviewOutcomes : [];
-  const needsLookup =
-    !stored.length || stored.some((entry) => interviewOutcomeNeedsPhase2Backfill(entry));
-  if (!needsLookup || !tenantDbName || !candidateId || !jobId) {
+  if (!tenantDbName || !candidateId || !jobId) {
     return stored;
   }
 
@@ -637,7 +744,9 @@ async function enrichInterviewOutcomesForPortal({
       jobId,
       interviewIds,
     });
-    return mergePhase2OutcomesIntoPortal(stored, phase2Outcomes);
+    const merged = mergePhase2OutcomesIntoPortal(stored, phase2Outcomes);
+    if (merged.length) return merged;
+    return phase2Outcomes;
   } catch (error) {
     console.warn(
       '[Application] Phase2 interview feedback enrich failed:',
@@ -821,7 +930,9 @@ function buildInterviewRoundsFromTimeline(rawTimeline, interviewOutcomes = []) {
     const parsed = parseInterviewDetailsFromDescription(item.description, item.title);
     const titleRaw = String(item.title || '').trim();
     const roundFromTitle = titleRaw.replace(/^interview completed\s*[—-]\s*/i, '').trim();
-    const roundLabel = parsed.explicitRound || roundFromTitle || parsed.recruiterRound || parsed.interviewType || null;
+    const roundLabel = humanizeInterviewTypeLabel(
+      parsed.explicitRound || roundFromTitle || parsed.recruiterRound || parsed.interviewType || null
+    );
     const outcomeEntry = {
       outcome: parsed.outcome,
       recommendationLabel: parsed.recommendationLabel,
@@ -902,11 +1013,7 @@ function buildInterviewRoundsFromTimeline(rawTimeline, interviewOutcomes = []) {
     }
   }
 
-  return reconcileInterviewRounds(rounds).sort((a, b) => {
-    const aTime = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
-    const bTime = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
-    return aTime - bTime;
-  });
+  return sortInterviewRoundsChronologically(reconcileInterviewRounds(rounds));
 }
 
 /** Merge completed-only rounds onto scheduled rounds when labels differ (e.g. "Interviewing" vs "Technical round"). */
@@ -918,17 +1025,11 @@ function reconcileInterviewRounds(rounds) {
   if (!completed.length) return rounds;
 
   if (!scheduled.length) {
-    const sorted = [...completed].sort(
-      (a, b) => interviewRoundFeedbackRichness(b) - interviewRoundFeedbackRichness(a)
-    );
-    let merged = { ...sorted[0] };
-    for (let index = 1; index < sorted.length; index += 1) {
-      merged = applyInterviewOutcomeToRound(merged, sorted[index]);
-      merged.meetingLink = merged.meetingLink || sorted[index].meetingLink || null;
-      merged.scheduledAt = merged.scheduledAt || sorted[index].scheduledAt || null;
-      merged.roundLabel = merged.roundLabel || sorted[index].roundLabel || null;
-    }
-    return [merged];
+    return completed.sort((a, b) => {
+      const aTime = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+      const bTime = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+      return aTime - bTime;
+    });
   }
 
   const merged = scheduled.map((sched) => {
@@ -950,7 +1051,7 @@ function reconcileInterviewRounds(rounds) {
     }
   }
 
-  return merged;
+  return sortInterviewRoundsChronologically(merged);
 }
 
 function formatSalaryText(job) {
@@ -1624,19 +1725,32 @@ async function getApplications(req, res) {
     console.log(`📥 DB fetch requested: applications | candidateId=${candidateId}`);
     const applications = await prisma.application.findMany({
       where: { candidateId },
-      include: {
+      select: {
+        id: true,
+        jobId: true,
+        status: true,
+        appliedAt: true,
+        matchScore: true,
         job: {
-          include: {
-            company: true,
-            client: true,
+          select: {
+            id: true,
+            title: true,
+            salaryMin: true,
+            salaryMax: true,
+            salaryCurrency: true,
+            salaryType: true,
+            location: true,
+            employmentType: true,
+            workMode: true,
+            showClientNamePublicly: true,
+            publicFieldVisibility: true,
+            company: { select: { name: true } },
+            client: { select: { companyName: true } },
           },
         },
         candidate: {
           select: { stage: true },
         },
-        // Pull each app's full timeline so the chip can detect rejections that
-        // were written to the timeline (by CRM Phase 2 stage sync) even when
-        // the `Application.status` enum is stale (older reject without jobId).
         timeline: {
           select: { status: true },
         },
@@ -1972,14 +2086,36 @@ async function getApplicationById(req, res) {
       tenantDbName = String(process.env.PHASE2_DEFAULT_TENANT_DB_NAME || '').trim() || null;
     }
 
-    interviewOutcomes = await enrichInterviewOutcomesForPortal({
-      interviewOutcomes,
-      candidateId: application.candidateId,
-      jobId: application.jobId,
-      tenantDbName,
-    });
+    const [enrichedInterviewOutcomes, phase2Rounds] = await Promise.all([
+      enrichInterviewOutcomesForPortal({
+        interviewOutcomes,
+        candidateId: application.candidateId,
+        jobId: application.jobId,
+        tenantDbName,
+      }),
+      tenantDbName
+        ? fetchPhase2PortalInterviewRounds({
+            tenantDbName,
+            candidateId: application.candidateId,
+            jobId: application.jobId,
+          }).catch((roundsErr) => {
+            console.warn(
+              '[Application] Phase2 interview rounds enrich failed:',
+              roundsErr?.message || roundsErr
+            );
+            return [];
+          })
+        : Promise.resolve([]),
+    ]);
+    interviewOutcomes = enrichedInterviewOutcomes;
 
-    const interviewRounds = buildInterviewRoundsFromTimeline(rawTimeline, interviewOutcomes);
+    const timelineRounds = buildInterviewRoundsFromTimeline(rawTimeline, interviewOutcomes);
+
+    const interviewRounds = mergeInterviewRoundsWithPhase2(
+      timelineRounds,
+      phase2Rounds,
+      interviewOutcomes
+    );
     const latestInterview = interviewRounds.length ? interviewRounds[interviewRounds.length - 1] : null;
     const rejectionDetails = buildRejectionDetailsForApplication({
       applicationStatus: statusLabel,
