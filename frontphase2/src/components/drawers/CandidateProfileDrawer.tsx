@@ -3031,7 +3031,7 @@ export function AddToPipelineModal({
                 {(isMoveMode || addNewJobMode) ? (
                   <div>
                     <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Assign recruiter
+                      Assign team member
                     </label>
                     {selectedRecruiter ? (
                       <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -3058,7 +3058,7 @@ export function AddToPipelineModal({
                         </button>
                       </div>
                     ) : (
-                      <p className="mb-2 text-xs text-slate-500">No recruiter assigned</p>
+                      <p className="mb-2 text-xs text-slate-500">No team member assigned</p>
                     )}
                     <div className="relative" ref={recruiterDropdownRef}>
                       <button
@@ -3067,7 +3067,7 @@ export function AddToPipelineModal({
                         className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm"
                       >
                         <span className="text-slate-600">
-                          {selectedRecruiter ? 'Change recruiter' : 'Search and select recruiter'}
+                          {selectedRecruiter ? 'Change team member' : 'Search and select team member'}
                         </span>
                         <UserCircle2 size={16} className="text-slate-400" />
                       </button>
@@ -3076,7 +3076,7 @@ export function AddToPipelineModal({
                           <input
                             value={recruiterSearch}
                             onChange={(e) => setRecruiterSearch(e.target.value)}
-                            placeholder="Search recruiter"
+                            placeholder="Search team member"
                             className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                           />
                           <div className="mt-3 max-h-48 overflow-y-auto">
@@ -4593,7 +4593,7 @@ export function CandidateProfileDrawer({
                             <span>{candidate.stage || '—'}</span>
                           </span>
                           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs">
-                            <span className="font-medium text-emerald-600">Recruiter</span>
+                            <span className="font-medium text-emerald-600">Team Member</span>
                             <span className="font-semibold text-emerald-900">{candidate.recruiter || '—'}</span>
                           </span>
                         </div>

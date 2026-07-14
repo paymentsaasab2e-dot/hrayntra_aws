@@ -1299,7 +1299,7 @@ export function CreatePlacementInvoiceModal({
                           </div>
                           {recruiterOptions.length > 0 ? (
                             <div>
-                              <label className={labelClass}>Recruiter</label>
+                              <label className={labelClass}>Team Member</label>
                               <select
                                 value={manual.recruiterId}
                                 onChange={(e) =>

@@ -1111,14 +1111,14 @@ export function AddCandidateFormSections({
           ) : null}
 
           <SearchableDropdown
-            label="Assign Recruiter"
+            label="Assign team member"
             value={formData.recruiterId}
             onSelect={(value) => updateFormData('recruiterId', value)}
             options={recruiters}
-            placeholder="Search recruiter"
+            placeholder="Search team member"
             getLabel={(user) => user.name}
             getSecondary={(user) => user.email}
-            emptyMessage="No recruiters found"
+            emptyMessage="No team members found"
           />
         </div>
       </StepPanel>

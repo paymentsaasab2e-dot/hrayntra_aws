@@ -150,7 +150,7 @@ function RawEntityFilters({
       ) : null}
       {keys.includes('recruiterId') ? (
         <select value={draftFilters.recruiterId} onChange={(e) => onPatch('recruiterId', e.target.value)} className={PH2_TOOLBAR_SELECT_CLASS}>
-          <option value="">All Recruiters</option>
+          <option value="">All team members</option>
           {(options?.recruiters || []).map((r) => (
             <option key={r.id} value={r.id}>{r.name}</option>
           ))}

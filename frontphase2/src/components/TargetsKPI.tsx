@@ -37,7 +37,7 @@ export const TargetsKPIView = () => {
           <table className="w-full">
             <thead className="bg-slate-50/50">
               <tr className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                <th className="px-6 py-4">Recruiter</th>
+                <th className="px-6 py-4">Team Member</th>
                 <th className="px-6 py-4">Monthly Placements</th>
                 <th className="px-6 py-4">Revenue Target</th>
                 <th className="px-6 py-4">Activity Target</th>

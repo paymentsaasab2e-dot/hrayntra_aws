@@ -122,7 +122,7 @@ export const PlacementsTable = ({ onSelect }: { onSelect: (p: Placement) => void
           <tr className="bg-slate-50 border-y border-slate-200">
             <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Candidate</th>
             <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Client / Job</th>
-            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Recruiter</th>
+            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Team Member</th>
             <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group/header">
               <div className="flex items-center gap-1">
                 Offer Date

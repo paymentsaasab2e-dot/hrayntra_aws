@@ -199,33 +199,26 @@ function extractBackendCandidatesList(
   return [];
 }
 
-function buildFilterDropdownOptions(
+/** Location options may come from candidate rows. Client filter options must NOT —
+ * they come only from GET /clients (CRM clients), never from candidate employer names. */
+function buildLocationFilterOptions(
   candidates: Candidate[],
   backendRows: BackendCandidate[],
-  existingCompanies: string[],
   existingLocations: string[],
 ) {
-  const companies = new Set(existingCompanies);
   const locations = new Set(existingLocations);
 
   for (const row of candidates) {
-    const company = normalizeFilterOption(row.company);
     const location = normalizeFilterOption(row.location);
-    if (company) companies.add(company);
     if (location) locations.add(location);
   }
 
   for (const row of backendRows) {
-    const company = normalizeFilterOption(row.currentCompany);
     const location = normalizeFilterOption(row.location);
-    if (company) companies.add(company);
     if (location) locations.add(location);
   }
 
-  return {
-    companies: Array.from(companies).sort((a, b) => a.localeCompare(b)),
-    locations: Array.from(locations).sort((a, b) => a.localeCompare(b)),
-  };
+  return Array.from(locations).sort((a, b) => a.localeCompare(b));
 }
 
 type CandidateJobFilterOption = { id: string; title: string };
@@ -245,12 +238,6 @@ function clientNamesFromApiResponse(res: { data?: unknown }): string[] {
     .map((client) => String(client.companyName || '').trim())
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
-}
-
-function mergeCompanyFilterOptions(existing: string[], next: string[]): string[] {
-  return Array.from(new Set([...existing, ...next].filter(Boolean))).sort((a, b) =>
-    a.localeCompare(b),
-  );
 }
 
 function flattenCandidateJsonForSearch(value: unknown): string {
@@ -416,11 +403,11 @@ function CandidatesPageContent() {
           res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined,
         );
         const mapped = rows.map(mapBackendCandidate);
-        const built = buildFilterDropdownOptions(mapped, rows, [], []);
-        setLocationFilterOptions(built.locations);
-        setCompanyFilterOptions((prev) => mergeCompanyFilterOptions(prev, built.companies));
+        setLocationFilterOptions(
+          buildLocationFilterOptions(mapped, rows, locationFilterOptionsRef.current),
+        );
       } catch {
-        // Dropdown options still accumulate from paginated list loads.
+        // Location options still accumulate from paginated list loads.
       }
     })();
     return () => {
@@ -923,7 +910,8 @@ function CandidatesPageContent() {
           jobFilterOptionsRef.current = allJobsForFilter;
           setJobFilterOptions(allJobsForFilter);
         }
-        setCompanyFilterOptions((prev) => mergeCompanyFilterOptions(prev, clientNames));
+        // Only real CRM clients — never candidate currentCompany / employer text.
+        setCompanyFilterOptions(clientNames);
 
         setPipelineRecruiters(
           members.map((m) => ({
@@ -1441,13 +1429,13 @@ function CandidatesPageContent() {
         recruiterId: bulkAssignRecruiterIds[0],
         recruiterIds: bulkAssignRecruiterIds,
       });
-      toast.success(`Assigned ${selectedIds.length} candidate(s) to ${bulkAssignRecruiterIds.length} recruiter(s)`);
+      toast.success(`Assigned ${selectedIds.length} candidate(s) to ${bulkAssignRecruiterIds.length} team member(s)`);
       setSelectedIds([]);
       setBulkAssignOpen(false);
       setBulkAssignRecruiterIds([]);
       await loadCandidates();
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to assign recruiter');
+      toast.error(err?.message || 'Failed to assign team member');
     } finally {
       setBulkAssignSaving(false);
     }
@@ -2240,9 +2228,9 @@ function CandidatesPageContent() {
             <div className="border-b border-slate-100 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-lg font-bold text-slate-900">Assign recruiters</div>
+                  <div className="text-lg font-bold text-slate-900">Assign team members</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    Select one or more recruiters. The first selected recruiter becomes the primary assignee, and all selected recruiters receive the candidate details by email.
+                    Select one or more team members. The first selected team member becomes the primary assignee, and all selected team members receive the candidate details by email.
                   </div>
                 </div>
                 <button
@@ -2257,13 +2245,11 @@ function CandidatesPageContent() {
             </div>
 
             <div className="p-5">
-              <div className="mb-3 text-xs font-bold uppercase text-slate-500">
-                Recruiters
-              </div>
+              <div className="mb-3 text-xs font-bold uppercase text-slate-500">Team members</div>
               <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                 {pipelineRecruiters.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                    No recruiters available.
+                    No team members available.
                   </div>
                 ) : (
                   pipelineRecruiters.map((recruiter) => {
@@ -2299,7 +2285,7 @@ function CandidatesPageContent() {
 
             <div className="flex items-center justify-between gap-3 border-t border-slate-100 p-5">
               <div className="text-xs text-slate-500">
-                {bulkAssignRecruiterIds.length} recruiter{bulkAssignRecruiterIds.length === 1 ? '' : 's'} selected for {selectedIds.length} candidate{selectedIds.length === 1 ? '' : 's'}.
+                {bulkAssignRecruiterIds.length} team member{bulkAssignRecruiterIds.length === 1 ? '' : 's'} selected for {selectedIds.length} candidate{selectedIds.length === 1 ? '' : 's'}.
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -2316,7 +2302,7 @@ function CandidatesPageContent() {
                   onClick={submitBulkAssignRecruiter}
                   disabled={bulkAssignSaving || bulkAssignRecruiterIds.length === 0 || selectedIds.length === 0}
                 >
-                  {bulkAssignSaving ? 'Assigning...' : 'Assign recruiters'}
+                  {bulkAssignSaving ? 'Assigning...' : 'Assign team members'}
                 </button>
               </div>
             </div>

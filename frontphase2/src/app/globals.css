@@ -200,6 +200,30 @@
   background: rgba(148, 163, 184, 0.5);
 }
 
+/* Toolbar filter dropdowns — scrollable list with minimal overlay scrollbar */
+.ph2-invisible-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.28) transparent;
+  overscroll-behavior: contain;
+}
+
+.ph2-invisible-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ph2-invisible-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ph2-invisible-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+}
+
+.ph2-invisible-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.42);
+}
+
 /* No scrollbar */
 .no-scrollbar::-webkit-scrollbar {
   display: none;

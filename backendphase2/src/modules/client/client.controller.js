@@ -81,11 +81,14 @@ export const clientController = {
 
   async create(req, res) {
     try {
-      const client = await clientService.create({
-        ...req.body,
-        performedById: req.user?.id,
-        performedByRole: req.user?.role,
-      });
+      const client = await clientService.create(
+        {
+          ...req.body,
+          performedById: req.user?.id,
+          performedByRole: req.user?.role,
+        },
+        req,
+      );
       sendResponse(res, 201, 'Client created successfully', client);
     } catch (error) {
       sendError(res, 400, error.message, error);

@@ -918,7 +918,7 @@ export function CreateJobDetailsForm({
         <label className={labelClass}>
           <span className="inline-flex items-center gap-1.5">
             <User size={14} className="text-slate-400" aria-hidden />
-            Assign Recruiter
+            Assign team member
           </span>
         </label>
         <div className="relative">

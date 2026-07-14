@@ -97,10 +97,10 @@ export function ExecutiveDashboardSection({ summary }: SectionProps) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <ReportCard title="Top Recruiters">
+        <ReportCard title="Top Team Members">
           <SimpleTable
             columns={[
-              { key: 'name', label: 'Recruiter' },
+              { key: 'name', label: 'Team Member' },
               { key: 'placements', label: 'Placements', align: 'right' },
             ]}
             rows={recruiters.map((r) => ({ name: r.name, placements: r.placements ?? 0 }))}
@@ -305,11 +305,11 @@ export function CandidateAnalyticsSection({ summary }: SectionProps) {
             <EmptyState text="No location data." />
           )}
         </ReportCard>
-        <ReportCard title="Candidates by Recruiter">
+        <ReportCard title="Candidates by Team Member">
           {byRecruiter.length ? (
             <HorizontalBarChart items={byRecruiter} labelKey="name" valueKey="value" />
           ) : (
-            <EmptyState text="No recruiter breakdown." />
+            <EmptyState text="No team member breakdown." />
           )}
         </ReportCard>
       </div>
@@ -366,10 +366,10 @@ export function InterviewAnalyticsSection({ summary }: SectionProps) {
           <EmptyState text="No interview trend data." />
         )}
       </ReportCard>
-      <ReportCard title="Pending Feedback by Recruiter">
+      <ReportCard title="Pending Feedback by Team Member">
         <SimpleTable
           columns={[
-            { key: 'name', label: 'Recruiter' },
+            { key: 'name', label: 'Team Member' },
             { key: 'pending', label: 'Pending', align: 'right' },
           ]}
           rows={pending.map((r) => ({ name: r.name, pending: r.pending }))}
@@ -408,7 +408,7 @@ export function PlacementAnalyticsSection({ summary }: SectionProps) {
         <SimpleTable
           columns={[
             { key: 'rank', label: '#', align: 'right' },
-            { key: 'name', label: 'Recruiter' },
+            { key: 'name', label: 'Team Member' },
             { key: 'placements', label: 'Placements', align: 'right' },
           ]}
           rows={leaderboard.map((r) => ({
@@ -481,11 +481,11 @@ export function TeamAnalyticsSection({ summary }: SectionProps) {
 
   return (
     <div className="space-y-5">
-      <ReportCard title="Recruiter Performance">
+      <ReportCard title="Team Member Performance">
         <SimpleTable
           columns={[
             { key: 'rank', label: '#', align: 'right' },
-            { key: 'name', label: 'Recruiter' },
+            { key: 'name', label: 'Team Member' },
             { key: 'candidatesAdded', label: 'Candidates', align: 'right' },
             { key: 'interviews', label: 'Interviews', align: 'right' },
             { key: 'placements', label: 'Placements', align: 'right' },

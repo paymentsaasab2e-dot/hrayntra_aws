@@ -9,7 +9,6 @@ import {
   Download,
   RefreshCcw,
   Search,
-  Filter,
   Building2,
   BadgeCheck,
   Users,
@@ -28,13 +27,6 @@ import { buildClientsCsvColumns, CLIENTS_EXPORT_COLUMNS } from '../../lib/export
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { ClientTable } from '../../components/ClientTable';
 import { ClientHandoffModal } from '../../components/team/ClientHandoffModal';
-import {
-  ClientFilterDrawer,
-  DEFAULT_CLIENT_FILTERS,
-  applyClientFilters,
-  isClientFilterActive,
-  type ClientFilters,
-} from '../../components/drawers/ClientFilterDrawer';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
@@ -55,6 +47,7 @@ import {
   parseClientsSmartSearchPrompt,
 } from '../../lib/smart-search/parsers';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
+import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { INITIAL_CLIENTS } from './types';
@@ -240,6 +233,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
       name: backendClient.assignedTo.name,
       avatar: backendClient.assignedTo.avatar || '',
     } : { name: 'Unassigned', avatar: '' },
+    assignedToId: backendClient.assignedTo?.id || undefined,
     lastActivity: backendClient.updatedAt ? formatDateDMY(backendClient.updatedAt) : 'Never',
     auditMeta: extractAuditMeta(backendClient as Record<string, unknown>),
     logo: backendClient.logo || '',
@@ -346,8 +340,6 @@ export default function App() {
   const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState('all');
   const [clientNameSortOrder, setClientNameSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [advancedFilters, setAdvancedFilters] = useState<ClientFilters>(DEFAULT_CLIENT_FILTERS);
   const currentUserName = useMemo(() => {
     if (typeof window === 'undefined') return '';
     try {
@@ -380,6 +372,7 @@ export default function App() {
   const [smartSearchClientIds, setSmartSearchClientIds] = useState<string[]>([]);
   const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useState<string[]>([]);
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
+  const [teamMemberFilterId, setTeamMemberFilterId] = useState('');
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
@@ -453,14 +446,19 @@ export default function App() {
     );
   }, [selectedDynamicColumnLabels]);
 
-  const advancedFilteredClients = useMemo(
-    () => applyClientFilters(clients, advancedFilters, currentUserName, clientFieldVisibility),
-    [clients, advancedFilters, currentUserName, clientFieldVisibility]
-  );
-  const filteredClients = useMemo(
-    () => filterClientsByTab(advancedFilteredClients, activeTab),
-    [advancedFilteredClients, activeTab]
-  );
+  const filteredClients = useMemo(() => {
+    let list = filterClientsByTab(clients, activeTab);
+    if (teamMemberFilterId) {
+      const selectedMember = teamMembers.find((member) => member.id === teamMemberFilterId);
+      const selectedName = String(selectedMember?.name || '').trim().toLowerCase();
+      list = list.filter((client) => {
+        if (client.assignedToId) return client.assignedToId === teamMemberFilterId;
+        if (!selectedName) return false;
+        return String(client.owner?.name || '').trim().toLowerCase() === selectedName;
+      });
+    }
+    return list;
+  }, [clients, activeTab, teamMemberFilterId, teamMembers]);
   const clientSmartSearch = useSmartSearch({
     parsePrompt: parseClientsSmartSearchPrompt,
     parsePromptWithAi: async (text) => {
@@ -472,13 +470,14 @@ export default function App() {
     applyParsed: (parsed) => {
       setCurrentPage(1);
       const stageChip = parsed.keywords.find((chip) => chip.kind === 'stage');
+      const recruiterChip = parsed.keywords.find((chip) => chip.kind === 'recruiter');
       const nextTab = parsed.activeTab || stageChip?.value || null;
       if (nextTab) setActiveTab(nextTab);
-      if (parsed.priority) {
-        setAdvancedFilters((previous) => ({ ...previous, priority: parsed.priority as ClientFilters['priority'] }));
-      }
-      if (parsed.ownerScope === 'me') {
-        setAdvancedFilters((previous) => ({ ...previous, ownerScope: 'me' }));
+      if (recruiterChip?.value && recruiterChip.value !== 'me') {
+        setTeamMemberFilterId(recruiterChip.value);
+      } else if (parsed.ownerScope === 'me') {
+        // Keep "me" scoped through smart-search chips; clear explicit member filter.
+        setTeamMemberFilterId('');
       }
       setSearchQuery(parsed.searchText);
       setDebouncedSearchQuery(parsed.searchText);
@@ -489,12 +488,7 @@ export default function App() {
     onRemoveKeyword: (removed, remaining) => {
       setCurrentPage(1);
       if (removed.kind === 'stage') setActiveTab('all');
-      if (removed.kind === 'priority') {
-        setAdvancedFilters((previous) => ({ ...previous, priority: 'All' }));
-      }
-      if (removed.kind === 'recruiter' && removed.value === 'me') {
-        setAdvancedFilters((previous) => ({ ...previous, ownerScope: 'all' }));
-      }
+      if (removed.kind === 'recruiter') setTeamMemberFilterId('');
       if (removed.kind === 'text') {
         const text = remaining.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
         setSearchQuery(text);
@@ -527,23 +521,14 @@ export default function App() {
   );
   const tabCounts = useMemo(
     () => ({
-      all: advancedFilteredClients.length,
-      active: advancedFilteredClients.filter((c) => resolveClientStatusLabel(c) === 'Active').length,
-      'on-hold': advancedFilteredClients.filter((c) => resolveClientStatusLabel(c) === 'On Hold').length,
-      inactive: advancedFilteredClients.filter((c) => resolveClientStatusLabel(c) === 'Inactive').length,
-      hot: advancedFilteredClients.filter((c) => c.priority === 'High').length,
+      all: clients.length,
+      active: clients.filter((c) => resolveClientStatusLabel(c) === 'Active').length,
+      'on-hold': clients.filter((c) => resolveClientStatusLabel(c) === 'On Hold').length,
+      inactive: clients.filter((c) => resolveClientStatusLabel(c) === 'Inactive').length,
+      hot: clients.filter((c) => c.priority === 'High').length,
     }),
-    [advancedFilteredClients]
+    [clients]
   );
-  const industryOptions = useMemo(() => {
-    const set = new Set<string>();
-    clients.forEach((client) => {
-      const industry = (client.industry || '').trim();
-      if (industry && industry !== 'Not specified') set.add(industry);
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [clients]);
-  const filtersActive = isClientFilterActive(advancedFilters, clientFieldVisibility);
 
   useEffect(() => {
     if (activeTab === 'hot' && !clientFieldVisibility.interestLevel) {
@@ -558,10 +543,6 @@ export default function App() {
   useEffect(() => {
     setCurrentPage(1);
   }, [activeTab]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [advancedFilters]);
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(sortedClients.length / pageSize));
@@ -857,8 +838,16 @@ export default function App() {
 
   const applyExportClientFilters = useCallback(
     (source: Client[]) => {
-      const advanced = applyClientFilters(source, advancedFilters, currentUserName, clientFieldVisibility);
-      const filtered = filterClientsByTab(advanced, activeTab);
+      let filtered = filterClientsByTab(source, activeTab);
+      if (teamMemberFilterId) {
+        const selectedMember = teamMembers.find((member) => member.id === teamMemberFilterId);
+        const selectedName = String(selectedMember?.name || '').trim().toLowerCase();
+        filtered = filtered.filter((client) => {
+          if (client.assignedToId) return client.assignedToId === teamMemberFilterId;
+          if (!selectedName) return false;
+          return String(client.owner?.name || '').trim().toLowerCase() === selectedName;
+        });
+      }
       const list = [...filtered];
       list.sort((a, b) => {
         const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
@@ -866,7 +855,7 @@ export default function App() {
       });
       return list;
     },
-    [activeTab, advancedFilters, clientNameSortOrder, currentUserName, clientFieldVisibility],
+    [activeTab, clientNameSortOrder, teamMemberFilterId, teamMembers],
   );
 
   const fetchAllClientsForExport = useCallback(async (): Promise<Client[]> => {
@@ -1064,7 +1053,7 @@ export default function App() {
     setSearchQuery('');
     setDebouncedSearchQuery('');
     setSmartSearchClientIds([]);
-    setAdvancedFilters(DEFAULT_CLIENT_FILTERS);
+    setTeamMemberFilterId('');
     setActiveTab('all');
     setSelectedDynamicColumnLabels([]);
     clientSmartSearch.clearSmartSearch();
@@ -1203,23 +1192,25 @@ export default function App() {
                     ) : null}
                     {clientFieldVisibility.interestLevel ? <option value="hot">Hot</option> : null}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => setIsFilterOpen(true)}
-                    className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 font-semibold text-xs shadow-sm transition-colors ${
-                      filtersActive
-                        ? 'border-indigo-300 bg-indigo-100/70 text-indigo-900 hover:bg-indigo-100'
-                        : 'border-indigo-100/90 bg-white/95 text-slate-800 hover:bg-indigo-50/40'
-                    }`}
-                  >
-                    <Filter className={`h-3.5 w-3.5 shrink-0 ${filtersActive ? 'text-indigo-600' : 'text-slate-600'}`} strokeWidth={2.25} />
-                    Filter
-                    {filtersActive && (
-                      <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-indigo-600 px-1 text-[9px] font-bold text-white">
-                        ON
-                      </span>
-                    )}
-                  </button>
+                  {clientFieldVisibility.assignedTo ? (
+                    <SearchableToolbarFilterSelect
+                      value={teamMemberFilterId}
+                      onChange={(next) => {
+                        setCurrentPage(1);
+                        setTeamMemberFilterId(next);
+                      }}
+                      options={teamMembers.map((member) => ({
+                        value: member.id,
+                        label: member.name,
+                        searchText: member.email || member.id,
+                      }))}
+                      placeholder="All team members"
+                      allLabel="All team members"
+                      className="w-[11.75rem]"
+                      ariaLabel="Filter by team member"
+                      searchPlaceholder="Search team members…"
+                    />
+                  ) : null}
                   {availableDynamicColumnLabels.length > 0 ? (
                     <details className="relative">
                       <summary className={`${CLIENT_TOOLBAR_SELECT} list-none`}>
@@ -1417,15 +1408,6 @@ export default function App() {
             handleRefresh();
           }}
           defaultClientId={clientIdForJob}
-        />
-        <ClientFilterDrawer
-          isOpen={isFilterOpen}
-          value={advancedFilters}
-          industryOptions={industryOptions}
-          currentUserName={currentUserName}
-          fieldVisibility={clientFieldVisibility}
-          onApply={(next) => setAdvancedFilters(next)}
-          onClose={() => setIsFilterOpen(false)}
         />
         <ClientImportDrawer
           isOpen={showImportDrawer}

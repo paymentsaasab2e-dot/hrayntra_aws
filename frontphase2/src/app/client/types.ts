@@ -127,6 +127,8 @@ export interface Client {
   stage: ClientStage;
   leadStatus?: string;
   owner: { name: string; avatar: string };
+  /** CRM assignee user id when available (used by Team Member filter). */
+  assignedToId?: string;
   lastActivity: string;
   auditMeta?: AuditMeta;
   logo: string;

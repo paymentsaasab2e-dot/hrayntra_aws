@@ -295,7 +295,7 @@ export function CreatePlacementDrawer({
           </div>
 
           <div>
-            <DrawerFieldLabel label="Recruiter / Team member" />
+            <DrawerFieldLabel label="Team Member" />
             <DrawerSelectDropdown
               value={form.recruiterId}
               preferUpward

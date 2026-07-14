@@ -80,12 +80,13 @@ import { TableBrandAvatar } from '../../components/ui/TableBrandAvatar';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestError } from '../../lib/appDialog';
 import type { CsvColumn } from '../../utils/csv';
+import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 
 // Force CSR — every interactive bit on this tab is client-driven.
 export const dynamic = 'force-dynamic';
 
 const LEADS_FILTER_SELECT =
-  'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+  'h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 const LEADS_DYNAMIC_COLUMNS_STORAGE_KEY = 'leads.dynamicColumns';
 
 /** Last / next follow-up column: date + time on separate lines (not raw ISO). */
@@ -965,7 +966,7 @@ export default function RecruitmentAgencyDashboard() {
       recruiterFilter &&
       !chips.some((chip) => chip.kind === 'recruiter' && chip.id.includes(recruiterFilter))
     ) {
-      const recruiterName = recruiterNameById.get(recruiterFilter) || 'Recruiter';
+      const recruiterName = recruiterNameById.get(recruiterFilter) || 'Team Member';
       chips.push({
         id: 'manual-recruiter',
         label: recruiterName,
@@ -1967,13 +1968,13 @@ export default function RecruitmentAgencyDashboard() {
 
           {/* Table Controls */}
           <div className="mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-            <div className="p-3 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
-              <div className="relative w-full lg:max-w-md lg:flex-1">
+            <div className="flex items-center gap-2 overflow-x-auto ph2-invisible-scrollbar border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
+              <div className="relative min-w-[14rem] max-w-md shrink-0 grow basis-[14rem] sm:basis-[18rem]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                 <input 
                   type="text" 
                   placeholder="Search company, email, or contact..." 
-                  className="w-full h-9 pl-10 pr-3 bg-white/95 border border-indigo-100/90 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                  className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
                   value={searchQuery}
                   onChange={(e) => {
                     setCurrentPage(1);
@@ -1981,111 +1982,111 @@ export default function RecruitmentAgencyDashboard() {
                   }}
                 />
               </div>
-              
-              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+
+              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                 <SmartSearchToggleButton
                   open={leadsSmartSearch.open}
                   onToggle={() => leadsSmartSearch.setOpen((value) => !value)}
                 />
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <select 
-                    className={LEADS_FILTER_SELECT}
-                    value={statusFilter}
-                    onChange={(e) => {
-                      setCurrentPage(1);
-                      setStatusFilter(e.target.value as LeadStatus | 'All');
-                    }}
-                  >
-                    <option value="All">All Status</option>
-                    {leadStatusOptions.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
+                <select 
+                  className={LEADS_FILTER_SELECT}
+                  value={statusFilter}
+                  onChange={(e) => {
+                    setCurrentPage(1);
+                    setStatusFilter(e.target.value as LeadStatus | 'All');
+                  }}
+                >
+                  <option value="All">All Status</option>
+                  {leadStatusOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
 
-                  <select
-                    className={LEADS_FILTER_SELECT}
-                    value={sourceFilter}
-                    onChange={(e) => {
-                      setCurrentPage(1);
-                      setSourceFilter(e.target.value);
-                    }}
-                  >
-                    <option value="">All Sources</option>
-                    <option value="Website">Website</option>
-                    <option value="LinkedIn">LinkedIn</option>
-                    <option value="Email">Email</option>
-                    <option value="Referral">Referral</option>
-                    <option value="Campaign">Campaign</option>
-                  </select>
+                <select
+                  className={LEADS_FILTER_SELECT}
+                  value={sourceFilter}
+                  onChange={(e) => {
+                    setCurrentPage(1);
+                    setSourceFilter(e.target.value);
+                  }}
+                >
+                  <option value="">All Sources</option>
+                  <option value="Website">Website</option>
+                  <option value="LinkedIn">LinkedIn</option>
+                  <option value="Email">Email</option>
+                  <option value="Referral">Referral</option>
+                  <option value="Campaign">Campaign</option>
+                </select>
 
-                  <select
-                    className={LEADS_FILTER_SELECT}
-                    value={recruiterFilter}
-                    onChange={(e) => {
-                      setCurrentPage(1);
-                      setRecruiterFilter(e.target.value);
-                    }}
-                  >
-                    <option value="">All Recruiters</option>
-                    {teamMembers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
-                      </option>
-                    ))}
-                  </select>
+                <SearchableToolbarFilterSelect
+                  value={recruiterFilter}
+                  onChange={(next) => {
+                    setCurrentPage(1);
+                    setRecruiterFilter(next);
+                  }}
+                  options={teamMembers.map((user) => ({
+                    value: user.id,
+                    label: user.name,
+                    searchText: user.id,
+                  }))}
+                  placeholder="All team members"
+                  allLabel="All team members"
+                  className="w-[11.75rem]"
+                  ariaLabel="Filter by team member"
+                  searchPlaceholder="Search team members…"
+                />
 
-                  {availableDynamicColumnLabels.length > 0 ? (
-                    <details className="relative">
-                      <summary className={`${LEADS_FILTER_SELECT} list-none`}>
-                        Dynamic Columns
-                        {selectedDynamicColumnLabels.length > 0 ? ` (${selectedDynamicColumnLabels.length})` : ''}
-                      </summary>
-                      <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-indigo-100/90 bg-white p-3 shadow-xl">
-                        <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                          Show in table
-                        </p>
-                        <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-                          {availableDynamicColumnLabels.map((label) => {
-                            const checked = selectedDynamicColumnLabels.some(
-                              (item) => item.toLowerCase() === label.toLowerCase()
-                            );
-                            return (
-                              <label key={label} className="flex items-center gap-2 text-xs text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    setSelectedDynamicColumnLabels((previous) =>
-                                      checked
-                                        ? previous.filter((item) => item.toLowerCase() !== label.toLowerCase())
-                                        : [...previous, label]
-                                    )
-                                  }
-                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
-                                />
-                                <span className="truncate">{label}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
+                {availableDynamicColumnLabels.length > 0 ? (
+                  <details className="relative shrink-0">
+                    <summary className={`${LEADS_FILTER_SELECT} list-none`}>
+                      Dynamic Columns
+                      {selectedDynamicColumnLabels.length > 0 ? ` (${selectedDynamicColumnLabels.length})` : ''}
+                    </summary>
+                    <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-indigo-100/90 bg-white p-3 shadow-xl">
+                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        Show in table
+                      </p>
+                      <div className="ph2-invisible-scrollbar max-h-56 space-y-2 overflow-y-auto pr-1">
+                        {availableDynamicColumnLabels.map((label) => {
+                          const checked = selectedDynamicColumnLabels.some(
+                            (item) => item.toLowerCase() === label.toLowerCase()
+                          );
+                          return (
+                            <label key={label} className="flex items-center gap-2 text-xs text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setSelectedDynamicColumnLabels((previous) =>
+                                    checked
+                                      ? previous.filter((item) => item.toLowerCase() !== label.toLowerCase())
+                                      : [...previous, label]
+                                  )
+                                }
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
+                              />
+                              <span className="truncate">{label}</span>
+                            </label>
+                          );
+                        })}
                       </div>
-                    </details>
-                  ) : null}
+                    </div>
+                  </details>
+                ) : null}
 
-                  <button 
-                    type="button"
-                    className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
-                    onClick={() => {
+                <button 
+                  type="button"
+                  className="flex h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                  onClick={() => {
                     clearAllTableFilters();
                     leadsSmartSearch.setOpen(false);
                   }}
-                  >
-                    <XCircle size={15} className="text-rose-500 shrink-0" strokeWidth={2.35} />
-                    Clear
-                  </button>
-                </div>
+                >
+                  <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+                  Clear
+                </button>
               </div>
             </div>
 

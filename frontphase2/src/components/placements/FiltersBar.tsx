@@ -269,14 +269,14 @@ export function FiltersBar({
 
                 <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-[#111827]">Recruiter</label>
+                    <label className="mb-1.5 block text-sm font-medium text-[#111827]">Team Member</label>
                     <div className="relative">
                       <select
                         value={filters.recruiterId || ''}
                         onChange={(event) => onFilterChange({ recruiterId: event.target.value })}
                         className="h-11 w-full appearance-none rounded-xl border border-[#D1D5DB] bg-white px-3 pr-9 text-sm outline-none focus:border-[#2563EB]"
                       >
-                        <option value="">All Recruiters</option>
+                        <option value="">All team members</option>
                         {recruiterOptions.map((recruiter) => (
                           <option key={recruiter.id} value={recruiter.id}>
                             {recruiter.name}
