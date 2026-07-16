@@ -690,7 +690,7 @@ export const leadService = {
     return attachAuditMetaToEntity(lead, ENTITY_TYPES.LEAD, { resolveLeadCreators: true });
   },
 
-  async create(data) {
+  async create(data, req = null) {
     const normalizeNullableString = (value) => {
       if (value === undefined || value === null) return null;
       const normalized = stripNbsp(value).trim();
@@ -1850,7 +1850,7 @@ export const leadService = {
     };
   },
 
-  async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }) {
+  async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }, req = null) {
     const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
     const mappedColumns = Object.values(mapping).filter((c) => typeof c === 'string' && c.trim());
     const meaningfulColumns = [
@@ -1889,7 +1889,8 @@ export const leadService = {
             buildLeadImportUpdatePayload({
               ...payload,
               otherDetails: mergeLeadImportOtherDetails(existing.otherDetails, payload.otherDetails),
-            })
+            }),
+            req,
           );
           results.updated += 1;
           continue;
@@ -1906,7 +1907,7 @@ export const leadService = {
               }
             : payload;
 
-        await this.create({ ...createPayload, performedByRole });
+        await this.create({ ...createPayload, performedByRole }, req);
         results.created += 1;
       } catch (error) {
         results.failed += 1;

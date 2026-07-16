@@ -958,10 +958,10 @@ export const aiController = {
           const restoreData = reverseData?.[id] || reverseData || {};
           switch (module.toLowerCase()) {
             case 'leads':
-              await leadService.update(id, { ...restoreData, performedById });
+              await leadService.update(id, { ...restoreData, performedById }, req);
               break;
             case 'clients':
-              await clientService.update(id, { ...restoreData, performedById });
+              await clientService.update(id, { ...restoreData, performedById }, req);
               break;
           }
         }

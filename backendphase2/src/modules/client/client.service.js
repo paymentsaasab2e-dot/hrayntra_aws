@@ -1319,7 +1319,7 @@ export const clientService = {
     };
   },
 
-  async importClients({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }) {
+  async importClients({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }, req = null) {
     const results = {
       total: rows.length,
       created: 0,
@@ -1488,7 +1488,8 @@ export const clientService = {
               ),
               performedById,
               skipSideEffects: true,
-            }
+            },
+            req,
           );
           await upsertPrimaryContact(existing.id);
           results.updated += 1;
@@ -1506,12 +1507,15 @@ export const clientService = {
               }
             : payload;
 
-        const createdClient = await this.create({
-          ...createPayload,
-          performedById,
-          performedByRole,
-          skipSideEffects: true,
-        });
+        const createdClient = await this.create(
+          {
+            ...createPayload,
+            performedById,
+            performedByRole,
+            skipSideEffects: true,
+          },
+          req,
+        );
         existingClientByName.set(normalizedCompanyName, {
           id: createdClient.id,
           companyName: createdClient.companyName,

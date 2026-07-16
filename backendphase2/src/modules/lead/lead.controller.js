@@ -120,11 +120,14 @@ export const leadController = {
       console.log(JSON.stringify(req.body, null, 2));
       console.log('─'.repeat(80) + '\n');
 
-      const lead = await leadService.create({
-        ...req.body,
-        performedById: req.user.id,
-        performedByRole: req.user.role,
-      });
+      const lead = await leadService.create(
+        {
+          ...req.body,
+          performedById: req.user.id,
+          performedByRole: req.user.role,
+        },
+        req,
+      );
       sendResponse(res, 201, 'Lead created successfully', lead);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -177,13 +180,16 @@ export const leadController = {
 
   async importLeads(req, res) {
     try {
-      const result = await leadService.importLeads({
-        rows: req.body?.rows || [],
-        mapping: req.body?.mapping || {},
-        duplicateRule: req.body?.duplicateRule || 'skip',
-        performedById: req.user?.id,
-        performedByRole: req.user?.role,
-      });
+      const result = await leadService.importLeads(
+        {
+          rows: req.body?.rows || [],
+          mapping: req.body?.mapping || {},
+          duplicateRule: req.body?.duplicateRule || 'skip',
+          performedById: req.user?.id,
+          performedByRole: req.user?.role,
+        },
+        req,
+      );
       sendResponse(res, 200, 'Leads imported successfully', result);
     } catch (error) {
       sendError(res, 400, error.message, error);

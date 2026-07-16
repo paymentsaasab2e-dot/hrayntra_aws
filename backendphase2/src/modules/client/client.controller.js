@@ -302,13 +302,16 @@ export const clientController = {
 
   async importClients(req, res) {
     try {
-      const result = await clientService.importClients({
-        rows: req.body?.rows || [],
-        mapping: req.body?.mapping || {},
-        duplicateRule: req.body?.duplicateRule || 'skip',
-        performedById: req.user?.id,
-        performedByRole: req.user?.role,
-      });
+      const result = await clientService.importClients(
+        {
+          rows: req.body?.rows || [],
+          mapping: req.body?.mapping || {},
+          duplicateRule: req.body?.duplicateRule || 'skip',
+          performedById: req.user?.id,
+          performedByRole: req.user?.role,
+        },
+        req,
+      );
       sendResponse(res, 200, 'Clients imported successfully', result);
     } catch (error) {
       sendError(res, 400, error.message, error);

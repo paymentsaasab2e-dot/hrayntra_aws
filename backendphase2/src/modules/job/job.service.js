@@ -1456,7 +1456,7 @@ export const jobService = {
     return enrichJobWithAssessments(job);
   },
 
-  async update(id, data) {
+  async update(id, data, req = null) {
     const currentJob = await prisma.job.findUnique({
       where: { id },
       select: {
