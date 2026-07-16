@@ -22,7 +22,7 @@ This guide explains how to set up Resend email templates for the authentication 
 2. Fill in the template details:
    - **Name**: `auth-otp`
    - **Category**: `Auth` (select the category you created)
-   - **Subject**: `Your SAASA B2E Verification Code`
+   - **Subject**: `Your HRYANTRA Verification Code`
 
 3. **Template Type**: Choose one of the following:
 
@@ -78,9 +78,9 @@ The backend automatically passes these variables to the template:
   otp: "123456",                    // 6-digit OTP code
   whatsappNumber: "+911234567890",  // User's WhatsApp number
   expiresInMinutes: 5,              // OTP expiration time
-  supportEmail: "support@saasab2e.com", // Support email
+  supportEmail: "support@hryantra.com", // Support email
   year: 2025,                       // Current year
-  companyName: "SAASA B2E"         // Company name
+  companyName: "HRYANTRA"         // Company name
 }
 ```
 

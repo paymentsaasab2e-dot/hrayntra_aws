@@ -363,7 +363,7 @@ SECTION: Agreements & Terms (text only — never file uploads)
 - agreementAdvancePaymentPercent, agreementFreeReplacementValue
 - agreementFreeReplacementUnit = MONTHS | DAYS | empty string
 
-SECTION: KYC Form — SAASA B2E text fields only (never attachments)
+SECTION: KYC Form — HRYANTRA text fields only (never attachments)
 - kycTradeName, kycEntityType (LLC, Pvt Ltd, etc.)
 - kycIncorporationDate, kycCountryOfIncorporation, kycLegalRegistrationNumber, kycTaxIdVatNumber
 - kycBusinessAddress

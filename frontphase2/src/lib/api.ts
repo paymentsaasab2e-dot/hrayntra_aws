@@ -99,7 +99,7 @@ function shouldUseProductionProxy(): boolean {
   return (
     host.endsWith('.hryantra.com') ||
     host.endsWith('.vercel.app') ||
-    host.endsWith('.saasab2e.com')
+    host.endsWith('.hryantra.com')
   );
 }
 

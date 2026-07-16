@@ -40,7 +40,7 @@ function getTemplateVariables(templateType, data) {
         otp: data.otp,
         whatsappNumber: data.whatsappNumber,
         expiresInMinutes: data.expiresInMinutes || 5,
-        supportEmail: data.supportEmail || 'support@saasab2e.com',
+        supportEmail: data.supportEmail || 'support@hryantra.com',
         companyName: 'HRYANTRA',
         year: new Date().getFullYear(),
       };
@@ -48,7 +48,7 @@ function getTemplateVariables(templateType, data) {
     case EmailTemplateType.AUTH_WELCOME:
       return {
         userName: data.userName || 'User',
-        companyName: 'SAASA B2E',
+        companyName: 'HRYANTRA',
         year: new Date().getFullYear(),
       };
 
@@ -56,7 +56,7 @@ function getTemplateVariables(templateType, data) {
       return {
         resetLink: data.resetLink,
         expiresInMinutes: data.expiresInMinutes || 15,
-        companyName: 'SAASA B2E',
+        companyName: 'HRYANTRA',
         year: new Date().getFullYear(),
       };
 

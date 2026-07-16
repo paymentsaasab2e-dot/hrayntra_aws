@@ -41,7 +41,7 @@ export function TrialExpiredPurchaseModal({ open, plan, onDismiss }: TrialExpire
           Your 5-day trial has ended
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          You have been signed out. Purchase a plan to sign back in and continue using SAASA B2E with
+          You have been signed out. Purchase a plan to sign back in and continue using HRYANTRA with
           full access. Your workspace data is kept safe until you upgrade.
         </p>
 
@@ -73,7 +73,7 @@ export function TrialExpiredPurchaseModal({ open, plan, onDismiss }: TrialExpire
             Purchase a plan
           </a>
           <a
-            href="mailto:support@hryantra.com?subject=SAASA%20B2E%20trial%20upgrade"
+            href="mailto:support@hryantra.com?subject=HRYANTRA%20trial%20upgrade"
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             <Mail className="h-4 w-4" />

@@ -959,7 +959,7 @@ async function generalChat(req, res) {
     }
 
     const systemPrompt = [
-      'You are a helpful and professional career assistant for SAASA B2E, an AI-powered recruitment platform.',
+      'You are a helpful and professional career assistant for HRYANTRA, an AI-powered recruitment platform.',
       'Your goal is to help candidates with their career journey, job search, and profile optimization.',
       'Be encouraging, providing actionable advice and clear answers.',
       'If the user asks about jobs, you can mention that SAASA uses AI to match them with the best opportunities.',

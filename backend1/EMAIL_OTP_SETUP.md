@@ -23,7 +23,7 @@ Make sure your `.env` file has the following Resend configuration:
 
 ```env
 RESEND_API_KEY=re_GejWT8xQ_9TT7Yko5BffUTuTcEeHxMJKw
-RESEND_FROM_EMAIL=onboarding@resend.dev
+RESEND_FROM_EMAIL=auth@hryantra.com
 ```
 
 ### 3. Email Recipient
@@ -47,7 +47,7 @@ This is hardcoded in `src/services/email.service.ts`. To change it, modify the `
 ### Email Template
 
 The email includes:
-- Professional HTML design with SAASA B2E branding
+- Professional HTML design with HRYANTRA branding
 - Large, easy-to-read OTP code
 - WhatsApp number for reference
 - Expiration time (5 minutes)
@@ -116,8 +116,8 @@ curl -X POST http://localhost:5000/api/auth/send-otp \
 ### 2. Check Email
 
 - Check inbox of **ghodehimanshu453@gmail.com**
-- Look for email from **onboarding@resend.dev**
-- Subject: "Your SAASA B2E Verification Code"
+- Look for email from **auth@hryantra.com**
+- Subject: "Your HRYANTRA Verification Code"
 - OTP code should be prominently displayed
 
 ### 3. Verify OTP

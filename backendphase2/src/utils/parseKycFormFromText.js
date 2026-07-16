@@ -270,7 +270,7 @@ export function emptyParsedKycForm() {
 }
 
 /**
- * Parse SAASA B2E KYC form fields from document text (section-scoped regex).
+ * Parse HRYANTRA KYC form fields from document text (section-scoped regex).
  */
 export function parseKycFormFromText(rawText = '') {
   const text = normalizeText(rawText);

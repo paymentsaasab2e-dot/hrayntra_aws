@@ -71,7 +71,7 @@ Template             HTML (Fallback)
 3. **Template Details**:
    - Name: `auth-otp`
    - Category: `Auth` (create if needed)
-   - Subject: `Your SAASA B2E Verification Code`
+   - Subject: `Your HRYANTRA Verification Code`
    - Content: Copy from `resend-templates/auth-otp.html`
    - Variables: Use `{{variableName}}` syntax
 
@@ -104,9 +104,9 @@ The following variables are automatically passed to the template:
 | `otp` | string | 6-digit OTP code | "123456" |
 | `whatsappNumber` | string | User's WhatsApp number | "+911234567890" |
 | `expiresInMinutes` | number | OTP expiration time | 5 |
-| `supportEmail` | string | Support email address | "support@saasab2e.com" |
+| `supportEmail` | string | Support email address | "support@hryantra.com" |
 | `year` | number | Current year | 2025 |
-| `companyName` | string | Company name | "SAASA B2E" |
+| `companyName` | string | Company name | "HRYANTRA" |
 
 ## 🚀 Adding More Templates
 
@@ -129,7 +129,7 @@ The following variables are automatically passed to the template:
    case EmailTemplateType.AUTH_WELCOME:
      return {
        userName: data.userName || 'User',
-       companyName: 'SAASA B2E',
+       companyName: 'HRYANTRA',
        year: new Date().getFullYear(),
      };
    ```
@@ -171,7 +171,7 @@ Check logs for template status:
 ## 🎨 Template Design
 
 The OTP template includes:
-- Professional SAASA B2E branding
+- Professional HRYANTRA branding
 - Large, readable OTP code
 - WhatsApp number reference
 - Expiration notice

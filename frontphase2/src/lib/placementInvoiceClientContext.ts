@@ -15,7 +15,7 @@ import { formatDateDMY } from '../utils/dateDisplay';
 /** Placeholder agency bank until billing settings are fully configured. */
 export const DUMMY_AGENCY_BANK: InvoiceBankDetails = {
   bankName: 'HDFC Bank Ltd.',
-  accountHolderName: 'SAASA B2E Recruitment Pvt. Ltd.',
+  accountHolderName: 'HRYANTRA Recruitment Pvt. Ltd.',
   accountNumber: '50200012345678',
   iban: '',
   swiftCode: 'HDFCINBB',

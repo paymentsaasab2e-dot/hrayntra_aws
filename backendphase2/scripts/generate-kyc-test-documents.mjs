@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.resolve(__dirname, '../docs/templates/kyc-test');
 
 const KYC_ROWS = [
-  ['SAASA B2E - KYC Form (Test Document)'],
+  ['HRYANTRA - KYC Form (Test Document)'],
   ['For clients with post-service payment terms.'],
   [],
   ['1. Client Information'],
@@ -97,7 +97,7 @@ function writeExcel() {
   const ws = XLSX.utils.aoa_to_sheet(KYC_ROWS);
   ws['!cols'] = [{ wch: 42 }, { wch: 52 }];
   XLSX.utils.book_append_sheet(wb, ws, 'KYC Form');
-  const filePath = path.join(OUT_DIR, 'SAASA_B2E_KYC_Form_TEST.xlsx');
+  const filePath = path.join(OUT_DIR, 'HRYANTRA_KYC_Form_TEST.xlsx');
   XLSX.writeFile(wb, filePath);
   return filePath;
 }
@@ -157,7 +157,7 @@ async function writePdf() {
       continue;
     }
     if (row.length === 1) {
-      const heading = /^(\d+\.|SAASA)/.test(row[0]);
+      const heading = /^(\d+\.|HRYANTRA)/.test(row[0]);
       drawLines(row[0], heading);
       y -= heading ? 4 : 0;
       continue;
@@ -166,7 +166,7 @@ async function writePdf() {
   }
 
   const bytes = await pdfDoc.save();
-  const filePath = path.join(OUT_DIR, 'SAASA_B2E_KYC_Form_TEST.pdf');
+  const filePath = path.join(OUT_DIR, 'HRYANTRA_KYC_Form_TEST.pdf');
   fs.writeFileSync(filePath, bytes);
   return filePath;
 }

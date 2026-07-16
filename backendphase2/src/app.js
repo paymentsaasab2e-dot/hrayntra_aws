@@ -82,7 +82,7 @@ if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production')
 // Middleware
 const allowedOrigins = (
   process.env.FRONTEND_URLS ||
-  `${env.FRONTEND_URL},http://localhost:3000,http://localhost:3001,https://employers.hryantra.com,https://frontendphase2.vercel.app,https://phase2.saasab2e.com`
+  `${env.FRONTEND_URL},http://localhost:3000,http://localhost:3001,https://employers.hryantra.com,https://frontendphase2.vercel.app,https://phase2.hryantra.com`
 )
   .split(',')
   .map((v) => v.trim())

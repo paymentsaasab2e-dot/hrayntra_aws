@@ -42,7 +42,7 @@ export function ScheduleInterviewModal({ isOpen, onClose }: ScheduleInterviewMod
   const [allowEditWhatsApp, setAllowEditWhatsApp] = useState(false);
   const [emailMessage, setEmailMessage] = useState(`Dear Candidate,
 
-We are pleased to invite you for an interview for the position of Senior Software Engineer at SAASA B2E.
+We are pleased to invite you for an interview for the position of Senior Software Engineer at HRYANTRA.
 
 Interview Details:
 • Date: 20 July 2024
@@ -56,7 +56,7 @@ Please join 5 minutes early and ensure your microphone and camera are working pr
 We look forward to meeting you.
 
 Best regards,
-SAASA B2E Recruitment Team`);
+HRYANTRA Recruitment Team`);
   
   const [whatsappMessage, setWhatsappMessage] = useState(`Hi! 👋
 
@@ -750,7 +750,7 @@ Good luck! 🎯`);
                       
                       <p className="text-gray-700">
                         We are pleased to invite you for an interview for the position of{' '}
-                        <span className="font-semibold">Senior Software Engineer</span> at SAASA B2E.
+                        <span className="font-semibold">Senior Software Engineer</span> at HRYANTRA.
                       </p>
                       
                       <div className="bg-blue-50 rounded-lg p-4 space-y-2">
@@ -786,7 +786,7 @@ Good luck! 🎯`);
                       </button>
                       
                       <p className="text-gray-700">We look forward to meeting you.</p>
-                      <p className="text-gray-600 text-xs">Best regards,<br />SAASA B2E Recruitment Team</p>
+                      <p className="text-gray-600 text-xs">Best regards,<br />HRYANTRA Recruitment Team</p>
                     </div>
                   </div>
                   
