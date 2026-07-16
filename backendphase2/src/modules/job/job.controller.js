@@ -93,10 +93,14 @@ export const jobController = {
 
   async update(req, res) {
     try {
-      const job = await jobService.update(req.params.id, {
-        ...req.body,
-        performedById: req.user?.id,
-      });
+      const job = await jobService.update(
+        req.params.id,
+        {
+          ...req.body,
+          performedById: req.user?.id,
+        },
+        req,
+      );
       sendResponse(res, 200, 'Job updated successfully', job);
     } catch (error) {
       sendError(res, 400, error.message, error);

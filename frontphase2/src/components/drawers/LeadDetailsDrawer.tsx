@@ -122,6 +122,7 @@ import {
   resolveAiLocationFields,
 } from '@/lib/leadAiHelpers';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
+import { IndustrySuggestInput } from '../forms/IndustrySuggestInput';
 import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
 import {
@@ -3146,11 +3147,10 @@ export function LeadDetailsDrawer({
                       </div>
                       <div>
                         <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
-                        <AddLeadIconInput
-                          icon={Briefcase}
-                          iconClassName="text-emerald-400"
+                        <IndustrySuggestInput
                           value={addLeadForm.industry ?? ''}
-                          onChange={(e) => setAddLeadForm((p) => ({ ...p, industry: e.target.value }))}
+                          onChange={(industry) => setAddLeadForm((p) => ({ ...p, industry }))}
+                          companyName={addLeadForm.companyName ?? ''}
                           placeholder="e.g. Technology"
                         />
                       </div>
@@ -3370,10 +3370,10 @@ export function LeadDetailsDrawer({
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                          <input
+                          <IndustrySuggestInput
                             value={addLeadForm.industry ?? ''}
-                            onChange={(e) => setAddLeadForm((p) => ({ ...p, industry: e.target.value }))}
-                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                            onChange={(industry) => setAddLeadForm((p) => ({ ...p, industry }))}
+                            companyName={addLeadForm.companyName ?? ''}
                             placeholder="e.g. Technology"
                           />
                         </div>
