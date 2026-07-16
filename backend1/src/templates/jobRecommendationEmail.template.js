@@ -5,7 +5,7 @@ function generateJobRecommendationEmailHTML(data) {
     companyName = 'Hiring company',
     matchScore = 80,
     jobUrl = '#',
-    supportEmail = 'support@saasab2e.com',
+    supportEmail = 'support@hryantra.com',
     year = new Date().getFullYear(),
   } = data;
 
@@ -71,7 +71,7 @@ function generateJobRecommendationEmailText(data) {
     companyName = 'Hiring company',
     matchScore = 80,
     jobUrl = '#',
-    supportEmail = 'support@saasab2e.com',
+    supportEmail = 'support@hryantra.com',
   } = data;
 
   return `Hi ${candidateName},

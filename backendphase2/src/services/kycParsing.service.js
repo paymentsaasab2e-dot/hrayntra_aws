@@ -184,7 +184,7 @@ async function extractKycFormWithAi(cleanedText, fileName = 'kyc') {
   }
 
   const capped = cleanedText.slice(0, 28000);
-  const prompt = `Extract SAASA B2E client KYC form data from the document text below.
+  const prompt = `Extract HRYANTRA client KYC form data from the document text below.
 
 Return ONLY one valid JSON object with this structure (use null or empty string if not found):
 {

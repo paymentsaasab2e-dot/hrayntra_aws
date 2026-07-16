@@ -27,7 +27,7 @@ This directory contains HTML templates for Resend email service. These templates
 
 1. **Template Name**: `auth-otp`
 2. **Category**: `Auth` (create this category if it doesn't exist)
-3. **Subject**: `Your SAASA B2E Verification Code`
+3. **Subject**: `Your HRYANTRA Verification Code`
 4. **HTML Content**: Copy the content from `auth-otp.html` in this directory
 5. **Text Version**: (Optional) Plain text version for email clients that don't support HTML
 
@@ -74,7 +74,7 @@ The backend automatically maps data to template variables:
   otp: "123456",
   whatsappNumber: "+911234567890",
   expiresInMinutes: 5,
-  supportEmail: "support@saasab2e.com",
+  supportEmail: "support@hryantra.com",
   year: 2025
 }
 ```

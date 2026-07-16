@@ -3,7 +3,7 @@ import type { HqSubscriptionPackage } from '@/lib/api';
 export const HQ_PLANS_SECTION = {
   title: 'Plans that scale with your hiring',
   description:
-    'Simple pricing for teams of every size. All plans include the SAASA B2E employer platform, AI tools, and onboarding support.',
+    'Simple pricing for teams of every size. All plans include the HRYANTRA employer platform, AI tools, and onboarding support.',
 };
 
 export type BillingCycle = 'monthly' | 'annual';

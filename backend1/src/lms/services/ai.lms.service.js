@@ -187,7 +187,7 @@ function getStaticRecommendations(query, suggestions, limit) {
 // ---------------------------------------------------------
 
 async function generateDashboardInsight(userState, profileContext = {}) {
-  const prompt = `You are a personalized LMS coaching assistant for SAASA B2E. 
+  const prompt = `You are a personalized LMS coaching assistant for HRYANTRA. 
 Analyze the user's current LMS activity and their professional background to provide one high-impact insight.
 
 User LMS State (Courses, Quizzes, Strengths):

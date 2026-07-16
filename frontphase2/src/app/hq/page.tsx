@@ -64,7 +64,7 @@ const FALLBACK_PLAN_OPTIONS: HqSubscriptionPackage[] = [
     slug: 'starter',
     name: 'Starter',
     displayName: 'STARTER',
-    description: 'For small teams hiring their first roles on SAASA B2E.',
+    description: 'For small teams hiring their first roles on HRYANTRA.',
     price: '149',
     yearlyPrice: '119',
     pricePeriod: 'per month',

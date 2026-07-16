@@ -9,7 +9,7 @@
  * @param {string} data.otp - 6-digit OTP code
  * @param {string} data.whatsappNumber - WhatsApp number
  * @param {number} [data.expiresInMinutes=5] - Expiration time
- * @param {string} [data.supportEmail='support@saasab2e.com'] - Support email
+ * @param {string} [data.supportEmail='support@hryantra.com'] - Support email
  * @param {number} [data.year] - Current year
  * @returns {string} HTML email content
  */
@@ -18,7 +18,7 @@ function generateOTPEmailHTML(data) {
     otp = '000000',
     whatsappNumber = '',
     expiresInMinutes = 5,
-    supportEmail = 'support@saasab2e.com',
+    supportEmail = 'support@hryantra.com',
     year = new Date().getFullYear(),
   } = data;
 
@@ -111,7 +111,7 @@ function generateOTPEmailText(data) {
     otp = '000000',
     whatsappNumber = '',
     expiresInMinutes = 5,
-    supportEmail = 'support@saasab2e.com',
+    supportEmail = 'support@hryantra.com',
     year = new Date().getFullYear(),
   } = data;
 

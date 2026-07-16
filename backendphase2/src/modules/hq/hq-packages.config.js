@@ -4,7 +4,7 @@ export const DEFAULT_HQ_PACKAGES = [
     slug: 'starter',
     name: 'Starter',
     displayName: 'STARTER',
-    description: 'For small teams hiring their first roles on SAASA B2E.',
+    description: 'For small teams hiring their first roles on HRYANTRA.',
     price: '149',
     yearlyPrice: '119',
     pricePeriod: 'per month',

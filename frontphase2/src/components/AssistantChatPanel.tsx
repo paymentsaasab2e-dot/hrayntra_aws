@@ -641,7 +641,7 @@ export function AssistantChatPanel({
         </div>
       ) : null}
 
-      <p className="mt-2 text-center text-[10px] font-medium text-slate-400">Powered by SAASA B2E</p>
+      <p className="mt-2 text-center text-[10px] font-medium text-slate-400">Powered by HRYANTRA</p>
     </div>
   );
 }

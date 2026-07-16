@@ -19,7 +19,7 @@ process.on('unhandledRejection', (reason) => {
 
 const SOCKET_CORS_ORIGINS = (
   process.env.FRONTEND_URLS ||
-  `${env.FRONTEND_URL},http://localhost:3000,http://localhost:3001,https://frontendphase2.vercel.app,https://phase2.saasab2e.com`
+  `${env.FRONTEND_URL},http://localhost:3000,http://localhost:3001,https://frontendphase2.vercel.app,https://phase2.hryantra.com`
 )
   .split(',')
   .map((v) => v.trim())

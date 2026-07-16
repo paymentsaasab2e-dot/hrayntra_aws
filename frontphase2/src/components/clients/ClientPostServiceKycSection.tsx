@@ -343,7 +343,7 @@ export function ClientPostServiceKycFormSection({
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-sm font-semibold text-slate-900">SAASA B2E - KYC Form</h4>
+        <h4 className="text-sm font-semibold text-slate-900">HRYANTRA - KYC Form</h4>
         <p className="mt-1 text-xs text-slate-500">For clients with post-service payment terms.</p>
       </div>
 
@@ -596,7 +596,7 @@ export function ClientPostServiceKycFormSection({
         </div>
       </FormSection>
 
-      <FormSection title="Internal Use Only (SAASA B2E)">
+      <FormSection title="Internal Use Only (HRYANTRA)">
         <div className="space-y-3">
           <ReviewRow
             label="KYC Form filled completely"
@@ -741,7 +741,7 @@ export function ClientPostServiceKycSummary({
         <SummaryFileList label="Company Stamp" files={values.declaration.companyStampFiles} uploadsBase={uploadsBase} />
       </SummarySection>
 
-      <SummarySection title="Internal Use Only (SAASA B2E)">
+      <SummarySection title="Internal Use Only (HRYANTRA)">
         <SummaryRow label="KYC Form filled completely" value={formatPostServiceKycReviewStatus(values.internalUseOnly.kycFormFilledCompletelyStatus)} />
         <SummaryRow label="KYC Form remarks" value={values.internalUseOnly.kycFormFilledCompletelyRemarks} multiline />
         <SummaryRow label="Shareholder Passport attached" value={formatPostServiceKycReviewStatus(values.internalUseOnly.shareholderPassportAttachedStatus)} />

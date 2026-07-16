@@ -7,6 +7,7 @@ const {
 const { getEmailFromForTrigger } = require('../config/emailFromAddresses');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@hryantra.com';
 
 /**
  * Send OTP via email directly using inline HTML template
@@ -37,7 +38,7 @@ async function sendOTPEmail(otp, recipientEmail, whatsappNumber) {
       otp: otp,
       whatsappNumber: whatsappNumber,
       expiresInMinutes: 5,
-      supportEmail: 'support@saasab2e.com',
+      supportEmail: SUPPORT_EMAIL,
       year: new Date().getFullYear(),
     });
 
@@ -45,7 +46,7 @@ async function sendOTPEmail(otp, recipientEmail, whatsappNumber) {
       otp: otp,
       whatsappNumber: whatsappNumber,
       expiresInMinutes: 5,
-      supportEmail: 'support@saasab2e.com',
+      supportEmail: SUPPORT_EMAIL,
       year: new Date().getFullYear(),
     });
 
@@ -105,7 +106,7 @@ async function sendJobRecommendationEmail({
       companyName,
       matchScore,
       jobUrl,
-      supportEmail: 'support@saasab2e.com',
+      supportEmail: SUPPORT_EMAIL,
       year: new Date().getFullYear(),
     };
 

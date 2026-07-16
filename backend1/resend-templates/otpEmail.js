@@ -18,7 +18,7 @@ function generateOTPEmailHTML(data) {
     otp = '000000',
     whatsappNumber = '',
     expiresInMinutes = 5,
-    supportEmail = 'support@saasab2e.com',
+    supportEmail = 'support@hryantra.com',
     year = new Date().getFullYear(),
   } = data;
 
@@ -111,7 +111,7 @@ function generateOTPEmailText(data) {
     otp = '000000',
     whatsappNumber = '',
     expiresInMinutes = 5,
-    supportEmail = 'support@saasab2e.com',
+    supportEmail = 'support@hryantra.com',
     year = new Date().getFullYear(),
   } = data;
 
