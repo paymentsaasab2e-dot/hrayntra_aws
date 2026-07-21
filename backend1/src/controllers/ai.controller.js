@@ -442,6 +442,73 @@ const INDUSTRY_DOMAIN_FALLBACK_OPTIONS = [
   'Entertainment',
 ];
 
+const INTERVIEW_CATEGORY_OPTIONS = [
+  'Frontend Development',
+  'Backend Development',
+  'Full Stack Development',
+  'Mobile Development',
+  'DevOps',
+  'Cloud',
+  'AI / Machine Learning',
+  'Data Science',
+  'UI / UX',
+  'HR Interview',
+  'Behavioral Interview',
+  'DSA',
+  'System Design',
+  'Accounting Interview',
+  'Finance Interview',
+  'Sales Interview',
+  'Customer Support Interview',
+  'Operations Interview',
+  'Business Analyst Interview',
+];
+
+const INTERVIEW_TECH_STACK_BY_CATEGORY = {
+  'Frontend Development': ['React', 'Next.js', 'Angular', 'Vue', 'HTML', 'CSS', 'JavaScript', 'TypeScript'],
+  'Backend Development': ['Node.js', 'Express', 'NestJS', 'Java', 'Spring Boot', '.NET', 'Python', 'Django', 'Laravel'],
+  'Full Stack Development': ['React', 'Next.js', 'Node.js', 'Express', 'MongoDB', 'PostgreSQL', 'TypeScript'],
+  'Mobile Development': ['React Native', 'Flutter', 'Kotlin', 'Swift', 'Android', 'iOS'],
+  DevOps: ['Docker', 'Kubernetes', 'CI/CD', 'Jenkins', 'GitHub Actions', 'Terraform'],
+  Cloud: ['AWS', 'Azure', 'GCP', 'Serverless', 'Cloud Security', 'Cloud Architecture'],
+  'AI / Machine Learning': ['Python', 'TensorFlow', 'PyTorch', 'NLP', 'Computer Vision', 'MLOps'],
+  'Data Science': ['Python', 'R', 'SQL', 'Pandas', 'NumPy', 'Power BI', 'Tableau'],
+  'UI / UX': ['Figma', 'Design Systems', 'Wireframing', 'Prototyping', 'User Research'],
+  'HR Interview': ['Communication', 'Self Introduction', 'Career Goals', 'Conflict Resolution'],
+  'Behavioral Interview': ['STAR Method', 'Leadership', 'Teamwork', 'Problem Solving'],
+  DSA: ['Arrays', 'Linked List', 'Trees', 'Graphs', 'Dynamic Programming', 'Greedy'],
+  'System Design': ['Scalability', 'Microservices', 'Caching', 'Load Balancing', 'Database Design'],
+  'Accounting Interview': ['Accounting Principles', 'Financial Reporting', 'Taxation', 'Tally ERP', 'SAP FICO', 'MS Excel'],
+  'Finance Interview': ['Corporate Finance', 'Valuation', 'Financial Modeling', 'Risk Analysis', 'Excel', 'Power BI'],
+  'Sales Interview': ['Prospecting', 'Lead Qualification', 'CRM', 'Negotiation', 'Sales Pitch', 'Objection Handling'],
+  'Customer Support Interview': ['Customer Communication', 'Ticketing Tools', 'Escalation Handling', 'Empathy', 'SLA Management'],
+  'Operations Interview': ['Process Optimization', 'SOPs', 'Vendor Management', 'Data Tracking', 'KPI Reporting'],
+  'Business Analyst Interview': ['Requirement Gathering', 'BRD/FRD', 'SQL', 'Stakeholder Management', 'Wireframing'],
+};
+
+const INTERVIEW_TARGET_ROLE_FALLBACK = [
+  'Frontend Developer',
+  'Backend Developer',
+  'Full Stack Developer',
+  'Software Engineer',
+  'Data Analyst',
+  'Data Scientist',
+  'Product Manager',
+  'Business Analyst',
+  'Accountant',
+  'Financial Analyst',
+];
+
+const INTERVIEW_TOPIC_FALLBACK = [
+  'System design fundamentals',
+  'Behavioral answers with STAR method',
+  'JavaScript and TypeScript core concepts',
+  'React performance optimization',
+  'Database schema design and SQL',
+  'Communication and storytelling in interviews',
+  'Problem-solving approach and trade-offs',
+];
+
 function buildSelectedValueSet(values = []) {
   return new Set(
     Array.isArray(values)
@@ -828,6 +895,117 @@ async function suggestIndustryDomains(req, res) {
   }
 }
 
+async function suggestInterviewOptions(req, res) {
+  try {
+    const { field = '', query = '', selectedValues = [], context = {} } = req.body || {};
+    const normalizedField = String(field || '').trim().toLowerCase();
+    const normalizedQuery = String(query || '').trim();
+    if (!normalizedField || !normalizedQuery) {
+      return res.status(400).json({
+        success: false,
+        message: 'field and query are required',
+      });
+    }
+
+    const selectedSet = buildSelectedValueSet(selectedValues);
+    const categoryContext = String(context?.category || '').trim();
+
+    const fieldMeta = {
+      category: {
+        label: 'interview category',
+        fallback: INTERVIEW_CATEGORY_OPTIONS,
+        limit: 8,
+      },
+      techstack: {
+        label: `tech stack for ${categoryContext || 'interview prep'}`,
+        fallback: categoryContext
+          ? INTERVIEW_TECH_STACK_BY_CATEGORY[categoryContext] || []
+          : Object.values(INTERVIEW_TECH_STACK_BY_CATEGORY).flat(),
+        limit: 10,
+      },
+      targetrole: {
+        label: 'target interview role',
+        fallback: INTERVIEW_TARGET_ROLE_FALLBACK,
+        limit: 8,
+      },
+      companydomain: {
+        label: 'company or domain',
+        fallback: INDUSTRY_DOMAIN_FALLBACK_OPTIONS,
+        limit: 8,
+      },
+      mustcovertopics: {
+        label: 'must-cover interview topic',
+        fallback: INTERVIEW_TOPIC_FALLBACK,
+        limit: 8,
+      },
+    }[normalizedField];
+
+    if (!fieldMeta) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unsupported field. Use category, techStack, targetRole, companyDomain, or mustCoverTopics.',
+      });
+    }
+
+    const systemPrompt = [
+      `You suggest concise options for a ${fieldMeta.label} input in a mock interview request form.`,
+      'Return only JSON.',
+      'The JSON must have this exact shape: {"suggestions":["Option 1","Option 2"]}.',
+      `Return up to ${fieldMeta.limit} options.`,
+      'Suggestions must stay relevant even if query has spelling mistakes, short forms, or partial text.',
+      'No markdown, numbering, explanation, or duplicates.',
+    ].join(' ');
+
+    const userPrompt = [
+      `Field: ${normalizedField}`,
+      `User query: ${normalizedQuery}`,
+      `Selected values: ${Array.isArray(selectedValues) ? selectedValues.join(', ') || 'None' : 'None'}`,
+      `Category context: ${categoryContext || 'N/A'}`,
+    ].join('\n');
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+
+    let suggestions = [];
+    const responseText = await runSuggestionLlm(messages, {
+      temperature: 0.35,
+      maxTokens: 220,
+    });
+
+    if (responseText) {
+      try {
+        const parsed = extractJson(responseText);
+        const rawSuggestions = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
+        suggestions = normalizeSuggestionStrings(rawSuggestions, selectedSet, fieldMeta.limit);
+      } catch (parseError) {
+        console.error('Error parsing interview suggestions:', parseError.message || parseError);
+      }
+    }
+
+    if (!suggestions.length) {
+      suggestions = filterFallbackSuggestions(
+        Array.from(new Set(fieldMeta.fallback)),
+        normalizedQuery,
+        selectedSet,
+        fieldMeta.limit
+      );
+    }
+
+    return res.json({
+      success: true,
+      data: { suggestions },
+    });
+  } catch (error) {
+    console.error('Error suggesting interview options:', error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to suggest interview options',
+    });
+  }
+}
+
 async function extractProfileData(req, res) {
   try {
     const { currentSection, userMessage = '' } = req.body || {};
@@ -1013,6 +1191,7 @@ module.exports = {
   askProfileQuestions,
   suggestJobTitles,
   suggestIndustryDomains,
+  suggestInterviewOptions,
   extractProfileData,
   generalChat,
 };

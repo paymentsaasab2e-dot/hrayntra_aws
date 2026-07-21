@@ -96,6 +96,33 @@ enum EmploymentType {
   FREELANCE
 }
 
+enum InterviewRequestStatus {
+  PENDING_MATCHING
+  MATCHING
+  MATCHED
+  FINDING_INTERVIEWER
+  WAITING_FOR_ACCEPTANCE
+  ACCEPTED
+  REJECTED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum InterviewerApplicationStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum InterviewerProfileStatus {
+  AVAILABLE
+  BUSY
+  INACTIVE
+}
+
 // ============================================================
 // AUTH & VERIFICATION
 // ============================================================
@@ -185,6 +212,10 @@ model Candidate {
   lmsCareerPath          LmsCareerPath?          @relation("LmsCareerPath")
   lmsInterviewSessions   LmsInterviewPrepSession[] @relation("LmsInterviewSessions")
   lmsInterviewSets       LmsInterviewSet[]       @relation("LmsInterviewSets")
+  interviewRequests      InterviewRequest[]      @relation("CandidateInterviewRequests")
+  interviewerApplications InterviewerApplication[] @relation("CandidateInterviewerApplications")
+  interviewerProfile     InterviewerProfile?     @relation("CandidateInterviewerProfile")
+  assignedInterviewRequests InterviewRequest[]   @relation("AssignedInterviewerRequests")
   globalAiInterviews     GlobalAiInterview[]     @relation("CandidateGlobalAiInterviews")
 
   cvAnalysis        CvAnalysis?
@@ -1382,6 +1413,105 @@ model LmsInterviewSet {
   user             Candidate @relation("LmsInterviewSets", fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("lms_interview_sets")
+}
+
+model InterviewRequest {
+  id             String                 @id @default(auto()) @map("_id") @db.ObjectId
+  requestId      String                 @unique
+  candidateId    String                 @db.ObjectId
+  interviewerId  String?                @db.ObjectId
+  targetRole     String?
+  companyDomain  String?
+  category       String
+  techStack      String[]               @default([])
+  difficulty     String
+  experience     String
+  language       String
+  interviewType  String
+  weakAreas      String?
+  preferredDate  DateTime
+  preferredTime  String[]               @default([])
+  duration       Int
+  notes          String?
+  matchingScore  Float?
+  matchedAt      DateTime?
+  acceptedAt     DateTime?
+  rejectedAt     DateTime?
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  interviewerFeedback String?
+  candidateFeedback   String?
+  candidateRating     Int?
+  interviewerRating   Int?
+  status         InterviewRequestStatus @default(PENDING_MATCHING)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  candidate      Candidate              @relation("CandidateInterviewRequests", fields: [candidateId], references: [id], onDelete: Cascade)
+  interviewer    Candidate?             @relation("AssignedInterviewerRequests", fields: [interviewerId], references: [id], onDelete: SetNull)
+
+  @@index([candidateId, status])
+  @@index([interviewerId, status])
+  @@index([createdAt])
+  @@map("interview_requests")
+}
+
+model InterviewerApplication {
+  id               String                     @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId      String                     @db.ObjectId
+  fullName         String
+  currentCompany   String?
+  currentRole      String?
+  yearsOfExperience Int
+  expertiseAreas   String[]                   @default([])
+  interviewTypes   String[]                   @default([])
+  languages        String[]                   @default([])
+  weeklyAvailability String
+  aboutYourself    String
+  feedbackStyle    String
+  linkedinUrl      String?
+  resumeUrl        String?
+  status           InterviewerApplicationStatus @default(SUBMITTED)
+  reviewedBy       String?
+  reviewNotes      String?
+  reviewedAt       DateTime?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  candidate        Candidate                  @relation("CandidateInterviewerApplications", fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId, createdAt])
+  @@index([status, createdAt])
+  @@map("interviewer_applications")
+}
+
+model InterviewerProfile {
+  id                String                  @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId       String                  @unique @db.ObjectId
+  fullName          String
+  currentCompany    String?
+  currentRole       String?
+  yearsOfExperience Int
+  expertiseAreas    String[]                @default([])
+  interviewTypes    String[]                @default([])
+  languages         String[]                @default([])
+  weeklyAvailability String
+  aboutYourself     String
+  feedbackStyle     String
+  linkedinUrl       String?
+  resumeUrl         String?
+  ratingAverage     Float                   @default(0)
+  totalRatings      Int                     @default(0)
+  totalInterviews   Int                     @default(0)
+  status            InterviewerProfileStatus @default(AVAILABLE)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  candidate         Candidate               @relation("CandidateInterviewerProfile", fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([status, ratingAverage])
+  @@map("interviewer_profiles")
 }
 
 model LmsAnswerEvaluation {

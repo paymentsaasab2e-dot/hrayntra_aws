@@ -17,12 +17,15 @@ const aiRoutes = require('./routes/ai.routes');
 const lmsRoutes = require('./lms/lms.router');
 const lmsAiRoutes = require('./routes/lms-ai.routes');
 const mockInterviewRoutes = require('./routes/mock-interview.routes');
+const interviewRequestRoutes = require('./routes/interview-request.routes');
+const interviewerRoutes = require('./routes/interviewer.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const notificationRoutes = require('./routes/notification.routes');
 const internalRoutes = require('./routes/internal.routes');
 const contactImportRoutes = require('./routes/contact-import.routes');
 const resumePreviewRoutes = require('./routes/resumePreview.routes');
 const employerDemoRoutes = require('./routes/employer-demo.routes');
+const { startInterviewReminderScheduler } = require('./services/interview-reminder.service');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -98,6 +101,8 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/lms', lmsRoutes);
 app.use('/api/lms/questions', lmsAiRoutes);
 app.use('/api/mock-interview', mockInterviewRoutes);
+app.use('/api/interview-requests', interviewRequestRoutes);
+app.use('/api/interviewer', interviewerRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/internal', internalRoutes);
@@ -128,4 +133,5 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
   console.log(`📱 Allowed frontend origins: ${allowedOrigins.join(', ')}`);
+  startInterviewReminderScheduler();
 });
