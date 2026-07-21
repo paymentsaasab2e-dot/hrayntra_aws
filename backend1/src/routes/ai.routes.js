@@ -3,6 +3,7 @@ const {
   askProfileQuestions,
   suggestJobTitles,
   suggestIndustryDomains,
+  suggestInterviewOptions,
   extractProfileData,
   generalChat,
 } = require('../controllers/ai.controller');
@@ -13,6 +14,7 @@ router.post('/chat', generalChat);
 router.post('/profile-questions', askProfileQuestions);
 router.post('/job-title-suggestions', suggestJobTitles);
 router.post('/industry-domain-suggestions', suggestIndustryDomains);
+router.post('/interview-suggestions', suggestInterviewOptions);
 router.post('/extract-profile-data', extractProfileData);
 
 module.exports = router;

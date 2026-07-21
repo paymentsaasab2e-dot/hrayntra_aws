@@ -40,6 +40,15 @@ function getEmailFromForTrigger(triggerId) {
   if (id === 'auth.otp_verification') {
     return formatFromAddress(resolveAuthFrom());
   }
+  if (id === 'interview.scheduled' || id === 'interview.reminder') {
+    const interviewLabel =
+      String(process.env.EMAIL_FROM_INTERVIEW_NAME || '').trim() || 'HRYANTRA Interviews';
+    const interviewFrom =
+      String(process.env.EMAIL_FROM_INTERVIEW || '').trim() ||
+      String(process.env.EMAIL_FROM_JOBS || '').trim() ||
+      DEFAULT_JOBS_FROM;
+    return formatFromAddress(interviewFrom, interviewLabel);
+  }
   return formatFromAddress(resolveAuthFrom());
 }
 
