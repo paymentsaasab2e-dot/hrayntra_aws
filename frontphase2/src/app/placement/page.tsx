@@ -23,6 +23,7 @@ import { requestConfirm } from '../../lib/appDialog';
 import PaginationAll from '../../components/PaginationAll';
 import { coerceTablePageSize, TABLE_PAGE_SIZE_OPTIONS } from '../../constants/tablePagination';
 import {
+  PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
@@ -327,7 +328,7 @@ function PlacementsPageContent() {
   return (
     <>
       <Toaster position="top-right" richColors style={{ top: '5rem' }} />
-      <div className="w-full min-h-screen overflow-hidden text-slate-900">
+      <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
@@ -394,9 +395,9 @@ function PlacementsPageContent() {
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-            <div className="mx-auto max-w-[1600px]">
-              <div className="mb-5">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+            <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+              <div className="mb-5 shrink-0">
                 {loading ? (
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
                     {(['blue', 'cyan', 'orange', 'purple', 'green'] as SummaryCardColor[]).map((c, i) => (
@@ -446,7 +447,7 @@ function PlacementsPageContent() {
                   showResultCount={!loading && !error}
                 />
 
-                <div className="border-b border-indigo-100/40 px-3 py-3 sm:px-4">
+                <div className="shrink-0 border-b border-indigo-100/40 px-3 py-3 sm:px-4">
                   <FiltersBar
                     embedded
                     totalCount={pagination.total}
@@ -464,8 +465,7 @@ function PlacementsPageContent() {
                   <div className="px-4 py-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
                 ) : (
                   <>
-                    <div className="overflow-hidden">
-                      <div className="no-scrollbar overflow-x-auto">
+                    <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
                         <PlacementsTable
                           embedded
                           data={placements}
@@ -559,7 +559,6 @@ function PlacementsPageContent() {
                           onPageChange={(page) => updateFilters({ page })}
                           workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                         />
-                      </div>
                     </div>
 
                     {!loading && placements.length > 0 ? (

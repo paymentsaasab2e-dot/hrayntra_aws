@@ -60,6 +60,7 @@ import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../components/ai/WorkspaceAlertTableCell';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import {
+  PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
@@ -1232,7 +1233,7 @@ export default function App() {
   return (
     <>
       <Toaster position="top-right" richColors style={{ top: '5rem' }} />
-      <div className="w-full min-h-screen overflow-hidden text-slate-900">
+      <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
@@ -1296,9 +1297,9 @@ export default function App() {
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-            <div className="mx-auto max-w-[1600px]">
-              <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-5">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+            <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+              <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-5">
                 {loading && tasks.length === 0 ? (
                   (['blue', 'cyan', 'orange', 'purple', 'orange'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
                 ) : (
@@ -1316,11 +1317,10 @@ export default function App() {
           {view === 'list' ? (
             <div className={PH2_TABLE_CARD_CLASS}>
               <div className={PH2_TOOLBAR_ROW_CLASS}>{tasksToolbar}</div>
-              <div className="overflow-hidden">
-                <div className="no-scrollbar overflow-x-auto">
+              <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
               <table className="w-full min-w-[1320px] text-left">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50/50">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Task Title</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Type</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Related To</th>
@@ -1457,7 +1457,6 @@ export default function App() {
                   )}
                 </tbody>
               </table>
-                </div>
               </div>
               <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                 <PaginationAll
@@ -1479,11 +1478,13 @@ export default function App() {
           ) : (
             <div className={PH2_TABLE_CARD_CLASS}>
               <div className={PH2_TOOLBAR_ROW_CLASS}>{tasksToolbar}</div>
+              <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
               <CalendarView
                 tasks={filteredTasks}
                 onTaskClick={handleRowClick}
                 shellClassName="rounded-b-xl border-0 border-t border-gray-200 shadow-none"
               />
+              </div>
             </div>
           )}
             </div>

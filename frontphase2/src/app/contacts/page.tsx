@@ -489,13 +489,13 @@ function ContactsPageContent() {
         }
       >
         {stats ? (
-          <div className="mb-5">
+          <div className="mb-5 shrink-0">
             <ContactsKPICards stats={stats} />
           </div>
         ) : null}
 
-        <div className={PH2_TABLE_CARD_CLASS}>
-          <div className="border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
+        <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-1 flex-col`}>
+          <div className="shrink-0 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
             <ContactsFilterBar
               embedded
               filters={filters}

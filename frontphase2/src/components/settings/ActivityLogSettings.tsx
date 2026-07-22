@@ -272,7 +272,7 @@ export function ActivityLogSettings() {
         </div>
       </div>
 
-      <div className={PH2_TABLE_CARD_CLASS}>
+      <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-col`}>
         <div className={PH2_TOOLBAR_ROW_CLASS}>
           <div className="relative w-full lg:max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
@@ -289,8 +289,7 @@ export function ActivityLogSettings() {
           </span>
         </div>
 
-        <div className="overflow-hidden">
-          <div className="no-scrollbar overflow-x-auto">
+        <div className="ph2-table-body-scroll min-h-0 max-h-[min(60vh,520px)] flex-1 overflow-auto">
             {loading ? (
               <div className="flex items-center justify-center py-16 text-slate-400">
                 <Loader2 className="h-8 w-8 animate-spin" />
@@ -301,7 +300,7 @@ export function ActivityLogSettings() {
               </div>
             ) : (
               <table className="w-full min-w-[960px] text-left">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className={TABLE_HEAD_ROW}>
                     <th className={TH}>Member</th>
                     <th className={TH}>Role</th>
@@ -379,7 +378,6 @@ export function ActivityLogSettings() {
               </table>
             )}
           </div>
-        </div>
       </div>
 
       {portalMounted && typeof document !== 'undefined'

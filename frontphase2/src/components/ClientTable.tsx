@@ -47,6 +47,8 @@ interface ClientTableProps {
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
   /** @deprecated Use workspaceAlertsByEntityId */
   workspaceAlertsByClientId?: Record<string, AiWorkspaceBriefAlert[]>;
+  /** When true, omit overflow wrappers so a parent scroll region owns scrolling. */
+  fillScrollParent?: boolean;
 }
 
 // Custom Checkbox Component for better design tool compatibility
@@ -86,6 +88,7 @@ export function ClientTable({
   showRecruiterColumn = false,
   workspaceAlertsByEntityId,
   workspaceAlertsByClientId,
+  fillScrollParent = false,
 }: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
@@ -163,10 +166,10 @@ export function ClientTable({
         onChange={handleLogoFileChange}
         className="hidden"
       />
-      <div className="no-scrollbar overflow-x-auto">
+      <div className={fillScrollParent ? 'contents' : 'no-scrollbar overflow-x-auto'}>
         <table className="w-full min-w-[860px] border-collapse text-left">
-          <thead>
-            <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
               <th className="w-10 px-3 sm:px-4 py-2 first:pl-4">
                 <CustomCheckbox
                   checked={selectedIds.length === clients.length && clients.length > 0}

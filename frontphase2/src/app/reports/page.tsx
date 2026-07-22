@@ -8,7 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
-import { PH2_TABLE_CARD_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 import {
   buildReportQueryString,
   DEFAULT_REPORT_FILTERS,
@@ -244,7 +244,7 @@ export default function ReportsPage() {
   const showSummarySkeleton = loading && section !== 'raw';
 
   return (
-    <div className="flex min-h-screen w-full overflow-hidden text-slate-900">
+    <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full overflow-hidden text-slate-900">
       <ReportsSidebar
         section={section}
         onSectionChange={handleSectionChange}
@@ -252,7 +252,7 @@ export default function ReportsPage() {
         onLoadSavedReport={handleLoadSavedReport}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">
           <div className="flex items-center gap-2.5">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 lg:hidden">
@@ -317,14 +317,14 @@ export default function ReportsPage() {
           onReset={handleResetFilters}
         />
 
-        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
-          <div className="mx-auto max-w-[1600px]">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-5">
+          <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
         {error ? (
-                  <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+                  <div className="mb-4 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
                 ) : null}
 
             {savePromptOpen ? (
-              <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+              <div className="mb-4 flex shrink-0 flex-wrap items-end gap-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
                 <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-[10px] font-semibold uppercase text-slate-500">
                   Report name
                   <input
@@ -344,7 +344,7 @@ export default function ReportsPage() {
         ) : null}
 
             <div className={PH2_TABLE_CARD_CLASS}>
-              <div className="p-4 sm:p-5 lg:p-6">
+              <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} p-4 sm:p-5 lg:p-6`}>
                 {showSummarySkeleton ? (
                   <div className="space-y-6">
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">

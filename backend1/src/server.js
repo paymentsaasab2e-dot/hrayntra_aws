@@ -2,7 +2,9 @@ const dotenv = require('dotenv');
 dotenv.config(); // Load env variables early so they are available to imported modules
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
 const path = require('path');
+const { Server: SocketServer } = require('socket.io');
 const { prisma } = require('./lib/prisma');
 const authRoutes = require('./routes/auth.routes');
 const cvRoutes = require('./routes/cv.routes');
@@ -26,6 +28,7 @@ const contactImportRoutes = require('./routes/contact-import.routes');
 const resumePreviewRoutes = require('./routes/resumePreview.routes');
 const employerDemoRoutes = require('./routes/employer-demo.routes');
 const { startInterviewReminderScheduler } = require('./services/interview-reminder.service');
+const { registerInterviewRoomSocketHandlers } = require('./realtime/interview-room.socket');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -41,6 +44,15 @@ if (!allowedOrigins.includes(targetVercelDomain)) {
   allowedOrigins.push(targetVercelDomain);
 }
 
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  return (
+    allowedOrigins.includes(origin) ||
+    origin.includes('localhost') ||
+    origin.includes('127.0.0.1')
+  );
+};
+
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
@@ -50,7 +62,7 @@ app.use(cors({
     console.log(`[CORS DEBUG] Origin: ${origin}`);
     console.log(`[CORS DEBUG] Allowed: ${allowedOrigins.join(', ')}`);
 
-    if (allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+    if (isOriginAllowed(origin)) {
       return callback(null, true);
     }
     
@@ -130,8 +142,25 @@ app.use((req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+const httpServer = http.createServer(app);
+const io = new SocketServer(httpServer, {
+  cors: {
+    origin: (origin, callback) => {
+      if (!origin || isOriginAllowed(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Socket CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+  },
+});
+
+registerInterviewRoomSocketHandlers(io);
+
+httpServer.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
   console.log(`📱 Allowed frontend origins: ${allowedOrigins.join(', ')}`);
+  console.log('🎥 Interview room signaling ready on Socket.IO');
   startInterviewReminderScheduler();
 });

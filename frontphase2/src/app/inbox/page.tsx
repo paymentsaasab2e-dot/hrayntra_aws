@@ -970,7 +970,7 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-[#f6f8fc] text-[#202124]">
+    <div className="ph2-page-shell h-[calc(100dvh-3.5rem)] overflow-hidden bg-[#f6f8fc] text-[#202124]">
       <TopBar
         search={search}
         onSearchChange={setSearch}
@@ -979,7 +979,7 @@ export default function InboxPage() {
         onOpenUpdates={handleOpenUpdates}
       />
 
-      <div ref={containerRef} className="flex h-[calc(100vh-4rem)] overflow-hidden">
+      <div ref={containerRef} className="flex h-[calc(100%-4rem)] overflow-hidden">
         <div style={{ width: leftWidth }} className="shrink-0 overflow-hidden">
           <LeftRail
             connectedEmail={connectedEmail}
