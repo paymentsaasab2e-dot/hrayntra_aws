@@ -111,6 +111,8 @@ interface CandidateTableProps {
   /** Row id currently opening submit modal */
   submittingToClientCandidateId?: string | null;
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
+  /** When true, omit overflow wrappers so a parent scroll region owns scrolling. */
+  fillScrollParent?: boolean;
 }
 
 export const CandidateTable: React.FC<CandidateTableProps> = ({
@@ -131,6 +133,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   canSubmitToClient,
   submittingToClientCandidateId,
   workspaceAlertsByEntityId,
+  fillScrollParent = false,
 }) => {
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
   const showAiAlertColumn = Boolean(
@@ -139,11 +142,11 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   );
 
   return (
-    <div className="overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className={fillScrollParent ? 'contents' : 'overflow-hidden'}>
+      <div className={fillScrollParent ? 'contents' : 'overflow-x-auto'}>
         <table className="w-full min-w-[760px] border-collapse text-left">
-          <thead>
-            <tr className="sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45">
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
               <th className="w-10 px-3 py-2 first:pl-4 sm:px-4">
                 <input 
                   type="checkbox" 

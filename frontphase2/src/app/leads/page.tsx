@@ -1843,14 +1843,14 @@ export default function RecruitmentAgencyDashboard() {
   }, []);
 
   return (
-    <div className="w-full min-h-screen overflow-hidden text-slate-900">
+    <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
       <Toaster
         position="top-right"
         richColors
         style={{ top: '5rem' }}
       />
-      {/* Main Content */}
-      <main className="flex flex-col overflow-hidden relative">
+      {/* Main Content — viewport-locked so only the table body scrolls */}
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
         <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
           <div className="flex items-center gap-2.5 sm:gap-3">
@@ -1912,10 +1912,10 @@ export default function RecruitmentAgencyDashboard() {
           </div>
         </header>
 
-        {/* Scrollable Area */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+        {/* Content: stats + filters stay put; table body scrolls inside its panel */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
           {/* Summary Cards — show skeleton mirrors while the first fetch resolves. */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-5">
+          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
             {loading ? (
               (['blue', 'yellow', 'purple', 'green', 'gray'] as SummaryCardColor[]).map((c, i) => (
                 <SummaryCardSkeleton key={i} color={c} />
@@ -1966,9 +1966,9 @@ export default function RecruitmentAgencyDashboard() {
             )}
           </div>
 
-          {/* Table Controls */}
-          <div className="mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-            <div className="flex items-center gap-2 overflow-x-auto ph2-invisible-scrollbar border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
+          {/* Table Controls + scrollable rows */}
+          <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
+            <div className="flex shrink-0 items-center gap-2 overflow-x-auto ph2-invisible-scrollbar border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
               <div className="relative min-w-[14rem] max-w-md shrink-0 grow basis-[14rem] sm:basis-[18rem]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                 <input 
@@ -2091,21 +2091,23 @@ export default function RecruitmentAgencyDashboard() {
             </div>
 
             {leadsSmartSearch.open ? (
-              <SmartSearchPromptPanel
-                prompt={leadsSmartSearch.prompt}
-                onPromptChange={leadsSmartSearch.setPrompt}
-                onApply={leadsSmartSearch.handleApply}
-                previewKeywords={leadsSmartSearch.previewKeywords}
-                examples={leadsSmartSearch.examples}
-                onExampleClick={leadsSmartSearch.handleExample}
-                entityLabel="leads"
-                applying={leadsSmartSearch.applying}
-                placeholder={`Searches your lead database by ${LEAD_SMART_SEARCH_FIELD_GUIDE} — e.g. high interest technology leads in California company Acme`}
-              />
+              <div className="shrink-0">
+                <SmartSearchPromptPanel
+                  prompt={leadsSmartSearch.prompt}
+                  onPromptChange={leadsSmartSearch.setPrompt}
+                  onApply={leadsSmartSearch.handleApply}
+                  previewKeywords={leadsSmartSearch.previewKeywords}
+                  examples={leadsSmartSearch.examples}
+                  onExampleClick={leadsSmartSearch.handleExample}
+                  entityLabel="leads"
+                  applying={leadsSmartSearch.applying}
+                  placeholder={`Searches your lead database by ${LEAD_SMART_SEARCH_FIELD_GUIDE} — e.g. high interest technology leads in California company Acme`}
+                />
+              </div>
             ) : null}
 
             {hasActiveTableFilters ? (
-              <div className="flex flex-wrap items-center gap-2 border-b border-indigo-100/40 bg-slate-50/60 px-3 py-2 sm:px-4">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-indigo-100/40 bg-slate-50/60 px-3 py-2 sm:px-4">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   Active keywords
                 </span>
@@ -2136,11 +2138,11 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             ) : null}
 
-            {/* Leads Table — horizontal scroll bar is shown in a sticky dock at the bottom of the view */}
-            <div className="overflow-hidden flex flex-col">
+            {/* Leads Table — vertical scroll stays inside this panel; horizontal bar docks below */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div
                 ref={leadsTableScrollRef}
-                className="no-scrollbar overflow-x-auto overflow-y-visible"
+                className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto"
                 onScroll={onLeadsTableHorizontalScroll}
               >
                 {loading && <TableSkeleton rows={8} columns={6} />}
@@ -2149,8 +2151,8 @@ export default function RecruitmentAgencyDashboard() {
                 )}
                 {!loading && !error && (
                   <table id="leads-main-table" className="w-full min-w-[760px] text-left" aria-label="Leads">
-                    <thead>
-                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
                         <th className="px-3 sm:px-4 py-2 w-10 first:pl-4">
                           <SelectionCheckbox
                             checked={allVisibleSelected}
@@ -2432,7 +2434,7 @@ export default function RecruitmentAgencyDashboard() {
                 )}
               </div>
               {leadsHScrollSpanPx > 0 && !loading && !error && (
-                <div className="leads-hscroll-dock-wrap sticky bottom-0 z-20 border-t border-indigo-100/60 bg-gradient-to-b from-white via-white to-indigo-50/30 shadow-[0_-10px_24px_-12px_rgba(49,46,129,0.14)]">
+                <div className="leads-hscroll-dock-wrap z-20 shrink-0 border-t border-indigo-100/60 bg-gradient-to-b from-white via-white to-indigo-50/30 shadow-[0_-10px_24px_-12px_rgba(49,46,129,0.14)]">
                   <div
                     ref={leadsHScrollDockRef}
                     role="region"
@@ -2448,7 +2450,7 @@ export default function RecruitmentAgencyDashboard() {
               )}
             </div>
             {!loading && !error && (
-              <div className="mt-0 w-full border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
+              <div className="mt-0 w-full shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}

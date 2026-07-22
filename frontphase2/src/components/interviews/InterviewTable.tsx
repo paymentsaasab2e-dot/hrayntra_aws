@@ -331,11 +331,11 @@ export function InterviewTable({
   const displayTotal = totalEntries > 0 ? totalEntries : interviews.length;
 
   return (
-    <div className={hidePagination ? 'overflow-hidden' : 'overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm'}>
-      <div className={hidePagination ? 'no-scrollbar overflow-x-auto' : 'overflow-x-auto'}>
+    <div className={hidePagination ? 'contents' : 'overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm'}>
+      <div className={hidePagination ? 'contents' : 'overflow-x-auto'}>
         <table className="min-w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45">
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
               <th className="w-10 px-3 py-2 first:pl-4 sm:px-4">
                 <input
                   type="checkbox"

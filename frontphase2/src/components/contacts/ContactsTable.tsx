@@ -11,7 +11,7 @@ import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
 import { formatDirectorDisplay } from '../../constants/salutations';
-import { PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
+import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
 
@@ -103,15 +103,17 @@ export function ContactsTable({
 
   if (loading) {
     return (
-      <div className="overflow-hidden">
-        <div className="p-8 text-center text-sm font-medium text-slate-500">Loading contacts…</div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} p-8 text-center text-sm font-medium text-slate-500`}>
+          Loading contacts…
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden">
-      <div className="overflow-x-auto overflow-y-visible">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
         {contacts.length === 0 ? (
           <div className="p-12 text-center">
             <div className="text-slate-600 mb-2 font-medium">No contacts found</div>
@@ -119,8 +121,8 @@ export function ContactsTable({
           </div>
         ) : (
           <table className="w-full min-w-[760px] text-left">
-            <thead>
-              <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-white to-indigo-50/30">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-white to-indigo-50/30 backdrop-blur-sm">
                 <th className="px-3 py-2.5 sm:px-4 w-12">
                   <button type="button" onClick={handleSelectAll} className="flex items-center justify-center w-5 h-5">
                     {allSelected ? (

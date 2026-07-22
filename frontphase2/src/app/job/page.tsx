@@ -133,6 +133,7 @@ import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import {
   Ph2ModulePageLayout,
+  PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
@@ -546,11 +547,10 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
   );
 
   return (
-  <div className="overflow-hidden">
-    <div className="no-scrollbar overflow-x-auto">
+  <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
       <table className="w-full min-w-[760px] text-left border-collapse">
-        <thead>
-          <tr className="sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
+        <thead className="sticky top-0 z-10">
+          <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
             <th className="px-3 py-2 sm:px-4 w-10 first:pl-4">
               <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />
           </th>
@@ -712,7 +712,6 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
           )}
       </tbody>
     </table>
-    </div>
   </div>
   );
 };
@@ -2166,8 +2165,8 @@ export default function JobsPage() {
               </div>
         }
       >
-        <div className="mx-auto w-full max-w-[1600px]">
-          <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
             {loadingMetrics
               ? STATS_CONFIG.map((statConfig, i) => <SummaryCardSkeleton key={i} color={statConfig.color} />)
               : STATS_CONFIG.map((statConfig) => {
@@ -2191,7 +2190,9 @@ export default function JobsPage() {
                   <div className="h-9 w-full max-w-md animate-pulse rounded-xl bg-white/80 ring-1 ring-indigo-100/80 lg:flex-1" />
                   <div className="h-9 w-32 animate-pulse rounded-lg bg-indigo-50/60" />
                 </div>
-                <TableSkeleton rows={8} columns={7} />
+                <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
+                  <TableSkeleton rows={8} columns={7} />
+                </div>
               </div>
           ) : (
             <div className={PH2_TABLE_CARD_CLASS}>
@@ -2312,8 +2313,8 @@ export default function JobsPage() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.22 }}
+                  className="flex min-h-0 flex-1 flex-col overflow-hidden"
                 >
-                  <div className="overflow-hidden">
                     <JobsListView
                       jobs={displayJobs}
                       onJobClick={openJobDrawer}
@@ -2338,7 +2339,6 @@ export default function JobsPage() {
                       onCancelStatusEdit={handleCancelStatusEdit}
                       workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                     />
-                  </div>
                   <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                     <PaginationAll
                       initialPage={currentPage}

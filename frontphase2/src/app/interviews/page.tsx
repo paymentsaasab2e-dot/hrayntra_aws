@@ -36,6 +36,7 @@ import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import {
+  PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
@@ -620,7 +621,7 @@ export default function InterviewsPage() {
   return (
     <>
       <Toaster position="top-right" richColors style={{ top: '5rem' }} />
-      <div className="w-full min-h-screen overflow-hidden text-slate-900">
+      <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
@@ -680,25 +681,29 @@ export default function InterviewsPage() {
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-            <div className="mx-auto max-w-[1600px]">
-              <div className="mb-5">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+            <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+              <div className="mb-5 shrink-0">
                 <InterviewModuleTabs active={moduleTab} onChange={setModuleTab} />
               </div>
 
               {moduleTab === 'applications' ? (
+                <div className="min-h-0 flex-1 overflow-auto">
                 <InterviewApplicationsTab
                   key={applicationsRefreshKey}
                   onReview={openApplicationReview}
                 />
+                </div>
               ) : moduleTab === 'interviewer' ? (
+                <div className="min-h-0 flex-1 overflow-auto">
                 <InterviewerApplicationsTab
                   key={applicationsRefreshKey}
                   onReview={openApplicationReview}
                 />
+                </div>
               ) : (
-              <>
-              <div className="mb-5">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="mb-5 shrink-0">
                 {loading ? (
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                     {(['blue', 'cyan', 'orange', 'purple'] as SummaryCardColor[]).map((c, i) => (
@@ -711,7 +716,7 @@ export default function InterviewsPage() {
               </div>
 
               {view === 'list' ? (
-                <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="space-y-0">
+                <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
                     <div className={PH2_TOOLBAR_ROW_CLASS}>
                       <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -848,9 +853,7 @@ export default function InterviewsPage() {
                       showResultCount={!loading && !error}
                     />
 
-                    <div className="overflow-hidden">
-                      <div className="no-scrollbar overflow-x-auto">{renderListTableBody()}</div>
-                    </div>
+                    <div className={PH2_TABLE_BODY_SCROLL_CLASS}>{renderListTableBody()}</div>
 
                     {!loading && !error && filteredInterviews.length > 0 ? (
                       <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
@@ -876,7 +879,7 @@ export default function InterviewsPage() {
                   </div>
               </motion.div>
             ) : (
-                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
                     <div className={PH2_TOOLBAR_ROW_CLASS}>
                       <p className="max-w-xl text-xs text-slate-600">
@@ -884,13 +887,13 @@ export default function InterviewsPage() {
                       </p>
                       <div className="flex shrink-0 items-center gap-2">{viewSegmented}</div>
                     </div>
-                    <div className="p-3 sm:p-4">
+                    <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} p-3 sm:p-4`}>
                 <InterviewCalendarView interviews={filteredInterviews} onSelectInterview={openInterview} />
                     </div>
                   </div>
               </motion.div>
             )}
-              </>
+              </div>
               )}
           </div>
         </div>

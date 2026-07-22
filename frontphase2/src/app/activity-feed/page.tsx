@@ -32,14 +32,13 @@ import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import {
   activityKindTone,
   activityModuleTone,
-  buildActivityHeadline,
   formatActivityKindLabel,
   formatActivityModule,
   formatActivitySummary,
   resolveActivityKind,
   type PresentedActivity,
 } from '../../lib/activityFeedPresentation';
-import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_CLASS, PH2_TABLE_CARD_FOOTER_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 
@@ -115,57 +114,75 @@ function ActivityTimeline({
   showPerformer?: boolean;
 }) {
   return (
-    <ul className="divide-y divide-slate-100">
-      {rows.map((row) => {
-        const moduleLabel = formatActivityModule(row);
-        const kind = resolveActivityKind(row);
-        const KindIcon = activityKindIcon(kind);
-        const performer = performerName(row);
-        const headline = buildActivityHeadline(row, performer, { showPerformer });
-        const summary = formatActivitySummary(row);
-        const kindLabel = formatActivityKindLabel(row);
+    <table className="w-full min-w-[960px] text-left" aria-label="Activity log">
+      <thead className="sticky top-0 z-10">
+        <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
+          {showPerformer ? <th className="px-3 py-2.5 sm:px-4">Actor</th> : null}
+          <th className="px-3 py-2.5 sm:px-4 min-w-[18rem]">Activity</th>
+          <th className="px-3 py-2.5 sm:px-4 whitespace-nowrap">Date / Time</th>
+          <th className="px-3 py-2.5 sm:px-4">Module</th>
+          <th className="px-3 py-2.5 sm:px-4">Action</th>
+          <th className="px-3 py-2.5 sm:px-4">Related</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100/80">
+        {rows.map((row) => {
+          const moduleLabel = formatActivityModule(row);
+          const kind = resolveActivityKind(row);
+          const KindIcon = activityKindIcon(kind);
+          const performer = performerName(row);
+          const summary = formatActivitySummary(row);
+          const kindLabel = formatActivityKindLabel(row);
 
-        return (
-          <li key={row.id} className="flex gap-3 px-4 py-4 sm:px-6 hover:bg-indigo-50/20">
-            <div
-              className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${activityKindTone(kind)}`}
-              title={kindLabel}
+          return (
+            <tr
+              key={row.id}
+              className="transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
             >
-              <KindIcon className="h-4 w-4" aria-hidden />
-            </div>
-
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <p className="text-sm font-medium leading-6 text-slate-900">{headline}</p>
-
-              {showPerformer && summary !== headline ? (
-                <p className="text-xs leading-5 text-slate-500">{summary}</p>
+              {showPerformer ? (
+                <td className="px-3 py-2.5 align-middle sm:px-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-600/10 text-[10px] font-bold text-indigo-700">
+                      {getInitials(performer)}
+                    </div>
+                    <span className="max-w-[10rem] truncate text-xs font-semibold text-slate-900" title={performer}>
+                      {performer}
+                    </span>
+                  </div>
+                </td>
               ) : null}
-
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                <span className="whitespace-nowrap">{formatDateTimeDMY(row.createdAt)}</span>
-                <span className="text-slate-300">·</span>
+              <td className="px-3 py-2.5 align-middle sm:px-4">
+                <p className="text-xs font-medium leading-snug text-slate-900">{summary}</p>
+              </td>
+              <td className="whitespace-nowrap px-3 py-2.5 align-middle text-[11px] text-slate-500 sm:px-4">
+                {formatDateTimeDMY(row.createdAt)}
+              </td>
+              <td className="px-3 py-2.5 align-middle sm:px-4">
                 <span
                   className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${activityModuleTone(moduleLabel)}`}
                 >
                   {moduleLabel}
                 </span>
+              </td>
+              <td className="px-3 py-2.5 align-middle sm:px-4">
                 <span
-                  className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${activityKindTone(kind)}`}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${activityKindTone(kind)}`}
+                  title={kindLabel}
                 >
+                  <KindIcon className="h-3 w-3 shrink-0" aria-hidden />
                   {kindLabel}
                 </span>
-                {row.relatedLabel ? (
-                  <>
-                    <span className="text-slate-300">·</span>
-                    <span className="truncate font-medium text-slate-600">{row.relatedLabel}</span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
+              </td>
+              <td className="px-3 py-2.5 align-middle sm:px-4">
+                <span className="line-clamp-2 max-w-[14rem] text-xs font-medium text-slate-600" title={row.relatedLabel || undefined}>
+                  {row.relatedLabel || '—'}
+                </span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
@@ -702,21 +719,22 @@ export default function ActivityFeedPage() {
 
   if (feedMode) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-4">
+      <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
         {feedMode !== 'self' ? (
           <button
             type="button"
             onClick={backFromDetail}
-            className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+            className="mb-3 inline-flex shrink-0 items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800"
           >
             <ArrowLeft className="h-4 w-4" />
             Back
           </button>
         ) : null}
 
-        {tabBar}
+        <div className="mb-4 shrink-0">{tabBar}</div>
 
-        <div className="rounded-2xl border border-indigo-100/80 bg-gradient-to-r from-indigo-50/60 via-white to-violet-50/40 p-4 sm:p-5">
+        <div className="mb-4 shrink-0 rounded-2xl border border-indigo-100/80 bg-gradient-to-r from-indigo-50/60 via-white to-violet-50/40 p-4 sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
@@ -737,6 +755,7 @@ export default function ActivityFeedPage() {
         </div>
 
         <div className={PH2_TABLE_CARD_CLASS}>
+          <div className="shrink-0">
           <ActivityFilters
             search={search}
             setSearch={setSearch}
@@ -749,7 +768,9 @@ export default function ActivityFeedPage() {
             todayYmd={todayYmd}
             yesterdayYmd={yesterdayYmd}
           />
+          </div>
 
+          <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
           {activityError ? (
             <div className="p-6 text-sm text-rose-600">{activityError}</div>
           ) : activityLoading ? (
@@ -762,9 +783,10 @@ export default function ActivityFeedPage() {
           ) : (
             <ActivityTimeline rows={rows} showPerformer={showPerformerInTimeline} />
           )}
+          </div>
 
           {!activityLoading && rows.length > 0 ? (
-            <div className="border-t border-indigo-100/50 px-4 py-3">
+            <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
               <PaginationAll
                 initialPage={page}
                 totalPages={totalPages}
@@ -782,6 +804,7 @@ export default function ActivityFeedPage() {
             </div>
           ) : null}
         </div>
+        </div>
       </div>
     );
   }
@@ -795,8 +818,9 @@ export default function ActivityFeedPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-4">
-      <div>
+    <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mb-4 shrink-0">
         <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
           <History size={22} className="text-indigo-600" />
           Activity log
@@ -810,7 +834,7 @@ export default function ActivityFeedPage() {
         </p>
       </div>
 
-      {tabBar}
+      <div className="mb-4 shrink-0">{tabBar}</div>
 
       {activeTab === 'members' && capabilities?.canViewMembers ? (
         <div className={PH2_TABLE_CARD_CLASS}>
@@ -830,6 +854,7 @@ export default function ActivityFeedPage() {
             </span>
           </div>
 
+          <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
           {listError ? (
             <div className="p-6 text-sm text-rose-600">{listError}</div>
           ) : membersLoading ? (
@@ -867,11 +892,13 @@ export default function ActivityFeedPage() {
               })}
             </ul>
           )}
+          </div>
         </div>
       ) : null}
 
       {activeTab === 'departments' && capabilities?.canViewDepartments ? (
         <div className={PH2_TABLE_CARD_CLASS}>
+          <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
           {listError ? (
             <div className="p-6 text-sm text-rose-600">{listError}</div>
           ) : departmentsLoading ? (
@@ -905,8 +932,10 @@ export default function ActivityFeedPage() {
               ))}
             </ul>
           )}
+          </div>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

@@ -779,8 +779,8 @@ export default function BillingPage() {
   };
 
   return (
-    <div className="w-full min-h-screen overflow-hidden text-slate-900">
-      <main className="flex flex-col overflow-hidden relative">
+    <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
@@ -837,12 +837,12 @@ export default function BillingPage() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
           {error ? (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+            <div className="mb-4 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           ) : null}
 
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4 mb-5">
+          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
             {loading ? (
               (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => (
                 <SummaryCardSkeleton key={i} color={c} />
@@ -878,7 +878,7 @@ export default function BillingPage() {
             )}
           </div>
 
-          <div className="mb-4 flex gap-4 overflow-x-auto border-b border-indigo-100/70">
+          <div className="mb-4 flex shrink-0 gap-4 overflow-x-auto border-b border-indigo-100/70">
             {TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.name;
@@ -906,19 +906,22 @@ export default function BillingPage() {
           </div>
 
         {loading && showsTablePanel ? (
-          <div className="overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] p-6">
-            <Skeleton className="h-4 w-1/3 rounded-md mb-6" />
-            <div className="space-y-3">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <Skeleton className="h-4 w-1/6 rounded-md" />
-                  <Skeleton className="h-3 flex-1 rounded-full" />
-                  <Skeleton className="h-4 w-24 rounded-md" />
-                </div>
-              ))}
+          <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 p-6 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)]">
+            <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
+              <Skeleton className="mb-6 h-4 w-1/3 rounded-md" />
+              <div className="space-y-3">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <Skeleton className="h-4 w-1/6 rounded-md" />
+                    <Skeleton className="h-3 flex-1 rounded-full" />
+                    <Skeleton className="h-4 w-24 rounded-md" />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ) : activeTab === 'Taxes & Compliance' && data ? (
+          <div className="min-h-0 flex-1 overflow-auto">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="p-6">
               <div className="mb-6 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-900"><Calendar size={16} className="text-blue-600" />Tax Summary</div>
@@ -944,7 +947,9 @@ export default function BillingPage() {
               </div>
             </Card>
           </div>
+          </div>
         ) : activeTab === 'Billing Settings' ? (
+          <div className="min-h-0 flex-1 overflow-auto">
           <Card className="p-6 space-y-6">
             <p className="text-sm text-slate-600">
               Defaults for new placement invoices: agency bank details, authorized signatory, and signature image.
@@ -1079,9 +1084,10 @@ export default function BillingPage() {
               </button>
             </div>
           </Card>
+          </div>
         ) : showsTablePanel ? (
-          <div className="overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-            <div className="p-3 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
+          <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
+            <div className="flex shrink-0 flex-col justify-between gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:flex-row sm:items-center sm:p-4">
               <div className="relative w-full lg:max-w-md lg:flex-1">
                 <Search
                   className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
@@ -1167,7 +1173,7 @@ export default function BillingPage() {
               </div>
             ) : null}
 
-            <div className="overflow-x-auto">
+            <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
               <Table
                 columns={columns}
                 rows={visibleRows}
@@ -1207,7 +1213,7 @@ export default function BillingPage() {
             </div>
 
             {columns.length ? (
-              <div className="flex items-center justify-between gap-4 border-t border-indigo-100/50 px-4 sm:px-5 py-3">
+              <div className="flex shrink-0 items-center justify-between gap-4 border-t border-indigo-100/50 px-4 sm:px-5 py-3">
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.max(totalPages, 1)}

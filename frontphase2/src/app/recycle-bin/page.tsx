@@ -57,6 +57,7 @@ import {
   type TrashedFailedBulkResume,
 } from '../../lib/failedBulkResumesStore';
 import {
+  PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
@@ -633,7 +634,7 @@ export default function RecycleBinPage() {
   };
 
   return (
-    <div className="w-full min-h-screen overflow-hidden text-slate-900">
+    <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
           <div className="flex items-center gap-2.5 sm:gap-3">
@@ -661,9 +662,9 @@ export default function RecycleBinPage() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-          <div className="mx-auto max-w-[1600px] space-y-4">
-            <div className={PH2_TABLE_CARD_CLASS}>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+          <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+            <div className={`${PH2_TABLE_CARD_CLASS} mb-4 !flex-none shrink-0`}>
               <div className={PH2_TOOLBAR_ROW_CLASS}>
                 <div className="relative w-full lg:max-w-md lg:flex-1">
                   <Search
@@ -697,7 +698,8 @@ export default function RecycleBinPage() {
               </div>
             </div>
 
-            <section className={PH2_TABLE_CARD_CLASS}>
+            <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} space-y-4`}>
+            <section className={`${PH2_TABLE_CARD_CLASS} !flex-none`}>
               <div className="flex flex-col border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 sm:flex-row sm:items-stretch">
             <button
               type="button"
@@ -939,7 +941,7 @@ export default function RecycleBinPage() {
           const displayItems = state.items.filter(trashItemMatches);
 
           return (
-            <section key={cfg.key} className={PH2_TABLE_CARD_CLASS}>
+            <section key={cfg.key} className={`${PH2_TABLE_CARD_CLASS} !flex-none`}>
               <div className="flex flex-col border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 sm:flex-row sm:items-stretch">
               <button
                 type="button"
@@ -1158,7 +1160,8 @@ export default function RecycleBinPage() {
             </section>
           );
         })}
-      </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>

@@ -366,9 +366,9 @@ export function PlacementsTable({
     );
   }
 
-  const outerWrap = embedded ? 'overflow-hidden' : 'overflow-hidden rounded-xl bg-white shadow-sm';
+  const outerWrap = embedded ? 'contents' : 'overflow-hidden rounded-xl bg-white shadow-sm';
   const theadRow = embedded
-    ? 'sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45'
+    ? 'sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm'
     : 'bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500';
   const thPad = embedded ? 'px-3 py-2 sm:px-4' : 'px-6 py-4';
   const tdPad = embedded ? 'px-3 py-2.5 sm:px-4' : 'px-6 py-4';
@@ -378,9 +378,9 @@ export function PlacementsTable({
 
   return (
     <div className={outerWrap}>
-      <div className={embedded ? 'no-scrollbar overflow-x-auto' : 'overflow-x-auto'}>
+      <div className={embedded ? 'contents' : 'overflow-x-auto'}>
         <table className="min-w-full border-collapse text-left">
-          <thead>
+          <thead className={embedded ? 'sticky top-0 z-10' : undefined}>
             <tr className={theadRow}>
               <th className={thPad}>Candidate</th>
               <th className={thPad}>Client / Job</th>
