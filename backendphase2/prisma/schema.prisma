@@ -1023,6 +1023,19 @@ model Lead {
   @@map("leads")
 }
 
+/// Shareable public intake form — one active row per tenant DB (token in the URL + ?tenantDbName=).
+model LeadIntakeForm {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  publicToken String   @unique
+  isActive    Boolean  @default(true)
+  title       String   @default("Add Lead")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("lead_intake_forms")
+}
+
 // ── LEAD NOTES ──
 // Serves: lead drawer (Notes tab)
 

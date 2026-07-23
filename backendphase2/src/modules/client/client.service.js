@@ -394,7 +394,7 @@ export const clientService = {
         skip,
         take: limit,
         include,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       }),
       prisma.client.count({ where: scopedWhere }),
     ]);

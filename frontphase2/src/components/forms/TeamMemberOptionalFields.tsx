@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Plus, Trash2, Users } from 'lucide-react';
 import { KycDocumentsField } from '../documents/KycDocumentsField';
 import { NAME_SALUTATION_OPTIONS, applySalutationFromNameInput } from '../../constants/salutations';
@@ -10,6 +10,8 @@ import {
   hasTeamName,
   normalizeTeamMemberList,
 } from '../../lib/teamMemberFormDetails';
+import { composeInternationalPhone, extractNationalNumber, getPhoneCountryRule } from '../../lib/phoneByCountry';
+import { CountryDialPhoneInput } from './CountryDialPhoneInput';
 
 export type TeamMemberOptionalFieldsProps = {
   members: TeamMemberListItem[];
@@ -17,6 +19,8 @@ export type TeamMemberOptionalFieldsProps = {
   /** When true, the block stays hidden until `teamName` is filled (client drawer). */
   requireTeamName?: boolean;
   teamName?: string;
+  countryCode?: string;
+  countryName?: string;
   showKyc?: boolean;
   pendingKycFiles?: File[];
   onPendingKycFilesChange?: (files: File[]) => void;
@@ -31,6 +35,8 @@ export function TeamMemberOptionalFields({
   members,
   onChange,
   requireTeamName = true,
+  countryCode = '',
+  countryName = '',
   showKyc = false,
   pendingKycFiles = [],
   onPendingKycFilesChange,
@@ -39,9 +45,33 @@ export function TeamMemberOptionalFields({
   uploadPercent,
   kycDisabled,
 }: TeamMemberOptionalFieldsProps) {
-  if (requireTeamName && !hasTeamName(teamName)) return null;
-
   const normalizedMembers = normalizeTeamMemberList(members);
+  const lastCountryKeyRef = useRef(`${countryCode}|${countryName}`);
+  const membersRef = useRef(normalizedMembers);
+  membersRef.current = normalizedMembers;
+
+  useEffect(() => {
+    if (requireTeamName && !hasTeamName(teamName)) return;
+    const key = `${countryCode}|${countryName}`;
+    if (key === lastCountryKeyRef.current) return;
+    lastCountryKeyRef.current = key;
+    const rule = getPhoneCountryRule(countryCode, countryName);
+    if (!rule) return;
+    const current = membersRef.current;
+    const next = current.map((member) => {
+      const national = extractNationalNumber(member.teamMemberPhone || '', rule.dialCode);
+      return {
+        ...member,
+        teamMemberPhone: composeInternationalPhone(rule.dialCode, national),
+      };
+    });
+    const changed = next.some(
+      (member, index) => member.teamMemberPhone !== (current[index]?.teamMemberPhone || ''),
+    );
+    if (changed) onChange(next);
+  }, [countryCode, countryName, onChange, requireTeamName, teamName]);
+
+  if (requireTeamName && !hasTeamName(teamName)) return null;
 
   const updateMember = (
     index: number,
@@ -110,12 +140,13 @@ export function TeamMemberOptionalFields({
               className="min-w-[8rem] flex-[1.2] rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               placeholder="Email"
             />
-            <input
-              type="tel"
+            <CountryDialPhoneInput
               value={member.teamMemberPhone ?? ''}
-              onChange={(e) => updateMember(index, { teamMemberPhone: e.target.value })}
-              className="min-w-[7rem] flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              placeholder="Mobile number"
+              onChange={(fullPhone) => updateMember(index, { teamMemberPhone: fullPhone })}
+              countryCode={countryCode}
+              countryName={countryName}
+              className="min-w-[9rem] flex-1"
+              aria-label={`Team member ${index + 1} mobile number`}
             />
             {index === normalizedMembers.length - 1 ? (
               <button

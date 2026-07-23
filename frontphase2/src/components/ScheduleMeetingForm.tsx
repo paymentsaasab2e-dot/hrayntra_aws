@@ -19,9 +19,11 @@ export interface ScheduleMeetingFormProps {
   showBackButton?: boolean;
   onBack?: () => void;
   title?: string;
+  /** When true, omit outer card chrome (for embedding in a parent panel). */
+  embedded?: boolean;
 }
 
-const MEETING_TYPES = ['Call', 'WhatsApp', 'Email', 'Meeting', 'Follow-up'];
+const MEETING_TYPES = ['Call', 'WhatsApp', 'Email', 'Meet', 'Video Call', 'Other'];
 const REMINDER_OPTIONS = ['10 minutes before', '30 minutes before', '1 hour before', '1 day before'];
 
 export function ScheduleMeetingForm({
@@ -32,9 +34,11 @@ export function ScheduleMeetingForm({
   showBackButton = false,
   onBack,
   title = 'Schedule Meeting / Follow-up',
+  embedded = false,
 }: ScheduleMeetingFormProps) {
   const [formData, setFormData] = useState({
     meetingType: '',
+    customMeetingType: '',
     date: '',
     time: '',
     reminder: '',
@@ -43,6 +47,11 @@ export function ScheduleMeetingForm({
   const [meetingTypeDropdownOpen, setMeetingTypeDropdownOpen] = useState(false);
   const [reminderDropdownOpen, setReminderDropdownOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const resolvedMeetingType =
+    formData.meetingType === 'Other'
+      ? formData.customMeetingType.trim() || 'Other'
+      : formData.meetingType;
 
   const handleSubmit = async () => {
     if (!entityId) {
@@ -68,7 +77,7 @@ export function ScheduleMeetingForm({
       if (entityType === 'client') {
         // Use scheduled meetings API for clients
         await apiCreateScheduledMeeting(entityId, {
-          meetingType: formData.meetingType,
+          meetingType: resolvedMeetingType,
           scheduledAt: isoDateTime,
           reminder: formData.reminder || undefined,
           notes: formData.notes || undefined,
@@ -78,14 +87,14 @@ export function ScheduleMeetingForm({
         const updateData: any = {
           nextFollowUp: isoDateTime,
           statusRemark: formData.notes
-            ? `Follow-up scheduled: ${formData.meetingType || 'General'} on ${formData.date} at ${formData.time}. ${formData.notes}`
-            : `Follow-up scheduled: ${formData.meetingType || 'General'} on ${formData.date} at ${formData.time}`,
+            ? `Follow-up scheduled: ${resolvedMeetingType || 'General'} on ${formData.date} at ${formData.time}. ${formData.notes}`
+            : `Follow-up scheduled: ${resolvedMeetingType || 'General'} on ${formData.date} at ${formData.time}`,
         };
         await apiUpdateLead(entityId, updateData);
       }
 
       // Reset form
-      setFormData({ meetingType: '', date: '', time: '', reminder: '', notes: '' });
+      setFormData({ meetingType: '', customMeetingType: '', date: '', time: '', reminder: '', notes: '' });
       
       // Call success callback
       onSuccess?.();
@@ -98,7 +107,7 @@ export function ScheduleMeetingForm({
   };
 
   const handleCancel = () => {
-    setFormData({ meetingType: '', date: '', time: '', reminder: '', notes: '' });
+    setFormData({ meetingType: '', customMeetingType: '', date: '', time: '', reminder: '', notes: '' });
     onCancel?.();
   };
 
@@ -119,7 +128,7 @@ export function ScheduleMeetingForm({
           <h2 className="text-lg font-bold text-slate-900">{title}</h2>
         </div>
       )}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-5">
+      <div className={embedded ? 'space-y-5' : 'bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-5'}>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-2">
             {entityType === 'client' ? 'Meeting Type' : 'Follow-up Type'}
@@ -168,6 +177,23 @@ export function ScheduleMeetingForm({
               </>
             )}
           </div>
+          {formData.meetingType === 'Other' ? (
+            <div className="mt-3">
+              <label htmlFor="schedule-other-type" className="mb-2 block text-sm font-medium text-slate-700">
+                Specify other type
+              </label>
+              <input
+                id="schedule-other-type"
+                type="text"
+                value={formData.customMeetingType}
+                onChange={(e) =>
+                  setFormData((p) => ({ ...p, customMeetingType: e.target.value }))
+                }
+                placeholder="e.g. LinkedIn, SMS, In-person visit…"
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+          ) : null}
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>

@@ -7,6 +7,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.post('/job-from-prompt', aiController.generateJobFromPrompt);
+router.post('/job-title-suggestions', aiController.generateJobTitleSuggestions);
 router.post('/job-description', aiController.generateJobDescription);
 router.post('/lead-details', aiController.generateLeadDetails);
 router.post('/lead-chat', aiController.generateLeadChat);

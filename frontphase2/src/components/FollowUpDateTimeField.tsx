@@ -1,7 +1,15 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarDays } from 'lucide-react';
+import {
+  CalendarDays,
+  Mail,
+  MessageCircle,
+  MoreHorizontal,
+  Phone,
+  Users,
+  Video,
+} from 'lucide-react';
 import {
   combineDMYAndTimeToISO,
   isoToDMYDate,
@@ -10,6 +18,29 @@ import {
   parseDMYToYMD,
 } from '../utils/formatLeadDateTime';
 import { getLocalDateTimeInputMinNow } from '../utils/dateInputConstraints';
+
+export const FOLLOW_UP_TYPE_PRESETS = [
+  { id: 'Call', label: 'Call', icon: Phone },
+  { id: 'WhatsApp', label: 'WhatsApp', icon: MessageCircle },
+  { id: 'Email', label: 'Email', icon: Mail },
+  { id: 'Meet', label: 'Meet', icon: Users },
+  { id: 'Video Call', label: 'Video', icon: Video },
+] as const;
+
+export const FOLLOW_UP_TYPE_OPTIONS = [
+  ...FOLLOW_UP_TYPE_PRESETS,
+  { id: 'Other', label: 'Other', icon: MoreHorizontal },
+] as const;
+
+const PRESET_IDS = new Set<string>(FOLLOW_UP_TYPE_PRESETS.map((o) => o.id));
+
+export type FollowUpTypeOption = (typeof FOLLOW_UP_TYPE_OPTIONS)[number]['id'];
+
+export function isOtherFollowUpType(type?: string | null): boolean {
+  const value = String(type || '').trim();
+  if (!value) return false;
+  return value === 'Other' || !PRESET_IDS.has(value);
+}
 
 type Props = {
   value: string;
@@ -20,6 +51,11 @@ type Props = {
   dateLabel?: string;
   timeLabel?: string;
   className?: string;
+  /** Selected follow-up channel/type (Call, WhatsApp, Email, …). */
+  followUpType?: string;
+  onFollowUpTypeChange?: (type: string) => void;
+  /** Hide type chips when not needed. Default: show when onFollowUpTypeChange is provided. */
+  showFollowUpTypes?: boolean;
 };
 
 export function FollowUpDateTimeField({
@@ -30,7 +66,15 @@ export function FollowUpDateTimeField({
   dateLabel = 'Date (DD/MM/YYYY)',
   timeLabel = 'Time',
   className = '',
+  followUpType = 'Call',
+  onFollowUpTypeChange,
+  showFollowUpTypes,
 }: Props) {
+  const showTypes = showFollowUpTypes ?? Boolean(onFollowUpTypeChange);
+  const otherSelected = isOtherFollowUpType(followUpType);
+  const otherText =
+    otherSelected && followUpType && followUpType !== 'Other' ? followUpType : '';
+
   const parsed = useMemo(
     () => ({
       date: isoToDMYDate(value),
@@ -103,6 +147,59 @@ export function FollowUpDateTimeField({
           {label}
         </label>
       ) : null}
+
+      {showTypes ? (
+        <div className="mb-3">
+          <p className="mb-1.5 text-[10px] font-semibold text-slate-500">Follow-up via</p>
+          <div className="flex flex-wrap gap-1.5">
+            {FOLLOW_UP_TYPE_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const selected =
+                opt.id === 'Other' ? otherSelected : (followUpType || 'Call') === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    if (opt.id === 'Other') {
+                      onFollowUpTypeChange?.(otherText || 'Other');
+                      return;
+                    }
+                    onFollowUpTypeChange?.(opt.id);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    selected
+                      ? 'border-sky-500 bg-sky-50 text-sky-800 shadow-sm shadow-sky-500/10'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50/50'
+                  }`}
+                >
+                  <Icon size={13} className={selected ? 'text-sky-600' : 'text-slate-400'} />
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          {otherSelected ? (
+            <div className="mt-2.5">
+              <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                Specify other follow-up type
+              </label>
+              <input
+                type="text"
+                value={otherText}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  onFollowUpTypeChange?.(next.trim() ? next : 'Other');
+                }}
+                placeholder="e.g. LinkedIn, SMS, In-person visit…"
+                autoFocus
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-[10px] font-semibold text-slate-500">{dateLabel}</label>

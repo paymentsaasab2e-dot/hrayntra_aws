@@ -180,6 +180,7 @@ const activityColor = (action: string): 'blue' | 'green' | 'orange' | 'red' | 's
 const mapInterview = (item: BackendInterviewListItem): Interview => ({
   id: item.id,
   scheduledAt: item.scheduledAt,
+  updatedAt: item.updatedAt || item.createdAt || undefined,
   candidate: {
     id: item.candidate.id,
     name: resolveInterviewCandidateName(item.candidate),

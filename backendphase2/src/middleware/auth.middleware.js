@@ -14,8 +14,10 @@ export const authMiddleware = async (req, res, next) => {
     if (
       path.startsWith('/public/review/') ||
       path.includes('/jobs/public/apply/') ||
+      path.includes('/leads/public/form/') ||
       url.includes('/interviews/public/review/') ||
-      url.includes('/jobs/public/apply/')
+      url.includes('/jobs/public/apply/') ||
+      url.includes('/leads/public/form/')
     ) {
       return next();
     }

@@ -596,7 +596,7 @@ export const placementService = {
 
   async getAll(req) {
     const { page, limit, skip } = buildPagination(req.query);
-    const sortBy = VALID_SORT_FIELDS.has(req.query.sortBy) ? req.query.sortBy : 'offerDate';
+    const sortBy = VALID_SORT_FIELDS.has(req.query.sortBy) ? req.query.sortBy : 'updatedAt';
     const sortOrder = String(req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
     const where = await buildPlacementWhere(req.query);
 

@@ -9,6 +9,7 @@ const PUBLIC_ROUTES = [
   '/api',
   '/client-review',
   '/apply',
+  '/lead-form',
   '/session-transfer',
 ];
 

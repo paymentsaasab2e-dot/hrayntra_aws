@@ -235,6 +235,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     } : { name: 'Unassigned', avatar: '' },
     assignedToId: backendClient.assignedTo?.id || undefined,
     lastActivity: backendClient.updatedAt ? formatDateDMY(backendClient.updatedAt) : 'Never',
+    updatedAt: backendClient.updatedAt || undefined,
     auditMeta: extractAuditMeta(backendClient as Record<string, unknown>),
     logo: backendClient.logo || '',
     revenue: backendClient.revenueGenerated || undefined,
@@ -339,6 +340,7 @@ export default function App() {
   const canOpenClientTrash = hasAnyPermission(['clients_delete']);
   const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState('all');
+  const [clientSortBy, setClientSortBy] = useState<'activity' | 'name'>('activity');
   const [clientNameSortOrder, setClientNameSortOrder] = useState<'asc' | 'desc'>('asc');
   const currentUserName = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -506,11 +508,16 @@ export default function App() {
       );
     }
     list.sort((a, b) => {
-      const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-      return clientNameSortOrder === 'asc' ? comparison : -comparison;
+      if (clientSortBy === 'name') {
+        const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        return clientNameSortOrder === 'asc' ? comparison : -comparison;
+      }
+      const aTime = new Date(a.updatedAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || 0).getTime();
+      return bTime - aTime;
     });
     return list;
-  }, [filteredClients, clientNameSortOrder, clientSmartSearch.activeKeywords, currentUserName]);
+  }, [filteredClients, clientSortBy, clientNameSortOrder, clientSmartSearch.activeKeywords, currentUserName]);
   const pagedClients = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return sortedClients.slice(start, start + pageSize);
@@ -850,12 +857,17 @@ export default function App() {
       }
       const list = [...filtered];
       list.sort((a, b) => {
-        const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-        return clientNameSortOrder === 'asc' ? comparison : -comparison;
+        if (clientSortBy === 'name') {
+          const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+          return clientNameSortOrder === 'asc' ? comparison : -comparison;
+        }
+        const aTime = new Date(a.updatedAt || 0).getTime();
+        const bTime = new Date(b.updatedAt || 0).getTime();
+        return bTime - aTime;
       });
       return list;
     },
-    [activeTab, clientNameSortOrder, teamMemberFilterId, teamMembers],
+    [activeTab, clientSortBy, clientNameSortOrder, teamMemberFilterId, teamMembers],
   );
 
   const fetchAllClientsForExport = useCallback(async (): Promise<Client[]> => {
@@ -1331,7 +1343,13 @@ export default function App() {
                     }
                     getClientHandoffStatus={canHandoffClient ? getStatusForClient : undefined}
                     clientNameSortOrder={clientNameSortOrder}
+                    clientSortBy={clientSortBy}
                     onToggleClientNameSortOrder={() => {
+                      if (clientSortBy !== 'name') {
+                        setClientSortBy('name');
+                        setClientNameSortOrder('asc');
+                        return;
+                      }
                       setClientNameSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
                     }}
                     workspaceAlertsByEntityId={workspaceAlertsByEntityId}

@@ -37,6 +37,7 @@ import {
   Calendar,
   PhoneCall,
   CalendarPlus,
+  CalendarClock,
   UserPlus,
   XCircle,
   UserCog,
@@ -70,6 +71,8 @@ import {
   Megaphone,
   Flag,
   GripVertical,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 import type { DefaultLeadStatus, Lead, LeadStatus, LeadSource, LeadType, LeadNote, LeadNoteTag, Activity as LeadActivity } from '@/app/leads/types';
 import { EntityAuditSummary } from '../table/TableAuditCell';
@@ -77,12 +80,14 @@ import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
+import { LeadFollowUpTabPanel } from './LeadFollowUpTabPanel';
 import { NotesService } from '../NotesService';
 import {
   apiAppendLeadStatus,
   apiCheckLeadDuplicate,
   apiCreateLead,
   apiGenerateLeadDetails,
+  apiGetLeadPublicFormLink,
   type LeadAiChatMessage,
   apiGetLead,
   apiGetLeadActivities,
@@ -122,7 +127,8 @@ import {
   resolveAiLocationFields,
 } from '@/lib/leadAiHelpers';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
-import { IndustrySuggestInput } from '../forms/IndustrySuggestInput';
+import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
+import { formatIndustriesDisplay } from '../../lib/industryOptions';
 import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
 import {
@@ -150,6 +156,7 @@ import { LeadSourceFields } from './LeadSourceFields';
 import type { LocationSelection } from '../LocationAutocomplete';
 import { CscLocationFields } from '../location/CscLocationFields';
 import { getCountryByCodeOrName, inferLocationFromCityName } from '../../lib/cscData';
+import { validatePhoneForCountry } from '../../lib/phoneByCountry';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 
 const CALL_OUTCOMES = ['Interested', 'Follow-up Required', 'No Answer', 'Wrong Number', 'Not Interested'];
@@ -293,6 +300,7 @@ function validateEmail(email: string) {
 type LeadRequiredFieldErrors = Partial<{
   companyName: string;
   email: string;
+  phone: string;
 }>;
 
 function validateLeadRequiredFields(form: {
@@ -300,10 +308,15 @@ function validateLeadRequiredFields(form: {
   contactPerson?: string;
   email?: string;
   emails?: string[];
-}): LeadRequiredFieldErrors {
+  phone?: string;
+  phones?: string[];
+  country?: string;
+  countryCode?: string;
+}, options?: { skipPhoneValidation?: boolean }): LeadRequiredFieldErrors {
   const errors: LeadRequiredFieldErrors = {};
   const companyName = String(form.companyName || '').trim();
   const email = primaryContactValue(normalizeContactList(form.emails, form.email));
+  const phone = primaryContactValue(normalizeContactList(form.phones, form.phone));
 
   if (!companyName) errors.companyName = 'Company is required';
   if (!email) {
@@ -312,6 +325,13 @@ function validateLeadRequiredFields(form: {
     const result = validateEmail(email);
     if (!result.valid) {
       errors.email = result.message;
+    }
+  }
+
+  if (phone && !options?.skipPhoneValidation) {
+    const phoneResult = validatePhoneForCountry(phone, form.countryCode, form.country);
+    if (!phoneResult.valid) {
+      errors.phone = phoneResult.message || 'Enter a valid mobile number';
     }
   }
 
@@ -384,6 +404,10 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   notes?: string;
   lastFollowUp?: string;
   nextFollowUp?: string;
+  /** Optional follow-up type when scheduling on create (Call, Email, …). */
+  followUpType?: string;
+  /** Optional notes stored with the initial next follow-up. */
+  followUpNotes?: string;
 };
 
 function syncLeadTeamMembers(
@@ -422,6 +446,11 @@ interface LeadDetailsDrawerProps {
   onClose: () => void;
   /** Called when user submits the Add Lead form */
   onAddLead?: (data: AddLeadFormData, createdLead?: BackendLead) => void;
+  /**
+   * Optional create path (e.g. public intake form). When set, replaces `apiCreateLead`
+   * and skips authenticated duplicate-check / file uploads that need a CRM session.
+   */
+  createLeadOverride?: (data: CreateLeadData) => Promise<BackendLead | undefined | null>;
   onUpdateLead?: (updatedLead?: BackendLead) => void;
   onConvert?: (id: string, form: {
     companyName: string;
@@ -713,6 +742,7 @@ export function LeadDetailsDrawer({
   initialMode = 'view',
   onClose,
   onAddLead,
+  createLeadOverride,
   onUpdateLead,
   onConvert,
   onMarkLost,
@@ -722,7 +752,8 @@ export function LeadDetailsDrawer({
   onOpenExistingLead,
 }: LeadDetailsDrawerProps) {
   usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
-  const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'chat' | 'add'>(
+  const isPublicIntakeMode = Boolean(createLeadOverride);
+  const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'chat' | 'followup' | 'add'>(
     'overview'
   );
   const [leadFilesTypeFilter, setLeadFilesTypeFilter] = useState<'All' | 'Contract' | 'Proposal' | 'Other'>('All');
@@ -742,15 +773,58 @@ export function LeadDetailsDrawer({
     if (addLeadMode) setActiveTab('add');
   }, [addLeadMode]);
 
+  const [publicLeadFormLink, setPublicLeadFormLink] = useState('');
+  const [publicLeadFormTenant, setPublicLeadFormTenant] = useState('');
+  const [publicLeadFormLinkLoading, setPublicLeadFormLinkLoading] = useState(false);
+  const [publicLeadFormLinkCopied, setPublicLeadFormLinkCopied] = useState(false);
+
+  useEffect(() => {
+    if (!addLeadMode || isPublicIntakeMode) {
+      setPublicLeadFormLink('');
+      setPublicLeadFormTenant('');
+      setPublicLeadFormLinkCopied(false);
+      return;
+    }
+    let cancelled = false;
+    setPublicLeadFormLinkLoading(true);
+    apiGetLeadPublicFormLink()
+      .then((res) => {
+        if (!cancelled) {
+          const payload =
+            (res as { data?: { formUrl?: string; tenantDbName?: string | null } })?.data ?? res;
+          const data = payload as { formUrl?: string; tenantDbName?: string | null };
+          setPublicLeadFormLink(data.formUrl || '');
+          setPublicLeadFormTenant(String(data.tenantDbName || '').trim());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPublicLeadFormLink('');
+          setPublicLeadFormTenant('');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPublicLeadFormLinkLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [addLeadMode, isPublicIntakeMode]);
+
   useEffect(() => {
     if (addLeadMode || !lead) return;
+    if (isLeadAlreadyConverted(lead)) {
+      setOverviewEditMode(false);
+      setOverviewEditErrors({});
+      return;
+    }
     if (initialMode === 'edit') {
       startOverviewEdit();
       return;
     }
     setOverviewEditMode(false);
     setOverviewEditErrors({});
-  }, [addLeadMode, initialMode, lead?.id]);
+  }, [addLeadMode, initialMode, lead?.id, lead?.status, lead?.convertedToClientId]);
 
   const [addLeadForm, setAddLeadForm] = useState<AddLeadFormData>({
     ...emptyAgreementTerms(),
@@ -798,6 +872,8 @@ export function LeadDetailsDrawer({
     notes: '',
     lastFollowUp: '',
     nextFollowUp: '',
+    followUpType: 'Call',
+    followUpNotes: '',
   });
   const [addLeadStatusIsCustom, setAddLeadStatusIsCustom] = useState(false);
   const [leadStatusCatalog, setLeadStatusCatalog] = useState<string[]>(DEFAULT_LEAD_STATUSES);
@@ -849,6 +925,12 @@ export function LeadDetailsDrawer({
     const fetchRecruiters = async () => {
       // Only fetch when drawer is open (either addLeadMode or lead exists)
       if (!addLeadMode && !lead) return;
+      // Public intake form has no CRM session — skip assignable-members call.
+      if (isPublicIntakeMode) {
+        setRecruiters([]);
+        setLoadingRecruiters(false);
+        return;
+      }
       
       setLoadingRecruiters(true);
       try {
@@ -887,10 +969,15 @@ export function LeadDetailsDrawer({
     };
     
     fetchRecruiters();
-  }, [addLeadMode, lead]);
+  }, [addLeadMode, lead, isPublicIntakeMode]);
 
   useEffect(() => {
     if (!addLeadMode && !lead) return;
+
+    if (isPublicIntakeMode) {
+      setLeadStatusCatalog(mergeLeadStatusOptions(DEFAULT_LEAD_STATUSES, lead?.status ?? addLeadForm.status));
+      return;
+    }
 
     let cancelled = false;
     const fetchLeadStatusCatalog = async () => {
@@ -909,7 +996,7 @@ export function LeadDetailsDrawer({
     return () => {
       cancelled = true;
     };
-  }, [addLeadMode, lead?.id]);
+  }, [addLeadMode, lead?.id, isPublicIntakeMode]);
 
   const resetLeadAiAssistant = () => {
     setLeadAiChatOpen(false);
@@ -1010,6 +1097,8 @@ export function LeadDetailsDrawer({
       notes: '',
       lastFollowUp: '',
       nextFollowUp: '',
+      followUpType: 'Call',
+      followUpNotes: '',
     });
     setAddLeadErrors({});
     setPendingAddLeadAgreementsFile(null);
@@ -1175,6 +1264,7 @@ export function LeadDetailsDrawer({
   }, [lead?.id, addLeadMode]);
   const [overviewEditMode, setOverviewEditMode] = useState(false);
   const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
+  const [savingOverviewEdit, setSavingOverviewEdit] = useState(false);
   const [overviewEditForm, setOverviewEditForm] = useState({
     companyName: '',
     industry: '',
@@ -1213,6 +1303,7 @@ export function LeadDetailsDrawer({
     createdDate: '',
     lastFollowUp: '',
     nextFollowUp: '',
+    followUpType: 'Call',
     agreementsFileName: '' as string,
     agreementsFileUrl: '' as string,
     agreementsUploadedAt: '' as string,
@@ -1233,6 +1324,7 @@ export function LeadDetailsDrawer({
     outcome: '',
     notes: '',
     nextFollowUp: '',
+    followUpType: 'Call',
   });
   const [outcomeDropdownOpen, setOutcomeDropdownOpen] = useState(false);
   const [showSendWhatsAppForm, setShowSendWhatsAppForm] = useState(false);
@@ -1299,7 +1391,7 @@ export function LeadDetailsDrawer({
   const [accountManagerDropdownOpen, setAccountManagerDropdownOpen] = useState(false);
 
   const WHATSAPP_TEMPLATES = ['Introduction', 'Meeting Request', 'Follow-up Reminder', 'Proposal Shared'];
-  const FOLLOW_UP_TYPES = ['Call', 'WhatsApp', 'Email', 'Meeting'];
+  const FOLLOW_UP_TYPES = ['Call', 'WhatsApp', 'Email', 'Meet', 'Video Call', 'Other'];
   const REMINDER_OPTIONS = ['10 minutes before', '30 minutes before', '1 hour before', '1 day before'];
   const INDUSTRIES = ['Technology', 'Healthcare', 'Finance', 'Manufacturing', 'Retail', 'Other'];
   const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '500+'];
@@ -1583,6 +1675,15 @@ export function LeadDetailsDrawer({
 
   const startOverviewEdit = () => {
     if (!lead) return;
+    if (isLeadAlreadyConverted(lead)) {
+      void requestError(
+        `This lead has already been converted to a client${
+          lead.convertedClientName ? ` (${lead.convertedClientName})` : ''
+        }. Converted leads are view-only and cannot be edited.`,
+      );
+      setOverviewEditMode(false);
+      return;
+    }
     setOverviewEditErrors({});
     setOverviewStatusIsCustom(!isDefaultLeadStatus(lead.status));
     setOverviewEditForm({
@@ -1642,6 +1743,7 @@ export function LeadDetailsDrawer({
       createdDate: lead.createdDate ?? '',
       lastFollowUp: lead.lastFollowUp,
       nextFollowUp: lead.nextFollowUp ?? '',
+      followUpType: 'Call',
       agreementsFileName: lead.agreementsFileName ?? '',
       agreementsFileUrl: lead.agreementsFileUrl ?? '',
       agreementsUploadedAt: lead.agreementsUploadedAt ?? '',
@@ -1729,18 +1831,38 @@ export function LeadDetailsDrawer({
 
   const saveOverviewEdit = async () => {
     if (!lead) return;
+    if (isLeadAlreadyConverted(lead)) {
+      void requestError(
+        `This lead has already been converted to a client${
+          lead.convertedClientName ? ` (${lead.convertedClientName})` : ''
+        }. Converted leads are view-only and cannot be edited.`,
+      );
+      setOverviewEditMode(false);
+      return;
+    }
     if (overviewStatusIsCustom && !String(overviewEditForm.status || '').trim()) {
       toast.error('Enter a custom status before saving.');
       return;
     }
 
-    const nextErrors = validateLeadRequiredFields(overviewEditForm);
+    const nextErrors = validateLeadRequiredFields(overviewEditForm, {
+      // Existing lead phones may predate stricter country rules — don't block save.
+      skipPhoneValidation: true,
+    });
     setOverviewEditErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+    if (Object.keys(nextErrors).length > 0) {
+      const firstError = Object.values(nextErrors)[0];
+      toast.error(firstError || 'Please fix the highlighted fields before saving.');
+      return;
+    }
+
+    const previousNextFollowUp = lead.nextFollowUp || '';
+    const nextFollowUpValue = String(overviewEditForm.nextFollowUp || '').trim();
+    const followUpChanged =
+      Boolean(nextFollowUpValue) && nextFollowUpValue !== String(previousNextFollowUp || '').trim();
     
     try {
-      // Find assigned user ID from name (in a real app, you'd have a user lookup)
-      // For now, we'll just update the fields we can
+      setSavingOverviewEdit(true);
       const updateData: Partial<CreateLeadData> = {
         companyName: overviewEditForm.companyName,
         contactPerson: overviewEditForm.contactPerson.trim() || undefined,
@@ -1753,7 +1875,6 @@ export function LeadDetailsDrawer({
           overviewEditForm.phone,
         ),
         industry: overviewEditForm.industry || undefined,
-        companySize: undefined,
         website: overviewEditForm.website || undefined,
         linkedIn: overviewEditForm.linkedIn || undefined,
         location: overviewEditForm.location || undefined,
@@ -1791,7 +1912,16 @@ export function LeadDetailsDrawer({
         interestedNeeds: overviewEditForm.interestedNeeds || undefined,
         notes: overviewEditForm.notes || undefined,
         lastFollowUp: overviewEditForm.lastFollowUp || undefined,
-        nextFollowUp: overviewEditForm.nextFollowUp || undefined,
+        nextFollowUp: nextFollowUpValue || '',
+        ...(followUpChanged
+          ? {
+              statusRemark: `Follow-up scheduled: ${overviewEditForm.followUpType || 'General'}`,
+            }
+          : {}),
+        ...agreementTermsApiPayload(overviewEditForm),
+        agreementsFileName: overviewEditForm.agreementsFileName || undefined,
+        agreementsFileUrl: overviewEditForm.agreementsFileUrl || undefined,
+        agreementsUploadedAt: overviewEditForm.agreementsUploadedAt || undefined,
       };
 
       const pendingOverviewLeadKyc = [...pendingOverviewKycFiles];
@@ -1814,15 +1944,47 @@ export function LeadDetailsDrawer({
         }
       }
 
+      if (pendingOverviewAgreementsFile) {
+        try {
+          setUploadingAgreements(true);
+          const uploadResponse = await filesApiUpload(
+            'lead',
+            lead.id,
+            pendingOverviewAgreementsFile,
+            'AGREEMENT',
+          );
+          const agreementUrl = uploadResponse.data?.fileUrl;
+          const agreementName =
+            uploadResponse.data?.fileName || pendingOverviewAgreementsFile.name;
+          if (agreementUrl) {
+            updateData.agreementsFileName = agreementName;
+            updateData.agreementsFileUrl = agreementUrl;
+            updateData.agreementsUploadedAt = new Date().toISOString();
+          }
+        } catch (uploadError: any) {
+          console.error('Failed to upload lead agreement:', uploadError);
+          void requestError(uploadError.message || 'Failed to upload agreements file');
+        } finally {
+          setUploadingAgreements(false);
+        }
+      }
+
       const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
+      const savedLead =
+        (updatedLeadResponse as { data?: BackendLead })?.data ||
+        (updatedLeadResponse as unknown as BackendLead);
+      setPendingOverviewAgreementsFile(null);
       setPendingOverviewKycFiles([]);
       setPendingOverviewTeamMemberKycFiles([]);
       setOverviewEditMode(false);
       setOverviewEditErrors({});
-      onUpdateLead?.(updatedLeadResponse.data);
+      toast.success('Lead saved successfully');
+      onUpdateLead?.(savedLead);
     } catch (error: any) {
       console.error('Failed to update lead:', error);
       void requestError(error.message || 'Failed to update lead');
+    } finally {
+      setSavingOverviewEdit(false);
     }
   };
 
@@ -1850,7 +2012,7 @@ export function LeadDetailsDrawer({
     }
 
     try {
-      if (!options?.skipDuplicateCheck && !allowDuplicateCreate) {
+      if (!createLeadOverride && !options?.skipDuplicateCheck && !allowDuplicateCreate) {
         const primaryEmail = primaryContactValue(
           normalizeContactList(addLeadForm.emails, addLeadForm.email),
         );
@@ -1918,14 +2080,29 @@ export function LeadDetailsDrawer({
         notes: addLeadForm.notes?.trim() || undefined,
         lastFollowUp: addLeadForm.lastFollowUp || undefined,
         nextFollowUp: addLeadForm.nextFollowUp || undefined,
+        statusRemark: addLeadForm.nextFollowUp
+          ? [
+              `Follow-up scheduled: ${addLeadForm.followUpType || 'General'}`,
+              addLeadForm.followUpNotes?.trim()
+                ? `Notes: ${addLeadForm.followUpNotes.trim()}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join('. ')
+          : undefined,
         assignedToId: addLeadForm.assignedToId || undefined,
         ...agreementTermsApiPayload(addLeadForm),
       };
 
-      const createdLeadResponse = await apiCreateLead(createData);
-      let createdLead = createdLeadResponse?.data;
+      let createdLead: BackendLead | undefined | null = null;
+      if (createLeadOverride) {
+        createdLead = (await createLeadOverride(createData)) || null;
+      } else {
+        const createdLeadResponse = await apiCreateLead(createData);
+        createdLead = createdLeadResponse?.data;
+      }
 
-      if (createdLead?.id && pendingAddLeadAgreementsFile) {
+      if (!createLeadOverride && createdLead?.id && pendingAddLeadAgreementsFile) {
         try {
           setUploadingAgreements(true);
           const uploadResponse = await filesApiUpload(
@@ -1958,7 +2135,7 @@ export function LeadDetailsDrawer({
       }
 
       const pendingLeadKyc = [...pendingAddLeadKycFiles];
-      if (createdLead?.id && pendingLeadKyc.length > 0) {
+      if (!createLeadOverride && createdLead?.id && pendingLeadKyc.length > 0) {
         try {
           setUploadingKyc(true);
           await uploadKycDocuments('lead', createdLead.id, pendingLeadKyc);
@@ -1975,7 +2152,7 @@ export function LeadDetailsDrawer({
       setPendingAddLeadTeamMemberKycFiles([]);
       if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
 
-      onAddLead?.(addLeadForm, createdLead);
+      onAddLead?.(addLeadForm, createdLead || undefined);
       resetAddLeadForm();
     } catch (error: any) {
       console.error('Failed to create lead:', error);
@@ -1985,6 +2162,7 @@ export function LeadDetailsDrawer({
     addLeadForm,
     addLeadStatusIsCustom,
     allowDuplicateCreate,
+    createLeadOverride,
     onAddLead,
     pendingAddLeadAgreementsFile,
     pendingAddLeadKycFiles,
@@ -1994,6 +2172,7 @@ export function LeadDetailsDrawer({
     ? [{ id: 'add' as const, label: 'Add Lead', icon: UserPlus }]
     : [
         { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
+        { id: 'followup' as const, label: 'Follow-up', icon: CalendarClock },
         { id: 'activities' as const, label: 'Activities', icon: Activity },
         { id: 'notes' as const, label: 'Remarks', icon: StickyNote },
         { id: 'chat' as const, label: 'Chat', icon: MessageSquare },
@@ -2076,7 +2255,10 @@ export function LeadDetailsDrawer({
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {!addLeadMode && activeTab === 'overview' && !overviewEditMode && (
+              {!addLeadMode &&
+              activeTab === 'overview' &&
+              !overviewEditMode &&
+              !isLeadAlreadyConverted(lead) ? (
                 <button
                   type="button"
                   onClick={startOverviewEdit}
@@ -2085,8 +2267,11 @@ export function LeadDetailsDrawer({
                 >
                   <Edit2 size={18} />
                 </button>
-              )}
-              {!addLeadMode && activeTab === 'overview' && overviewEditMode && (
+              ) : null}
+              {!addLeadMode &&
+              activeTab === 'overview' &&
+              overviewEditMode &&
+              !isLeadAlreadyConverted(lead) ? (
                 <>
                   <button
                     type="button"
@@ -2097,30 +2282,26 @@ export function LeadDetailsDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={saveOverviewEdit}
-                    className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                    onClick={() => void saveOverviewEdit()}
+                    disabled={savingOverviewEdit || uploadingAgreements || uploadingKyc}
+                    className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Save
+                    {savingOverviewEdit ? 'Saving…' : 'Save'}
                   </button>
                 </>
-              )}
+              ) : null}
               {addLeadMode ? (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => setLeadAiChatOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
-                  >
-                    <Sparkles size={14} />
-                    Create with AI
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
+                  {!isPublicIntakeMode ? (
+                    <button
+                      type="button"
+                      onClick={() => setLeadAiChatOpen(true)}
+                      className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                    >
+                      <Sparkles size={14} />
+                      Create with AI
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void handleSubmitAddLead()}
@@ -2129,6 +2310,13 @@ export function LeadDetailsDrawer({
                   >
                     <Plus size={14} />
                     Create Lead
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    Cancel
                   </button>
                 </>
               ) : (
@@ -2179,6 +2367,71 @@ export function LeadDetailsDrawer({
               ) : null}
             </div>
           </div>
+
+          {addLeadMode && !isPublicIntakeMode && (
+            <div className="shrink-0 border-b border-blue-100 bg-blue-50/70 px-6 py-3">
+              <div className="flex items-start gap-2">
+                <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-blue-900">Shareable lead form link</p>
+                  <p className="mt-0.5 text-[11px] text-blue-800/80">
+                    Anyone with this link can fill the same lead details. Submissions appear on Leads
+                    for this tenant only
+                    {publicLeadFormTenant ? (
+                      <>
+                        {' '}
+                        (<span className="font-mono">{publicLeadFormTenant}</span>)
+                      </>
+                    ) : null}
+                    .
+                  </p>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      readOnly
+                      value={
+                        publicLeadFormLinkLoading
+                          ? 'Loading link…'
+                          : publicLeadFormLink || 'Link unavailable'
+                      }
+                      className="h-8 min-w-0 flex-1 truncate rounded-md border border-blue-200 bg-white px-2 font-mono text-[11px] text-slate-700"
+                      aria-label="Public lead form URL"
+                    />
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        type="button"
+                        disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
+                        onClick={async () => {
+                          if (!publicLeadFormLink) return;
+                          try {
+                            await navigator.clipboard.writeText(publicLeadFormLink);
+                            setPublicLeadFormLinkCopied(true);
+                            window.setTimeout(() => setPublicLeadFormLinkCopied(false), 2000);
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                        className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 text-[11px] font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        {publicLeadFormLinkCopied ? 'Copied' : 'Copy'}
+                      </button>
+                      <a
+                        href={publicLeadFormLink || undefined}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 text-[11px] font-medium text-blue-800 hover:bg-blue-50 ${
+                          !publicLeadFormLink ? 'pointer-events-none opacity-50' : ''
+                        }`}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Open
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Tabs — hidden in add mode (header already shows Add Lead) */}
           {!addLeadMode ? (
@@ -2500,9 +2753,13 @@ export function LeadDetailsDrawer({
                     </div>
                     <div>
                       <FollowUpDateTimeField
-                        label=""
+                        label="Next Follow-up Date & Time"
                         value={logCallForm.nextFollowUp}
                         onChange={(iso) => setLogCallForm((p) => ({ ...p, nextFollowUp: iso }))}
+                        followUpType={logCallForm.followUpType || 'Call'}
+                        onFollowUpTypeChange={(type) =>
+                          setLogCallForm((p) => ({ ...p, followUpType: type }))
+                        }
                       />
                     </div>
                   </div>
@@ -2518,7 +2775,7 @@ export function LeadDetailsDrawer({
                       type="button"
                       onClick={() => {
                         setShowLogCallForm(false);
-                        setLogCallForm({ callType: 'Outgoing', durationMinutes: 0, durationSeconds: 0, outcome: '', notes: '', nextFollowUp: '' });
+                        setLogCallForm({ callType: 'Outgoing', durationMinutes: 0, durationSeconds: 0, outcome: '', notes: '', nextFollowUp: '', followUpType: 'Call' });
                       }}
                       className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-sm transition-colors"
                     >
@@ -2635,21 +2892,17 @@ export function LeadDetailsDrawer({
                   showBackButton={true}
                   onBack={() => {
                     setShowScheduleFollowUpForm(false);
-                    setActiveTab('overview');
+                    setActiveTab('followup');
                   }}
                   title="Schedule Follow-up"
                   onSuccess={() => {
                     setShowScheduleFollowUpForm(false);
-                    setActiveTab('overview');
-                    // Refresh activities to show the new follow-up activity
-                    if (activeTab === 'activities') {
-                      setActiveTab('overview');
-                      setTimeout(() => setActiveTab('activities'), 100);
-                    }
+                    setActiveTab('followup');
+                    onUpdateLead?.();
                   }}
                   onCancel={() => {
                     setShowScheduleFollowUpForm(false);
-                    setActiveTab('overview');
+                    setActiveTab('followup');
                   }}
                 />
               ) : showConvertToClientForm ? (
@@ -2839,7 +3092,7 @@ export function LeadDetailsDrawer({
                         }
                         if (lead) onConvert?.(lead.id, convertToClientForm);
                         setShowConvertToClientForm(false);
-                        setActiveTab('overview');
+                        onClose();
                       }}
                       className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-sm transition-colors flex items-center gap-2"
                     >
@@ -2920,7 +3173,7 @@ export function LeadDetailsDrawer({
                       onClick={() => {
                         if (lead) onAssignLead?.(lead.id, assignLeadForm);
                         setShowAssignLeadForm(false);
-                        setActiveTab('overview');
+                        onClose();
                       }}
                       className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-sm transition-colors flex items-center gap-2"
                     >
@@ -3001,7 +3254,7 @@ export function LeadDetailsDrawer({
                       onClick={() => {
                         if (lead) onMarkLost?.(lead.id, markLostForm);
                         setShowMarkLostForm(false);
-                        setActiveTab('overview');
+                        onClose();
                       }}
                       className="px-4 py-2.5 text-sm font-medium text-white bg-slate-600 rounded-xl hover:bg-slate-700 shadow-sm transition-colors flex items-center gap-2"
                     >
@@ -3083,6 +3336,8 @@ export function LeadDetailsDrawer({
                           phones={addLeadForm.phones}
                           email={addLeadForm.email}
                           phone={addLeadForm.phone}
+                          countryCode={addLeadForm.countryCode}
+                          countryName={addLeadForm.country}
                           onDirectorSalutationChange={(value) =>
                             setAddLeadForm((p) => ({ ...p, directorSalutation: value }))
                           }
@@ -3100,9 +3355,13 @@ export function LeadDetailsDrawer({
                           }}
                           onPhonesChange={(phones, primaryPhone) => {
                             setAddLeadForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                            if (addLeadErrors.phone) {
+                              setAddLeadErrors((prev) => ({ ...prev, phone: undefined }));
+                            }
                           }}
                           contactPersonError={addLeadErrors.contactPerson}
                           emailError={addLeadErrors.email}
+                          phoneError={addLeadErrors.phone}
                           onContactPersonBlur={() => {
                             const nextErrors = validateLeadRequiredFields(addLeadForm);
                             setAddLeadErrors((prev) => ({
@@ -3115,6 +3374,8 @@ export function LeadDetailsDrawer({
                       <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3">
                         <TeamMemberOptionalFields
                           requireTeamName={false}
+                          countryCode={addLeadForm.countryCode}
+                          countryName={addLeadForm.country}
                           members={addLeadForm.teamMembers}
                           onChange={(teamMembers) =>
                             setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
@@ -3145,14 +3406,17 @@ export function LeadDetailsDrawer({
                           onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
                         />
                       </div>
-                      <div>
+                      <div className="sm:col-span-2">
                         <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
-                        <IndustrySuggestInput
+                        <IndustryMultiSelect
                           value={addLeadForm.industry ?? ''}
                           onChange={(industry) => setAddLeadForm((p) => ({ ...p, industry }))}
                           companyName={addLeadForm.companyName ?? ''}
-                          placeholder="e.g. Technology"
+                          placeholder="Type an industry (e.g. technology, healthcare)"
                         />
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          Select one or more industries. Press Enter to add a custom industry.
+                        </p>
                       </div>
                     </div>
                   </AddLeadSectionCard>
@@ -3256,15 +3520,29 @@ export function LeadDetailsDrawer({
 
                   <AddLeadSectionCard
                     title="Follow-up & Assignment"
-                    subtitle="Schedule and owner"
+                    subtitle="Schedule the first follow-up and assign an owner"
                     icon={Calendar}
                     accent="sky"
                   >
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-4">
+                      <FollowUpDateTimeField
+                        value={addLeadForm.nextFollowUp ?? ''}
+                        onChange={(iso) => setAddLeadForm((p) => ({ ...p, nextFollowUp: iso }))}
+                        followUpType={addLeadForm.followUpType || 'Call'}
+                        onFollowUpTypeChange={(type) =>
+                          setAddLeadForm((p) => ({ ...p, followUpType: type }))
+                        }
+                      />
                       <div>
-                        <FollowUpDateTimeField
-                          value={addLeadForm.nextFollowUp ?? ''}
-                          onChange={(iso) => setAddLeadForm((p) => ({ ...p, nextFollowUp: iso }))}
+                        <AddLeadFieldLabel label="Follow-up notes" icon={StickyNote} iconClassName="text-sky-500" />
+                        <textarea
+                          value={addLeadForm.followUpNotes ?? ''}
+                          onChange={(e) =>
+                            setAddLeadForm((p) => ({ ...p, followUpNotes: e.target.value }))
+                          }
+                          rows={2}
+                          className={`${ADD_LEAD_INPUT} resize-none`}
+                          placeholder="What should be discussed on this follow-up?"
                         />
                       </div>
                       <div>
@@ -3368,13 +3646,13 @@ export function LeadDetailsDrawer({
                             placeholder="e.g. Acme Inc."
                           />
                         </div>
-                        <div>
+                        <div className="sm:col-span-2">
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                          <IndustrySuggestInput
+                          <IndustryMultiSelect
                             value={addLeadForm.industry ?? ''}
                             onChange={(industry) => setAddLeadForm((p) => ({ ...p, industry }))}
                             companyName={addLeadForm.companyName ?? ''}
-                            placeholder="e.g. Technology"
+                            placeholder="Type an industry (e.g. technology, healthcare)"
                           />
                         </div>
                         <div>
@@ -3443,6 +3721,8 @@ export function LeadDetailsDrawer({
                           phones={addLeadForm.phones}
                           email={addLeadForm.email}
                           phone={addLeadForm.phone}
+                          countryCode={addLeadForm.countryCode}
+                          countryName={addLeadForm.country}
                           onDirectorSalutationChange={(value) =>
                             setAddLeadForm((p) => ({ ...p, directorSalutation: value }))
                           }
@@ -3460,9 +3740,13 @@ export function LeadDetailsDrawer({
                           }}
                           onPhonesChange={(phones, primaryPhone) => {
                             setAddLeadForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                            if (addLeadErrors.phone) {
+                              setAddLeadErrors((prev) => ({ ...prev, phone: undefined }));
+                            }
                           }}
                           contactPersonError={addLeadErrors.contactPerson}
                           emailError={addLeadErrors.email}
+                          phoneError={addLeadErrors.phone}
                           onContactPersonBlur={() => {
                             const nextErrors = validateLeadRequiredFields(addLeadForm);
                             setAddLeadErrors((prev) => ({
@@ -3473,6 +3757,8 @@ export function LeadDetailsDrawer({
                         />
                         <TeamMemberOptionalFields
                           requireTeamName={false}
+                          countryCode={addLeadForm.countryCode}
+                          countryName={addLeadForm.country}
                           members={addLeadForm.teamMembers}
                           onChange={(teamMembers) =>
                             setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
@@ -3594,6 +3880,10 @@ export function LeadDetailsDrawer({
                           <FollowUpDateTimeField
                             value={addLeadForm.nextFollowUp ?? ''}
                             onChange={(iso) => setAddLeadForm((p) => ({ ...p, nextFollowUp: iso }))}
+                            followUpType={addLeadForm.followUpType || 'Call'}
+                            onFollowUpTypeChange={(type) =>
+                              setAddLeadForm((p) => ({ ...p, followUpType: type }))
+                            }
                           />
                         </div>
                         <div>
@@ -3620,6 +3910,18 @@ export function LeadDetailsDrawer({
                 </div>
               ) : activeTab === 'overview' ? (
                 <div className="space-y-5">
+                      {isLeadAlreadyConverted(lead) ? (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900 shadow-sm">
+                          <p className="font-semibold">Converted to client — view only</p>
+                          <p className="mt-0.5 text-emerald-800/90">
+                            This lead is linked to
+                            {lead?.convertedClientName
+                              ? ` “${lead.convertedClientName}”`
+                              : ' a client'}
+                            . Editing is disabled.
+                          </p>
+                        </div>
+                      ) : null}
                       {!overviewEditMode ? (
                         <>
                           {lead?.id ? (
@@ -3735,7 +4037,7 @@ export function LeadDetailsDrawer({
                               <OverviewField label="City" icon={MapPin} iconClassName="text-emerald-500" value={lead?.city ?? ''} />
                               <OverviewField label="State" icon={MapPin} iconClassName="text-emerald-500" value={lead?.state ?? ''} />
                               <OverviewField label="Country" icon={Globe} iconClassName="text-emerald-500" value={lead?.country ?? ''} />
-                              <OverviewField label="Industry" icon={Briefcase} iconClassName="text-emerald-500" value={lead?.industry ?? ''} />
+                              <OverviewField label="Industry" icon={Briefcase} iconClassName="text-emerald-500" value={formatIndustriesDisplay(lead?.industry ?? '')} />
                             </div>
                           </AddLeadSectionCard>
 
@@ -3860,6 +4162,8 @@ export function LeadDetailsDrawer({
                                 phones={overviewEditForm.phones}
                                 email={overviewEditForm.email}
                                 phone={overviewEditForm.phone}
+                                countryCode={overviewEditForm.countryCode}
+                                countryName={overviewEditForm.country}
                                 onDirectorSalutationChange={(value) =>
                                   setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
                                 }
@@ -3877,14 +4181,20 @@ export function LeadDetailsDrawer({
                                 }}
                                 onPhonesChange={(phones, primaryPhone) => {
                                   setOverviewEditForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                                  if (overviewEditErrors.phone) {
+                                    setOverviewEditErrors((prev) => ({ ...prev, phone: undefined }));
+                                  }
                                 }}
                                 contactPersonError={overviewEditErrors.contactPerson}
                                 emailError={overviewEditErrors.email}
+                                phoneError={overviewEditErrors.phone}
                               />
                             </div>
                             <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3">
                               <TeamMemberOptionalFields
                                 requireTeamName={false}
+                                countryCode={overviewEditForm.countryCode}
+                                countryName={overviewEditForm.country}
                                 members={overviewEditForm.teamMembers}
                                 onChange={(teamMembers) =>
                                   setOverviewEditForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
@@ -3917,7 +4227,12 @@ export function LeadDetailsDrawer({
                             </div>
                             <div>
                               <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
-                              <input value={overviewEditForm.industry} onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))} className={ADD_LEAD_INPUT} />
+                              <IndustryMultiSelect
+                                value={overviewEditForm.industry ?? ''}
+                                onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
+                                companyName={overviewEditForm.companyName ?? ''}
+                                placeholder="Type an industry (e.g. technology, healthcare)"
+                              />
                             </div>
                             </div>
                           </AddLeadSectionCard>
@@ -4014,10 +4329,14 @@ export function LeadDetailsDrawer({
                             accent="sky"
                           >
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div>
+                            <div className="sm:col-span-2">
                               <FollowUpDateTimeField
                                 value={overviewEditForm.nextFollowUp}
                                 onChange={(iso) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: iso }))}
+                                followUpType={overviewEditForm.followUpType || 'Call'}
+                                onFollowUpTypeChange={(type) =>
+                                  setOverviewEditForm((p) => ({ ...p, followUpType: type }))
+                                }
                               />
                             </div>
                             <div>
@@ -4143,6 +4462,7 @@ export function LeadDetailsDrawer({
                         </div>
                       )}
 
+                  {!isLeadAlreadyConverted(lead) ? (
                   <AddLeadSectionCard
                     title="Quick Actions"
                     subtitle="Common lead workflows"
@@ -4168,14 +4488,16 @@ export function LeadDetailsDrawer({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setShowScheduleFollowUpForm(true)}
+                          onClick={() => {
+                            setShowScheduleFollowUpForm(false);
+                            setActiveTab('followup');
+                          }}
                           className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
                         >
                           <CalendarPlus size={16} className="text-slate-600" />
                           Schedule Follow-up
                         </button>
-                        {!isLeadAlreadyConverted(lead) ? (
-                          <button
+                        <button
                             type="button"
                             onClick={openConvertToClientForm}
                             className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
@@ -4183,25 +4505,25 @@ export function LeadDetailsDrawer({
                             <UserPlus size={16} className="text-slate-600" />
                             Convert to Client
                           </button>
-                        ) : null}
                         <button
-                          type="button"
-                          onClick={openMarkLostForm}
-                          className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
-                        >
-                          <XCircle size={16} className="text-slate-600" />
-                          Mark Lost
-                        </button>
+                            type="button"
+                            onClick={openMarkLostForm}
+                            className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                          >
+                            <XCircle size={16} className="text-slate-600" />
+                            Mark Lost
+                          </button>
                         <button
-                          type="button"
-                          onClick={openAssignLeadForm}
-                          className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
-                        >
-                          <UserCog size={16} className="text-slate-600" />
-                          Assign Lead
-                        </button>
+                            type="button"
+                            onClick={openAssignLeadForm}
+                            className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                          >
+                            <UserCog size={16} className="text-slate-600" />
+                            Assign Lead
+                          </button>
                       </div>
                   </AddLeadSectionCard>
+                  ) : null}
                   <div className="hidden">
                   {/* Section 1 — Company Information */}
                   <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -4225,7 +4547,7 @@ export function LeadDetailsDrawer({
                         {!overviewEditMode ? (
                           <>
                             <FieldRow label="Company Name" value={lead?.companyName ?? ''} />
-                            <FieldRow label="Industry" value={lead?.industry ?? ''} />
+                            <FieldRow label="Industry" value={formatIndustriesDisplay(lead?.industry ?? '')} />
                             <FieldRow label="Company Size" value={lead?.companySize ?? ''} />
                             <FieldRow label="Website" value={lead?.website ?? ''} href={!!lead?.website} />
                             <FieldRow label="LinkedIn" value={lead?.linkedIn ?? ''} href={!!lead?.linkedIn} />
@@ -4243,10 +4565,11 @@ export function LeadDetailsDrawer({
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                              <input
-                                value={overviewEditForm.industry}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              <IndustryMultiSelect
+                                value={overviewEditForm.industry ?? ''}
+                                onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
+                                companyName={overviewEditForm.companyName ?? ''}
+                                placeholder="Type an industry (e.g. technology, healthcare)"
                               />
                             </div>
                             <div>
@@ -4552,6 +4875,10 @@ export function LeadDetailsDrawer({
                                 label="Next Follow-up"
                                 value={overviewEditForm.nextFollowUp}
                                 onChange={(iso) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: iso }))}
+                                followUpType={overviewEditForm.followUpType || 'Call'}
+                                onFollowUpTypeChange={(type) =>
+                                  setOverviewEditForm((p) => ({ ...p, followUpType: type }))
+                                }
                               />
                             </div>
                             <div className="md:col-span-2">
@@ -4632,6 +4959,44 @@ export function LeadDetailsDrawer({
 
                   </div>
                 </div>
+              ) : activeTab === 'followup' && lead?.id ? (
+                isLeadAlreadyConverted(lead) ? (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900 shadow-sm">
+                      <p className="font-semibold">Converted to client — view only</p>
+                      <p className="mt-0.5 text-emerald-800/90">
+                        Follow-ups can no longer be scheduled on this lead.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+                        <p className="text-[0.7rem] font-bold uppercase tracking-[0.14em] text-slate-500">
+                          Next follow-up
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-slate-900">
+                          {formatFollowUpDisplay(lead.nextFollowUp) || 'Not scheduled'}
+                        </p>
+                      </section>
+                      <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+                        <p className="text-[0.7rem] font-bold uppercase tracking-[0.14em] text-slate-500">
+                          Last contacted
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-slate-900">
+                          {formatFollowUpDisplay(lead.lastFollowUp) || '—'}
+                        </p>
+                      </section>
+                    </div>
+                  </div>
+                ) : (
+                  <LeadFollowUpTabPanel
+                    leadId={lead.id}
+                    nextFollowUp={lead.nextFollowUp}
+                    lastFollowUp={lead.lastFollowUp}
+                    onScheduled={() => {
+                      onUpdateLead?.();
+                    }}
+                  />
+                )
               ) : activeTab === 'activities' ? (
                 <div className="space-y-6">
                   <EntityAuditSummary

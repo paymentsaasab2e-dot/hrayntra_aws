@@ -951,7 +951,7 @@ export const interviewService = {
             skip,
             take: limit,
             include: interviewInclude,
-            orderBy: { scheduledAt: 'asc' },
+            orderBy: [{ updatedAt: 'desc' }, { scheduledAt: 'desc' }],
           })
         : Promise.resolve([]),
       Promise.resolve(validInterviewIds.length),

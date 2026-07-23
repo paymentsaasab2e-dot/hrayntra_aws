@@ -166,7 +166,7 @@ export const taskService = {
         skip,
         take: limit,
         include: TASK_INCLUDE,
-        orderBy: { dueDate: 'asc' },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       }),
       prisma.task.count({ where }),
     ]);
