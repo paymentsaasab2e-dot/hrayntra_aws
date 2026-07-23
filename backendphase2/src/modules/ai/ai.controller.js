@@ -531,6 +531,87 @@ export const aiController = {
     }
   },
 
+  async generateJobTitleSuggestions(req, res) {
+    try {
+      const query = String(req.body?.query || req.body?.jobTitle || '').trim();
+      const company = String(req.body?.company || '').trim();
+      const industry = String(req.body?.industry || '').trim();
+      const limitRaw = Number(req.body?.limit);
+      const limit = Number.isFinite(limitRaw)
+        ? Math.min(12, Math.max(4, Math.floor(limitRaw)))
+        : 8;
+
+      if (!query || query.length < 2) {
+        return sendResponse(res, 200, 'OK', { suggestions: [] });
+      }
+
+      if (!hasLlmProvider()) {
+        return sendError(res, 503, 'AI job title suggestions are not configured');
+      }
+
+      const completion = await chatCompletionWithFallback(
+        {
+          model: env.OPENAI_CHAT_MODEL,
+          temperature: 0.5,
+          max_tokens: 350,
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'job_title_suggestions',
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['suggestions'],
+                properties: {
+                  suggestions: {
+                    type: 'array',
+                    minItems: 1,
+                    maxItems: 12,
+                    items: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You suggest realistic recruiting job titles for ATS software. Return concise, professional titles only. Prefer common market titles. Do not include company names in titles. Avoid duplicates.',
+            },
+            {
+              role: 'user',
+              content: [
+                `Suggest ${limit} job titles related to this partial title or keyword: "${query}".`,
+                company ? `Hiring company: ${company}.` : null,
+                industry ? `Industry: ${industry}.` : null,
+                'If the input is already a strong title, include close variations and related roles.',
+                'Return JSON with a suggestions array of strings only.',
+              ]
+                .filter(Boolean)
+                .join(' '),
+            },
+          ],
+        },
+        'ai-job-title-suggestions'
+      );
+
+      const raw = completion.choices?.[0]?.message?.content?.trim();
+      const parsed = raw ? JSON.parse(raw) : null;
+      const suggestions = Array.isArray(parsed?.suggestions)
+        ? parsed.suggestions
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .filter((item, index, arr) => arr.findIndex((x) => x.toLowerCase() === item.toLowerCase()) === index)
+            .slice(0, limit)
+        : [];
+
+      return sendResponse(res, 200, 'Job title suggestions generated', { suggestions });
+    } catch (error) {
+      return sendError(res, 500, error.message || 'Failed to generate job title suggestions', error);
+    }
+  },
+
   async generateJobDescription(req, res) {
     try {
       const {

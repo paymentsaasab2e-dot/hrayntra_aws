@@ -482,10 +482,10 @@ function shouldShowOnCrmCandidatesList(candidate, options = {}) {
 
 function candidateListSortTimestamp(candidate) {
   const raw =
-    candidate?.syncedAt ||
-    candidate?.createdAt ||
     candidate?.updatedAt ||
     candidate?.lastActivity ||
+    candidate?.syncedAt ||
+    candidate?.createdAt ||
     null;
   if (!raw) return 0;
   const t = new Date(raw).getTime();
@@ -2999,7 +2999,7 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
   return portalPrisma.candidate.findMany({
     where,
     include: candidateListInclude,
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
   });
 }
 
@@ -3080,7 +3080,7 @@ export const candidateService = {
         prisma.candidate.findMany({
           where,
           include: candidateListInclude,
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         }),
         fetchPortalCandidatesForTenant(req, { status, assignedToId, search, mine, listFilters }),
       ]);
@@ -3144,7 +3144,7 @@ export const candidateService = {
       const tenantRows = await prisma.candidate.findMany({
         where,
         include: candidateListInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       });
 
       if (loadCommonPool) {

@@ -60,7 +60,7 @@ function getFiltersFromParams(searchParams: URLSearchParams): PlacementFilters {
     revenueMax: searchParams.get('revenueMax') || '',
     feeMin: searchParams.get('feeMin') || '',
     feeMax: searchParams.get('feeMax') || '',
-    sortBy: searchParams.get('sortBy') || 'offerDate',
+    sortBy: searchParams.get('sortBy') || 'updatedAt',
     sortOrder: (searchParams.get('sortOrder') || 'desc') as 'asc' | 'desc',
   };
 }

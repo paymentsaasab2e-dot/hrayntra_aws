@@ -115,17 +115,66 @@ export async function logActivity({
 
     emitTenantActionFromActivity(activity);
 
-    // Update lastActivity timestamp for the entity if it's a client.
-    // Use updateMany so deleted/missing clients do not throw P2025.
-    if (entityType === ENTITY_TYPES.CLIENT && entityId) {
+    // Keep list tables ordered by recent activity: touch the parent entity so
+    // Prisma @updatedAt (and Client.lastActivity) move the row to the top.
+    if (entityId) {
+      const now = new Date();
       try {
-        await prisma.client.updateMany({
-          where: { id: entityId },
-          data: { lastActivity: new Date() },
-        });
+        switch (entityType) {
+          case ENTITY_TYPES.CLIENT:
+            await prisma.client.updateMany({
+              where: { id: entityId },
+              data: { lastActivity: now },
+            });
+            break;
+          case ENTITY_TYPES.LEAD:
+            await prisma.lead.updateMany({
+              where: { id: entityId },
+              data: { updatedAt: now },
+            });
+            break;
+          case ENTITY_TYPES.JOB:
+            await prisma.job.updateMany({
+              where: { id: entityId },
+              data: { updatedAt: now },
+            });
+            break;
+          case ENTITY_TYPES.CANDIDATE:
+            await prisma.candidate.updateMany({
+              where: { id: entityId },
+              data: { updatedAt: now },
+            });
+            break;
+          case ENTITY_TYPES.CONTACT:
+            await prisma.contact.updateMany({
+              where: { id: entityId },
+              data: { updatedAt: now },
+            });
+            break;
+          case ENTITY_TYPES.INTERVIEW:
+            await prisma.interview.updateMany({
+              where: { id: entityId },
+              data: { updatedAt: now },
+            });
+            break;
+          case ENTITY_TYPES.PLACEMENT:
+            await prisma.placement.updateMany({
+              where: { id: entityId },
+              data: { updatedAt: now },
+            });
+            break;
+          case ENTITY_TYPES.TASK:
+            await prisma.task.updateMany({
+              where: { id: entityId },
+              data: { updatedAt: now },
+            });
+            break;
+          default:
+            break;
+        }
       } catch (err) {
         // Non-critical side effect; never block primary flow.
-        console.warn('Failed to update client lastActivity:', err);
+        console.warn(`Failed to touch ${entityType} activity timestamp:`, err);
       }
     }
 

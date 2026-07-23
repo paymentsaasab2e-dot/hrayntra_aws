@@ -40,6 +40,8 @@ interface ClientTableProps {
   canUpdateClientStatus?: boolean;
   onClientStatusChange?: (clientId: string, newStatus: string) => void;
   clientNameSortOrder: 'asc' | 'desc';
+  /** Default is recent activity; name sort activates when the Client Name header is clicked. */
+  clientSortBy?: 'activity' | 'name';
   onToggleClientNameSortOrder: () => void;
   showStatusColumn?: boolean;
   showRecruiterColumn?: boolean;
@@ -83,6 +85,7 @@ export function ClientTable({
   canUpdateClientStatus = false,
   onClientStatusChange,
   clientNameSortOrder,
+  clientSortBy = 'activity',
   onToggleClientNameSortOrder,
   showStatusColumn = false,
   showRecruiterColumn = false,
@@ -181,14 +184,20 @@ export function ClientTable({
                   type="button"
                   onClick={onToggleClientNameSortOrder}
                   className="flex cursor-pointer items-center gap-1 text-indigo-950/55 transition-colors hover:text-indigo-900"
-                  title={`Sort client names ${clientNameSortOrder === 'asc' ? 'descending' : 'ascending'}`}
+                  title={
+                    clientSortBy === 'name'
+                      ? `Sort client names ${clientNameSortOrder === 'asc' ? 'descending' : 'ascending'}`
+                      : 'Sort by client name'
+                  }
                 >
                   <span>Client Name</span>
-                  {clientNameSortOrder === 'asc' ? (
-                    <ArrowUp className="h-3 w-3 text-indigo-400/90" strokeWidth={2.5} />
-                  ) : (
-                    <ArrowDown className="h-3 w-3 text-indigo-400/90" strokeWidth={2.5} />
-                  )}
+                  {clientSortBy === 'name' ? (
+                    clientNameSortOrder === 'asc' ? (
+                      <ArrowUp className="h-3 w-3 text-indigo-400/90" strokeWidth={2.5} />
+                    ) : (
+                      <ArrowDown className="h-3 w-3 text-indigo-400/90" strokeWidth={2.5} />
+                    )
+                  ) : null}
                 </button>
               </th>
               <th className="px-3 sm:px-4 py-2">Industry</th>

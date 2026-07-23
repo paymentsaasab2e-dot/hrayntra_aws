@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { leadController } from './lead.controller.js';
+import { leadPublicFormController } from './leadPublicForm.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { requireAnyPermission } from '../../middleware/permission.middleware.js';
 import { submitLeadConversionRequest } from '../../routes/leadConversionRequestRoutes.js';
@@ -10,6 +11,11 @@ const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSiz
 
 router.use(authMiddleware);
 
+router.get(
+  '/public-form-link',
+  requireAnyPermission(['leads_create', 'leads_read']),
+  leadPublicFormController.getPublicFormLink
+);
 router.get('/assignable-members', requireAnyPermission(['leads_create', 'leads_update']), leadController.getAssignableMembers);
 router.get('/conversion-capabilities', requireAnyPermission(['leads_read', 'leads_update']), leadController.getConversionCapabilities);
 router.get('/', requireAnyPermission(['leads_read']), leadController.getAll);

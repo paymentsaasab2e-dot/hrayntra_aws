@@ -3827,6 +3827,8 @@ export function ClientDetailsDrawer({
                                     phones={overviewEditForm.contactPhones}
                                     email={overviewEditForm.contactEmail}
                                     phone={overviewEditForm.contactPhone}
+                                    countryCode={overviewEditForm.countryCode}
+                                    countryName={overviewEditForm.country}
                                     onDirectorSalutationChange={(value) =>
                                       setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
                                     }
@@ -3844,6 +3846,8 @@ export function ClientDetailsDrawer({
                                 <div className="sm:col-span-2">
                                   <TeamMemberOptionalFields
                                     requireTeamName={false}
+                                    countryCode={overviewEditForm.countryCode}
+                                    countryName={overviewEditForm.country}
                                     members={overviewEditForm.teamMembers}
                                     onChange={(teamMembers) =>
                                       setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))
@@ -4840,6 +4844,8 @@ export function ClientDetailsDrawer({
                                   phones={overviewEditForm.contactPhones}
                                   email={overviewEditForm.contactEmail}
                                   phone={overviewEditForm.contactPhone}
+                                  countryCode={overviewEditForm.countryCode}
+                                  countryName={overviewEditForm.country}
                                   onDirectorSalutationChange={(value) =>
                                     setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
                                   }
@@ -4857,6 +4863,8 @@ export function ClientDetailsDrawer({
                               <div className="sm:col-span-2">
                                 <TeamMemberOptionalFields
                                   requireTeamName={false}
+                                  countryCode={overviewEditForm.countryCode}
+                                  countryName={overviewEditForm.country}
                                   members={overviewEditForm.teamMembers}
                                   onChange={(teamMembers) =>
                                     setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))

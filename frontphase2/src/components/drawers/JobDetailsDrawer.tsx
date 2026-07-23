@@ -1456,7 +1456,6 @@ export function JobDetailsDrawer({
                       onClick={() => {
                         void navigator.clipboard.writeText(applyUrl).then(() => {
                           setApplyLinkCopied(true);
-                          void requestInfo('Apply link copied to clipboard.');
                           window.setTimeout(() => setApplyLinkCopied(false), 2000);
                         });
                       }}

@@ -86,6 +86,7 @@ export interface InterviewRecording {
 export interface Interview {
   id: string;
   scheduledAt?: string;
+  updatedAt?: string;
   candidate: InterviewCandidate;
   job: InterviewJob;
   round: InterviewRound;

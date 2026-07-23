@@ -256,6 +256,22 @@ const debugApiLogs =
   (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_DEBUG_LOGS === 'true') ||
   process.env.NODE_ENV === 'development';
 
+/** Public pages that must never hard-redirect to /login on missing/expired auth. */
+function isPublicUnauthenticatedPath(pathname?: string) {
+  const path =
+    pathname ||
+    (typeof window !== 'undefined' ? window.location.pathname : '') ||
+    '';
+  return (
+    path === '/login' ||
+    path.startsWith('/login/') ||
+    path.startsWith('/lead-form/') ||
+    path.startsWith('/apply/') ||
+    path.startsWith('/client-review/') ||
+    path.startsWith('/hq/login')
+  );
+}
+
 const debugApiLogsFull = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_DEBUG_LOGS_FULL === 'true';
 
 function summarizeForLog(value: unknown) {
@@ -323,8 +339,8 @@ export async function apiFetch<T>(
         // Clear any stale tokens
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
-        // Redirect to login if we're in the browser
-        if (window.location.pathname !== '/login') {
+        // Public intake / apply pages must not bounce to login for background auth calls.
+        if (!isPublicUnauthenticatedPath()) {
           const currentPath = window.location.pathname + window.location.search;
           window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
         }
@@ -441,8 +457,8 @@ export async function apiFetch<T>(
         syncAuthCookie('refreshToken', null);
         syncTenantDbName(null);
         
-        // Redirect to login page if not already there
-        if (window.location.pathname !== '/login') {
+        // Redirect to login page if not already on a public unauthenticated surface
+        if (!isPublicUnauthenticatedPath()) {
           const currentPath = window.location.pathname + window.location.search;
           const sessionHint = sessionEnded
             ? `&session=${encodeURIComponent(json?.message || 'Session ended')}`
@@ -3897,6 +3913,8 @@ export const apiGenerateCandidateInterviewMeetingLink = async (
 export interface BackendInterviewListItem {
   id: string;
   scheduledAt: string;
+  updatedAt?: string;
+  createdAt?: string;
   duration: number;
   round?: string | null;
   type: string;
@@ -5071,6 +5089,80 @@ export const apiCreateLead = async (data: CreateLeadData) => {
     method: 'POST',
     body: data,
     auth: true,
+  });
+};
+
+export const apiGetLeadPublicFormLink = async () => {
+  const frontendBase =
+    typeof window !== 'undefined'
+      ? `${window.location.protocol}//${window.location.host}`
+      : undefined;
+  const qs = frontendBase ? `?frontendBase=${encodeURIComponent(frontendBase)}` : '';
+  return apiFetch<{ token: string; formUrl: string; title?: string; tenantDbName?: string | null }>(
+    `/leads/public-form-link${qs}`,
+    { auth: true }
+  );
+};
+
+export const apiGetPublicLeadForm = async (token: string, tenantDbName?: string) => {
+  const tenant = String(tenantDbName || '').trim();
+  const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+  if (tenant && typeof window !== 'undefined') {
+    syncTenantDbName(tenant);
+  }
+  return apiFetch<{
+    title: string;
+    token: string;
+    fields: string[];
+  }>(`/leads/public/form/${encodeURIComponent(token)}${qs}`, {
+    auth: false,
+    includeTenantHeader: Boolean(tenant),
+  });
+};
+
+export const apiSubmitPublicLeadForm = async (
+  token: string,
+  body: Record<string, unknown>,
+  tenantDbName?: string
+) => {
+  const tenant = String(tenantDbName || '').trim();
+  const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+  if (tenant && typeof window !== 'undefined') {
+    syncTenantDbName(tenant);
+  }
+  return apiFetch<{
+    id: string;
+    companyName?: string;
+    contactPerson?: string;
+    email?: string;
+    phone?: string;
+    status?: string;
+    source?: string;
+    industry?: string;
+    location?: string;
+    createdAt?: string;
+    message?: string;
+  }>(`/leads/public/form/${encodeURIComponent(token)}/submit${qs}`, {
+    method: 'POST',
+    body: tenant ? { ...body, tenantDbName: tenant } : body,
+    auth: false,
+    includeTenantHeader: Boolean(tenant),
+  });
+};
+
+export const apiGetPublicLeadFormSubmissions = async (token: string, tenantDbName?: string) => {
+  const tenant = String(tenantDbName || '').trim();
+  const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+  if (tenant && typeof window !== 'undefined') {
+    syncTenantDbName(tenant);
+  }
+  return apiFetch<{
+    token: string;
+    tenantDbName: string;
+    leads: Array<Record<string, unknown>>;
+  }>(`/leads/public/form/${encodeURIComponent(token)}/submissions${qs}`, {
+    auth: false,
+    includeTenantHeader: Boolean(tenant),
   });
 };
 
@@ -7769,6 +7861,19 @@ export async function apiGenerateJobFromPrompt(body: {
   }
 
   return apiFetch<JobCreationPipelineResult>('/ai/job-from-prompt', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiSuggestJobTitles(body: {
+  query: string;
+  company?: string;
+  industry?: string;
+  limit?: number;
+}) {
+  return apiFetch<{ suggestions: string[] }>('/ai/job-title-suggestions', {
     method: 'POST',
     body,
     auth: true,

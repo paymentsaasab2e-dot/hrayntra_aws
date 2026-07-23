@@ -130,6 +130,8 @@ export interface Client {
   /** CRM assignee user id when available (used by Team Member filter). */
   assignedToId?: string;
   lastActivity: string;
+  /** ISO timestamp used for recent-activity table ordering. */
+  updatedAt?: string;
   auditMeta?: AuditMeta;
   logo: string;
   revenue?: string;

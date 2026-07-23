@@ -26,6 +26,7 @@ import { jobPublicApplyController } from './modules/job/jobPublicApply.controlle
 import { publicApplyUpload } from './utils/upload.middleware.js';
 import filesRoutes from './modules/files/files.routes.js';
 import leadRoutes from './modules/lead/lead.routes.js';
+import { leadPublicFormController } from './modules/lead/leadPublicForm.controller.js';
 import agreementRoutes from './modules/agreement/agreement.routes.js';
 import kycRoutes from './modules/kyc/kyc.routes.js';
 import pipelineRoutes from './modules/pipeline/pipeline.routes.js';
@@ -219,6 +220,22 @@ app.post(
   publicApplyUpload,
   publicApplyTenantMiddleware,
   jobPublicApplyController.submitPublicApply
+);
+// Public lead intake form — before auth routers
+app.get(
+  '/api/v1/leads/public/form/:token',
+  publicApplyTenantMiddleware,
+  leadPublicFormController.getPublicForm
+);
+app.get(
+  '/api/v1/leads/public/form/:token/submissions',
+  publicApplyTenantMiddleware,
+  leadPublicFormController.listPublicSubmissions
+);
+app.post(
+  '/api/v1/leads/public/form/:token/submit',
+  publicApplyTenantMiddleware,
+  leadPublicFormController.submitPublicForm
 );
 // Public candidate pre-screen sessions — MUST be before addCandidateRouter (router-level auth on /api/v1)
 app.use('/api/v1/pre-screen-assessments', preScreenAssessmentRoutes);

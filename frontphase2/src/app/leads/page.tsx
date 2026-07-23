@@ -20,6 +20,9 @@ import {
   Inbox,
   Loader2,
   RefreshCcw,
+  Link2,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 import {
   buildLeadSearchHaystack,
@@ -60,6 +63,7 @@ import {
   apiSubmitLeadConversionRequest,
   apiGetLeadConversionCapabilities,
   apiGetLeadAssignableMembers,
+  apiGetLeadPublicFormLink,
   type BackendLead,
   type BackendUser,
   type ConvertLeadToClientData,
@@ -501,6 +505,10 @@ export default function RecruitmentAgencyDashboard() {
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
+  const [publicLeadFormLink, setPublicLeadFormLink] = useState('');
+  const [publicLeadFormTenant, setPublicLeadFormTenant] = useState('');
+  const [publicLeadFormLinkLoading, setPublicLeadFormLinkLoading] = useState(false);
+  const [publicLeadFormLinkCopied, setPublicLeadFormLinkCopied] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportLeads, setExportLeads] = useState<Lead[]>([]);
   const [exportLeadsLoading, setExportLeadsLoading] = useState(false);
@@ -575,6 +583,38 @@ export default function RecruitmentAgencyDashboard() {
     const token = localStorage.getItem('accessToken');
     setIsAuthenticated(!!token);
   }, []);
+
+  useEffect(() => {
+    if (!canCreateLead || !isAuthenticated) {
+      setPublicLeadFormLink('');
+      setPublicLeadFormTenant('');
+      return;
+    }
+    let cancelled = false;
+    setPublicLeadFormLinkLoading(true);
+    apiGetLeadPublicFormLink()
+      .then((res) => {
+        if (!cancelled) {
+          const payload =
+            (res as { data?: { formUrl?: string; tenantDbName?: string | null } })?.data ?? res;
+          const data = payload as { formUrl?: string; tenantDbName?: string | null };
+          setPublicLeadFormLink(data.formUrl || '');
+          setPublicLeadFormTenant(String(data.tenantDbName || '').trim());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPublicLeadFormLink('');
+          setPublicLeadFormTenant('');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPublicLeadFormLinkLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canCreateLead, isAuthenticated]);
 
   useEffect(() => {
     try {
@@ -1912,6 +1952,68 @@ export default function RecruitmentAgencyDashboard() {
           </div>
         </header>
 
+        {canCreateLead && (
+          <div className="shrink-0 border-b border-blue-100/80 bg-blue-50/60 px-3 py-2.5 sm:px-5 lg:px-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 items-center gap-2">
+                <Link2 size={14} className="shrink-0 text-blue-600" />
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-blue-900">
+                    Public lead form link
+                  </p>
+                  {publicLeadFormTenant ? (
+                    <p className="truncate text-[10px] text-blue-800/80">
+                      Tenant-specific · <span className="font-mono">{publicLeadFormTenant}</span>
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <input
+                readOnly
+                value={
+                  publicLeadFormLinkLoading
+                    ? 'Loading link…'
+                    : publicLeadFormLink || 'Link unavailable'
+                }
+                className="h-8 min-w-0 flex-1 truncate rounded-md border border-blue-200 bg-white px-2 font-mono text-[11px] text-slate-700"
+                aria-label="Public lead form URL"
+              />
+              <div className="flex shrink-0 gap-1.5">
+                <button
+                  type="button"
+                  disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
+                  onClick={async () => {
+                    if (!publicLeadFormLink) return;
+                    try {
+                      await navigator.clipboard.writeText(publicLeadFormLink);
+                      setPublicLeadFormLinkCopied(true);
+                      toast.success('Lead form link copied');
+                      window.setTimeout(() => setPublicLeadFormLinkCopied(false), 2000);
+                    } catch {
+                      toast.error('Could not copy link');
+                    }
+                  }}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 text-[11px] font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                >
+                  <Copy size={12} />
+                  {publicLeadFormLinkCopied ? 'Copied' : 'Copy'}
+                </button>
+                <a
+                  href={publicLeadFormLink || undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 text-[11px] font-medium text-blue-800 hover:bg-blue-50 ${
+                    !publicLeadFormLink ? 'pointer-events-none opacity-50' : ''
+                  }`}
+                >
+                  <ExternalLink size={12} />
+                  Open
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Content: stats + filters stay put; table body scrolls inside its panel */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
           {/* Summary Cards — show skeleton mirrors while the first fetch resolves. */}
@@ -2349,7 +2451,9 @@ export default function RecruitmentAgencyDashboard() {
                             <TableAuditCell audit={lead.auditMeta} hideUnchangedUpdated />
                             <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
-                                {SHOW_TABLE_ROW_EDIT_ICON ? (
+                                {SHOW_TABLE_ROW_EDIT_ICON &&
+                                lead.status !== 'Converted' &&
+                                !lead.convertedToClientId ? (
                                   <button
                                     type="button"
                                     className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
@@ -2518,6 +2622,7 @@ export default function RecruitmentAgencyDashboard() {
                 await handleRefresh({ silent: true });
                 setSelectedLeadId(null);
                 setSelectedLeadDrawerMode('view');
+                setAddLeadDrawerOpen(false);
                 if (
                   mapped?.status === 'Converted' &&
                   prevStatus &&
@@ -2532,11 +2637,12 @@ export default function RecruitmentAgencyDashboard() {
                       },
                     }
                   );
-                } else {
+                } else if (!mapped) {
                   toast.success('Lead updated successfully');
                 }
               } catch (err: any) {
                 console.error('Failed to update lead:', err);
+                toast.error(err?.message || 'Failed to refresh lead after save');
               }
             }}
             onConvert={canConvertLead ? handleConvert : undefined}

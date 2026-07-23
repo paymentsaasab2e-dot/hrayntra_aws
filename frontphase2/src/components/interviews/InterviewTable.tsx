@@ -22,6 +22,12 @@ interface InterviewGroup {
   rounds: Interview[];
 }
 
+function interviewActivityTime(interview: Interview): number {
+  const raw = interview.updatedAt || interview.scheduledAt || 0;
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
 function groupInterviewsForTable(items: Interview[]): InterviewGroup[] {
   const map = new Map<string, Interview[]>();
   for (const inv of items) {
@@ -43,8 +49,8 @@ function groupInterviewsForTable(items: Interview[]): InterviewGroup[] {
   }
   return groups.sort(
     (a, b) =>
-      new Date(a.rounds[0].scheduledAt || 0).getTime() -
-      new Date(b.rounds[0].scheduledAt || 0).getTime()
+      Math.max(...b.rounds.map(interviewActivityTime)) -
+      Math.max(...a.rounds.map(interviewActivityTime))
   );
 }
 

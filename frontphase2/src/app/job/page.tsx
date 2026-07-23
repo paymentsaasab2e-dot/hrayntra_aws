@@ -19,6 +19,7 @@ import {
   Download,
   Trash2,
   Inbox,
+  Sparkles,
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
@@ -41,6 +42,7 @@ import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import { JobDetailsDrawer, type JobForDrawer, type JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
 import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
+import { JobAiCreateWizard } from '../../components/jobs/JobAiCreateWizard';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import {
   SmartSearchActiveKeywordsBar,
@@ -1062,6 +1064,7 @@ export default function JobsPage() {
   const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
+  const [jobAiWizardOpen, setJobAiWizardOpen] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [duplicateFromJobId, setDuplicateFromJobId] = useState<string | null>(null);
   const [addCandidateDrawerOpen, setAddCandidateDrawerOpen] = useState(false);
@@ -2150,17 +2153,28 @@ export default function JobsPage() {
               <span>Export</span>
                 </button>
             {canCreateJob ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDuplicateFromJobId(null);
-                      setCreateJobDrawerOpen(true);
-                    }}
-                className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
-                  >
-                <Plus size={16} className="text-white" strokeWidth={2.5} />
-                <span>Create Job</span>
-                  </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setJobAiWizardOpen(true)}
+                  className="bg-white hover:bg-teal-50 text-teal-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(13,148,136,0.25)] border border-teal-200/80 hover:border-teal-300 active:scale-[0.98]"
+                  title="Create a job with AI"
+                >
+                  <Sparkles size={16} className="text-teal-600" strokeWidth={2.25} />
+                  <span>Create Job with AI</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDuplicateFromJobId(null);
+                    setCreateJobDrawerOpen(true);
+                  }}
+                  className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
+                >
+                  <Plus size={16} className="text-white" strokeWidth={2.5} />
+                  <span>Create Job</span>
+                </button>
+              </>
             ) : null}
               </div>
         }
@@ -2372,6 +2386,16 @@ export default function JobsPage() {
         onJobCreated={() => {
           setCreateJobDrawerOpen(false);
           setDuplicateFromJobId(null);
+          void reloadMyJobsAndMetrics();
+        }}
+      />
+
+      <JobAiCreateWizard
+        isOpen={canCreateJob && jobAiWizardOpen}
+        onClose={() => setJobAiWizardOpen(false)}
+        onJobCreated={() => {
+          setJobAiWizardOpen(false);
+          toast.success('Job published');
           void reloadMyJobsAndMetrics();
         }}
       />

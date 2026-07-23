@@ -1103,7 +1103,7 @@ export const jobService = {
             select: { matches: true, interviews: true, placements: true, applications: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       }),
       prisma.job.count({ where: scopedWhere }),
     ]);

@@ -653,7 +653,7 @@ export const leadService = {
             select: { id: true, companyName: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       }),
       prisma.lead.count({ where }),
     ]);

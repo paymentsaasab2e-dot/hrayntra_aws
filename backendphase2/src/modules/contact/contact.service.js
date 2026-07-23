@@ -114,7 +114,7 @@ export const contactService = {
             select: { id: true, name: true, email: true, avatar: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       }),
       prisma.contact.count({ where }),
     ]);
