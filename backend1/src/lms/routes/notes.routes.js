@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { getNotes, getRecentNote, getNoteDetail, createNote, updateNote, deleteNote, performAiAction } = require('../controllers/notes.controller');
 const { validateCreateNote, validateUpdateNote, validateAiAction } = require('../validators/notes.validator');
+const { requireTokens } = require('../../middleware/requireTokens.middleware');
 
 const router = Router();
 
@@ -10,6 +11,6 @@ router.get('/:noteId', getNoteDetail);
 router.post('/', validateCreateNote, createNote);
 router.put('/:noteId', validateUpdateNote, updateNote);
 router.delete('/:noteId', deleteNote);
-router.post('/:noteId/ai-action', validateAiAction, performAiAction);
+router.post('/:noteId/ai-action', requireTokens('lms.notes.ai-action'), validateAiAction, performAiAction);
 
 module.exports = router;

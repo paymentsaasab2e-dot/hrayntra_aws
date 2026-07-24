@@ -11,11 +11,12 @@ const {
   generateQuizzes,
 } = require('../controllers/quizzes.controller');
 const { validateAttempt, validateGenerate } = require('../validators/quizzes.validator');
+const { requireTokens } = require('../../middleware/requireTokens.middleware');
 
 const router = Router();
 
 router.get('/topic-suggestions', getTopicSuggestions);
-router.post('/generate', validateGenerate, generateQuizzes);
+router.post('/generate', requireTokens('lms.quizzes.generate'), validateGenerate, generateQuizzes);
 router.get('/completed', getCompletedQuizzes);
 router.get('/', getQuizzes);
 router.get('/recommended', getRecommendedQuiz);

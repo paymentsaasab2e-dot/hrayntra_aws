@@ -174,6 +174,10 @@ model Candidate {
   createdAt         DateTime? @default(now())
   updatedAt         DateTime? @updatedAt
 
+  // Gamified token wallet (LMS / AI services)
+  tokenBalance         Int       @default(0)
+  freeTokensGrantedAt  DateTime?
+
   // Relations
   otpVerifications  OtpVerification[]
   profile           CandidateProfile?
@@ -202,6 +206,7 @@ model Candidate {
   courseEnrollments CourseEnrollment[]
   recruiterMatches  Match[]
   pipelineEntries   PipelineEntry[]
+  tokenTransactions TokenTransaction[]
 
   lmsEnrollments         LmsEnrollment[]         @relation("LmsEnrollments")
   lmsQuizAttempts        LmsQuizAttempt[]        @relation("LmsQuizAttempts")
@@ -225,6 +230,29 @@ model Candidate {
   @@index([email])
   @@index([firstName, lastName])
   @@map("candidates")
+}
+
+// ============================================================
+// TOKEN WALLET LEDGER
+// ============================================================
+
+model TokenTransaction {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId  String   @db.ObjectId
+  type         String   // GRANT | PURCHASE | SPEND
+  amount       Int      // positive for credit, positive for spend (type distinguishes)
+  balanceAfter Int
+  service      String?  // e.g. "lms.resume.ai-improve"
+  packageId    String?
+  reference    String?  // mock payment reference
+  description  String?
+  createdAt    DateTime @default(now())
+
+  candidate    Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+  @@index([createdAt])
+  @@map("token_transactions")
 }
 
 model OtpVerification {
@@ -1192,6 +1220,11 @@ model LmsCourse {
   estimatedHours  Float    @default(0)
   tags            String[] @default([])
   isPublished     Boolean  @default(false)
+  /// free | premium | certified
+  accessTier      String   @default("free")
+  /// Tokens required to unlock (0 = free)
+  tokenCost       Int      @default(0)
+  isCertified     Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

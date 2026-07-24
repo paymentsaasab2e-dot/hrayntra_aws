@@ -9,17 +9,18 @@ const {
   validateGenerateSet, validateCreateSet, validateAnswerSet,
   validateFeedbackSet, validateStartMock, validateAnswerMock
 } = require('../validators/interview.validator');
+const { requireTokens } = require('../../middleware/requireTokens.middleware');
 
 const router = Router();
 
 router.get('/', getInterviewDashboard);
 router.get('/question-bank/:category', getQuestionBank);
-router.post('/generate-set', validateGenerateSet, requestGenerateSet);
+router.post('/generate-set', requireTokens('lms.interview.generate-set'), validateGenerateSet, requestGenerateSet);
 router.post('/sets', validateCreateSet, saveSet);
 router.get('/sets/:setId', getSetDetail);
 router.put('/sets/:setId/answer', validateAnswerSet, saveSetAnswer);
-router.post('/sets/:setId/ai-feedback', validateFeedbackSet, requestSetFeedback);
-router.post('/mock-session/start', validateStartMock, startMockSession);
+router.post('/sets/:setId/ai-feedback', requireTokens('lms.interview.ai-feedback'), validateFeedbackSet, requestSetFeedback);
+router.post('/mock-session/start', requireTokens('lms.interview.mock-session-start'), validateStartMock, startMockSession);
 router.put('/mock-session/:sessionId/answer', validateAnswerMock, answerMockSessionQuestion);
 router.post('/mock-session/:sessionId/finish', finishMockSession);
 router.get('/mock-session/:sessionId/result', getMockSessionResult);

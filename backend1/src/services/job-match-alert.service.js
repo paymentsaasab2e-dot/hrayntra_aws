@@ -162,6 +162,7 @@ async function notifyHighFitCandidatesForJob(jobId) {
         companyName,
         matchScore: score.matchScore,
         kind: 'job_recommendation',
+        channel: 'alert',
       },
     });
 

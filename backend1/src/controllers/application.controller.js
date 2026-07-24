@@ -1679,6 +1679,8 @@ async function createApplication(req, res) {
           ? application.job.company?.name || application.job.client?.companyName || null
           : null,
         status: application.status,
+        kind: 'application_submitted',
+        channel: 'activity',
       },
     });
 
