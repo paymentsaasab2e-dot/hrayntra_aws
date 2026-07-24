@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 
 interface AddContactDrawerProps {
   isOpen: boolean;
@@ -9,6 +10,11 @@ interface AddContactDrawerProps {
 }
 
 export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ isOpen, onClose }) => {
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose,
+  });
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -29,6 +35,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ isOpen, onCl
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     toast.success('Contact added successfully');
+    markClean();
     onClose();
   };
 
@@ -41,12 +48,13 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ isOpen, onCl
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={() => void requestClose()}
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[60]"
           />
 
           {/* Drawer */}
           <motion.div
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -60,8 +68,10 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ isOpen, onCl
                 <p className="text-xs text-slate-500 mt-0.5">Fill in the details to create a new recruitment stakeholder.</p>
               </div>
               <button 
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+                aria-label="Close"
+                data-drawer-skip-dirty="true"
               >
                 <X size={20} />
               </button>
@@ -260,8 +270,9 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ isOpen, onCl
             <div className="p-6 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
               <button 
                 type="button"
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="px-6 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition-all"
+                data-drawer-skip-dirty="true"
               >
                 Cancel
               </button>

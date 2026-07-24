@@ -443,7 +443,7 @@ export async function buildSaasaCvPdfSnapshotBlob(options: {
 }
 
 /**
- * Export SAASA CV as PDF: full resume + annotations + logo.
+ * Export HRYantra CV as PDF: full resume + annotations + logo.
  * Prefer on-screen PDF.js pages (what you see in the modal), then re-fetch render.
  */
 export async function exportSaasaCvDocumentPdf(options: {

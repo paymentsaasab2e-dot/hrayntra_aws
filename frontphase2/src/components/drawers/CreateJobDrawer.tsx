@@ -72,6 +72,7 @@ import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../util
 import { CreateJobDetailsForm, type CreateJobDetailsFormData } from './CreateJobDetailsForm';
 import { CreateJobPhase1Preview } from '../jobs/CreateJobPhase1Preview';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
@@ -762,6 +763,14 @@ export function CreateJobDrawer({
   prefillFromRequest = null,
 }: CreateJobDrawerProps) {
   usePageDrawerLifecycle(isOpen);
+  const {
+    panelRef: createJobPanelRef,
+    requestClose: requestCreateJobClose,
+    markClean: markCreateJobClean,
+  } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose,
+  });
   const isEditMode = !!jobId;
   const isDuplicateMode = !jobId && !!duplicateFromJobId;
   const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
@@ -3164,6 +3173,7 @@ export function CreateJobDrawer({
         }
       }
       
+      markCreateJobClean();
       onClose();
     } catch (error: any) {
       console.error('Failed to save job:', error);
@@ -3324,11 +3334,12 @@ export function CreateJobDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={() => void requestCreateJobClose()}
             className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
           />
           <motion.div
             key="panel"
+            ref={createJobPanelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -3354,7 +3365,7 @@ export function CreateJobDrawer({
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={() => void requestCreateJobClose()}
                   className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   Close

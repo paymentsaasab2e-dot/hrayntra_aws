@@ -37,6 +37,12 @@ import {
   queueAiEntryRecommendation,
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
+import {
+  formatFollowUpInTimezone,
+  mergeFollowUpScheduleIntoOtherDetails,
+  normalizeFollowUpSchedule,
+  sendLeadMeetScheduleInvites,
+} from './leadFollowUpNotify.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -117,6 +123,60 @@ function normalizeOtherDetails(value) {
     .filter((item) => item.label && item.value);
 
   return normalized.length ? normalized : null;
+}
+
+function buildFollowUpSchedulePayload(data, nextFollowUpIso) {
+  if (data?.followUpSchedule && typeof data.followUpSchedule === 'object') {
+    return normalizeFollowUpSchedule(data.followUpSchedule, nextFollowUpIso);
+  }
+  // Fallback: parse type from statusRemark when frontend only sends remark text.
+  const remark = String(data?.statusRemark || '');
+  if (!nextFollowUpIso || !remark.includes('Follow-up scheduled:')) return null;
+  const typeMatch = remark.match(/Follow-up scheduled:\s*([^.]+)/i);
+  const type = String(typeMatch?.[1] || '').split('.')[0].trim();
+  if (type.toLowerCase() !== 'meet') return null;
+  const meetLinkMatch = remark.match(/Meet link:\s*([^\s.]+)/i);
+  const reminderMatch = remark.match(/Reminder:\s*([^.\n]+)/i);
+  const timezoneMatch = remark.match(/Timezone:\s*([^.\n]+)/i);
+  const contactMatch = remark.match(/Contact:\s*([^.\n]+)/i);
+  return normalizeFollowUpSchedule(
+    {
+      type: 'Meet',
+      meetLink: meetLinkMatch?.[1],
+      reminder: reminderMatch?.[1],
+      timezone: timezoneMatch?.[1],
+      contact: contactMatch?.[1],
+      attendeeIds: Array.isArray(data.followUpAttendeeIds) ? data.followUpAttendeeIds : [],
+      notes: data.followUpNotes || null,
+    },
+    nextFollowUpIso,
+  );
+}
+
+async function persistMeetScheduleAndNotify(leadId, leadSnapshot, schedule) {
+  if (!schedule || String(schedule.type || '').toLowerCase() !== 'meet') return leadSnapshot;
+  try {
+    const withInvite = await sendLeadMeetScheduleInvites({
+      lead: leadSnapshot,
+      schedule,
+    });
+    const mergedOther = mergeFollowUpScheduleIntoOtherDetails(
+      leadSnapshot.otherDetails,
+      withInvite,
+    );
+    const saved = await prisma.lead.update({
+      where: { id: leadId },
+      data: { otherDetails: mergedOther },
+      include: {
+        assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
+      },
+    });
+    await attachAssignees(saved);
+    return saved;
+  } catch (error) {
+    console.error('[lead-follow-up] failed to send meet schedule emails:', error?.message || error);
+    return leadSnapshot;
+  }
 }
 
 /** Strip NBSP (Excel) and trim — used for import + URL checks. */
@@ -719,6 +779,13 @@ export const leadService = {
       ? await resolveAssignedToIds(data.assignedToIds)
       : [];
     const normalizedOtherDetails = normalizeOtherDetails(data.otherDetails);
+    const createFollowUpSchedule = buildFollowUpSchedulePayload(
+      data,
+      data.nextFollowUp || null,
+    );
+    const otherDetailsWithSchedule = createFollowUpSchedule
+      ? mergeFollowUpScheduleIntoOtherDetails(normalizedOtherDetails || [], createFollowUpSchedule)
+      : normalizedOtherDetails;
 
     // Map frontend fields to backend model
     const websiteInput = normalizeNullableString(data.website);
@@ -777,7 +844,7 @@ export const leadService = {
       sourceWebsiteUrl: normalizeNullableString(data.sourceWebsiteUrl),
       sourceLinkedInUrl: normalizeNullableString(data.sourceLinkedInUrl),
       sourceEmail: normalizeNullableString(data.sourceEmail),
-      otherDetails: normalizedOtherDetails,
+      otherDetails: otherDetailsWithSchedule,
       lastFollowUp: data.lastFollowUp ? new Date(data.lastFollowUp) : null,
       nextFollowUp: data.nextFollowUp ? new Date(data.nextFollowUp) : null,
       // Agreements & Terms — single primary document attached during onboarding.
@@ -859,6 +926,10 @@ export const leadService = {
       trigger: 'create',
     });
 
+    if (createFollowUpSchedule && data.nextFollowUp) {
+      return persistMeetScheduleAndNotify(lead.id, lead, createFollowUpSchedule);
+    }
+
     return lead;
   },
 
@@ -885,6 +956,24 @@ export const leadService = {
           .filter(isLikelyWebAddress)
       : undefined;
     const normalizedOtherDetails = data.otherDetails !== undefined ? normalizeOtherDetails(data.otherDetails) : undefined;
+    const nextFollowUpIsoForSchedule =
+      data.nextFollowUp !== undefined
+        ? data.nextFollowUp || null
+        : currentLead.nextFollowUp
+          ? new Date(currentLead.nextFollowUp).toISOString()
+          : null;
+    const updateFollowUpSchedule = buildFollowUpSchedulePayload(data, nextFollowUpIsoForSchedule);
+    let otherDetailsForUpdate = normalizedOtherDetails;
+    if (updateFollowUpSchedule) {
+      const baseOther =
+        normalizedOtherDetails !== undefined
+          ? normalizedOtherDetails
+          : currentLead.otherDetails;
+      otherDetailsForUpdate = mergeFollowUpScheduleIntoOtherDetails(
+        Array.isArray(baseOther) ? baseOther : [],
+        updateFollowUpSchedule,
+      );
+    }
     const resolvedAssignedToId =
       data.assignedToId !== undefined || data.assignedToName !== undefined
         ? await resolveAssignedToId(data.assignedToId || data.assignedToName)
@@ -971,7 +1060,9 @@ export const leadService = {
     if (data.sourceWebsiteUrl !== undefined) updateData.sourceWebsiteUrl = data.sourceWebsiteUrl || null;
     if (data.sourceLinkedInUrl !== undefined) updateData.sourceLinkedInUrl = data.sourceLinkedInUrl || null;
     if (data.sourceEmail !== undefined) updateData.sourceEmail = data.sourceEmail || null;
-    if (data.otherDetails !== undefined) updateData.otherDetails = normalizedOtherDetails;
+    if (data.otherDetails !== undefined || updateFollowUpSchedule) {
+      updateData.otherDetails = otherDetailsForUpdate;
+    }
     if (data.lastFollowUp !== undefined) updateData.lastFollowUp = data.lastFollowUp ? new Date(data.lastFollowUp) : null;
     if (data.nextFollowUp !== undefined) updateData.nextFollowUp = data.nextFollowUp ? new Date(data.nextFollowUp) : null;
     if (data.lostReason !== undefined) updateData.lostReason = data.lostReason || null;
@@ -1257,19 +1348,28 @@ export const leadService = {
 
           changes.push(followUpDescription);
 
-          // Send follow-up email to the lead contact (best-effort, non-blocking)
-          try {
-            if (currentLead.email) {
-              await sendLeadFollowUpEmail(
-                currentLead.email,
-                currentLead.companyName,
-                data.nextFollowUp,
-                followUpType,
-                followUpNotes || data.statusRemark || null
-              );
+          // Non-meet: email lead contact. Meet invites are sent via persistMeetScheduleAndNotify.
+          const resolvedType = String(
+            updateFollowUpSchedule?.type || followUpType || 'Follow-up',
+          ).trim();
+          if (resolvedType.toLowerCase() !== 'meet') {
+            try {
+              const tz = updateFollowUpSchedule?.timezone || 'UTC';
+              const whenLabel = updateFollowUpSchedule
+                ? formatFollowUpInTimezone(data.nextFollowUp, tz)
+                : formattedDate;
+              if (currentLead.email) {
+                await sendLeadFollowUpEmail(
+                  currentLead.email,
+                  currentLead.companyName,
+                  whenLabel,
+                  resolvedType,
+                  followUpNotes || data.statusRemark || null,
+                );
+              }
+            } catch (emailError) {
+              console.error('Failed to send follow-up email:', emailError);
             }
-          } catch (emailError) {
-            console.error('Failed to send follow-up email:', emailError);
           }
         }
         if (data.lostReason) {
@@ -1321,6 +1421,10 @@ export const leadService = {
       actorUserId: data.performedById || req?.user?.id,
       trigger: 'update',
     });
+
+    if (updateFollowUpSchedule && data.nextFollowUp) {
+      return persistMeetScheduleAndNotify(updated.id, updated, updateFollowUpSchedule);
+    }
 
     return updated;
   },

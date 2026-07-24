@@ -12,7 +12,7 @@ import {
   type BackendContact,
 } from '../../lib/api';
 import { NAME_SALUTATION_OPTIONS, formatDirectorDisplay } from '../../constants/salutations';
-import { DrawerFormShell } from '../drawers/DrawerFormShell';
+import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
   DrawerSectionCard,
@@ -165,13 +165,7 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
       headerIcon={UserCircle}
       footer={
         <>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            Cancel
-          </button>
+          <DrawerFormCancelButton />
           <button
             type="button"
             onClick={() => void handleSubmit()}

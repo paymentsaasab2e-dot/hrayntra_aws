@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Upload } from 'lucide-react';
 import type { Placement } from '../../../types/placement';
-import { DrawerFormShell } from '../../drawers/DrawerFormShell';
+import { DrawerFormShell, DrawerFormCancelButton } from '../../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
   DrawerSectionCard,
@@ -46,13 +46,7 @@ export function MarkJoinedDrawer({ isOpen, placement, isSubmitting, onClose, onS
       zPanel={100}
       footer={
         <>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            Cancel
-          </button>
+          <DrawerFormCancelButton />
           <button
             type="button"
             disabled={isSubmitting}

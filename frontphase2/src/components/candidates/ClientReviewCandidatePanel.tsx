@@ -58,7 +58,7 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
 
         {showSaasaCv && sharedResumeUrl.startsWith('http') ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-            <h2 className="text-sm font-semibold text-slate-900">SAASA CV</h2>
+            <h2 className="text-sm font-semibold text-slate-900">HRYantra CV</h2>
             <p className="mt-1 text-sm text-slate-600">
               Annotated CV shared by the recruiter for your review.
             </p>
@@ -68,7 +68,7 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
               rel="noreferrer"
               className="mt-3 inline-flex text-sm font-semibold text-amber-900 hover:underline"
             >
-              Open SAASA CV
+              Open HRYantra CV
             </a>
           </div>
         ) : null}
@@ -114,7 +114,7 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
       {!isDrawer ? (
         <div className="rounded-xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-sm text-[#1E40AF]">
           {showSaasaCv
-            ? 'You are viewing the SAASA CV the recruiter selected for your review.'
+            ? 'You are viewing the HRYantra CV the recruiter selected for your review.'
             : showOriginalResume
               ? 'You are viewing the original resume file shared by the recruiter.'
               : hasCvPreview
@@ -190,7 +190,7 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
 
       {showSaasaCv && sharedResumeUrl.startsWith('http') ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-          <h2 className="text-sm font-semibold text-[#111827]">SAASA CV</h2>
+          <h2 className="text-sm font-semibold text-[#111827]">HRYantra CV</h2>
           <p className="mt-1 text-sm text-[#4B5563]">
             Annotated CV shared by the recruiter for your review.
           </p>
@@ -200,7 +200,7 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
             rel="noreferrer"
             className="mt-3 inline-flex text-sm font-semibold text-amber-900 hover:underline"
           >
-            Open SAASA CV
+            Open HRYantra CV
           </a>
         </div>
       ) : null}

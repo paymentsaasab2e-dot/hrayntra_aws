@@ -7,7 +7,7 @@ import { createRole } from '../../lib/api/teamApi';
 import type { Permission } from '../../types/team';
 import { buildFallbackPermissionsMap, mergePermissionMaps } from './permissionCatalog';
 import { PermissionPicker } from './PermissionPicker';
-import { DrawerFormShell } from '../drawers/DrawerFormShell';
+import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
   DrawerSectionCard,
@@ -168,17 +168,6 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
     onClose();
   };
 
-  // Close on Escape
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen]);
-
   return (
     <DrawerFormShell
       isOpen={isOpen}
@@ -191,13 +180,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
       zPanel={1010}
       footer={
         <>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            Cancel
-          </button>
+          <DrawerFormCancelButton />
           <button
             type="button"
             onClick={handleSubmit}

@@ -232,7 +232,7 @@ export type SaasaCvFileRef = {
   fileName?: string;
 };
 
-/** Resolved URL for the exported SAASA CV file shown on the Resume tab. */
+/** Resolved URL for the exported HRYantra CV file shown on the Resume tab. */
 export function resolveSaasaCvPreviewUrl(
   extraData?: Record<string, unknown> | null,
   files?: SaasaCvFileRef[] | null

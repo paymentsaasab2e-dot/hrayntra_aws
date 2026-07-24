@@ -90,7 +90,7 @@ export function PackageUpgradeSection({
           orderId: order.orderId,
           amount: Number(order.amountPaise || order.amount),
           currency: order.currency || 'INR',
-          merchantName: order.merchantName || 'Hryantra SAASA',
+          merchantName: order.merchantName || 'HRYANTRA',
           description: order.description || `Upgrade to ${order.packageName}`,
           merchantUpi: order.merchantUpi,
           prefill: readCurrentUserPrefill(),

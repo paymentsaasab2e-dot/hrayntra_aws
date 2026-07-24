@@ -37,6 +37,7 @@ import {
   prepareListWithAuditMeta,
   attachAuditMetaToEntity,
 } from '../../utils/listAuditMeta.js';
+import { assertNoInterviewerScheduleConflicts } from '../../utils/interviewConflict.util.js';
 import activityService, { ENTITY_TYPES } from '../../services/activityService.js';
 import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
 import { dbLogger } from '../../utils/db-logger.js';
@@ -4623,6 +4624,12 @@ export const candidateService = {
       throw new Error('Client not found. Link a valid client to this job before scheduling.');
     }
 
+    await assertNoInterviewerScheduleConflicts(prisma, {
+      interviewerIds: interviewers.map((item) => item.id).filter(Boolean),
+      scheduledAt,
+      durationMinutes: parseDurationToMinutes(data?.duration),
+    });
+
     const assignedJobs = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs.map(String) : [];
     if (!assignedJobs.includes(resolvedJobId)) {
       await prisma.candidate.update({
@@ -4887,7 +4894,18 @@ export const candidateService = {
 
     const existing = await prisma.interview.findUnique({
       where: { id: interviewId },
-      select: { id: true, candidateId: true, jobId: true, clientId: true, createdById: true },
+      select: {
+        id: true,
+        candidateId: true,
+        jobId: true,
+        clientId: true,
+        createdById: true,
+        scheduledAt: true,
+        duration: true,
+        interviewerId: true,
+        panelIds: true,
+        status: true,
+      },
     });
 
     if (!existing || existing.candidateId !== candidateId) {
@@ -4911,6 +4929,26 @@ export const candidateService = {
     const interviewers = Array.isArray(data?.interviewers) ? data.interviewers.filter(Boolean) : [];
     const leadInterviewer =
       interviewers.find((item) => item.role === 'Lead Interviewer') || interviewers[0];
+
+    const nextPanelIds = interviewers.length
+      ? interviewers.map((item) => item.id).filter(Boolean)
+      : existing.panelIds?.length
+        ? existing.panelIds
+        : [existing.interviewerId].filter(Boolean);
+    const nextScheduledAt = scheduledAt || existing.scheduledAt;
+    const nextDuration = data?.duration
+      ? parseDurationToMinutes(data.duration)
+      : existing.duration || 60;
+
+    // Skip conflict check when cancelling or completing.
+    if (nextStatus !== 'CANCELLED' && nextStatus !== 'COMPLETED') {
+      await assertNoInterviewerScheduleConflicts(prisma, {
+        interviewerIds: nextPanelIds,
+        scheduledAt: nextScheduledAt,
+        durationMinutes: nextDuration,
+        excludeInterviewId: interviewId,
+      });
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
       const updatedInterview = await tx.interview.update({

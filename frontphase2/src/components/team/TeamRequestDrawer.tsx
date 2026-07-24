@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DrawerCloseButton } from '../drawers/DrawerCloseButton';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { createTeamRequest, getTeamMembersForRequestPicker } from '../../lib/api/teamApi';
 import type {
   CreateTeamRequestPayload,
@@ -49,6 +50,10 @@ interface TeamRequestDrawerProps {
 }
 
 export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: TeamRequestDrawerProps) {
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLElement>({
+    isOpen,
+    onClose,
+  });
   const [formData, setFormData] = useState<RequestFormState>({
     sendToId: '',
     subject: '',
@@ -145,6 +150,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: 
       const res = await createTeamRequest(payload);
       toast.success('Request sent successfully');
       onSuccess(res.data);
+      markClean();
       onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to send request');
@@ -162,9 +168,11 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[90] bg-slate-900/40"
-            onClick={onClose}
+            onClick={() => void requestClose()}
+            data-drawer-skip-dirty="true"
           />
           <motion.aside
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -178,7 +186,7 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: 
                   Send a request to a department head (rank 1) in any department.
                 </p>
               </div>
-              <DrawerCloseButton onClick={onClose} disabled={isSubmitting} />
+              <DrawerCloseButton onClick={() => void requestClose()} disabled={isSubmitting} />
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
@@ -277,9 +285,10 @@ export function TeamRequestDrawer({ isOpen, onClose, onSuccess, initialDraft }: 
             <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4 sm:px-6">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 disabled={isSubmitting}
                 className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+                data-drawer-skip-dirty="true"
               >
                 Cancel
               </button>

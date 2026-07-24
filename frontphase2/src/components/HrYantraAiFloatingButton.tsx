@@ -9,6 +9,7 @@ import { usePageDrawerOpen } from '../hooks/usePageDrawerOpen';
 import {
   askHrYantraLocalAssistant,
   HRYANTRA_AI_SUGGESTIONS,
+  HRYANTRA_AI_WELCOME,
   type HrYantraChatMessage,
 } from '../lib/hrYantraLocalAssistant';
 
@@ -63,8 +64,7 @@ export function HrYantraAiFloatingButton() {
       id: 'welcome',
       role: 'assistant',
       createdAt: new Date().toISOString(),
-      content:
-        'Hi — I am **HRYantra AI**. Ask about your tenant CRM data (leads, clients, jobs, candidates, interviews, placements, tasks). I use your live company data only — no OpenAI and no external AI API keys.',
+      content: HRYANTRA_AI_WELCOME,
     },
   ]);
   const dragRef = useRef<{
@@ -147,7 +147,7 @@ export function HrYantraAiFloatingButton() {
     ]);
     setBusy(true);
     try {
-      const answer = await askHrYantraLocalAssistant(text);
+      const answer = await askHrYantraLocalAssistant(text, messages);
       setMessages((prev) => [
         ...prev,
         { id: uid(), role: 'assistant', content: answer, createdAt: new Date().toISOString() },
@@ -190,24 +190,34 @@ export function HrYantraAiFloatingButton() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 18, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-            className="fixed bottom-24 right-4 z-[9999] flex h-[min(72vh,640px)] w-[min(94vw,420px)] flex-col overflow-hidden rounded-[1.5rem] border border-sky-100 bg-white shadow-[0_28px_80px_-24px_rgba(15,23,42,0.45)] sm:right-6"
+            className="fixed bottom-24 right-4 z-[9999] flex h-[min(78vh,700px)] w-[min(94vw,440px)] flex-col overflow-hidden rounded-[1.75rem] border border-sky-100/80 bg-white shadow-[0_28px_80px_-24px_rgba(15,23,42,0.45)] sm:right-6"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative border-b border-sky-100 bg-gradient-to-r from-[#FFF4E8] via-white to-[#E8F6FC] px-4 py-3.5">
-              <div className="flex items-start justify-between gap-3">
+            <div className="relative overflow-hidden border-b border-sky-100/80 px-4 py-4">
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(32,152,200,0.16),_transparent_55%),linear-gradient(135deg,#FFF7ED_0%,#FFFFFF_48%,#E8F6FC_100%)]" />
+              <div className="relative flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <span className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#2098C8]/25">
-                    <Image src="/saasa-logo.png" alt="HRYantra" width={36} height={36} className="object-contain" />
+                  <span className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-[#2098C8]/20">
+                    <Image src="/hryantra-logo.png" alt="HRYantra" width={38} height={38} className="object-contain" />
+                    <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#2098C8] text-white shadow-sm">
+                      <Sparkles className="h-2.5 w-2.5" />
+                    </span>
                   </span>
                   <div>
-                    <p className="text-sm font-bold text-slate-900">HRYantra AI</p>
-                    <p className="text-xs text-slate-500">Tenant CRM assistant · no external AI keys</p>
+                    <p className="text-sm font-bold tracking-tight text-slate-900">HRYantra AI</p>
+                    <p className="mt-0.5 text-[11px] font-medium text-slate-500">
+                      Smart CRM coach · ranks what matters
+                    </p>
+                    <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      Intent + ranking · no external AI
+                    </span>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="rounded-full p-2 text-slate-400 transition hover:bg-white hover:text-slate-700"
+                  className="rounded-full p-2 text-slate-400 transition hover:bg-white/80 hover:text-slate-700"
                   aria-label="Close HRYantra AI"
                 >
                   <X className="h-4 w-4" />
@@ -215,17 +225,19 @@ export function HrYantraAiFloatingButton() {
               </div>
             </div>
 
-            <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50/70 px-4 py-4">
+            <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-50/90 to-white px-4 py-4">
               {messages.map((message) => (
                 <div
                   key={message.id}
                   className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
+                    className={`max-w-[90%] whitespace-pre-wrap rounded-2xl px-3.5 py-3 text-sm leading-relaxed shadow-sm ${
                       message.role === 'user'
-                        ? 'bg-[#2098C8] text-white'
-                        : 'border border-slate-200 bg-white text-slate-700'
+                        ? 'rounded-br-md bg-[#2098C8] text-white'
+                        : message.id === 'welcome'
+                          ? 'rounded-bl-md border border-sky-100 bg-white text-slate-700 shadow-[0_8px_24px_-12px_rgba(32,152,200,0.35)]'
+                          : 'rounded-bl-md border border-slate-200/80 bg-white text-slate-700'
                     }`}
                   >
                     {renderMessageText(message.content)}
@@ -233,14 +245,14 @@ export function HrYantraAiFloatingButton() {
                 </div>
               ))}
               {busy ? (
-                <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 shadow-sm">
+                <div className="inline-flex items-center gap-2 rounded-2xl border border-sky-100 bg-white px-3 py-2 text-xs text-slate-500 shadow-sm">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-[#2098C8]" />
-                  Reading tenant data…
+                  Syncing & ranking live data…
                 </div>
               ) : null}
             </div>
 
-            <div className="border-t border-slate-100 bg-white px-3 py-3">
+            <div className="border-t border-slate-100 bg-white/95 px-3 py-3 backdrop-blur">
               <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]">
                 {HRYANTRA_AI_SUGGESTIONS.map((item) => (
                   <button
@@ -248,7 +260,7 @@ export function HrYantraAiFloatingButton() {
                     type="button"
                     disabled={busy}
                     onClick={() => void ask(item.prompt)}
-                    className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-800 transition hover:bg-sky-100 disabled:opacity-50"
+                    className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:border-[#2098C8]/40 hover:bg-sky-50 hover:text-sky-800 disabled:opacity-50"
                   >
                     {item.label}
                   </button>
@@ -265,7 +277,7 @@ export function HrYantraAiFloatingButton() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   rows={2}
-                  placeholder="Ask about leads, jobs, candidates…"
+                  placeholder="Ask about pulse, leads, jobs… or type refresh"
                   className="min-h-[44px] flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#2098C8] focus:bg-white focus:ring-4 focus:ring-[#2098C8]/15"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -338,7 +350,7 @@ export function HrYantraAiFloatingButton() {
         }}
       >
         <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#E8F6FC] to-white">
-          <Image src="/saasa-logo.png" alt="" width={34} height={34} className="object-contain" />
+          <Image src="/hryantra-logo.png" alt="" width={34} height={34} className="object-contain" />
           <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#F08818] text-white shadow-sm">
             <Sparkles className="h-2.5 w-2.5" />
           </span>

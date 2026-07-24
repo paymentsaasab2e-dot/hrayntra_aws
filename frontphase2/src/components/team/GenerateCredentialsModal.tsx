@@ -147,7 +147,7 @@ export const GenerateCredentialsModal: React.FC<GenerateCredentialsModalProps> =
                         onChange={(e) => setLoginIdOption(e.target.value as any)}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        <option value="auto">Auto-generate (firstname.lastname@saasa)</option>
+                        <option value="auto">Auto-generate (firstname.lastname@hryantra)</option>
                         <option value="email">Use work email</option>
                         <option value="custom">Custom</option>
                       </select>
@@ -161,7 +161,7 @@ export const GenerateCredentialsModal: React.FC<GenerateCredentialsModalProps> =
                           value={customLoginId}
                           onChange={(e) => setCustomLoginId(e.target.value)}
                           className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="custom.login@saasa"
+                          placeholder="custom.login@hryantra"
                         />
                       </div>
                     )}

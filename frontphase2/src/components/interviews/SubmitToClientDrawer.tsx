@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2, Plus, Save, Send, X } from 'lucide-react';
 import CVEditorModal from '../CVEditorModal';
@@ -268,6 +269,10 @@ export function SubmitToClientDrawer({
   onToast,
 }: SubmitToClientDrawerProps) {
   usePageDrawerLifecycle(isOpen);
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLElement>({
+    isOpen,
+    onClose,
+  });
   const onToastRef = useRef(onToast);
   onToastRef.current = onToast;
   const toast = useCallback((message: string) => {
@@ -848,7 +853,7 @@ export function SubmitToClientDrawer({
   const saasaCvFileName =
     saasaCv.stored?.fileName ||
     candidateFiles.find((file) => file.fileType === 'SAASA_CV')?.fileName ||
-    (hasSaasaCvExport ? `SAASA CV — ${fullName}` : '');
+    (hasSaasaCvExport ? `HRYantra CV — ${fullName}` : '');
 
   const cvFormOverrides = () => {
     if (isPhase1Candidate && phase1Snapshot) {
@@ -1392,6 +1397,7 @@ export function SubmitToClientDrawer({
             ? `Submitted ${activeSource.candidates.length} candidates to client`
             : 'Submitted and email sent to client',
         );
+        markClean();
         onClose();
         return;
       }
@@ -1498,6 +1504,7 @@ export function SubmitToClientDrawer({
             : 'Submitted and email sent to client',
         );
       }
+      markClean();
       onClose();
     } catch (error: unknown) {
       onToast(error instanceof Error ? error.message : 'Unable to submit to client');
@@ -1515,10 +1522,12 @@ export function SubmitToClientDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={() => void requestClose()}
             className="fixed inset-0 z-[115] bg-slate-900/45"
+            data-drawer-skip-dirty="true"
           />
           <motion.aside
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -1539,9 +1548,10 @@ export function SubmitToClientDrawer({
               </div>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]"
                 aria-label="Close submit to client drawer"
+                data-drawer-skip-dirty="true"
               >
                 <X className="size-5" />
               </button>
@@ -1892,7 +1902,7 @@ export function SubmitToClientDrawer({
       isOpen={saasaPreviewOpen}
       onClose={() => setSaasaPreviewOpen(false)}
       resumeUrl={saasaCvPreviewUrl || null}
-      candidateName={`SAASA CV — ${fullName}`}
+      candidateName={`HRYantra CV — ${fullName}`}
     />
 
     {saasaCv.modals}

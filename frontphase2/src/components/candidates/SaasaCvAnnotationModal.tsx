@@ -1134,14 +1134,14 @@ export function SaasaCvAnnotationModal({
         (canText && textPreviewReady);
       if (needsFullDocument && !exportPayload) {
         onExportError?.(
-          'Could not build a full SAASA CV PDF (resume text did not export). Wait for the CV to finish loading, then save again.'
+          'Could not build a full HRYantra CV PDF (resume text did not export). Wait for the CV to finish loading, then save again.'
         );
         return;
       }
 
       await onSave(items, exportPayload, logoPayload, fullSnapshot, documentEdits);
     } catch (error: unknown) {
-      console.error('[SAASA CV] save failed:', error);
+      console.error('[HRYantra CV] save failed:', error);
     } finally {
       setExporting(false);
     }
@@ -1289,7 +1289,7 @@ export function SaasaCvAnnotationModal({
             className="fixed inset-1 z-[131] flex max-h-[calc(100dvh-0.5rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-2 sm:max-h-[calc(100dvh-1rem)]"
             role="dialog"
             aria-modal="true"
-            aria-label="SAASA CV"
+            aria-label="HRYantra CV"
             onClick={(e) => e.stopPropagation()}
           >
             <input
@@ -1301,7 +1301,7 @@ export function SaasaCvAnnotationModal({
             />
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">SAASA CV</h3>
+                <h3 className="text-lg font-semibold text-slate-900">HRYantra CV</h3>
                 <p className="text-xs text-slate-500">
                   {candidateName} · Paint, edit PDF/Word text, and annotate
                 </p>
@@ -1522,7 +1522,7 @@ export function SaasaCvAnnotationModal({
                             onPointerMove={handlePointerMove}
                             onPointerUp={handlePointerUp}
                             onPointerLeave={handlePointerUp}
-                            aria-label="SAASA CV paint layer"
+                            aria-label="HRYantra CV paint layer"
                           />
                         </>
                       ) : null}

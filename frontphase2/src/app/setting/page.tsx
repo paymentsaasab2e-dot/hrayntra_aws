@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SettingsSidebar } from '../../components/SettingsSidebar';
 import { CommunicationSettings } from '../../components/settings/CommunicationSettings';
 import { NotificationTriggerSettings } from '../../components/settings/NotificationTriggerSettings';
@@ -14,11 +14,24 @@ import { Toaster } from 'sonner';
 import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import { ActivityLogSettings } from '../../components/settings/ActivityLogSettings';
+import { confirmDiscardUnsavedChanges } from '../../hooks/useDrawerUnsavedGuard';
+import { useUnsavedPageGuard } from '../../hooks/useUnsavedPageGuard';
+
+const UNSAVED_SETTINGS_MESSAGE =
+  'You have unsaved changes on this page. Do you want to discard them and leave?';
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('profile');
   const [showBillingSection, setShowBillingSection] = useState(true);
+  const [profileDirty, setProfileDirty] = useState(false);
   const { hasAnyPermission, isSuperAdmin } = usePermissions();
+
+  // Popup when leaving Settings via main sidenav / other in-app links without saving.
+  useUnsavedPageGuard({
+    isDirty: activeSection === 'profile' && profileDirty,
+    message: UNSAVED_SETTINGS_MESSAGE,
+    onDiscard: () => setProfileDirty(false),
+  });
 
   // Profile + Customization are always available; everything else needs at
   // least one of the listed permissions. This keeps non-admin users from
@@ -45,7 +58,7 @@ export default function SettingsPage() {
           return true;
       }
     },
-    [hasAnyPermission, showBillingSection]
+    [hasAnyPermission, isSuperAdmin],
   );
 
   useEffect(() => {
@@ -81,13 +94,26 @@ export default function SettingsPage() {
     }
   }, [activeSection, canSeeSection]);
 
+  const requestSectionChange = useCallback(
+    async (nextSection: string) => {
+      if (nextSection === activeSection) return;
+      if (activeSection === 'profile' && profileDirty) {
+        const confirmed = await confirmDiscardUnsavedChanges(UNSAVED_SETTINGS_MESSAGE);
+        if (!confirmed) return;
+        setProfileDirty(false);
+      }
+      setActiveSection(nextSection);
+    },
+    [activeSection, profileDirty],
+  );
+
   const renderContent = () => {
     if (!canSeeSection(activeSection)) {
-      return <ProfileSettings />;
+      return <ProfileSettings onDirtyChange={setProfileDirty} />;
     }
     switch (activeSection) {
       case 'profile':
-        return <ProfileSettings />;
+        return <ProfileSettings onDirtyChange={setProfileDirty} />;
       case 'communication':
         return <CommunicationSettings />;
       case 'notifications-triggers':
@@ -105,7 +131,7 @@ export default function SettingsPage() {
       case 'activity-log':
         return <ActivityLogSettings />;
       default:
-        return <ProfileSettings />;
+        return <ProfileSettings onDirtyChange={setProfileDirty} />;
     }
   };
 
@@ -130,7 +156,9 @@ export default function SettingsPage() {
       <div className="flex min-h-[calc(100dvh-3.5rem)] bg-slate-50">
         <SettingsSidebar
           activeSection={activeSection}
-          setActiveSection={setActiveSection}
+          setActiveSection={(id) => {
+            void requestSectionChange(id);
+          }}
           showBillingSection={showBillingSection}
         />
 

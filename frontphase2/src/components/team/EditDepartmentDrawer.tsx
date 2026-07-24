@@ -5,7 +5,7 @@ import { Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateDepartment } from '../../lib/api/teamApi';
 import type { Department } from '../../types/team';
-import { DrawerFormShell } from '../drawers/DrawerFormShell';
+import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
   DrawerSectionCard,
@@ -90,13 +90,7 @@ export const EditDepartmentDrawer: React.FC<EditDepartmentDrawerProps> = ({
       headerIcon={Building2}
       footer={
         <>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            Cancel
-          </button>
+          <DrawerFormCancelButton />
           <button
             type="button"
             onClick={() => void handleSubmit()}

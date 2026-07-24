@@ -10,7 +10,7 @@ interface PortalTailoredCvStudioPreviewProps {
 
 /**
  * Renders the exact LMS studio preview HTML captured on portal apply
- * (template, SAASA watermark, section layout from Phase 1).
+ * (template, HRYANTRA watermark, section layout from Phase 1).
  */
 export function PortalTailoredCvStudioPreview({
   html,
@@ -24,7 +24,9 @@ export function PortalTailoredCvStudioPreview({
 
   const srcDoc = useMemo(() => {
     const safeTemplate = String(templateId || 'studio').replace(/[<>"']/g, '');
-    const logoUrl = `${jobPortalBase}/SAASA%20Logo.png`;
+    const phase2Origin =
+      typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001';
+    const logoUrl = `${phase2Origin}/hryantra-logo.png`;
     const watermark = `<div aria-hidden="true" style="position:absolute;inset:0;pointer-events:none;z-index:20;display:flex;align-items:center;justify-content:center;">
   <img src="${logoUrl}" alt="" style="max-height:54%;max-width:70%;object-fit:contain;opacity:0.13;" />
 </div>
@@ -34,9 +36,15 @@ export function PortalTailoredCvStudioPreview({
     const normalizedHtml = html
       .replace(/\boverflow-hidden\b/g, 'overflow-visible')
       .replace(/overflow\s*:\s*hidden/gi, 'overflow:visible');
-    const bodyHtml = /SAASA%20Logo|SAASA Logo|data-saasa-watermark/i.test(normalizedHtml)
-      ? normalizedHtml.replace(/src=(["'])(?:\/SAASA%20Logo\.png|\/SAASA Logo\.png)\1/gi, `src="${logoUrl}"`)
-      : `<div style="position:relative;overflow:visible;padding-bottom:2.5rem;">${normalizedHtml}${watermark}</div>`;
+    const bodyHtml =
+      /SAASA%20Logo|SAASA Logo|hryantra-logo|data-hryantra-watermark|data-saasa-watermark/i.test(
+        normalizedHtml,
+      )
+        ? normalizedHtml.replace(
+            /src=(["'])(?:\/SAASA%20Logo\.png|\/SAASA Logo\.png|\/hryantra-logo\.png)\1/gi,
+            `src="${logoUrl}"`,
+          )
+        : `<div style="position:relative;overflow:visible;padding-bottom:2.5rem;">${normalizedHtml}${watermark}</div>`;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>

@@ -32,6 +32,7 @@ import {
   mergeRolesWithDepartmentEmbedded,
   type DepartmentWithRoles,
 } from '../../lib/teamReporting';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KNOWN_DOMAINS = [
   'gmail.com',
@@ -322,6 +323,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
       console.log('✅ Update result:', result);
       toast.success('Team member updated successfully');
       onSuccess((result as any)?.data || member);
+      markClean();
       handleClose();
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to update team member';
@@ -341,6 +343,11 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
     onClose();
   };
 
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose: handleClose,
+  });
+
   const handleDelete = async () => {
     if (!(await requestConfirm(`Are you sure you want to permanently delete ${member.firstName} ${member.lastName}? This action cannot be undone and will remove all associated data.`))) {
       return;
@@ -350,6 +357,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
       await deleteTeamMember(member.id);
       toast.success('Team member deleted successfully');
       onSuccess();
+      markClean();
       handleClose();
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete team member');
@@ -357,17 +365,6 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
       setIsSubmitting(false);
     }
   };
-
-  // Close on Escape
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen]);
 
   return (
     <AnimatePresence>
@@ -377,11 +374,13 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={handleClose}
+            onClick={() => void requestClose()}
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[60]"
+            data-drawer-skip-dirty="true"
           />
 
           <motion.div
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -402,8 +401,11 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
                 </div>
               </div>
               <button
-                onClick={handleClose}
+                type="button"
+                onClick={() => void requestClose()}
                 className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+                data-drawer-skip-dirty="true"
               >
                 <X size={20} />
               </button>
@@ -601,8 +603,9 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={handleClose}
+                  onClick={() => void requestClose()}
                   className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                  data-drawer-skip-dirty="true"
                 >
                   Cancel
                 </button>

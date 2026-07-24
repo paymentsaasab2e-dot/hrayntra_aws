@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Briefcase, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Toaster } from 'sonner';
 import { apiGetPublicApplyPage, apiSubmitPublicApply } from '../../../lib/api';
 import {
   normalizeApplicationFormSchema,
@@ -10,6 +11,7 @@ import {
 } from '../../../lib/applicationFormTypes';
 import { PublicJobApplyForm } from '../../../components/jobs/PublicJobApplyForm';
 import { PublicJobOverviewPanel } from '../../../components/jobs/PublicJobOverviewPanel';
+import { PublicJobShareRail } from '../../../components/jobs/PublicJobShareRail';
 
 interface PublicJobSummary {
   id: string;
@@ -52,6 +54,19 @@ export default function PublicJobApplyPage() {
   const [job, setJob] = useState<PublicJobSummary | null>(null);
   const [formSchema, setFormSchema] = useState<ApplicationFormSchema | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !token) {
+      setShareUrl('');
+      return;
+    }
+    const url = new URL(`/apply/${encodeURIComponent(token)}`, window.location.origin);
+    if (tenantDbName) {
+      url.searchParams.set('tenantDbName', tenantDbName);
+    }
+    setShareUrl(url.toString());
+  }, [token, tenantDbName]);
 
   useEffect(() => {
     if (!token) {
@@ -154,6 +169,9 @@ export default function PublicJobApplyPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 to-white">
+      <Toaster position="top-right" richColors />
+      {shareUrl ? <PublicJobShareRail shareUrl={shareUrl} jobTitle={job?.title} /> : null}
+
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto max-w-3xl px-4 py-4 flex items-center gap-3">
           {job?.companyLogo ? (
@@ -181,7 +199,7 @@ export default function PublicJobApplyPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:pr-16">
         {step === 'overview' && job ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
             <PublicJobOverviewPanel job={job} />

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { createContext, useContext } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, type LucideIcon } from 'lucide-react';
 import {
@@ -9,6 +9,37 @@ import {
   DRAWER_FORM_HEADER_CLASS,
   DRAWER_FORM_PANEL_CLASS,
 } from './drawerFormUi';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
+
+const DrawerFormRequestCloseContext = createContext<(() => Promise<boolean>) | null>(null);
+
+/** Use inside DrawerFormShell footer/content for Cancel that respects unsaved guard. */
+export function useDrawerFormRequestClose(): (() => Promise<boolean>) | null {
+  return useContext(DrawerFormRequestCloseContext);
+}
+
+type DrawerFormCancelButtonProps = {
+  children?: React.ReactNode;
+  className?: string;
+};
+
+/** Footer Cancel that prompts only when the drawer form was edited. */
+export function DrawerFormCancelButton({
+  children = 'Cancel',
+  className = 'rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50',
+}: DrawerFormCancelButtonProps) {
+  const requestClose = useDrawerFormRequestClose();
+  return (
+    <button
+      type="button"
+      onClick={() => void requestClose?.()}
+      className={className}
+      data-drawer-skip-dirty="true"
+    >
+      {children}
+    </button>
+  );
+}
 
 type DrawerFormShellProps = {
   isOpen: boolean;
@@ -23,6 +54,10 @@ type DrawerFormShellProps = {
   backdropClassName?: string;
   zBackdrop?: number;
   zPanel?: number;
+  /** Prompt before close when fields were edited. Default true. */
+  guardUnsaved?: boolean;
+  /** Optional explicit dirty state from parent form. */
+  isDirty?: boolean;
 };
 
 export function DrawerFormShell({
@@ -38,7 +73,16 @@ export function DrawerFormShell({
   backdropClassName = 'fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-[2px]',
   zBackdrop = 60,
   zPanel = 70,
+  guardUnsaved = true,
+  isDirty,
 }: DrawerFormShellProps) {
+  const { panelRef, requestClose } = useDrawerUnsavedGuard<HTMLElement>({
+    isOpen,
+    onClose,
+    enabled: guardUnsaved,
+    isDirty,
+  });
+
   return (
     <AnimatePresence>
       {isOpen ? (
@@ -47,11 +91,13 @@ export function DrawerFormShell({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={() => void requestClose()}
             className={backdropClassName}
             style={{ zIndex: zBackdrop }}
+            data-drawer-skip-dirty="true"
           />
           <motion.aside
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -59,33 +105,36 @@ export function DrawerFormShell({
             className={panelClassName || DRAWER_FORM_PANEL_CLASS}
             style={{ zIndex: zPanel }}
           >
-            <div className={DRAWER_FORM_HEADER_CLASS}>
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                {HeaderIcon ? (
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
-                    <HeaderIcon size={20} />
+            <DrawerFormRequestCloseContext.Provider value={requestClose}>
+              <div className={DRAWER_FORM_HEADER_CLASS}>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  {HeaderIcon ? (
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
+                      <HeaderIcon size={20} />
+                    </div>
+                  ) : null}
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-bold tracking-tight text-slate-900">{title}</h2>
+                    {subtitle ? <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p> : null}
                   </div>
-                ) : null}
-                <div className="min-w-0">
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">{title}</h2>
-                  {subtitle ? <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p> : null}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => void requestClose()}
+                  className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Close drawer"
+                  data-drawer-skip-dirty="true"
+                >
+                  <X size={18} />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                aria-label="Close drawer"
-              >
-                <X size={18} />
-              </button>
-            </div>
 
-            <div className={contentClassName || DRAWER_FORM_CONTENT_CLASS}>
-              <div className="space-y-5 px-6 py-5">{children}</div>
-            </div>
+              <div className={contentClassName || DRAWER_FORM_CONTENT_CLASS}>
+                <div className="space-y-5 px-6 py-5">{children}</div>
+              </div>
 
-            {footer ? <div className={DRAWER_FORM_FOOTER_CLASS}>{footer}</div> : null}
+              {footer ? <div className={DRAWER_FORM_FOOTER_CLASS}>{footer}</div> : null}
+            </DrawerFormRequestCloseContext.Provider>
           </motion.aside>
         </>
       ) : null}

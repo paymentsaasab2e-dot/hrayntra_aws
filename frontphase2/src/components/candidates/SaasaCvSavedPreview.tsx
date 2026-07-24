@@ -17,7 +17,7 @@ interface SaasaCvSavedPreviewProps {
   enabled?: boolean;
   className?: string;
   minHeightClass?: string;
-  /** Prefer native browser PDF embed (most reliable for saved SAASA files). */
+  /** Prefer native browser PDF embed (most reliable for saved HRYantra CV files). */
   preferNativePdfEmbed?: boolean;
 }
 
@@ -53,12 +53,12 @@ export function SaasaCvSavedPreview({
 
   if (useNativePdfEmbed) {
     return (
-      <div className={shellClass} aria-label={`${candidateName} SAASA CV`}>
+      <div className={shellClass} aria-label={`${candidateName} HRYantra CV`}>
         <div className="min-h-0 flex-1 overflow-hidden p-2 sm:p-4">
           <iframe
             key={viewerUrl}
             src={viewerUrl}
-            title={`${candidateName} SAASA CV`}
+            title={`${candidateName} HRYantra CV`}
             className="mx-auto block h-[min(78dvh,900px)] w-full max-w-[52rem] rounded-lg border border-slate-200 bg-white shadow-sm"
           />
         </div>
@@ -67,7 +67,7 @@ export function SaasaCvSavedPreview({
   }
 
   return (
-    <div className={shellClass} aria-label={`${candidateName} SAASA CV`}>
+    <div className={shellClass} aria-label={`${candidateName} HRYantra CV`}>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 sm:p-6">
         <div className="mx-auto w-full max-w-[52rem]">
           <ResumeFilePreview resumeUrl={href} candidateName={candidateName} />

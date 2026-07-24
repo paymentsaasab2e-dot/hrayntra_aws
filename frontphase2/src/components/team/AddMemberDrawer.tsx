@@ -31,6 +31,7 @@ import {
   mergeRolesWithDepartmentEmbedded,
   type DepartmentWithRoles,
 } from '../../lib/teamReporting';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KNOWN_DOMAINS = [
@@ -159,7 +160,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
 
   // Generate loginId preview
   const loginIdPreview = formData.firstName && formData.lastName
-    ? `${formData.firstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${formData.lastName.toLowerCase().replace(/[^a-z0-9]/g, '')}@saasa`
+    ? `${formData.firstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${formData.lastName.toLowerCase().replace(/[^a-z0-9]/g, '')}@hryantra`
     : '';
 
   const availableRoles = useMemo(
@@ -329,6 +330,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
           : 'Team member created successfully'
       );
       onSuccess(member);
+      markClean();
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to create team member';
       if (errorMessage.toLowerCase().includes('email')) {
@@ -349,16 +351,10 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
     onClose();
   };
 
-  // Close on Escape
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen]);
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose: handleClose,
+  });
 
   return (
     <AnimatePresence>
@@ -369,12 +365,14 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={handleClose}
+            onClick={() => void requestClose()}
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[60]"
+            data-drawer-skip-dirty="true"
           />
 
           {/* Drawer */}
           <motion.div
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -394,8 +392,11 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                 </div>
               </div>
               <button
-                onClick={handleClose}
+                type="button"
+                onClick={() => void requestClose()}
                 className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+                data-drawer-skip-dirty="true"
               >
                 <X size={20} />
               </button>
@@ -671,7 +672,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                       </button>
                       <button
                         type="button"
-                        onClick={handleClose}
+                        onClick={() => void requestClose()}
                         className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
                       >
                         Done
@@ -686,7 +687,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
             <div className={DRAWER_FORM_FOOTER_CLASS}>
               <button
                 type="button"
-                onClick={handleClose}
+                onClick={() => void requestClose()}
                 className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
               >
                 {createdMember?.credentialData ? 'Close' : 'Cancel'}
@@ -694,7 +695,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                   {createdMember?.credentialData ? (
                     <button
                       type="button"
-                      onClick={handleClose}
+                      onClick={() => void requestClose()}
                       className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
                 >
                   Done

@@ -15,6 +15,7 @@ import {
   ChevronRight,
   UserPlus
 } from 'lucide-react';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 
 interface AddMemberDrawerProps {
   isOpen: boolean;
@@ -25,6 +26,10 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
   const [mounted, setMounted] = useState(false);
   const [showPermissions, setShowPermissions] = useState(false);
   const [commissionType, setCommissionType] = useState('Percentage');
+  const { panelRef, requestClose } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose,
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -58,12 +63,13 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={() => void requestClose()}
             className="fixed inset-0 z-[1000] bg-slate-900/40 backdrop-blur-sm"
           />
           
           {/* Drawer */}
           <motion.div
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -77,8 +83,10 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                 <p className="text-sm text-slate-500">Invite and assign roles to new team members</p>
               </div>
               <button 
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-slate-900 transition-all"
+                aria-label="Close"
+                data-drawer-skip-dirty="true"
               >
                 <X className="size-6" />
               </button>
@@ -328,8 +336,9 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
             {/* Sticky Footer */}
             <div className="p-6 border-t border-slate-100 bg-white flex items-center justify-between sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
               <button 
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="px-6 py-3 text-sm font-bold text-slate-500 hover:text-slate-800 transition-colors"
+                data-drawer-skip-dirty="true"
               >
                 Cancel
               </button>

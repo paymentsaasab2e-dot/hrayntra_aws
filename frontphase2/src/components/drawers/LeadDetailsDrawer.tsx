@@ -11,6 +11,10 @@ import {
 } from '../../utils/formatLeadDateTime';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { FollowUpDateTimeField } from '../FollowUpDateTimeField';
+import {
+  buildFollowUpStatusRemark,
+  LeadFollowUpScheduler,
+} from '../LeadFollowUpScheduler';
 import { formatFollowUpDisplay } from '../../utils/formatLeadDateTime';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { exportLeadAsPdf } from '../../utils/exportLeadPdf';
@@ -143,6 +147,7 @@ import {
 } from '../../lib/teamMemberFormDetails';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import {
   AddLeadFieldLabel,
   AddLeadIconInput,
@@ -408,6 +413,11 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   followUpType?: string;
   /** Optional notes stored with the initial next follow-up. */
   followUpNotes?: string;
+  followUpContact?: string;
+  followUpMeetLink?: string;
+  followUpReminder?: string;
+  followUpTimezone?: string;
+  followUpAttendeeIds?: string[];
 };
 
 function syncLeadTeamMembers(
@@ -753,6 +763,7 @@ export function LeadDetailsDrawer({
 }: LeadDetailsDrawerProps) {
   usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
   const isPublicIntakeMode = Boolean(createLeadOverride);
+  const drawerIsOpen = Boolean(lead) || addLeadMode;
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'chat' | 'followup' | 'add'>(
     'overview'
   );
@@ -874,6 +885,11 @@ export function LeadDetailsDrawer({
     nextFollowUp: '',
     followUpType: 'Call',
     followUpNotes: '',
+    followUpContact: '',
+    followUpMeetLink: '',
+    followUpReminder: 'No reminder',
+    followUpTimezone: 'Asia/Kolkata',
+    followUpAttendeeIds: [],
   });
   const [addLeadStatusIsCustom, setAddLeadStatusIsCustom] = useState(false);
   const [leadStatusCatalog, setLeadStatusCatalog] = useState<string[]>(DEFAULT_LEAD_STATUSES);
@@ -1099,6 +1115,11 @@ export function LeadDetailsDrawer({
       nextFollowUp: '',
       followUpType: 'Call',
       followUpNotes: '',
+      followUpContact: '',
+      followUpMeetLink: '',
+      followUpReminder: 'No reminder',
+      followUpTimezone: 'Asia/Kolkata',
+      followUpAttendeeIds: [],
     });
     setAddLeadErrors({});
     setPendingAddLeadAgreementsFile(null);
@@ -1265,6 +1286,12 @@ export function LeadDetailsDrawer({
   const [overviewEditMode, setOverviewEditMode] = useState(false);
   const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
   const [savingOverviewEdit, setSavingOverviewEdit] = useState(false);
+  const { panelRef: leadDrawerPanelRef, requestClose: requestLeadDrawerClose, markClean: markLeadDrawerClean } =
+    useDrawerUnsavedGuard<HTMLDivElement>({
+      isOpen: drawerIsOpen,
+      onClose,
+      enabled: true,
+    });
   const [overviewEditForm, setOverviewEditForm] = useState({
     companyName: '',
     industry: '',
@@ -1304,6 +1331,12 @@ export function LeadDetailsDrawer({
     lastFollowUp: '',
     nextFollowUp: '',
     followUpType: 'Call',
+    followUpNotes: '',
+    followUpContact: '',
+    followUpMeetLink: '',
+    followUpReminder: 'No reminder',
+    followUpTimezone: 'Asia/Kolkata',
+    followUpAttendeeIds: [] as string[],
     agreementsFileName: '' as string,
     agreementsFileUrl: '' as string,
     agreementsUploadedAt: '' as string,
@@ -1391,7 +1424,7 @@ export function LeadDetailsDrawer({
   const [accountManagerDropdownOpen, setAccountManagerDropdownOpen] = useState(false);
 
   const WHATSAPP_TEMPLATES = ['Introduction', 'Meeting Request', 'Follow-up Reminder', 'Proposal Shared'];
-  const FOLLOW_UP_TYPES = ['Call', 'WhatsApp', 'Email', 'Meet', 'Video Call', 'Other'];
+  const FOLLOW_UP_TYPES = ['Call', 'WhatsApp', 'Email', 'Meet', 'Other'];
   const REMINDER_OPTIONS = ['10 minutes before', '30 minutes before', '1 hour before', '1 day before'];
   const INDUSTRIES = ['Technology', 'Healthcare', 'Finance', 'Manufacturing', 'Retail', 'Other'];
   const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '500+'];
@@ -1744,6 +1777,12 @@ export function LeadDetailsDrawer({
       lastFollowUp: lead.lastFollowUp,
       nextFollowUp: lead.nextFollowUp ?? '',
       followUpType: 'Call',
+      followUpNotes: '',
+      followUpContact: '',
+      followUpMeetLink: '',
+      followUpReminder: 'No reminder',
+      followUpTimezone: 'Asia/Kolkata',
+      followUpAttendeeIds: [],
       agreementsFileName: lead.agreementsFileName ?? '',
       agreementsFileUrl: lead.agreementsFileUrl ?? '',
       agreementsUploadedAt: lead.agreementsUploadedAt ?? '',
@@ -1915,7 +1954,25 @@ export function LeadDetailsDrawer({
         nextFollowUp: nextFollowUpValue || '',
         ...(followUpChanged
           ? {
-              statusRemark: `Follow-up scheduled: ${overviewEditForm.followUpType || 'General'}`,
+              statusRemark: buildFollowUpStatusRemark({
+                nextFollowUp: nextFollowUpValue,
+                followUpType: overviewEditForm.followUpType || 'General',
+                followUpContact: overviewEditForm.followUpContact,
+                followUpMeetLink: overviewEditForm.followUpMeetLink,
+                followUpReminder: overviewEditForm.followUpReminder,
+                followUpTimezone: overviewEditForm.followUpTimezone,
+                followUpAttendeeIds: overviewEditForm.followUpAttendeeIds,
+                followUpNotes: overviewEditForm.followUpNotes,
+              }),
+              followUpSchedule: {
+                type: overviewEditForm.followUpType || 'General',
+                contact: overviewEditForm.followUpContact,
+                meetLink: overviewEditForm.followUpMeetLink,
+                reminder: overviewEditForm.followUpReminder,
+                timezone: overviewEditForm.followUpTimezone,
+                attendeeIds: overviewEditForm.followUpAttendeeIds,
+                notes: overviewEditForm.followUpNotes,
+              },
             }
           : {}),
         ...agreementTermsApiPayload(overviewEditForm),
@@ -2081,14 +2138,27 @@ export function LeadDetailsDrawer({
         lastFollowUp: addLeadForm.lastFollowUp || undefined,
         nextFollowUp: addLeadForm.nextFollowUp || undefined,
         statusRemark: addLeadForm.nextFollowUp
-          ? [
-              `Follow-up scheduled: ${addLeadForm.followUpType || 'General'}`,
-              addLeadForm.followUpNotes?.trim()
-                ? `Notes: ${addLeadForm.followUpNotes.trim()}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join('. ')
+          ? buildFollowUpStatusRemark({
+              nextFollowUp: addLeadForm.nextFollowUp,
+              followUpType: addLeadForm.followUpType || 'General',
+              followUpContact: addLeadForm.followUpContact,
+              followUpMeetLink: addLeadForm.followUpMeetLink,
+              followUpReminder: addLeadForm.followUpReminder,
+              followUpTimezone: addLeadForm.followUpTimezone,
+              followUpAttendeeIds: addLeadForm.followUpAttendeeIds,
+              followUpNotes: addLeadForm.followUpNotes,
+            })
+          : undefined,
+        followUpSchedule: addLeadForm.nextFollowUp
+          ? {
+              type: addLeadForm.followUpType || 'General',
+              contact: addLeadForm.followUpContact,
+              meetLink: addLeadForm.followUpMeetLink,
+              reminder: addLeadForm.followUpReminder,
+              timezone: addLeadForm.followUpTimezone,
+              attendeeIds: addLeadForm.followUpAttendeeIds,
+              notes: addLeadForm.followUpNotes,
+            }
           : undefined,
         assignedToId: addLeadForm.assignedToId || undefined,
         ...agreementTermsApiPayload(addLeadForm),
@@ -2153,6 +2223,7 @@ export function LeadDetailsDrawer({
       if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
 
       onAddLead?.(addLeadForm, createdLead || undefined);
+      markLeadDrawerClean();
       resetAddLeadForm();
     } catch (error: any) {
       console.error('Failed to create lead:', error);
@@ -2191,7 +2262,7 @@ export function LeadDetailsDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={leadAiChatOpen ? undefined : onClose}
+            onClick={leadAiChatOpen ? undefined : () => void requestLeadDrawerClose()}
             className={`fixed inset-0 z-50 ${
               addLeadMode && leadAiChatOpen
                 ? 'pointer-events-none bg-slate-900/10'
@@ -2199,9 +2270,11 @@ export function LeadDetailsDrawer({
                   ? 'pointer-events-auto bg-slate-900/40 backdrop-blur-[2px]'
                   : 'pointer-events-auto bg-slate-900/40 backdrop-blur-[2px]'
             }`}
+            data-drawer-skip-dirty="true"
           />
           <motion.div
             key="panel"
+            ref={leadDrawerPanelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -2313,14 +2386,14 @@ export function LeadDetailsDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={() => void requestLeadDrawerClose()}
                     className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                   >
                     Cancel
                   </button>
                 </>
               ) : (
-                <DrawerCloseButton onClick={onClose} />
+                <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
               )}
               {!addLeadMode ? (
               <div className="relative">
@@ -3322,6 +3395,42 @@ export function LeadDetailsDrawer({
                   </AddLeadSectionCard>
 
                   <AddLeadSectionCard
+                    title="Location & Industry"
+                    subtitle="Where the company operates"
+                    icon={MapPin}
+                    accent="emerald"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <CscLocationFields
+                          location={addLeadForm.location ?? ''}
+                          city={addLeadForm.city ?? ''}
+                          state={addLeadForm.state ?? ''}
+                          country={addLeadForm.country ?? ''}
+                          countryCode={addLeadForm.countryCode ?? ''}
+                          latitude={addLeadForm.latitude ?? null}
+                          longitude={addLeadForm.longitude ?? null}
+                          showDetectedHint={false}
+                          onLocationChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
+                          onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
+                        <IndustryMultiSelect
+                          value={addLeadForm.industry ?? ''}
+                          onChange={(industry) => setAddLeadForm((p) => ({ ...p, industry }))}
+                          companyName={addLeadForm.companyName ?? ''}
+                          placeholder="Type an industry (e.g. technology, healthcare)"
+                        />
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          Select one or more industries. Press Enter to add a custom industry.
+                        </p>
+                      </div>
+                    </div>
+                  </AddLeadSectionCard>
+
+                  <AddLeadSectionCard
                     title="Contacts"
                     subtitle="Director and team member details"
                     icon={Users}
@@ -3381,42 +3490,6 @@ export function LeadDetailsDrawer({
                             setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
                           }
                         />
-                      </div>
-                    </div>
-                  </AddLeadSectionCard>
-
-                  <AddLeadSectionCard
-                    title="Location & Industry"
-                    subtitle="Where the company operates"
-                    icon={MapPin}
-                    accent="emerald"
-                  >
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div className="sm:col-span-2">
-                        <CscLocationFields
-                          location={addLeadForm.location ?? ''}
-                          city={addLeadForm.city ?? ''}
-                          state={addLeadForm.state ?? ''}
-                          country={addLeadForm.country ?? ''}
-                          countryCode={addLeadForm.countryCode ?? ''}
-                          latitude={addLeadForm.latitude ?? null}
-                          longitude={addLeadForm.longitude ?? null}
-                          showDetectedHint={false}
-                          onLocationChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
-                          onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
-                        <IndustryMultiSelect
-                          value={addLeadForm.industry ?? ''}
-                          onChange={(industry) => setAddLeadForm((p) => ({ ...p, industry }))}
-                          companyName={addLeadForm.companyName ?? ''}
-                          placeholder="Type an industry (e.g. technology, healthcare)"
-                        />
-                        <p className="mt-1 text-[11px] text-slate-400">
-                          Select one or more industries. Press Enter to add a custom industry.
-                        </p>
                       </div>
                     </div>
                   </AddLeadSectionCard>
@@ -3525,26 +3598,24 @@ export function LeadDetailsDrawer({
                     accent="sky"
                   >
                     <div className="space-y-4">
-                      <FollowUpDateTimeField
-                        value={addLeadForm.nextFollowUp ?? ''}
-                        onChange={(iso) => setAddLeadForm((p) => ({ ...p, nextFollowUp: iso }))}
-                        followUpType={addLeadForm.followUpType || 'Call'}
-                        onFollowUpTypeChange={(type) =>
-                          setAddLeadForm((p) => ({ ...p, followUpType: type }))
-                        }
+                      <LeadFollowUpScheduler
+                        value={{
+                          nextFollowUp: addLeadForm.nextFollowUp ?? '',
+                          followUpType: addLeadForm.followUpType || 'Call',
+                          followUpContact: addLeadForm.followUpContact,
+                          followUpMeetLink: addLeadForm.followUpMeetLink,
+                          followUpReminder: addLeadForm.followUpReminder,
+                          followUpTimezone: addLeadForm.followUpTimezone,
+                          followUpAttendeeIds: addLeadForm.followUpAttendeeIds,
+                          followUpNotes: addLeadForm.followUpNotes,
+                        }}
+                        onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
+                        phoneOptions={[...(addLeadForm.phones || []), addLeadForm.phone]}
+                        emailOptions={[...(addLeadForm.emails || []), addLeadForm.email]}
+                        teamMembers={recruiters}
+                        loadingMembers={loadingRecruiters}
+                        inputClassName={ADD_LEAD_INPUT}
                       />
-                      <div>
-                        <AddLeadFieldLabel label="Follow-up notes" icon={StickyNote} iconClassName="text-sky-500" />
-                        <textarea
-                          value={addLeadForm.followUpNotes ?? ''}
-                          onChange={(e) =>
-                            setAddLeadForm((p) => ({ ...p, followUpNotes: e.target.value }))
-                          }
-                          rows={2}
-                          className={`${ADD_LEAD_INPUT} resize-none`}
-                          placeholder="What should be discussed on this follow-up?"
-                        />
-                      </div>
                       <div>
                         <AddLeadFieldLabel label="Assigned To" icon={UserCog} iconClassName="text-sky-500" />
                         <LeadAssigneesMultiSelect
@@ -3877,13 +3948,22 @@ export function LeadDetailsDrawer({
                           />
                         </div>
                         <div>
-                          <FollowUpDateTimeField
-                            value={addLeadForm.nextFollowUp ?? ''}
-                            onChange={(iso) => setAddLeadForm((p) => ({ ...p, nextFollowUp: iso }))}
-                            followUpType={addLeadForm.followUpType || 'Call'}
-                            onFollowUpTypeChange={(type) =>
-                              setAddLeadForm((p) => ({ ...p, followUpType: type }))
-                            }
+                          <LeadFollowUpScheduler
+                            value={{
+                              nextFollowUp: addLeadForm.nextFollowUp ?? '',
+                              followUpType: addLeadForm.followUpType || 'Call',
+                              followUpContact: addLeadForm.followUpContact,
+                              followUpMeetLink: addLeadForm.followUpMeetLink,
+                              followUpReminder: addLeadForm.followUpReminder,
+                              followUpTimezone: addLeadForm.followUpTimezone,
+                              followUpAttendeeIds: addLeadForm.followUpAttendeeIds,
+                              followUpNotes: addLeadForm.followUpNotes,
+                            }}
+                            onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
+                            phoneOptions={[...(addLeadForm.phones || []), addLeadForm.phone]}
+                            emailOptions={[...(addLeadForm.emails || []), addLeadForm.email]}
+                            teamMembers={recruiters}
+                            loadingMembers={loadingRecruiters}
                           />
                         </div>
                         <div>
@@ -4328,18 +4408,26 @@ export function LeadDetailsDrawer({
                             icon={Calendar}
                             accent="sky"
                           >
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div className="sm:col-span-2">
-                              <FollowUpDateTimeField
-                                value={overviewEditForm.nextFollowUp}
-                                onChange={(iso) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: iso }))}
-                                followUpType={overviewEditForm.followUpType || 'Call'}
-                                onFollowUpTypeChange={(type) =>
-                                  setOverviewEditForm((p) => ({ ...p, followUpType: type }))
-                                }
+                            <div className="space-y-4">
+                              <LeadFollowUpScheduler
+                                value={{
+                                  nextFollowUp: overviewEditForm.nextFollowUp,
+                                  followUpType: overviewEditForm.followUpType || 'Call',
+                                  followUpContact: overviewEditForm.followUpContact,
+                                  followUpMeetLink: overviewEditForm.followUpMeetLink,
+                                  followUpReminder: overviewEditForm.followUpReminder,
+                                  followUpTimezone: overviewEditForm.followUpTimezone,
+                                  followUpAttendeeIds: overviewEditForm.followUpAttendeeIds,
+                                  followUpNotes: overviewEditForm.followUpNotes,
+                                }}
+                                onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                                phoneOptions={[...(overviewEditForm.phones || []), overviewEditForm.phone]}
+                                emailOptions={[...(overviewEditForm.emails || []), overviewEditForm.email]}
+                                teamMembers={recruiters}
+                                loadingMembers={loadingRecruiters}
+                                inputClassName={ADD_LEAD_INPUT}
                               />
-                            </div>
-                            <div>
+                              <div>
                               <AddLeadFieldLabel label="Assigned To" icon={UserCog} iconClassName="text-sky-500" />
                               <LeadAssigneesMultiSelect
                                 members={recruiters}
@@ -4355,7 +4443,7 @@ export function LeadDetailsDrawer({
                                   }));
                                 }}
                               />
-                            </div>
+                              </div>
                             </div>
                           </AddLeadSectionCard>
 
@@ -4871,14 +4959,22 @@ export function LeadDetailsDrawer({
                               />
                             </div>
                             <div>
-                              <FollowUpDateTimeField
-                                label="Next Follow-up"
-                                value={overviewEditForm.nextFollowUp}
-                                onChange={(iso) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: iso }))}
-                                followUpType={overviewEditForm.followUpType || 'Call'}
-                                onFollowUpTypeChange={(type) =>
-                                  setOverviewEditForm((p) => ({ ...p, followUpType: type }))
-                                }
+                              <LeadFollowUpScheduler
+                                value={{
+                                  nextFollowUp: overviewEditForm.nextFollowUp,
+                                  followUpType: overviewEditForm.followUpType || 'Call',
+                                  followUpContact: overviewEditForm.followUpContact,
+                                  followUpMeetLink: overviewEditForm.followUpMeetLink,
+                                  followUpReminder: overviewEditForm.followUpReminder,
+                                  followUpTimezone: overviewEditForm.followUpTimezone,
+                                  followUpAttendeeIds: overviewEditForm.followUpAttendeeIds,
+                                  followUpNotes: overviewEditForm.followUpNotes,
+                                }}
+                                onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                                phoneOptions={[...(overviewEditForm.phones || []), overviewEditForm.phone]}
+                                emailOptions={[...(overviewEditForm.emails || []), overviewEditForm.email]}
+                                teamMembers={recruiters}
+                                loadingMembers={loadingRecruiters}
                               />
                             </div>
                             <div className="md:col-span-2">

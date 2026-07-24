@@ -223,7 +223,7 @@ export function SaasaCvCompositePreview({
   if (!enabled || !href) return null;
 
   return (
-    <div className={shellClass} aria-label={`${candidateName} SAASA CV`}>
+    <div className={shellClass} aria-label={`${candidateName} HRYantra CV`}>
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 sm:p-5"
@@ -247,7 +247,7 @@ export function SaasaCvCompositePreview({
               className="flex items-center justify-center text-sm text-slate-600"
               style={{ minHeight: CV_VIEWER_MIN_HEIGHT }}
             >
-              Loading SAASA CV…
+              Loading HRYantra CV…
             </div>
           ) : null}
 

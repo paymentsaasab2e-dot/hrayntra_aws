@@ -418,7 +418,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({ isOpen, onClose,
                           onChange={(e) => handleChange('loginIdOption', e.target.value as any)}
                           className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
-                          <option value="auto">Auto-generate (firstname.lastname@saasa)</option>
+                          <option value="auto">Auto-generate (firstname.lastname@hryantra)</option>
                           <option value="email">Use work email</option>
                           <option value="custom">Custom</option>
                         </select>
@@ -434,7 +434,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({ isOpen, onClose,
                             value={formData.customLoginId || ''}
                             onChange={(e) => handleChange('customLoginId', e.target.value)}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="custom.login@saasa"
+                            placeholder="custom.login@hryantra"
                           />
                         </div>
                       )}

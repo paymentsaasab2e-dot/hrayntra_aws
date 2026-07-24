@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, CheckCircle2, AlertTriangle, Copy, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 import { formatDateDMY } from "../../utils/dateDisplay";
+import { useDrawerUnsavedGuard } from "../../hooks/useDrawerUnsavedGuard";
 
 interface RescheduleDrawerProps {
   isOpen: boolean;
@@ -10,6 +11,10 @@ interface RescheduleDrawerProps {
 }
 
 export function RescheduleDrawer({ isOpen, onClose }: RescheduleDrawerProps) {
+  const { panelRef, requestClose } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose,
+  });
   const [selectedDate, setSelectedDate] = useState(new Date(2024, 6, 26)); // July 26, 2024
   const [selectedTimeSlot, setSelectedTimeSlot] = useState("10:00 AM");
   const [timezone, setTimezone] = useState("IST GMT+5:30");
@@ -88,11 +93,13 @@ export function RescheduleDrawer({ isOpen, onClose }: RescheduleDrawerProps) {
       {/* Overlay */}
       <div 
         className="fixed inset-0 bg-black/40 z-40 transition-opacity duration-300"
-        onClick={onClose}
+        onClick={() => void requestClose()}
+        data-drawer-skip-dirty="true"
       />
       
       {/* Drawer */}
       <div 
+        ref={panelRef}
         className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 flex flex-col animate-slide-in-right"
         style={{
           animation: 'slideInRight 0.3s ease-out'
@@ -106,8 +113,10 @@ export function RescheduleDrawer({ isOpen, onClose }: RescheduleDrawerProps) {
               <p className="text-sm text-gray-600">Update the date, time or mode of this interview.</p>
             </div>
             <button
-              onClick={onClose}
+              onClick={() => void requestClose()}
               className="ml-4 p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Close"
+              data-drawer-skip-dirty="true"
             >
               <X className="w-5 h-5 text-gray-500" />
             </button>
@@ -497,8 +506,9 @@ export function RescheduleDrawer({ isOpen, onClose }: RescheduleDrawerProps) {
         <div className="border-t border-gray-200 p-6 bg-white">
           <div className="flex items-center justify-between gap-3">
             <button
-              onClick={onClose}
+              onClick={() => void requestClose()}
               className="px-6 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              data-drawer-skip-dirty="true"
             >
               Cancel
             </button>

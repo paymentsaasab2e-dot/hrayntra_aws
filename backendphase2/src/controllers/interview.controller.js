@@ -1,5 +1,6 @@
 import { sendError, sendResponse } from '../utils/response.js';
 import { interviewService } from '../services/interview.service.js';
+import { httpStatusFromError } from '../utils/interviewConflict.util.js';
 
 export const interviewController = {
   async list(req, res) {
@@ -16,7 +17,7 @@ export const interviewController = {
       const result = await interviewService.getById(req.params.id, req);
       sendResponse(res, 200, 'Interview retrieved successfully', result);
     } catch (error) {
-      sendError(res, error.message === 'Interview not found' ? 404 : 500, error.message, error);
+      sendError(res, httpStatusFromError(error, 500), error.message, error);
     }
   },
 
@@ -25,7 +26,7 @@ export const interviewController = {
       const result = await interviewService.create(req.body, req.user);
       sendResponse(res, 201, 'Interview scheduled successfully', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, httpStatusFromError(error), error.message, error);
     }
   },
 
@@ -34,7 +35,7 @@ export const interviewController = {
       const result = await interviewService.update(req.params.id, req.body, req.user);
       sendResponse(res, 200, 'Interview updated successfully', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, httpStatusFromError(error), error.message, error);
     }
   },
 
@@ -43,7 +44,7 @@ export const interviewController = {
       const result = await interviewService.softDelete(req.params.id, req.user);
       sendResponse(res, 200, 'Interview cancelled successfully', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, httpStatusFromError(error), error.message, error);
     }
   },
 
@@ -52,7 +53,7 @@ export const interviewController = {
       const result = await interviewService.reschedule(req.params.id, req.body, req.user);
       sendResponse(res, 200, 'Interview rescheduled successfully', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, httpStatusFromError(error), error.message, error);
     }
   },
 

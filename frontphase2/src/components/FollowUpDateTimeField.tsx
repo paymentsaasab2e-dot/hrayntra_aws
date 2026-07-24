@@ -8,7 +8,6 @@ import {
   MoreHorizontal,
   Phone,
   Users,
-  Video,
 } from 'lucide-react';
 import {
   combineDMYAndTimeToISO,
@@ -24,7 +23,6 @@ export const FOLLOW_UP_TYPE_PRESETS = [
   { id: 'WhatsApp', label: 'WhatsApp', icon: MessageCircle },
   { id: 'Email', label: 'Email', icon: Mail },
   { id: 'Meet', label: 'Meet', icon: Users },
-  { id: 'Video Call', label: 'Video', icon: Video },
 ] as const;
 
 export const FOLLOW_UP_TYPE_OPTIONS = [

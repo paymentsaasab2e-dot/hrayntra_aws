@@ -15,11 +15,11 @@ export interface ResumeWordFileViewerProps {
   className?: string;
   /** CSS min-height, e.g. `min(78dvh, 900px)` */
   minHeight?: string;
-  /** Always use docx-preview (required for SAASA CV text editing). */
+  /** Always use docx-preview (required for HRYantra CV text editing). */
   preferBuiltIn?: boolean;
   /** Allow inline text edits on the rendered Word HTML. */
   editable?: boolean;
-  /** Restored edited HTML from a previous SAASA CV save. */
+  /** Restored edited HTML from a previous HRYantra CV save. */
   initialDocumentHtml?: string | null;
   onDocumentHtmlChange?: (html: string) => void;
   onReady?: () => void;

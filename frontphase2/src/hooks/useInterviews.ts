@@ -591,8 +591,9 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
         emitNotificationsUpdated();
         await fetchInterviews();
       } catch (mutationError: any) {
-        setError(mutationError.message || 'Unable to schedule interview');
-        setToast(mutationError.message || 'Unable to schedule interview');
+        const message = mutationError.message || 'Unable to schedule interview';
+        setError(message);
+        setToast(message);
         throw mutationError;
       }
     },
@@ -613,8 +614,9 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
         emitNotificationsUpdated();
         await fetchInterviews();
       } catch (mutationError: any) {
-        setError(mutationError.message || 'Unable to reschedule interview');
-        setToast(mutationError.message || 'Unable to reschedule interview');
+        const message = mutationError.message || 'Unable to reschedule interview';
+        setError(message);
+        setToast(message);
         throw mutationError;
       }
     },

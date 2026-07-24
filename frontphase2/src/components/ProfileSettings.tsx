@@ -1,16 +1,54 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Save, User as UserIcon, Mail, Shield, Briefcase } from 'lucide-react';
 import { useUser } from '../hooks/useUser';
 import { apiUploadUserAvatar, apiUpdateMe } from '../lib/api';
 import { toast } from 'sonner';
+import {
+  DrawerFieldLabel,
+  DrawerIconInput,
+  DRAWER_FORM_INPUT_WITH_ICON,
+} from './drawers/drawerFormUi';
 
-export function ProfileSettings() {
+const READONLY_INPUT_CLASS =
+  `${DRAWER_FORM_INPUT_WITH_ICON} cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500`;
+
+type ProfileSettingsProps = {
+  /** Notifies parent when the form has unsaved typed changes. */
+  onDirtyChange?: (dirty: boolean) => void;
+};
+
+export function ProfileSettings({ onDirtyChange }: ProfileSettingsProps) {
   const { user, refreshUser } = useUser();
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [name, setName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+
+  useEffect(() => {
+    if (!user) return;
+    setName(user.name || '');
+  }, [user?.id, user?.name]);
+
+  const isDirty = Boolean(user) && name.trim() !== String(user?.name || '').trim();
+
+  useEffect(() => {
+    onDirtyChangeRef.current?.(isDirty);
+    return () => onDirtyChangeRef.current?.(false);
+  }, [isDirty]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
 
   const handleImageClick = () => {
     fileInputRef.current?.click();
@@ -38,17 +76,20 @@ export function ProfileSettings() {
     e.preventDefault();
     if (!user) return;
 
-    const formData = new FormData(e.currentTarget);
-    const data = {
-      name: formData.get('name') as string,
-    };
+    const nextName = name.trim();
+    if (!nextName) {
+      toast.error('Full name is required');
+      return;
+    }
 
     try {
       setIsSaving(true);
-      const res = await apiUpdateMe(data);
+      const res = await apiUpdateMe({ name: nextName });
       if (res.success) {
         toast.success('Profile updated successfully');
+        setName(nextName);
         refreshUser();
+        onDirtyChangeRef.current?.(false);
       }
     } catch (error: any) {
       toast.error(error.message || 'Failed to update profile');
@@ -61,53 +102,57 @@ export function ProfileSettings() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-100">
-          <h2 className="text-lg font-semibold text-slate-900">Personal Profile</h2>
-          <p className="text-sm text-slate-500">Manage your personal information and profile picture.</p>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40">
+        <div className="border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/40 to-white px-6 py-5">
+          <h2 className="text-lg font-semibold tracking-tight text-slate-900">Personal Profile</h2>
+          <p className="mt-0.5 text-sm text-slate-500">
+            Manage your personal information and profile picture.
+          </p>
         </div>
-        
+
         <form onSubmit={handleSave}>
-          <div className="p-6 space-y-8">
+          <div className="space-y-8 bg-gradient-to-b from-slate-50/80 via-white to-white p-6">
             {/* Avatar Upload */}
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/30">
               <div className="relative group">
-                <div 
-                  className={`w-24 h-24 rounded-full bg-slate-100 border-2 border-white shadow-md flex items-center justify-center overflow-hidden cursor-pointer ${isUploading ? 'opacity-50' : ''}`}
+                <div
+                  className={`flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-white bg-slate-100 shadow-md ${
+                    isUploading ? 'opacity-50' : ''
+                  }`}
                   onClick={handleImageClick}
                 >
                   {user.avatar ? (
-                    <img src={user.avatar} alt="Profile" className="w-full h-full object-cover" />
+                    <img src={user.avatar} alt="Profile" className="h-full w-full object-cover" />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-teal-400 to-blue-600 flex items-center justify-center">
-                      <UserIcon className="w-8 h-8 text-white" />
+                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-teal-400 to-blue-600">
+                      <UserIcon className="h-8 w-8 text-white" />
                     </div>
                   )}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                    <Camera className="w-6 h-6" />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                    <Camera className="h-6 w-6" />
                   </div>
                 </div>
-                {isUploading && (
+                {isUploading ? (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-5 h-5 border-2 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
                   </div>
-                )}
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleFileChange} 
-                  accept="image/*" 
-                  className="hidden" 
+                ) : null}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  className="hidden"
                 />
               </div>
               <div className="space-y-1">
-                <h3 className="text-sm font-medium text-slate-900">Profile Picture</h3>
+                <h3 className="text-sm font-semibold text-slate-900">Profile Picture</h3>
                 <p className="text-xs text-slate-500">Click the icon to upload a new photo. Max 2MB.</p>
-                <div className="flex gap-2 mt-2">
-                  <button 
+                <div className="mt-2 flex gap-2">
+                  <button
                     type="button"
                     onClick={handleImageClick}
-                    className="text-xs font-medium text-[#2b7fff] hover:underline"
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
                   >
                     Upload new
                   </button>
@@ -116,63 +161,75 @@ export function ProfileSettings() {
             </div>
 
             {/* Form Fields */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                  <UserIcon className="w-4 h-4" /> Full Name
-                </label>
-                <input 
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div>
+                <DrawerFieldLabel label="Full Name" icon={UserIcon} iconClassName="text-blue-500" required />
+                <DrawerIconInput
+                  icon={UserIcon}
+                  iconClassName="text-blue-400"
                   name="name"
-                  type="text" 
-                  defaultValue={user.name}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2b7fff]/20 focus:border-[#2b7fff] transition-all"
+                  type="text"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
                   required
+                  placeholder="Your full name"
                 />
+                {isDirty ? (
+                  <p className="mt-1.5 text-[11px] font-medium text-amber-600">
+                    You have unsaved changes.
+                  </p>
+                ) : null}
               </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                  <Mail className="w-4 h-4" /> Email Address
-                </label>
-                <input 
-                  type="email" 
+
+              <div>
+                <DrawerFieldLabel label="Email Address" icon={Mail} iconClassName="text-violet-500" />
+                <DrawerIconInput
+                  icon={Mail}
+                  iconClassName="text-violet-400"
+                  type="email"
                   value={user.email}
                   disabled
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 cursor-not-allowed"
+                  readOnly
+                  className={READONLY_INPUT_CLASS}
                 />
-                <p className="text-[10px] text-slate-400">Email cannot be changed here.</p>
+                <p className="mt-1.5 text-[11px] text-slate-400">Email cannot be changed here.</p>
               </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                  <Shield className="w-4 h-4" /> System Role
-                </label>
-                <input 
-                  type="text" 
+
+              <div>
+                <DrawerFieldLabel label="System Role" icon={Shield} iconClassName="text-amber-500" />
+                <DrawerIconInput
+                  icon={Shield}
+                  iconClassName="text-amber-400"
+                  type="text"
                   value={user.role}
                   disabled
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 cursor-not-allowed"
+                  readOnly
+                  className={READONLY_INPUT_CLASS}
                 />
               </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                  <Briefcase className="w-4 h-4" /> Department
-                </label>
-                <input 
-                  type="text" 
+
+              <div>
+                <DrawerFieldLabel label="Department" icon={Briefcase} iconClassName="text-emerald-500" />
+                <DrawerIconInput
+                  icon={Briefcase}
+                  iconClassName="text-emerald-400"
+                  type="text"
                   value={user.department || 'Not specified'}
                   disabled
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 cursor-not-allowed"
+                  readOnly
+                  className={READONLY_INPUT_CLASS}
                 />
               </div>
             </div>
           </div>
 
-          <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-end">
-            <button 
+          <div className="flex justify-end border-t border-slate-200 bg-white px-6 py-4">
+            <button
               type="submit"
-              disabled={isSaving}
-              className="px-4 py-2 bg-[#2b7fff] text-white rounded-lg font-medium hover:bg-[#1e6ae6] transition-colors flex items-center gap-2 disabled:opacity-50"
+              disabled={isSaving || !isDirty}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Save className="w-4 h-4" />
+              <Save className="h-4 w-4" />
               {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>

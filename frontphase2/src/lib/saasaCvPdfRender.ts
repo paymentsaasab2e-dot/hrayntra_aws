@@ -1,6 +1,6 @@
 import { buildResumePdfProxyUrl, detectResumeBufferKind } from './resumePreview';
 
-/** PDF.js 3.11 — exposes window.pdfjsLib (required for SAASA paint surface). */
+/** PDF.js 3.11 — exposes window.pdfjsLib (required for HRYantra paint surface). */
 const PDFJS_VERSION = '3.11.174';
 const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
 
@@ -180,7 +180,7 @@ export async function fetchSaasaCvPdfBytes(pdfUrl: string): Promise<ArrayBuffer>
   }
 }
 
-/** Clear cached PDF bytes when the SAASA CV modal closes. */
+/** Clear cached PDF bytes when the HRYantra CV modal closes. */
 export function clearSaasaCvPdfBytesCache(): void {
   pdfBytesCache.clear();
 }

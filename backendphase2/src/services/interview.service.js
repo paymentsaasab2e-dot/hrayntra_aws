@@ -38,6 +38,7 @@ import {
   mapSnapshotToClientCandidateFields,
 } from '../utils/cvSubmissionSnapshot.js';
 import { readClientPresentation } from '../utils/clientPresentationDraft.js';
+import { assertNoInterviewerScheduleConflicts } from '../utils/interviewConflict.util.js';
 import { buildClientReviewSectionsFromPresentation } from '../utils/clientReviewSections.js';
 
 const interviewInclude = {
@@ -1011,6 +1012,12 @@ export const interviewService = {
     const scheduledAt = buildInterviewDateTime(payload.date);
     const leadInterviewerId = payload.panelUserIds[0] || null;
 
+    await assertNoInterviewerScheduleConflicts(prisma, {
+      interviewerIds: payload.panelUserIds,
+      scheduledAt,
+      durationMinutes: payload.duration,
+    });
+
     const created = await prisma.$transaction(async (tx) => {
       const interview = await tx.interview.create({
         data: {
@@ -1207,6 +1214,31 @@ export const interviewService = {
       updateData.interviewerId = payload.panelUserIds[0] || null;
     }
 
+    const nextScheduledAt =
+      updateData.scheduledAt !== undefined ? updateData.scheduledAt : current.scheduledAt;
+    const nextDuration =
+      updateData.duration !== undefined ? updateData.duration : current.duration;
+    const nextPanelIds =
+      updateData.panelIds !== undefined
+        ? updateData.panelIds
+        : current.panelIds?.length
+          ? current.panelIds
+          : (current.panel || []).map((member) => member.userId || member.user?.id).filter(Boolean);
+
+    const scheduleTouched =
+      payload.date !== undefined ||
+      payload.duration !== undefined ||
+      payload.panelUserIds !== undefined;
+
+    if (scheduleTouched) {
+      await assertNoInterviewerScheduleConflicts(prisma, {
+        interviewerIds: nextPanelIds,
+        scheduledAt: nextScheduledAt,
+        durationMinutes: nextDuration,
+        excludeInterviewId: id,
+      });
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       await tx.interview.update({
         where: { id },
@@ -1296,6 +1328,18 @@ export const interviewService = {
   async reschedule(id, payload, user) {
     const current = await getInterviewOrThrow(id);
     const nextDate = buildInterviewDateTime(payload.newDate, payload.newTime);
+
+    const panelIds =
+      current.panelIds?.length
+        ? current.panelIds
+        : (current.panel || []).map((member) => member.userId || member.user?.id).filter(Boolean);
+
+    await assertNoInterviewerScheduleConflicts(prisma, {
+      interviewerIds: panelIds.length ? panelIds : [current.interviewerId].filter(Boolean),
+      scheduledAt: nextDate,
+      durationMinutes: current.duration,
+      excludeInterviewId: id,
+    });
 
     let updated = await prisma.interview.update({
       where: { id },
