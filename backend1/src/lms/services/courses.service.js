@@ -78,8 +78,15 @@ async function fetchCourses(userId, filters) {
   let mapped = courses.map(course => {
     const enrollment = course.enrollments[0];
     const { enrollments, ...rest } = course;
+    const tokenCost = Number(rest.tokenCost) || 0;
+    const accessTier = rest.accessTier || (tokenCost > 0 ? (rest.isCertified ? 'certified' : 'premium') : 'free');
     return {
       ...rest,
+      accessTier,
+      tokenCost,
+      isCertified: Boolean(rest.isCertified) || accessTier === 'certified',
+      isFree: tokenCost <= 0 || accessTier === 'free',
+      isLocked: tokenCost > 0 && !enrollment,
       enrollmentStatus: !!enrollment,
       progressPercent: enrollment ? enrollment.progressPercent : 0,
       isSaved: enrollment ? !!enrollment.savedAt : false,
@@ -145,8 +152,15 @@ async function fetchCourseDetail(userId, courseId) {
   });
 
   const { enrollments, ...courseData } = course;
+  const tokenCost = Number(courseData.tokenCost) || 0;
+  const accessTier = courseData.accessTier || (tokenCost > 0 ? (courseData.isCertified ? 'certified' : 'premium') : 'free');
   return {
     ...courseData,
+    accessTier,
+    tokenCost,
+    isCertified: Boolean(courseData.isCertified) || accessTier === 'certified',
+    isFree: tokenCost <= 0 || accessTier === 'free',
+    isLocked: tokenCost > 0 && !enrollment,
     enrollmentStatus: !!enrollment,
     progressPercent: enrollment ? enrollment.progressPercent : 0,
     nextLessonId,
@@ -161,16 +175,50 @@ async function enrollUser(userId, courseId) {
     where: { userId_courseId: { userId, courseId } }
   });
 
-  if (!enrollment) {
-    enrollment = await prisma.lmsEnrollment.create({
-      data: {
-        userId,
-        courseId,
-        startedAt: new Date()
-      }
-    });
+  if (enrollment) {
+    return {
+      enrollment,
+      alreadyEnrolled: true,
+      tokenSpend: null,
+      course: await prisma.lmsCourse.findUnique({ where: { id: courseId } }),
+    };
   }
-  return enrollment;
+
+  const course = await prisma.lmsCourse.findUnique({ where: { id: courseId } });
+  if (!course || !course.isPublished) {
+    const err = new Error('Course not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const tokenCost = Number(course.tokenCost) || 0;
+  let tokenSpend = null;
+
+  if (tokenCost > 0) {
+    const tokenService = require('../../services/token.service');
+    const tier = course.accessTier || (course.isCertified ? 'certified' : 'premium');
+    tokenSpend = await tokenService.spendTokensAmount(
+      userId,
+      tokenCost,
+      `lms.courses.unlock.${courseId}`,
+      `Unlocked ${tier} course: ${course.title} (${tokenCost} tokens)`
+    );
+  }
+
+  enrollment = await prisma.lmsEnrollment.create({
+    data: {
+      userId,
+      courseId,
+      startedAt: new Date()
+    }
+  });
+
+  return {
+    enrollment,
+    alreadyEnrolled: false,
+    tokenSpend,
+    course,
+  };
 }
 
 async function toggleSaveCourse(userId, courseId, saved) {
@@ -179,6 +227,15 @@ async function toggleSaveCourse(userId, courseId, saved) {
   });
 
   if (!enrollment) {
+    const course = await prisma.lmsCourse.findUnique({ where: { id: courseId } });
+    const tokenCost = Number(course?.tokenCost) || 0;
+    if (tokenCost > 0 && saved) {
+      const err = new Error('Unlock this course with tokens before saving it');
+      err.status = 402;
+      err.code = 'COURSE_LOCKED';
+      err.required = tokenCost;
+      throw err;
+    }
     enrollment = await prisma.lmsEnrollment.create({
       data: {
         userId,
@@ -202,8 +259,19 @@ async function markLessonComplete(userId, courseId, lessonId) {
   });
 
   if (!enrollment) {
-    enrollment = await enrollUser(userId, courseId);
-    enrollment.course = await prisma.lmsCourse.findUnique({ where: { id: courseId } });
+    const course = await prisma.lmsCourse.findUnique({ where: { id: courseId } });
+    const tokenCost = Number(course?.tokenCost) || 0;
+    if (tokenCost > 0) {
+      const err = new Error('Unlock this course with tokens before continuing');
+      err.status = 402;
+      err.code = 'COURSE_LOCKED';
+      err.required = tokenCost;
+      err.balance = 0;
+      throw err;
+    }
+    const result = await enrollUser(userId, courseId);
+    enrollment = result.enrollment;
+    enrollment.course = course;
   }
 
   const completedIds = new Set(enrollment.completedLessonIds);

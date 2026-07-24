@@ -592,9 +592,38 @@ async function getProfileCompleteness(req, res) {
       `📦 DB fetch result: profile-completeness | candidateId=${candidateId} | percentage=${completeness?.percentage ?? 0} | completedSections=${completeness?.completedSections?.length || 0} | missingSections=${completeness?.missingSections?.length || 0} | elapsedMs=${Date.now() - startedAt}`
     );
 
+    let tokenEarns = [];
+    try {
+      const tokenService = require('../services/token.service');
+      const incompleteKeys = (completeness?.sections || [])
+        .filter((s) => !s.isComplete)
+        .map((s) => s.key)
+        .filter(Boolean);
+      await tokenService.reopenProfileEarnsIfNeeded(candidateId, incompleteKeys);
+
+      const completedKeys = (completeness?.sections || [])
+        .filter((s) => s.isComplete)
+        .map((s) => s.key)
+        .filter(Boolean);
+      tokenEarns = await tokenService.grantProfileSectionEarns(candidateId, completedKeys);
+    } catch (earnErr) {
+      console.warn('[tokens] profile section earns skipped:', earnErr?.message || earnErr);
+    }
+
     res.json({
       success: true,
-      data: completeness,
+      data: {
+        ...completeness,
+        tokenEarns: tokenEarns.map((e) => ({
+          earnKey: e.earnKey,
+          amount: e.amount,
+          cycle: e.cycle,
+        })),
+        tokenBalance:
+          tokenEarns.length > 0
+            ? tokenEarns[tokenEarns.length - 1].tokenBalance
+            : undefined,
+      },
     });
   } catch (error) {
     console.error('Error fetching profile completeness:', error);

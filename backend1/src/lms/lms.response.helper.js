@@ -20,10 +20,20 @@ function sendCreated(res, data, message = undefined) {
 
 function sendError(res, error, status = 500) {
   console.error('LMS API Error:', error);
-  return res.status(status).json({
+  const resolvedStatus = error?.status || status;
+  const payload = {
     success: false,
-    error: typeof error === 'string' ? error : error.message || 'Internal Server Error'
-  });
+    message: typeof error === 'string' ? error : error.message || 'Internal Server Error',
+    error: typeof error === 'string' ? error : error.message || 'Internal Server Error',
+  };
+  if (error?.code) payload.code = error.code;
+  if (error?.balance != null) payload.balance = error.balance;
+  if (error?.required != null) payload.required = error.required;
+  if (error?.service) payload.service = error.service;
+  if (error?.code === 'INSUFFICIENT_TOKENS') {
+    payload.shortfall = Math.max(0, (error.required || 0) - (error.balance || 0));
+  }
+  return res.status(resolvedStatus).json(payload);
 }
 
 function sendNotFound(res, error = 'Resource not found') {

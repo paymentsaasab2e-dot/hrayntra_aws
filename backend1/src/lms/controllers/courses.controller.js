@@ -23,8 +23,33 @@ async function getCourseDetail(req, res) {
 
 async function enrollCourse(req, res) {
   try {
-    const enrollment = await coursesService.enrollUser(req.user.id, req.body.courseId);
-    return sendSuccess(res, enrollment, 'Enrolled successfully');
+    const result = await coursesService.enrollUser(req.user.id, req.body.courseId);
+    if (result.tokenSpend?.tokenBalance != null) {
+      res.setHeader('X-Token-Balance', String(result.tokenSpend.tokenBalance));
+      res.setHeader('X-Tokens-Spent', String(result.tokenSpend.spent || 0));
+    }
+    return sendSuccess(
+      res,
+      {
+        ...result.enrollment,
+        alreadyEnrolled: result.alreadyEnrolled,
+        tokenSpend: result.tokenSpend,
+        course: result.course
+          ? {
+              id: result.course.id,
+              title: result.course.title,
+              accessTier: result.course.accessTier,
+              tokenCost: result.course.tokenCost,
+              isCertified: result.course.isCertified,
+            }
+          : null,
+      },
+      result.alreadyEnrolled
+        ? 'Already enrolled'
+        : result.tokenSpend?.spent
+          ? `Unlocked with ${result.tokenSpend.spent} tokens`
+          : 'Enrolled successfully'
+    );
   } catch (error) {
     return sendError(res, error);
   }

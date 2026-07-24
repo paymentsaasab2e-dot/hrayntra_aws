@@ -441,6 +441,18 @@ async function uploadCV(req, res) {
       }
     });
 
+    let cvUploadEarn = null;
+    try {
+      const tokenService = require('../services/token.service');
+      cvUploadEarn = await tokenService.earnOnce(
+        candidateId,
+        'earn.cv_upload',
+        'Earned tokens for uploading CV'
+      );
+    } catch (earnErr) {
+      console.warn('[tokens] CV upload earn skipped:', earnErr?.message || earnErr);
+    }
+
     res.json({
       success: true,
       message: 'CV uploaded and processed successfully',
@@ -462,6 +474,10 @@ async function uploadCV(req, res) {
           internshipsCount: parsedData.internships?.length || 0,
           persistStats,
         },
+        tokenEarn: cvUploadEarn?.granted
+          ? { amount: cvUploadEarn.amount, earnKey: cvUploadEarn.earnKey }
+          : null,
+        tokenBalance: cvUploadEarn?.tokenBalance,
       },
     });
   } catch (error) {
@@ -1111,6 +1127,22 @@ async function getCandidateDashboard(req, res) {
       });
     });
 
+    // Sync earn lifecycle: welcome, CV already on file (signup), completed profile sections.
+    let welcomeGrant = null;
+    try {
+      const tokenService = require('../services/token.service');
+      const lifecycleSync = await tokenService.syncLifecycleEarns(candidateId);
+      const bal = await tokenService.getBalance(candidateId);
+      const welcomeHit = lifecycleSync?.granted?.find((g) => g.earnKey === 'welcome');
+      welcomeGrant = {
+        granted: Boolean(welcomeHit),
+        amount: welcomeHit?.amount,
+        tokenBalance: bal.tokenBalance,
+      };
+    } catch (tokenErr) {
+      console.warn('[tokens] lifecycle sync skipped:', tokenErr?.message || tokenErr);
+    }
+
     console.log(
       `📦 DB fetch result: dashboard | candidateId=${candidateId} | applications=${candidate.applications.length} | notifications=${candidate.notifications.length} | savedJobs=${candidate.savedJobs.length} | elapsedMs=${Date.now() - startedAt}`
     );
@@ -1179,6 +1211,9 @@ async function getCandidateDashboard(req, res) {
         reviewing: applicationStatusCounts.UNDER_REVIEW + applicationStatusCounts.SHORTLISTED + applicationStatusCounts.ASSESSMENT,
         offersReceived: applicationStatusCounts.SELECTED,
         rejected: applicationStatusCounts.REJECTED,
+        tokenBalance: welcomeGrant?.tokenBalance ?? candidate.tokenBalance ?? 0,
+        welcomeTokensGranted: Boolean(welcomeGrant?.granted),
+        welcomeTokenAmount: welcomeGrant?.granted ? welcomeGrant.amount : undefined,
       },
       // Full counts for dashboard charts / tiles (Prisma enums)
       applicationCounts: applicationStatusCounts,

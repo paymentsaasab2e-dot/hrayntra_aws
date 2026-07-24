@@ -27,6 +27,7 @@ const internalRoutes = require('./routes/internal.routes');
 const contactImportRoutes = require('./routes/contact-import.routes');
 const resumePreviewRoutes = require('./routes/resumePreview.routes');
 const employerDemoRoutes = require('./routes/employer-demo.routes');
+const tokenRoutes = require('./routes/token.routes');
 const { startInterviewReminderScheduler } = require('./services/interview-reminder.service');
 const { registerInterviewRoomSocketHandlers } = require('./realtime/interview-room.socket');
 
@@ -70,6 +71,7 @@ app.use(cors({
     return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
+  exposedHeaders: ['X-Token-Balance', 'X-Tokens-Spent'],
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -122,6 +124,7 @@ app.use('/api/contacts/import', contactImportRoutes);
 app.use('/api/v1/contacts/import', contactImportRoutes);
 app.use('/api/resume-preview', resumePreviewRoutes);
 app.use('/api/employers/demo-request', employerDemoRoutes);
+app.use('/api/tokens', tokenRoutes);
 app.use('/api/document-download', require('./routes/documentDownload.routes'));
 app.use('/api/document-view', require('./routes/documentView.routes'));
 
