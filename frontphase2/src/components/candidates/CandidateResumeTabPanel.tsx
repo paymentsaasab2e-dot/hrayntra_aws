@@ -55,9 +55,9 @@ interface CandidateResumeTabPanelProps {
   candidate: CandidateProfileDrawerData;
   enabled?: boolean;
   cvEditor: CandidateResumeCvEditorApi;
-  /** Latest saved SAASA file URL (from hook after save) */
+  /** Latest saved HRYantra CV file URL (from hook after save) */
   saasaSavedFileUrl?: string | null;
-  /** After SAASA save, show SAASA CV tab without hiding Updated CV */
+  /** After HRYantra CV save, show HRYantra CV tab without hiding Updated CV */
   preferredResumeViewMode?: ResumeCvViewMode | null;
   onCandidateUpdated?: () => void | Promise<void>;
   onToast?: (message: string) => void;
@@ -66,7 +66,7 @@ interface CandidateResumeTabPanelProps {
 
 const MODE_LABELS: Record<ResumeCvViewMode, string> = {
   original: 'Original CV',
-  saasa: 'SAASA CV',
+  saasa: 'HRYantra CV',
   ai: 'AI CV',
   updated: 'Updated CV',
   edited: 'Edited CV',
@@ -364,14 +364,14 @@ export function CandidateResumeTabPanel({
         filename: namedFile?.fileName || buildResumeFilename(source, 'saasa-cv'),
       });
     } catch (error) {
-      onToast?.(error instanceof Error ? error.message : 'Failed to download SAASA CV');
+      onToast?.(error instanceof Error ? error.message : 'Failed to download HRYantra CV');
     } finally {
       setDownloadingSaasa(false);
     }
   };
 
   const showOriginalPreview = viewMode === 'original' && Boolean(effectiveResumeHref);
-  /** Resume tab SAASA mode: only the saved export (never live annotation overlay). */
+  /** Resume tab HRYantra CV mode: only the saved export (never live annotation overlay). */
   const showSaasaSavedFile = viewMode === 'saasa' && Boolean(effectiveSaasaPreviewHref);
   const showSaasaEmpty =
     viewMode === 'saasa' && !effectiveSaasaPreviewHref && Boolean(onOpenSaasaCv);
@@ -512,7 +512,7 @@ export function CandidateResumeTabPanel({
                         className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                       >
                         <Pencil size={16} />
-                        Edit SAASA CV
+                        Edit HRYantra CV
                       </button>
                     ) : null}
                     <button
@@ -611,14 +611,14 @@ export function CandidateResumeTabPanel({
               />
             ) : showSaasaEmpty ? (
               <div className="flex h-full min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
-                <p className="text-sm text-slate-600">No SAASA CV saved yet.</p>
+                <p className="text-sm text-slate-600">No HRYantra CV saved yet.</p>
                 <button
                   type="button"
                   onClick={onOpenSaasaCv}
                   className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
                 >
                   <Pencil size={16} />
-                  Create SAASA CV
+                  Create HRYantra CV
                 </button>
               </div>
             ) : showPortalStudioPreview && portalTailoredCvHtml ? (
@@ -672,7 +672,7 @@ export function CandidateResumeTabPanel({
             <div className="fixed inset-0 z-[220] flex flex-col bg-slate-950/60 p-2 sm:p-4">
               <div className="mx-auto flex h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-[min(96vw,1400px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:h-[calc(100vh-2rem)] sm:w-[calc(100vw-2rem)]">
                 <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3">
-                  <h3 className="text-base font-semibold text-slate-900">{candidate.name} — SAASA CV</h3>
+                  <h3 className="text-base font-semibold text-slate-900">{candidate.name} — HRYantra CV</h3>
                   <button
                     type="button"
                     onClick={() => setSaasaPreviewOpen(false)}

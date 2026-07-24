@@ -218,7 +218,7 @@ export function ClientCvSelectionPanel({
                   className="mt-1"
                 />
                 <div>
-                  <p className="text-sm font-semibold text-[#111827]">SAASA CV</p>
+                  <p className="text-sm font-semibold text-[#111827]">HRYantra CV</p>
                   <p className="text-xs text-[#6B7280]">
                     Annotated CV with highlights, comments, and branding
                   </p>
@@ -242,7 +242,7 @@ export function ClientCvSelectionPanel({
                 ) : (
                   <MessageSquare size={13} />
                 )}
-                SAASA CV
+                HRYantra CV
                 {saasaAnnotationCount > 0 ? (
                   <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
                     {saasaAnnotationCount}
@@ -285,7 +285,7 @@ export function ClientCvSelectionPanel({
             ) : null}
             {!hasSaasaCv && canOpenSaasaCv ? (
               <p className="mt-2 text-xs text-amber-800">
-                Open SAASA CV, add annotations, and save to enable this option for the client.
+                Open HRYantra CV, add annotations, and save to enable this option for the client.
               </p>
             ) : null}
           </div>
@@ -303,7 +303,7 @@ export function ClientCvSelectionPanel({
             : cvShareMode === 'original'
               ? 'The client will see the original uploaded resume file only.'
               : cvShareMode === 'saasa'
-                ? 'The client will receive your saved SAASA CV export.'
+                ? 'The client will receive your saved HRYantra CV export.'
                 : 'Select which CV to send before submitting to the client.'}
           {readCvSubmission(candidate)?.shareMode ? (
             <span className="ml-1 text-[#9CA3AF]">(preference saved)</span>

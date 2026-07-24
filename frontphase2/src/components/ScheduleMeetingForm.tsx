@@ -1,15 +1,21 @@
 'use client';
 
-import React, { useState } from 'react';
-import { CalendarPlus, ChevronDown, ChevronRight } from 'lucide-react';
-import { apiCreateScheduledMeeting, apiUpdateLead, type CreateScheduledMeetingData } from '../lib/api';
+import React, { useEffect, useState } from 'react';
+import { CalendarPlus, ChevronRight } from 'lucide-react';
+import {
+  apiCreateScheduledMeeting,
+  apiGetLead,
+  apiGetLeadAssignableMembers,
+  apiUpdateLead,
+} from '../lib/api';
 import { requestError, requestWarning } from '../lib/appDialog';
 import {
-  clampDateToMinLocal,
-  getLocalDateInputMinToday,
-  getLocalTimeInputMinNow,
-  isLocalDateTimeNotPast,
-} from '../utils/dateInputConstraints';
+  buildFollowUpStatusRemark,
+  LeadFollowUpScheduler,
+  type LeadFollowUpScheduleFields,
+} from './LeadFollowUpScheduler';
+import type { TeamMember } from '../types/team';
+import { isLocalDateTimeNotPast } from '../utils/dateInputConstraints';
 
 export interface ScheduleMeetingFormProps {
   entityType: 'client' | 'lead';
@@ -23,8 +29,22 @@ export interface ScheduleMeetingFormProps {
   embedded?: boolean;
 }
 
-const MEETING_TYPES = ['Call', 'WhatsApp', 'Email', 'Meet', 'Video Call', 'Other'];
-const REMINDER_OPTIONS = ['10 minutes before', '30 minutes before', '1 hour before', '1 day before'];
+function isoFromDateAndTime(date: string, time: string): string {
+  const dateTime = new Date(`${date}T${time}`);
+  return Number.isNaN(dateTime.getTime()) ? '' : dateTime.toISOString();
+}
+
+function splitIso(iso: string): { date: string; time: string } {
+  if (!iso) return { date: '', time: '' };
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { date: '', time: '' };
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${mi}` };
+}
 
 export function ScheduleMeetingForm({
   entityType,
@@ -36,22 +56,100 @@ export function ScheduleMeetingForm({
   title = 'Schedule Meeting / Follow-up',
   embedded = false,
 }: ScheduleMeetingFormProps) {
-  const [formData, setFormData] = useState({
-    meetingType: '',
-    customMeetingType: '',
-    date: '',
-    time: '',
-    reminder: '',
-    notes: '',
+  const [schedule, setSchedule] = useState<LeadFollowUpScheduleFields>({
+    nextFollowUp: '',
+    followUpType: 'Call',
+    followUpContact: '',
+    followUpMeetLink: '',
+    followUpReminder: 'No reminder',
+    followUpTimezone: 'Asia/Kolkata',
+    followUpAttendeeIds: [],
+    followUpNotes: '',
   });
-  const [meetingTypeDropdownOpen, setMeetingTypeDropdownOpen] = useState(false);
-  const [reminderDropdownOpen, setReminderDropdownOpen] = useState(false);
+  const [phoneOptions, setPhoneOptions] = useState<string[]>([]);
+  const [emailOptions, setEmailOptions] = useState<string[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const resolvedMeetingType =
-    formData.meetingType === 'Other'
-      ? formData.customMeetingType.trim() || 'Other'
-      : formData.meetingType;
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoadingMembers(true);
+      try {
+        const response = await apiGetLeadAssignableMembers();
+        const members = Array.isArray(response?.data) ? response.data : [];
+        if (!cancelled) {
+          setTeamMembers(
+            members.map((member) => ({
+              id: member.id,
+              firstName: member.firstName,
+              lastName: member.lastName,
+              name:
+                member.name ||
+                `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
+                member.email ||
+                'User',
+              email: member.email || '',
+              role: member.role
+                ? {
+                    id: member.role.id,
+                    roleName: member.role.roleName || '',
+                    color: member.role.color,
+                  }
+                : undefined,
+              department: member.department
+                ? { id: member.department.id, name: member.department.name || '' }
+                : undefined,
+              status: 'ACTIVE' as const,
+            })),
+          );
+        }
+      } catch {
+        if (!cancelled) setTeamMembers([]);
+      } finally {
+        if (!cancelled) setLoadingMembers(false);
+      }
+
+      if (entityType !== 'lead' || !entityId) return;
+      try {
+        const leadRes = await apiGetLead(entityId);
+        const lead = leadRes?.data as any;
+        if (!lead || cancelled) return;
+        const phones = [
+          ...(Array.isArray(lead.phones) ? lead.phones : []),
+          lead.phone,
+          lead.teamMemberPhone,
+        ].filter(Boolean);
+        const emails = [
+          ...(Array.isArray(lead.emails) ? lead.emails : []),
+          lead.email,
+          lead.teamMemberEmail,
+        ].filter(Boolean);
+        setPhoneOptions(phones.map(String));
+        setEmailOptions(emails.map(String));
+      } catch {
+        /* ignore */
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [entityType, entityId]);
+
+  const resetForm = () => {
+    setSchedule({
+      nextFollowUp: '',
+      followUpType: 'Call',
+      followUpContact: '',
+      followUpMeetLink: '',
+      followUpReminder: 'No reminder',
+      followUpTimezone: 'Asia/Kolkata',
+      followUpAttendeeIds: [],
+      followUpNotes: '',
+    });
+  };
 
   const handleSubmit = async () => {
     if (!entityId) {
@@ -59,67 +157,74 @@ export function ScheduleMeetingForm({
       return;
     }
 
-    if (!formData.date || !formData.time) {
+    const { date, time } = splitIso(schedule.nextFollowUp);
+    if (!date || !time) {
       void requestWarning('Please select both date and time for the meeting/follow-up');
       return;
     }
 
-    if (!isLocalDateTimeNotPast(formData.date, formData.time)) {
+    if (!isLocalDateTimeNotPast(date, time)) {
       void requestWarning('Please choose a date and time in the future.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const dateTime = new Date(`${formData.date}T${formData.time}`);
-      const isoDateTime = dateTime.toISOString();
+      const isoDateTime = isoFromDateAndTime(date, time) || schedule.nextFollowUp;
+      const resolvedType = schedule.followUpType || 'General';
 
       if (entityType === 'client') {
-        // Use scheduled meetings API for clients
         await apiCreateScheduledMeeting(entityId, {
-          meetingType: resolvedMeetingType,
+          meetingType: resolvedType,
           scheduledAt: isoDateTime,
-          reminder: formData.reminder || undefined,
-          notes: formData.notes || undefined,
+          reminder:
+            schedule.followUpReminder && schedule.followUpReminder !== 'No reminder'
+              ? schedule.followUpReminder
+              : undefined,
+          notes: buildFollowUpStatusRemark({ ...schedule, nextFollowUp: isoDateTime }),
         });
       } else {
-        // For leads, update the lead's nextFollowUp field
-        const updateData: any = {
+        await apiUpdateLead(entityId, {
           nextFollowUp: isoDateTime,
-          statusRemark: formData.notes
-            ? `Follow-up scheduled: ${resolvedMeetingType || 'General'} on ${formData.date} at ${formData.time}. ${formData.notes}`
-            : `Follow-up scheduled: ${resolvedMeetingType || 'General'} on ${formData.date} at ${formData.time}`,
-        };
-        await apiUpdateLead(entityId, updateData);
+          statusRemark: buildFollowUpStatusRemark({ ...schedule, nextFollowUp: isoDateTime }),
+          followUpSchedule: {
+            type: schedule.followUpType || 'General',
+            contact: schedule.followUpContact,
+            meetLink: schedule.followUpMeetLink,
+            reminder: schedule.followUpReminder,
+            timezone: schedule.followUpTimezone,
+            attendeeIds: schedule.followUpAttendeeIds,
+            notes: schedule.followUpNotes,
+          },
+        } as any);
       }
 
-      // Reset form
-      setFormData({ meetingType: '', customMeetingType: '', date: '', time: '', reminder: '', notes: '' });
-      
-      // Call success callback
+      resetForm();
       onSuccess?.();
     } catch (error: any) {
       console.error(`Failed to schedule ${entityType === 'client' ? 'meeting' : 'follow-up'}:`, error);
-      void requestError(error.message || `Failed to schedule ${entityType === 'client' ? 'meeting' : 'follow-up'}`);
+      void requestError(
+        error.message || `Failed to schedule ${entityType === 'client' ? 'meeting' : 'follow-up'}`,
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleCancel = () => {
-    setFormData({ meetingType: '', customMeetingType: '', date: '', time: '', reminder: '', notes: '' });
+    resetForm();
     onCancel?.();
   };
 
   return (
     <div className="space-y-5">
       {(showBackButton || onBack) && (
-        <div className="flex items-center gap-3 mb-4">
+        <div className="mb-4 flex items-center gap-3">
           {onBack && (
             <button
               type="button"
               onClick={onBack}
-              className="p-2 -ml-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+              className="-ml-2 rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
               title="Back"
             >
               <ChevronRight size={20} className="rotate-180" />
@@ -128,172 +233,27 @@ export function ScheduleMeetingForm({
           <h2 className="text-lg font-bold text-slate-900">{title}</h2>
         </div>
       )}
-      <div className={embedded ? 'space-y-5' : 'bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-5'}>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            {entityType === 'client' ? 'Meeting Type' : 'Follow-up Type'}
-          </label>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setMeetingTypeDropdownOpen((v) => !v);
-                setReminderDropdownOpen(false);
-              }}
-              className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            >
-              <span className={formData.meetingType ? 'text-slate-900' : 'text-slate-400'}>
-                {formData.meetingType || 'Select type'}
-              </span>
-              <ChevronDown size={16} className="text-slate-400" />
-            </button>
-            {meetingTypeDropdownOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setMeetingTypeDropdownOpen(false)}
-                  aria-hidden
-                />
-                <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
-                  {MEETING_TYPES.map((name) => (
-                    <li key={name}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormData((p) => ({ ...p, meetingType: name }));
-                          setMeetingTypeDropdownOpen(false);
-                        }}
-                        className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                          formData.meetingType === name
-                            ? 'bg-blue-50 text-blue-700 font-medium'
-                            : 'text-slate-700'
-                        }`}
-                      >
-                        {name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
-          {formData.meetingType === 'Other' ? (
-            <div className="mt-3">
-              <label htmlFor="schedule-other-type" className="mb-2 block text-sm font-medium text-slate-700">
-                Specify other type
-              </label>
-              <input
-                id="schedule-other-type"
-                type="text"
-                value={formData.customMeetingType}
-                onChange={(e) =>
-                  setFormData((p) => ({ ...p, customMeetingType: e.target.value }))
-                }
-                placeholder="e.g. LinkedIn, SMS, In-person visit…"
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              />
-            </div>
-          ) : null}
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="schedule-date" className="block text-sm font-medium text-slate-700 mb-2">
-              Date
-            </label>
-            <input
-              id="schedule-date"
-              type="date"
-              min={getLocalDateInputMinToday()}
-              value={formData.date}
-              onChange={(e) =>
-                setFormData((p) => ({
-                  ...p,
-                  date: clampDateToMinLocal(e.target.value, getLocalDateInputMinToday()),
-                }))
-              }
-              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label htmlFor="schedule-time" className="block text-sm font-medium text-slate-700 mb-2">
-              Time
-            </label>
-            <input
-              id="schedule-time"
-              type="time"
-              min={formData.date === getLocalDateInputMinToday() ? getLocalTimeInputMinNow() : undefined}
-              value={formData.time}
-              onChange={(e) => setFormData((p) => ({ ...p, time: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">Reminder</label>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setReminderDropdownOpen((v) => !v);
-                setMeetingTypeDropdownOpen(false);
-              }}
-              className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            >
-              <span className={formData.reminder ? 'text-slate-900' : 'text-slate-400'}>
-                {formData.reminder || 'Select reminder'}
-              </span>
-              <ChevronDown size={16} className="text-slate-400" />
-            </button>
-            {reminderDropdownOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setReminderDropdownOpen(false)}
-                  aria-hidden
-                />
-                <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
-                  {REMINDER_OPTIONS.map((opt) => (
-                    <li key={opt}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormData((p) => ({ ...p, reminder: opt }));
-                          setReminderDropdownOpen(false);
-                        }}
-                        className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                          formData.reminder === opt
-                            ? 'bg-blue-50 text-blue-700 font-medium'
-                            : 'text-slate-700'
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
-        </div>
-        <div>
-          <label htmlFor="schedule-notes" className="block text-sm font-medium text-slate-700 mb-2">
-            Notes
-          </label>
-          <textarea
-            id="schedule-notes"
-            rows={4}
-            value={formData.notes}
-            onChange={(e) => setFormData((p) => ({ ...p, notes: e.target.value }))}
-            placeholder={`Add notes for this ${entityType === 'client' ? 'meeting' : 'follow-up'}...`}
-            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
-          />
-        </div>
+      <div
+        className={
+          embedded
+            ? 'space-y-5'
+            : 'space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm'
+        }
+      >
+        <LeadFollowUpScheduler
+          value={schedule}
+          onChange={(patch) => setSchedule((p) => ({ ...p, ...patch }))}
+          phoneOptions={phoneOptions}
+          emailOptions={emailOptions}
+          teamMembers={teamMembers}
+          loadingMembers={loadingMembers}
+        />
       </div>
       <div className="flex justify-end gap-3">
         <button
           type="button"
           onClick={handleCancel}
-          className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
         >
           Cancel
         </button>
@@ -301,14 +261,14 @@ export function ScheduleMeetingForm({
           type="button"
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <CalendarPlus size={16} />
           {isSubmitting
             ? 'Scheduling...'
             : entityType === 'client'
-            ? 'Schedule Meeting'
-            : 'Schedule Follow-up'}
+              ? 'Schedule Meeting'
+              : 'Schedule Follow-up'}
         </button>
       </div>
     </div>

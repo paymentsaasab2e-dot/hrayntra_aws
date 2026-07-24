@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
@@ -79,6 +80,7 @@ import {
 import { extractApiData } from '../../lib/mapCandidateProfile';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { toast } from 'sonner';
+import { requestError } from '../../lib/appDialog';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import {
   clampDateToMinLocal,
@@ -1501,6 +1503,7 @@ export function ScheduleInterviewModal({
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : 'Failed to schedule interview. Please try again.';
+      void requestError(message, { title: 'Interview conflict' });
       toast.error(message);
     } finally {
       setSubmitting(false);
@@ -3917,6 +3920,13 @@ export function CandidateProfileDrawer({
   stackAboveSiblingDrawers = false,
 }: CandidateProfileDrawerProps) {
   usePageDrawerLifecycle(isOpen);
+  const {
+    panelRef: candidateDrawerPanelRef,
+    requestClose: requestCandidateDrawerClose,
+  } = useDrawerUnsavedGuard<HTMLElement>({
+    isOpen,
+    onClose,
+  });
   const layer = stackAboveSiblingDrawers
     ? {
         backdrop: 'z-[117]',
@@ -4032,7 +4042,7 @@ export function CandidateProfileDrawer({
     return {
       id: fromList?.id ?? saasaCvStored.fileId,
       fileName:
-        fromList?.fileName ?? saasaCvStored.fileName ?? `SAASA CV - ${candidate?.name || 'Candidate'}`,
+        fromList?.fileName ?? saasaCvStored.fileName ?? `HRYantra CV - ${candidate?.name || 'Candidate'}`,
       fileUrl: fromList?.fileUrl ?? saasaCvStored.fileUrl ?? null,
       markCount: saasaCvStored.items.length,
       updatedAt: saasaCvStored.updatedAt,
@@ -4552,10 +4562,11 @@ export function CandidateProfileDrawer({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={onClose}
+                onClick={() => void requestCandidateDrawerClose()}
               />
 
               <motion.aside
+                ref={candidateDrawerPanelRef}
                 dir="ltr"
                 className={`fixed inset-y-0 right-0 ${layer.panel} flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200`}
                 initial={{ x: '100%' }}
@@ -4625,7 +4636,7 @@ export function CandidateProfileDrawer({
 
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={() => void requestCandidateDrawerClose()}
                     className="rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
                     aria-label="Close candidate profile"
                   >
@@ -4655,7 +4666,7 @@ export function CandidateProfileDrawer({
                         className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         <MessageSquare size={15} />
-                        SAASA CV
+                        HRYantra CV
                         {saasaCv.annotationCount > 0 ? (
                           <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
                             {saasaCv.annotationCount}

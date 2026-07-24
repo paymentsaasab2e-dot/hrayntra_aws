@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { useClientPageFieldVisibility } from '../../hooks/useClientPageFieldVisibility';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { formatDateDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
@@ -912,7 +913,16 @@ export function ClientDetailsDrawer({
   onClientUpdated,
   onJobCreated,
 }: ClientDetailsDrawerProps) {
-  usePageDrawerLifecycle(Boolean(client) || propIsAddMode);
+  const drawerIsOpen = Boolean(client) || propIsAddMode;
+  usePageDrawerLifecycle(drawerIsOpen);
+  const {
+    panelRef: clientDrawerPanelRef,
+    requestClose: requestClientDrawerClose,
+    markClean: markClientDrawerClean,
+  } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen: drawerIsOpen,
+    onClose,
+  });
   const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState<
     'overview' | 'contacts' | 'jobs' | 'placements' | 'billing' | 'activity' | 'notes' | 'files' | 'schedule' | 'chat'
@@ -2554,6 +2564,7 @@ export function ClientDetailsDrawer({
         setRemovedPostServiceKycFileIds([]);
         resetClientAiAssistant();
         onClientCreated?.();
+        markClientDrawerClean();
         onClose();
       } catch (error: any) {
         console.error('Failed to create client:', error);
@@ -3515,11 +3526,12 @@ export function ClientDetailsDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={() => void requestClientDrawerClose()}
             className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
           />
           <motion.div
             key="panel"
+            ref={clientDrawerPanelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -3555,7 +3567,7 @@ export function ClientDetailsDrawer({
                       </button>
                       <button
                         type="button"
-                        onClick={() => onClose()}
+                        onClick={() => void requestClientDrawerClose()}
                         className="px-3 py-1.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                       >
                         Cancel
@@ -3628,7 +3640,7 @@ export function ClientDetailsDrawer({
                   >
                     <Trash2 size={18} />
                   </button>
-                      <DrawerCloseButton onClick={onClose} />
+                      <DrawerCloseButton onClick={() => void requestClientDrawerClose()} />
                     </>
                   )}
                 </div>

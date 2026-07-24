@@ -4,7 +4,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 
 export type DrawerCloseButtonProps = {
-  onClick: () => void;
+  onClick: () => void | Promise<void>;
   className?: string;
   iconSize?: number;
   disabled?: boolean;
@@ -27,11 +27,14 @@ export function DrawerCloseButton({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => {
+        void onClick();
+      }}
       disabled={disabled}
       className={`${BASE_CLASS} ${className}`.trim()}
       aria-label={ariaLabel}
       title={title}
+      data-drawer-skip-dirty="true"
     >
       <X size={iconSize} />
     </button>

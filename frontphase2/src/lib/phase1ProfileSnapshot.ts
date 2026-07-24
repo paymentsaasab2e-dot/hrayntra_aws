@@ -89,10 +89,10 @@ function isSaasaCvExportFile(
   const type = String(file.fileType || '').trim();
   if (/^SAASA_CV$/i.test(type)) return true;
   const name = String(file.fileName || file.fileUrl || '').trim();
-  return /SAASA[\s_-]*CV/i.test(name);
+  return /(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name);
 }
 
-/** Prefer newest Files-tab resume over stale snapshot URLs (never the SAASA CV export). */
+/** Prefer newest Files-tab resume over stale snapshot URLs (never the HRYantra CV export). */
 export function pickLatestResumeFileUrl(
   files: Array<{ fileType?: string; fileUrl?: string | null; fileName?: string; uploadDate?: string }>
 ): string {

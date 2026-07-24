@@ -1,5 +1,6 @@
 import { candidateService } from './candidate.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { httpStatusFromError } from '../../utils/interviewConflict.util.js';
 
 export const candidateController = {
   async getAll(req, res) {
@@ -182,7 +183,7 @@ export const candidateController = {
       const interview = await candidateService.scheduleInterview(req.params.id, req.body, req.user.id);
       sendResponse(res, 201, 'Candidate interview scheduled successfully', interview);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, httpStatusFromError(error), error.message, error);
     }
   },
 
@@ -191,7 +192,7 @@ export const candidateController = {
       const result = await candidateService.generateInterviewMeetingLink(req.params.id, req.body, req.user.id);
       sendResponse(res, 200, 'Meeting link generated successfully', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, httpStatusFromError(error), error.message, error);
     }
   },
 
@@ -205,7 +206,7 @@ export const candidateController = {
       );
       sendResponse(res, 200, 'Candidate interview updated successfully', interview);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, httpStatusFromError(error), error.message, error);
     }
   },
 

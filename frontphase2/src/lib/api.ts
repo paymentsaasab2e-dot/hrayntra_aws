@@ -5035,6 +5035,26 @@ export interface CreateLeadData {
   lastFollowUp?: string;
   nextFollowUp?: string;
   lostReason?: string;
+  /**
+   * Structured follow-up / meet schedule (type, link, reminder, timezone, attendees).
+   * Backend emails invitees for Meet and stores reminder metadata.
+   */
+  followUpSchedule?: {
+    type?: string;
+    followUpType?: string;
+    contact?: string;
+    followUpContact?: string;
+    meetLink?: string;
+    followUpMeetLink?: string;
+    reminder?: string;
+    followUpReminder?: string;
+    timezone?: string;
+    followUpTimezone?: string;
+    attendeeIds?: string[];
+    followUpAttendeeIds?: string[];
+    notes?: string;
+    followUpNotes?: string;
+  };
   /** Agreements & Terms — single primary document uploaded against the lead. */
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { UserX } from 'lucide-react';
 import type { Placement } from '../../../types/placement';
-import { DrawerFormShell } from '../../drawers/DrawerFormShell';
+import { DrawerFormShell, DrawerFormCancelButton } from '../../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
   DrawerSectionCard,
@@ -49,14 +49,7 @@ export function RejectOfferCandidateDrawer({
       zPanel={100}
       footer={
         <>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
-          >
-            Cancel
-          </button>
+          <DrawerFormCancelButton className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50" />
           <button
             type="button"
             disabled={isSubmitting || !feedback.trim()}

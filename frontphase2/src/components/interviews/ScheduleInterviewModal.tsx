@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Plus, X } from 'lucide-react';
 import { PanelAssignmentModal } from './PanelAssignmentModal';
 import { combineInterviewDateAndTimeToIso } from '../../lib/interview-schedule-helpers';
+import { requestError } from '../../lib/appDialog';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import {
   clampDateToMinLocal,
   filterInterviewSlotsForLocalDate,
@@ -78,6 +80,10 @@ export function ScheduleInterviewModal({
     !isEditMode && bulkScheduleForCandidateIds && bulkScheduleForCandidateIds.length > 1,
   );
   const bulkScheduleCount = bulkScheduleForCandidateIds?.length ?? 0;
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose,
+  });
   const [showPanelModal, setShowPanelModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** New schedules start fully empty so the recruiter doesn't think a previous interview leaked through. */
@@ -215,8 +221,13 @@ export function ScheduleInterviewModal({
     <AnimatePresence>
       {isOpen ? (
         <>
-          <div className="fixed inset-0 z-[110] bg-slate-900/50" onClick={onClose} />
+          <div
+            className="fixed inset-0 z-[110] bg-slate-900/50"
+            onClick={() => void requestClose()}
+            data-drawer-skip-dirty="true"
+          />
           <motion.div
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -234,7 +245,13 @@ export function ScheduleInterviewModal({
                       : 'Create and notify the interview panel in one flow.'}
                 </p>
               </div>
-              <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]">
+              <button
+                type="button"
+                onClick={() => void requestClose()}
+                className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]"
+                aria-label="Close"
+                data-drawer-skip-dirty="true"
+              >
                 <X className="size-5" />
               </button>
             </div>
@@ -531,7 +548,12 @@ export function ScheduleInterviewModal({
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] bg-white px-6 py-4">
-              <button type="button" onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-4 py-2 text-sm font-semibold text-[#111827]">
+              <button
+                type="button"
+                onClick={() => void requestClose()}
+                className="rounded-xl border border-[#E5E7EB] px-4 py-2 text-sm font-semibold text-[#111827]"
+                data-drawer-skip-dirty="true"
+              >
                 Cancel
               </button>
               <button
@@ -565,7 +587,14 @@ export function ScheduleInterviewModal({
                     } else {
                       await onSchedule(form);
                     }
+                    markClean();
                     onClose();
+                  } catch (error: unknown) {
+                    const message =
+                      error instanceof Error
+                        ? error.message
+                        : 'Unable to schedule interview. Please try again.';
+                    void requestError(message, { title: 'Interview conflict' });
                   } finally {
                     setIsSubmitting(false);
                   }

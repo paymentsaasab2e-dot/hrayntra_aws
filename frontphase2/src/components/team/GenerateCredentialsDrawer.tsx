@@ -63,7 +63,7 @@ export const GenerateCredentialsDrawer: React.FC<GenerateCredentialsDrawerProps>
       // Auto-generate
       const first = member.firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
       const last = member.lastName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      return last ? `${first}.${last}@saasa` : `${first}@saasa`;
+      return last ? `${first}.${last}@hryantra` : `${first}@hryantra`;
     }
   };
 

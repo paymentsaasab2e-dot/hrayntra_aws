@@ -1012,8 +1012,8 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           {!isCollapsed && (
             <div className="min-w-0 flex-1 overflow-hidden">
               <ImageWithFallback
-                src="/saasa-logo.png"
-                alt="SAASA Logo"
+                src="/hryantra-logo.png"
+                alt="HRYANTRA"
                 className="h-8 w-auto object-contain"
               />
             </div>

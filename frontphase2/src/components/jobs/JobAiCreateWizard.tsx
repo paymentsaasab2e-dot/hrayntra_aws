@@ -507,7 +507,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
               <div className="inline-flex items-center gap-2 rounded-full border border-[#2098C8]/35 bg-[#E8F6FC] px-3 py-1 shadow-sm shadow-[#2098C8]/10">
                 <span className="relative flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm ring-1 ring-[#2098C8]/25">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/saasa-logo.png" alt="" className="h-5 w-5 object-contain" />
+                  <img src="/hryantra-logo.png" alt="" className="h-5 w-5 object-contain" />
                 </span>
                 <span className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-[#176F96]">
                   AI job creation

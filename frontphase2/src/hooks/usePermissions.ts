@@ -67,14 +67,20 @@ function readUserData(): UserData {
  * are refreshed whenever `refreshLocalUserPermissions` runs (e.g. on focus or
  * route change), so role/permission changes the admin made in Teams reflect
  * on the active session without forcing a logout.
+ *
+ * Initial state is always empty so SSR HTML matches the first client render
+ * (avoids hydration mismatches when nav/menus are permission-filtered).
+ * Permissions are hydrated from localStorage in an effect after mount.
  */
 export function usePermissions() {
-  const [userData, setUserData] = useState<UserData>(() => readUserData());
+  const [userData, setUserData] = useState<UserData>({});
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const handler = () => setUserData(readUserData());
+    // Hydrate from localStorage after mount so SSR and first client paint match.
+    handler();
 
     const onStorage = (event: StorageEvent) => {
       if (

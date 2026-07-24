@@ -120,7 +120,7 @@ export function CandidateCvFilesSection({
           buildDownloadFilename(source, candidate.name, 'saasa-cv'),
       });
     } catch (error) {
-      onToast?.(error instanceof Error ? error.message : 'Failed to download SAASA CV');
+      onToast?.(error instanceof Error ? error.message : 'Failed to download HRYantra CV');
     } finally {
       setDownloadingSaasa(false);
     }
@@ -176,7 +176,7 @@ export function CandidateCvFilesSection({
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">CV versions</h4>
         <p className="mt-0.5 text-xs text-slate-500">
-          Original upload, AI-tailored apply CV, recruiter-edited CV, and SAASA export — same as the Resume tab.
+          Original upload, AI-tailored apply CV, recruiter-edited CV, and HRYantra export — same as the Resume tab.
         </p>
       </div>
 
@@ -321,7 +321,7 @@ export function CandidateCvFilesSection({
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-slate-900">{saasaCvFileEntry.fileName}</p>
               <p className="mt-0.5 text-xs text-slate-500">
-                SAASA CV · annotated
+                HRYantra CV · annotated
                 {saasaCvFileEntry.markCount && saasaCvFileEntry.markCount > 0
                   ? ` · ${saasaCvFileEntry.markCount} mark${saasaCvFileEntry.markCount === 1 ? '' : 's'}`
                   : ''}

@@ -411,7 +411,7 @@
   box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
 }
 
-/* SAASA CV — inline text editing on PDF / Word */
+/* HRYantra CV — inline text editing on PDF / Word */
 .saasa-docx-editable .docx-preview-resume-wrapper,
 .saasa-docx-editable .docx-preview-resume {
   /* Keep Word layout from docx-preview — do not restyle structure */

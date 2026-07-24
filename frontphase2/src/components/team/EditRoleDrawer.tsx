@@ -11,7 +11,7 @@ import {
   RBAC_CATALOG_TOTAL,
 } from './permissionCatalog';
 import { PermissionPicker } from './PermissionPicker';
-import { DrawerFormShell } from '../drawers/DrawerFormShell';
+import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
   DrawerSectionCard,
@@ -185,17 +185,6 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
     onClose();
   };
 
-  // Close on Escape
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen]);
-
   return (
     <DrawerFormShell
       isOpen={isOpen}
@@ -205,13 +194,7 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
       headerIcon={UserCog}
       footer={
         <>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            Cancel
-          </button>
+          <DrawerFormCancelButton />
           {!isSuperAdmin ? (
             <button
               type="button"

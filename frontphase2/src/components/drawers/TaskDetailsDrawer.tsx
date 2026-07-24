@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { confirmDiscardUnsavedChanges, useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -331,8 +332,6 @@ export function TaskDetailsDrawer({
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [showErrorToast, setShowErrorToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-  const [pendingCloseAction, setPendingCloseAction] = useState<'exit_edit' | 'close' | null>(null);
   const [showAddNote, setShowAddNote] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [isAddingNote, setIsAddingNote] = useState(false);
@@ -1046,25 +1045,27 @@ export function TaskDetailsDrawer({
 
   const resetCreateForm = () => setCreateForm(CREATE_FORM_INITIAL);
 
-  const handleClose = () => {
-    if (mode === 'edit' && isEditDirty) {
-      setPendingCloseAction('close');
-      setShowCloseConfirm(true);
-      return;
-    }
+  const finishClose = useCallback(() => {
     if (mode === 'create') resetCreateForm();
     setShowSuccessToast(false);
     setShowErrorToast(false);
     setToastMessage('');
-    onClose();
-  };
-
-  const handleConfirmCloseOrExit = () => {
-    if (pendingCloseAction === 'exit_edit') onExitEdit?.();
-    if (pendingCloseAction === 'close') onClose();
-    setShowCloseConfirm(false);
-    setPendingCloseAction(null);
     setIsEditDirty(false);
+    onClose();
+  }, [mode, onClose]);
+
+  const {
+    panelRef: taskDrawerPanelRef,
+    requestClose: requestTaskDrawerClose,
+    markClean: markTaskDrawerClean,
+  } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose: finishClose,
+    isDirty: mode === 'edit' && isEditDirty,
+  });
+
+  const handleClose = () => {
+    void requestTaskDrawerClose();
   };
 
   const handleCreateTask = async () => {
@@ -1101,6 +1102,7 @@ export function TaskDetailsDrawer({
         setShowSuccessToast(true);
         setTimeout(() => setShowSuccessToast(false), 3000);
         onCreateSuccess?.();
+        markTaskDrawerClean();
         handleClose();
         return;
       }
@@ -1134,6 +1136,7 @@ export function TaskDetailsDrawer({
       }
 
       onCreateSuccess?.(task.data?.id);
+      markTaskDrawerClean();
       handleClose();
     } catch (error: any) {
       console.error('Failed to create task:', error);
@@ -1198,11 +1201,11 @@ export function TaskDetailsDrawer({
     }
   };
 
-  const handleCancelEdit = () => {
+  const handleCancelEdit = async () => {
     if (isEditDirty) {
-      setPendingCloseAction('exit_edit');
-      setShowCloseConfirm(true);
-      return;
+      const confirmed = await confirmDiscardUnsavedChanges();
+      if (!confirmed) return;
+      setIsEditDirty(false);
     }
     onExitEdit?.();
   };
@@ -1221,6 +1224,7 @@ export function TaskDetailsDrawer({
       />
       <motion.div
         key="panel"
+        ref={taskDrawerPanelRef}
         initial={{ x: '100%' }}
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
@@ -1783,20 +1787,6 @@ export function TaskDetailsDrawer({
               </>
             )}
           </>
-        )}
-
-        {/* Discard unsaved changes confirm */}
-        {showCloseConfirm && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xl p-5 max-w-sm w-full">
-              <p className="text-sm font-medium text-slate-900 mb-1">Discard unsaved changes?</p>
-              <p className="text-xs text-slate-500 mb-4">Your changes will be lost.</p>
-              <div className="flex gap-3 justify-end">
-                <button type="button" onClick={() => { setShowCloseConfirm(false); setPendingCloseAction(null); }} className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50">Cancel</button>
-                <button type="button" onClick={handleConfirmCloseOrExit} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700">Discard</button>
-              </div>
-            </div>
-          </div>
         )}
 
         {/* Success toast */}

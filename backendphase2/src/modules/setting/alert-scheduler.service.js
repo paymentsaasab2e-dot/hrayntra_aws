@@ -8,6 +8,11 @@ import {
   notifyJobNearSla,
   notifyJobZeroApplicants,
 } from './alert-notify.helpers.js';
+import {
+  mergeFollowUpScheduleIntoOtherDetails,
+  readFollowUpScheduleFromOtherDetails,
+  sendLeadMeetReminderEmails,
+} from '../lead/leadFollowUpNotify.js';
 
 const FEEDBACK_OVERDUE_HOURS = Number(process.env.ALERT_FEEDBACK_OVERDUE_HOURS || 48);
 const PLACEMENT_REMINDER_DAYS = Number(process.env.ALERT_PLACEMENT_REMINDER_DAYS || 30);
@@ -73,7 +78,10 @@ async function processLeadFollowUps() {
       id: true,
       companyName: true,
       contactPerson: true,
+      email: true,
+      emails: true,
       nextFollowUp: true,
+      otherDetails: true,
       assignedToId: true,
       assignedTo: { select: { id: true, name: true, email: true } },
     },
@@ -85,6 +93,27 @@ async function processLeadFollowUps() {
     if (!userId) continue;
     const label = lead.companyName || lead.contactPerson || 'Lead';
     const followUp = lead.nextFollowUp;
+
+    // Meet reminder emails (timezone + offset stored on the lead)
+    try {
+      const schedule = readFollowUpScheduleFromOtherDetails(lead.otherDetails);
+      if (schedule && String(schedule.type || '').toLowerCase() === 'meet' && schedule.reminderAt && !schedule.reminderSentAt) {
+        const updatedSchedule = await sendLeadMeetReminderEmails({ lead, schedule });
+        if (updatedSchedule?.reminderSentAt && updatedSchedule.reminderSentAt !== schedule.reminderSentAt) {
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: {
+              otherDetails: mergeFollowUpScheduleIntoOtherDetails(
+                Array.isArray(lead.otherDetails) ? lead.otherDetails : [],
+                updatedSchedule,
+              ),
+            },
+          });
+        }
+      }
+    } catch (reminderErr) {
+      console.warn('[alert-scheduler] meet reminder failed:', reminderErr?.message || reminderErr);
+    }
 
     if (isDueToday(followUp)) {
       await dispatchScheduledAlert({

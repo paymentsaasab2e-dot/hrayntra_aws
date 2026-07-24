@@ -42,7 +42,7 @@ interface UseSaasaCvAnnotationsOptions {
   onCandidateUpdated?: () => void | Promise<void>;
   onFilesRefresh?: () => void | Promise<void>;
   onToast?: (message: string) => void;
-  /** Switch Resume tab to SAASA CV after save (Updated CV tab stays available). */
+  /** Switch Resume tab to HRYantra CV after save (Updated CV tab stays available). */
   onViewModeChange?: (mode: ResumeCvViewMode | null) => void;
 }
 
@@ -215,7 +215,7 @@ export function useSaasaCvAnnotations({
             const isPdf = blob.type === 'application/pdf' || blob.type.includes('pdf');
             const file = new File(
               [blob],
-              `SAASA CV - ${safeName}.${isPdf ? 'pdf' : 'png'}`,
+              `HRYantra CV - ${safeName}.${isPdf ? 'pdf' : 'png'}`,
               { type: isPdf ? 'application/pdf' : 'image/png' }
             );
             const uploadRes = await filesApiUpload('candidate', candidateId, file, SAASA_CV_FILE_TYPE);
@@ -275,14 +275,14 @@ export function useSaasaCvAnnotations({
         await onFilesRefresh?.();
         onToast?.(
           fileId
-            ? 'SAASA CV saved and added to Files.'
-            : 'SAASA CV annotations saved.'
+            ? 'HRYantra CV saved and added to Files.'
+            : 'HRYantra CV annotations saved.'
         );
         closeModal();
         return true;
       } catch (error: unknown) {
         onToast?.(
-          error instanceof Error ? error.message : 'Failed to save SAASA CV.'
+          error instanceof Error ? error.message : 'Failed to save HRYantra CV.'
         );
         return false;
       } finally {
@@ -306,7 +306,7 @@ export function useSaasaCvAnnotations({
 
   const deleteSavedCv = useCallback(async () => {
     if (!candidateId || !canEdit) {
-      onToast?.('You cannot delete SAASA CV for this candidate.');
+      onToast?.('You cannot delete HRYantra CV for this candidate.');
       return false;
     }
     setBusy(true);
@@ -337,11 +337,11 @@ export function useSaasaCvAnnotations({
       if (updated?.id) setBackendCandidate(updated);
       await onCandidateUpdated?.();
       await onFilesRefresh?.();
-      onToast?.('SAASA CV removed from Files.');
+      onToast?.('HRYantra CV removed from Files.');
       return true;
     } catch (error: unknown) {
       onToast?.(
-        error instanceof Error ? error.message : 'Failed to delete SAASA CV.'
+        error instanceof Error ? error.message : 'Failed to delete HRYantra CV.'
       );
       return false;
     } finally {

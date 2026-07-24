@@ -241,7 +241,7 @@ export function readPortalStudioTemplateId(candidate: BackendCandidate | null): 
   return typeof fromLayout === 'string' && fromLayout.trim() ? fromLayout.trim() : null;
 }
 
-/** Saved SAASA CV export (PNG/PDF in Files) is available for the Resume tab. */
+/** Saved HRYantra CV export (PNG/PDF in Files) is available for the Resume tab. */
 export function hasSaasaCvResumeTabMode(candidate: BackendCandidate | null): boolean {
   const extra = candidate?.extraData;
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return false;
@@ -249,7 +249,7 @@ export function hasSaasaCvResumeTabMode(candidate: BackendCandidate | null): boo
   return Boolean(stored?.fileUrl?.trim() || stored?.fileId);
 }
 
-/** Recruiter CV editor keys that must survive SAASA saves and partial drawer refreshes. */
+/** Recruiter CV editor keys that must survive HRYantra CV saves and partial drawer refreshes. */
 export function pickRecruiterCvExtraFieldsFrontend(
   extraData: Record<string, unknown> | null | undefined
 ): Record<string, unknown> {
@@ -290,7 +290,7 @@ export function mergeResumeTabExtraData(
   return { ...merged, ...recruiter };
 }
 
-/** Save SAASA annotations without clearing recruiter CV editor state. */
+/** Save HRYantra CV annotations without clearing recruiter CV editor state. */
 export function buildSaasaCvSaveExtra(
   existingExtraData: Record<string, unknown> | null | undefined,
   payload: SaasaCvAnnotationsStored,

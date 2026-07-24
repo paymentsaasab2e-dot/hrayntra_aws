@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import type { Interview, ReschedulePayload } from '../../types/interview.types';
+import { requestError } from '../../lib/appDialog';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 
 interface RescheduleModalProps {
   isOpen: boolean;
@@ -11,6 +13,10 @@ interface RescheduleModalProps {
 }
 
 export function RescheduleModal({ isOpen, interview, onClose, onSubmit }: RescheduleModalProps) {
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen: Boolean(isOpen && interview),
+    onClose,
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState<ReschedulePayload>({
     date: 'Feb 21, 2026',
@@ -29,15 +35,24 @@ export function RescheduleModal({ isOpen, interview, onClose, onSubmit }: Resche
         notifyCandidate: true,
         notifyInterviewer: true,
       });
+      markClean();
     }
-  }, [interview, isOpen]);
+  }, [interview, isOpen, markClean]);
 
   return (
     <AnimatePresence>
       {isOpen && interview ? (
         <div className="fixed inset-0 z-[120]">
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/50" />
           <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => void requestClose()}
+            className="absolute inset-0 bg-slate-900/50"
+            data-drawer-skip-dirty="true"
+          />
+          <motion.div
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -49,7 +64,13 @@ export function RescheduleModal({ isOpen, interview, onClose, onSubmit }: Resche
                 <h3 className="text-lg font-semibold text-[#111827]">Reschedule Interview</h3>
                 <p className="text-sm text-[#6B7280]">Current: {interview.date} at {interview.time}</p>
               </div>
-              <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]">
+              <button
+                type="button"
+                onClick={() => void requestClose()}
+                className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]"
+                aria-label="Close"
+                data-drawer-skip-dirty="true"
+              >
                 <X className="size-5" />
               </button>
             </div>
@@ -80,13 +101,27 @@ export function RescheduleModal({ isOpen, interview, onClose, onSubmit }: Resche
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] bg-white px-6 py-4">
-              <button type="button" onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-4 py-2 text-sm font-semibold text-[#111827]">Cancel</button>
+              <button
+                type="button"
+                onClick={() => void requestClose()}
+                className="rounded-xl border border-[#E5E7EB] px-4 py-2 text-sm font-semibold text-[#111827]"
+                data-drawer-skip-dirty="true"
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 onClick={async () => {
                   setIsSubmitting(true);
                   try {
                     await onSubmit(form);
+                    markClean();
+                  } catch (error: unknown) {
+                    const message =
+                      error instanceof Error
+                        ? error.message
+                        : 'Unable to reschedule interview. Please try again.';
+                    void requestError(message, { title: 'Interview conflict' });
                   } finally {
                     setIsSubmitting(false);
                   }

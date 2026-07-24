@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import {
   CandidateTable,
   type Candidate as JobDrawerTableCandidate,
@@ -698,6 +699,14 @@ export function JobDetailsDrawer({
   const [pipelineStages, setPipelineStages] = useState<JobPipelineStage[]>(normalizePipelineStages(initialPipelineStages));
   const [draggedStageId, setDraggedStageId] = useState<string | null>(null);
   const [pipelineDirty, setPipelineDirty] = useState(false);
+  const {
+    panelRef: jobDrawerPanelRef,
+    requestClose: requestJobDrawerClose,
+  } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose,
+    isDirty: pipelineDirty,
+  });
   const [pipelineValidationError, setPipelineValidationError] = useState('');
   const [orgRecruitmentMode, setOrgRecruitmentMode] = useState<'agency' | 'standalone'>(() =>
     typeof window !== 'undefined' ? getCachedOrgRecruitmentMode() : 'agency'
@@ -1346,11 +1355,12 @@ export function JobDetailsDrawer({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={onClose}
+        onClick={() => void requestJobDrawerClose()}
         className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
       />
       <motion.div
         key="panel"
+        ref={jobDrawerPanelRef}
         initial={{ x: '100%' }}
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
@@ -1423,7 +1433,7 @@ export function JobDetailsDrawer({
             )}
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => void requestJobDrawerClose()}
               className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
               aria-label="Close"
             >

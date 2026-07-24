@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
 import { Download, Eye, FileText, Undo2, X } from 'lucide-react';
@@ -43,6 +44,13 @@ export function PlacementDetailsDrawer({
   onRejectOfferCandidate,
 }: PlacementDetailsDrawerProps) {
   usePageDrawerLifecycle(isOpen);
+  const {
+    panelRef: placementDrawerPanelRef,
+    requestClose: requestPlacementDrawerClose,
+  } = useDrawerUnsavedGuard<HTMLElement>({
+    isOpen,
+    onClose,
+  });
   const [placement, setPlacement] = useState<Placement | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,9 +136,10 @@ export function PlacementDetailsDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[90] bg-slate-900/40"
-            onClick={onClose}
+            onClick={() => void requestPlacementDrawerClose()}
           />
           <motion.aside
+            ref={placementDrawerPanelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -141,7 +150,7 @@ export function PlacementDetailsDrawer({
               <h2 className="text-lg font-semibold text-[#111827]">Placement Details</h2>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => void requestPlacementDrawerClose()}
                 className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 aria-label="Close"
               >

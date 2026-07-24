@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import type { MatchCandidate, MatchJob } from './types';
 
 interface RecruiterOption {
@@ -32,6 +33,10 @@ export default function PipelineModal({
   onClose,
   onSubmit,
 }: PipelineModalProps) {
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose,
+  });
   const [jobId, setJobId] = useState('');
   const [stage, setStage] = useState('Applied');
   const [recruiterId, setRecruiterId] = useState('');
@@ -44,7 +49,8 @@ export default function PipelineModal({
     setStage('Applied');
     setRecruiterId(recruiters[0]?.id || '');
     setNotes('');
-  }, [isOpen, jobs, recruiters]);
+    markClean();
+  }, [isOpen, jobs, recruiters, markClean]);
 
   return (
     <AnimatePresence>
@@ -55,9 +61,11 @@ export default function PipelineModal({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[90] bg-slate-900/40"
-            onClick={onClose}
+            onClick={() => void requestClose()}
+            data-drawer-skip-dirty="true"
           />
           <motion.div
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -71,8 +79,10 @@ export default function PipelineModal({
               </div>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+                data-drawer-skip-dirty="true"
               >
                 <X size={18} />
               </button>
@@ -144,8 +154,9 @@ export default function PipelineModal({
             <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] bg-white px-6 py-4">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="rounded-xl border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-slate-700"
+                data-drawer-skip-dirty="true"
               >
                 Cancel
               </button>
@@ -155,6 +166,7 @@ export default function PipelineModal({
                   setIsSubmitting(true);
                   try {
                     await onSubmit({ jobId, stage, recruiterId, notes });
+                    markClean();
                   } finally {
                     setIsSubmitting(false);
                   }

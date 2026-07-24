@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
+import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 
 interface BulkRejectDrawerProps {
   isOpen: boolean;
@@ -23,6 +24,10 @@ export default function BulkRejectDrawer({
   onClose,
   onSubmit,
 }: BulkRejectDrawerProps) {
+  const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLElement>({
+    isOpen,
+    onClose,
+  });
   const [reason, setReason] = useState(REASONS[0]);
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -31,7 +36,8 @@ export default function BulkRejectDrawer({
     if (!isOpen) return;
     setReason(REASONS[0]);
     setNotes('');
-  }, [isOpen]);
+    markClean();
+  }, [isOpen, markClean]);
 
   return (
     <AnimatePresence>
@@ -42,9 +48,11 @@ export default function BulkRejectDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[90] bg-slate-900/40"
-            onClick={onClose}
+            onClick={() => void requestClose()}
+            data-drawer-skip-dirty="true"
           />
           <motion.aside
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -60,8 +68,10 @@ export default function BulkRejectDrawer({
               </div>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+                data-drawer-skip-dirty="true"
               >
                 <X size={18} />
               </button>
@@ -103,8 +113,9 @@ export default function BulkRejectDrawer({
             <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] bg-white px-6 py-4">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => void requestClose()}
                 className="rounded-xl border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-slate-700"
+                data-drawer-skip-dirty="true"
               >
                 Cancel
               </button>
@@ -114,6 +125,7 @@ export default function BulkRejectDrawer({
                   setIsSubmitting(true);
                   try {
                     await onSubmit({ reason, notes });
+                    markClean();
                   } finally {
                     setIsSubmitting(false);
                   }

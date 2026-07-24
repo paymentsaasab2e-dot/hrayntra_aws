@@ -1036,10 +1036,8 @@ export default function InterviewsPage() {
         onClose={modals.close}
         onSubmit={async (payload) => {
           if (!selectedInterview) return;
-          try {
-            await rescheduleInterview(selectedInterview.id, payload);
-            modals.close();
-          } catch {}
+          await rescheduleInterview(selectedInterview.id, payload);
+          modals.close();
         }}
       />
 
