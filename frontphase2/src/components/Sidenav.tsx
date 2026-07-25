@@ -58,6 +58,8 @@ import {
   UserPlus, 
   Settings, 
   ChevronLeft,
+  ChevronDown,
+  Building2,
   Menu,
   User,
   LogOut,
@@ -422,9 +424,11 @@ interface NavItemProps {
   onNavigate?: () => void;
   /** Colored icon treatment in the dark sidebar */
   accent?: keyof typeof NAV_ICON_ACCENTS;
+  /** Renders the row indented as a child of a collapsible group */
+  nested?: boolean;
 }
 
-const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate, accent = 'sky' }: NavItemProps) => {
+const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate, accent = 'sky', nested = false }: NavItemProps) => {
   const pathname = usePathname();
   const isActive = active || (href && pathname === href);
   const tone = NAV_ICON_ACCENTS[accent] || NAV_ICON_ACCENTS.sky;
@@ -433,7 +437,7 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate
     <div
       data-sidenav-nav-item="true"
       data-active={isActive ? 'true' : 'false'}
-      className={`relative flex items-center h-11 rounded-xl mx-2.5 my-0.5 ${collapsed ? 'px-2 justify-center' : 'pl-2.5 pr-2.5'} cursor-pointer transition-all duration-150 group
+      className={`relative flex items-center ${nested ? 'h-10' : 'h-11'} rounded-xl ${nested ? (collapsed ? 'mx-2.5' : 'ml-6 mr-2.5') : 'mx-2.5'} my-0.5 ${collapsed ? 'px-2 justify-center' : 'pl-2.5 pr-2.5'} cursor-pointer transition-all duration-150 group
         ${isActive
           ? 'bg-white/[0.08] text-white border border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
           : 'text-[#8899AA] border border-transparent hover:bg-white/[0.04] hover:text-white'
@@ -486,6 +490,90 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate
   }
 
   return content;
+};
+
+// ─── Collapsible Nav Group ────────────────────────────────────────────────────
+interface NavGroupProps {
+  icon: React.ElementType;
+  label: string;
+  collapsed: boolean;
+  accent?: keyof typeof NAV_ICON_ACCENTS;
+  /** Opens the group automatically when one of its routes is active */
+  forceOpen?: boolean;
+  children: React.ReactNode;
+}
+
+const NavGroup = ({ icon: Icon, label, collapsed, accent = 'sky', forceOpen = false, children }: NavGroupProps) => {
+  const [isOpen, setIsOpen] = useState(forceOpen);
+  const tone = NAV_ICON_ACCENTS[accent] || NAV_ICON_ACCENTS.sky;
+
+  useEffect(() => {
+    if (forceOpen) setIsOpen(true);
+  }, [forceOpen]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-expanded={isOpen}
+        className="block w-full text-left focus:outline-none"
+      >
+        <div
+          className={`relative flex items-center h-11 rounded-xl mx-2.5 my-0.5 ${collapsed ? 'px-2 justify-center' : 'pl-2.5 pr-2.5'} cursor-pointer transition-all duration-150 group
+            ${isOpen
+              ? 'bg-white/[0.05] text-white border border-white/10'
+              : 'text-[#8899AA] border border-transparent hover:bg-white/[0.04] hover:text-white'
+            }`}
+        >
+          <div
+            className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'} ${
+              isOpen ? tone.activeWrap : 'border border-white/[0.05] bg-white/[0.02]'
+            }`}
+          >
+            <Icon
+              size={17}
+              strokeWidth={isOpen ? 2 : 1.6}
+              className={isOpen ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
+            />
+          </div>
+
+          {!collapsed && (
+            <>
+              <span className={`text-[13px] whitespace-nowrap overflow-hidden ${isOpen ? 'font-semibold text-white' : 'font-medium'}`}>
+                {label}
+              </span>
+              <ChevronDown
+                size={14}
+                className={`ml-auto shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-0 text-white' : '-rotate-90 text-[#4A6070]'}`}
+              />
+            </>
+          )}
+
+          {collapsed && (
+            <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-[#0A1929] text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 z-50 whitespace-nowrap shadow-xl border border-white/10">
+              {label}
+              <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-[#0A1929]" />
+            </div>
+          )}
+        </div>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
 };
 
 // ─── Section Label ────────────────────────────────────────────────────────────
@@ -796,6 +884,58 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   };
 
   const SIDEBAR_W = isCollapsed ? 60 : 220;
+
+  // CRM group visibility + auto-expansion when the user is on one of its routes.
+  const canViewDashboard = mounted && (showAll || hasAnyPermission(['view_dashboard']) || isSuperAdmin());
+  const canViewLeads =
+    mounted && isAgencyMode && (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']));
+  const canViewClients =
+    mounted &&
+    isAgencyMode &&
+    (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']));
+  const isCrmRouteActive = ['/leads', '/client', '/dashboard'].some(
+    (route) => pathname === route || (pathname || '').startsWith(`${route}/`)
+  );
+
+  // Recruitment group — Jobs, Candidates, Interviews, Placements, Dashboard
+  const canViewJobs =
+    mounted &&
+    (showAll ||
+      hasAnyPermission([
+        'jobs_read',
+        'jobs_create',
+        'jobs_update',
+        'jobs_delete',
+        'view_jobs',
+        'create_job',
+        'edit_job',
+        'delete_job',
+        'assign_job',
+      ]));
+  const canViewCandidates =
+    mounted &&
+    (showAll ||
+      hasAnyPermission([
+        'candidates_read',
+        'candidates_create',
+        'candidates_update',
+        'candidates_delete',
+        'view_assigned_candidates',
+        'view_all_candidates',
+        'add_candidate',
+        'edit_candidate',
+        'delete_candidate',
+      ]));
+  const canViewInterviews =
+    mounted &&
+    (showAll || hasAnyPermission(['interviews_read', 'interviews_create', 'interviews_update', 'interviews_delete']));
+  const canViewPlacements =
+    mounted &&
+    (showAll || hasAnyPermission(['placements_read', 'placements_create', 'placements_update', 'placements_delete']));
+  const canViewRecruitmentDashboard = canViewDashboard || canViewJobs || canViewCandidates || canViewInterviews || canViewPlacements;
+  const isRecruitmentRouteActive = ['/job', '/candidate', '/interviews', '/placement', '/placements', '/recruitment'].some(
+    (route) => pathname === route || (pathname || '').startsWith(`${route}/`)
+  );
 
   useEffect(() => {
     const query = navSearch.trim();
@@ -1146,38 +1286,53 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           onScroll={persistScrollPosition}
           className="sidenav-scrollbar flex-1 overflow-y-auto overflow-x-hidden py-2"
         >
-          {(mounted && (showAll || hasAnyPermission(['view_dashboard']) || isSuperAdmin())) && (
-            <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
-          )}
-          
-          {/* Leads — agency tenants only */}
-          {(mounted && isAgencyMode && (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']))) && (
-            <NavItem icon={Target} label="Leads" href="/leads" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="rose" />
-          )}
-          
-          {/* Clients — agency tenants only */}
-          {(mounted && isAgencyMode && (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']))) && (
-            <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
-          )}
-          
-          {/* Jobs */}
-          {(mounted && (showAll || hasAnyPermission(['jobs_read', 'jobs_create', 'jobs_update', 'jobs_delete', 'view_jobs', 'create_job', 'edit_job', 'delete_job', 'assign_job']))) && (
-            <NavItem icon={Briefcase} label="Jobs" href="/job" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
-          )}
-          
-          {/* Candidates */}
-          {(mounted && (showAll || hasAnyPermission(['candidates_read', 'candidates_create', 'candidates_update', 'candidates_delete', 'view_assigned_candidates', 'view_all_candidates', 'add_candidate', 'edit_candidate', 'delete_candidate']))) && (
-            <NavItem icon={UserRound} label="Candidates" href="/candidate" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="violet" />
+          {/* CRM — collapsible group holding Leads, Clients and Dashboard */}
+          {mounted && (canViewLeads || canViewClients || canViewDashboard) && (
+            <NavGroup
+              icon={Building2}
+              label="CRM"
+              collapsed={isCollapsed}
+              accent="sky"
+              forceOpen={isCrmRouteActive}
+            >
+              {canViewLeads && (
+                <NavItem icon={Target} label="Leads" href="/leads" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="rose" nested />
+              )}
+              {canViewClients && (
+                <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" nested />
+              )}
+              {canViewDashboard && (
+                <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" nested />
+              )}
+            </NavGroup>
           )}
 
-          {/* Interviews */}
-          {(mounted && (showAll || hasAnyPermission(['interviews_read', 'interviews_create', 'interviews_update', 'interviews_delete']))) && (
-            <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="cyan" />
-          )}
-
-          {/* Placements */}
-          {(mounted && (showAll || hasAnyPermission(['placements_read', 'placements_create', 'placements_update', 'placements_delete']))) && (
-            <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" />
+          {/* Recruitment — Jobs, Candidates, Interviews, Placements, Dashboard */}
+          {mounted &&
+            (canViewJobs || canViewCandidates || canViewInterviews || canViewPlacements || canViewRecruitmentDashboard) && (
+            <NavGroup
+              icon={Briefcase}
+              label="Recruitment"
+              collapsed={isCollapsed}
+              accent="amber"
+              forceOpen={isRecruitmentRouteActive}
+            >
+              {canViewJobs && (
+                <NavItem icon={Briefcase} label="Jobs" href="/job" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" nested />
+              )}
+              {canViewCandidates && (
+                <NavItem icon={UserRound} label="Candidates" href="/candidate" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="violet" nested />
+              )}
+              {canViewInterviews && (
+                <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="cyan" nested />
+              )}
+              {canViewPlacements && (
+                <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" nested />
+              )}
+              {canViewRecruitmentDashboard && (
+                <NavItem icon={LayoutDashboard} label="Dashboard" href="/recruitment" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" nested />
+              )}
+            </NavGroup>
           )}
           
           {/* Pipeline */}
