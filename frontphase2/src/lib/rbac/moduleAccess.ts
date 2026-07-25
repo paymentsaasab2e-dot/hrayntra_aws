@@ -55,5 +55,12 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/activity-feed': ['view_activity_log', 'reports_read', 'view_team_activity'],
   '/recycle-bin': ['recycle_bin_manage'],
   '/dashboard': ['view_dashboard'],
+  '/recruitment': [
+    ...MODULE_ACCESS_MAP.Jobs,
+    ...MODULE_ACCESS_MAP.Candidates,
+    ...MODULE_ACCESS_MAP.Interviews,
+    ...MODULE_ACCESS_MAP.Placements,
+    'view_dashboard',
+  ],
   '/administration': ['manage_settings', 'manage_roles', 'assign_roles'],
 };
