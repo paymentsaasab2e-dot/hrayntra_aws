@@ -175,6 +175,7 @@ async function spendTokens(candidateId, serviceId) {
 
 /**
  * Deduct an explicit token amount (e.g. course unlock with per-course pricing).
+ * Uses atomic decrement + retries on write conflicts / deadlocks (P2034).
  */
 async function spendTokensAmount(candidateId, cost, serviceId, description) {
   const amount = Number(cost) || 0;
@@ -183,55 +184,83 @@ async function spendTokensAmount(candidateId, cost, serviceId, description) {
     return { tokenBalance: bal.tokenBalance, spent: 0, service: serviceId };
   }
 
-  const candidate = await prisma.candidate.findUnique({
-    where: { id: candidateId },
-    select: { tokenBalance: true },
-  });
+  const maxAttempts = 5;
+  let lastErr;
 
-  if (!candidate) {
-    const err = new Error('Candidate not found');
-    err.status = 404;
-    throw err;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const result = await prisma.$transaction(
+        async (tx) => {
+          const candidate = await tx.candidate.findUnique({
+            where: { id: candidateId },
+            select: { tokenBalance: true },
+          });
+
+          if (!candidate) {
+            const err = new Error('Candidate not found');
+            err.status = 404;
+            throw err;
+          }
+
+          const balance = candidate.tokenBalance ?? 0;
+          if (balance < amount) {
+            const err = new Error('Insufficient tokens');
+            err.status = 402;
+            err.code = 'INSUFFICIENT_TOKENS';
+            err.balance = balance;
+            err.required = amount;
+            err.service = serviceId;
+            throw err;
+          }
+
+          const updated = await tx.candidate.update({
+            where: { id: candidateId },
+            data: { tokenBalance: { decrement: amount } },
+            select: { tokenBalance: true },
+          });
+
+          const newBalance = updated.tokenBalance ?? balance - amount;
+
+          try {
+            await tx.tokenTransaction.create({
+              data: {
+                candidateId,
+                type: 'SPEND',
+                amount,
+                balanceAfter: newBalance,
+                service: serviceId,
+                description: description || `Spent ${amount} tokens on ${serviceId}`,
+              },
+            });
+          } catch (err) {
+            console.warn('[tokens] Failed to write SPEND ledger:', err?.message || err);
+          }
+
+          return { tokenBalance: newBalance, spent: amount, service: serviceId };
+        },
+        { maxWait: 5000, timeout: 15000 },
+      );
+      return result;
+    } catch (err) {
+      lastErr = err;
+      const code = err?.code || err?.meta?.code;
+      const msg = String(err?.message || '');
+      const retryable =
+        code === 'P2034' ||
+        /write conflict|deadlock|could not serialize|transaction failed/i.test(msg);
+      if (!retryable || attempt === maxAttempts) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 40 * attempt + Math.floor(Math.random() * 40)));
+    }
   }
 
-  const balance = candidate.tokenBalance ?? 0;
-  if (balance < amount) {
-    const err = new Error('Insufficient tokens');
-    err.status = 402;
-    err.code = 'INSUFFICIENT_TOKENS';
-    err.balance = balance;
-    err.required = amount;
-    err.service = serviceId;
-    throw err;
-  }
-
-  const newBalance = balance - amount;
-
-  await prisma.candidate.update({
-    where: { id: candidateId },
-    data: { tokenBalance: newBalance },
-  });
-
-  try {
-    await prisma.tokenTransaction.create({
-      data: {
-        candidateId,
-        type: 'SPEND',
-        amount,
-        balanceAfter: newBalance,
-        service: serviceId,
-        description: description || `Spent ${amount} tokens on ${serviceId}`,
-      },
-    });
-  } catch (err) {
-    console.warn('[tokens] Failed to write SPEND ledger:', err?.message || err);
-  }
-
-  return { tokenBalance: newBalance, spent: amount, service: serviceId };
+  throw lastErr;
 }
 
 /**
  * Credit an explicit token amount (refunds / reference-check payouts).
+ * Atomic increment + retries on write conflicts.
  */
 async function grantTokensAmount(candidateId, amount, serviceId, description) {
   const credit = Number(amount) || 0;
@@ -240,40 +269,67 @@ async function grantTokensAmount(candidateId, amount, serviceId, description) {
     return { tokenBalance: bal.tokenBalance, granted: 0, service: serviceId };
   }
 
-  const candidate = await prisma.candidate.findUnique({
-    where: { id: candidateId },
-    select: { tokenBalance: true },
-  });
+  const maxAttempts = 5;
+  let lastErr;
 
-  if (!candidate) {
-    const err = new Error('Candidate not found');
-    err.status = 404;
-    throw err;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const result = await prisma.$transaction(
+        async (tx) => {
+          const candidate = await tx.candidate.findUnique({
+            where: { id: candidateId },
+            select: { tokenBalance: true },
+          });
+
+          if (!candidate) {
+            const err = new Error('Candidate not found');
+            err.status = 404;
+            throw err;
+          }
+
+          const updated = await tx.candidate.update({
+            where: { id: candidateId },
+            data: { tokenBalance: { increment: credit } },
+            select: { tokenBalance: true },
+          });
+
+          const newBalance = updated.tokenBalance ?? (candidate.tokenBalance ?? 0) + credit;
+
+          try {
+            await tx.tokenTransaction.create({
+              data: {
+                candidateId,
+                type: 'GRANT',
+                amount: credit,
+                balanceAfter: newBalance,
+                service: serviceId || 'grant.amount',
+                description: description || `Granted ${credit} tokens`,
+              },
+            });
+          } catch (err) {
+            console.warn('[tokens] Failed to write GRANT ledger:', err?.message || err);
+          }
+
+          return { tokenBalance: newBalance, granted: credit, service: serviceId };
+        },
+        { maxWait: 5000, timeout: 15000 },
+      );
+      return result;
+    } catch (err) {
+      lastErr = err;
+      const code = err?.code || err?.meta?.code;
+      const msg = String(err?.message || '');
+      const retryable =
+        code === 'P2034' ||
+        /write conflict|deadlock|could not serialize|transaction failed/i.test(msg);
+      if (!retryable || attempt === maxAttempts) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 40 * attempt + Math.floor(Math.random() * 40)));
+    }
   }
 
-  const newBalance = (candidate.tokenBalance ?? 0) + credit;
-
-  await prisma.candidate.update({
-    where: { id: candidateId },
-    data: { tokenBalance: newBalance },
-  });
-
-  try {
-    await prisma.tokenTransaction.create({
-      data: {
-        candidateId,
-        type: 'GRANT',
-        amount: credit,
-        balanceAfter: newBalance,
-        service: serviceId || 'grant.amount',
-        description: description || `Granted ${credit} tokens`,
-      },
-    });
-  } catch (err) {
-    console.warn('[tokens] Failed to write GRANT ledger:', err?.message || err);
-  }
-
-  return { tokenBalance: newBalance, granted: credit, service: serviceId };
+  throw lastErr;
 }
 
 /**
