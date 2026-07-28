@@ -8,7 +8,7 @@ import type {
 } from './types';
 import type { DashboardLayoutV2 } from './layoutV2';
 
-function filtersToQuery(filters?: WidgetFilters) {
+function filtersToQuery(filters?: WidgetFilters | Record<string, string | undefined | null>) {
   if (!filters) return '';
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
@@ -20,27 +20,270 @@ function filtersToQuery(filters?: WidgetFilters) {
   return qs ? `?${qs}` : '';
 }
 
+export type DashboardInsight = {
+  id: string;
+  severity: 'high' | 'medium' | 'info' | string;
+  text: string;
+  action?: string;
+  href?: string;
+};
+
+export type DashboardAlert = DashboardInsight & {
+  category?: string;
+};
+
+export type DashboardTimelineItem = {
+  id: string;
+  at?: string | null;
+  label: string;
+  detail?: string;
+  performer?: string;
+  entityType?: string;
+};
+
+export type DashboardCalendarItem = {
+  id: string;
+  type: string;
+  at?: string | null;
+  title: string;
+  status?: string;
+  href?: string;
+};
+
+export type PipelineStage = {
+  stage: string;
+  count: number;
+  href?: string;
+  revenue?: number;
+};
+
+export type HealthScores = {
+  overall: number;
+  business: number;
+  hiring: number;
+  revenue: number;
+  productivity: number;
+  risk: number;
+};
+
+export type ExecutiveSummary = {
+  healthLabel: string;
+  bullets: string[];
+  recommendations: Array<{ text: string; href?: string }>;
+};
+
+export type ChartSlice = { name: string; value: number };
+
+export type UpcomingFollowup = {
+  id: string;
+  company: string;
+  type?: string;
+  at?: string | null;
+  status?: string;
+  priority?: string;
+  assignee?: string;
+  href?: string;
+};
+
+export type ScheduleItem = {
+  id: string;
+  title: string;
+  at?: string | null;
+  duration?: string;
+  type?: string;
+  href?: string;
+};
+
+export type AiCredits = {
+  total: number;
+  used: number;
+  remaining: number;
+  usagePct: number;
+};
+
 export type DashboardOverview = {
-  kpis: {
-    leads: number;
-    clients: number;
-    activeJobs: number;
-    candidates: number;
-    interviews: number;
-    placements: number;
-    revenue: number;
-    tasksDueToday: number;
-    tasksCompleted?: number;
-    callsMade?: number;
-    emailsSent?: number;
-  };
+  kpis: Record<string, number | null | undefined>;
+  insights?: DashboardInsight[];
+  alerts?: DashboardAlert[];
+  executiveSummary?: ExecutiveSummary;
+  healthScores?: HealthScores;
+  crmPipeline?: PipelineStage[];
+  recruitmentPipeline?: PipelineStage[];
+  activityTimeline?: DashboardTimelineItem[];
+  calendarItems?: DashboardCalendarItem[];
+  upcomingFollowups?: UpcomingFollowup[];
+  todaysSchedule?: ScheduleItem[];
   pipelineFunnel?: Array<{ name: string; value: number }>;
   teamLeaderboard?: Array<Record<string, unknown>>;
   recruitmentTrend?: Array<Record<string, unknown>>;
+  revenueTrend?: Array<Record<string, unknown>>;
+  topClients?: Array<Record<string, unknown>>;
+  leadSources?: ChartSlice[];
+  jobsByDepartment?: ChartSlice[];
+  industries?: ChartSlice[];
+  aiCredits?: AiCredits;
+  filtersApplied?: Record<string, string | null>;
+  generatedAt?: string;
 };
 
-export async function apiDashboardOverview() {
-  const res = await apiFetch<DashboardOverview>('/dashboard/overview', { auth: true });
+export type SmartDashboardFilters = {
+  dateRange?: string;
+  startDate?: string;
+  endDate?: string;
+  leadStatus?: string;
+  clientStatus?: string;
+  jobStatus?: string;
+  candidateStatus?: string;
+  assignedTo?: string;
+  search?: string;
+};
+
+export type DrillDownPayload = {
+  title: string;
+  href?: string;
+  metricKey?: string;
+  subtitle?: string;
+  rows?: Array<Record<string, unknown>>;
+};
+
+export async function apiDashboardOverview(filters?: SmartDashboardFilters) {
+  const res = await apiFetch<DashboardOverview>(
+    `/dashboard/overview${filtersToQuery(filters)}`,
+    { auth: true },
+  );
+  return res.data;
+}
+
+export type CrmCommBucket = {
+  completed: number;
+  pending: number;
+  cancelled: number;
+  successRate: number;
+};
+
+export type CrmOverview = {
+  scope?: 'crm';
+  kpis: Record<string, number | null | undefined>;
+  health?: { score: number; label: string };
+  todaySummary?: {
+    newLeads: number;
+    followupsPending: number;
+    meetingsScheduled: number;
+    hotClients: number;
+    estimatedBusinessValue: number;
+  };
+  insights?: DashboardInsight[];
+  recommendations?: Array<{ id: string; text: string; detail?: string; href?: string }>;
+  alerts?: DashboardAlert[];
+  pipeline?: PipelineStage[];
+  leadSources?: ChartSlice[];
+  leadStatusBars?: ChartSlice[];
+  leadStagePie?: ChartSlice[];
+  clientStatusPie?: ChartSlice[];
+  industries?: ChartSlice[];
+  countries?: ChartSlice[];
+  clientGrowth?: Array<{ label: string; value: number }>;
+  leadSpark?: Array<{ label: string; value: number }>;
+  aiTokens?: { total: number; used: number; remaining: number; usagePct: number };
+  leadsTable?: Array<{
+    id: string;
+    name: string;
+    contact?: string;
+    email?: string;
+    phone?: string;
+    status?: string;
+    priority?: string;
+    source?: string;
+    industry?: string;
+    location?: string;
+    value?: number;
+    lastActivity?: string | null;
+    nextFollowUp?: string | null;
+    assignee?: string;
+    createdAt?: string;
+    href?: string;
+  }>;
+  clientsTable?: Array<{
+    id: string;
+    name: string;
+    status?: string;
+    industry?: string;
+    location?: string;
+    value?: number;
+    lastActivity?: string | null;
+    nextFollowUp?: string | null;
+    assignee?: string;
+    createdAt?: string;
+    href?: string;
+  }>;
+  followups?: {
+    today: number;
+    tomorrow: number;
+    overdue: number;
+    completed: number;
+    upcoming: UpcomingFollowup[];
+  };
+  calendar?: Array<{
+    id: string;
+    title: string;
+    at?: string | null;
+    time?: string;
+    type?: string;
+    status?: string;
+    assignee?: string;
+    href?: string;
+  }>;
+  communication?: {
+    calls: CrmCommBucket;
+    meetings: CrmCommBucket;
+    emails: CrmCommBucket;
+    whatsapp: CrmCommBucket;
+  };
+  activityTimeline?: DashboardTimelineItem[];
+  leaderboard?: Array<{
+    id: string;
+    name: string;
+    email?: string;
+    role?: string;
+    assignedLeads: number;
+    assignedClients?: number;
+    calls: number;
+    meetings: number;
+    emails?: number;
+    followups: number;
+    overdueFollowups?: number;
+    conversions: number;
+    businessGenerated: number;
+    completionRate: number;
+    lastActivity?: string | null;
+    nextFollowUp?: string | null;
+  }>;
+  businessSummary?: {
+    potentialBusinessValue: number;
+    expectedRevenue: number;
+    averageLeadValue: number;
+    averageClientValue: number;
+    highestValueLead?: { id: string; name: string; value: number } | null;
+    highestValueClient?: { id: string; name: string; value: number } | null;
+  };
+  teamOptions?: Array<{ id: string; name: string }>;
+  filtersApplied?: Record<string, string | null>;
+  generatedAt?: string;
+};
+
+export type CrmDashboardFilters = {
+  dateRange?: string;
+  assignedTo?: string;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+};
+
+export async function apiCrmDashboardOverview(filters?: CrmDashboardFilters) {
+  const res = await apiFetch<CrmOverview>(
+    `/dashboard/crm-overview${filtersToQuery(filters)}`,
+    { auth: true },
+  );
   return res.data;
 }
 

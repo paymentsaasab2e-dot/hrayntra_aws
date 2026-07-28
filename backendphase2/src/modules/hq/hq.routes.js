@@ -51,4 +51,6 @@ router.post('/companies/:id/remarks', authMiddleware, hqController.addCompanyRem
 router.get('/portal', authMiddleware, hqController.getPortalOverview);
 router.delete('/portal/jobs/:id', authMiddleware, hqController.deletePortalJob);
 
+router.get('/analytics', authMiddleware, hqController.getAnalytics);
+
 export default router;

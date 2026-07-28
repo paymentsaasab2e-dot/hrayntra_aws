@@ -77,6 +77,9 @@ import {
   GripVertical,
   Copy,
   ExternalLink,
+  Cake,
+  Gift,
+  PartyPopper,
 } from 'lucide-react';
 import type { DefaultLeadStatus, Lead, LeadStatus, LeadSource, LeadType, LeadNote, LeadNoteTag, Activity as LeadActivity } from '@/app/leads/types';
 import { EntityAuditSummary } from '../table/TableAuditCell';
@@ -145,6 +148,16 @@ import {
   teamMemberPayloadFromForm,
   type TeamMemberListItem,
 } from '../../lib/teamMemberFormDetails';
+import {
+  buildLeadOccasionContactOptions,
+  emptyLeadOccasionForm,
+  formatOccasionPersonDisplay,
+  isLeadOccasionDetailLabel,
+  mergeOccasionIntoOtherDetails,
+  readLeadOccasionFromOtherDetails,
+  type LeadOccasionFormValues,
+} from '../../lib/leadOccasionDetails';
+import { LeadOccasionFields } from '../forms/LeadOccasionFields';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
@@ -178,13 +191,11 @@ function mergeLocationFields<
 >(prev: T, selection: LocationSelection): T {
   return {
     ...prev,
-    location: selection.location,
-    city: selection.city?.trim() ? selection.city : prev.city ?? '',
-    country: selection.country?.trim() ? selection.country : prev.country ?? '',
-    countryCode: selection.countryCode?.trim()
-      ? selection.countryCode
-      : (prev as { countryCode?: string }).countryCode ?? '',
-    state: selection.state?.trim() ? selection.state : prev.state ?? '',
+    location: selection.location ?? '',
+    city: selection.city ?? '',
+    country: selection.country ?? '',
+    countryCode: selection.countryCode ?? '',
+    state: selection.state ?? '',
     latitude: selection.latitude,
     longitude: selection.longitude,
   };
@@ -304,8 +315,11 @@ function validateEmail(email: string) {
 
 type LeadRequiredFieldErrors = Partial<{
   companyName: string;
+  contactPerson: string;
   email: string;
   phone: string;
+  country: string;
+  state: string;
 }>;
 
 function validateLeadRequiredFields(form: {
@@ -317,26 +331,42 @@ function validateLeadRequiredFields(form: {
   phones?: string[];
   country?: string;
   countryCode?: string;
+  state?: string;
+  emailNotAvailable?: boolean;
+  phoneNotAvailable?: boolean;
 }, options?: { skipPhoneValidation?: boolean }): LeadRequiredFieldErrors {
   const errors: LeadRequiredFieldErrors = {};
   const companyName = String(form.companyName || '').trim();
+  const contactPerson = String(form.contactPerson || '').trim();
+  const country = String(form.country || '').trim();
+  const state = String(form.state || '').trim();
   const email = primaryContactValue(normalizeContactList(form.emails, form.email));
   const phone = primaryContactValue(normalizeContactList(form.phones, form.phone));
 
   if (!companyName) errors.companyName = 'Company is required';
-  if (!email) {
-    errors.email = 'Email is required';
-  } else {
-    const result = validateEmail(email);
-    if (!result.valid) {
-      errors.email = result.message;
+  if (!contactPerson) errors.contactPerson = 'Director name is required';
+  if (!country) errors.country = 'Country is required';
+  if (!state) errors.state = 'State is required';
+
+  if (!form.emailNotAvailable) {
+    if (!email) {
+      errors.email = 'Email is required (or mark as not available)';
+    } else {
+      const result = validateEmail(email);
+      if (!result.valid) {
+        errors.email = result.message;
+      }
     }
   }
 
-  if (phone && !options?.skipPhoneValidation) {
-    const phoneResult = validatePhoneForCountry(phone, form.countryCode, form.country);
-    if (!phoneResult.valid) {
-      errors.phone = phoneResult.message || 'Enter a valid mobile number';
+  if (!form.phoneNotAvailable) {
+    if (!phone) {
+      errors.phone = 'Mobile number is required (or mark as not available)';
+    } else if (!options?.skipPhoneValidation) {
+      const phoneResult = validatePhoneForCountry(phone, form.countryCode, form.country);
+      if (!phoneResult.valid) {
+        errors.phone = phoneResult.message || 'Enter a valid mobile number';
+      }
     }
   }
 
@@ -378,6 +408,10 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   phone?: string;
   emails: string[];
   phones: string[];
+  /** When true, email may be empty (marked not available). */
+  emailNotAvailable?: boolean;
+  /** When true, phone may be empty (marked not available). */
+  phoneNotAvailable?: boolean;
   country?: string;
   countryCode?: string;
   city?: string;
@@ -418,6 +452,7 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   followUpReminder?: string;
   followUpTimezone?: string;
   followUpAttendeeIds?: string[];
+  occasions?: LeadOccasionFormValues;
 };
 
 function syncLeadTeamMembers(
@@ -854,6 +889,8 @@ export function LeadDetailsDrawer({
     phone: '',
     emails: [''],
     phones: [''],
+    emailNotAvailable: false,
+    phoneNotAvailable: false,
     country: '',
     countryCode: '',
     city: '',
@@ -890,6 +927,7 @@ export function LeadDetailsDrawer({
     followUpReminder: 'No reminder',
     followUpTimezone: 'Asia/Kolkata',
     followUpAttendeeIds: [],
+    occasions: emptyLeadOccasionForm(),
   });
   const [addLeadStatusIsCustom, setAddLeadStatusIsCustom] = useState(false);
   const [leadStatusCatalog, setLeadStatusCatalog] = useState<string[]>(DEFAULT_LEAD_STATUSES);
@@ -1085,6 +1123,8 @@ export function LeadDetailsDrawer({
     phone: '',
     emails: [''],
     phones: [''],
+    emailNotAvailable: false,
+    phoneNotAvailable: false,
     country: '',
     countryCode: '',
     city: '',
@@ -1120,6 +1160,7 @@ export function LeadDetailsDrawer({
       followUpReminder: 'No reminder',
       followUpTimezone: 'Asia/Kolkata',
       followUpAttendeeIds: [],
+      occasions: emptyLeadOccasionForm(),
     });
     setAddLeadErrors({});
     setPendingAddLeadAgreementsFile(null);
@@ -1156,6 +1197,30 @@ export function LeadDetailsDrawer({
       (generated as { phones?: string[] }).phones,
       generated.phone || form.phone,
     ),
+    emailNotAvailable: !(
+      generated.email ||
+      form.email ||
+      primaryContactValue(
+        contactListForForm(
+          (generated as { emails?: string[] }).emails,
+          generated.email || form.email,
+        ),
+      )
+    )
+      ? form.emailNotAvailable
+      : false,
+    phoneNotAvailable: !(
+      generated.phone ||
+      form.phone ||
+      primaryContactValue(
+        contactListForForm(
+          (generated as { phones?: string[] }).phones,
+          generated.phone || form.phone,
+        ),
+      )
+    )
+      ? form.phoneNotAvailable
+      : false,
     type: generated.type || form.type,
     source: generated.source || form.source,
     status: generated.status || form.status,
@@ -1306,6 +1371,8 @@ export function LeadDetailsDrawer({
     phone: '',
     emails: [''] as string[],
     phones: [''] as string[],
+    emailNotAvailable: false,
+    phoneNotAvailable: false,
     country: '',
     countryCode: '',
     city: '',
@@ -1344,6 +1411,7 @@ export function LeadDetailsDrawer({
     teamMemberEmail: '',
     teamMemberPhone: '',
     teamMembers: normalizeTeamMemberList(),
+    occasions: emptyLeadOccasionForm(),
   });
   const [overviewStatusIsCustom, setOverviewStatusIsCustom] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'all' | 'calls' | 'messages' | 'emails'>('all');
@@ -1733,6 +1801,8 @@ export function LeadDetailsDrawer({
       phone: lead.phone,
       emails: contactListForForm(lead.emails, lead.email),
       phones: contactListForForm(lead.phones, lead.phone),
+      emailNotAvailable: !primaryContactValue(contactListForForm(lead.emails, lead.email)),
+      phoneNotAvailable: !primaryContactValue(contactListForForm(lead.phones, lead.phone)),
       country: lead.country ?? '',
       countryCode: getCountryByCodeOrName(undefined, lead.country ?? '')?.isoCode ?? '',
       city: lead.city ?? '',
@@ -1751,9 +1821,14 @@ export function LeadDetailsDrawer({
       sourceEmail: lead.sourceEmail ?? '',
       ...(() => {
         const teamMembers = resolveTeamMemberList(lead);
+        const occasions = readLeadOccasionFromOtherDetails(lead.otherDetails);
         const dynamicOtherDetails = Array.isArray(lead.otherDetails)
           ? lead.otherDetails
-              .filter((item) => !isTeamMemberDetailLabel(item.label))
+              .filter(
+                (item) =>
+                  !isTeamMemberDetailLabel(item.label) &&
+                  !isLeadOccasionDetailLabel(item.label),
+              )
               .map((item) => ({
                 label: String(item.label || '').trim(),
                 value: String(item.value || ''),
@@ -1762,6 +1837,7 @@ export function LeadDetailsDrawer({
         return {
           dynamicOtherDetails,
           ...syncLeadTeamMembers(teamMembers),
+          occasions,
         };
       })(),
       leadOwner: lead.assignedTo?.name ?? '',
@@ -1933,14 +2009,17 @@ export function LeadDetailsDrawer({
         ...teamMemberPayloadFromForm(
           primaryTeamMemberFromList(overviewEditForm.teamMembers),
         ),
-        otherDetails: mergeTeamMemberIntoOtherDetails(
-          overviewEditForm.dynamicOtherDetails
-            .map((item) => ({
-              label: String(item.label || '').trim(),
-              value: String(item.value || '').trim(),
-            }))
-            .filter((item) => item.label && item.value),
-          overviewEditForm.teamMembers,
+        otherDetails: mergeOccasionIntoOtherDetails(
+          mergeTeamMemberIntoOtherDetails(
+            overviewEditForm.dynamicOtherDetails
+              .map((item) => ({
+                label: String(item.label || '').trim(),
+                value: String(item.value || '').trim(),
+              }))
+              .filter((item) => item.label && item.value),
+            overviewEditForm.teamMembers,
+          ),
+          overviewEditForm.occasions || emptyLeadOccasionForm(),
         ),
         status: String(overviewEditForm.status || 'New').trim() || 'New',
         priority: overviewEditForm.priority,
@@ -2049,11 +2128,16 @@ export function LeadDetailsDrawer({
     const primaryEmail = primaryContactValue(
       normalizeContactList(addLeadForm.emails, addLeadForm.email),
     );
+    const primaryPhone = primaryContactValue(
+      normalizeContactList(addLeadForm.phones, addLeadForm.phone),
+    );
     return (
       !addLeadForm.companyName.trim() ||
       !addLeadForm.contactPerson.trim() ||
-      !primaryEmail ||
-      !validateEmail(primaryEmail).valid
+      !String(addLeadForm.country || '').trim() ||
+      !String(addLeadForm.state || '').trim() ||
+      (!addLeadForm.emailNotAvailable && (!primaryEmail || !validateEmail(primaryEmail).valid)) ||
+      (!addLeadForm.phoneNotAvailable && !primaryPhone)
     );
   }, [addLeadForm]);
 
@@ -2125,9 +2209,12 @@ export function LeadDetailsDrawer({
         ...teamMemberPayloadFromForm(
           primaryTeamMemberFromList(addLeadForm.teamMembers),
         ),
-        otherDetails: mergeTeamMemberIntoOtherDetails(
-          addLeadForm.otherDetails,
-          addLeadForm.teamMembers,
+        otherDetails: mergeOccasionIntoOtherDetails(
+          mergeTeamMemberIntoOtherDetails(
+            addLeadForm.otherDetails,
+            addLeadForm.teamMembers,
+          ),
+          addLeadForm.occasions || emptyLeadOccasionForm(),
         ),
         status: addLeadForm.status || 'New',
         priority: addLeadForm.priority || 'Medium',
@@ -3411,8 +3498,17 @@ export function LeadDetailsDrawer({
                           latitude={addLeadForm.latitude ?? null}
                           longitude={addLeadForm.longitude ?? null}
                           showDetectedHint={false}
+                          countryError={addLeadErrors.country}
+                          stateError={addLeadErrors.state}
                           onLocationChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
-                          onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
+                          onSelect={(s) => {
+                            setAddLeadForm((p) => mergeLocationFields(p, s));
+                            setAddLeadErrors((prev) => ({
+                              ...prev,
+                              country: s.country?.trim() ? undefined : prev.country,
+                              state: s.state?.trim() ? undefined : prev.state,
+                            }));
+                          }}
                         />
                       </div>
                       <div className="sm:col-span-2">
@@ -3447,6 +3543,25 @@ export function LeadDetailsDrawer({
                           phone={addLeadForm.phone}
                           countryCode={addLeadForm.countryCode}
                           countryName={addLeadForm.country}
+                          allowNotAvailable
+                          emailNotAvailable={Boolean(addLeadForm.emailNotAvailable)}
+                          phoneNotAvailable={Boolean(addLeadForm.phoneNotAvailable)}
+                          onEmailNotAvailableChange={(emailNotAvailable) => {
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              emailNotAvailable,
+                              ...(emailNotAvailable ? { emails: [''], email: '' } : {}),
+                            }));
+                            setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
+                          }}
+                          onPhoneNotAvailableChange={(phoneNotAvailable) => {
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              phoneNotAvailable,
+                              ...(phoneNotAvailable ? { phones: [''], phone: '' } : {}),
+                            }));
+                            setAddLeadErrors((prev) => ({ ...prev, phone: undefined }));
+                          }}
                           onDirectorSalutationChange={(value) =>
                             setAddLeadForm((p) => ({ ...p, directorSalutation: value }))
                           }
@@ -3457,13 +3572,23 @@ export function LeadDetailsDrawer({
                             }
                           }}
                           onEmailsChange={(emails, primaryEmail) => {
-                            setAddLeadForm((p) => ({ ...p, emails, email: primaryEmail }));
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              emails,
+                              email: primaryEmail,
+                              emailNotAvailable: primaryEmail.trim() ? false : p.emailNotAvailable,
+                            }));
                             if (addLeadErrors.email) {
                               setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
                             }
                           }}
                           onPhonesChange={(phones, primaryPhone) => {
-                            setAddLeadForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              phones,
+                              phone: primaryPhone,
+                              phoneNotAvailable: primaryPhone.trim() ? false : p.phoneNotAvailable,
+                            }));
                             if (addLeadErrors.phone) {
                               setAddLeadErrors((prev) => ({ ...prev, phone: undefined }));
                             }
@@ -3676,7 +3801,13 @@ export function LeadDetailsDrawer({
                         <div>
                           <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
                           <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-3">
-                            {addLeadForm.otherDetails.map((item, index) => (
+                            {addLeadForm.otherDetails
+                              .filter(
+                                (item) =>
+                                  !isTeamMemberDetailLabel(item.label) &&
+                                  !isLeadOccasionDetailLabel(item.label),
+                              )
+                              .map((item, index) => (
                               <div key={`${item.label}-${index}`} className="text-sm">
                                 <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
                                 <span className="text-slate-600">{item.value}</span>
@@ -3686,6 +3817,24 @@ export function LeadDetailsDrawer({
                         </div>
                       ) : null}
                     </div>
+                  </AddLeadSectionCard>
+
+                  <AddLeadSectionCard
+                    title="Other"
+                    subtitle="Pick date, then name and email from contacts above"
+                    icon={Gift}
+                    accent="indigo"
+                  >
+                    <LeadOccasionFields
+                      value={addLeadForm.occasions || emptyLeadOccasionForm()}
+                      contacts={buildLeadOccasionContactOptions({
+                        directorName: addLeadForm.contactPerson,
+                        directorEmail: addLeadForm.email,
+                        directorEmails: addLeadForm.emails,
+                        teamMembers: addLeadForm.teamMembers,
+                      })}
+                      onChange={(occasions) => setAddLeadForm((p) => ({ ...p, occasions }))}
+                    />
                   </AddLeadSectionCard>
 
                   <div className="hidden">
@@ -3794,6 +3943,25 @@ export function LeadDetailsDrawer({
                           phone={addLeadForm.phone}
                           countryCode={addLeadForm.countryCode}
                           countryName={addLeadForm.country}
+                          allowNotAvailable
+                          emailNotAvailable={Boolean(addLeadForm.emailNotAvailable)}
+                          phoneNotAvailable={Boolean(addLeadForm.phoneNotAvailable)}
+                          onEmailNotAvailableChange={(emailNotAvailable) => {
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              emailNotAvailable,
+                              ...(emailNotAvailable ? { emails: [''], email: '' } : {}),
+                            }));
+                            setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
+                          }}
+                          onPhoneNotAvailableChange={(phoneNotAvailable) => {
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              phoneNotAvailable,
+                              ...(phoneNotAvailable ? { phones: [''], phone: '' } : {}),
+                            }));
+                            setAddLeadErrors((prev) => ({ ...prev, phone: undefined }));
+                          }}
                           onDirectorSalutationChange={(value) =>
                             setAddLeadForm((p) => ({ ...p, directorSalutation: value }))
                           }
@@ -3804,13 +3972,23 @@ export function LeadDetailsDrawer({
                             }
                           }}
                           onEmailsChange={(emails, primaryEmail) => {
-                            setAddLeadForm((p) => ({ ...p, emails, email: primaryEmail }));
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              emails,
+                              email: primaryEmail,
+                              emailNotAvailable: primaryEmail.trim() ? false : p.emailNotAvailable,
+                            }));
                             if (addLeadErrors.email) {
                               setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
                             }
                           }}
                           onPhonesChange={(phones, primaryPhone) => {
-                            setAddLeadForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              phones,
+                              phone: primaryPhone,
+                              phoneNotAvailable: primaryPhone.trim() ? false : p.phoneNotAvailable,
+                            }));
                             if (addLeadErrors.phone) {
                               setAddLeadErrors((prev) => ({ ...prev, phone: undefined }));
                             }
@@ -4038,6 +4216,23 @@ export function LeadDetailsDrawer({
                           </AddLeadSectionCard>
 
                           <AddLeadSectionCard
+                            title="Location & Industry"
+                            subtitle="Where the company operates"
+                            icon={MapPin}
+                            accent="emerald"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div className="sm:col-span-2">
+                                <OverviewField label="Location" icon={MapPin} iconClassName="text-emerald-500" value={lead?.location ?? ''} />
+                              </div>
+                              <OverviewField label="Country" icon={Globe} iconClassName="text-emerald-500" value={lead?.country ?? ''} />
+                              <OverviewField label="State" icon={MapPin} iconClassName="text-emerald-500" value={lead?.state ?? ''} />
+                              <OverviewField label="City" icon={MapPin} iconClassName="text-emerald-500" value={lead?.city ?? ''} />
+                              <OverviewField label="Industry" icon={Briefcase} iconClassName="text-emerald-500" value={formatIndustriesDisplay(lead?.industry ?? '')} />
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
                             title="Contacts"
                             subtitle="Director and team member details"
                             icon={Users}
@@ -4050,6 +4245,7 @@ export function LeadDetailsDrawer({
                                     label="Director Name"
                                     icon={User}
                                     iconClassName="text-violet-500"
+                                    required
                                     value={formatDirectorDisplay(
                                       lead?.directorSalutation,
                                       lead?.directorName || lead?.contactPerson,
@@ -4060,14 +4256,21 @@ export function LeadDetailsDrawer({
                                     icon={Mail}
                                     iconClassName="text-violet-500"
                                     required
-                                    value={formatContactListMultiline(lead?.emails, lead?.email)}
+                                    value={
+                                      formatContactListMultiline(lead?.emails, lead?.email) ||
+                                      'Not available'
+                                    }
                                     multiline
                                   />
                                   <OverviewField
                                     label="Mobile Number"
                                     icon={Phone}
                                     iconClassName="text-violet-500"
-                                    value={formatContactListMultiline(lead?.phones, lead?.phone)}
+                                    required
+                                    value={
+                                      formatContactListMultiline(lead?.phones, lead?.phone) ||
+                                      'Not available'
+                                    }
                                     multiline
                                   />
                                 </div>
@@ -4101,23 +4304,6 @@ export function LeadDetailsDrawer({
                                   </div>
                                 );
                               })()}
-                            </div>
-                          </AddLeadSectionCard>
-
-                          <AddLeadSectionCard
-                            title="Location & Industry"
-                            subtitle="Where the company operates"
-                            icon={MapPin}
-                            accent="emerald"
-                          >
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                              <div className="sm:col-span-2">
-                                <OverviewField label="Location" icon={MapPin} iconClassName="text-emerald-500" value={lead?.location ?? ''} />
-                              </div>
-                              <OverviewField label="City" icon={MapPin} iconClassName="text-emerald-500" value={lead?.city ?? ''} />
-                              <OverviewField label="State" icon={MapPin} iconClassName="text-emerald-500" value={lead?.state ?? ''} />
-                              <OverviewField label="Country" icon={Globe} iconClassName="text-emerald-500" value={lead?.country ?? ''} />
-                              <OverviewField label="Industry" icon={Briefcase} iconClassName="text-emerald-500" value={formatIndustriesDisplay(lead?.industry ?? '')} />
                             </div>
                           </AddLeadSectionCard>
 
@@ -4180,7 +4366,13 @@ export function LeadDetailsDrawer({
                                 <div>
                                   <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
                                   <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-3">
-                                    {lead.otherDetails.map((item, index) => (
+                                    {lead.otherDetails
+                                      .filter(
+                                        (item) =>
+                                          !isTeamMemberDetailLabel(item.label) &&
+                                          !isLeadOccasionDetailLabel(item.label),
+                                      )
+                                      .map((item, index) => (
                                       <div key={`${item.label}-${index}`} className="text-sm">
                                         <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
                                         <span className="text-slate-600">{item.value}</span>
@@ -4190,6 +4382,41 @@ export function LeadDetailsDrawer({
                                 </div>
                               ) : null}
                             </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Other"
+                            subtitle="Pick date, then name and email from contacts above"
+                            icon={Gift}
+                            accent="indigo"
+                          >
+                            {(() => {
+                              const occasions =
+                                readLeadOccasionFromOtherDetails(lead?.otherDetails) ||
+                                emptyLeadOccasionForm();
+                              return (
+                                <div className="space-y-3">
+                                  <OverviewField
+                                    label="Birthday"
+                                    icon={Cake}
+                                    iconClassName="text-indigo-500"
+                                    value={formatOccasionPersonDisplay(occasions.birthday)}
+                                  />
+                                  <OverviewField
+                                    label="Anniversary"
+                                    icon={Gift}
+                                    iconClassName="text-indigo-500"
+                                    value={formatOccasionPersonDisplay(occasions.anniversary)}
+                                  />
+                                  <OverviewField
+                                    label="Special Occasion"
+                                    icon={PartyPopper}
+                                    iconClassName="text-indigo-500"
+                                    value={formatOccasionPersonDisplay(occasions.specialOccasion)}
+                                  />
+                                </div>
+                              );
+                            })()}
                           </AddLeadSectionCard>
                         </>
                       ) : (
@@ -4228,6 +4455,48 @@ export function LeadDetailsDrawer({
                           </AddLeadSectionCard>
 
                           <AddLeadSectionCard
+                            title="Location & Industry"
+                            subtitle="Where the company operates"
+                            icon={MapPin}
+                            accent="emerald"
+                          >
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className="sm:col-span-2">
+                            <CscLocationFields
+                              location={overviewEditForm.location}
+                              city={overviewEditForm.city}
+                              state={overviewEditForm.state}
+                              country={overviewEditForm.country}
+                              countryCode={overviewEditForm.countryCode}
+                              latitude={overviewEditForm.latitude}
+                              longitude={overviewEditForm.longitude}
+                              showDetectedHint={false}
+                              countryError={overviewEditErrors.country}
+                              stateError={overviewEditErrors.state}
+                              onLocationChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
+                              onSelect={(s) => {
+                                setOverviewEditForm((p) => mergeLocationFields(p, s));
+                                setOverviewEditErrors((prev) => ({
+                                  ...prev,
+                                  country: s.country?.trim() ? undefined : prev.country,
+                                  state: s.state?.trim() ? undefined : prev.state,
+                                }));
+                              }}
+                            />
+                            </div>
+                            <div>
+                              <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
+                              <IndustryMultiSelect
+                                value={overviewEditForm.industry ?? ''}
+                                onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
+                                companyName={overviewEditForm.companyName ?? ''}
+                                placeholder="Type an industry (e.g. technology, healthcare)"
+                              />
+                            </div>
+                            </div>
+                          </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
                             title="Contacts"
                             subtitle="Director and team member details"
                             icon={Users}
@@ -4244,6 +4513,25 @@ export function LeadDetailsDrawer({
                                 phone={overviewEditForm.phone}
                                 countryCode={overviewEditForm.countryCode}
                                 countryName={overviewEditForm.country}
+                                allowNotAvailable
+                                emailNotAvailable={Boolean(overviewEditForm.emailNotAvailable)}
+                                phoneNotAvailable={Boolean(overviewEditForm.phoneNotAvailable)}
+                                onEmailNotAvailableChange={(emailNotAvailable) => {
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    emailNotAvailable,
+                                    ...(emailNotAvailable ? { emails: [''], email: '' } : {}),
+                                  }));
+                                  setOverviewEditErrors((prev) => ({ ...prev, email: undefined }));
+                                }}
+                                onPhoneNotAvailableChange={(phoneNotAvailable) => {
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    phoneNotAvailable,
+                                    ...(phoneNotAvailable ? { phones: [''], phone: '' } : {}),
+                                  }));
+                                  setOverviewEditErrors((prev) => ({ ...prev, phone: undefined }));
+                                }}
                                 onDirectorSalutationChange={(value) =>
                                   setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
                                 }
@@ -4254,13 +4542,23 @@ export function LeadDetailsDrawer({
                                   }
                                 }}
                                 onEmailsChange={(emails, primaryEmail) => {
-                                  setOverviewEditForm((p) => ({ ...p, emails, email: primaryEmail }));
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    emails,
+                                    email: primaryEmail,
+                                    emailNotAvailable: primaryEmail.trim() ? false : p.emailNotAvailable,
+                                  }));
                                   if (overviewEditErrors.email) {
                                     setOverviewEditErrors((prev) => ({ ...prev, email: undefined }));
                                   }
                                 }}
                                 onPhonesChange={(phones, primaryPhone) => {
-                                  setOverviewEditForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    phones,
+                                    phone: primaryPhone,
+                                    phoneNotAvailable: primaryPhone.trim() ? false : p.phoneNotAvailable,
+                                  }));
                                   if (overviewEditErrors.phone) {
                                     setOverviewEditErrors((prev) => ({ ...prev, phone: undefined }));
                                   }
@@ -4279,39 +4577,6 @@ export function LeadDetailsDrawer({
                                 onChange={(teamMembers) =>
                                   setOverviewEditForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
                                 }
-                              />
-                            </div>
-                            </div>
-                          </AddLeadSectionCard>
-
-                          <AddLeadSectionCard
-                            title="Location & Industry"
-                            subtitle="Where the company operates"
-                            icon={MapPin}
-                            accent="emerald"
-                          >
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div className="sm:col-span-2">
-                            <CscLocationFields
-                              location={overviewEditForm.location}
-                              city={overviewEditForm.city}
-                              state={overviewEditForm.state}
-                              country={overviewEditForm.country}
-                              countryCode={overviewEditForm.countryCode}
-                              latitude={overviewEditForm.latitude}
-                              longitude={overviewEditForm.longitude}
-                              showDetectedHint={false}
-                              onLocationChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                              onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
-                            />
-                            </div>
-                            <div>
-                              <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
-                              <IndustryMultiSelect
-                                value={overviewEditForm.industry ?? ''}
-                                onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
-                                companyName={overviewEditForm.companyName ?? ''}
-                                placeholder="Type an industry (e.g. technology, healthcare)"
                               />
                             </div>
                             </div>
@@ -4547,6 +4812,26 @@ export function LeadDetailsDrawer({
                           </div>
                             </div>
                           </AddLeadSectionCard>
+
+                          <AddLeadSectionCard
+                            title="Other"
+                            subtitle="Pick date, then name and email from contacts above"
+                            icon={Gift}
+                            accent="indigo"
+                          >
+                            <LeadOccasionFields
+                              value={overviewEditForm.occasions || emptyLeadOccasionForm()}
+                              contacts={buildLeadOccasionContactOptions({
+                                directorName: overviewEditForm.contactPerson,
+                                directorEmail: overviewEditForm.email,
+                                directorEmails: overviewEditForm.emails,
+                                teamMembers: overviewEditForm.teamMembers,
+                              })}
+                              onChange={(occasions) =>
+                                setOverviewEditForm((p) => ({ ...p, occasions }))
+                              }
+                            />
+                          </AddLeadSectionCard>
                         </div>
                       )}
 
@@ -4693,8 +4978,17 @@ export function LeadDetailsDrawer({
                               latitude={overviewEditForm.latitude}
                               longitude={overviewEditForm.longitude}
                               showDetectedHint={false}
+                              countryError={overviewEditErrors.country}
+                              stateError={overviewEditErrors.state}
                               onLocationChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                              onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
+                              onSelect={(s) => {
+                                setOverviewEditForm((p) => mergeLocationFields(p, s));
+                                setOverviewEditErrors((prev) => ({
+                                  ...prev,
+                                  country: s.country?.trim() ? undefined : prev.country,
+                                  state: s.state?.trim() ? undefined : prev.state,
+                                }));
+                              }}
                             />
                           </div>
                         )}

@@ -204,13 +204,13 @@ export function HrYantraAiFloatingButton() {
                     </span>
                   </span>
                   <div>
-                    <p className="text-sm font-bold tracking-tight text-slate-900">HRYantra AI</p>
+                    <p className="text-sm font-bold tracking-tight text-slate-900">HRYANTRA Brain</p>
                     <p className="mt-0.5 text-[11px] font-medium text-slate-500">
-                      Smart CRM coach · ranks + how-to guides
+                      Enterprise intelligence · live tenant · RBAC
                     </p>
                     <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      Intent + ranking · no external AI
+                      Phase 2 Brain · no OpenAI required
                     </span>
                   </div>
                 </div>
@@ -247,7 +247,7 @@ export function HrYantraAiFloatingButton() {
               {busy ? (
                 <div className="inline-flex items-center gap-2 rounded-2xl border border-sky-100 bg-white px-3 py-2 text-xs text-slate-500 shadow-sm">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-[#2098C8]" />
-                  Syncing & ranking live data…
+                  Consulting Enterprise Brain…
                 </div>
               ) : null}
             </div>

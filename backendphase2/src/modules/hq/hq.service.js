@@ -13,6 +13,7 @@ import { hqCompaniesService } from './hq-companies.service.js';
 import { hqPortalService } from './hq-portal.service.js';
 import { hqDemosService } from './hq-demos.service.js';
 import { hqPackagesService } from './hq-packages.service.js';
+import { hqAnalyticsService } from './hq-analytics.service.js';
 
 async function resolvePlanInput(raw, billingCycle, planStartDate) {
   const plan = await hqPackagesService.resolvePlanInput(raw, billingCycle, planStartDate);
@@ -572,6 +573,11 @@ export const hqService = {
   async getPortalOverview(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqPortalService.getPortalOverview();
+  },
+
+  async getAnalytics(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqAnalyticsService.getAnalytics();
   },
 
   async deletePortalJob(jobId, data, reqUser) {

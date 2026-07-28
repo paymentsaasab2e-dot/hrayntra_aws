@@ -57,6 +57,7 @@ import orgRecruitmentRoutes from './modules/setting/org-recruitment.routes.js';
 import notificationTriggerTemplatesRoutes from './modules/setting/notification-trigger-templates.routes.js';
 import alertManagementRoutes from './modules/setting/alert-management.routes.js';
 import aiRoutes from './modules/ai/ai.routes.js';
+import brainRoutes from './modules/brain/brain.routes.js';
 import socialRoutes from './modules/social/social.routes.js';
 import linkedinRoutes from './modules/linkedin/linkedin.routes.js';
 import oauthRoutes from './modules/oauth/oauth.routes.js';
@@ -290,6 +291,7 @@ app.use('/api/v1/settings/twilio', twilioTestRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/ai/aria', ariaRoutes);
 app.use('/api/v1/ai', aiRoutes);
+app.use('/api/v1/brain', brainRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 // (portalSyncRoutes is mounted near the top — before any
 // router-level-auth `/api/v1` handlers — see comment above.)

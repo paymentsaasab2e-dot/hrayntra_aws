@@ -19,8 +19,10 @@ import {
   apiHqAssignTenantPlan,
   apiHqDeleteTenant,
   apiHqSetTenantPause,
+  apiHqGetAnalytics,
   type HqTenantRow,
   type HqSubscriptionPackage,
+  type HqAnalyticsPayload,
 } from '../../lib/api';
 import { HqPackagesPanel } from '../../components/hq/HqPackagesPanel';
 import { CreateTenantModal } from '../../components/hq/CreateTenantModal';
@@ -41,6 +43,13 @@ import {
   HqSecondaryButton,
   HqStatCard,
 } from '../../components/hq/hqUi';
+import {
+  HqAnalyticsViewTabs,
+  type HqAnalyticsView,
+} from '../../components/hq/analytics/HqAnalyticsViewTabs';
+import { HqEmployeeAnalyticsDashboard } from '../../components/hq/analytics/HqEmployeeAnalyticsDashboard';
+import { HqEmployerAnalyticsDashboard } from '../../components/hq/analytics/HqEmployerAnalyticsDashboard';
+import { HqAnalyticsLoadingSkeleton } from '../../components/hq/analytics/HqAnalyticsLoadingSkeleton';
 
 interface HqStats {
   total: number;
@@ -52,10 +61,18 @@ interface HqStats {
 }
 
 const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
-  dashboard: 'Platform health, tenant counts, and plan distribution.',
+  dashboard: 'Employee (Phase 1) and Employer (Phase 2) platform analytics, plus tenant overview.',
   tenants: 'All Phase 2 workspaces — including employers who purchased from the landing page.',
   plans: '',
   bootstrap: 'Local-only super admin credential injection.',
+};
+
+const VIEW_DESCRIPTIONS: Record<HqAnalyticsView, string> = {
+  employee:
+    'Phase 1 job-seeker analytics — candidates, applications, portal jobs, match scores, and talent insights.',
+  employer:
+    'Phase 2 hiring analytics — tenants, jobs, pipelines, placements, and HQ CRM lead/company funnel.',
+  platform: 'Platform health, tenant counts, and plan distribution.',
 };
 
 const FALLBACK_PLAN_OPTIONS: HqSubscriptionPackage[] = [
@@ -163,12 +180,15 @@ export default function HQSetupPageWrapper() {
 function HQSetupPage() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
+  const viewParam = searchParams.get('view');
   const activeTab: HqNavTab =
     tabParam === 'tenants' ||
     tabParam === 'plans' ||
     tabParam === 'bootstrap'
       ? tabParam
       : 'dashboard';
+  const analyticsView: HqAnalyticsView =
+    viewParam === 'employer' || viewParam === 'platform' ? viewParam : 'employee';
 
   const activeNav = HQ_NAV_ITEMS.find((item) => item.id === activeTab);
 
@@ -202,6 +222,10 @@ function HQSetupPage() {
   const [pendingDeleteEmail, setPendingDeleteEmail] = useState<string>('');
   const [pendingPauseEmail, setPendingPauseEmail] = useState<string>('');
 
+  const [analytics, setAnalytics] = useState<HqAnalyticsPayload | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState('');
+
   const refreshTenants = useCallback(async () => {
     setTenantsLoading(true);
     setTenantsError('');
@@ -222,9 +246,43 @@ function HQSetupPage() {
     }
   }, []);
 
+  const refreshAnalytics = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    if (!silent) setAnalyticsLoading(true);
+    setAnalyticsError('');
+    try {
+      const res = await apiHqGetAnalytics();
+      setAnalytics(res.data || null);
+    } catch (err: any) {
+      setAnalyticsError(err?.message || 'Failed to load analytics.');
+      if (!silent) setAnalytics(null);
+    } finally {
+      if (!silent) setAnalyticsLoading(false);
+    }
+  }, []);
+
+  const refreshDashboard = useCallback(async () => {
+    await Promise.all([refreshTenants(), refreshAnalytics()]);
+  }, [refreshTenants, refreshAnalytics]);
+
   useEffect(() => {
     void refreshTenants();
   }, [refreshTenants]);
+
+  useEffect(() => {
+    if (activeTab !== 'dashboard') return;
+    if (analyticsView === 'platform') return;
+    void refreshAnalytics();
+  }, [activeTab, analyticsView, refreshAnalytics]);
+
+  useEffect(() => {
+    if (activeTab !== 'dashboard') return;
+    if (analyticsView === 'platform') return;
+    const timer = window.setInterval(() => {
+      void refreshAnalytics({ silent: true });
+    }, 45000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, analyticsView, refreshAnalytics]);
 
   useEffect(() => {
     if (planOptions.length === 0) return;
@@ -430,11 +488,37 @@ function HQSetupPage() {
         <HqPageContainer>
           {activeTab !== 'plans' ? (
             <HqPageHeader
-              title={activeNav?.label || 'Dashboard'}
-              subtitle={TAB_DESCRIPTIONS[activeTab]}
+              title={
+                activeTab === 'dashboard'
+                  ? analyticsView === 'employee'
+                    ? 'Employee analytics'
+                    : analyticsView === 'employer'
+                      ? 'Employer analytics'
+                      : 'Platform overview'
+                  : activeNav?.label || 'Dashboard'
+              }
+              subtitle={
+                activeTab === 'dashboard'
+                  ? VIEW_DESCRIPTIONS[analyticsView]
+                  : TAB_DESCRIPTIONS[activeTab]
+              }
               actions={
-                <HqSecondaryButton onClick={() => void refreshTenants()} disabled={tenantsLoading}>
-                  <RefreshCcw className={`h-4 w-4 ${tenantsLoading ? 'animate-spin' : ''}`} />
+                <HqSecondaryButton
+                  onClick={() =>
+                    void (activeTab === 'dashboard' && analyticsView !== 'platform'
+                      ? refreshDashboard()
+                      : refreshTenants())
+                  }
+                  disabled={
+                    tenantsLoading ||
+                    (activeTab === 'dashboard' && analyticsView !== 'platform' && analyticsLoading)
+                  }
+                >
+                  <RefreshCcw
+                    className={`h-4 w-4 ${
+                      tenantsLoading || analyticsLoading ? 'animate-spin' : ''
+                    }`}
+                  />
                   Refresh data
                 </HqSecondaryButton>
               }
@@ -442,14 +526,59 @@ function HQSetupPage() {
           ) : null}
 
         {activeTab === 'dashboard' && (
-          <DashboardPanel
-            stats={stats}
-            tenants={tenants}
-            planSummaryRows={planSummaryRows}
-            planOptions={planOptions}
-            tenantsError={tenantsError}
-            tenantsLoading={tenantsLoading}
-          />
+          <>
+            <HqAnalyticsViewTabs active={analyticsView} />
+            {analyticsView === 'platform' ? (
+              <DashboardPanel
+                stats={stats}
+                tenants={tenants}
+                planSummaryRows={planSummaryRows}
+                planOptions={planOptions}
+                tenantsError={tenantsError}
+                tenantsLoading={tenantsLoading}
+              />
+            ) : analyticsLoading && !analytics ? (
+              <HqAnalyticsLoadingSkeleton />
+            ) : analyticsError && !analytics ? (
+              <HqAlert type="error" message={analyticsError} />
+            ) : analyticsView === 'employee' ? (
+              <div className="space-y-3">
+                {analytics?.generatedAt ? (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                      Live
+                    </span>
+                    <span>
+                      Updated {new Date(analytics.generatedAt).toLocaleString()}
+                      {typeof analytics.durationMs === 'number' ? ` · ${analytics.durationMs}ms` : ''}
+                      {analyticsLoading ? ' · refreshing…' : ' · auto-refresh 45s'}
+                    </span>
+                  </div>
+                ) : null}
+                {analyticsError ? <HqAlert type="error" message={analyticsError} /> : null}
+                <HqEmployeeAnalyticsDashboard data={analytics?.employee || null} />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {analytics?.generatedAt ? (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                      Live
+                    </span>
+                    <span>
+                      Updated {new Date(analytics.generatedAt).toLocaleString()}
+                      {typeof analytics.durationMs === 'number' ? ` · ${analytics.durationMs}ms` : ''}
+                      {analyticsLoading ? ' · refreshing…' : ' · auto-refresh 45s'}
+                    </span>
+                  </div>
+                ) : null}
+                {analyticsError ? <HqAlert type="error" message={analyticsError} /> : null}
+                <HqEmployerAnalyticsDashboard data={analytics?.employer || null} />
+              </div>
+            )}
+          </>
         )}
 
         {activeTab === 'tenants' && (

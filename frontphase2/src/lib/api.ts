@@ -1673,6 +1673,284 @@ export async function apiHqListPortal() {
   }>('/hq/portal', { auth: true });
 }
 
+export type HqAnalyticsChartPoint = { name: string; value: number; [key: string]: string | number };
+
+export type HqAnalyticsInsight = {
+  tone: 'info' | 'good' | 'warn';
+  text: string;
+};
+
+export type HqEmployeeAnalytics = {
+  available: boolean;
+  live?: boolean;
+  kpis: {
+    totalCandidates: number;
+    commonCandidates: number;
+    new1d?: number;
+    new7d: number;
+    new30d: number;
+    portalJobs: number;
+    openJobs: number;
+    closedJobs?: number;
+    applications: number;
+    activeApplications: number;
+    applicationsToday?: number;
+    applications7d?: number;
+    applications30d?: number;
+    selectedApplications?: number;
+    rejectedApplications?: number;
+    avgMatchScore: number | null;
+    avgCvScore?: number | null;
+    avgAtsScore?: number | null;
+    savedJobs?: number;
+    interviewRequests?: number;
+    interviewPending?: number;
+    interviewCompleted?: number;
+    cvAnalyses?: number;
+    lmsEnrollments?: number;
+    aiMatches?: number;
+    profileCompleteness?: number;
+  };
+  charts: {
+    applicationsByStatus: HqAnalyticsChartPoint[];
+    candidatesOverTime: HqAnalyticsChartPoint[];
+    applicationsOverTime: HqAnalyticsChartPoint[];
+    candidatesDaily?: HqAnalyticsChartPoint[];
+    applicationsDaily?: HqAnalyticsChartPoint[];
+    candidatesByStatus: HqAnalyticsChartPoint[];
+    candidatesBySource: HqAnalyticsChartPoint[];
+    topLocations: HqAnalyticsChartPoint[];
+    topSkills: HqAnalyticsChartPoint[];
+    experienceBands?: HqAnalyticsChartPoint[];
+    jobsByStatus?: HqAnalyticsChartPoint[];
+    matchScoreBuckets?: HqAnalyticsChartPoint[];
+    interviewRequestsByStatus?: HqAnalyticsChartPoint[];
+  };
+  tables: {
+    recentCandidates: Array<{
+      id: string;
+      name: string;
+      email: string;
+      status: string;
+      source: string;
+      location: string;
+      stage: string;
+      skills?: string;
+      experience?: number | null;
+      updatedAt: string | null;
+      createdAt: string | null;
+    }>;
+    recentApplications: Array<{
+      id: string;
+      candidate: string;
+      email: string;
+      job: string;
+      status: string;
+      matchScore: number | null;
+      appliedAt: string | null;
+    }>;
+    topJobsByApplications: Array<{
+      title: string;
+      applications: number;
+      status: string;
+      location: string;
+      openings?: number | null;
+    }>;
+    recentOpenJobs?: Array<{
+      id: string;
+      title: string;
+      status: string;
+      location: string;
+      workMode: string;
+      openings: number;
+      postedDate: string | null;
+      updatedAt: string | null;
+    }>;
+    recentInterviewRequests?: Array<{
+      role: string;
+      status: string;
+      difficulty: string;
+      matchingScore: number | null;
+      preferredDate: string | null;
+      createdAt: string | null;
+    }>;
+  };
+  insights: HqAnalyticsInsight[];
+};
+
+export type HqEmployerTenantRow = {
+  tenantDbName: string;
+  name: string;
+  email: string;
+  organizationType: string;
+  plan: string;
+  status: string;
+  signupSource: string;
+  jobs: number;
+  openJobs: number;
+  closedJobs?: number;
+  candidates: number;
+  candidates7d?: number;
+  applications: number;
+  applications7d?: number;
+  interviews: number;
+  interviewsToday?: number;
+  interviewsScheduled?: number;
+  interviewsCompleted?: number;
+  placements: number;
+  placementsJoined?: number;
+  clients: number;
+  leads: number;
+  tasks?: number;
+  tasksOpen?: number;
+  activityScore?: number;
+  error: string | null;
+};
+
+export type HqEmployerAnalytics = {
+  available: boolean;
+  live?: boolean;
+  kpis: {
+    tenants: number;
+    agency: number;
+    standalone: number;
+    paused: number;
+    onPlan: number;
+    landingPurchases: number;
+    landingTrials: number;
+    openJobs: number;
+    closedJobs?: number;
+    jobs: number;
+    candidates: number;
+    candidates7d?: number;
+    applications: number;
+    applications7d?: number;
+    interviews: number;
+    interviewsToday?: number;
+    interviewsScheduled?: number;
+    interviewsCompleted?: number;
+    placements: number;
+    placementsJoined?: number;
+    clients: number;
+    tenantLeads: number;
+    tasks?: number;
+    tasksOpen?: number;
+    hqLeads: number;
+    hqLeadConversionRate: number;
+    hqCompanies: number;
+    hotLeads?: number;
+    pipelineValue?: number;
+    demosVerified: number;
+    demosPurchases: number;
+    demosTrials: number;
+    followUpsToday: number;
+  };
+  charts: {
+    hiringFunnel: HqAnalyticsChartPoint[];
+    tenantsByPlan: HqAnalyticsChartPoint[];
+    tenantsByType: HqAnalyticsChartPoint[];
+    tenantsBySignup?: HqAnalyticsChartPoint[];
+    leadsByStage: HqAnalyticsChartPoint[];
+    leadsByScore?: HqAnalyticsChartPoint[];
+    companiesByStatus: HqAnalyticsChartPoint[];
+    demosByKind?: HqAnalyticsChartPoint[];
+    demosByStatus?: HqAnalyticsChartPoint[];
+    jobsByStatus?: HqAnalyticsChartPoint[];
+    interviewsByStatus?: HqAnalyticsChartPoint[];
+    placementsByStatus?: HqAnalyticsChartPoint[];
+    tenantActivity: Array<HqAnalyticsChartPoint & { openJobs?: number; placements?: number }>;
+  };
+  tables: {
+    rankedTenants: HqEmployerTenantRow[];
+    recentTenantActivity: Array<{
+      tenant: string;
+      tenantDbName: string;
+      openJobs: number;
+      candidates: number;
+      candidates7d?: number;
+      applications7d?: number;
+      interviews: number;
+      interviewsToday?: number;
+      placements: number;
+      placementsJoined?: number;
+      tasksOpen?: number;
+      plan: string;
+      organizationType: string;
+    }>;
+    recentJobs?: Array<{
+      id: string;
+      title: string;
+      status: string;
+      company: string;
+      location: string;
+      openings: number;
+      updatedAt: string | null;
+      tenant: string;
+      tenantDbName: string;
+    }>;
+    recentPlacements?: Array<{
+      id: string;
+      candidate: string;
+      job: string;
+      company: string;
+      status: string;
+      salary: number | null;
+      joiningDate: string | null;
+      updatedAt: string | null;
+      tenant: string;
+      tenantDbName: string;
+    }>;
+    crmLeads: Array<{
+      id: string;
+      name: string;
+      company: string;
+      stage: string;
+      score: string;
+      owner: string;
+      nextFollowUp: string;
+      estimatedDealValue: number;
+      industry?: string;
+      country?: string;
+    }>;
+    crmCompanies?: Array<{
+      id: string;
+      name: string;
+      status: string;
+      score: string;
+      industry: string;
+      country: string;
+      owner: string;
+      nextFollowUp: string;
+    }>;
+    recentDemos?: Array<{
+      id: string;
+      name: string;
+      company: string;
+      email: string;
+      requestKind: string;
+      status: string;
+      submittedAt: string | null;
+    }>;
+    crmLeadStats: Record<string, number>;
+    crmCompanyStats: Record<string, number>;
+    demoStats: Record<string, number>;
+  };
+  insights: HqAnalyticsInsight[];
+};
+
+export type HqAnalyticsPayload = {
+  generatedAt: string;
+  durationMs?: number;
+  live?: boolean;
+  employee: HqEmployeeAnalytics;
+  employer: HqEmployerAnalytics;
+};
+
+export async function apiHqGetAnalytics() {
+  const bust = Date.now();
+  return apiFetch<HqAnalyticsPayload>(`/hq/analytics?_=${bust}`, { auth: true });
+}
+
 export async function apiHqDeletePortalJob(
   jobId: string,
   body: { tenantDbName?: string } = {},
@@ -7752,6 +8030,55 @@ export async function apiAssistantChat(body: {
   }
 
   return res;
+}
+
+/** HRYANTRA Enterprise Brain — orchestration over tenant data (no OpenAI required by default). */
+export type BrainAskResult = {
+  reply: string;
+  intent?: string;
+  entities?: string[];
+  usedTools?: string[];
+  retrieval?: { chunkIds?: string[]; entities?: string[] };
+  auditId?: string;
+  llmEnabled?: boolean;
+  durationMs?: number;
+};
+
+export async function apiBrainAsk(body: {
+  question: string;
+  sessionKey?: string;
+  pathname?: string;
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  executeWorkflow?: {
+    action_type: string;
+    record_id?: string;
+    payload?: Record<string, unknown>;
+    confirm?: boolean;
+  } | null;
+}) {
+  return apiFetch<BrainAskResult>('/brain/ask', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiBrainSchema(entityId?: string) {
+  const path = entityId ? `/brain/schema/${encodeURIComponent(entityId)}` : '/brain/schema';
+  return apiFetch<{ modules?: unknown[]; entities?: unknown[]; entity?: unknown; relationships?: unknown }>(
+    path,
+    { auth: true },
+  );
+}
+
+export async function apiBrainAnalytics() {
+  return apiFetch<{ ok: boolean; metrics?: Record<string, number>; summary?: string }>('/brain/analytics', {
+    auth: true,
+  });
+}
+
+export async function apiBrainHealth() {
+  return apiFetch<Record<string, unknown>>('/brain/health', { auth: true });
 }
 
 export async function apiAriaLeads(
