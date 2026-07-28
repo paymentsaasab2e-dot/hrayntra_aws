@@ -133,6 +133,8 @@ model Candidate {
   whatsappNumber    String?   @unique
   countryCode       String    @default("+91")
   isVerified        Boolean   @default(false)
+  /// bcrypt hash for mobile + password sign-in (null = OTP-only / password not set yet)
+  passwordHash      String?
   firstName         String?
   lastName          String?
   email             String?

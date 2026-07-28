@@ -6,6 +6,118 @@ const { sendOTPEmail } = require('../services/email.service');
 const { OtpStatus } = require('@prisma/client');
 const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+
+const MIN_PASSWORD_LENGTH = 8;
+const RETURNING_USER_MS = 60_000;
+
+function issueCandidateToken(candidate) {
+  return jwt.sign(
+    {
+      candidateId: candidate.id,
+      whatsappNumber: candidate.whatsappNumber,
+      isVerified: true,
+    },
+    process.env.JWT_SECRET || 'saasa_jwt_secret_key_2024',
+    { expiresIn: '30d' }
+  );
+}
+
+async function createCandidateSession(req, candidateId, token) {
+  try {
+    await prisma.session.create({
+      data: {
+        candidateId,
+        token,
+        userAgent: req.headers['user-agent'] || 'unknown',
+        ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    });
+  } catch (sessionError) {
+    console.error('⚠️ Failed to create session record:', sessionError.message);
+  }
+}
+
+async function computeSkipCvUpload(candidate, otpCreatedAt = null) {
+  const onboarding = await retryQuery(async () => {
+    return await prisma.candidate.findUnique({
+      where: { id: candidate.id },
+      select: {
+        profile: { select: { id: true } },
+        resume: { select: { id: true } },
+      },
+    });
+  });
+
+  const hasProfileOrResume = !!(onboarding?.profile || onboarding?.resume);
+  if (hasProfileOrResume) return true;
+
+  if (otpCreatedAt && candidate.createdAt) {
+    const otpMs = new Date(otpCreatedAt).getTime();
+    const candMs = new Date(candidate.createdAt).getTime();
+    return otpMs - candMs > RETURNING_USER_MS;
+  }
+
+  // Password login: treat verified accounts older than a minute as returning
+  if (candidate.createdAt) {
+    return Date.now() - new Date(candidate.createdAt).getTime() > RETURNING_USER_MS;
+  }
+
+  return false;
+}
+
+async function syncProfilePhone(candidate) {
+  try {
+    const cleanPhone = String(candidate.whatsappNumber || '').replace(
+      candidate.countryCode || '',
+      ''
+    );
+    const existingProfile = await prisma.candidateProfile.findUnique({
+      where: { candidateId: candidate.id },
+      select: { fullName: true },
+    });
+
+    const profileUpdate = { phoneNumber: cleanPhone };
+    if (existingProfile && isPortalPlaceholderFullName(existingProfile.fullName)) {
+      profileUpdate.fullName = '';
+    }
+
+    await prisma.candidateProfile.upsert({
+      where: { candidateId: candidate.id },
+      update: profileUpdate,
+      create: {
+        candidateId: candidate.id,
+        fullName: '',
+        email: String(candidate.email || '').trim(),
+        phoneNumber: cleanPhone,
+      },
+    });
+  } catch (profileSyncError) {
+    console.warn('⚠️ Non-critical: Failed to sync profile number:', profileSyncError.message);
+  }
+}
+
+function validatePasswordPair(password, confirmPassword) {
+  const trimmed = String(password || '');
+  if (trimmed.length < MIN_PASSWORD_LENGTH) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'WEAK_PASSWORD',
+      message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+    };
+  }
+  if (confirmPassword !== undefined && trimmed !== String(confirmPassword || '')) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'PASSWORD_MISMATCH',
+      message: 'Passwords do not match',
+    };
+  }
+  return { ok: true, password: trimmed };
+}
 
 async function detachLoginIdentifiersFromCandidate(candidate, { normalizedEmail, fullWhatsAppNumber }) {
   const patch = {};
@@ -147,39 +259,151 @@ async function getOrCreateCandidateForOtp({
 /**
  * Send OTP to WhatsApp number
  * POST /api/auth/send-otp
+ * body.intent: 'signup' (default) | 'login'
  */
 async function sendOTP(req, res) {
   try {
-    const { whatsappNumber, countryCode, email } = req.body;
-
-    // Validation
-    if (!whatsappNumber || !countryCode || !email) {
-      return res.status(400).json({
-        success: false,
-        message: 'WhatsApp number, country code, and email are required',
-      });
-    }
-
-    const normalizedEmail = String(email).trim().toLowerCase();
+    const { whatsappNumber, countryCode, email, intent: rawIntent } = req.body;
+    const intent = String(rawIntent || 'signup').toLowerCase() === 'login' ? 'login' : 'signup';
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(normalizedEmail)) {
+
+    let normalizedEmail = String(email || '').trim().toLowerCase();
+    let existingAccount = null;
+    let cleanNumber = String(whatsappNumber || '').replace(/\D/g, '');
+    let resolvedCountryCode = countryCode;
+    let fullWhatsAppNumber = resolvedCountryCode && cleanNumber
+      ? `${resolvedCountryCode}${cleanNumber}`
+      : '';
+
+    // Login by email only: resolve WhatsApp from the existing account
+    if (intent === 'login' && normalizedEmail && (!whatsappNumber || !countryCode)) {
+      if (!emailRegex.test(normalizedEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid email address',
+        });
+      }
+
+      existingAccount = await retryQuery(async () => {
+        return await prisma.candidate.findFirst({
+          where: { email: normalizedEmail },
+          select: {
+            id: true,
+            email: true,
+            isVerified: true,
+            passwordHash: true,
+            countryCode: true,
+            whatsappNumber: true,
+          },
+        });
+      });
+
+      if (!existingAccount || !existingAccount.isVerified || !existingAccount.whatsappNumber) {
+        return res.status(404).json({
+          success: false,
+          code: 'ACCOUNT_NOT_FOUND',
+          message: 'No account found for this email. Create an account to continue.',
+        });
+      }
+
+      fullWhatsAppNumber = existingAccount.whatsappNumber;
+      resolvedCountryCode = existingAccount.countryCode || '+91';
+      const dialDigits = String(resolvedCountryCode).replace(/\D/g, '');
+      const fullDigits = String(fullWhatsAppNumber).replace(/\D/g, '');
+      cleanNumber = dialDigits && fullDigits.startsWith(dialDigits)
+        ? fullDigits.slice(dialDigits.length)
+        : fullDigits;
+    } else if (!whatsappNumber || !countryCode) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter a valid email address',
+        message: 'WhatsApp number and country code are required',
       });
+    } else {
+      // Clean phone number (remove any non-digit characters)
+      cleanNumber = String(whatsappNumber).replace(/\D/g, '');
+
+      if (cleanNumber.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid WhatsApp number',
+        });
+      }
+
+      fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
+      resolvedCountryCode = countryCode;
     }
 
-    // Clean phone number (remove any non-digit characters)
-    const cleanNumber = whatsappNumber.replace(/\D/g, '');
+    if (intent === 'login') {
+      // Password-or-OTP sign-in: resolve account by phone (email optional / already resolved)
+      if (!existingAccount) {
+        existingAccount = await retryQuery(async () => {
+          return await prisma.candidate.findUnique({
+            where: { whatsappNumber: fullWhatsAppNumber },
+            select: {
+              id: true,
+              email: true,
+              isVerified: true,
+              passwordHash: true,
+              countryCode: true,
+              whatsappNumber: true,
+            },
+          });
+        });
+      }
 
-    if (cleanNumber.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid WhatsApp number',
+      if (!existingAccount || !existingAccount.isVerified) {
+        return res.status(404).json({
+          success: false,
+          code: 'ACCOUNT_NOT_FOUND',
+          message: 'No account found for this number. Create an account to continue.',
+        });
+      }
+
+      if (!normalizedEmail) {
+        normalizedEmail = String(existingAccount.email || '').trim().toLowerCase();
+      }
+
+      if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
+        return res.status(400).json({
+          success: false,
+          code: 'EMAIL_REQUIRED',
+          message: 'Please enter the email linked to this account',
+        });
+      }
+    } else {
+      // Create-account flow
+      if (!normalizedEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'WhatsApp number, country code, and email are required',
+        });
+      }
+
+      if (!emailRegex.test(normalizedEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid email address',
+        });
+      }
+
+      existingAccount = await retryQuery(async () => {
+        return await prisma.candidate.findFirst({
+          where: {
+            OR: [{ whatsappNumber: fullWhatsAppNumber }, { email: normalizedEmail }],
+            isVerified: true,
+          },
+          select: { id: true, passwordHash: true },
+        });
       });
-    }
 
-    const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
+      if (existingAccount?.passwordHash) {
+        return res.status(409).json({
+          success: false,
+          code: 'ACCOUNT_EXISTS',
+          message: 'An account already exists for these details. Please sign in instead.',
+        });
+      }
+    }
 
     // Deterministic candidate id from email (same email = same account)
     const candidateId = generateCandidateIdFromEmail(normalizedEmail);
@@ -188,7 +412,7 @@ async function sendOTP(req, res) {
       candidateId,
       normalizedEmail,
       fullWhatsAppNumber,
-      countryCode,
+      countryCode: resolvedCountryCode,
     });
     console.log('Candidate ready for OTP flow:', candidate.id);
     // Invalidate all previous pending OTPs for this candidate
@@ -240,6 +464,7 @@ async function sendOTP(req, res) {
       data: {
         candidateId: candidate.id,
         whatsappNumber: fullWhatsAppNumber,
+        countryCode: resolvedCountryCode,
         email: normalizedEmail,
         emailSent: emailResult.success,
         emailMessageId: emailResult.messageId,
@@ -430,85 +655,21 @@ async function verifyOTP(req, res) {
 
     console.log('OTP verified successfully. Final candidate ID stored in DB:', candidate.id);
 
-    // Returning user: candidate existed before this OTP request (not created in the same flow as this OTP),
-    // or they already have profile / resume — skip CV upload and go to dashboard.
-    const otpMs = new Date(latestOTP.createdAt).getTime();
-    const candMs = new Date(candidate.createdAt).getTime();
-    const candidatePredatesThisOtpBy = otpMs - candMs;
-    const RETURNING_USER_MS = 60_000; // >1 min between account creation and this OTP => returning login
-
-    const onboarding = await retryQuery(async () => {
+    const withPassword = await retryQuery(async () => {
       return await prisma.candidate.findUnique({
         where: { id: candidate.id },
-        select: {
-          profile: { select: { id: true } },
-          resume: { select: { id: true } },
-        },
+        select: { passwordHash: true, createdAt: true },
       });
     });
-
-    const hasProfileOrResume = !!(onboarding?.profile || onboarding?.resume);
-    const skipCvUpload =
-      hasProfileOrResume || candidatePredatesThisOtpBy > RETURNING_USER_MS;
-
-    const token = jwt.sign(
-      {
-        candidateId: candidate.id,
-        whatsappNumber: candidate.whatsappNumber,
-        isVerified: true
-      },
-      process.env.JWT_SECRET || 'saasa_jwt_secret_key_2024',
-      { expiresIn: '30d' }
+    const needsPassword = !withPassword?.passwordHash;
+    const skipCvUpload = await computeSkipCvUpload(
+      { id: candidate.id, createdAt: withPassword?.createdAt || candidate.createdAt },
+      latestOTP.createdAt
     );
 
-    // Create a session in the database for tracking multiple devices/tabs
-    try {
-      await prisma.session.create({
-        data: {
-          candidateId: candidate.id,
-          token: token,
-          userAgent: req.headers['user-agent'] || 'unknown',
-          ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-        }
-      });
-      console.log('✅ Session record created for:', candidate.id);
-    } catch (sessionError) {
-      console.error('⚠️ Failed to create session record:', sessionError.message);
-      // We continue even if session creation fails to not block login, 
-      // but logout-all won't track this specific session.
-    }
-
-    // Sync WhatsApp login number to CandidateProfile to satisfy "show exact number in /profile"
-    try {
-      const cleanPhone = candidate.whatsappNumber.replace(candidate.countryCode, '');
-      const existingProfile = await prisma.candidateProfile.findUnique({
-        where: { candidateId: candidate.id },
-        select: { fullName: true },
-      });
-
-      const profileUpdate = {
-        phoneNumber: cleanPhone,
-      };
-      if (existingProfile && isPortalPlaceholderFullName(existingProfile.fullName)) {
-        // Clear legacy bootstrap label so the portal UI can greet by phone / real name only
-        profileUpdate.fullName = '';
-      }
-
-      await prisma.candidateProfile.upsert({
-        where: { candidateId: candidate.id },
-        update: profileUpdate,
-        create: {
-          candidateId: candidate.id,
-          fullName: '',
-          email: String(candidate.email || '').trim(),
-          phoneNumber: cleanPhone,
-        },
-      });
-      console.log('✅ Synchronized login number to CandidateProfile for:', candidate.id);
-    } catch (profileSyncError) {
-      console.warn('⚠️ Non-critical: Failed to sync profile number:', profileSyncError.message);
-    }
+    const token = issueCandidateToken(candidate);
+    await createCandidateSession(req, candidate.id, token);
+    await syncProfilePhone(candidate);
 
     // Push full profile snapshot to candidatecommon so Phase 2 "All candidates" can list this user.
     scheduleCandidateCommonSync(candidate.id, { lastLogin: true, forceVerified: true });
@@ -520,6 +681,7 @@ async function verifyOTP(req, res) {
         candidateId: candidate.id,
         isVerified: true,
         skipCvUpload,
+        needsPassword,
         token,
       },
     });
@@ -640,10 +802,191 @@ async function resendOTP(req, res) {
   }
 }
 
+/**
+ * Sign in with WhatsApp number or email + password
+ * POST /api/auth/login
+ */
+async function loginWithPassword(req, res) {
+  try {
+    const { whatsappNumber, countryCode, email, password } = req.body;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const hasEmail = Boolean(normalizedEmail);
+    const hasPhone = Boolean(whatsappNumber && countryCode);
+
+    if (!password || (!hasEmail && !hasPhone)) {
+      return res.status(400).json({
+        success: false,
+        code: 'MISSING_FIELDS',
+        message: 'Password and either WhatsApp number or email are required',
+      });
+    }
+
+    if (hasEmail && !emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_EMAIL',
+        message: 'Please enter a valid email address',
+      });
+    }
+
+    let candidate = null;
+
+    if (hasEmail) {
+      candidate = await retryQuery(async () => {
+        return await prisma.candidate.findFirst({
+          where: { email: normalizedEmail },
+        });
+      });
+    } else {
+      const cleanNumber = String(whatsappNumber).replace(/\D/g, '');
+      if (cleanNumber.length < 6) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_NUMBER',
+          message: 'Invalid WhatsApp number',
+        });
+      }
+
+      const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
+      candidate = await retryQuery(async () => {
+        return await prisma.candidate.findUnique({
+          where: { whatsappNumber: fullWhatsAppNumber },
+        });
+      });
+    }
+
+    // Account does not exist (or never completed verification) → create account
+    if (!candidate || !candidate.isVerified) {
+      return res.status(404).json({
+        success: false,
+        code: 'ACCOUNT_NOT_FOUND',
+        message: hasEmail
+          ? 'No account found for this email. Create an account to continue.'
+          : 'No account found for this number. Create an account to continue.',
+      });
+    }
+
+    if (!candidate.passwordHash) {
+      return res.status(400).json({
+        success: false,
+        code: 'PASSWORD_NOT_SET',
+        message: 'No password is set for this account yet. Create one via Create account.',
+      });
+    }
+
+    const isValid = await bcrypt.compare(String(password), candidate.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({
+        success: false,
+        code: 'INVALID_CREDENTIALS',
+        message: hasEmail
+          ? 'That email and password do not match. Try again.'
+          : 'That number and password do not match. Try again.',
+      });
+    }
+
+    const skipCvUpload = await computeSkipCvUpload(candidate);
+    const token = issueCandidateToken(candidate);
+    await createCandidateSession(req, candidate.id, token);
+    await syncProfilePhone(candidate);
+    scheduleCandidateCommonSync(candidate.id, { lastLogin: true, forceVerified: true });
+
+    res.json({
+      success: true,
+      message: 'Signed in successfully',
+      data: {
+        candidateId: candidate.id,
+        isVerified: true,
+        skipCvUpload,
+        needsPassword: false,
+        token,
+      },
+    });
+  } catch (error) {
+    console.error('Error logging in with password:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to sign in',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+/**
+ * Set password after OTP verification (create-account flow)
+ * POST /api/auth/set-password
+ * Requires Bearer token from verify-otp
+ */
+async function setPassword(req, res) {
+  try {
+    const candidateId = req.user?.candidateId;
+    if (!candidateId) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        message: 'Not authorized',
+      });
+    }
+
+    const check = validatePasswordPair(req.body.password, req.body.confirmPassword);
+    if (!check.ok) {
+      return res.status(check.status).json({
+        success: false,
+        code: check.code,
+        message: check.message,
+      });
+    }
+
+    const candidate = await retryQuery(async () => {
+      return await prisma.candidate.findUnique({
+        where: { id: candidateId },
+        select: { id: true, isVerified: true, createdAt: true },
+      });
+    });
+
+    if (!candidate || !candidate.isVerified) {
+      return res.status(400).json({
+        success: false,
+        code: 'NOT_VERIFIED',
+        message: 'Verify your email before setting a password',
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(check.password, 10);
+    await retryQuery(async () => {
+      return await prisma.candidate.update({
+        where: { id: candidateId },
+        data: { passwordHash },
+      });
+    });
+
+    const skipCvUpload = await computeSkipCvUpload(candidate);
+
+    res.json({
+      success: true,
+      message: 'Password saved successfully',
+      data: {
+        candidateId,
+        skipCvUpload,
+      },
+    });
+  } catch (error) {
+    console.error('Error setting password:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to set password',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   sendOTP,
   verifyOTP,
   resendOTP,
+  loginWithPassword,
+  setPassword,
 };
 
 
