@@ -22,7 +22,7 @@ export const HQ_NAV_ITEMS: {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
-  { id: 'dashboard', label: 'Dashboard', href: '/hq', icon: LayoutDashboard },
+  { id: 'dashboard', label: 'Dashboard', href: '/hq?view=employee', icon: LayoutDashboard },
   { id: 'tenants', label: 'Tenants', href: '/hq?tab=tenants', icon: Users },
   { id: 'plans', label: 'Plans', href: '/hq?tab=plans', icon: Tag },
   { id: 'leads', label: 'CRM Leads', href: '/hq/leads', icon: Target },

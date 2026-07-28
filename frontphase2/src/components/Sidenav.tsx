@@ -1302,7 +1302,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                 <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" nested />
               )}
               {canViewDashboard && (
-                <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" nested />
+                <NavItem icon={LayoutDashboard} label="CRM Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" nested />
               )}
             </NavGroup>
           )}
@@ -1330,7 +1330,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                 <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" nested />
               )}
               {canViewRecruitmentDashboard && (
-                <NavItem icon={LayoutDashboard} label="Dashboard" href="/recruitment" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" nested />
+                <NavItem icon={LayoutDashboard} label="Command Center" href="/recruitment" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" nested />
               )}
             </NavGroup>
           )}

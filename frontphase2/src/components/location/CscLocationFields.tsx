@@ -27,6 +27,16 @@ const SEARCH_INPUT_CLASS =
   'w-full rounded-xl border border-slate-200 px-4 py-2.5 pl-9 text-sm text-slate-900 ' +
   'focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500';
 
+const EMPTY_LOCATION: LocationSelection = {
+  location: '',
+  city: '',
+  state: '',
+  country: '',
+  countryCode: '',
+  latitude: 0,
+  longitude: 0,
+};
+
 export interface CscLocationFieldsProps {
   location: string;
   city: string;
@@ -40,6 +50,8 @@ export interface CscLocationFieldsProps {
   disabled?: boolean;
   locationPlaceholder?: string;
   showDetectedHint?: boolean;
+  countryError?: string;
+  stateError?: string;
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -62,8 +74,10 @@ export function CscLocationFields({
   onLocationChange,
   onSelect,
   disabled,
-  locationPlaceholder = 'Start typing a city, region, or address…',
+  locationPlaceholder = 'Type a city or region to autofill below…',
   showDetectedHint = true,
+  countryError,
+  stateError,
 }: CscLocationFieldsProps) {
   const countries = useMemo(() => getCscCountryOptions(), []);
   const resolvedCountry = useMemo(
@@ -140,8 +154,10 @@ export function CscLocationFields({
   );
 
   const handleCountryChange = (iso: string) => {
-    const nextCountry = countries.find((c) => c.value === iso);
-    if (!nextCountry) return;
+    if (!iso) {
+      onSelect({ ...EMPTY_LOCATION, location });
+      return;
+    }
     const record = getCountryByCodeOrName(iso);
     if (!record) return;
     onSelect(countryToLocationSelection(record));
@@ -149,15 +165,23 @@ export function CscLocationFields({
 
   const handleStateChange = (stateIso: string) => {
     if (!resolvedCountry) return;
+    if (!stateIso) {
+      onSelect(countryToLocationSelection(resolvedCountry));
+      return;
+    }
     const nextState = stateOptions.find((s) => s.value === stateIso);
     if (!nextState) return;
     const stateRecord = findStateByNameOrIso(resolvedCountry.isoCode, nextState.name);
     if (!stateRecord) return;
-    onSelect(stateToLocationSelection(resolvedCountry, stateRecord, city));
+    onSelect(stateToLocationSelection(resolvedCountry, stateRecord));
   };
 
   const handleCityChange = (cityName: string) => {
     if (!resolvedCountry) {
+      if (!cityName.trim()) {
+        onSelect({ ...EMPTY_LOCATION, location });
+        return;
+      }
       const inferred = inferLocationFromCityName(cityName);
       if (inferred) {
         onSelect(inferred);
@@ -172,6 +196,14 @@ export function CscLocationFields({
         latitude: 0,
         longitude: 0,
       });
+      return;
+    }
+    if (!cityName.trim()) {
+      if (resolvedState) {
+        onSelect(stateToLocationSelection(resolvedCountry, resolvedState));
+        return;
+      }
+      onSelect(countryToLocationSelection(resolvedCountry, { state }));
       return;
     }
     const cityRecord = findCityRecord(
@@ -203,10 +235,10 @@ export function CscLocationFields({
     searchOpen && searchFocused && location.trim().length >= 2;
 
   return (
-    <>
+    <div className="space-y-4">
       <div className="relative" ref={wrapperRef}>
         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-          Location
+          Search location <span className="font-medium normal-case tracking-normal text-slate-400">(optional)</span>
         </label>
         <div className="relative">
           <Search
@@ -317,92 +349,99 @@ export function CscLocationFields({
         )}
       </div>
 
-      <div>
-        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-          City
-        </label>
-        {cityOptions.length > 0 ? (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div>
+          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+            Country <span className="text-red-500">*</span>
+          </label>
           <select
-            value={city}
-            disabled={disabled || !activeCountryCode}
-            onChange={(e) => handleCityChange(e.target.value)}
-            className={INPUT_CLASS}
+            value={activeCountryCode}
+            disabled={disabled}
+            onChange={(e) => handleCountryChange(e.target.value)}
+            className={`${INPUT_CLASS}${countryError ? ' border-red-300' : ''}`}
+            aria-invalid={Boolean(countryError)}
           >
-            <option value="">Select city…</option>
-            {cityOptions.map((opt) => (
+            <option value="">Select country…</option>
+            {countries.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>
             ))}
           </select>
-        ) : (
-          <input
-            type="text"
-            value={city}
-            disabled={disabled}
-            onChange={(e) => handleCityChange(e.target.value)}
-            className={INPUT_CLASS}
-            placeholder="e.g. San Francisco"
-          />
-        )}
-      </div>
+          {countryError ? <p className="mt-1 text-xs text-red-600">{countryError}</p> : null}
+        </div>
 
-      <div>
-        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-          State
-        </label>
-        {stateOptions.length > 0 ? (
-          <select
-            value={resolvedState?.isoCode ?? ''}
-            disabled={disabled || !activeCountryCode}
-            onChange={(e) => handleStateChange(e.target.value)}
-            className={INPUT_CLASS}
-          >
-            <option value="">Select state / region…</option>
-            {stateOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            type="text"
-            value={state}
-            disabled={disabled}
-            onChange={(e) => {
-              if (!resolvedCountry) return;
-              onSelect(
-                countryToLocationSelection(resolvedCountry, {
-                  state: e.target.value,
-                  city,
-                }),
-              );
-            }}
-            className={INPUT_CLASS}
-            placeholder="e.g. California"
-          />
-        )}
-      </div>
+        <div>
+          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+            State <span className="text-red-500">*</span>
+          </label>
+          {stateOptions.length > 0 ? (
+            <select
+              value={resolvedState?.isoCode ?? ''}
+              disabled={disabled || !activeCountryCode}
+              onChange={(e) => handleStateChange(e.target.value)}
+              className={`${INPUT_CLASS}${stateError ? ' border-red-300' : ''}`}
+              aria-invalid={Boolean(stateError)}
+            >
+              <option value="">Select state / region…</option>
+              {stateOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={state}
+              disabled={disabled || !activeCountryCode}
+              onChange={(e) => {
+                if (!resolvedCountry) return;
+                onSelect(
+                  countryToLocationSelection(resolvedCountry, {
+                    state: e.target.value,
+                    city,
+                  }),
+                );
+              }}
+              className={`${INPUT_CLASS}${stateError ? ' border-red-300' : ''}`}
+              placeholder="e.g. California"
+              aria-invalid={Boolean(stateError)}
+            />
+          )}
+          {stateError ? <p className="mt-1 text-xs text-red-600">{stateError}</p> : null}
+        </div>
 
-      <div>
-        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-          Country
-        </label>
-        <select
-          value={activeCountryCode}
-          disabled={disabled}
-          onChange={(e) => handleCountryChange(e.target.value)}
-          className={INPUT_CLASS}
-        >
-          <option value="">Select country…</option>
-          {countries.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+        <div>
+          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+            City <span className="font-medium normal-case tracking-normal text-slate-400">(optional)</span>
+          </label>
+          {cityOptions.length > 0 ? (
+            <select
+              value={city}
+              disabled={disabled || !activeCountryCode}
+              onChange={(e) => handleCityChange(e.target.value)}
+              className={INPUT_CLASS}
+            >
+              <option value="">Select city…</option>
+              {cityOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={city}
+              disabled={disabled || !activeCountryCode}
+              onChange={(e) => handleCityChange(e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="e.g. San Francisco"
+            />
+          )}
+        </div>
       </div>
-    </>
+    </div>
   );
 }

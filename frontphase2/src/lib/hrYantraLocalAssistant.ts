@@ -1,12 +1,11 @@
 /**
- * HRYantra local assistant — smarter answers from live tenant CRM data.
- * No OpenAI / Mistral / external AI API keys. Uses authenticated tenant APIs only.
- *
- * Smart layer = intent scoring, fuzzy search, priority ranking, cross-module
- * insights, and short conversation memory — all on-device over live APIs.
+ * HRYantra AI — Enterprise Brain client + local tenant fallback.
+ * Primary path: POST /api/v1/brain/ask (orchestration, RAG, RBAC, audit).
+ * Fallback: on-device composition over live CRM APIs (no OpenAI/Mistral).
  */
 
 import {
+  apiBrainAsk,
   apiGetCandidateStats,
   apiGetCandidates,
   apiGetClientMetrics,
@@ -735,50 +734,47 @@ async function loadTenantSnapshot(force = false): Promise<TenantSnapshot> {
 }
 
 export const HRYANTRA_AI_WELCOME = [
-  '**HRYantra AI** is ready.',
+  '**HRYANTRA Enterprise Brain** is ready.',
   '',
-  'I think across your **live CRM** — leads, clients, jobs, candidates, interviews, placements, tasks, contacts, and calendar — then rank what matters most.',
+  'I am your tenant’s intelligence layer — schema-aware, permission-safe, and grounded in **live CRM data**.',
+  'Ask in natural language for analytics, reports, recommendations, schema help, or next actions.',
   '',
-  'I can also explain **any sidebar module**:',
-  '• Pipeline, Matches, Tasks & Activities, Inbox, Contacts',
-  '• Reports, Billing, Recycle Bin, Activity log',
-  '• Team, Request, Approvals, Settings',
-  '',
-  'Try: “How does Pipeline work?”, “How do I use Matches?”, “How do Approvals work?”',
-  '',
-  'Ask smart CRM questions like:',
+  'Try:',
+  '• “Summarize business performance”',
+  '• “How many open jobs do we have?”',
+  '• “Report on candidates”',
+  '• “Show schema for placements”',
   '• “What should I do next?”',
-  '• “Where are the risks today?”',
-  '• “Which leads need follow-up?”',
-  '• “Find Acme across CRM”',
   '',
-  '_Private to your company · no OpenAI · no external AI keys._',
+  '_Private to your company · Brain services on Phase 2 backend · no OpenAI required by default._',
 ].join('\n');
 
-function helpText(): string {
+function helpText(snap?: TenantSnapshot | null): string {
+  const live = snap
+    ? [
+        '',
+        '**Your tenant right now**',
+        `• Leads **${snap.leads.length}** · Clients **${snap.clients.length}** · Jobs **${snap.jobs.length}**`,
+        `• Candidates **${snap.candidates.length}** · Interviews **${snap.interviews.length}** · Placements **${snap.placements.length}**`,
+        `• Tasks **${snap.tasks.length}** · Contacts **${snap.contacts.length}**`,
+        '',
+        '_Ask any question — answers use this live tenant data._',
+      ]
+    : [
+        '',
+        'Ask any question about your CRM — I load your tenant data and answer from it.',
+      ];
+
   return [
-    '**Smart mode · what I can do**',
-    'I score intents, search fuzzily, recommend next actions from live data, and explain **every Phase 2 sidebar module**.',
+    '**Tenant brain · how I answer**',
+    'I read your company’s live CRM on every question, then compose the reply.',
+    'I do **not** look up pre-fed question→answer pairs.',
     '',
-    '**How-to guides (ask any of these)**',
-    '• CRM: lead, client, dashboard',
-    '• Recruitment: job, candidate, interview, placement, recruitment dashboard',
-    '• Recruitment Hub: pipeline, matches',
-    '• Tasks & Activities, Inbox, Contacts',
-    '• Reports, Billing, Recycle Bin, Activity log',
-    '• Team Management: team, request, approvals',
-    '• Settings',
-    '',
-    '**Best CRM prompts**',
-    '• What should I focus on today?',
-    '• Show risks / bottlenecks',
-    '• Overdue follow-ups + hot leads',
-    '• Open jobs vs candidates in pipeline',
-    '• Interviews this week',
-    '• Overdue tasks by priority',
-    '• Search “Apex” or any company/person',
-    '',
-    'Tip: ask “how does X work?” for any menu name — even with spelling mistakes.',
+    '**I can answer from your data**',
+    '• Counts, lists, urgency, risks, next actions',
+    '• Search people/companies across modules',
+    '• Module how-tos with your live numbers mixed in',
+    ...live,
   ].join('\n');
 }
 
@@ -807,336 +803,442 @@ type HowToTopic =
   | 'recruitment_hub'
   | 'dashboard';
 
-const HOW_TO_GUIDES: Record<HowToTopic, string> = {
-  overview: [
-    '**How HRYantra Phase 2 works**',
-    '',
-    '**CRM**',
-    '1. **Leads** — capture prospects',
-    '2. **Clients** — company accounts',
-    '3. **Dashboard** — CRM overview',
-    '',
-    '**Recruitment**',
-    '4. **Jobs → Candidates → Interviews → Placements**',
-    '5. **Recruitment Dashboard** — hiring KPIs',
-    '',
-    '**Recruitment Hub**',
-    '6. **Pipeline** — stage board across roles',
-    '7. **Matches** — candidate ↔ job matching',
-    '',
-    '**Daily work**',
-    '8. **Tasks & Activities** · **Inbox** · **Contacts**',
-    '',
-    '**Ops**',
-    '9. **Reports** · **Billing** · **Recycle Bin** · **Activity log**',
-    '',
-    '**Team Management**',
-    '10. **Team** · **Request** · **Approvals**',
-    '',
-    '11. **Settings** — org, permissions, notifications, billing prefs',
-    '',
-    'Ask: “How does Pipeline work?”, “How do I use Inbox?”, “How do Approvals work?”',
-  ].join('\n'),
+/** Question shape used by the brain composer — not stored Q&A. */
+type BrainQuestionShape = 'create' | 'explain' | 'overview' | 'tips' | 'general';
 
-  lead: [
-    '**How to create a Lead — step by step**',
-    '',
-    '**Step 1.** Open the left sidebar → **CRM → Leads** (route `/leads`).',
-    '**Step 2.** Click **Add Lead** at the top of the Leads page.',
-    '**Step 3.** Fill company details in the Add Lead drawer:',
-    '   • Company name, industry, location',
-    '   • Status, priority, and assignee',
-    '**Step 4.** Add the primary contact:',
-    '   • Name, email, phone',
-    '**Step 5.** Add agreements / notes if needed.',
-    '**Step 6.** Click **Create Lead** to save.',
-    '**Step 7.** Open the lead afterward to set follow-ups, documents, or convert toward a client.',
-    '',
-    '**Tips**',
-    '• Mark hot prospects as high priority — ask me “Show hot leads”.',
-    '• Set a next follow-up date so overdue follow-ups stay visible.',
-    '',
-    'Also ask: “How do I add a client?” or “What should I do next?”',
-  ].join('\n'),
-
-  client: [
-    '**How to create a Client — step by step**',
-    '',
-    '**Step 1.** Open the left sidebar → **CRM → Clients** (route `/client`).',
-    '**Step 2.** Click the **Add Client** button at the top of the Clients page.',
-    '**Step 3.** In the Add Client drawer, fill the required company details:',
-    '   • Company / account name',
-    '   • Industry, location, and status',
-    '   • Assignees / owners',
-    '**Step 4.** Add the primary director / contact:',
-    '   • Name, email, phone, salutation',
-    '**Step 5.** Optionally attach logo, agreements, or extra notes.',
-    '**Step 6.** Click **Create Client** / save to submit the form.',
-    '**Step 7.** Open the new client record to add more contacts, jobs, or activity.',
-    '',
-    '**Tips**',
-    '• Clients = hiring company accounts. Leads = earlier prospects.',
-    '• After the client is created, go to **Recruitment → Jobs** to open roles under that client.',
-    '',
-    'Also ask: “How do I create a job?” or “How do I create a lead?”',
-  ].join('\n'),
-
-  job: [
-    '**How to create a Job / opening — step by step**',
-    '',
-    '**Step 1.** Open **Recruitment → Jobs** (`/job`).',
-    '**Step 2.** Click **Add Job** / create opening.',
-    '**Step 3.** Choose the **client**, role title, location, and hiring details.',
-    '**Step 4.** Set status (open / on hold / closed) and owners.',
-    '**Step 5.** Save the job, then add candidates from Jobs or Candidates.',
-    '',
-    '**Tips**',
-    '• Keep jobs linked to the right client for clean reporting.',
-    '• Ask “Compare open jobs vs candidates” for pipeline health.',
-  ].join('\n'),
-
-  candidate: [
-    '**How to add a Candidate — step by step**',
-    '',
-    '**Step 1.** Open **Recruitment → Candidates** (`/candidate`), or open a **Job**.',
-    '**Step 2.** Click **Add Candidate** (or add-to-job from the job page).',
-    '**Step 3.** Enter profile: name, contact, skills, experience, stage.',
-    '**Step 4.** Link to the relevant job / client.',
-    '**Step 5.** Save, then move stages → interviews → placement.',
-    '',
-    'Also ask: “How does Pipeline work?” or “How does the interview process work?”',
-  ].join('\n'),
-
-  interview: [
-    '**Interview process in HRYantra — step by step**',
-    '',
-    '**Step 1.** Keep the candidate on a **Job** pipeline stage.',
-    '**Step 2.** Open **Recruitment → Interviews** (`/interviews`) or schedule from candidate/job.',
-    '**Step 3.** Set date, time, panel, and mode (online/onsite).',
-    '**Step 4.** Track status: scheduled → completed / no-show / cancelled.',
-    '**Step 5.** Capture feedback / outcome.',
-    '**Step 6.** Advance round, reject, or move to **Placement**.',
-    '',
-    'Also ask: “How do I create a placement?”',
-  ].join('\n'),
-
-  placement: [
-    '**How to create a Placement — step by step**',
-    '',
-    '**Step 1.** Open **Recruitment → Placements** (`/placement`).',
-    '**Step 2.** Create placement for hired candidate + client/job.',
-    '**Step 3.** Fill offer / joining details: package, joining date, status.',
-    '**Step 4.** Save and track joining / replacement if needed.',
-    '**Step 5.** Create invoice from placement via **Billing** when fees apply.',
-    '',
-    'Also ask: “How does billing work?”',
-  ].join('\n'),
-
-  task: [
-    '**How Tasks & Activities works — step by step**',
-    '',
-    '**Step 1.** Open **Tasks & Activities** from the sidebar (`/Task&Activites`).',
-    '**Step 2.** Click **Add Task** / create activity.',
-    '**Step 3.** Set title, priority, due date, assignee, and related CRM record.',
-    '**Step 4.** Save and complete/check off when done.',
-    '**Step 5.** Use filters for overdue / today / my tasks.',
-    '',
-    '**Tips**',
-    '• Pair tasks with lead follow-ups so nothing slips.',
-    '• Ask me “Show overdue tasks”.',
-  ].join('\n'),
-
-  contact: [
-    '**How Contacts works — step by step**',
-    '',
-    '**Step 1.** Open **Contacts** from the sidebar (`/contacts`), or a Lead/Client **Contacts** tab.',
-    '**Step 2.** Click **Add Contact**.',
-    '**Step 3.** Enter name, email, phone, role/title.',
-    '**Step 4.** Link the contact to the company (lead/client).',
-    '**Step 5.** Save — use contacts for follow-ups and outreach.',
-    '',
-    'Tip: every client should have at least one primary contact.',
-  ].join('\n'),
-
-  calendar: [
-    '**How to use Calendar**',
-    '',
-    '1. Open **Calendar** from the sidebar.',
-    '2. Review scheduled interviews and CRM events.',
-    '3. Create/schedule interview events from Interviews or related drawers.',
-    '4. Ask me “Show interviews this week” or “calendar agenda”.',
-  ].join('\n'),
-
-  billing: [
-    '**How Billing works in HRYantra — step by step**',
-    '',
-    'Billing sits after placements: invoice clients, track payments, manage commission/tax.',
-    '',
-    '**Step 1.** Open **Billing** (`/billing`) — needs billing access.',
-    '**Step 2.** Use tabs: Drafts · Invoices · Payments · Clients & Contracts · Commission · Taxes · Settings.',
-    '**Step 3.** Create invoice from a **Placement** (Create invoice in Billing).',
-    '**Step 4.** Track payment until paid.',
-    '**Step 5.** Configure currency, tax, bank details in Billing Settings / Settings → Billing.',
-    '',
-    'Also ask: “How do I create a placement?”',
-  ].join('\n'),
-
-  pipeline: [
-    '**How Pipeline works — step by step**',
-    '',
-    'Pipeline is under **Recruitment Hub** and shows candidates moving across hiring stages.',
-    '',
-    '**Step 1.** Open **Pipeline** (`/pipeline`).',
-    '**Step 2.** Review the stage board (e.g. sourced → screening → interview → offer → joined).',
-    '**Step 3.** Filter by job / client / owner if needed.',
-    '**Step 4.** Drag or update candidate stage as progress happens.',
-    '**Step 5.** Click a card to open candidate/job details for next actions.',
-    '',
-    '**Tips**',
-    '• Keep stages updated so Matches and next-action recommendations stay accurate.',
-    '• Ask: “How do Matches work?” or “How do I add a candidate?”',
-  ].join('\n'),
-
-  matches: [
-    '**How Matches works — step by step**',
-    '',
-    'Matches helps connect the right **candidates** to open **jobs**.',
-    '',
-    '**Step 1.** Open **Matches** (`/matches`).',
-    '**Step 2.** Pick a job or candidate context to review suggested matches.',
-    '**Step 3.** Review fit signals (skills, experience, role alignment).',
-    '**Step 4.** Shortlist / advance strong matches into the pipeline.',
-    '**Step 5.** Reject or park weak matches and continue reviewing.',
-    '',
-    'Also ask: “How does Pipeline work?”',
-  ].join('\n'),
-
-  inbox: [
-    '**How Inbox works — step by step**',
-    '',
-    '**Step 1.** Open **Inbox** (`/inbox`) — badge shows unread items.',
-    '**Step 2.** Review messages / notifications / conversation threads.',
-    '**Step 3.** Open an item to read details and linked CRM records.',
-    '**Step 4.** Reply, assign, or mark as done/read.',
-    '**Step 5.** Use filters (unread / all) to clear backlog.',
-    '',
-    'Tip: treat Inbox as your communication queue alongside Tasks & Activities.',
-  ].join('\n'),
-
-  reports: [
-    '**How Reports works — step by step**',
-    '',
-    '**Step 1.** Open **Reports** (`/reports`).',
-    '**Step 2.** Choose the report type (hiring, pipeline, placements, billing, etc.).',
-    '**Step 3.** Set date range / filters (client, job, owner).',
-    '**Step 4.** Run / view the report charts and tables.',
-    '**Step 5.** Export if you need to share with leadership.',
-    '',
-    'Also ask: “What should I do next?” for live action ranking.',
-  ].join('\n'),
-
-  recycle_bin: [
-    '**How Recycle Bin works — step by step**',
-    '',
-    'Deleted leads / clients / candidates / jobs land here (soft delete).',
-    '',
-    '**Step 1.** Open **Recycle Bin** (`/recycle-bin`).',
-    '**Step 2.** Find the deleted record (filter by module/type if available).',
-    '**Step 3.** **Restore** if it was deleted by mistake.',
-    '**Step 4.** Or permanently delete if your role allows.',
-    '',
-    'Tip: you need delete permission on the related module to see Recycle Bin.',
-  ].join('\n'),
-
-  activity_log: [
-    '**How Activity log works — step by step**',
-    '',
-    '**Step 1.** Open **Activity log** (`/activity-feed`).',
-    '**Step 2.** Scan recent CRM actions (creates, updates, status changes).',
-    '**Step 3.** Filter by module / user / time if needed.',
-    '**Step 4.** Open a row to jump to the related record.',
-    '',
-    'Use this for audit trails and “who changed what”.',
-  ].join('\n'),
-
-  team: [
-    '**How Team works — step by step**',
-    '',
-    '**Step 1.** Open **Team Management → Team** (`/team`).',
-    '**Step 2.** View members, roles, and access.',
-    '**Step 3.** Click **Add member** to invite someone.',
-    '**Step 4.** Assign role / permissions.',
-    '**Step 5.** Save — member can then use allowed modules.',
-    '',
-    'Also ask: “How do Approvals work?” or “How do Requests work?”',
-  ].join('\n'),
-
-  request: [
-    '**How Request works — step by step**',
-    '',
-    '**Step 1.** Open **Team Management → Request** (`/request`).',
-    '**Step 2.** Create a new request (access, change, or team workflow item).',
-    '**Step 3.** Fill details and submit.',
-    '**Step 4.** Wait for an approver under **Approvals**.',
-    '**Step 5.** Track status until approved / rejected.',
-    '',
-    'Also ask: “How do Approvals work?”',
-  ].join('\n'),
-
-  approvals: [
-    '**How Approvals works — step by step**',
-    '',
-    '**Step 1.** Open **Team Management → Approvals** (`/request/approval`).',
-    '**Step 2.** Review pending requests assigned to you / your role.',
-    '**Step 3.** Open a request and check details.',
-    '**Step 4.** **Approve** or **Reject** with a note if needed.',
-    '**Step 5.** Requester is updated; access/workflow continues.',
-    '',
-    'Also ask: “How do I use Team?” or “How do Requests work?”',
-  ].join('\n'),
-
-  settings: [
-    '**How Settings works — step by step**',
-    '',
-    '**Step 1.** Open **Settings** (`/setting`).',
-    '**Step 2.** Pick a section (profile, notifications, recruitment workflow, billing/subscription, security, customization, etc.).',
-    '**Step 3.** Update org preferences and save.',
-    '**Step 4.** Confirm permissions/roles if you manage team access.',
-    '',
-    'Tip: Billing settings also appear under **Billing → Billing Settings**.',
-  ].join('\n'),
-
-  recruitment_hub: [
-    '**Recruitment Hub overview**',
-    '',
-    'Recruitment Hub groups hiring workflow views:',
-    '• **Pipeline** (`/pipeline`) — stage board for candidates across roles',
-    '• **Matches** (`/matches`) — suggested candidate ↔ job fits',
-    '',
-    'Ask: “How does Pipeline work?” or “How do Matches work?”',
-  ].join('\n'),
-
-  dashboard: [
-    '**How Dashboards work**',
-    '',
-    'There are two main dashboards:',
-    '• **CRM → Dashboard** (`/dashboard`) — leads/clients CRM KPIs',
-    '• **Recruitment → Dashboard** (`/recruitment`) — jobs/candidates/interviews/placements KPIs',
-    '',
-    '**Step 1.** Open the dashboard from the matching sidebar group.',
-    '**Step 2.** Review cards/charts for today’s health.',
-    '**Step 3.** Drill into modules that need attention.',
-    '',
-    'Also ask: “Give me today’s pulse” for a ranked live summary.',
-  ].join('\n'),
+/**
+ * Product brain: facts only (no canned full answers).
+ * Answers are composed at runtime from these facts + the user’s question shape.
+ */
+type ModuleBrain = {
+  id: HowToTopic;
+  name: string;
+  group: string;
+  route: string;
+  purpose: string;
+  aliases: string[];
+  createSteps?: string[];
+  useSteps?: string[];
+  tips?: string[];
+  related?: HowToTopic[];
 };
+
+const MODULE_BRAIN: ModuleBrain[] = [
+  {
+    id: 'lead',
+    name: 'Leads',
+    group: 'CRM',
+    route: '/leads',
+    purpose: 'Capture prospects before they become hiring clients.',
+    aliases: ['lead', 'leads', 'prospect', 'prospects', 'leed', 'leds'],
+    createSteps: [
+      'Open **CRM → Leads** (`/leads`).',
+      'Click **Add Lead**.',
+      'Fill company details: name, industry, location, status, priority, assignee.',
+      'Add primary contact: name, email, phone.',
+      'Add notes/agreements if needed, then **Create Lead**.',
+      'Open the lead to set follow-ups or convert toward a client.',
+    ],
+    useSteps: [
+      'Scan priority and follow-up dates on the Leads list.',
+      'Open a lead to update status, owners, contacts, and notes.',
+      'Convert strong prospects into clients when ready.',
+    ],
+    tips: [
+      'Mark hot prospects high priority.',
+      'Always set a next follow-up date so overdue work stays visible.',
+    ],
+    related: ['client', 'contact', 'task'],
+  },
+  {
+    id: 'client',
+    name: 'Clients',
+    group: 'CRM',
+    route: '/client',
+    purpose: 'Manage hiring company accounts (clients = accounts; leads = earlier prospects).',
+    aliases: ['client', 'clients', 'account', 'accounts', 'clinet', 'cleint', 'clent'],
+    createSteps: [
+      'Open **CRM → Clients** (`/client`).',
+      'Click **Add Client**.',
+      'Fill company/account name, industry, location, status, owners.',
+      'Add primary director/contact: name, email, phone.',
+      'Optionally attach logo, agreements, or notes, then save.',
+      'Open the client to add contacts, jobs, or activity.',
+    ],
+    useSteps: [
+      'Use Clients as the account hub for jobs and placements.',
+      'Keep at least one primary contact on every active client.',
+    ],
+    tips: [
+      'After creating a client, open roles under **Recruitment → Jobs**.',
+    ],
+    related: ['job', 'lead', 'contact', 'placement'],
+  },
+  {
+    id: 'job',
+    name: 'Jobs',
+    group: 'Recruitment',
+    route: '/job',
+    purpose: 'Open and manage hiring requisitions linked to clients.',
+    aliases: ['job', 'jobs', 'opening', 'vacancy', 'requisition', 'role'],
+    createSteps: [
+      'Open **Recruitment → Jobs** (`/job`).',
+      'Click **Add Job** / create opening.',
+      'Choose client, role title, location, and hiring details.',
+      'Set status (open / on hold / closed) and owners, then save.',
+      'Add candidates from Jobs or Candidates.',
+    ],
+    useSteps: [
+      'Track open vs closed roles and owners.',
+      'Move candidates through stages toward interview and placement.',
+    ],
+    tips: [
+      'Keep every job linked to the right client for clean reporting.',
+    ],
+    related: ['candidate', 'pipeline', 'matches', 'client'],
+  },
+  {
+    id: 'candidate',
+    name: 'Candidates',
+    group: 'Recruitment',
+    route: '/candidate',
+    purpose: 'Store talent profiles and progress them against jobs.',
+    aliases: ['candidate', 'candidates', 'talent', 'applicant', 'candiate', 'candidte'],
+    createSteps: [
+      'Open **Recruitment → Candidates** (`/candidate`) or open a Job.',
+      'Click **Add Candidate** (or add-to-job).',
+      'Enter name, contact, skills, experience, and stage.',
+      'Link to the relevant job/client and save.',
+      'Advance stages → interviews → placement.',
+    ],
+    useSteps: [
+      'Update stage as screening progresses.',
+      'Schedule interviews and capture outcomes.',
+    ],
+    related: ['job', 'interview', 'pipeline', 'matches', 'placement'],
+  },
+  {
+    id: 'interview',
+    name: 'Interviews',
+    group: 'Recruitment',
+    route: '/interviews',
+    purpose: 'Schedule panels and track interview outcomes for candidates.',
+    aliases: ['interview', 'interviews', 'panel', 'interveiw', 'inteview'],
+    createSteps: [
+      'Keep the candidate on a job pipeline stage.',
+      'Open **Recruitment → Interviews** (`/interviews`) or schedule from candidate/job.',
+      'Set date, time, panel, and mode (online/onsite).',
+      'Track status: scheduled → completed / no-show / cancelled.',
+      'Capture feedback, then advance, reject, or move to Placement.',
+    ],
+    useSteps: [
+      'Review today’s and this week’s interviews from Interviews or Calendar.',
+      'Record outcomes so pipeline and next actions stay accurate.',
+    ],
+    related: ['candidate', 'calendar', 'placement', 'pipeline'],
+  },
+  {
+    id: 'placement',
+    name: 'Placements',
+    group: 'Recruitment',
+    route: '/placement',
+    purpose: 'Record hires and joining details; feed Billing when fees apply.',
+    aliases: ['placement', 'placements', 'offer', 'joining', 'joiner', 'hired'],
+    createSteps: [
+      'Open **Recruitment → Placements** (`/placement`).',
+      'Create placement for hired candidate + client/job.',
+      'Fill package, joining date, and status.',
+      'Save and track joining / replacement if needed.',
+      'Create invoice from placement via **Billing** when fees apply.',
+    ],
+    related: ['billing', 'candidate', 'job', 'client'],
+  },
+  {
+    id: 'pipeline',
+    name: 'Pipeline',
+    group: 'Recruitment Hub',
+    route: '/pipeline',
+    purpose: 'Stage board showing candidates moving across hiring stages for roles.',
+    aliases: ['pipeline', 'pipelines', 'kanban', 'stage board'],
+    useSteps: [
+      'Open **Pipeline** (`/pipeline`).',
+      'Review stages (e.g. sourced → screening → interview → offer → joined).',
+      'Filter by job / client / owner if needed.',
+      'Drag or update candidate stage as progress happens.',
+      'Click a card to open candidate/job details for next actions.',
+    ],
+    tips: [
+      'Keep stages current so Matches and next-action recommendations stay accurate.',
+    ],
+    related: ['matches', 'candidate', 'job'],
+  },
+  {
+    id: 'matches',
+    name: 'Matches',
+    group: 'Recruitment Hub',
+    route: '/matches',
+    purpose: 'Suggest and review candidate ↔ job fits.',
+    aliases: ['match', 'matches', 'matching', 'matchs'],
+    useSteps: [
+      'Open **Matches** (`/matches`).',
+      'Pick a job or candidate context.',
+      'Review fit signals (skills, experience, role alignment).',
+      'Shortlist strong matches into the pipeline; park weak ones.',
+    ],
+    related: ['pipeline', 'candidate', 'job'],
+  },
+  {
+    id: 'recruitment_hub',
+    name: 'Recruitment Hub',
+    group: 'Recruitment Hub',
+    route: '/pipeline',
+    purpose: 'Groups hiring workflow views: Pipeline and Matches.',
+    aliases: ['recruitment hub', 'recruitmenthub'],
+    useSteps: [
+      'Use **Pipeline** (`/pipeline`) for the stage board.',
+      'Use **Matches** (`/matches`) for candidate ↔ job suggestions.',
+    ],
+    related: ['pipeline', 'matches'],
+  },
+  {
+    id: 'task',
+    name: 'Tasks & Activities',
+    group: 'Daily work',
+    route: '/Task&Activites',
+    purpose: 'Personal and team to-dos linked to CRM records.',
+    aliases: [
+      'tasks and activities',
+      'task and activities',
+      'task & activities',
+      'tasks & activities',
+      'task',
+      'tasks',
+      'todo',
+      'todos',
+    ],
+    createSteps: [
+      'Open **Tasks & Activities** (`/Task&Activites`).',
+      'Click **Add Task**.',
+      'Set title, priority, due date, assignee, and related CRM record.',
+      'Save and complete when done.',
+    ],
+    useSteps: [
+      'Filter overdue / today / my tasks.',
+      'Pair tasks with lead follow-ups so nothing slips.',
+    ],
+    tips: ['Ask “Show overdue tasks” for live overdue work.'],
+    related: ['lead', 'inbox'],
+  },
+  {
+    id: 'contact',
+    name: 'Contacts',
+    group: 'Daily work',
+    route: '/contacts',
+    purpose: 'People linked to leads and clients for outreach.',
+    aliases: ['contact', 'contacts'],
+    createSteps: [
+      'Open **Contacts** (`/contacts`) or a Lead/Client Contacts tab.',
+      'Click **Add Contact**.',
+      'Enter name, email, phone, role/title.',
+      'Link to the company (lead/client) and save.',
+    ],
+    tips: ['Every client should have at least one primary contact.'],
+    related: ['lead', 'client'],
+  },
+  {
+    id: 'inbox',
+    name: 'Inbox',
+    group: 'Daily work',
+    route: '/inbox',
+    purpose: 'Communication queue for messages and notifications.',
+    aliases: ['inbox', 'inboxes', 'messages', 'mailbox'],
+    useSteps: [
+      'Open **Inbox** (`/inbox`) — badge shows unread items.',
+      'Open an item to read details and linked CRM records.',
+      'Reply, assign, or mark done/read.',
+      'Use unread/all filters to clear backlog.',
+    ],
+    tips: ['Treat Inbox alongside Tasks & Activities as your daily queue.'],
+    related: ['task'],
+  },
+  {
+    id: 'calendar',
+    name: 'Calendar',
+    group: 'Daily work',
+    route: '/calendar',
+    purpose: 'Agenda for interviews and CRM events.',
+    aliases: ['calendar', 'agenda', 'schedule'],
+    useSteps: [
+      'Open **Calendar** from the sidebar.',
+      'Review scheduled interviews and CRM events.',
+      'Schedule interview events from Interviews or related drawers.',
+    ],
+    tips: ['Ask “Show interviews this week” for a live agenda.'],
+    related: ['interview'],
+  },
+  {
+    id: 'billing',
+    name: 'Billing',
+    group: 'Ops',
+    route: '/billing',
+    purpose: 'Invoice after placements; track payments, commission, and tax.',
+    aliases: [
+      'billing',
+      'billings',
+      'invoice',
+      'invoices',
+      'payment',
+      'payments',
+      'commission',
+      'payout',
+      'payouts',
+    ],
+    createSteps: [
+      'Open **Billing** (`/billing`) — needs billing access.',
+      'Use tabs: Drafts · Invoices · Payments · Clients & Contracts · Commission · Taxes · Settings.',
+      'Create invoice from a **Placement**.',
+      'Track payment until paid.',
+      'Configure currency, tax, and bank details in Billing Settings.',
+    ],
+    useSteps: [
+      'Start from placements when fees apply.',
+      'Monitor drafts → invoices → payments.',
+    ],
+    related: ['placement', 'settings'],
+  },
+  {
+    id: 'reports',
+    name: 'Reports',
+    group: 'Ops',
+    route: '/reports',
+    purpose: 'Hiring, pipeline, placement, and billing analytics.',
+    aliases: ['report', 'reports', 'analytics', 'reporting'],
+    useSteps: [
+      'Open **Reports** (`/reports`).',
+      'Choose report type and set date range / filters.',
+      'View charts/tables and export for leadership if needed.',
+    ],
+    related: ['dashboard', 'placement', 'pipeline'],
+  },
+  {
+    id: 'recycle_bin',
+    name: 'Recycle Bin',
+    group: 'Ops',
+    route: '/recycle-bin',
+    purpose: 'Soft-deleted leads, clients, candidates, and jobs.',
+    aliases: ['recycle bin', 'recycle', 'trash', 'soft delete'],
+    useSteps: [
+      'Open **Recycle Bin** (`/recycle-bin`).',
+      'Find the deleted record (filter by module if available).',
+      '**Restore** or permanently delete if your role allows.',
+    ],
+    tips: ['You need delete permission on the related module to see Recycle Bin.'],
+  },
+  {
+    id: 'activity_log',
+    name: 'Activity log',
+    group: 'Ops',
+    route: '/activity-feed',
+    purpose: 'Audit trail of CRM creates, updates, and status changes.',
+    aliases: ['activity log', 'activity feed', 'activities feed', 'audit log', 'audit trail'],
+    useSteps: [
+      'Open **Activity log** (`/activity-feed`).',
+      'Scan recent actions; filter by module / user / time.',
+      'Open a row to jump to the related record.',
+    ],
+  },
+  {
+    id: 'team',
+    name: 'Team',
+    group: 'Team Management',
+    route: '/team',
+    purpose: 'Invite members and assign roles/permissions.',
+    aliases: ['team management', 'team', 'teams', 'members'],
+    createSteps: [
+      'Open **Team Management → Team** (`/team`).',
+      'Click **Add member**.',
+      'Assign role / permissions and save.',
+    ],
+    useSteps: [
+      'Review members, roles, and access.',
+      'Adjust permissions when responsibilities change.',
+    ],
+    related: ['request', 'approvals', 'settings'],
+  },
+  {
+    id: 'request',
+    name: 'Request',
+    group: 'Team Management',
+    route: '/request',
+    purpose: 'Raise access or workflow requests for approval.',
+    aliases: ['request', 'requests', 'raise request'],
+    createSteps: [
+      'Open **Team Management → Request** (`/request`).',
+      'Create a request, fill details, and submit.',
+      'Wait for an approver under **Approvals**.',
+      'Track status until approved / rejected.',
+    ],
+    related: ['approvals', 'team'],
+  },
+  {
+    id: 'approvals',
+    name: 'Approvals',
+    group: 'Team Management',
+    route: '/request/approval',
+    purpose: 'Approve or reject pending team requests.',
+    aliases: ['approval', 'approvals', 'approve', 'approver'],
+    useSteps: [
+      'Open **Team Management → Approvals** (`/request/approval`).',
+      'Review pending requests for your role.',
+      'Open details, then **Approve** or **Reject** with a note if needed.',
+    ],
+    related: ['request', 'team'],
+  },
+  {
+    id: 'settings',
+    name: 'Settings',
+    group: 'Settings',
+    route: '/setting',
+    purpose: 'Org preferences: profile, notifications, recruitment workflow, billing, security.',
+    aliases: ['setting', 'settings', 'preferences', 'configuration', 'config'],
+    useSteps: [
+      'Open **Settings** (`/setting`).',
+      'Pick a section and update org preferences.',
+      'Confirm permissions/roles if you manage team access.',
+    ],
+    tips: ['Billing settings also appear under **Billing → Billing Settings**.'],
+    related: ['billing', 'team'],
+  },
+  {
+    id: 'dashboard',
+    name: 'Dashboards',
+    group: 'Overview',
+    route: '/dashboard',
+    purpose: 'KPI boards for CRM and recruitment health.',
+    aliases: ['dashboard', 'dashboards', 'kpi board'],
+    useSteps: [
+      'Open **CRM → Dashboard** (`/dashboard`) for leads/clients KPIs.',
+      'Open **Recruitment → Dashboard** (`/recruitment`) for hiring KPIs.',
+      'Drill into modules that need attention.',
+    ],
+    tips: ['Ask “Give me today’s pulse” for a ranked live summary.'],
+    related: ['reports'],
+  },
+];
+
+const BRAIN_BY_ID: Record<Exclude<HowToTopic, 'overview'>, ModuleBrain> = MODULE_BRAIN.reduce(
+  (acc, mod) => {
+    acc[mod.id as Exclude<HowToTopic, 'overview'>] = mod;
+    return acc;
+  },
+  {} as Record<Exclude<HowToTopic, 'overview'>, ModuleBrain>,
+);
 
 function tokenMatchesAny(token: string, targets: string[]): boolean {
   const t = token.toLowerCase();
   if (t.length < 3) return false;
   return targets.some((target) => {
     if (t === target || t.includes(target) || target.includes(t)) return true;
-    // Allow common typos like "clinet" → "client"
     const maxDist = target.length <= 5 ? 1 : 2;
     return Math.abs(t.length - target.length) <= maxDist && editDistance(t, target) <= maxDist;
   });
@@ -1150,50 +1252,273 @@ function promptMentionsModule(q: string, aliases: string[]): boolean {
 
 function detectHowToTopic(prompt: string): HowToTopic {
   const q = normalize(prompt);
-
-  // Prefer the module named with create/add/how language (typo-tolerant).
-  const checks: Array<{ topic: HowToTopic; aliases: string[] }> = [
-    { topic: 'task', aliases: ['tasks and activities', 'task and activities', 'task & activities', 'tasks & activities', 'task', 'tasks', 'todo', 'todos'] },
-    { topic: 'pipeline', aliases: ['pipeline', 'pipelines', 'kanban', 'stage board'] },
-    { topic: 'matches', aliases: ['match', 'matches', 'matching', 'matchs'] },
-    { topic: 'inbox', aliases: ['inbox', 'inboxes', 'messages', 'mailbox'] },
-    { topic: 'reports', aliases: ['report', 'reports', 'analytics', 'reporting'] },
-    { topic: 'recycle_bin', aliases: ['recycle bin', 'recycle', 'trash', 'soft delete'] },
-    { topic: 'activity_log', aliases: ['activity log', 'activity feed', 'activities feed', 'audit log', 'audit trail'] },
-    { topic: 'approvals', aliases: ['approval', 'approvals', 'approve', 'approver'] },
-    { topic: 'request', aliases: ['request', 'requests', 'raise request'] },
-    { topic: 'team', aliases: ['team management', 'team', 'teams', 'members'] },
-    { topic: 'settings', aliases: ['setting', 'settings', 'preferences', 'configuration', 'config'] },
-    { topic: 'billing', aliases: ['billing', 'billings', 'invoice', 'invoices', 'payment', 'payments', 'commission', 'payout', 'payouts'] },
-    { topic: 'dashboard', aliases: ['dashboard', 'dashboards', 'kpi board'] },
-    { topic: 'recruitment_hub', aliases: ['recruitment hub', 'recruitmenthub'] },
-    { topic: 'client', aliases: ['client', 'clients', 'account', 'accounts', 'clinet', 'cleint', 'clent'] },
-    { topic: 'lead', aliases: ['lead', 'leads', 'prospect', 'prospects', 'leed', 'leds'] },
-    { topic: 'interview', aliases: ['interview', 'interviews', 'panel', 'interveiw', 'inteview'] },
-    { topic: 'placement', aliases: ['placement', 'placements', 'offer', 'joining', 'joiner', 'hired'] },
-    { topic: 'candidate', aliases: ['candidate', 'candidates', 'talent', 'applicant', 'candiate', 'candidte'] },
-    { topic: 'job', aliases: ['job', 'jobs', 'opening', 'vacancy', 'requisition', 'role'] },
-    { topic: 'contact', aliases: ['contact', 'contacts'] },
-    { topic: 'calendar', aliases: ['calendar', 'agenda', 'schedule'] },
-  ];
-
-  for (const check of checks) {
-    if (promptMentionsModule(q, check.aliases)) return check.topic;
+  for (const mod of MODULE_BRAIN) {
+    if (promptMentionsModule(q, mod.aliases)) return mod.id;
   }
   return 'overview';
 }
 
-function answerHowTo(prompt: string): string {
+function detectQuestionShape(prompt: string): BrainQuestionShape {
+  const q = normalize(prompt);
+  if (includesAny(q, ['tip', 'tips', 'best practice', 'best practices', 'advice', 'recommend'])) {
+    return 'tips';
+  }
+  if (
+    includesAny(q, [
+      'create',
+      'add',
+      'new',
+      'make',
+      'raise',
+      'schedule',
+      'invite',
+      'how to create',
+      'how do i create',
+      'how do i add',
+      'how can i add',
+      'how can i create',
+    ])
+  ) {
+    return 'create';
+  }
+  if (
+    includesAny(q, [
+      'overview',
+      'whole system',
+      'entire system',
+      'all modules',
+      'how do i use hryantra',
+      'how does hryantra',
+      'system guide',
+      'what is hryantra',
+    ])
+  ) {
+    return 'overview';
+  }
+  if (
+    includesAny(q, [
+      'how',
+      'work',
+      'works',
+      'working',
+      'explain',
+      'use',
+      'using',
+      'what is',
+      'what are',
+      'process',
+      'guide',
+      'walkthrough',
+      'tutorial',
+    ])
+  ) {
+    return 'explain';
+  }
+  return 'general';
+}
+
+function formatSteps(steps: string[]): string[] {
+  return steps.map((step, i) => `**Step ${i + 1}.** ${step}`);
+}
+
+function relatedLine(mod: ModuleBrain): string | null {
+  if (!mod.related?.length) return null;
+  const names = mod.related
+    .map((id) => BRAIN_BY_ID[id as Exclude<HowToTopic, 'overview'>]?.name)
+    .filter(Boolean);
+  if (!names.length) return null;
+  return `_Related in the brain: ${names.join(' · ')}_`;
+}
+
+/** Compose a reply from module facts — never returns a pre-stored Q&A string. */
+function composeFromModule(mod: ModuleBrain, shape: BrainQuestionShape): string {
+  const header = `**${mod.name}** · ${mod.group}`;
+  const where = `Open via sidebar · route \`${mod.route}\``;
+  const lines: string[] = [header, '', mod.purpose, where, ''];
+
+  const preferCreate =
+    shape === 'create' || (shape === 'general' && !!mod.createSteps && !mod.useSteps);
+  const preferExplain = shape === 'explain' || shape === 'overview' || shape === 'tips';
+
+  if (preferCreate && mod.createSteps?.length) {
+    lines.push('**How to create / add**', ...formatSteps(mod.createSteps), '');
+  } else if ((preferExplain || shape === 'general') && mod.useSteps?.length) {
+    lines.push('**How it works**', ...formatSteps(mod.useSteps), '');
+    if (shape === 'general' && mod.createSteps?.length) {
+      lines.push('**How to create / add**', ...formatSteps(mod.createSteps), '');
+    }
+  } else if (mod.createSteps?.length) {
+    lines.push('**How to create / add**', ...formatSteps(mod.createSteps), '');
+  } else if (mod.useSteps?.length) {
+    lines.push('**How it works**', ...formatSteps(mod.useSteps), '');
+  }
+
+  if ((shape === 'tips' || shape === 'explain' || shape === 'general') && mod.tips?.length) {
+    lines.push('**Tips**', ...mod.tips.map((t) => `• ${t}`), '');
+  }
+
+  const related = relatedLine(mod);
+  if (related) lines.push(related);
+
+  lines.push('', '_Answer composed from product brain facts — not a stored Q&A._');
+  return lines.filter((line, i, arr) => !(line === '' && arr[i - 1] === '')).join('\n');
+}
+
+function composeSystemOverview(): string {
+  const byGroup = new Map<string, ModuleBrain[]>();
+  for (const mod of MODULE_BRAIN) {
+    if (mod.id === 'recruitment_hub') continue;
+    const list = byGroup.get(mod.group) || [];
+    list.push(mod);
+    byGroup.set(mod.group, list);
+  }
+
+  const lines: string[] = [
+    '**HRYantra Phase 2 — brain overview**',
+    '',
+    'I compose this from module facts (purpose + route), not from fed question/answer pairs.',
+    '',
+  ];
+
+  for (const [group, mods] of byGroup) {
+    lines.push(`**${group}**`);
+    for (const mod of mods) {
+      lines.push(`• **${mod.name}** (\`${mod.route}\`) — ${mod.purpose}`);
+    }
+    lines.push('');
+  }
+
+  lines.push(
+    'Name any module for a composed walkthrough — e.g. “how does Pipeline work?” or “how do I create a lead?”.',
+  );
+  return lines.join('\n');
+}
+
+function tenantLiveLinesForTopic(topic: HowToTopic, snap: TenantSnapshot): string[] {
+  const openJobs = snap.jobs.filter(isOpenJob).length;
+  const hotLeads = snap.leads.filter(isHotLead).length;
+  const overdueFollowUps = snap.leads.filter(isOverdueFollowUp).length;
+  const overdueTasks = snap.tasks.filter(isOverdueTask).length;
+  const upcomingInterviews = snap.interviews.filter(isUpcomingInterview).length;
+  const interviewsToday = snap.interviews.filter((i) => isToday(interviewWhen(i))).length;
+  const interviewing = metricValue(snap.metrics.candidates, 'interviewing');
+  const placementsMonth = metricValue(snap.metrics.clients, 'placementsThisMonth');
+
+  switch (topic) {
+    case 'lead':
+      return [
+        `Your tenant: **${snap.leads.length}** leads · hot **${hotLeads}** · overdue follow-ups **${overdueFollowUps}**.`,
+      ];
+    case 'client':
+      return [`Your tenant: **${snap.clients.length}** clients.`];
+    case 'job':
+      return [`Your tenant: **${snap.jobs.length}** jobs · open **${openJobs}**.`];
+    case 'candidate':
+    case 'pipeline':
+    case 'matches':
+    case 'recruitment_hub':
+      return [
+        `Your tenant: **${snap.candidates.length}** candidates${
+          interviewing != null ? ` · interviewing **${interviewing}**` : ''
+        } · open jobs **${openJobs}**.`,
+      ];
+    case 'interview':
+    case 'calendar':
+      return [
+        `Your tenant: **${snap.interviews.length}** interviews · upcoming **${upcomingInterviews}** · today **${interviewsToday}** · calendar events **${snap.calendarEvents.length}**.`,
+      ];
+    case 'placement':
+    case 'billing':
+      return [
+        `Your tenant: **${snap.placements.length}** placements${
+          placementsMonth != null ? ` · this month **${placementsMonth}**` : ''
+        }.`,
+      ];
+    case 'task':
+      return [`Your tenant: **${snap.tasks.length}** tasks · overdue **${overdueTasks}**.`];
+    case 'contact':
+      return [`Your tenant: **${snap.contacts.length}** contacts.`];
+    case 'dashboard':
+    case 'reports':
+    case 'overview':
+      return [
+        `Your tenant snapshot: leads **${snap.leads.length}**, clients **${snap.clients.length}**, jobs **${snap.jobs.length}** (open **${openJobs}**), candidates **${snap.candidates.length}**, interviews **${upcomingInterviews}** upcoming, placements **${snap.placements.length}**, tasks overdue **${overdueTasks}**.`,
+      ];
+    default:
+      return [
+        `Your tenant: leads **${snap.leads.length}** · jobs **${snap.jobs.length}** · candidates **${snap.candidates.length}** · tasks **${snap.tasks.length}**.`,
+      ];
+  }
+}
+
+function answerHowTo(prompt: string, snap?: TenantSnapshot | null): string {
   const topic = detectHowToTopic(prompt);
-  const guide = HOW_TO_GUIDES[topic];
-  if (topic === 'overview') {
+  const shape = detectQuestionShape(prompt);
+  let body: string;
+  if (topic === 'overview' || shape === 'overview') {
+    body = composeSystemOverview();
+  } else {
+    const mod = BRAIN_BY_ID[topic as Exclude<HowToTopic, 'overview'>];
+    body = mod ? composeFromModule(mod, shape) : composeSystemOverview();
+  }
+
+  if (!snap) return body;
+  const live = tenantLiveLinesForTopic(topic, snap);
+  return [
+    body,
+    '',
+    '**Live from your tenant**',
+    ...live.map((line) => `• ${line}`),
+    '',
+    '_Ask “what should I do next?” for actions ranked from this same data._',
+  ].join('\n');
+}
+
+/**
+ * Free-form brain pass grounded in tenant data when a module is mentioned.
+ */
+function answerFromBrain(prompt: string, snap?: TenantSnapshot | null): string | null {
+  const topic = detectHowToTopic(prompt);
+  if (topic === 'overview') return null;
+  const q = normalize(prompt);
+  const mod = BRAIN_BY_ID[topic as Exclude<HowToTopic, 'overview'>];
+  if (!mod) return null;
+  if (!promptMentionsModule(q, mod.aliases)) return null;
+  return answerHowTo(prompt, snap);
+}
+
+/** Always produce a tenant-grounded answer when intent is weak or unknown. */
+function answerTenantBrainFallback(prompt: string, snap: TenantSnapshot): string {
+  const searchHit = answerSearch(prompt, snap);
+  if (!searchHit.startsWith('No strong matches')) {
     return [
-      guide,
+      searchHit,
       '',
-      '_Tip: name the module for a full guide — e.g. “how to create a client” or “how to create a lead”._',
+      '**Also in your tenant**',
+      buildPulse(snap).split('\n').slice(0, 12).join('\n'),
     ].join('\n');
   }
-  return guide;
+
+  const topic = detectHowToTopic(prompt);
+  if (topic !== 'overview') {
+    return answerHowTo(prompt, snap);
+  }
+
+  const shape = detectQuestionShape(prompt);
+  if (shape === 'overview' || includesAny(normalize(prompt), ['help', 'what can you'])) {
+    return helpText(snap);
+  }
+
+  // Default: answer every leftover question with live pulse + next actions
+  return [
+    `I answered from **your live tenant data** for: “${prompt.trim()}”.`,
+    '',
+    buildPulse(snap),
+    '',
+    buildNextActions(snap),
+    '',
+    '_Tip: name a person/company to search, or ask about leads, jobs, candidates, interviews, tasks._',
+  ].join('\n');
 }
 
 function detectIntent(prompt: string, history: HrYantraChatMessage[] = []): ScoredIntent[] {
@@ -1921,13 +2246,11 @@ function answerFromSnapshot(
   const second = intents[1];
 
   if (!top || top.score < 1.5) {
-    const searchHit = answerSearch(prompt, snap);
-    if (!searchHit.startsWith('No strong matches')) return searchHit;
-    return ['I need a clearer CRM question.', '', helpText()].join('\n');
+    return answerTenantBrainFallback(prompt, snap);
   }
 
-  if (top.id === 'help') return helpText();
-  if (top.id === 'howto') return answerHowTo(prompt);
+  if (top.id === 'help') return helpText(snap);
+  if (top.id === 'howto') return answerHowTo(prompt, snap);
   if (top.id === 'pulse') {
     const body = buildPulse(snap);
     return snap.loadHealth.partial
@@ -1937,19 +2260,26 @@ function answerFromSnapshot(
   if (top.id === 'next_actions') return buildNextActions(snap);
   if (top.id === 'risks') return buildRisks(snap);
   if (top.id === 'compare') return buildCompare(snap);
-  if (top.id === 'search') return answerSearch(prompt, snap);
+  if (top.id === 'search') {
+    const searchHit = answerSearch(prompt, snap);
+    if (!searchHit.startsWith('No strong matches')) return searchHit;
+    return answerTenantBrainFallback(prompt, snap);
+  }
 
   const entityAnswer = answerEntity(top.id, prompt, snap);
   if (entityAnswer) {
     if (second && second.score >= top.score * 0.7 && second.id !== top.id) {
       if (second.id === 'next_actions') {
-        return `${entityAnswer}\n\n_Tip: ask “what should I do next?” for a ranked plan._`;
+        return `${entityAnswer}\n\n_Tip: ask “what should I do next?” for a ranked plan from your tenant data._`;
       }
     }
     return entityAnswer;
   }
 
-  return answerSearch(prompt, snap);
+  const brainHit = answerFromBrain(prompt, snap);
+  if (brainHit) return brainHit;
+
+  return answerTenantBrainFallback(prompt, snap);
 }
 
 export async function askHrYantraLocalAssistant(
@@ -1958,19 +2288,39 @@ export async function askHrYantraLocalAssistant(
 ): Promise<string> {
   const rawQuestion = String(prompt || '').trim();
   if (!rawQuestion) {
-    return 'Ask anything — try “What should I do next?”, “How do I create a lead?”, or “Give me today’s pulse”.';
+    return 'Ask the Enterprise Brain anything about your CRM — try “Summarize business performance” or “How many open jobs?”.';
   }
 
   const spelling = correctSpelling(rawQuestion);
   const question = spelling.corrected;
 
-  // How-to / help answers don't need live CRM data — respond immediately.
-  const early = detectIntent(question, history)[0];
-  if (early && early.score >= 1.5) {
-    if (early.id === 'howto') return withSpellingNote(answerHowTo(question), spelling);
-    if (early.id === 'help') return withSpellingNote(helpText(), spelling);
+  // 1) Enterprise Brain (Phase 2 backend) — RAG + tools + RBAC + audit
+  try {
+    const prior = history
+      .filter((m) => m.id !== 'welcome' && (m.role === 'user' || m.role === 'assistant'))
+      .slice(-18)
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+    const res = await apiBrainAsk({
+      question,
+      sessionKey: 'hryantra-ui',
+      pathname: typeof window !== 'undefined' ? window.location.pathname : undefined,
+      messages: prior,
+    });
+
+    const reply = String(res.data?.reply || '').trim();
+    if (reply) {
+      return withSpellingNote(reply, spelling);
+    }
+  } catch (error: any) {
+    const message = String(error?.message || error || '');
+    if (/auth|login|token|401|403/i.test(message) && !/brain_ask|Forbidden: missing/i.test(message)) {
+      return 'Please sign in to use the HRYANTRA Brain. I need your tenant session.';
+    }
+    // Fall through to local tenant composition if Brain route is down.
   }
 
+  // 2) Local tenant fallback (same browser session APIs)
   try {
     const forceRefresh = /fresh|reload|refresh|latest|live now/i.test(question);
     const snap = await loadTenantSnapshot(forceRefresh);
@@ -1980,23 +2330,19 @@ export async function askHrYantraLocalAssistant(
     if (/auth|login|token/i.test(message)) {
       return 'Please sign in to use HRYantra AI. I need your tenant session to read CRM data.';
     }
-    return `I could not load tenant data right now. ${message || 'Try again in a moment.'}`;
+    return `I could not reach the Brain or load tenant data. ${message || 'Try again in a moment.'}`;
   }
 }
 
 export const HRYANTRA_AI_SUGGESTIONS = [
+  { label: 'Performance', prompt: 'Summarize business performance' },
   { label: 'Do next', prompt: 'What should I do next?' },
-  { label: 'How-to', prompt: 'How do I use HRYantra? Show system guides' },
-  { label: 'Pipeline', prompt: 'How does Pipeline work?' },
-  { label: 'Matches', prompt: 'How do Matches work?' },
-  { label: 'Tasks', prompt: 'How do Tasks & Activities work?' },
-  { label: 'Inbox', prompt: 'How does Inbox work?' },
-  { label: 'Billing', prompt: 'How does billing work?' },
-  { label: 'Approvals', prompt: 'How do Approvals work?' },
-  { label: 'Settings', prompt: 'How do Settings work?' },
-  { label: 'Create lead', prompt: 'How do I create a lead?' },
-  { label: 'Add client', prompt: 'How do I add a client?' },
+  { label: 'Open jobs', prompt: 'How many open jobs do we have?' },
+  { label: 'Candidates', prompt: 'Report on candidates' },
+  { label: 'Follow-ups', prompt: 'Show overdue follow-ups' },
+  { label: 'Schema', prompt: 'Show schema for placements' },
+  { label: 'Leads report', prompt: 'Generate a leads report' },
+  { label: 'Interviews', prompt: 'Interviews this week' },
   { label: 'Risks', prompt: 'Where are the risks today?' },
-  { label: 'Pulse', prompt: 'Give me today’s recruiting pulse' },
   { label: 'Help', prompt: 'What can you do?' },
 ];

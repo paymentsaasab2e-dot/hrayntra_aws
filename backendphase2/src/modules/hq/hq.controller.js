@@ -262,6 +262,15 @@ export const hqController = {
     }
   },
 
+  async getAnalytics(req, res) {
+    try {
+      const result = await hqService.getAnalytics(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async deletePortalJob(req, res) {
     try {
       const jobId = String(req.params?.id || '').trim();

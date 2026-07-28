@@ -15,6 +15,15 @@ export type DashboardLayoutV2 = {
   modules: Partial<Record<ModuleTabKey, ModuleCommandCenterLayout>>;
   /** Module tabs hidden by the user (persisted per user). */
   hiddenTabs?: ModuleTabKey[];
+  /** Enterprise Smart Dashboard preferences. */
+  enterprise?: {
+    hiddenSections?: string[];
+    compact?: boolean;
+  };
+  /** CRM Leads & Clients dashboard preferences. */
+  crm?: {
+    hiddenSections?: string[];
+  };
 };
 
 const EMPTY_MODULE: ModuleCommandCenterLayout = {
@@ -76,6 +85,8 @@ export function parseDashboardLayout(raw: unknown): DashboardLayoutV2 {
       version: 2,
       modules: layout.modules || {},
       hiddenTabs: Array.isArray(layout.hiddenTabs) ? layout.hiddenTabs : [],
+      enterprise: layout.enterprise && typeof layout.enterprise === 'object' ? layout.enterprise : undefined,
+      crm: layout.crm && typeof layout.crm === 'object' ? layout.crm : undefined,
     };
   }
   return createEmptyLayout();
@@ -216,6 +227,8 @@ export function serializeLayout(layout: DashboardLayoutV2): DashboardLayoutV2 {
     version: 2,
     modules: { ...layout.modules },
     hiddenTabs: [...(layout.hiddenTabs || [])],
+    enterprise: layout.enterprise ? { ...layout.enterprise } : undefined,
+    crm: layout.crm ? { ...layout.crm } : undefined,
   };
 }
 
@@ -250,5 +263,11 @@ export function filterLayoutByAllowedDatasets(
     };
   }
   const hiddenTabs = (layout.hiddenTabs || []).filter((tab) => permittedTabKeys.has(tab));
-  return { version: 2, modules, hiddenTabs };
+  return {
+    version: 2,
+    modules,
+    hiddenTabs,
+    enterprise: layout.enterprise ? { ...layout.enterprise } : undefined,
+    crm: layout.crm ? { ...layout.crm } : undefined,
+  };
 }

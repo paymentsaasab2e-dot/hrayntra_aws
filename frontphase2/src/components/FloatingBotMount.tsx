@@ -11,7 +11,7 @@ const FloatingBotButton = dynamic(
   },
 );
 
-/** HRYantra AI — tenant CRM Q&A without OpenAI / external AI API keys. */
+/** HRYANTRA Enterprise Brain — Phase 2 orchestration over tenant CRM (local fallback). */
 const HrYantraAiFloatingButton = dynamic(
   () => import('./HrYantraAiFloatingButton').then((mod) => mod.HrYantraAiFloatingButton),
   {
