@@ -1,12 +1,17 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
-const { generateOTP, getOTPExpiration, isOTPExpired } = require('../utils/otp.util');
+const { generateOTP, getOTPExpiration, isOTPExpired, normalizeOtpInput, otpMatches } = require('../utils/otp.util');
 const { generateCandidateIdFromEmail } = require('../utils/candidate.util');
 const { sendOTPEmail } = require('../services/email.service');
+const { resolveWhatsAppLogin, whatsappNumbersMatch, normalizeE164 } = require('../utils/phone.util');
 const { OtpStatus } = require('@prisma/client');
 const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const {
+  buildSessionTrackingFields,
+  buildSessionClosePatch,
+} = require('../utils/session-tracking.util');
 
 const MIN_PASSWORD_LENGTH = 8;
 const RETURNING_USER_MS = 60_000;
@@ -23,19 +28,136 @@ function issueCandidateToken(candidate) {
   );
 }
 
+/** Persist extended session analytics even if Prisma client is stale. */
+async function patchSessionAnalytics(tokenOrId, patch, byToken = true) {
+  try {
+    const filter = byToken ? { token: tokenOrId } : { _id: { $oid: tokenOrId } };
+    await prisma.$runCommandRaw({
+      update: 'sessions',
+      updates: [
+        {
+          q: filter,
+          u: { $set: patch },
+        },
+      ],
+    });
+  } catch (err) {
+    console.warn('⚠️ Failed to patch session analytics:', err?.message || err);
+  }
+}
+
 async function createCandidateSession(req, candidateId, token) {
   try {
-    await prisma.session.create({
-      data: {
-        candidateId,
-        token,
-        userAgent: req.headers['user-agent'] || 'unknown',
-        ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
-    });
+    const tracking = buildSessionTrackingFields(req, req.body || {});
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    try {
+      await prisma.session.create({
+        data: {
+          candidateId,
+          token,
+          expiresAt,
+          ...tracking,
+        },
+      });
+    } catch (fullCreateError) {
+      // Stale Prisma client (pre-tracking fields): create core row, then raw $set analytics.
+      await prisma.session.create({
+        data: {
+          candidateId,
+          token,
+          userAgent: tracking.userAgent,
+          ipAddress: tracking.ipAddress,
+          expiresAt,
+        },
+      });
+      await patchSessionAnalytics(token, {
+        loginAt: tracking.loginAt,
+        logoutAt: null,
+        durationMs: null,
+        deviceType: tracking.deviceType,
+        browser: tracking.browser,
+        operatingSystem: tracking.operatingSystem,
+        country: tracking.country,
+        state: tracking.state,
+        city: tracking.city,
+        timezone: tracking.timezone,
+        isActive: true,
+      });
+      console.warn(
+        '⚠️ Session created with analytics patch (run prisma generate when backend is free):',
+        fullCreateError.message
+      );
+    }
   } catch (sessionError) {
     console.error('⚠️ Failed to create session record:', sessionError.message);
+  }
+}
+
+/**
+ * Close the current session (or all sessions) and keep history for HQ analytics.
+ * POST /api/auth/logout
+ */
+async function logout(req, res) {
+  try {
+    const candidateId = req.user?.candidateId || req.user?.id;
+    if (!candidateId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const token =
+      req.headers.authorization?.split(' ')[1] ||
+      req.body?.token ||
+      null;
+    const logoutAll = Boolean(req.body?.logoutAll);
+    const now = new Date();
+
+    const closeOne = async (session) => {
+      const closePatch = buildSessionClosePatch(session, now);
+      const revokedToken = `revoked_${session.id}_${now.getTime()}`;
+      try {
+        await prisma.session.update({
+          where: { id: session.id },
+          data: {
+            ...closePatch,
+            token: revokedToken,
+          },
+        });
+      } catch {
+        await patchSessionAnalytics(
+          session.token,
+          {
+            isActive: false,
+            logoutAt: now,
+            durationMs: closePatch.durationMs,
+            lastUsedAt: now,
+            token: revokedToken,
+          },
+          true
+        );
+      }
+    };
+
+    if (logoutAll) {
+      const sessions = await prisma.session.findMany({
+        where: { candidateId },
+      });
+      const active = sessions.filter((s) => s.isActive !== false);
+      await Promise.all((active.length ? active : sessions).map((s) => closeOne(s)));
+    } else if (token) {
+      const session = await prisma.session.findUnique({ where: { token } });
+      if (session && session.candidateId === candidateId) {
+        await closeOne(session);
+      }
+    }
+
+    return res.json({ success: true, message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Error logging out:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to logout',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
   }
 }
 
@@ -130,12 +252,20 @@ async function detachLoginIdentifiersFromCandidate(candidate, { normalizedEmail,
   if (Object.keys(patch).length === 0) {
     return;
   }
-  await retryQuery(async () => {
-    return await prisma.candidate.update({
-      where: { id: candidate.id },
-      data: patch,
+  try {
+    await retryQuery(async () => {
+      return await prisma.candidate.update({
+        where: { id: candidate.id },
+        data: patch,
+      });
     });
-  });
+  } catch (error) {
+    if (error.code === 'P2002' || error.code === 'P2034') {
+      console.warn('⚠️ Non-critical: candidate identifier detach skipped:', error.message);
+      return;
+    }
+    throw error;
+  }
 }
 
 async function updateCandidateLoginFields(candidate, { normalizedEmail, fullWhatsAppNumber, countryCode }) {
@@ -148,16 +278,229 @@ async function updateCandidateLoginFields(candidate, { normalizedEmail, fullWhat
     return candidate;
   }
 
-  return retryQuery(async () => {
-    return await prisma.candidate.update({
-      where: { id: candidate.id },
-      data: {
-        email: normalizedEmail,
-        countryCode,
-        whatsappNumber: fullWhatsAppNumber,
-      },
+  try {
+    return await retryQuery(async () => {
+      return await prisma.candidate.update({
+        where: { id: candidate.id },
+        data: {
+          email: normalizedEmail,
+          countryCode,
+          whatsappNumber: fullWhatsAppNumber,
+        },
+      });
     });
+  } catch (error) {
+    if (error.code === 'P2002' || error.code === 'P2034') {
+      console.warn('⚠️ Non-critical: candidate login field merge skipped:', error.message);
+      return candidate;
+    }
+    throw error;
+  }
+}
+
+async function findCandidateByWhatsApp(fullWhatsAppNumber) {
+  const normalized = normalizeE164(fullWhatsAppNumber);
+  if (!normalized) return null;
+
+  const exact = await retryQuery(async () =>
+    prisma.candidate.findUnique({
+      where: { whatsappNumber: normalized },
+    }),
+  );
+  if (exact) return exact;
+
+  const digits = normalized.slice(1);
+  const legacyMatches = await retryQuery(async () =>
+    prisma.candidate.findMany({
+      where: {
+        whatsappNumber: {
+          in: [normalized, digits, `+${digits}`].filter(Boolean),
+        },
+      },
+      take: 5,
+    }),
+  );
+
+  return legacyMatches.find((row) => whatsappNumbersMatch(row.whatsappNumber, normalized)) || null;
+}
+
+async function collectLinkedCandidates({ candidateId, normalizedEmail, fullWhatsAppNumber }) {
+  const [byEmail, byId, byWhatsApp] = await Promise.all([
+    retryQuery(async () =>
+      prisma.candidate.findFirst({
+        where: { email: normalizedEmail },
+      }),
+    ),
+    retryQuery(async () =>
+      prisma.candidate.findUnique({
+        where: { id: candidateId },
+      }),
+    ),
+    findCandidateByWhatsApp(fullWhatsAppNumber),
+  ]);
+
+  const linked = new Map();
+  for (const row of [byEmail, byId, byWhatsApp]) {
+    if (row) linked.set(row.id, row);
+  }
+  return linked;
+}
+
+async function expirePendingOtpsForCandidates(candidateIds) {
+  const uniqueIds = [...new Set(candidateIds.filter(Boolean))];
+  if (!uniqueIds.length) return;
+
+  await retryQuery(async () =>
+    prisma.otpVerification.updateMany({
+      where: {
+        candidateId: { in: uniqueIds },
+        status: OtpStatus.PENDING,
+      },
+      data: {
+        status: OtpStatus.EXPIRED,
+      },
+    }),
+  );
+}
+
+async function findLatestValidPendingOtp({ candidateIds, preferredCandidateId }) {
+  const now = new Date();
+  const uniqueIds = [...new Set(candidateIds.filter(Boolean))];
+  if (!uniqueIds.length) {
+    return null;
+  }
+
+  await retryQuery(async () =>
+    prisma.otpVerification.updateMany({
+      where: {
+        candidateId: { in: uniqueIds },
+        status: OtpStatus.PENDING,
+        expiresAt: { lte: now },
+      },
+      data: { status: OtpStatus.EXPIRED },
+    }),
+  );
+
+  if (preferredCandidateId && uniqueIds.includes(preferredCandidateId)) {
+    const preferredOtp = await retryQuery(async () =>
+      prisma.otpVerification.findFirst({
+        where: {
+          candidateId: preferredCandidateId,
+          status: OtpStatus.PENDING,
+          expiresAt: { gt: now },
+        },
+        orderBy: { createdAt: 'desc' },
+        include: { candidate: true },
+      }),
+    );
+    if (preferredOtp) return preferredOtp;
+  }
+
+  return retryQuery(async () =>
+    prisma.otpVerification.findFirst({
+      where: {
+        candidateId: { in: uniqueIds },
+        status: OtpStatus.PENDING,
+        expiresAt: { gt: now },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { candidate: true },
+    }),
+  );
+}
+
+async function findMatchingValidPendingOtp({ candidateIds, submittedOtp, normalizedEmail, fullWhatsAppNumber }) {
+  const now = new Date();
+  const uniqueIds = [...new Set(candidateIds.filter(Boolean))];
+  const normalizedSubmitted = normalizeOtpInput(submittedOtp);
+
+  if (!normalizedSubmitted) {
+    return null;
+  }
+
+  if (uniqueIds.length) {
+    await retryQuery(async () =>
+      prisma.otpVerification.updateMany({
+        where: {
+          candidateId: { in: uniqueIds },
+          status: OtpStatus.PENDING,
+          expiresAt: { lte: now },
+        },
+        data: { status: OtpStatus.EXPIRED },
+      }),
+    );
+  }
+
+  const validWhere = {
+    status: OtpStatus.PENDING,
+    expiresAt: { gt: now },
+    OR: [
+      ...(uniqueIds.length ? [{ candidateId: { in: uniqueIds } }] : []),
+      ...(normalizedEmail ? [{ candidate: { email: normalizedEmail } }] : []),
+      ...(fullWhatsAppNumber ? [{ candidate: { whatsappNumber: fullWhatsAppNumber } }] : []),
+    ],
+  };
+
+  if (!validWhere.OR.length) {
+    return null;
+  }
+
+  const validOtps = await retryQuery(async () =>
+    prisma.otpVerification.findMany({
+      where: validWhere,
+      orderBy: { createdAt: 'desc' },
+      include: { candidate: true },
+      take: 20,
+    }),
+  );
+
+  return validOtps.find((row) => otpMatches(row.otp, normalizedSubmitted)) || null;
+}
+
+async function findPendingOtpForLogin({
+  candidateId,
+  normalizedEmail,
+  fullWhatsAppNumber,
+  submittedOtp,
+}) {
+  const linked = await collectLinkedCandidates({
+    candidateId,
+    normalizedEmail,
+    fullWhatsAppNumber,
   });
+  const candidateIds = [...linked.keys()];
+
+  if (submittedOtp) {
+    const matchedOTP = await findMatchingValidPendingOtp({
+      candidateIds,
+      submittedOtp,
+      normalizedEmail,
+      fullWhatsAppNumber,
+    });
+    if (matchedOTP) {
+      return {
+        candidate: matchedOTP.candidate,
+        latestOTP: matchedOTP,
+        linkedCandidateIds: candidateIds,
+      };
+    }
+  }
+
+  const latestOTP = await findLatestValidPendingOtp({
+    candidateIds,
+    preferredCandidateId: candidateId,
+  });
+
+  if (!latestOTP) {
+    const primary = linked.get(candidateId) || linked.values().next().value || null;
+    return { candidate: primary, latestOTP: null, linkedCandidateIds: candidateIds };
+  }
+
+  return {
+    candidate: latestOTP.candidate,
+    latestOTP,
+    linkedCandidateIds: candidateIds,
+  };
 }
 
 /**
@@ -181,11 +524,7 @@ async function getOrCreateCandidateForOtp({
         where: { id: candidateId },
       }),
     ),
-    retryQuery(async () =>
-      prisma.candidate.findUnique({
-        where: { whatsappNumber: fullWhatsAppNumber },
-      }),
-    ),
+    findCandidateByWhatsApp(fullWhatsAppNumber),
   ]);
 
   const linked = new Map();
@@ -234,8 +573,8 @@ async function getOrCreateCandidateForOtp({
     }
   }
 
-  // Prefer the WhatsApp-linked row (unique phone), then email-id row, then email match.
-  const primary = byWhatsApp || byId || byEmail;
+  // Prefer deterministic email-hash row, then WhatsApp-linked row, then email match.
+  const primary = byId || byWhatsApp || byEmail;
   if (!primary) {
     throw new Error('Failed to resolve candidate for OTP login');
   }
@@ -333,22 +672,29 @@ async function sendOTP(req, res) {
       resolvedCountryCode = countryCode;
     }
 
+    const resolvedPhone = resolveWhatsAppLogin({
+      countryCode: resolvedCountryCode,
+      whatsappNumber: cleanNumber,
+      existingFullNumber: fullWhatsAppNumber || undefined,
+    });
+    resolvedCountryCode = resolvedPhone.dialCode;
+    cleanNumber = resolvedPhone.localNumber;
+    fullWhatsAppNumber = resolvedPhone.fullWhatsAppNumber;
+
     if (intent === 'login') {
       // Password-or-OTP sign-in: resolve account by phone (email optional / already resolved)
       if (!existingAccount) {
-        existingAccount = await retryQuery(async () => {
-          return await prisma.candidate.findUnique({
-            where: { whatsappNumber: fullWhatsAppNumber },
-            select: {
-              id: true,
-              email: true,
-              isVerified: true,
-              passwordHash: true,
-              countryCode: true,
-              whatsappNumber: true,
-            },
-          });
-        });
+        existingAccount = await findCandidateByWhatsApp(fullWhatsAppNumber);
+        if (existingAccount) {
+          existingAccount = {
+            id: existingAccount.id,
+            email: existingAccount.email,
+            isVerified: existingAccount.isVerified,
+            passwordHash: existingAccount.passwordHash,
+            countryCode: existingAccount.countryCode,
+            whatsappNumber: existingAccount.whatsappNumber,
+          };
+        }
       }
 
       if (!existingAccount || !existingAccount.isVerified) {
@@ -415,18 +761,13 @@ async function sendOTP(req, res) {
       countryCode: resolvedCountryCode,
     });
     console.log('Candidate ready for OTP flow:', candidate.id);
-    // Invalidate all previous pending OTPs for this candidate
-    await retryQuery(async () => {
-      return await prisma.otpVerification.updateMany({
-        where: {
-          candidateId: candidate.id,
-          status: OtpStatus.PENDING,
-        },
-        data: {
-          status: OtpStatus.EXPIRED,
-        },
-      });
+
+    const linkedForOtp = await collectLinkedCandidates({
+      candidateId,
+      normalizedEmail,
+      fullWhatsAppNumber,
     });
+    await expirePendingOtpsForCandidates([...linkedForOtp.keys()]);
 
     // Generate new OTP
     const otp = generateOTP();
@@ -437,7 +778,7 @@ async function sendOTP(req, res) {
       return await prisma.otpVerification.create({
         data: {
           candidateId: candidate.id,
-          otp: otp,
+          otp: normalizeOtpInput(otp),
           status: OtpStatus.PENDING,
           expiresAt: expiresAt,
         },
@@ -445,7 +786,7 @@ async function sendOTP(req, res) {
     });
 
     // Send OTP via email using Resend
-    const emailResult = await sendOTPEmail(otp, normalizedEmail, fullWhatsAppNumber);
+    const emailResult = await sendOTPEmail(normalizeOtpInput(otp), normalizedEmail, fullWhatsAppNumber);
     
     if (!emailResult.success) {
       console.error('Failed to send OTP email:', emailResult.error);
@@ -495,7 +836,7 @@ async function sendOTP(req, res) {
  */
 async function verifyOTP(req, res) {
   try {
-    const { whatsappNumber, countryCode, otp, email } = req.body;
+    const { whatsappNumber, countryCode, otp, email, candidateId: requestedCandidateId } = req.body;
 
     if (!whatsappNumber || !countryCode || !otp || !email) {
       return res.status(400).json({
@@ -514,7 +855,12 @@ async function verifyOTP(req, res) {
     }
 
     const cleanNumber = whatsappNumber.replace(/\D/g, '');
-    const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
+    const resolvedPhone = resolveWhatsAppLogin({
+      countryCode,
+      whatsappNumber: cleanNumber,
+    });
+    const fullWhatsAppNumber = resolvedPhone.fullWhatsAppNumber;
+    const dialCode = resolvedPhone.dialCode;
 
     const candidateId = generateCandidateIdFromEmail(normalizedEmail);
     console.log(
@@ -526,88 +872,41 @@ async function verifyOTP(req, res) {
       candidateId,
     );
 
+    const normalizedSubmittedOtp = normalizeOtpInput(otp);
+    if (!normalizedSubmittedOtp || normalizedSubmittedOtp.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid 6-digit OTP',
+      });
+    }
+
     let candidate = await getOrCreateCandidateForOtp({
       candidateId,
       normalizedEmail,
       fullWhatsAppNumber,
-      countryCode,
+      countryCode: dialCode,
     });
     console.log('Candidate found:', candidate.id);
-    // Now find the latest pending OTP for this candidate
-    console.log('Looking for pending OTP for candidate:', candidate.id);
-    let latestOTP = await retryQuery(async () => {
-      return await prisma.otpVerification.findFirst({
-        where: {
-          candidateId: candidate.id,
-          status: OtpStatus.PENDING,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
+    console.log('Looking for matching OTP across linked candidates');
+
+    const pendingOtpResult = await findPendingOtpForLogin({
+      candidateId,
+      normalizedEmail,
+      fullWhatsAppNumber,
+      submittedOtp: normalizedSubmittedOtp,
     });
+    candidate = pendingOtpResult.candidate || candidate;
+    let latestOTP = pendingOtpResult.latestOTP;
 
-    // If no OTP found for this candidate, try to find any pending OTP for this WhatsApp number
-    // (in case OTP was created with a different candidate ID)
     if (!latestOTP) {
-      console.log('No OTP found for candidate, searching by WhatsApp number...');
-      const otpWithCandidate = await retryQuery(async () => {
-        return await prisma.otpVerification.findFirst({
-          where: {
-            status: OtpStatus.PENDING,
-            candidate: {
-              whatsappNumber: fullWhatsAppNumber,
-            },
-          },
-          include: {
-            candidate: true,
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        });
-      });
-
-      if (otpWithCandidate) {
-        console.log('Found OTP with different candidate, using that candidate:', otpWithCandidate.candidate.id);
-        // Update candidate reference to use the one that has the OTP
-        candidate = otpWithCandidate.candidate;
-        latestOTP = otpWithCandidate;
-      }
-    }
-
-    if (latestOTP) {
-      console.log('Found pending OTP, expires at:', latestOTP.expiresAt);
-    } else {
-      console.log('No pending OTP found');
+      console.log('No valid pending OTP matched submitted code');
       return res.status(400).json({
         success: false,
-        message: 'No pending OTP found. Please request a new OTP.',
+        message: 'Invalid OTP. Please try again or request a new OTP.',
       });
     }
 
-    // Check if OTP is expired
-    if (isOTPExpired(latestOTP.expiresAt)) {
-      await retryQuery(async () => {
-        return await prisma.otpVerification.update({
-          where: { id: latestOTP.id },
-          data: { status: OtpStatus.EXPIRED },
-        });
-      });
-
-      return res.status(400).json({
-        success: false,
-        message: 'OTP has expired. Please request a new OTP.',
-      });
-    }
-
-    // Verify OTP
-    if (latestOTP.otp !== otp) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid OTP. Please try again.',
-      });
-    }
+    console.log('Found matching pending OTP, expires at:', latestOTP.expiresAt);
 
     // Mark OTP as verified
     await retryQuery(async () => {
@@ -624,7 +923,7 @@ async function verifyOTP(req, res) {
           isVerified: true,
           email: normalizedEmail,
           whatsappNumber: fullWhatsAppNumber,
-          countryCode,
+          countryCode: dialCode,
         },
       });
     });
@@ -728,7 +1027,12 @@ async function resendOTP(req, res) {
 
     // Clean phone number
     const cleanNumber = whatsappNumber.replace(/\D/g, '');
-    const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
+    const resolvedPhone = resolveWhatsAppLogin({
+      countryCode,
+      whatsappNumber: cleanNumber,
+    });
+    const fullWhatsAppNumber = resolvedPhone.fullWhatsAppNumber;
+    const dialCode = resolvedPhone.dialCode;
 
     const candidateId = generateCandidateIdFromEmail(normalizedEmail);
 
@@ -736,19 +1040,15 @@ async function resendOTP(req, res) {
       candidateId,
       normalizedEmail,
       fullWhatsAppNumber,
-      countryCode,
+      countryCode: dialCode,
     });
 
-    // Invalidate all previous pending OTPs
-    await prisma.otpVerification.updateMany({
-      where: {
-        candidateId: candidate.id,
-        status: OtpStatus.PENDING,
-      },
-      data: {
-        status: OtpStatus.EXPIRED,
-      },
+    const linkedForOtp = await collectLinkedCandidates({
+      candidateId,
+      normalizedEmail,
+      fullWhatsAppNumber,
     });
+    await expirePendingOtpsForCandidates([...linkedForOtp.keys()]);
 
     // Generate new OTP
     const otp = generateOTP();
@@ -758,14 +1058,14 @@ async function resendOTP(req, res) {
     await prisma.otpVerification.create({
       data: {
         candidateId: candidate.id,
-        otp: otp,
+        otp: normalizeOtpInput(otp),
         status: OtpStatus.PENDING,
         expiresAt: expiresAt,
       },
     });
 
     // Send OTP via email using Resend
-    const emailResult = await sendOTPEmail(otp, normalizedEmail, fullWhatsAppNumber);
+    const emailResult = await sendOTPEmail(normalizeOtpInput(otp), normalizedEmail, fullWhatsAppNumber);
     
     if (!emailResult.success) {
       console.error('Failed to resend OTP email:', emailResult.error);
@@ -987,6 +1287,7 @@ module.exports = {
   resendOTP,
   loginWithPassword,
   setPassword,
+  logout,
 };
 
 

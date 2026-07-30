@@ -7,7 +7,6 @@ import {
   RefreshCw,
   Search,
   Settings2,
-  Sparkles,
   Users,
 } from 'lucide-react';
 import type { CrmOverview } from '@/lib/dashboard/api';
@@ -213,13 +212,6 @@ export function CrmHeader({ overview, onRefresh }: Props) {
               </div>
             ) : null}
           </div>
-
-          <a
-            href="#crm-brain"
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 text-sm font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-700"
-          >
-            <Sparkles size={14} /> AI Assistant
-          </a>
         </div>
       </div>
     </header>

@@ -6,8 +6,10 @@ import {
   getCachedClientPageFieldVisibility,
   type ClientPageFieldVisibility,
 } from '../lib/clientPageFieldVisibility';
+import { useClientPageFieldVisibilityOverride } from '../components/hq/ClientPageFieldVisibilityOverride';
 
 export function useClientPageFieldVisibility(): ClientPageFieldVisibility {
+  const override = useClientPageFieldVisibilityOverride();
   const [visibility, setVisibility] = useState<ClientPageFieldVisibility>(() =>
     getCachedClientPageFieldVisibility(),
   );
@@ -17,6 +19,7 @@ export function useClientPageFieldVisibility(): ClientPageFieldVisibility {
   }, []);
 
   useEffect(() => {
+    if (override) return;
     refresh();
     let cancelled = false;
 
@@ -35,7 +38,7 @@ export function useClientPageFieldVisibility(): ClientPageFieldVisibility {
       cancelled = true;
       window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, refresh);
     };
-  }, [refresh]);
+  }, [override, refresh]);
 
-  return visibility;
+  return override ?? visibility;
 }

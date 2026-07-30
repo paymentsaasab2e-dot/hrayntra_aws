@@ -9,8 +9,7 @@ export type CrmSectionId =
   | 'tables'
   | 'followups'
   | 'team'
-  | 'alerts'
-  | 'brain';
+  | 'alerts';
 
 export const CRM_SECTIONS: Array<{ id: CrmSectionId; label: string }> = [
   { id: 'kpis', label: 'KPI Cards' },
@@ -19,7 +18,6 @@ export const CRM_SECTIONS: Array<{ id: CrmSectionId; label: string }> = [
   { id: 'followups', label: 'Follow-ups' },
   { id: 'team', label: 'Team Performance' },
   { id: 'alerts', label: 'Alerts' },
-  { id: 'brain', label: 'AI Assistant' },
 ];
 
 type CrmDashboardContextValue = {

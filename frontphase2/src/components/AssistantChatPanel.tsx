@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { Loader2, Send } from 'lucide-react';
+import { Loader2, Lock, Send } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   apiAssistantChat,
@@ -11,6 +11,12 @@ import {
   type AssistantHistoryRecord,
   type AssistantStructuredResponse,
 } from '../lib/api';
+import {
+  AiCoinLockBanner,
+  isInsufficientCoinsError,
+  useTenantCoins,
+} from './coins/TenantCoinsContext';
+import { AiCoinLockBadge, useAiCoinGate } from './coins/AiCoinGate';
 
 export type UiChatMessage = AssistantChatMessage & {
   id: string;
@@ -177,6 +183,9 @@ export function AssistantChatPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<UiChatMessage[]>(messages);
+  const { isFeatureLocked, formatInsufficientMessage, refresh: refreshCoins } = useTenantCoins();
+  const assistantGate = useAiCoinGate('ai.assistant_chat');
+  const assistantLocked = isFeatureLocked('ai.assistant_chat');
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -234,6 +243,7 @@ export function AssistantChatPanel({
   const send = useCallback(async (prefilledText?: string) => {
     const text = (prefilledText ?? input).trim();
     if (!text || loading) return;
+    if (!assistantGate.confirmAndUnlock()) return;
     setError(null);
     if (!prefilledText) {
       setInput('');
@@ -248,6 +258,7 @@ export function AssistantChatPanel({
       const res = await apiAssistantChat({ messages: payload, pageKey, pathname });
       const reply = res.data?.message;
       if (!reply) throw new Error('No reply from ARIA');
+      void refreshCoins();
       const withAssistant = [...messagesRef.current, {
         id: newId(),
         role: 'assistant' as const,
@@ -263,13 +274,21 @@ export function AssistantChatPanel({
 
       onHistorySync?.(res.data?.history || null, res.data?.structured || null);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Something went wrong';
+      const coinMsg = formatInsufficientMessage(e);
+      const msg =
+        coinMsg ||
+        (isInsufficientCoinsError(e)
+          ? 'Not enough AI coins. Contact HQ to top up.'
+          : e instanceof Error
+            ? e.message
+            : 'Something went wrong');
       setError(msg);
+      if (isInsufficientCoinsError(e)) void refreshCoins();
     } finally {
       setLoading(false);
       textareaRef.current?.focus();
     }
-  }, [input, loading, onHistorySync, pageKey, pathname, setMessages]);
+  }, [input, loading, assistantGate, onHistorySync, pageKey, pathname, setMessages, refreshCoins, formatInsufficientMessage]);
 
   const handleUndo = async (actionId: string) => {
     if (
@@ -579,6 +598,8 @@ export function AssistantChatPanel({
         <div ref={bottomRef} />
       </div>
 
+      {assistantLocked ? <AiCoinLockBanner featureId="ai.assistant_chat" className="mt-2" /> : null}
+
       {error ? (
         <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {error}
@@ -591,7 +612,7 @@ export function AssistantChatPanel({
           value={input}
           onChange={(e) => setInput(normalizePromptInput(e.target.value))}
           onKeyDown={onKeyDown}
-          placeholder="Ask the system operator..."
+          placeholder={assistantLocked ? 'AI locked — ask HQ for coins…' : 'Ask the system operator...'}
           rows={2}
           disabled={loading}
           className="min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
@@ -600,10 +621,24 @@ export function AssistantChatPanel({
           type="button"
           onClick={() => void send()}
           disabled={loading || !input.trim()}
-          className="flex shrink-0 items-center justify-center self-end rounded-xl bg-blue-600 px-4 py-2 text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className={`flex shrink-0 items-center justify-center gap-1 self-end rounded-xl px-4 py-2 text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            assistantLocked ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+          }`}
           aria-label="Send message"
+          title={
+            assistantLocked
+              ? `Locked — needs ${assistantGate.cost} coins`
+              : `Spend ${assistantGate.cost} coins`
+          }
         >
-          {loading ? <Loader2 className="size-5 animate-spin" /> : <Send className="size-5" />}
+          {loading ? (
+            <Loader2 className="size-5 animate-spin" />
+          ) : assistantLocked ? (
+            <Lock className="size-5" />
+          ) : (
+            <Send className="size-5" />
+          )}
+          <AiCoinLockBadge featureId="ai.assistant_chat" />
         </button>
       </div>
 

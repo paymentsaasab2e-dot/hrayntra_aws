@@ -1,45 +1,94 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { CalendarClock, Clock, Loader2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { CalendarPlus, Check, Loader2, X } from 'lucide-react';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { formatFollowUpDisplay } from '../../utils/formatLeadDateTime';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
-import { apiGetLeadActivities, type BackendActivity } from '../../lib/api';
+import {
+  apiCompleteLeadFollowUp,
+  apiGetLeadActivities,
+  type BackendActivity,
+} from '../../lib/api';
+import { requestError, requestWarning } from '../../lib/appDialog';
+
+const FOLLOW_UP_SCHEDULE_LABEL = '__followUpSchedule';
 
 type FollowUpHistoryItem = {
   id: string;
   title: string;
   description: string;
   createdAt: string;
+  status: 'scheduled' | 'completed';
 };
 
-function isFollowUpActivity(activity: BackendActivity): boolean {
-  const haystack = `${activity.action || ''} ${activity.description || ''}`.toLowerCase();
-  return haystack.includes('follow-up') || haystack.includes('follow up');
+type FollowUpScheduleInfo = {
+  type?: string | null;
+  notes?: string | null;
+  meetLink?: string | null;
+  contact?: string | null;
+};
+
+function isCompletedActivity(activity: BackendActivity): boolean {
+  const action = `${activity.action || ''}`.toLowerCase();
+  const status = String((activity.metadata as any)?.status || '').toLowerCase();
+  return action.includes('completed') || status === 'completed';
+}
+
+function readFollowUpSchedule(
+  otherDetails?: Array<{ label: string; value: string }> | null,
+): FollowUpScheduleInfo | null {
+  if (!Array.isArray(otherDetails)) return null;
+  const row = otherDetails.find((item) => item && item.label === FOLLOW_UP_SCHEDULE_LABEL);
+  if (!row?.value) return null;
+  try {
+    const parsed = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      type: parsed.type || parsed.followUpType || null,
+      notes: parsed.notes || parsed.followUpNotes || null,
+      meetLink: parsed.meetLink || parsed.followUpMeetLink || null,
+      contact: parsed.contact || parsed.followUpContact || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function LeadFollowUpTabPanel({
   leadId,
   nextFollowUp,
   lastFollowUp,
+  otherDetails,
   onScheduled,
+  onCompleted,
 }: {
   leadId: string;
   nextFollowUp?: string | null;
   lastFollowUp?: string | null;
+  otherDetails?: Array<{ label: string; value: string }> | null;
   onScheduled?: () => void;
+  onCompleted?: () => void;
 }) {
-  const [history, setHistory] = useState<FollowUpHistoryItem[]>([]);
+  const [completedMeets, setCompletedMeets] = useState<FollowUpHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [remark, setRemark] = useState('');
+  const [completing, setCompleting] = useState(false);
+
+  const scheduleInfo = useMemo(() => readFollowUpSchedule(otherDetails), [otherDetails]);
+  const scheduledType = String(scheduleInfo?.type || 'Meet').trim() || 'Meet';
+  const hasScheduledMeet = Boolean(nextFollowUp);
 
   useEffect(() => {
     if (!leadId) return;
     let cancelled = false;
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     if (!token) {
-      setHistory([]);
+      setCompletedMeets([]);
       return;
     }
 
@@ -47,19 +96,28 @@ export function LeadFollowUpTabPanel({
     void apiGetLeadActivities(leadId)
       .then((response) => {
         if (cancelled) return;
-        const backendActivities = Array.isArray(response.data) ? response.data : [];
-        const items = backendActivities
-          .filter(isFollowUpActivity)
-          .map((activity) => ({
-            id: activity.id,
-            title: activity.action || 'Follow-up',
-            description: activity.description || activity.action || '',
-            createdAt: activity.createdAt,
-          }));
-        setHistory(items);
+        const all = Array.isArray(response.data) ? response.data : [];
+
+        const completed: FollowUpHistoryItem[] = [];
+
+        for (const activity of all) {
+          if (isCompletedActivity(activity)) {
+            const remarkText = String((activity.metadata as any)?.remark || '').trim();
+            const typeLabel = String((activity.metadata as any)?.type || 'Meet').trim();
+            completed.push({
+              id: activity.id,
+              title: `${typeLabel} Completed`,
+              description: remarkText,
+              createdAt: activity.createdAt,
+              status: 'completed',
+            });
+          }
+        }
+
+        setCompletedMeets(completed);
       })
       .catch(() => {
-        if (!cancelled) setHistory([]);
+        if (!cancelled) setCompletedMeets([]);
       })
       .finally(() => {
         if (!cancelled) setLoadingHistory(false);
@@ -71,73 +129,140 @@ export function LeadFollowUpTabPanel({
   }, [leadId, historyKey]);
 
   const handleSuccess = () => {
+    setScheduleOpen(false);
     setHistoryKey((k) => k + 1);
     onScheduled?.();
   };
 
+  const openCompleteModal = () => {
+    setRemark('');
+    setCompleteOpen(true);
+  };
+
+  const closeCompleteModal = () => {
+    if (completing) return;
+    setCompleteOpen(false);
+    setRemark('');
+  };
+
+  const handleCompleteMeet = async () => {
+    const trimmed = remark.trim();
+    if (!trimmed) {
+      void requestWarning('Please add a remark before marking the meet as done.');
+      return;
+    }
+    setCompleting(true);
+    try {
+      await apiCompleteLeadFollowUp(leadId, { remark: trimmed });
+      setCompleteOpen(false);
+      setRemark('');
+      setHistoryKey((k) => k + 1);
+      onCompleted?.();
+    } catch (error: any) {
+      void requestError(error?.message || 'Failed to mark meet as done');
+    } finally {
+      setCompleting(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <section className="rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-blue-50/60 p-4 shadow-sm">
-          <p className="inline-flex items-center gap-1.5 text-[0.7rem] font-bold uppercase tracking-[0.14em] text-sky-700">
-            <CalendarClock className="h-3.5 w-3.5" />
-            Next follow-up
-          </p>
-          <p className="mt-2 text-sm font-semibold text-slate-900">
-            {formatFollowUpDisplay(nextFollowUp) || 'Not scheduled'}
-          </p>
-        </section>
-        <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
-          <p className="inline-flex items-center gap-1.5 text-[0.7rem] font-bold uppercase tracking-[0.14em] text-slate-500">
-            <Clock className="h-3.5 w-3.5" />
-            Last contacted
-          </p>
-          <p className="mt-2 text-sm font-semibold text-slate-900">
-            {formatFollowUpDisplay(lastFollowUp) || '—'}
-          </p>
-        </section>
+      {/* Schedule button top-right */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setScheduleOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
+        >
+          <CalendarPlus className="h-3.5 w-3.5" />
+          Schedule
+        </button>
       </div>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <h3 className="text-sm font-bold text-slate-900">Schedule a follow-up</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Pick a type, date and time. This updates the lead’s next follow-up.
+      {/* Scheduled follow-ups section */}
+      <section>
+        <div className="mb-3">
+          <h3 className="text-sm font-bold text-slate-900">Scheduled follow-ups</h3>
+        </div>
+
+        {/* Current upcoming follow-up with Complete button */}
+        {hasScheduledMeet ? (
+          <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50/40 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 ring-1 ring-sky-200">
+                    {scheduledType}
+                  </span>
+                  <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
+                    Upcoming
+                  </span>
+                </div>
+                <p className="mt-2 text-sm font-semibold text-slate-900">
+                  {formatFollowUpDisplay(nextFollowUp)}
+                </p>
+                {scheduleInfo?.notes ? (
+                  <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{scheduleInfo.notes}</p>
+                ) : null}
+                {scheduleInfo?.meetLink ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    {'Meet link: '}
+                    <a
+                      href={scheduleInfo.meetLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-sky-700 underline-offset-2 hover:underline"
+                    >
+                      {scheduleInfo.meetLink}
+                    </a>
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={openCompleteModal}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Complete follow-up
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+            No follow-ups scheduled yet. Click Schedule above.
           </p>
-        </div>
-        <div className="px-4 pb-4 pt-2">
-          <ScheduleMeetingForm
-            entityType="lead"
-            entityId={leadId}
-            title=""
-            embedded
-            onSuccess={handleSuccess}
-          />
-        </div>
+        )}
       </section>
 
+      {/* Completed follow-ups section */}
       <section>
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-bold text-slate-900">Follow-up history</h3>
+          <h3 className="text-sm font-bold text-slate-900">Completed follow-ups</h3>
           {loadingHistory ? <Loader2 className="h-4 w-4 animate-spin text-sky-600" /> : null}
         </div>
-        {loadingHistory && history.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-            Loading history…
+        {loadingHistory && completedMeets.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+            Loading...
           </p>
-        ) : history.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-            No follow-ups scheduled yet. Use the form above to schedule one.
+        ) : completedMeets.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+            No completed follow-ups yet.
           </p>
         ) : (
-          <div className="space-y-3">
-            {history.map((item) => (
+          <div className="space-y-2">
+            {completedMeets.map((item) => (
               <div
                 key={item.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                    <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
+                      Done
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-500">{formatDateTimeDMY(item.createdAt)}</p>
                 </div>
                 {item.description ? (
@@ -148,6 +273,148 @@ export function LeadFollowUpTabPanel({
           </div>
         )}
       </section>
+
+      {/* Schedule follow-up popup */}
+      {scheduleOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]"
+                aria-label="Close"
+                onClick={() => setScheduleOpen(false)}
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="schedule-followup-title"
+                className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <h2 id="schedule-followup-title" className="text-base font-bold text-slate-900">
+                      Schedule a follow-up
+                    </h2>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Pick a type, date and time.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleOpen(false)}
+                    className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    aria-label="Close dialog"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+                  <ScheduleMeetingForm
+                    entityType="lead"
+                    entityId={leadId}
+                    title=""
+                    embedded
+                    onSuccess={handleSuccess}
+                    onCancel={() => setScheduleOpen(false)}
+                  />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {/* Complete meet popup */}
+      {completeOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]"
+                aria-label="Close"
+                onClick={closeCompleteModal}
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="complete-meet-title"
+                className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <h2 id="complete-meet-title" className="text-base font-bold text-slate-900">
+                      Complete a meet
+                    </h2>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Add a remark, then mark this scheduled meet as done.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeCompleteModal}
+                    disabled={completing}
+                    className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                    aria-label="Close dialog"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="space-y-3 px-5 py-4">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p className="text-[0.7rem] font-bold uppercase tracking-wider text-slate-500">
+                      Scheduled
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">
+                      {scheduledType} &middot; {formatFollowUpDisplay(nextFollowUp)}
+                    </p>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="complete-meet-remark"
+                      className="mb-1.5 block text-sm font-medium text-slate-800"
+                    >
+                      Remark <span className="text-rose-500">*</span>
+                    </label>
+                    <textarea
+                      id="complete-meet-remark"
+                      rows={4}
+                      value={remark}
+                      onChange={(e) => setRemark(e.target.value)}
+                      placeholder="What was discussed / outcome of the meet..."
+                      className="min-h-[100px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
+                      disabled={completing}
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={closeCompleteModal}
+                    disabled={completing}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleCompleteMeet()}
+                    disabled={completing}
+                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {completing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4" />
+                    )}
+                    {completing ? 'Marking done...' : 'Mark as done'}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

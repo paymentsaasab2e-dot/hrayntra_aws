@@ -348,6 +348,18 @@ export const leadController = {
     }
   },
 
+  async completeFollowUp(req, res) {
+    try {
+      const lead = await leadService.completeFollowUp(req.params.id, {
+        remark: req.body?.remark,
+        performedById: req.user.id,
+      });
+      sendResponse(res, 200, 'Follow-up marked as done', lead);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
   // Notes endpoints
   async getNotes(req, res) {
     try {

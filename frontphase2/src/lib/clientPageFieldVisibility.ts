@@ -10,6 +10,13 @@ export const DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY: ClientPageFieldVisibility = {
   assignedTo: false,
 };
 
+/** HQ Clients always shows the optional CRM fields regardless of org settings. */
+export const HQ_CLIENT_PAGE_FIELD_VISIBILITY: ClientPageFieldVisibility = {
+  interestLevel: true,
+  status: true,
+  assignedTo: true,
+};
+
 const STORAGE_KEY = 'orgClientPageFieldVisibility';
 
 export function normalizeClientPageFieldVisibility(raw: unknown): ClientPageFieldVisibility {

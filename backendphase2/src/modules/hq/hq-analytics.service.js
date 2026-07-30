@@ -181,6 +181,9 @@ async function buildEmployeeAnalytics() {
     portalJobs,
     openJobs,
     closedJobs,
+    jobs1d,
+    jobs7d,
+    jobs30d,
     applicationTotal,
     applicationActive,
     apps1d,
@@ -234,6 +237,30 @@ async function buildEmployeeAnalytics() {
       () =>
         countModel(portal, 'job', {
           AND: [softWhere, { status: { in: ['CLOSED', 'FILLED', 'ON_HOLD'] } }],
+        }),
+      0,
+    ),
+    safe(
+      'portal.job.new1d',
+      () =>
+        countModel(portal, 'job', {
+          AND: [softWhere, { OR: [{ postedDate: { gte: since1 } }, { createdAt: { gte: since1 } }] }],
+        }),
+      0,
+    ),
+    safe(
+      'portal.job.new7d',
+      () =>
+        countModel(portal, 'job', {
+          AND: [softWhere, { OR: [{ postedDate: { gte: since7 } }, { createdAt: { gte: since7 } }] }],
+        }),
+      0,
+    ),
+    safe(
+      'portal.job.new30d',
+      () =>
+        countModel(portal, 'job', {
+          AND: [softWhere, { OR: [{ postedDate: { gte: since30 } }, { createdAt: { gte: since30 } }] }],
         }),
       0,
     ),
@@ -361,12 +388,22 @@ async function buildEmployeeAnalytics() {
     ),
     safe(
       'portal.candidate.groupBy.status',
-      () => groupByModel(portal, 'candidate', { by: ['status'], where: softWhere, _count: { _all: true } }),
+      () =>
+        groupByModel(portal, 'candidate', {
+          by: ['status'],
+          where: { AND: [softWhere, { status: { not: null } }] },
+          _count: { _all: true },
+        }),
       [],
     ),
     safe(
       'portal.candidate.groupBy.source',
-      () => groupByModel(portal, 'candidate', { by: ['source'], where: softWhere, _count: { _all: true } }),
+      () =>
+        groupByModel(portal, 'candidate', {
+          by: ['source'],
+          where: { AND: [softWhere, { source: { not: null } }] },
+          _count: { _all: true },
+        }),
       [],
     ),
     safe(
@@ -533,14 +570,31 @@ async function buildEmployeeAnalytics() {
     appliedAt: iso(a.appliedAt),
   }));
 
+  const jobSelectedCounts = {};
+  const jobMatchSums = {};
+  const jobMatchNs = {};
+  for (const app of applicationsSample || []) {
+    const title = app.job?.title || app.jobId || 'Unknown';
+    if (String(app.status || '').toUpperCase() === 'SELECTED') bump(jobSelectedCounts, title);
+    if (typeof app.matchScore === 'number') {
+      jobMatchSums[title] = (jobMatchSums[title] || 0) + app.matchScore;
+      jobMatchNs[title] = (jobMatchNs[title] || 0) + 1;
+    }
+  }
+
   const topJobsByApplications = toChartArray(jobAppCounts, { limit: 12 }).map((row) => {
     const job = (jobsSample || []).find((j) => j.title === row.name);
+    const matchN = jobMatchNs[row.name] || 0;
+    const selected = jobSelectedCounts[row.name] || 0;
     return {
       title: row.name,
       applications: row.value,
       status: job?.status || '—',
       location: job?.city || job?.location || '—',
       openings: job?.openings ?? null,
+      avgMatchScore: matchN > 0 ? Math.round(jobMatchSums[row.name] / matchN) : null,
+      selected,
+      joined: selected,
     };
   });
 
@@ -567,11 +621,120 @@ async function buildEmployeeAnalytics() {
     createdAt: iso(row.createdAt),
   }));
 
+  // Phase 1 login / session analytics (device + geo)
+  const sessionRows = await safe(
+    'mongo.sessions.sample',
+    () =>
+      sampleCollection(mongo, 'sessions', {
+        sort: { loginAt: -1, createdAt: -1 },
+        limit: Math.min(SAMPLE_LIMIT, 1200),
+        project: {
+          candidateId: 1,
+          loginAt: 1,
+          logoutAt: 1,
+          createdAt: 1,
+          durationMs: 1,
+          deviceType: 1,
+          browser: 1,
+          operatingSystem: 1,
+          country: 1,
+          state: 1,
+          city: 1,
+          timezone: 1,
+          isActive: 1,
+          ipAddress: 1,
+          userAgent: 1,
+        },
+      }),
+    [],
+  );
+
+  const countryLoginMap = {};
+  const stateLoginMap = {};
+  const cityLoginMap = {};
+  const deviceLoginMap = {};
+  const browserLoginMap = {};
+  let logins1d = 0;
+  let logins7d = 0;
+  let logins30d = 0;
+  let activeSessions = 0;
+  let durationSum = 0;
+  let durationN = 0;
+  const nowMs = Date.now();
+
+  for (const row of sessionRows || []) {
+    const loginAt = row.loginAt || row.createdAt;
+    const loginMs = loginAt ? new Date(loginAt).getTime() : NaN;
+    if (Number.isFinite(loginMs)) {
+      if (loginMs >= since1.getTime()) logins1d += 1;
+      if (loginMs >= since7.getTime()) logins7d += 1;
+      if (loginMs >= since30.getTime()) logins30d += 1;
+    }
+    const active = row.isActive !== false && !row.logoutAt;
+    if (active) activeSessions += 1;
+
+    let duration = typeof row.durationMs === 'number' ? row.durationMs : null;
+    if (duration == null && Number.isFinite(loginMs)) {
+      const endMs = row.logoutAt ? new Date(row.logoutAt).getTime() : nowMs;
+      if (Number.isFinite(endMs)) duration = Math.max(0, endMs - loginMs);
+    }
+    if (typeof duration === 'number' && duration > 0) {
+      durationSum += duration;
+      durationN += 1;
+    }
+
+    bump(countryLoginMap, row.country || 'Unknown');
+    bump(stateLoginMap, row.state || row.timezone || 'Unknown');
+    bump(cityLoginMap, row.city || 'Unknown');
+    bump(deviceLoginMap, row.deviceType || 'Unknown');
+    bump(browserLoginMap, row.browser || 'Unknown');
+  }
+
+  const totalSessionsTracked = (sessionRows || []).length;
+  const avgSessionDurationMs = durationN > 0 ? Math.round(durationSum / durationN) : null;
+
+  const candidateNameById = {};
+  for (const c of candidatesSample || []) {
+    candidateNameById[c.id] = fullName(c.firstName, c.lastName);
+  }
+
+  const recentSessions = (sessionRows || []).slice(0, 20).map((row) => {
+    const loginAt = row.loginAt || row.createdAt;
+    const loginMs = loginAt ? new Date(loginAt).getTime() : NaN;
+    let durationMs = typeof row.durationMs === 'number' ? row.durationMs : null;
+    if (durationMs == null && Number.isFinite(loginMs)) {
+      const endMs = row.logoutAt ? new Date(row.logoutAt).getTime() : nowMs;
+      if (Number.isFinite(endMs)) durationMs = Math.max(0, endMs - loginMs);
+    }
+    return {
+      candidateId: row.candidateId || '',
+      candidate: candidateNameById[row.candidateId] || '—',
+      loginAt: iso(loginAt),
+      logoutAt: iso(row.logoutAt),
+      durationMs: durationMs ?? 0,
+      deviceType: row.deviceType || '—',
+      browser: row.browser || '—',
+      operatingSystem: row.operatingSystem || '—',
+      country: row.country || '—',
+      state: row.state || '—',
+      city: row.city || '—',
+      isActive: row.isActive !== false && !row.logoutAt,
+    };
+  });
+
   const insights = [];
   insights.push({
     tone: 'info',
     text: `Live Phase 1 snapshot: ${totalCandidates} candidates · ${applicationTotal} applications · ${apps1d} applied today.`,
   });
+  if (logins7d > 0 || activeSessions > 0) {
+    insights.push({
+      tone: 'good',
+      text: `Sessions: ${logins7d} logins in 7d · ${activeSessions} active now · avg duration ${
+        avgSessionDurationMs != null ? `${Math.round(avgSessionDurationMs / 60000)}m` : '—'
+      }.`,
+    });
+  }
   if (new7d > 0) {
     insights.push({
       tone: 'good',
@@ -626,6 +789,9 @@ async function buildEmployeeAnalytics() {
       portalJobs,
       openJobs,
       closedJobs,
+      jobsPostedToday: jobs1d,
+      jobsPosted7d: jobs7d,
+      jobsPosted30d: jobs30d,
       applications: applicationTotal,
       activeApplications: applicationActive,
       applicationsToday: apps1d,
@@ -644,6 +810,12 @@ async function buildEmployeeAnalytics() {
       lmsEnrollments,
       aiMatches,
       profileCompleteness,
+      loginsToday: logins1d,
+      logins7d,
+      logins30d,
+      activeSessions,
+      totalSessionsTracked,
+      avgSessionDurationMs,
     },
     charts: {
       applicationsByStatus,
@@ -659,6 +831,13 @@ async function buildEmployeeAnalytics() {
       jobsByStatus: toChartArray(jobStatusMap),
       matchScoreBuckets: Object.entries(matchBuckets).map(([name, value]) => ({ name, value })),
       interviewRequestsByStatus: toChartArray(interviewStatusMap),
+      loginsByCountry: toChartArray(countryLoginMap, { limit: 12 }),
+      loginsByState: toChartArray(stateLoginMap, { limit: 12 }),
+      loginsByCity: toChartArray(cityLoginMap, { limit: 12 }),
+      loginsByDevice: toChartArray(deviceLoginMap),
+      loginsByBrowser: toChartArray(browserLoginMap),
+      loginsOverTime: buildTimeSeries((sessionRows || []).map((s) => s.loginAt || s.createdAt).filter(Boolean)),
+      loginsDaily: buildDailySeries((sessionRows || []).map((s) => s.loginAt || s.createdAt).filter(Boolean)),
     },
     tables: {
       recentCandidates,
@@ -666,6 +845,7 @@ async function buildEmployeeAnalytics() {
       topJobsByApplications,
       recentOpenJobs,
       recentInterviewRequests,
+      recentSessions,
     },
     insights,
   };

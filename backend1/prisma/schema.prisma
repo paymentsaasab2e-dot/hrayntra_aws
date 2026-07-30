@@ -298,18 +298,33 @@ model Settings {
 }
 
 model Session {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  candidateId String   @db.ObjectId
-  token       String   @unique
-  userAgent   String?
-  ipAddress   String?
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
-  lastUsedAt  DateTime @default(now())
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId       String    @db.ObjectId
+  token             String    @unique
+  userAgent         String?
+  ipAddress         String?
+  /// When the session/login started (mirrors createdAt for clarity in analytics).
+  loginAt           DateTime  @default(now())
+  logoutAt          DateTime?
+  /// Wall-clock session length in ms (logoutAt - loginAt) when closed.
+  durationMs        Int?
+  deviceType        String?   // desktop | mobile | tablet
+  browser           String?
+  operatingSystem   String?
+  country           String?
+  state             String?
+  city              String?
+  timezone          String?
+  isActive          Boolean?  @default(true)
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  lastUsedAt        DateTime  @default(now())
 
-  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  candidate         Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
   @@index([candidateId])
+  @@index([loginAt])
+  @@index([isActive])
   @@map("sessions")
 }
 
@@ -1329,6 +1344,8 @@ model LmsEvent {
   id               String   @id @default(auto()) @map("_id") @db.ObjectId
   title            String
   description      String
+  location         String?
+  sections         Json?
   type             String
   hostName         String?
   hostAvatar       String?
@@ -1339,12 +1356,19 @@ model LmsEvent {
   capacity         Int?
   tags             String[] @default([])
   isPublished      Boolean  @default(false)
+  createdById      String?
+  createdByEmail   String?
+  createdByName    String?
+  source           String?
+  tenantDbName     String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   registrations    LmsEventRegistration[]
 
   @@map("lms_events")
+  @@index([createdById, source])
+  @@index([isPublished, scheduledAt])
 }
 
 model LmsEventRegistration {

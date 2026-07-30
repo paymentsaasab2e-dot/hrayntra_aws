@@ -3,9 +3,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { ExternalLink, Loader2, Send, Sparkles, X } from 'lucide-react';
+import { ExternalLink, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiBrainAsk } from '@/lib/api';
 import {
   apiCrmDashboardOverview,
   type CrmOverview,
@@ -13,7 +12,6 @@ import {
 import { useDashboardLayoutStore } from '@/lib/dashboard/DashboardLayoutProvider';
 import {
   CrmDashboardProvider,
-  crmCard,
   useCrmDashboard,
 } from './crmShared';
 import { CrmHeader } from './CrmHeader';
@@ -146,109 +144,6 @@ function CrmDrillDownModal() {
   return createPortal(modal, document.body);
 }
 
-function CrmBrainChat() {
-  const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([
-    {
-      role: 'assistant',
-      content: 'Ask about your leads and clients — answers use your live CRM database only.',
-    },
-  ]);
-
-  const ask = async (prompt: string) => {
-    const text = prompt.trim();
-    if (!text || busy) return;
-    setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
-    setBusy(true);
-    try {
-      const res = await apiBrainAsk({
-        question: text,
-        sessionKey: 'crm-dashboard-chat',
-        pathname: '/dashboard',
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
-      });
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: String(res.data?.reply || 'No answer returned.').trim() },
-      ]);
-    } catch (error: any) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: error?.message || 'Brain unavailable right now.' },
-      ]);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const suggestions = [
-    'How many leads converted this month?',
-    'Show overdue follow-ups',
-    'Which leads are inactive?',
-    'Show high value clients',
-  ];
-
-  return (
-    <section id="crm-brain" className={`${crmCard} flex min-h-[22rem] flex-col overflow-hidden`}>
-      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3">
-        <Sparkles size={16} className="text-blue-600" />
-        <div>
-          <h2 className="text-sm font-bold text-slate-900">AI Assistant</h2>
-          <p className="text-[11px] text-slate-500">Ask anything about your CRM</p>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2 border-b border-slate-50 px-4 py-2">
-        {suggestions.map((s) => (
-          <button
-            key={s}
-            type="button"
-            disabled={busy}
-            onClick={() => void ask(s)}
-            className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600 hover:bg-blue-50 hover:text-blue-700"
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`max-w-[90%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm ${
-              m.role === 'user' ? 'ml-auto bg-blue-600 text-white' : 'border border-slate-100 bg-slate-50 text-slate-700'
-            }`}
-          >
-            {m.content}
-          </div>
-        ))}
-      </div>
-      <form
-        className="flex gap-2 border-t border-slate-100 px-4 py-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void ask(input);
-        }}
-      >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about leads & clients..."
-          className="h-10 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/25"
-        />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white disabled:opacity-50"
-        >
-          {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-        </button>
-      </form>
-    </section>
-  );
-}
-
 function CrmDashboardInner() {
   const { filters, refreshKey, hiddenSections } = useCrmDashboard();
   const [overview, setOverview] = useState<CrmOverview | null>(null);
@@ -298,7 +193,6 @@ function CrmDashboardInner() {
             <CrmFollowupActivity overview={overview} loading={loading} />
           ) : null}
           {show('team') ? <CrmTeamLeaderboard overview={overview} loading={loading} /> : null}
-          {show('brain') ? <CrmBrainChat /> : null}
         </div>
         <div className="xl:col-span-3">
           {show('alerts') ? <CrmAlertsPanel overview={overview} loading={loading} /> : null}

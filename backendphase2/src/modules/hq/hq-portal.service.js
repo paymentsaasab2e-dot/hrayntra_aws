@@ -140,13 +140,12 @@ async function resolveTenantDbNames() {
   ];
 }
 
-async function fetchPhase2Candidates(tenantDbNames) {
+async function fetchPhase2Candidates(tenantDbNames, { unlimited = false } = {}) {
   if (!tenantDbNames.length) return [];
 
-  const perTenant = Math.min(
-    500,
-    Math.max(50, Math.ceil(LIST_LIMIT / tenantDbNames.length)),
-  );
+  const perTenant = unlimited
+    ? undefined
+    : Math.min(500, Math.max(50, Math.ceil(LIST_LIMIT / tenantDbNames.length)));
 
   const batches = await Promise.all(
     tenantDbNames.map(async (tenantDbName) => {
@@ -155,7 +154,7 @@ async function fetchPhase2Candidates(tenantDbNames) {
           const rows = await prisma.candidate.findMany({
             where: notSoftDeletedWhere(),
             orderBy: { updatedAt: 'desc' },
-            take: perTenant,
+            ...(perTenant ? { take: perTenant } : {}),
             select: CANDIDATE_SELECT,
           });
           return rows.map((row) =>
@@ -274,6 +273,113 @@ export const hqPortalService = {
       tenantDbName: tenant,
       deletedFromTenant,
       deletedFromPortal,
+    };
+  },
+
+  /**
+   * Phase 1 candidate directory for HQ Candidates — portal DB + common pool only.
+   */
+  async listAllCandidates() {
+    const portal = getJobPortalPrismaClient();
+    const common = getCandidateCommonPrismaClient();
+
+    const [portalCandidateDocs, commonCandidateDocs] = await Promise.all([
+      portal.candidate.findMany({
+        where: notSoftDeletedWhere(),
+        orderBy: { updatedAt: 'desc' },
+        select: CANDIDATE_SELECT,
+      }),
+      common
+        ? common.candidateCommon.findMany({
+            orderBy: { syncedAt: 'desc' },
+            select: {
+              candidateId: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              currentTitle: true,
+              designation: true,
+              location: true,
+              city: true,
+              stage: true,
+              source: true,
+              isVerified: true,
+              syncedAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const portalIds = new Set(portalCandidateDocs.map((row) => String(row.id)));
+
+    const portalCandidates = portalCandidateDocs.map((row) =>
+      toPortalCandidateRow(row, 'phase1_portal'),
+    );
+
+    const commonOnlyCandidates = (commonCandidateDocs || [])
+      .filter((row) => row?.candidateId && !portalIds.has(String(row.candidateId)))
+      .map((row) =>
+        toPortalCandidateRow(
+          {
+            id: row.candidateId,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            email: row.email,
+            phone: row.phone,
+            currentTitle: row.currentTitle,
+            designation: row.designation,
+            location: row.location,
+            city: row.city,
+            stage: row.stage,
+            source: row.source || 'phase1',
+            status: row.isVerified === false ? 'UNVERIFIED' : row.stage || 'NEW',
+            createdAt: row.syncedAt,
+            updatedAt: row.updatedAt,
+          },
+          'phase1_common',
+        ),
+      );
+
+    const candidateByKey = new Map();
+    for (const row of [...portalCandidates, ...commonOnlyCandidates]) {
+      candidateByKey.set(candidateKey(row.origin, row.id, row.tenantDbName), row);
+    }
+
+    const candidates = Array.from(candidateByKey.values()).sort((a, b) => {
+      const ta = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const tb = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return tb - ta;
+    });
+
+    return {
+      candidates,
+      stats: {
+        totalCandidates: candidates.length,
+        portalCandidates: portalCandidates.length,
+        commonCandidates: commonOnlyCandidates.length,
+        phase2Candidates: 0,
+        tenantCount: 0,
+      },
+      storage: {
+        portal: {
+          engine: 'MongoDB',
+          database: portalDbName(),
+          collections: { candidates: 'candidates', jobs: 'jobs' },
+        },
+        common: common
+          ? {
+              engine: 'MongoDB',
+              database: commonDbName(),
+              collection: 'candidatecommon',
+            }
+          : null,
+        phase2: {
+          engine: 'MongoDB',
+          tenantDatabases: [],
+        },
+      },
     };
   },
 

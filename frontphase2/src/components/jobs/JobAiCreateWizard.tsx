@@ -1,34 +1,167 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
   ArrowRight,
+  Briefcase,
   Building2,
   Check,
   ChevronDown,
+  FileText,
+  Globe,
+  Linkedin,
   Loader2,
+  LogIn,
   MapPin,
   Plus,
   Search,
+  Share2,
   Sparkles,
+  Upload,
   X,
+  Lock,
 } from 'lucide-react';
 import {
+  apiConnectIntegration,
   apiCreateJob,
   apiGenerateJobFromPrompt,
+  apiGetClient,
   apiGetClients,
+  apiGetContacts,
+  apiGetSocialStatus,
+  apiProcessJobCreationPipeline,
   apiSuggestJobTitles,
   type BackendClient,
+  type BackendContact,
+  type BackendUser,
   type CreateJobData,
   type JobCreationPipelineResult,
 } from '@/lib/api';
+import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
+import { AiCoinLockBanner } from '../coins/TenantCoinsContext';
+import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api/teamApi';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { RichTextEditor } from '@/components/RichTextEditor';
-import { JOB_SALARY_CURRENCY_OPTIONS } from '@/constants/jobSalary';
+import { PreScreenAssessmentSection } from '@/components/jobs/PreScreenAssessmentSection';
+import {
+  CreateJobDetailsForm,
+  type CreateJobDetailsFormData,
+  type JobLanguageEntry,
+} from '@/components/drawers/CreateJobDetailsForm';
+import { PublicVisibilityToggle } from '@/components/forms/PublicVisibilityToggle';
+import { useLinkedIn } from '@/hooks/useLinkedIn';
+import { useDrawerUnsavedGuard } from '@/hooks/useDrawerUnsavedGuard';
+import type { JobPreScreenAssessmentLink } from '@/lib/preScreenAssessmentTypes';
+import { buildJobContactPersonOptions } from '@/lib/jobClientContacts';
+import {
+  DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY,
+  isJobFieldPubliclyVisible,
+  parseJobPublicFieldVisibility,
+  toggleJobPublicFieldVisibility,
+  type JobPublicFieldVisibility,
+} from '@/lib/jobPublicFieldVisibility';
+import { stripHtml } from '@/lib/jobSocialPost';
 
 type WizardStep = 'client' | 'title' | 'location' | 'prompt' | 'review';
+type PublishFlowStep = 'assessment' | 'distribution' | null;
+type DistributionChannel =
+  | 'internal_company'
+  | 'hryantra'
+  | 'external_platforms'
+  | 'social_media';
+
+const DISTRIBUTION_OPTIONS: Array<{
+  id: DistributionChannel;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+}> = [
+  {
+    id: 'internal_company',
+    label: 'Internal company',
+    description: 'Share inside your company workspace and team.',
+    icon: Building2,
+  },
+  {
+    id: 'hryantra',
+    label: 'HRyantra',
+    description: 'Publish on the HRyantra job board and candidate portal.',
+    icon: Sparkles,
+  },
+  {
+    id: 'external_platforms',
+    label: 'External platforms',
+    description: 'Syndicate to partner job boards and external listings.',
+    icon: Globe,
+  },
+  {
+    id: 'social_media',
+    label: 'Social media',
+    description: 'Promote on LinkedIn, X, and other connected channels.',
+    icon: Share2,
+  },
+];
+
+const DISTRIBUTION_PLATFORMS: Record<
+  DistributionChannel,
+  Array<{ id: string; label: string }>
+> = {
+  internal_company: [
+    { id: 'team_workspace', label: 'Team workspace' },
+    { id: 'internal_job_board', label: 'Internal job board' },
+    { id: 'employee_referrals', label: 'Employee referrals' },
+  ],
+  hryantra: [
+    { id: 'hryantra_job_board', label: 'HRyantra job board' },
+    { id: 'candidate_portal', label: 'Candidate portal' },
+    { id: 'public_apply_link', label: 'Public apply link' },
+  ],
+  external_platforms: [
+    { id: 'indeed', label: 'Indeed' },
+    { id: 'naukri', label: 'Naukri' },
+    { id: 'glassdoor', label: 'Glassdoor' },
+    { id: 'monster', label: 'Monster' },
+  ],
+  social_media: [
+    { id: 'linkedin', label: 'LinkedIn' },
+    { id: 'x_twitter', label: 'X (Twitter)' },
+    { id: 'facebook', label: 'Facebook' },
+    { id: 'instagram', label: 'Instagram' },
+  ],
+};
+
+function getDistributionChannelsFromPlatforms(
+  selected: Record<string, boolean>,
+): Record<DistributionChannel, boolean> {
+  return {
+    internal_company: DISTRIBUTION_PLATFORMS.internal_company.some((p) => selected[p.id]),
+    hryantra: DISTRIBUTION_PLATFORMS.hryantra.some((p) => selected[p.id]),
+    external_platforms: DISTRIBUTION_PLATFORMS.external_platforms.some((p) => selected[p.id]),
+    social_media: DISTRIBUTION_PLATFORMS.social_media.some((p) => selected[p.id]),
+  };
+}
+
+const SOCIAL_AUTH_PLATFORM_IDS = new Set(['linkedin', 'x_twitter', 'facebook', 'instagram']);
+
+type SocialPlatformConnection = {
+  linkedin: boolean;
+  x_twitter: boolean;
+  facebook: boolean;
+  instagram: boolean;
+};
+
+const EMPTY_SOCIAL_CONNECTIONS: SocialPlatformConnection = {
+  linkedin: false,
+  x_twitter: false,
+  facebook: false,
+  instagram: false,
+};
+
+function isSocialAuthPlatform(platformId: string) {
+  return SOCIAL_AUTH_PLATFORM_IDS.has(platformId);
+}
 
 type WizardDraft = {
   clientId: string;
@@ -54,8 +187,16 @@ type WizardDraft = {
   keyResponsibilitiesText: string;
   qualificationsExperienceText: string;
   candidateRequirementsText: string;
-  skillsText: string;
-  languagesText: string;
+  skills: string[];
+  languages: JobLanguageEntry[];
+  showClientNamePublicly: boolean;
+  publicFieldVisibility: JobPublicFieldVisibility;
+  contactPersonId: string;
+  contactPersonName: string;
+  managerId: string;
+  assignedToId: string;
+  videoMediaLink: string;
+  forecastRevenue: string;
 };
 
 const EMPTY_DRAFT: WizardDraft = {
@@ -82,8 +223,16 @@ const EMPTY_DRAFT: WizardDraft = {
   keyResponsibilitiesText: '',
   qualificationsExperienceText: '',
   candidateRequirementsText: '',
-  skillsText: '',
-  languagesText: '',
+  skills: [],
+  languages: [],
+  showClientNamePublicly: true,
+  publicFieldVisibility: { ...DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY },
+  contactPersonId: '',
+  contactPersonName: '',
+  managerId: '',
+  assignedToId: '',
+  videoMediaLink: '',
+  forecastRevenue: '',
 };
 
 function defaultTargetHireDate(): string {
@@ -140,11 +289,84 @@ function pipelineToDraft(
       data.qualificationsExperienceText || base.qualificationsExperienceText,
     candidateRequirementsText:
       data.candidateRequirementsText || base.candidateRequirementsText,
-    skillsText: (data.skills || []).join('\n') || base.skillsText,
-    languagesText:
-      (data.languages || [])
-        .map((row) => `${row.language}${row.proficiency ? ` — ${row.proficiency}` : ''}`)
-        .join('\n') || base.languagesText,
+    skills: data.skills?.length ? data.skills : base.skills,
+    languages: data.languages?.length ? data.languages : base.languages,
+  };
+}
+
+function draftToJobDetailsForm(draft: WizardDraft): CreateJobDetailsFormData {
+  return {
+    nationality: draft.nationality,
+    jobTitle: draft.jobTitle,
+    priority: draft.priority,
+    companyId: draft.clientId,
+    showClientNamePublicly: draft.showClientNamePublicly,
+    publicFieldVisibility: draft.publicFieldVisibility,
+    contactPersonId: draft.contactPersonId,
+    contactPersonName: draft.contactPersonName,
+    numberOfOpenings: draft.numberOfOpenings,
+    country: draft.country,
+    state: draft.state,
+    city: draft.city,
+    industryType: draft.industryType,
+    employmentType: draft.employmentType,
+    targetHireDate: draft.targetHireDate,
+    minExperience: draft.minExperience,
+    maxExperience: draft.maxExperience,
+    payRangeMin: draft.payRangeMin,
+    payRangeMax: draft.payRangeMax,
+    salaryCurrency: draft.salaryCurrency,
+    languages: draft.languages,
+    skills: draft.skills,
+    keyResponsibilitiesText: draft.keyResponsibilitiesText,
+    qualificationsExperienceText: draft.qualificationsExperienceText,
+    candidateRequirementsText: draft.candidateRequirementsText,
+    videoMediaLink: draft.videoMediaLink,
+    forecastRevenue: draft.forecastRevenue,
+    managerId: draft.managerId,
+    assignedToId: draft.assignedToId,
+  };
+}
+
+function applyJobDetailsPatch(
+  draft: WizardDraft,
+  patch: Partial<CreateJobDetailsFormData>,
+  clients: BackendClient[],
+): WizardDraft {
+  const merged = { ...draftToJobDetailsForm(draft), ...patch };
+  const client = clients.find((row) => row.id === merged.companyId);
+  return {
+    ...draft,
+    nationality: merged.nationality,
+    jobTitle: merged.jobTitle,
+    priority: merged.priority,
+    clientId: merged.companyId,
+    clientName: client?.companyName || draft.clientName,
+    showClientNamePublicly: merged.showClientNamePublicly,
+    publicFieldVisibility: merged.publicFieldVisibility,
+    contactPersonId: merged.contactPersonId,
+    contactPersonName: merged.contactPersonName,
+    numberOfOpenings: merged.numberOfOpenings,
+    country: merged.country,
+    state: merged.state,
+    city: merged.city,
+    industryType: merged.industryType,
+    employmentType: merged.employmentType,
+    targetHireDate: merged.targetHireDate,
+    minExperience: merged.minExperience,
+    maxExperience: merged.maxExperience,
+    payRangeMin: merged.payRangeMin,
+    payRangeMax: merged.payRangeMax,
+    salaryCurrency: merged.salaryCurrency,
+    languages: merged.languages,
+    skills: merged.skills,
+    keyResponsibilitiesText: merged.keyResponsibilitiesText,
+    qualificationsExperienceText: merged.qualificationsExperienceText,
+    candidateRequirementsText: merged.candidateRequirementsText,
+    videoMediaLink: merged.videoMediaLink,
+    forecastRevenue: merged.forecastRevenue,
+    managerId: merged.managerId,
+    assignedToId: merged.assignedToId,
   };
 }
 
@@ -173,6 +395,8 @@ const STEP_HINTS: Record<WizardStep, string> = {
 };
 
 export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
+  const linkedIn = useLinkedIn();
+  const jobAiGate = useAiCoinGate('ai.job_from_prompt');
   const [step, setStep] = useState<WizardStep>('client');
   const [draft, setDraft] = useState<WizardDraft>({
     ...EMPTY_DRAFT,
@@ -186,8 +410,34 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
   const [error, setError] = useState('');
   const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
   const [loadingTitleSuggestions, setLoadingTitleSuggestions] = useState(false);
-  const [currencyOpen, setCurrencyOpen] = useState(false);
-  const [currencySearch, setCurrencySearch] = useState('');
+  const [users, setUsers] = useState<BackendUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [contacts, setContacts] = useState<ReturnType<typeof buildJobContactPersonOptions>>([]);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [skillInput, setSkillInput] = useState('');
+  const [dropdownsOpen, setDropdownsOpen] = useState<Record<string, boolean>>({});
+  const [jdGenerating, setJdGenerating] = useState(false);
+  const [jdError, setJdError] = useState('');
+  const [pastedJobDescriptionText, setPastedJobDescriptionText] = useState('');
+  const [jdAttachment, setJdAttachment] = useState<{
+    file: File;
+    status: 'processing' | 'ready' | 'error';
+    error?: string;
+  } | null>(null);
+  const jdFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [publishFlowStep, setPublishFlowStep] = useState<PublishFlowStep>(null);
+  const [preScreenAssessments, setPreScreenAssessments] = useState<JobPreScreenAssessmentLink[]>([]);
+  const [activeDistributionTab, setActiveDistributionTab] =
+    useState<DistributionChannel>('hryantra');
+  const [selectedDistributionPlatforms, setSelectedDistributionPlatforms] = useState<
+    Record<string, boolean>
+  >({
+    hryantra_job_board: true,
+  });
+  const [socialConnections, setSocialConnections] =
+    useState<SocialPlatformConnection>(EMPTY_SOCIAL_CONNECTIONS);
+  const [socialStatusLoading, setSocialStatusLoading] = useState(false);
+  const [connectingPlatformId, setConnectingPlatformId] = useState<string | null>(null);
 
   const reset = useCallback(() => {
     setStep('client');
@@ -198,9 +448,81 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
     setPublishing(false);
     setTitleSuggestions([]);
     setLoadingTitleSuggestions(false);
-    setCurrencyOpen(false);
-    setCurrencySearch('');
+    setUsers([]);
+    setLoadingUsers(false);
+    setContacts([]);
+    setLoadingContacts(false);
+    setSkillInput('');
+    setDropdownsOpen({});
+    setJdGenerating(false);
+    setJdError('');
+    setPastedJobDescriptionText('');
+    setJdAttachment(null);
+    setPublishFlowStep(null);
+    setPreScreenAssessments([]);
+    setActiveDistributionTab('hryantra');
+    setSelectedDistributionPlatforms({ hryantra_job_board: true });
+    setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
+    setSocialStatusLoading(false);
+    setConnectingPlatformId(null);
   }, []);
+
+  const {
+    panelRef: wizardPanelRef,
+    requestClose: requestWizardClose,
+    markClean: markWizardClean,
+    markDirty: markWizardDirty,
+  } = useDrawerUnsavedGuard<HTMLDivElement>({
+    isOpen,
+    onClose,
+    message:
+      'You have unsaved progress in this job wizard. Do you want to discard it and close?',
+  });
+
+  const loadSocialConnections = useCallback(async () => {
+    setSocialStatusLoading(true);
+    try {
+      await linkedIn.refreshStatus();
+      const response = await apiGetSocialStatus();
+      const nextConnections: SocialPlatformConnection = {
+        linkedin: response.data.linkedin.connected,
+        x_twitter: response.data.twitter.connected,
+        facebook: response.data.facebook.connected,
+        instagram: false,
+      };
+      setSocialConnections(nextConnections);
+
+      setSelectedDistributionPlatforms((prev) => {
+        const next = { ...prev };
+        for (const platformId of SOCIAL_AUTH_PLATFORM_IDS) {
+          if (!nextConnections[platformId as keyof SocialPlatformConnection]) {
+            delete next[platformId];
+          }
+        }
+        return next;
+      });
+    } catch {
+      setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
+    } finally {
+      setSocialStatusLoading(false);
+    }
+  }, [linkedIn]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (sessionStorage.getItem('reopen_job_ai_wizard') === '1') {
+      sessionStorage.removeItem('reopen_job_ai_wizard');
+      setStep('review');
+      setPublishFlowStep('distribution');
+      setActiveDistributionTab('social_media');
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || publishFlowStep !== 'distribution') return;
+    void loadSocialConnections();
+  }, [isOpen, publishFlowStep, loadSocialConnections]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -232,6 +554,210 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
       cancelled = true;
     };
   }, [isOpen, reset]);
+
+  const jobDetailsFormData = useMemo(() => draftToJobDetailsForm(draft), [draft]);
+
+  const patchJobDetailsForm = useCallback(
+    (
+      patch:
+        | Partial<CreateJobDetailsFormData>
+        | ((prev: CreateJobDetailsFormData) => Partial<CreateJobDetailsFormData>),
+    ) => {
+      markWizardDirty();
+      setDraft((prev) => {
+        const current = draftToJobDetailsForm(prev);
+        const nextPatch = typeof patch === 'function' ? patch(current) : patch;
+        return applyJobDetailsPatch(prev, nextPatch, clients);
+      });
+    },
+    [clients, markWizardDirty],
+  );
+
+  const addSkill = useCallback(() => {
+    const next = skillInput.trim();
+    if (!next) return;
+    markWizardDirty();
+    setDraft((prev) => {
+      if (prev.skills.some((skill) => skill.toLowerCase() === next.toLowerCase())) return prev;
+      return { ...prev, skills: [...prev.skills, next] };
+    });
+    setSkillInput('');
+  }, [skillInput, markWizardDirty]);
+
+  const removeSkill = useCallback(
+    (index: number) => {
+      markWizardDirty();
+      setDraft((prev) => ({
+        ...prev,
+        skills: prev.skills.filter((_, i) => i !== index),
+      }));
+    },
+    [markWizardDirty],
+  );
+
+  const applyPipelineToDraft = useCallback(
+    (data: JobCreationPipelineResult) => {
+      setDraft((prev) => {
+        const next = pipelineToDraft(prev, data);
+        if (data.companyId || data.companyName) {
+          const matchedClient = clients.find(
+            (client) =>
+              client.id === data.companyId ||
+              client.companyName?.toLowerCase() === data.companyName?.toLowerCase(),
+          );
+          if (matchedClient) {
+            next.clientId = matchedClient.id;
+            next.clientName = matchedClient.companyName || next.clientName;
+          }
+        }
+        return next;
+      });
+      markWizardDirty();
+    },
+    [clients, markWizardDirty],
+  );
+
+  const handleAutoFillFromPastedJd = useCallback(async () => {
+    if (jdGenerating) return;
+    const editorText = stripHtml(draft.jobDescriptionHtml || '');
+    const sourceText = (pastedJobDescriptionText || editorText || '').trim();
+    if (sourceText.length < 50) {
+      setJdError('Paste a longer JD (at least 50 characters), then click Auto-fill.');
+      return;
+    }
+    setJdError('');
+    setJdGenerating(true);
+    try {
+      const response = await apiGenerateJobFromPrompt({
+        prompt: sourceText,
+        currentForm: {
+          nationality: draft.nationality,
+          jobTitle: draft.jobTitle,
+          priority: draft.priority,
+          companyId: draft.clientId,
+          numberOfOpenings: draft.numberOfOpenings,
+          country: draft.country,
+          state: draft.state,
+          city: draft.city,
+          industryType: draft.industryType,
+          employmentType: draft.employmentType,
+          targetHireDate: draft.targetHireDate,
+          skills: draft.skills,
+        },
+      });
+      const data = response.data;
+      if (!data?.jobTitle) {
+        throw new Error('Could not extract enough fields from the pasted description.');
+      }
+      applyPipelineToDraft(data);
+    } catch (err: unknown) {
+      setJdError(err instanceof Error ? err.message : 'Failed to auto-fill from pasted JD.');
+    } finally {
+      setJdGenerating(false);
+    }
+  }, [applyPipelineToDraft, draft, jdGenerating, pastedJobDescriptionText]);
+
+  const handleJdFilePick = useCallback(
+    async (file: File | null | undefined) => {
+      if (!file) return;
+      const maxBytes = 5 * 1024 * 1024;
+      if (file.size > maxBytes) {
+        setJdError('Job description file must be smaller than 5MB.');
+        return;
+      }
+      setJdError('');
+      setJdAttachment({ file, status: 'processing' });
+      setJdGenerating(true);
+      markWizardDirty();
+      try {
+        const response = await apiProcessJobCreationPipeline(file, {
+          nationality: draft.nationality,
+          jobTitle: draft.jobTitle,
+          priority: draft.priority,
+          companyId: draft.clientId,
+          numberOfOpenings: draft.numberOfOpenings,
+          country: draft.country,
+          state: draft.state,
+          city: draft.city,
+          industryType: draft.industryType,
+          employmentType: draft.employmentType,
+          targetHireDate: draft.targetHireDate,
+          skills: draft.skills,
+        });
+        const data = response.data;
+        if (!data?.jobTitle) {
+          throw new Error('Could not extract a job title from this document.');
+        }
+        applyPipelineToDraft(data);
+        setJdAttachment({ file, status: 'ready' });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to process job description file';
+        setJdAttachment({ file, status: 'error', error: message });
+        setJdError(message);
+      } finally {
+        setJdGenerating(false);
+      }
+    },
+    [applyPipelineToDraft, draft, markWizardDirty],
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    const loadUsers = async () => {
+      try {
+        setLoadingUsers(true);
+        const members = await getAllTeamMembersForAssign();
+        if (!cancelled) setUsers(teamMembersToBackendUsers(members));
+      } catch {
+        if (!cancelled) setUsers([]);
+      } finally {
+        if (!cancelled) setLoadingUsers(false);
+      }
+    };
+    void loadUsers();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !draft.clientId) {
+      setContacts([]);
+      return;
+    }
+    let cancelled = false;
+    const loadContacts = async () => {
+      try {
+        setLoadingContacts(true);
+        const clientId = draft.clientId;
+        const [contactsResponse, clientResponse] = await Promise.all([
+          apiGetContacts({ clientId, type: 'CLIENT' }),
+          apiGetClient(clientId).catch(() => null),
+        ]);
+        const raw = (contactsResponse as { data?: unknown }).data;
+        const list = Array.isArray(raw)
+          ? raw
+          : raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)
+            ? (raw as { data: unknown[] }).data
+            : [];
+        if (cancelled) return;
+        const client =
+          clientResponse && typeof clientResponse === 'object' && 'id' in clientResponse
+            ? (clientResponse as BackendClient)
+            : null;
+        setContacts(buildJobContactPersonOptions(list as BackendContact[], client));
+      } catch {
+        if (!cancelled) setContacts([]);
+      } finally {
+        if (!cancelled) setLoadingContacts(false);
+      }
+    };
+    void loadContacts();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, draft.clientId]);
 
   const filteredClients = useMemo(() => {
     const q = clientSearch.trim().toLowerCase();
@@ -279,15 +805,10 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
     };
   }, [isOpen, step, draft.jobTitle, draft.clientName]);
 
-  const filteredCurrencies = useMemo(() => {
-    const q = currencySearch.trim().toLowerCase();
-    if (!q) return JOB_SALARY_CURRENCY_OPTIONS;
-    return JOB_SALARY_CURRENCY_OPTIONS.filter((code) => code.toLowerCase().includes(q));
-  }, [currencySearch]);
-
   const stepIndex = STEPS.indexOf(step);
 
   const patchDraft = (patch: Partial<WizardDraft>) => {
+    markWizardDirty();
     setDraft((prev) => ({ ...prev, ...patch }));
   };
 
@@ -322,13 +843,126 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
     }
   };
 
+  const skipAiBrief = () => {
+    setError('');
+    setDraft((prev) => ({
+      ...prev,
+      extraPrompt: '',
+      targetHireDate: prev.targetHireDate || defaultTargetHireDate(),
+    }));
+    setStep('review');
+  };
+
+  const validateReview = () => {
+    if (!draft.clientId || !draft.jobTitle.trim()) {
+      setError('Client and job title are required.');
+      return false;
+    }
+    if (!draft.country.trim()) {
+      setError('Country is required before publishing.');
+      return false;
+    }
+    if (!draft.targetHireDate) {
+      setError('Target hire date is required.');
+      return false;
+    }
+    return true;
+  };
+
+  const startPublishFlow = () => {
+    setError('');
+    if (!validateReview()) return;
+    setPublishFlowStep('assessment');
+  };
+
+  const isSocialPlatformConnected = useCallback(
+    (platformId: string) => {
+      if (!isSocialAuthPlatform(platformId)) return true;
+      return socialConnections[platformId as keyof SocialPlatformConnection] === true;
+    },
+    [socialConnections],
+  );
+
+  const toggleDistributionPlatform = (platformId: string) => {
+    if (activeDistributionTab === 'social_media' && !isSocialPlatformConnected(platformId)) {
+      return;
+    }
+    markWizardDirty();
+    setSelectedDistributionPlatforms((prev) => ({
+      ...prev,
+      [platformId]: !prev[platformId],
+    }));
+  };
+
+  const handleConnectSocialPlatform = async (platformId: string) => {
+    if (platformId === 'instagram') {
+      setError('Instagram integration is coming soon.');
+      return;
+    }
+
+    setConnectingPlatformId(platformId);
+    setError('');
+    try {
+      sessionStorage.setItem('reopen_job_ai_wizard', '1');
+      if (platformId === 'linkedin') {
+        await linkedIn.connect();
+        return;
+      }
+      if (platformId === 'x_twitter') {
+        await apiConnectIntegration('twitter', window.location.href);
+        return;
+      }
+      if (platformId === 'facebook') {
+        await apiConnectIntegration('facebook', window.location.href);
+      }
+    } catch (err: unknown) {
+      sessionStorage.removeItem('reopen_job_ai_wizard');
+      setError(err instanceof Error ? err.message : 'Could not connect this platform.');
+      setConnectingPlatformId(null);
+    }
+  };
+
+  const distributionChannels = useMemo(
+    () => getDistributionChannelsFromPlatforms(selectedDistributionPlatforms),
+    [selectedDistributionPlatforms],
+  );
+
+  const activeDistributionOption = useMemo(
+    () => DISTRIBUTION_OPTIONS.find((option) => option.id === activeDistributionTab)!,
+    [activeDistributionTab],
+  );
+  const ActiveDistributionIcon = activeDistributionOption.icon;
+
+  const publishFlowTitle =
+    publishFlowStep === 'assessment'
+      ? 'Pre-assessment test'
+      : publishFlowStep === 'distribution'
+        ? 'Publish destinations'
+        : STEP_LABELS[step];
+
+  const publishFlowHint =
+    publishFlowStep === 'assessment'
+      ? 'Add a screening test for applicants, or skip to choose where the job is published.'
+      : publishFlowStep === 'distribution'
+        ? 'Pick a category, then choose the platforms to publish on.'
+        : STEP_HINTS[step];
+
   const goBack = () => {
     setError('');
+    if (publishFlowStep === 'distribution') {
+      setPublishFlowStep('assessment');
+      return;
+    }
+    if (publishFlowStep === 'assessment') {
+      setPublishFlowStep(null);
+      return;
+    }
     const idx = STEPS.indexOf(step);
     if (idx > 0) setStep(STEPS[idx - 1]);
   };
 
   const runAiGenerate = async () => {
+    if (!jobAiGate.confirmAndUnlock()) return;
     setGenerating(true);
     setError('');
     try {
@@ -373,6 +1007,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
           { ...data, companyId: prev.clientId, companyName: prev.clientName },
         ),
       );
+      markWizardDirty();
       setStep('review');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'AI job creation failed.');
@@ -382,16 +1017,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
   };
 
   const handlePublish = async () => {
-    if (!draft.clientId || !draft.jobTitle.trim()) {
-      setError('Client and job title are required.');
-      return;
-    }
-    if (!draft.country.trim()) {
-      setError('Country is required before publishing.');
-      return;
-    }
-    if (!draft.targetHireDate) {
-      setError('Target hire date is required.');
+    if (!validateReview()) return;
+
+    const selectedChannels = Object.entries(distributionChannels).filter(([, on]) => on);
+    if (selectedChannels.length === 0) {
+      setError('Select at least one publish destination.');
       return;
     }
 
@@ -401,14 +1031,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
       const keyResponsibilities = toList(draft.keyResponsibilitiesText);
       const qualifications = toList(draft.qualificationsExperienceText);
       const candidateRequirements = toList(draft.candidateRequirementsText);
-      const skills = toList(draft.skillsText);
-      const languages = toList(draft.languagesText).map((line) => {
-        const [language, ...rest] = line.split(/[—\-–]/);
-        return {
-          language: (language || '').trim(),
-          proficiency: rest.join('-').trim() || 'Professional',
-        };
-      }).filter((row) => row.language);
+      const skills = draft.skills;
+      const languages = draft.languages.filter((row) => row.language?.trim());
 
       const locationParts = [draft.city, draft.state, draft.country]
         .map((v) => v.trim())
@@ -416,7 +1040,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
       const minExp = Number(draft.minExperience);
       const maxExp = Number(draft.maxExperience);
 
-      const jobData: CreateJobData = {
+      const jobData: CreateJobData & {
+        distributionPlatforms?: Record<string, boolean>;
+      } = {
         title: draft.jobTitle.trim(),
         description: draft.jobDescriptionHtml.trim() || undefined,
         clientId: draft.clientId,
@@ -431,6 +1057,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
         priority: draft.priority || undefined,
         jobCategory: draft.industryType.trim() || undefined,
         expectedClosureDate: draft.targetHireDate || undefined,
+        managerId: draft.managerId || undefined,
+        assignedToId: draft.assignedToId || undefined,
+        hiringManager: draft.contactPersonName.trim() || undefined,
+        hiringManagerId: draft.contactPersonId || undefined,
+        showClientNamePublicly: draft.showClientNamePublicly,
+        publicFieldVisibility: draft.publicFieldVisibility,
+        forecastRevenue: draft.forecastRevenue.trim() || undefined,
+        videoMediaLink: draft.videoMediaLink.trim() || undefined,
         skills,
         keyResponsibilities,
         requirements: qualifications,
@@ -448,12 +1082,26 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                 max: draft.payRangeMax ? Number(draft.payRangeMax) : undefined,
               }
             : undefined,
+        preScreenAssessments: preScreenAssessments.map((link, index) => ({
+          assessmentId: link.assessmentId,
+          sortOrder: index,
+          required: link.required !== false,
+          timing: link.timing || 'AFTER_APPLY',
+          durationOverrideMinutes: link.durationOverrideMinutes ?? null,
+          passScoreOverridePercent: link.passScoreOverridePercent ?? null,
+        })),
+        distributionPlatforms: {
+          internalCompany: distributionChannels.internal_company,
+          hryantra: distributionChannels.hryantra,
+          externalPlatforms: distributionChannels.external_platforms,
+          socialMedia: distributionChannels.social_media,
+        },
       };
 
       await apiCreateJob(jobData);
+      markWizardClean();
       onJobCreated?.();
       onClose();
-      reset();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to publish job.');
     } finally {
@@ -477,13 +1125,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
         type="button"
         className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
         aria-label="Close"
-        onClick={() => {
-          onClose();
-          reset();
-        }}
+        onClick={() => void requestWizardClose()}
       />
 
       <motion.div
+        ref={wizardPanelRef}
         initial={{ opacity: 0, y: 28, scale: 0.94 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: 'spring', stiffness: 360, damping: 28 }}
@@ -515,27 +1161,24 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
               </div>
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={step}
+                  key={`${step}-${publishFlowStep || 'main'}`}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
                   transition={{ duration: 0.22 }}
                 >
                   <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[1.7rem]">
-                    {STEP_LABELS[step]}
+                    {publishFlowTitle}
                   </h2>
                   <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-slate-500">
-                    {STEP_HINTS[step]}
+                    {publishFlowHint}
                   </p>
                 </motion.div>
               </AnimatePresence>
             </div>
             <button
               type="button"
-              onClick={() => {
-                onClose();
-                reset();
-              }}
+              onClick={() => void requestWizardClose()}
               className="rounded-full border border-slate-200/90 bg-white/90 p-2.5 text-slate-400 shadow-sm transition hover:scale-105 hover:border-slate-300 hover:text-slate-700 active:scale-95"
               aria-label="Close"
             >
@@ -576,11 +1219,21 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
             })}
           </div>
           <p className="mt-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Step {stepIndex + 1} of {STEPS.length}
+            {publishFlowStep === 'assessment'
+              ? 'Publish · Step 1 of 2'
+              : publishFlowStep === 'distribution'
+                ? 'Publish · Step 2 of 2'
+                : `Step ${stepIndex + 1} of ${STEPS.length}`}
           </p>
         </div>
 
-        <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 [scrollbar-width:thin] [scrollbar-color:#2098C8_transparent]">
+        <div
+          className={`relative min-h-0 flex-1 px-5 py-5 sm:px-7 [scrollbar-width:thin] [scrollbar-color:#2098C8_transparent] ${
+            publishFlowStep === 'assessment'
+              ? 'overflow-y-auto overflow-x-hidden pb-44'
+              : 'overflow-y-auto'
+          }`}
+        >
           {error ? (
             <div className="mb-4 rounded-2xl border border-red-200/80 bg-red-50/90 px-4 py-3 text-sm text-red-700 shadow-sm">
               {error}
@@ -858,13 +1511,225 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                   />
                   <p className="mt-2.5 text-xs leading-relaxed text-slate-500">
                     AI will generate description, responsibilities, skills, salary hints, and more.
-                    You can edit everything on the next screen.
+                    You can edit everything on the next screen. To fill the job manually instead, use{' '}
+                    <span className="font-semibold text-slate-600">Skip</span> below.
                   </p>
                 </div>
               </motion.div>
             ) : null}
 
-            {step === 'review' ? (
+            {publishFlowStep === 'assessment' ? (
+              <motion.div
+                key="publish-assessment"
+                initial={{ opacity: 0, x: 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -12 }}
+                className="space-y-4"
+              >
+                <div className={`${sectionClass} overflow-visible`}>
+                  <PreScreenAssessmentSection
+                    libraryMenuOpensUp
+                    jobTitle={draft.jobTitle}
+                    skills={draft.skills}
+                    jobDescription={
+                      draft.jobDescriptionHtml?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() ||
+                      ''
+                    }
+                    links={preScreenAssessments}
+                    onChange={(links) => {
+                      markWizardDirty();
+                      setPreScreenAssessments(links);
+                    }}
+                  />
+                </div>
+              </motion.div>
+            ) : null}
+
+            {publishFlowStep === 'distribution' ? (
+              <motion.div
+                key="publish-distribution"
+                initial={{ opacity: 0, x: 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -12 }}
+                className="space-y-4"
+              >
+                <p className="rounded-2xl border border-[#2098C8]/25 bg-gradient-to-r from-[#E8F6FC]/80 to-[#E8F6FC]/60 px-4 py-3 text-sm text-slate-600 shadow-sm">
+                  Choose where to publish{' '}
+                  <span className="font-semibold">{draft.jobTitle}</span>.
+                </p>
+
+                <div className="flex gap-1 overflow-x-auto rounded-2xl border border-slate-200/80 bg-slate-50/90 p-1 [scrollbar-width:thin]">
+                  {DISTRIBUTION_OPTIONS.map((option) => {
+                    const Icon = option.icon;
+                    const active = activeDistributionTab === option.id;
+                    const hasSelection = DISTRIBUTION_PLATFORMS[option.id].some(
+                      (platform) => selectedDistributionPlatforms[platform.id],
+                    );
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => setActiveDistributionTab(option.id)}
+                        className={`flex min-w-[7.5rem] flex-1 flex-col items-center gap-1.5 rounded-xl px-2 py-2.5 text-center transition sm:min-w-0 sm:flex-row sm:px-3 sm:text-left ${
+                          active
+                            ? 'bg-white text-[#176F96] shadow-sm ring-1 ring-[#2098C8]/30'
+                            : 'text-slate-600 hover:bg-white/70 hover:text-slate-900'
+                        }`}
+                      >
+                        <span
+                          className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                            active ? 'bg-[#2098C8] text-white' : 'bg-slate-200/80 text-[#2098C8]'
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {hasSelection ? (
+                            <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-white">
+                              <Check className="h-2 w-2 text-white" />
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="text-[0.7rem] font-semibold leading-tight sm:text-xs">
+                          {option.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className={sectionClass}>
+                  <div className="flex items-start gap-3 border-b border-slate-100 pb-4">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2098C8]/10 text-[#2098C8]">
+                      <ActiveDistributionIcon className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        {activeDistributionOption.label}
+                      </p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                        {activeDistributionOption.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="mt-4 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-400">
+                    Platforms
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {DISTRIBUTION_PLATFORMS[activeDistributionTab].map((platform) => {
+                      const selected = Boolean(selectedDistributionPlatforms[platform.id]);
+                      const requiresSocialAuth =
+                        activeDistributionTab === 'social_media' &&
+                        isSocialAuthPlatform(platform.id);
+                      const connected = isSocialPlatformConnected(platform.id);
+                      const isConnecting = connectingPlatformId === platform.id;
+                      const PlatformIcon =
+                        platform.id === 'linkedin'
+                          ? Linkedin
+                          : platform.id === 'x_twitter'
+                            ? Share2
+                            : platform.id === 'indeed' ||
+                                platform.id === 'naukri' ||
+                                platform.id === 'glassdoor' ||
+                                platform.id === 'monster'
+                              ? Globe
+                              : platform.id.includes('hryantra') || platform.id === 'candidate_portal'
+                                ? Sparkles
+                                : Building2;
+
+                      if (requiresSocialAuth && !connected) {
+                        return (
+                          <div
+                            key={platform.id}
+                            className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-3 py-3"
+                          >
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                              {platform.id === 'x_twitter' ? (
+                                <span className="text-sm font-bold">X</span>
+                              ) : (
+                                <PlatformIcon className="h-4 w-4" />
+                              )}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-slate-800">{platform.label}</p>
+                              <p className="text-[0.7rem] text-slate-500">
+                                {platform.id === 'instagram'
+                                  ? 'Coming soon'
+                                  : 'Sign in to publish here'}
+                              </p>
+                            </div>
+                            {platform.id === 'instagram' ? (
+                              <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">
+                                Soon
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => void handleConnectSocialPlatform(platform.id)}
+                                disabled={socialStatusLoading || isConnecting}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2098C8]/40 bg-[#E8F6FC]/70 px-3 py-1.5 text-xs font-semibold text-[#176F96] transition hover:border-[#2098C8] hover:bg-[#E8F6FC] disabled:opacity-60"
+                              >
+                                {isConnecting || (socialStatusLoading && platform.id === 'linkedin') ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <LogIn className="h-3.5 w-3.5" />
+                                )}
+                                Log in
+                              </button>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <button
+                          key={platform.id}
+                          type="button"
+                          onClick={() => toggleDistributionPlatform(platform.id)}
+                          className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition ${
+                            selected
+                              ? 'border-[#2098C8] bg-gradient-to-r from-[#E8F6FC]/90 to-white shadow-sm ring-1 ring-[#2098C8]/20'
+                              : 'border-slate-200/80 bg-white hover:border-[#2098C8]/40 hover:bg-[#E8F6FC]/30'
+                          }`}
+                        >
+                          <span
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                              selected
+                                ? 'bg-[#2098C8] text-white'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {platform.id === 'x_twitter' ? (
+                              <span className="text-sm font-bold">X</span>
+                            ) : (
+                              <PlatformIcon className="h-4 w-4" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">
+                            {platform.label}
+                          </span>
+                          {requiresSocialAuth && connected ? (
+                            <span className="shrink-0 text-[0.65rem] font-medium text-emerald-600">
+                              Connected
+                            </span>
+                          ) : null}
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                              selected
+                                ? 'border-[#2098C8] bg-[#2098C8] text-white'
+                                : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            {selected ? <Check className="h-3 w-3" /> : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            ) : null}
+
+            {step === 'review' && !publishFlowStep ? (
               <motion.div
                 key="review"
                 initial={{ opacity: 0, x: 12 }}
@@ -873,281 +1738,157 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                 className="space-y-4"
               >
                 <p className="rounded-2xl border border-[#2098C8]/25 bg-gradient-to-r from-[#E8F6FC]/80 to-[#E8F6FC]/60 px-4 py-3 text-sm text-slate-600 shadow-sm">
-                  Review and edit the generated job, then publish.
+                  Review and edit the job details, then publish.
                 </p>
 
-                <div className={`${sectionClass} space-y-4`}>
-                  <p className="text-[0.7rem] font-bold uppercase tracking-[0.14em] text-slate-400">
-                    Job basics
-                  </p>
-                  <div className="grid gap-3.5 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <label className={labelClass}>Job title *</label>
-                    <input
-                      className={fieldClass}
-                      value={draft.jobTitle}
-                      onChange={(e) => patchDraft({ jobTitle: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Client</label>
-                    <input className={`${fieldClass} cursor-default text-slate-600`} value={draft.clientName} readOnly />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Priority</label>
-                    <select
-                      className={fieldClass}
-                      value={draft.priority}
-                      onChange={(e) => patchDraft({ priority: e.target.value })}
-                    >
-                      <option>Low</option>
-                      <option>Medium</option>
-                      <option>High</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>No of positions *</label>
-                    <input
-                      type="number"
-                      min={1}
-                      className={fieldClass}
-                      value={draft.numberOfOpenings}
-                      onChange={(e) => patchDraft({ numberOfOpenings: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Nationality</label>
-                    <input
-                      className={fieldClass}
-                      value={draft.nationality}
-                      onChange={(e) => patchDraft({ nationality: e.target.value })}
-                      placeholder="e.g. Indian, American"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Country *</label>
-                    <input
-                      className={fieldClass}
-                      value={draft.country}
-                      onChange={(e) => patchDraft({ country: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>State</label>
-                    <input
-                      className={fieldClass}
-                      value={draft.state}
-                      onChange={(e) => patchDraft({ state: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>City</label>
-                    <input
-                      className={fieldClass}
-                      value={draft.city}
-                      onChange={(e) => patchDraft({ city: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Industry type</label>
-                    <input
-                      className={fieldClass}
-                      value={draft.industryType}
-                      onChange={(e) => patchDraft({ industryType: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Employment type</label>
-                    <select
-                      className={fieldClass}
-                      value={draft.employmentType}
-                      onChange={(e) => patchDraft({ employmentType: e.target.value })}
-                    >
-                      <option>Full Time</option>
-                      <option>Part Time</option>
-                      <option>Contract</option>
-                      <option>Internship</option>
-                      <option>Freelance</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Target hire date *</label>
-                    <input
-                      type="date"
-                      className={fieldClass}
-                      value={draft.targetHireDate}
-                      onChange={(e) => patchDraft({ targetHireDate: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Min experience (years)</label>
-                    <input
-                      type="number"
-                      className={fieldClass}
-                      value={draft.minExperience}
-                      onChange={(e) => patchDraft({ minExperience: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Max experience (years)</label>
-                    <input
-                      type="number"
-                      className={fieldClass}
-                      value={draft.maxExperience}
-                      onChange={(e) => patchDraft({ maxExperience: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Salary currency</label>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setCurrencyOpen((open) => !open)}
-                        className={`${fieldClass} flex items-center justify-between bg-white font-medium text-slate-800`}
-                        aria-label="Salary currency"
-                      >
-                        <span>{draft.salaryCurrency || 'Currency'}</span>
-                        <ChevronDown className="h-4 w-4 text-slate-400" />
-                      </button>
-                      {currencyOpen ? (
-                        <>
-                          <div
-                            className="fixed inset-0 z-10"
-                            onClick={() => {
-                              setCurrencyOpen(false);
-                              setCurrencySearch('');
-                            }}
-                          />
-                          <div className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10">
-                            <div className="border-b border-slate-100 bg-slate-50/80 p-2.5">
-                              <div className="relative">
-                                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                                <input
-                                  type="text"
-                                  value={currencySearch}
-                                  onChange={(e) => setCurrencySearch(e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  placeholder="Search currency…"
-                                  autoFocus
-                                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#2098C8] focus:ring-4 focus:ring-[#2098C8]/15"
-                                />
-                              </div>
-                            </div>
-                            <ul className="max-h-56 overflow-y-auto py-1 [scrollbar-width:thin]">
-                              {filteredCurrencies.length === 0 ? (
-                                <li className="px-3 py-2.5 text-sm text-slate-500">
-                                  No currencies found
-                                </li>
-                              ) : (
-                                filteredCurrencies.map((code) => (
-                                  <li key={code}>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        patchDraft({ salaryCurrency: code });
-                                        setCurrencyOpen(false);
-                                        setCurrencySearch('');
-                                      }}
-                                      className={`w-full px-3.5 py-2.5 text-left text-sm transition hover:bg-slate-50 ${
-                                        draft.salaryCurrency === code
-                                          ? 'bg-[#E8F6FC] font-semibold text-[#176F96]'
-                                          : 'text-slate-700'
-                                      }`}
-                                    >
-                                      {code}
-                                    </button>
-                                  </li>
-                                ))
-                              )}
-                            </ul>
-                          </div>
-                        </>
-                      ) : null}
+                <div className={`${sectionClass} space-y-6`}>
+                  <div className="flex items-start gap-3 border-b border-slate-100 pb-4">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2098C8]/10 text-[#2098C8]">
+                      <Briefcase className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Job Details</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Description, role info, and requirements
+                      </p>
                     </div>
                   </div>
-                  <div>
-                    <label className={labelClass}>Salary min</label>
-                    <input
-                      className={fieldClass}
-                      value={draft.payRangeMin}
-                      onChange={(e) => patchDraft({ payRangeMin: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Salary max</label>
-                    <input
-                      className={fieldClass}
-                      value={draft.payRangeMax}
-                      onChange={(e) => patchDraft({ payRangeMax: e.target.value })}
-                    />
-                  </div>
-                  </div>
-                </div>
 
-                <div className={`${sectionClass} space-y-4`}>
-                  <p className="text-[0.7rem] font-bold uppercase tracking-[0.14em] text-slate-400">
-                    Description & requirements
-                  </p>
                   <div>
-                    <label className={labelClass}>Job description</label>
-                    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                    <input
+                      ref={jdFileInputRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        void handleJdFilePick(file);
+                      }}
+                    />
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Job Description <span className="font-normal text-slate-500">(optional)</span>
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <PublicVisibilityToggle
+                          visible={isJobFieldPubliclyVisible(
+                            draft.publicFieldVisibility,
+                            'jobDescription',
+                          )}
+                          onToggle={() =>
+                            patchDraft({
+                              publicFieldVisibility: toggleJobPublicFieldVisibility(
+                                parseJobPublicFieldVisibility(draft.publicFieldVisibility),
+                                'jobDescription',
+                              ),
+                            })
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => jdFileInputRef.current?.click()}
+                          disabled={jdGenerating}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:border-[#2098C8]/40 hover:bg-[#E8F6FC]/50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Upload className="h-3.5 w-3.5 text-[#2098C8]" />
+                          Upload job description
+                          <span className="font-normal text-slate-500">· PDF, DOC, DOCX, TXT</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleAutoFillFromPastedJd()}
+                          disabled={jdGenerating}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#2098C8]/30 bg-[#E8F6FC] px-3 py-1.5 text-xs font-semibold text-[#176F96] hover:bg-[#E8F6FC]/80 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          Auto-fill from pasted JD
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="mt-1 mb-3 text-xs text-slate-500">
+                      Upload a document to parse and auto-fill job fields with AI, or paste and edit
+                      the full posting below.
+                    </p>
+
+                    {jdAttachment ? (
+                      <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-700/30 bg-slate-900 px-2.5 py-2 text-white">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#2098C8]">
+                          {jdAttachment.status === 'processing' ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-white" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-white" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium leading-tight">
+                            {jdAttachment.file.name}
+                          </p>
+                          <p className="text-[11px] leading-tight text-slate-400">
+                            {jdAttachment.status === 'processing'
+                              ? 'Extracting job details…'
+                              : jdAttachment.status === 'error'
+                                ? jdAttachment.error || 'Processing failed'
+                                : 'Ready — review the form and publish'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setJdAttachment(null);
+                            setJdError('');
+                          }}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+                          aria-label="Remove attached file"
+                          disabled={jdAttachment.status === 'processing'}
+                        >
+                          <X size={12} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {jdError ? (
+                      <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+                        {jdError}
+                      </p>
+                    ) : null}
+
+                    <div
+                      onPasteCapture={(event) => {
+                        const pastedText = event.clipboardData.getData('text/plain')?.trim() || '';
+                        if (pastedText.length >= 50) {
+                          setPastedJobDescriptionText(pastedText);
+                          setJdError('');
+                        }
+                      }}
+                    >
                       <RichTextEditor
                         value={draft.jobDescriptionHtml}
                         onChange={(html) => patchDraft({ jobDescriptionHtml: html })}
-                        placeholder="Job description will appear here after AI generation…"
-                        minHeight={220}
+                        placeholder="Paste or enter the full job description…"
+                        minHeight={280}
                       />
                     </div>
                   </div>
-                  <div>
-                    <label className={labelClass}>Key responsibilities (one per line)</label>
-                    <textarea
-                      rows={4}
-                      className={textareaClass}
-                      value={draft.keyResponsibilitiesText}
-                      onChange={(e) => patchDraft({ keyResponsibilitiesText: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>
-                      Preferred education / qualifications (one per line)
-                    </label>
-                    <textarea
-                      rows={3}
-                      className={textareaClass}
-                      value={draft.qualificationsExperienceText}
-                      onChange={(e) =>
-                        patchDraft({ qualificationsExperienceText: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Candidate requirements (one per line)</label>
-                    <textarea
-                      rows={3}
-                      className={textareaClass}
-                      value={draft.candidateRequirementsText}
-                      onChange={(e) => patchDraft({ candidateRequirementsText: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Skills (one per line)</label>
-                    <textarea
-                      rows={3}
-                      className={textareaClass}
-                      value={draft.skillsText}
-                      onChange={(e) => patchDraft({ skillsText: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>
-                      Languages (one per line, e.g. English — Fluent)
-                    </label>
-                    <textarea
-                      rows={2}
-                      className={textareaClass}
-                      value={draft.languagesText}
-                      onChange={(e) => patchDraft({ languagesText: e.target.value })}
+
+                  <div className="border-t border-slate-100 pt-2">
+                    <CreateJobDetailsForm
+                      formData={jobDetailsFormData}
+                      setFormData={patchJobDetailsForm}
+                      clients={clients}
+                      users={users}
+                      contacts={contacts}
+                      loadingClients={loadingClients}
+                      loadingUsers={loadingUsers}
+                      loadingContacts={loadingContacts}
+                      dropdownsOpen={dropdownsOpen}
+                      setDropdownsOpen={setDropdownsOpen}
+                      skillInput={skillInput}
+                      setSkillInput={setSkillInput}
+                      onAddSkill={addSkill}
+                      onRemoveSkill={removeSkill}
                     />
                   </div>
                 </div>
@@ -1161,23 +1902,106 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
           <button
             type="button"
             onClick={goBack}
-            disabled={step === 'client' || generating || publishing}
+            disabled={
+              (step === 'client' && !publishFlowStep) || generating || publishing
+            }
             className="inline-flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40"
           >
             <ArrowLeft className="h-4 w-4" />
             Back
           </button>
 
-          {step === 'review' ? (
+          {publishFlowStep === 'assessment' ? (
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setPublishFlowStep('distribution');
+                }}
+                className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setPublishFlowStep('distribution');
+                }}
+                className="inline-flex items-center gap-2 rounded-2xl bg-[#2098C8] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#2098C8]/30 transition hover:bg-[#1A86B3] hover:shadow-xl hover:shadow-[#2098C8]/35 active:scale-[0.98]"
+              >
+                Continue
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          ) : publishFlowStep === 'distribution' ? (
             <button
               type="button"
               onClick={() => void handlePublish()}
               disabled={publishing}
               className="inline-flex items-center gap-2 rounded-2xl bg-[#2098C8] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#2098C8]/30 transition hover:bg-[#1A86B3] hover:shadow-xl hover:shadow-[#2098C8]/35 active:scale-[0.98] disabled:opacity-60"
             >
-              {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {publishing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
               Publish job
             </button>
+          ) : step === 'review' ? (
+            <button
+              type="button"
+              onClick={startPublishFlow}
+              disabled={publishing}
+              className="inline-flex items-center gap-2 rounded-2xl bg-[#2098C8] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#2098C8]/30 transition hover:bg-[#1A86B3] hover:shadow-xl hover:shadow-[#2098C8]/35 active:scale-[0.98] disabled:opacity-60"
+            >
+              Continue
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          ) : step === 'prompt' ? (
+            <div className="flex flex-col items-end gap-2">
+              <AiCoinLockBanner featureId="ai.job_from_prompt" className="w-full max-w-md" />
+              <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={skipAiBrief}
+                disabled={generating}
+                className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-60"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                onClick={goNext}
+                disabled={generating}
+                className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold text-white shadow-lg transition active:scale-[0.98] disabled:opacity-60 ${
+                  jobAiGate.locked
+                    ? 'bg-amber-600 shadow-amber-600/30 hover:bg-amber-700'
+                    : 'bg-[#2098C8] shadow-[#2098C8]/30 hover:bg-[#1A86B3] hover:shadow-xl hover:shadow-[#2098C8]/35'
+                }`}
+                title={
+                  jobAiGate.locked
+                    ? `Locked — needs ${jobAiGate.cost} coins`
+                    : `Spend ${jobAiGate.cost} coins to generate`
+                }
+              >
+                {generating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    {jobAiGate.locked ? <Lock className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+                    Generate with AI
+                    <AiCoinLockBadge featureId="ai.job_from_prompt" />
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+              </div>
+            </div>
           ) : (
             <button
               type="button"
@@ -1185,23 +2009,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
               disabled={generating}
               className="inline-flex items-center gap-2 rounded-2xl bg-[#2098C8] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#2098C8]/30 transition hover:bg-[#1A86B3] hover:shadow-xl hover:shadow-[#2098C8]/35 active:scale-[0.98] disabled:opacity-60"
             >
-              {generating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating…
-                </>
-              ) : step === 'prompt' ? (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  Generate with AI
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              ) : (
-                <>
-                  Next
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
+              Next
+              <ArrowRight className="h-4 w-4" />
             </button>
           )}
         </div>

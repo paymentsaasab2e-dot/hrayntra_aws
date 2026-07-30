@@ -68,6 +68,7 @@ import pdfProxyRoutes from './routes/pdfProxy.routes.js';
 import publicUploadsRoutes from './routes/publicUploads.routes.js';
 import resumePreviewRoutes from './routes/resumePreview.routes.js';
 import hqRoutes from './modules/hq/hq.routes.js';
+import portalEventsRoutes from './modules/portal-events/portal-events.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
@@ -99,6 +100,7 @@ app.use(cors({
   },
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-db-name'],
+  exposedHeaders: ['X-Coin-Balance', 'X-Coins-Spent'],
 }));
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '15mb';
 app.use(express.json({ limit: jsonBodyLimit }));
@@ -214,6 +216,7 @@ app.use('/api/v1/auth', authRoutes);
 // HQ routes include a public pricing endpoint and must be mounted before
 // router-level auth middlewares mounted on generic /api/v1 routers.
 app.use('/api/v1/hq', hqRoutes);
+app.use('/api/v1/portal-events', portalEventsRoutes);
 // Public job apply — register before any `/api/v1` router with router-level authMiddleware
 app.get('/api/v1/jobs/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
 app.post(

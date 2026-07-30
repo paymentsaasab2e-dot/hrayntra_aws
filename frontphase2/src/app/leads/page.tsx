@@ -1497,6 +1497,15 @@ export default function RecruitmentAgencyDashboard() {
     const previousLead = leads.find((lead) => lead.id === id);
     if (
       newStatus === 'Converted' &&
+      !canDirectConvertLead
+    ) {
+      void requestError(
+        'Submit a conversion request to convert this lead. Only department heads can set status to Converted directly.',
+      );
+      return;
+    }
+    if (
+      newStatus === 'Converted' &&
       previousLead &&
       (previousLead.status === 'Converted' || previousLead.convertedToClientId)
     ) {
@@ -1707,6 +1716,14 @@ export default function RecruitmentAgencyDashboard() {
   const handleBulkLeadUpdate = async (updates: { status?: LeadStatus; assignedToId?: string }) => {
     if (selectedLeadIds.length === 0) return;
 
+    if (updates.status === 'Converted' && !canDirectConvertLead) {
+      void requestError(
+        'Bulk convert requires department head access. Submit conversion requests instead.',
+      );
+      setBulkStatus('');
+      return;
+    }
+
     try {
       setBulkActionLoading(true);
       const newlyConvertedCount =
@@ -1750,6 +1767,18 @@ export default function RecruitmentAgencyDashboard() {
     setBulkAssignedTo(assignedToId);
     if (!assignedToId) return;
     await handleBulkLeadUpdate({ assignedToId });
+  };
+
+  const bulkSelectableStatuses = canDirectConvertLead
+    ? leadStatusOptions
+    : leadStatusOptions.filter((status) => status !== 'Converted');
+
+  const inlineSelectableStatuses = (currentStatus?: LeadStatus) => {
+    if (canDirectConvertLead) return mergeLeadStatusOptions(leadStatusOptions, currentStatus ? [currentStatus] : []);
+    return mergeLeadStatusOptions(
+      leadStatusOptions.filter((status) => status !== 'Converted'),
+      currentStatus ? [currentStatus] : [],
+    );
   };
 
   const mapUiLeadToFrontend = (raw: any): Lead => {
@@ -1902,7 +1931,7 @@ export default function RecruitmentAgencyDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {canDeleteLead && (
+            {(canDeleteLead || canUpdateLead) && (
               <button
                 type="button"
                 onClick={() => setRecycleBinDrawerOpen(true)}
@@ -2390,7 +2419,7 @@ export default function RecruitmentAgencyDashboard() {
                                       handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
                                     }
                                   >
-                                    {mergeLeadStatusOptions(leadStatusOptions, [lead.status]).map((status) => (
+                                    {inlineSelectableStatuses(lead.status).map((status) => (
                                       <option key={status} value={status}>
                                         {status}
                                       </option>
@@ -2620,14 +2649,14 @@ export default function RecruitmentAgencyDashboard() {
                   replaceLeadOptimistically(mapped);
                 }
                 await handleRefresh({ silent: true });
-                setSelectedLeadId(null);
-                setSelectedLeadDrawerMode('view');
-                setAddLeadDrawerOpen(false);
-                if (
+                const convertedNow =
                   mapped?.status === 'Converted' &&
                   prevStatus &&
-                  prevStatus !== 'Converted'
-                ) {
+                  prevStatus !== 'Converted';
+                if (convertedNow) {
+                  setSelectedLeadId(null);
+                  setSelectedLeadDrawerMode('view');
+                  setAddLeadDrawerOpen(false);
                   toast.success(
                     'Lead converted. A client record was created — open the Clients page to view it.',
                     {
@@ -2635,9 +2664,11 @@ export default function RecruitmentAgencyDashboard() {
                         label: 'Open Clients',
                         onClick: () => router.push('/client'),
                       },
-                    }
+                    },
                   );
-                } else if (!mapped) {
+                } else if (mapped) {
+                  toast.success('Lead updated successfully');
+                } else {
                   toast.success('Lead updated successfully');
                 }
               } catch (err: any) {
@@ -2744,7 +2775,7 @@ export default function RecruitmentAgencyDashboard() {
                       style={{ WebkitTextFillColor: '#f1f5f9' }}
                     >
                       <option value="" className="text-slate-900 bg-white">Change Status</option>
-                      {leadStatusOptions.map((status) => (
+                      {bulkSelectableStatuses.map((status) => (
                         <option key={status} value={status} className="text-slate-900 bg-white">
                           {status}
                         </option>

@@ -957,6 +957,24 @@ export const aiController = {
     }
   },
 
+  async reverseGeocodeLocation(req, res) {
+    try {
+      const lat = Number(req.query?.lat ?? req.query?.latitude);
+      const lon = Number(req.query?.lon ?? req.query?.lng ?? req.query?.longitude);
+      const resolved = await locationResolveService.reverseGeocode(lat, lon);
+      return sendResponse(res, 200, 'Location reversed', resolved);
+    } catch (error) {
+      if (error.code === 'VALIDATION') {
+        return sendError(res, 400, error.message);
+      }
+      if (error.code === 'NOT_FOUND') {
+        return sendError(res, 404, error.message);
+      }
+      console.error('[reverseGeocodeLocation]', error);
+      return sendError(res, 500, error.message || 'Reverse geocode failed', error);
+    }
+  },
+
   async parseSmartSearch(req, res) {
     try {
       const { entity, prompt, context } = req.body || {};

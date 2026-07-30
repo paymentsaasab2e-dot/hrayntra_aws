@@ -35,6 +35,8 @@ interface PreScreenAssessmentSectionProps {
   skills?: string[];
   jobDescription?: string;
   disabled?: boolean;
+  /** Opens the library menu upward so it is not clipped by scroll containers. */
+  libraryMenuOpensUp?: boolean;
 }
 
 function mapLinksForApi(links: JobPreScreenAssessmentLink[]) {
@@ -81,6 +83,7 @@ export function PreScreenAssessmentSection({
   skills = [],
   jobDescription = '',
   disabled = false,
+  libraryMenuOpensUp = false,
 }: PreScreenAssessmentSectionProps) {
   const links = Array.isArray(linksProp) ? linksProp : [];
   const [library, setLibrary] = useState<PreScreenAssessment[]>([]);
@@ -422,7 +425,11 @@ export function PreScreenAssessmentSection({
         </button>
 
         {libraryOpen ? (
-          <div className="absolute left-0 right-0 z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg sm:min-w-[320px]">
+          <div
+            className={`absolute left-0 right-0 z-30 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg sm:min-w-[320px] ${
+              libraryMenuOpensUp ? 'bottom-full mb-1' : 'top-full mt-1'
+            }`}
+          >
             {library.length === 0 ? (
               <p className="px-3 py-2 text-xs text-slate-500">Library is empty. Create a test above.</p>
             ) : (

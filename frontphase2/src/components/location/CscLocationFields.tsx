@@ -52,6 +52,8 @@ export interface CscLocationFieldsProps {
   showDetectedHint?: boolean;
   countryError?: string;
   stateError?: string;
+  /** When true, country and state show as required (default false for leads). */
+  requireCountryState?: boolean;
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -78,6 +80,7 @@ export function CscLocationFields({
   showDetectedHint = true,
   countryError,
   stateError,
+  requireCountryState = false,
 }: CscLocationFieldsProps) {
   const countries = useMemo(() => getCscCountryOptions(), []);
   const resolvedCountry = useMemo(
@@ -352,7 +355,14 @@ export function CscLocationFields({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-            Country <span className="text-red-500">*</span>
+            Country{' '}
+            {requireCountryState ? (
+              <span className="text-red-500">*</span>
+            ) : (
+              <span className="font-medium normal-case tracking-normal text-slate-400">
+                (optional)
+              </span>
+            )}
           </label>
           <select
             value={activeCountryCode}
@@ -373,7 +383,14 @@ export function CscLocationFields({
 
         <div>
           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-            State <span className="text-red-500">*</span>
+            State{' '}
+            {requireCountryState ? (
+              <span className="text-red-500">*</span>
+            ) : (
+              <span className="font-medium normal-case tracking-normal text-slate-400">
+                (optional)
+              </span>
+            )}
           </label>
           {stateOptions.length > 0 ? (
             <select

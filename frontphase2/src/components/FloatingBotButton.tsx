@@ -3,10 +3,11 @@
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
-import { Eraser, MessageSquareText, History, X, PlusCircle } from 'lucide-react';
+import { Eraser, MessageSquareText, History, X, PlusCircle, Lock } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AssistantChatPanel, type AssistantPromptSuggestion, type UiChatMessage } from './AssistantChatPanel';
 import { usePageDrawerOpen } from '../hooks/usePageDrawerOpen';
+import { useAiCoinGate } from './coins/AiCoinGate';
 import {
   apiDeleteAssistantHistory,
   apiGetAssistantHistory,
@@ -162,6 +163,8 @@ export function FloatingBotButton() {
   const pathname = usePathname();
   const pageConfig = getAssistantPageConfig(pathname);
   const pagePrompts = getPromptSuggestionsForPage(pageConfig?.key, pageConfig?.recommendations || []);
+  const assistantFabGate = useAiCoinGate('ai.assistant_chat');
+  const assistantFabLocked = assistantFabGate.locked;
   const [mounted, setMounted] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -373,11 +376,21 @@ export function FloatingBotButton() {
                   rotate: { duration: 0.35, ease: 'easeOut' },
                 }
         }
-        className="fixed z-[9999] box-border touch-none select-none rounded-full border-2 border-orange-400 bg-white p-0.5 shadow-lg ring-2 ring-orange-200/80 transition-colors duration-200 hover:border-blue-400 hover:ring-blue-200/80 focus:outline-none"
+        className={`fixed z-[9999] box-border touch-none select-none rounded-full border-2 bg-white p-0.5 shadow-lg ring-2 transition-colors duration-200 focus:outline-none ${
+          assistantFabLocked
+            ? 'border-amber-400 ring-amber-200/80 hover:border-amber-500'
+            : 'border-orange-400 ring-orange-200/80 hover:border-blue-400 hover:ring-blue-200/80'
+        }`}
         style={{ width: SIZE, height: SIZE, cursor: dragging ? 'grabbing' : 'grab' }}
+        title={assistantFabLocked ? 'ARIA locked — needs AI coins' : 'Open ARIA assistant'}
       >
         <span className="relative block h-full w-full overflow-hidden rounded-full">
           <Image src={BOT_IMAGE_SRC} alt="ARIA floating assistant" fill className="pointer-events-none rounded-full object-contain p-0.5" draggable={false} priority={false} unoptimized />
+          {assistantFabLocked ? (
+            <span className="absolute inset-0 flex items-center justify-center rounded-full bg-amber-950/45">
+              <Lock className="h-5 w-5 text-white drop-shadow" />
+            </span>
+          ) : null}
         </span>
       </motion.button>
     </>

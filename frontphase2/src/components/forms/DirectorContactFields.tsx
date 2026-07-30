@@ -152,10 +152,12 @@ export function DirectorContactFields({
   };
 
   const handleEmailNotAvailable = (checked: boolean) => {
+    if (checked && phoneNotAvailable) return;
     onEmailNotAvailableChange?.(checked);
   };
 
   const handlePhoneNotAvailable = (checked: boolean) => {
+    if (checked && emailNotAvailable) return;
     onPhoneNotAvailableChange?.(checked);
   };
 
@@ -278,17 +280,21 @@ export function DirectorContactFields({
           <NotAvailableCheckbox
             checked={emailNotAvailable}
             onChange={handleEmailNotAvailable}
+            label={phoneNotAvailable ? 'Not available (keep mobile)' : 'Not available'}
           />
           <NotAvailableCheckbox
             checked={phoneNotAvailable}
             onChange={handlePhoneNotAvailable}
+            label={emailNotAvailable ? 'Not available (keep email)' : 'Not available'}
           />
           <span />
         </div>
       ) : null}
       {contactPersonError ? <p className="text-xs text-red-600">{contactPersonError}</p> : null}
       {emailError ? <p className="text-xs text-red-600">{emailError}</p> : null}
-      {phoneError ? <p className="text-xs text-red-600">{phoneError}</p> : null}
+      {phoneError && phoneError !== emailError ? (
+        <p className="text-xs text-red-600">{phoneError}</p>
+      ) : null}
       {!countryCode && !countryName && !phoneNotAvailable ? (
         <p className="text-[11px] text-slate-400">
           Select a country in Location to auto-fill the dial code and number length.

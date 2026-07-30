@@ -54,6 +54,7 @@ import {
   LayoutGrid,
   Plus,
   Sparkles,
+  Lock,
   AlertTriangle,
   Check,
   Trash2,
@@ -67,6 +68,7 @@ import {
   MessageSquare,
   Link2,
   MapPin,
+  BriefcaseBusiness,
   Briefcase,
   Globe,
   Users,
@@ -77,7 +79,6 @@ import {
   GripVertical,
   Copy,
   ExternalLink,
-  Cake,
   Gift,
   PartyPopper,
 } from 'lucide-react';
@@ -101,6 +102,7 @@ import {
   apiGetLeadStatusCatalog,
   apiRemoveLeadStatus,
   apiUpdateLead,
+  apiHqListTeam,
   filesApiUpload,
   type CreateLeadData,
   type BackendActivity,
@@ -123,6 +125,7 @@ import { apiGetLeadAssignableMembers } from '../../lib/api';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
+import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import type { LeadAiGeneratedPayload } from '@/lib/leadAiHelpers';
 import {
@@ -172,7 +175,7 @@ import {
 } from './drawerFormUi';
 import { LeadSourceFields } from './LeadSourceFields';
 import type { LocationSelection } from '../LocationAutocomplete';
-import { CscLocationFields } from '../location/CscLocationFields';
+import { LeadLocationFields } from '../location/LeadLocationFields';
 import { getCountryByCodeOrName, inferLocationFromCityName } from '../../lib/cscData';
 import { validatePhoneForCountry } from '../../lib/phoneByCountry';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
@@ -203,6 +206,9 @@ function mergeLocationFields<
 
 const DEFAULT_LEAD_STATUSES: DefaultLeadStatus[] = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
 const DEFAULT_LEAD_STATUS_SET = new Set(DEFAULT_LEAD_STATUSES.map((status) => status.toLowerCase()));
+/** HQ Add Lead only — not shown on tenant Phase 2. */
+const HQ_ONLY_LEAD_STATUS = 'Demo';
+const HQ_ONLY_LEAD_STATUS_SET = new Set([HQ_ONLY_LEAD_STATUS.toLowerCase()]);
 
 const STATUS_STYLES: Record<DefaultLeadStatus, string> = {
   New: 'bg-blue-50 text-blue-700 border-blue-100',
@@ -216,9 +222,16 @@ function isDefaultLeadStatus(status: string | null | undefined): status is Defau
   return DEFAULT_LEAD_STATUSES.includes(String(status || '').trim() as DefaultLeadStatus);
 }
 
+function isProtectedLeadStatus(status: string | null | undefined, hqMode = false): boolean {
+  const key = String(status || '').trim().toLowerCase();
+  if (DEFAULT_LEAD_STATUS_SET.has(key)) return true;
+  return hqMode && HQ_ONLY_LEAD_STATUS_SET.has(key);
+}
+
 function mergeLeadStatusOptions(
   savedStatuses: string[] | null | undefined,
   currentStatus: string | null | undefined,
+  { hqMode = false }: { hqMode?: boolean } = {},
 ) {
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -227,10 +240,13 @@ function mergeLeadStatusOptions(
     if (!normalized) return;
     const key = normalized.toLowerCase();
     if (seen.has(key)) return;
+    // Never surface HQ-only "Demo" on tenant Phase 2 dropdowns.
+    if (!hqMode && HQ_ONLY_LEAD_STATUS_SET.has(key)) return;
     seen.add(key);
     merged.push(normalized);
   };
 
+  if (hqMode) push(HQ_ONLY_LEAD_STATUS);
   DEFAULT_LEAD_STATUSES.forEach(push);
   (savedStatuses || []).forEach(push);
   push(currentStatus);
@@ -340,29 +356,31 @@ function validateLeadRequiredFields(form: {
   const contactPerson = String(form.contactPerson || '').trim();
   const country = String(form.country || '').trim();
   const state = String(form.state || '').trim();
-  const email = primaryContactValue(normalizeContactList(form.emails, form.email));
-  const phone = primaryContactValue(normalizeContactList(form.phones, form.phone));
+  const email = form.emailNotAvailable
+    ? ''
+    : primaryContactValue(normalizeContactList(form.emails, form.email));
+  const phone = form.phoneNotAvailable
+    ? ''
+    : primaryContactValue(normalizeContactList(form.phones, form.phone));
 
   if (!companyName) errors.companyName = 'Company is required';
   if (!contactPerson) errors.contactPerson = 'Director name is required';
-  if (!country) errors.country = 'Country is required';
-  if (!state) errors.state = 'State is required';
 
-  if (!form.emailNotAvailable) {
-    if (!email) {
-      errors.email = 'Email is required (or mark as not available)';
-    } else {
+  // Email and mobile are not both required — at least one contact channel must be present.
+  if (form.emailNotAvailable && form.phoneNotAvailable) {
+    errors.email = 'Email and mobile cannot both be marked not available';
+    errors.phone = 'Provide email or mobile number (at least one)';
+  } else if (!email && !phone) {
+    errors.email = 'Provide email or mobile number (at least one)';
+    errors.phone = 'Provide email or mobile number (at least one)';
+  } else {
+    if (email) {
       const result = validateEmail(email);
       if (!result.valid) {
         errors.email = result.message;
       }
     }
-  }
-
-  if (!form.phoneNotAvailable) {
-    if (!phone) {
-      errors.phone = 'Mobile number is required (or mark as not available)';
-    } else if (!options?.skipPhoneValidation) {
+    if (phone && !options?.skipPhoneValidation) {
       const phoneResult = validatePhoneForCountry(phone, form.countryCode, form.country);
       if (!phoneResult.valid) {
         errors.phone = phoneResult.message || 'Enter a valid mobile number';
@@ -492,10 +510,17 @@ interface LeadDetailsDrawerProps {
   /** Called when user submits the Add Lead form */
   onAddLead?: (data: AddLeadFormData, createdLead?: BackendLead) => void;
   /**
-   * Optional create path (e.g. public intake form). When set, replaces `apiCreateLead`
+   * Optional create path (e.g. public intake form / HQ). When set, replaces `apiCreateLead`
    * and skips authenticated duplicate-check / file uploads that need a CRM session.
    */
   createLeadOverride?: (data: CreateLeadData) => Promise<BackendLead | undefined | null>;
+  /**
+   * Optional update path (e.g. HQ leads). When set, replaces `apiUpdateLead` for overview saves.
+   */
+  updateLeadOverride?: (
+    leadId: string,
+    data: Record<string, unknown>,
+  ) => Promise<BackendLead | undefined | null>;
   onUpdateLead?: (updatedLead?: BackendLead) => void;
   onConvert?: (id: string, form: {
     companyName: string;
@@ -697,6 +722,7 @@ const LeadStatusDropdown = ({
   onDelete,
   deleting,
   preferUpward = false,
+  hqMode = false,
 }: {
   value: string;
   options: string[];
@@ -704,6 +730,7 @@ const LeadStatusDropdown = ({
   onDelete: (status: string) => void;
   deleting: boolean;
   preferUpward?: boolean;
+  hqMode?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   const closeMenu = useCallback(() => setOpen(false), []);
@@ -724,7 +751,7 @@ const LeadStatusDropdown = ({
             }}
           >
             {options.map((status) => {
-              const isDefault = DEFAULT_LEAD_STATUS_SET.has(String(status || '').toLowerCase());
+              const isDefault = isProtectedLeadStatus(status, hqMode);
               const isActive = String(value || '') === String(status || '');
               return (
                 <button
@@ -788,6 +815,7 @@ export function LeadDetailsDrawer({
   onClose,
   onAddLead,
   createLeadOverride,
+  updateLeadOverride,
   onUpdateLead,
   onConvert,
   onMarkLost,
@@ -797,13 +825,21 @@ export function LeadDetailsDrawer({
   onOpenExistingLead,
 }: LeadDetailsDrawerProps) {
   usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
-  const isPublicIntakeMode = Boolean(createLeadOverride);
+  // Public intake only supplies createLeadOverride. HQ supplies updateLeadOverride too.
+  const isHqOverrideMode = Boolean(updateLeadOverride);
+  const isPublicIntakeMode = Boolean(createLeadOverride) && !isHqOverrideMode;
   const drawerIsOpen = Boolean(lead) || addLeadMode;
+  const leadAiGate = useAiCoinGate('ai.lead_details');
+  /** HQ-only: CRM vs Recruitment product line (never shown on tenant Phase 2). */
+  const [hqProductLine, setHqProductLine] = useState<'crm' | 'recruitment'>('crm');
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'chat' | 'followup' | 'add'>(
     'overview'
   );
   const [leadFilesTypeFilter, setLeadFilesTypeFilter] = useState<'All' | 'Contract' | 'Proposal' | 'Other'>('All');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // HQ / public intake leads live outside the tenant DB — skip tenant /files lookups.
+  const leadFilesEntityIdForHook =
+    isHqOverrideMode || isPublicIntakeMode ? null : lead?.id;
   const {
     files: leadFiles,
     loading: filesLoading,
@@ -813,11 +849,19 @@ export function LeadDetailsDrawer({
     error: filesError,
     uploadFile,
     deleteFile,
-  } = useFiles('lead', lead?.id);
+  } = useFiles('lead', leadFilesEntityIdForHook);
 
   useEffect(() => {
-    if (addLeadMode) setActiveTab('add');
-  }, [addLeadMode]);
+    if (addLeadMode) {
+      setActiveTab('add');
+      if (isHqOverrideMode) {
+        setHqProductLine('crm');
+        setAddLeadForm((prev) =>
+          prev.status === HQ_ONLY_LEAD_STATUS ? prev : { ...prev, status: HQ_ONLY_LEAD_STATUS as LeadStatus },
+        );
+      }
+    }
+  }, [addLeadMode, isHqOverrideMode]);
 
   const [publicLeadFormLink, setPublicLeadFormLink] = useState('');
   const [publicLeadFormTenant, setPublicLeadFormTenant] = useState('');
@@ -914,7 +958,7 @@ export function LeadDetailsDrawer({
     assignedToName: '',
     assignedToId: '',
     assignedToIds: [],
-    status: 'New',
+    status: updateLeadOverride ? HQ_ONLY_LEAD_STATUS : 'New',
     priority: 'Medium',
     interestedNeeds: '',
     notes: '',
@@ -959,7 +1003,8 @@ export function LeadDetailsDrawer({
   const agreementsUploadFeedback = useDocumentUploadFeedback(uploadingAgreements);
   const kycUploadFeedback = useDocumentUploadFeedback(uploadingKyc);
 
-  const leadFilesEntityId = addLeadMode ? null : lead?.id;
+  const leadFilesEntityId =
+    addLeadMode || isHqOverrideMode || isPublicIntakeMode ? null : lead?.id;
   const {
     files: leadEntityFiles,
     deleteFile: deleteLeadFile,
@@ -985,9 +1030,44 @@ export function LeadDetailsDrawer({
         setLoadingRecruiters(false);
         return;
       }
-      
+
       setLoadingRecruiters(true);
       try {
+        // HQ leads assign only to HQ team members (HQ Mongo), never tenant Phase 2 users.
+        if (isHqOverrideMode) {
+          const response = await apiHqListTeam();
+          const members = Array.isArray(response.data?.members) ? response.data.members : [];
+          setRecruiters(
+            members
+              .filter((member) => String(member.status || 'active').toLowerCase() !== 'inactive')
+              .map((member) => {
+                const name =
+                  member.name ||
+                  `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
+                  member.email ||
+                  'HQ Member';
+                const parts = name.split(/\s+/).filter(Boolean);
+                return {
+                  id: member.id,
+                  firstName: member.firstName || parts[0] || '',
+                  lastName: member.lastName || parts.slice(1).join(' ') || '',
+                  name,
+                  email: member.email || '',
+                  role: {
+                    id: member.roleId || member.role || 'hq-role',
+                    roleName: member.role || 'Member',
+                    color: member.roleColor || 'indigo',
+                  },
+                  department: member.department
+                    ? { id: member.department, name: member.department }
+                    : undefined,
+                  status: 'ACTIVE' as const,
+                };
+              }),
+          );
+          return;
+        }
+
         const response = await apiGetLeadAssignableMembers();
         const members = Array.isArray(response.data) ? response.data : [];
         setRecruiters(
@@ -1021,15 +1101,23 @@ export function LeadDetailsDrawer({
         setLoadingRecruiters(false);
       }
     };
-    
+
     fetchRecruiters();
-  }, [addLeadMode, lead, isPublicIntakeMode]);
+  }, [addLeadMode, lead, isPublicIntakeMode, isHqOverrideMode]);
 
   useEffect(() => {
     if (!addLeadMode && !lead) return;
 
     if (isPublicIntakeMode) {
       setLeadStatusCatalog(mergeLeadStatusOptions(DEFAULT_LEAD_STATUSES, lead?.status ?? addLeadForm.status));
+      return;
+    }
+
+    // HQ statuses live outside tenant org catalog — seed with Demo + defaults only.
+    if (isHqOverrideMode) {
+      setLeadStatusCatalog(
+        mergeLeadStatusOptions(DEFAULT_LEAD_STATUSES, lead?.status ?? addLeadForm.status, { hqMode: true }),
+      );
       return;
     }
 
@@ -1050,7 +1138,7 @@ export function LeadDetailsDrawer({
     return () => {
       cancelled = true;
     };
-  }, [addLeadMode, lead?.id, isPublicIntakeMode]);
+  }, [addLeadMode, lead?.id, isPublicIntakeMode, isHqOverrideMode]);
 
   const resetLeadAiAssistant = () => {
     setLeadAiChatOpen(false);
@@ -1147,7 +1235,7 @@ export function LeadDetailsDrawer({
       assignedToName: '',
       assignedToId: '',
       assignedToIds: [],
-      status: 'New',
+      status: isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New',
       priority: 'Medium',
       interestedNeeds: '',
       notes: '',
@@ -1417,6 +1505,9 @@ export function LeadDetailsDrawer({
   const [activityFilter, setActivityFilter] = useState<'all' | 'calls' | 'messages' | 'emails'>('all');
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
+  const [activityRefreshKey, setActivityRefreshKey] = useState(0);
+  const [savingCallLog, setSavingCallLog] = useState(false);
+  const [savingWhatsAppLog, setSavingWhatsAppLog] = useState(false);
   const [showLogCallForm, setShowLogCallForm] = useState(false);
   const [logCallForm, setLogCallForm] = useState({
     callType: 'Outgoing' as 'Outgoing' | 'Incoming',
@@ -1639,6 +1730,12 @@ export function LeadDetailsDrawer({
         return;
       }
 
+      if (isHqOverrideMode || isPublicIntakeMode) {
+        setActivities([]);
+        setLoadingActivities(false);
+        return;
+      }
+
       try {
         setLoadingActivities(true);
         const response = await apiGetLeadActivities(lead.id);
@@ -1700,7 +1797,104 @@ export function LeadDetailsDrawer({
     };
 
     fetchActivities();
-  }, [lead?.id, activeTab]);
+  }, [lead?.id, activeTab, isHqOverrideMode, isPublicIntakeMode, activityRefreshKey]);
+
+  const resetLogCallForm = () => {
+    setLogCallForm({
+      callType: 'Outgoing',
+      durationMinutes: 0,
+      durationSeconds: 0,
+      outcome: '',
+      notes: '',
+      nextFollowUp: '',
+      followUpType: 'Call',
+    });
+  };
+
+  const handleSaveCallLog = async () => {
+    if (!lead?.id || updateLeadOverride) return;
+
+    const durationParts: string[] = [];
+    if (logCallForm.durationMinutes) durationParts.push(`${logCallForm.durationMinutes}m`);
+    if (logCallForm.durationSeconds) durationParts.push(`${logCallForm.durationSeconds}s`);
+    const durationLabel = durationParts.length ? durationParts.join(' ') : null;
+    const statusRemark = [
+      `${logCallForm.callType} call logged`,
+      durationLabel ? `Duration: ${durationLabel}` : null,
+      logCallForm.outcome ? `Outcome: ${logCallForm.outcome}` : null,
+      logCallForm.notes?.trim() || null,
+    ]
+      .filter(Boolean)
+      .join('. ');
+
+    if (!statusRemark) {
+      void requestError('Add notes or an outcome before saving the call log.');
+      return;
+    }
+
+    try {
+      setSavingCallLog(true);
+      const updateData: Record<string, unknown> = {
+        statusRemark,
+        lastFollowUp: new Date().toISOString(),
+      };
+      if (logCallForm.nextFollowUp) {
+        updateData.nextFollowUp = logCallForm.nextFollowUp;
+        updateData.followUpSchedule = {
+          type: logCallForm.followUpType || 'Call',
+          notes: logCallForm.notes?.trim() || null,
+        };
+      }
+      const response = await apiUpdateLead(lead.id, updateData as Partial<CreateLeadData>);
+      const savedLead = (response as { data?: BackendLead })?.data;
+      resetLogCallForm();
+      setShowLogCallForm(false);
+      setActiveTab('overview');
+      setActivityRefreshKey((key) => key + 1);
+      onUpdateLead?.(savedLead);
+      toast.success('Call logged');
+    } catch (error: any) {
+      void requestError(error?.message || 'Failed to save call log');
+    } finally {
+      setSavingCallLog(false);
+    }
+  };
+
+  const handleSaveWhatsAppLog = async () => {
+    if (!lead?.id || updateLeadOverride) return;
+    const message = whatsAppForm.message?.trim();
+    if (!message) {
+      void requestError('Enter a message before saving.');
+      return;
+    }
+
+    const statusRemark = [
+      'WhatsApp message logged',
+      whatsAppForm.template ? `Template: ${whatsAppForm.template}` : null,
+      `Message: ${message}`,
+    ]
+      .filter(Boolean)
+      .join('. ');
+
+    try {
+      setSavingWhatsAppLog(true);
+      const response = await apiUpdateLead(lead.id, {
+        statusRemark,
+        lastFollowUp: new Date().toISOString(),
+      });
+      const savedLead = (response as { data?: BackendLead })?.data;
+      setWhatsAppForm({ template: '', message: '' });
+      setShowSendWhatsAppForm(false);
+      setActiveTab('overview');
+      setActivityRefreshKey((key) => key + 1);
+      onUpdateLead?.(savedLead);
+      toast.success('WhatsApp activity saved');
+    } catch (error: any) {
+      void requestError(error?.message || 'Failed to save WhatsApp activity');
+    } finally {
+      setSavingWhatsAppLog(false);
+    }
+  };
 
   const openMergeLeadsForm = () => {
     setShowDuplicateNotification(false);
@@ -1868,7 +2062,7 @@ export function LeadDetailsDrawer({
     setPendingOverviewKycFiles([]);
     setPendingOverviewTeamMemberKycFiles([]);
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
-    setLeadStatusCatalog((current) => mergeLeadStatusOptions(current, lead.status));
+    setLeadStatusCatalog((current) => mergeLeadStatusOptions(current, lead.status, { hqMode: isHqOverrideMode }));
     setOverviewEditMode(true);
   };
 
@@ -1882,12 +2076,12 @@ export function LeadDetailsDrawer({
   };
 
   const addLeadStatusOptions = React.useMemo(
-    () => mergeLeadStatusOptions(leadStatusCatalog, addLeadForm.status),
-    [leadStatusCatalog, addLeadForm.status],
+    () => mergeLeadStatusOptions(leadStatusCatalog, addLeadForm.status, { hqMode: isHqOverrideMode }),
+    [leadStatusCatalog, addLeadForm.status, isHqOverrideMode],
   );
   const overviewLeadStatusOptions = React.useMemo(
-    () => mergeLeadStatusOptions(leadStatusCatalog, overviewEditForm.status),
-    [leadStatusCatalog, overviewEditForm.status],
+    () => mergeLeadStatusOptions(leadStatusCatalog, overviewEditForm.status, { hqMode: isHqOverrideMode }),
+    [leadStatusCatalog, overviewEditForm.status, isHqOverrideMode],
   );
 
   const addLeadStatusOption = async (onSelect: (status: string) => void) => {
@@ -1899,6 +2093,17 @@ export function LeadDetailsDrawer({
 
     setSavingLeadStatus(true);
     try {
+      if (isHqOverrideMode) {
+        const nextOptions = mergeLeadStatusOptions(leadStatusCatalog, status, { hqMode: true });
+        setLeadStatusCatalog(nextOptions);
+        onSelect(status);
+        setNewLeadStatusValue('');
+        setShowAddLeadStatusInput(false);
+        setAddLeadStatusIsCustom(false);
+        setOverviewStatusIsCustom(false);
+        toast.success(`Status "${status}" added.`);
+        return;
+      }
       const response = await apiAppendLeadStatus(status);
       const nextOptions = mergeLeadStatusOptions(response?.data?.statuses, status);
       setLeadStatusCatalog(nextOptions);
@@ -1918,7 +2123,7 @@ export function LeadDetailsDrawer({
   const deleteLeadStatusOption = async (status: string, onSelect: (status: string) => void) => {
     const normalized = String(status || '').trim();
     if (!normalized) return;
-    if (DEFAULT_LEAD_STATUS_SET.has(normalized.toLowerCase())) {
+    if (isProtectedLeadStatus(normalized, isHqOverrideMode)) {
       toast.error('Default statuses cannot be deleted.');
       return;
     }
@@ -1932,6 +2137,18 @@ export function LeadDetailsDrawer({
 
     setDeletingLeadStatus(true);
     try {
+      if (isHqOverrideMode) {
+        const fallback = HQ_ONLY_LEAD_STATUS;
+        const nextOptions = mergeLeadStatusOptions(
+          leadStatusCatalog.filter((s) => s.toLowerCase() !== normalized.toLowerCase()),
+          fallback,
+          { hqMode: true },
+        );
+        setLeadStatusCatalog(nextOptions);
+        onSelect(fallback);
+        toast.success(`Status "${normalized}" deleted.`);
+        return;
+      }
       const response = await apiRemoveLeadStatus(normalized);
       const nextOptions = mergeLeadStatusOptions(response?.data?.statuses, 'New');
       setLeadStatusCatalog(nextOptions);
@@ -2027,6 +2244,8 @@ export function LeadDetailsDrawer({
         assignedToIds: overviewEditForm.assignedToIds && overviewEditForm.assignedToIds.length > 0
           ? overviewEditForm.assignedToIds
           : undefined,
+        assignedToName: overviewEditForm.leadOwner || undefined,
+        ...(isHqOverrideMode ? { leadOwner: overviewEditForm.leadOwner || undefined } : {}),
         interestedNeeds: overviewEditForm.interestedNeeds || undefined,
         notes: overviewEditForm.notes || undefined,
         lastFollowUp: overviewEditForm.lastFollowUp || undefined,
@@ -2061,7 +2280,7 @@ export function LeadDetailsDrawer({
       };
 
       const pendingOverviewLeadKyc = [...pendingOverviewKycFiles];
-      if (pendingOverviewLeadKyc.length > 0) {
+      if (pendingOverviewLeadKyc.length > 0 && !isHqOverrideMode) {
         try {
           setUploadingKyc(true);
           await uploadKycDocuments('lead', lead.id, pendingOverviewLeadKyc);
@@ -2080,7 +2299,7 @@ export function LeadDetailsDrawer({
         }
       }
 
-      if (pendingOverviewAgreementsFile) {
+      if (pendingOverviewAgreementsFile && !updateLeadOverride) {
         try {
           setUploadingAgreements(true);
           const uploadResponse = await filesApiUpload(
@@ -2105,7 +2324,9 @@ export function LeadDetailsDrawer({
         }
       }
 
-      const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
+      const updatedLeadResponse = updateLeadOverride
+        ? { data: await updateLeadOverride(lead.id, updateData) }
+        : await apiUpdateLead(lead.id, updateData);
       const savedLead =
         (updatedLeadResponse as { data?: BackendLead })?.data ||
         (updatedLeadResponse as unknown as BackendLead);
@@ -2115,7 +2336,7 @@ export function LeadDetailsDrawer({
       setOverviewEditMode(false);
       setOverviewEditErrors({});
       toast.success('Lead saved successfully');
-      onUpdateLead?.(savedLead);
+      onUpdateLead?.(savedLead || undefined);
     } catch (error: any) {
       console.error('Failed to update lead:', error);
       void requestError(error.message || 'Failed to update lead');
@@ -2125,19 +2346,23 @@ export function LeadDetailsDrawer({
   };
 
   const isCreateLeadDisabled = useMemo(() => {
-    const primaryEmail = primaryContactValue(
-      normalizeContactList(addLeadForm.emails, addLeadForm.email),
-    );
-    const primaryPhone = primaryContactValue(
-      normalizeContactList(addLeadForm.phones, addLeadForm.phone),
-    );
+    const primaryEmail = addLeadForm.emailNotAvailable
+      ? ''
+      : primaryContactValue(normalizeContactList(addLeadForm.emails, addLeadForm.email));
+    const primaryPhone = addLeadForm.phoneNotAvailable
+      ? ''
+      : primaryContactValue(normalizeContactList(addLeadForm.phones, addLeadForm.phone));
+    const hasValidEmail = Boolean(primaryEmail && validateEmail(primaryEmail).valid);
+    const hasPhone = Boolean(primaryPhone);
+    const bothUnavailable = Boolean(addLeadForm.emailNotAvailable && addLeadForm.phoneNotAvailable);
     return (
       !addLeadForm.companyName.trim() ||
       !addLeadForm.contactPerson.trim() ||
       !String(addLeadForm.country || '').trim() ||
       !String(addLeadForm.state || '').trim() ||
-      (!addLeadForm.emailNotAvailable && (!primaryEmail || !validateEmail(primaryEmail).valid)) ||
-      (!addLeadForm.phoneNotAvailable && !primaryPhone)
+      bothUnavailable ||
+      (!hasValidEmail && !hasPhone) ||
+      (Boolean(primaryEmail) && !validateEmail(primaryEmail).valid)
     );
   }, [addLeadForm]);
 
@@ -2216,7 +2441,7 @@ export function LeadDetailsDrawer({
           ),
           addLeadForm.occasions || emptyLeadOccasionForm(),
         ),
-        status: addLeadForm.status || 'New',
+        status: addLeadForm.status || (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New'),
         priority: addLeadForm.priority || 'Medium',
         servicesNeeded: addLeadForm.interestedNeeds?.trim() || undefined,
         interestedNeeds: addLeadForm.interestedNeeds?.trim() || undefined,
@@ -2248,7 +2473,30 @@ export function LeadDetailsDrawer({
             }
           : undefined,
         assignedToId: addLeadForm.assignedToId || undefined,
+        assignedToIds:
+          addLeadForm.assignedToIds && addLeadForm.assignedToIds.length > 0
+            ? addLeadForm.assignedToIds
+            : addLeadForm.assignedToId
+              ? [addLeadForm.assignedToId]
+              : undefined,
+        assignedToName: addLeadForm.assignedToName || undefined,
         ...agreementTermsApiPayload(addLeadForm),
+        ...(isHqOverrideMode
+          ? {
+              hqProductLine,
+              leadOwner: addLeadForm.assignedToName || undefined,
+              interestedModules: [
+                hqProductLine === 'recruitment' ? 'Recruitment' : 'CRM',
+                ...(addLeadForm.interestedNeeds
+                  ? String(addLeadForm.interestedNeeds)
+                      .split(/[,|\n]/)
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                  : []),
+              ].filter((v, i, arr) => arr.indexOf(v) === i),
+              formSchema: 'phase2',
+            }
+          : {}),
       };
 
       let createdLead: BackendLead | undefined | null = null;
@@ -2321,6 +2569,8 @@ export function LeadDetailsDrawer({
     addLeadStatusIsCustom,
     allowDuplicateCreate,
     createLeadOverride,
+    hqProductLine,
+    isHqOverrideMode,
     onAddLead,
     pendingAddLeadAgreementsFile,
     pendingAddLeadKycFiles,
@@ -2455,11 +2705,27 @@ export function LeadDetailsDrawer({
                   {!isPublicIntakeMode ? (
                     <button
                       type="button"
-                      onClick={() => setLeadAiChatOpen(true)}
-                      className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                      onClick={() => {
+                        if (leadAiGate.locked) {
+                          leadAiGate.confirmAndUnlock();
+                          return;
+                        }
+                        setLeadAiChatOpen(true);
+                      }}
+                      className={`inline-flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition-colors ${
+                        leadAiGate.locked
+                          ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                          : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      }`}
+                      title={
+                        leadAiGate.locked
+                          ? `Locked — needs ${leadAiGate.cost} coins`
+                          : `Open AI assistant (${leadAiGate.cost}+ coins per action)`
+                      }
                     >
-                      <Sparkles size={14} />
+                      {leadAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} />}
                       Create with AI
+                      <AiCoinLockBadge featureId="ai.lead_details" />
                     </button>
                   ) : null}
                   <button
@@ -2528,7 +2794,7 @@ export function LeadDetailsDrawer({
             </div>
           </div>
 
-          {addLeadMode && !isPublicIntakeMode && (
+          {addLeadMode && !isPublicIntakeMode && !isHqOverrideMode && (
             <div className="shrink-0 border-b border-blue-100 bg-blue-50/70 px-6 py-3">
               <div className="flex items-start gap-2">
                 <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
@@ -2933,13 +3199,11 @@ export function LeadDetailsDrawer({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setShowLogCallForm(false);
-                        setLogCallForm({ callType: 'Outgoing', durationMinutes: 0, durationSeconds: 0, outcome: '', notes: '', nextFollowUp: '', followUpType: 'Call' });
-                      }}
-                      className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-sm transition-colors"
+                      onClick={() => void handleSaveCallLog()}
+                      disabled={savingCallLog}
+                      className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Save Call Log
+                      {savingCallLog ? 'Saving...' : 'Save Call Log'}
                     </button>
                   </div>
                 </div>
@@ -3034,14 +3298,12 @@ export function LeadDetailsDrawer({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setShowSendWhatsAppForm(false);
-                        setWhatsAppForm({ template: '', message: '' });
-                      }}
-                      className="px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 shadow-sm transition-colors flex items-center gap-2"
+                      onClick={() => void handleSaveWhatsAppLog()}
+                      disabled={savingWhatsAppLog}
+                      className="px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 shadow-sm transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <WhatsAppIcon size={16} />
-                      Send Message
+                      {savingWhatsAppLog ? 'Saving...' : 'Save activity'}
                     </button>
                   </div>
                 </div>
@@ -3425,6 +3687,78 @@ export function LeadDetailsDrawer({
                 </div>
               ) : activeTab === 'add' ? (
                 <div className="space-y-5">
+                  {isHqOverrideMode ? (
+                    <AddLeadSectionCard
+                      title="Workspace"
+                      subtitle="Choose CRM or Recruitment for this HQ lead"
+                      icon={Target}
+                      accent="indigo"
+                    >
+                      <div
+                        role="tablist"
+                        aria-label="CRM or Recruitment"
+                        className="mb-3 grid grid-cols-2 gap-1 rounded-xl border border-indigo-100 bg-slate-50/80 p-1"
+                      >
+                        {(
+                          [
+                            { id: 'crm' as const, label: 'CRM', icon: Target },
+                            { id: 'recruitment' as const, label: 'Recruitment', icon: BriefcaseBusiness },
+                          ] as const
+                        ).map((opt) => {
+                          const active = hqProductLine === opt.id;
+                          const Icon = opt.icon;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              role="tab"
+                              aria-selected={active}
+                              onClick={() => setHqProductLine(opt.id)}
+                              className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
+                                active
+                                  ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200'
+                                  : 'text-slate-500 hover:text-slate-800'
+                              }`}
+                            >
+                              <Icon size={15} strokeWidth={2.25} />
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setHqProductLine('crm')}
+                          className={`rounded-xl border p-3.5 text-left transition ${
+                            hqProductLine === 'crm'
+                              ? 'border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-400/25'
+                              : 'border-slate-200 bg-white hover:border-indigo-200'
+                          }`}
+                        >
+                          <p className="text-sm font-bold text-slate-900">CRM</p>
+                          <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                            Sales pipeline, follow-ups, convert to client
+                          </p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHqProductLine('recruitment')}
+                          className={`rounded-xl border p-3.5 text-left transition ${
+                            hqProductLine === 'recruitment'
+                              ? 'border-violet-300 bg-violet-50/70 ring-2 ring-violet-400/25'
+                              : 'border-slate-200 bg-white hover:border-violet-200'
+                          }`}
+                        >
+                          <p className="text-sm font-bold text-slate-900">Recruitment</p>
+                          <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                            Jobs, candidates, interviews & placements
+                          </p>
+                        </button>
+                      </div>
+                    </AddLeadSectionCard>
+                  ) : null}
+
                   <AddLeadSectionCard
                     title="Company Details"
                     subtitle="Organization name and online presence"
@@ -3489,7 +3823,7 @@ export function LeadDetailsDrawer({
                   >
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="sm:col-span-2">
-                        <CscLocationFields
+                        <LeadLocationFields
                           location={addLeadForm.location ?? ''}
                           city={addLeadForm.city ?? ''}
                           state={addLeadForm.state ?? ''}
@@ -3505,8 +3839,8 @@ export function LeadDetailsDrawer({
                             setAddLeadForm((p) => mergeLocationFields(p, s));
                             setAddLeadErrors((prev) => ({
                               ...prev,
-                              country: s.country?.trim() ? undefined : prev.country,
-                              state: s.state?.trim() ? undefined : prev.state,
+                              country: undefined,
+                              state: undefined,
                             }));
                           }}
                         />
@@ -3648,10 +3982,11 @@ export function LeadDetailsDrawer({
                           </button>
                         </div>
                         <LeadStatusDropdown
-                          value={addLeadForm.status ?? 'New'}
+                          value={addLeadForm.status ?? (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New')}
                           options={addLeadStatusOptions}
                           deleting={deletingLeadStatus}
                           preferUpward
+                          hqMode={isHqOverrideMode}
                           onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
                           onDelete={(status) =>
                             deleteLeadStatusOption(status, (nextStatus) =>
@@ -3750,15 +4085,35 @@ export function LeadDetailsDrawer({
                             (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])
                           }
                           loading={loadingRecruiters}
+                          placeholder={
+                            isHqOverrideMode
+                              ? loadingRecruiters
+                                ? 'Loading HQ team…'
+                                : recruiters.length
+                                  ? 'Select HQ team members'
+                                  : 'No HQ team members yet — add them under Team'
+                              : undefined
+                          }
                           onChange={(ids) => {
-                            const primary = ids[0] ? recruiters.find((r) => r.id === ids[0]) : undefined;
+                            const selected = ids
+                              .map((id) => recruiters.find((r) => r.id === id))
+                              .filter(Boolean);
+                            const primary = selected[0];
+                            const assignedToName = selected
+                              .map((m) =>
+                                `${m!.firstName || ''} ${m!.lastName || ''}`.trim() || m!.name || m!.email,
+                              )
+                              .filter(Boolean)
+                              .join(', ');
                             setAddLeadForm((p) => ({
                               ...p,
                               assignedToIds: ids,
                               assignedToId: ids[0] ?? '',
-                              assignedToName: primary
-                                ? `${primary.firstName} ${primary.lastName}`
-                                : '',
+                              assignedToName:
+                                assignedToName ||
+                                (primary
+                                  ? `${primary.firstName} ${primary.lastName}`.trim()
+                                  : ''),
                             }));
                           }}
                         />
@@ -3821,7 +4176,7 @@ export function LeadDetailsDrawer({
 
                   <AddLeadSectionCard
                     title="Other"
-                    subtitle="Pick date, then name and email from contacts above"
+                    subtitle="Add events with name, date, reminder, and email"
                     icon={Gift}
                     accent="indigo"
                   >
@@ -4055,9 +4410,10 @@ export function LeadDetailsDrawer({
                               </div>
                             </div>
                             <LeadStatusDropdown
-                              value={addLeadForm.status ?? 'New'}
+                              value={addLeadForm.status ?? (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New')}
                               options={addLeadStatusOptions}
                               deleting={deletingLeadStatus}
+                              hqMode={isHqOverrideMode}
                               onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
                               onDelete={(status) =>
                                 deleteLeadStatusOption(status, (nextStatus) =>
@@ -4151,12 +4507,28 @@ export function LeadDetailsDrawer({
                             value={addLeadForm.assignedToIds ?? (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])}
                             loading={loadingRecruiters}
                             onChange={(ids) => {
-                              const primary = ids[0] ? recruiters.find((r) => r.id === ids[0]) : undefined;
+                              const selected = ids
+                                .map((id) => recruiters.find((r) => r.id === id))
+                                .filter(Boolean);
+                              const primary = selected[0];
+                              const assignedToName = selected
+                                .map(
+                                  (m) =>
+                                    `${m!.firstName || ''} ${m!.lastName || ''}`.trim() ||
+                                    m!.name ||
+                                    m!.email,
+                                )
+                                .filter(Boolean)
+                                .join(', ');
                               setAddLeadForm((p) => ({
                                 ...p,
                                 assignedToIds: ids,
                                 assignedToId: ids[0] ?? '',
-                                assignedToName: primary ? `${primary.firstName} ${primary.lastName}` : '',
+                                assignedToName:
+                                  assignedToName ||
+                                  (primary
+                                    ? `${primary.firstName} ${primary.lastName}`.trim()
+                                    : ''),
                               }));
                             }}
                           />
@@ -4223,7 +4595,12 @@ export function LeadDetailsDrawer({
                           >
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                               <div className="sm:col-span-2">
-                                <OverviewField label="Location" icon={MapPin} iconClassName="text-emerald-500" value={lead?.location ?? ''} />
+                                <OverviewField
+                                  label="Search location"
+                                  icon={MapPin}
+                                  iconClassName="text-emerald-500"
+                                  value={lead?.location ?? ''}
+                                />
                               </div>
                               <OverviewField label="Country" icon={Globe} iconClassName="text-emerald-500" value={lead?.country ?? ''} />
                               <OverviewField label="State" icon={MapPin} iconClassName="text-emerald-500" value={lead?.state ?? ''} />
@@ -4386,7 +4763,7 @@ export function LeadDetailsDrawer({
 
                           <AddLeadSectionCard
                             title="Other"
-                            subtitle="Pick date, then name and email from contacts above"
+                            subtitle="Events with name, date, reminder, and email"
                             icon={Gift}
                             accent="indigo"
                           >
@@ -4394,26 +4771,23 @@ export function LeadDetailsDrawer({
                               const occasions =
                                 readLeadOccasionFromOtherDetails(lead?.otherDetails) ||
                                 emptyLeadOccasionForm();
+                              const events = occasions.events || [];
+                              if (events.length === 0) {
+                                return (
+                                  <p className="text-sm text-slate-400">No events added.</p>
+                                );
+                              }
                               return (
                                 <div className="space-y-3">
-                                  <OverviewField
-                                    label="Birthday"
-                                    icon={Cake}
-                                    iconClassName="text-indigo-500"
-                                    value={formatOccasionPersonDisplay(occasions.birthday)}
-                                  />
-                                  <OverviewField
-                                    label="Anniversary"
-                                    icon={Gift}
-                                    iconClassName="text-indigo-500"
-                                    value={formatOccasionPersonDisplay(occasions.anniversary)}
-                                  />
-                                  <OverviewField
-                                    label="Special Occasion"
-                                    icon={PartyPopper}
-                                    iconClassName="text-indigo-500"
-                                    value={formatOccasionPersonDisplay(occasions.specialOccasion)}
-                                  />
+                                  {events.map((event) => (
+                                    <OverviewField
+                                      key={event.id}
+                                      label={event.eventName || 'Event'}
+                                      icon={PartyPopper}
+                                      iconClassName="text-indigo-500"
+                                      value={formatOccasionPersonDisplay(event)}
+                                    />
+                                  ))}
                                 </div>
                               );
                             })()}
@@ -4462,7 +4836,7 @@ export function LeadDetailsDrawer({
                           >
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div className="sm:col-span-2">
-                            <CscLocationFields
+                            <LeadLocationFields
                               location={overviewEditForm.location}
                               city={overviewEditForm.city}
                               state={overviewEditForm.state}
@@ -4478,8 +4852,8 @@ export function LeadDetailsDrawer({
                                 setOverviewEditForm((p) => mergeLocationFields(p, s));
                                 setOverviewEditErrors((prev) => ({
                                   ...prev,
-                                  country: s.country?.trim() ? undefined : prev.country,
-                                  state: s.state?.trim() ? undefined : prev.state,
+                                  country: undefined,
+                                  state: undefined,
                                 }));
                               }}
                             />
@@ -4613,9 +4987,10 @@ export function LeadDetailsDrawer({
                                 </div>
                               </div>
                               <LeadStatusDropdown
-                                value={overviewEditForm.status || 'New'}
+                                value={overviewEditForm.status || (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New')}
                                 options={overviewLeadStatusOptions}
                                 deleting={deletingLeadStatus}
+                                hqMode={isHqOverrideMode}
                                 onSelect={(status) => setOverviewEditForm((p) => ({ ...p, status: status as LeadStatus }))}
                                 onDelete={(status) =>
                                   deleteLeadStatusOption(status, (nextStatus) =>
@@ -4699,12 +5074,23 @@ export function LeadDetailsDrawer({
                                 value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
                                 loading={loadingRecruiters}
                                 onChange={(ids) => {
-                                  const primary = ids[0] ? recruiters.find((r) => r.id === ids[0]) : undefined;
+                                  const selected = ids
+                                    .map((id) => recruiters.find((r) => r.id === id))
+                                    .filter(Boolean);
+                                  const assignedToName = selected
+                                    .map(
+                                      (m) =>
+                                        `${m!.firstName || ''} ${m!.lastName || ''}`.trim() ||
+                                        m!.name ||
+                                        m!.email,
+                                    )
+                                    .filter(Boolean)
+                                    .join(', ');
                                   setOverviewEditForm((p) => ({
                                     ...p,
                                     assignedToIds: ids,
                                     assignedToId: ids[0] ?? '',
-                                    leadOwner: primary ? `${primary.firstName} ${primary.lastName}` : '',
+                                    leadOwner: assignedToName,
                                   }));
                                 }}
                               />
@@ -4815,7 +5201,7 @@ export function LeadDetailsDrawer({
 
                           <AddLeadSectionCard
                             title="Other"
-                            subtitle="Pick date, then name and email from contacts above"
+                            subtitle="Add events with name, date, reminder, and email"
                             icon={Gift}
                             accent="indigo"
                           >
@@ -4969,7 +5355,7 @@ export function LeadDetailsDrawer({
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </div>
-                            <CscLocationFields
+                            <LeadLocationFields
                               location={overviewEditForm.location}
                               city={overviewEditForm.city}
                               state={overviewEditForm.state}
@@ -4985,8 +5371,8 @@ export function LeadDetailsDrawer({
                                 setOverviewEditForm((p) => mergeLocationFields(p, s));
                                 setOverviewEditErrors((prev) => ({
                                   ...prev,
-                                  country: s.country?.trim() ? undefined : prev.country,
-                                  state: s.state?.trim() ? undefined : prev.state,
+                                  country: undefined,
+                                  state: undefined,
                                 }));
                               }}
                             />
@@ -5195,9 +5581,10 @@ export function LeadDetailsDrawer({
                                 </div>
                               </div>
                               <LeadStatusDropdown
-                                value={overviewEditForm.status || 'New'}
+                                value={overviewEditForm.status || (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New')}
                                 options={overviewLeadStatusOptions}
                                 deleting={deletingLeadStatus}
+                                hqMode={isHqOverrideMode}
                                 onSelect={(status) => setOverviewEditForm((p) => ({ ...p, status: status as LeadStatus }))}
                                 onDelete={(status) =>
                                   deleteLeadStatusOption(status, (nextStatus) =>
@@ -5382,7 +5769,11 @@ export function LeadDetailsDrawer({
                     leadId={lead.id}
                     nextFollowUp={lead.nextFollowUp}
                     lastFollowUp={lead.lastFollowUp}
+                    otherDetails={lead.otherDetails}
                     onScheduled={() => {
+                      onUpdateLead?.();
+                    }}
+                    onCompleted={() => {
                       onUpdateLead?.();
                     }}
                   />
@@ -5419,9 +5810,16 @@ export function LeadDetailsDrawer({
                             </button>
                           ))}
                         </div>
-                        <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors active:scale-[0.98]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab('overview');
+                            setShowLogCallForm(true);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors active:scale-[0.98]"
+                        >
                           <Plus size={16} />
-                          Add
+                          Log call
                         </button>
                       </div>
                     </div>
@@ -5615,7 +6013,7 @@ export function LeadDetailsDrawer({
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <DocumentUploadButton
-                            disabled={!lead?.id}
+                            disabled={!lead?.id || isHqOverrideMode}
                             isUploading={filesUploading}
                             uploadSuccess={filesUploadSuccess}
                             uploadPercent={filesUploadPercent}
@@ -5637,6 +6035,11 @@ export function LeadDetailsDrawer({
                             ))}
                           </div>
                         </div>
+                        {isHqOverrideMode && (
+                          <p className="mt-2 text-sm text-slate-500">
+                            File storage for HQ leads is not available yet.
+                          </p>
+                        )}
                         {filesError && <p className="mt-2 text-sm text-red-600">{filesError}</p>}
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

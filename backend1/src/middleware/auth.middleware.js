@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { prisma } = require('../lib/prisma');
+const { buildSessionTrackingFields } = require('../utils/session-tracking.util');
 
 /**
  * Middleware to protect routes and verify session exists in database
@@ -93,13 +94,13 @@ const protect = async (req, res, next) => {
           : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
         try {
+          const tracking = buildSessionTrackingFields(req, req.body || {});
           session = await prisma.session.create({
             data: {
               candidateId,
               token,
-              userAgent: req.headers['user-agent'] || 'unknown',
-              ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
               expiresAt,
+              ...tracking,
             },
           });
           console.log(
@@ -120,7 +121,16 @@ const protect = async (req, res, next) => {
         }
       }
 
-      // 4. Check if session is expired
+      // 4. Reject closed / logout-everywhere sessions (history retained for HQ)
+      if (session.isActive === false) {
+        return res.status(401).json({
+          success: false,
+          message: 'Session has been invalidated. Please log in again.',
+          code: 'SESSION_INVALID',
+        });
+      }
+
+      // 5. Check if session is expired
       if (new Date() > new Date(session.expiresAt)) {
         await prisma.session.delete({ where: { id: session.id } });
         return res.status(401).json({
@@ -130,7 +140,7 @@ const protect = async (req, res, next) => {
         });
       }
 
-      // 5. Update last used time (throttle to once every 5 mins to save DB calls)
+      // 6. Update last used time (throttle to once every 5 mins to save DB calls)
       const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
       if (new Date(session.lastUsedAt) < fiveMinsAgo) {
         prisma.session.update({

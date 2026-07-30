@@ -1,19 +1,24 @@
 'use client';
 
 import { Suspense } from 'react';
-import { HqSidebar } from './HqSidebar';
+import { HqSidebar, HQ_SIDEBAR_W } from './HqSidebar';
 
 function HqSidebarFallback() {
-  return <aside className="w-[17.5rem] shrink-0 border-r border-slate-200 bg-white" />;
+  return (
+    <aside
+      className="h-full shrink-0 border-r border-white/[0.06] bg-[#0b1220]"
+      style={{ width: HQ_SIDEBAR_W }}
+    />
+  );
 }
 
 export function HqShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen bg-[#f4f5f7] text-slate-900">
+    <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-[#F8FAFC] text-slate-900">
       <Suspense fallback={<HqSidebarFallback />}>
         <HqSidebar />
       </Suspense>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</div>
     </div>
   );
 }

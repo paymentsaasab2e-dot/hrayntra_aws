@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { BarChart3, BookmarkPlus, Download, FileText, RefreshCcw } from 'lucide-react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { apiFetch } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -64,6 +64,8 @@ function filtersFromSaved(raw: Record<string, unknown> | null): FiltersState {
 export default function ReportsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const reportsBase = pathname?.startsWith('/hq/reports') ? '/hq/reports' : '/reports';
   const { hasPermission } = usePermissions();
   const canExportData = hasPermission('export_data');
   const canSaveReports = hasPermission('reports_create');
@@ -136,7 +138,7 @@ export default function ReportsPage() {
     setSection(next);
     const params = new URLSearchParams(searchParams.toString());
     params.set('section', next);
-    router.replace(`/reports?${params.toString()}`, { scroll: false });
+    router.replace(`${reportsBase}?${params.toString()}`, { scroll: false });
   };
 
   const handleApplyFilters = () => {

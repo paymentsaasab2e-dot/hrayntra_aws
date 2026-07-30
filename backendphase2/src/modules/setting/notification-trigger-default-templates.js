@@ -89,7 +89,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
 <p>Hi {{recipientName}},</p>
 <p>A follow-up has been scheduled for <strong>{{leadCompanyName}}</strong>.</p>
 <p><strong>Date:</strong> {{followUpDate}}<br><strong>Type:</strong> {{followUpType}}</p>
-<p>{{notes}}</p>`,
+{{notes}}`,
     ),
   },
   'client.assignment_email': {

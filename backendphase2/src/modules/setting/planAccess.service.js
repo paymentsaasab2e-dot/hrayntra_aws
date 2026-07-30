@@ -24,7 +24,8 @@ function planRecordsMatch(local, target) {
     (local.maxUsers ?? null) === (target.maxUsers ?? null) &&
     (local.maxJobs ?? null) === (target.maxJobs ?? null) &&
     String(local.planStartDate || '') === String(target.planStartDate || '') &&
-    String(local.planEndDate || '') === String(target.planEndDate || '')
+    String(local.planEndDate || '') === String(target.planEndDate || '') &&
+    (Number(local.coins) || 0) === (Number(target.coins) || 0)
   );
 }
 
@@ -41,6 +42,10 @@ function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
     ...(hqPlan?.isTrial ? { isTrial: true } : {}),
     ...(hqPlan?.trialDays ? { trialDays: Number(hqPlan.trialDays) || undefined } : {}),
     ...(hqPlan?.purchasedAt ? { purchasedAt: String(hqPlan.purchasedAt) } : {}),
+    ...(hqPlan?.coins !== undefined && hqPlan?.coins !== null
+      ? { coins: Math.max(0, Number(hqPlan.coins) || 0) }
+      : {}),
+    ...(hqPlan?.price ? { price: String(hqPlan.price) } : {}),
   };
 }
 

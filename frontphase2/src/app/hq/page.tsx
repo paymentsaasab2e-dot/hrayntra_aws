@@ -25,8 +25,12 @@ import {
   type HqAnalyticsPayload,
 } from '../../lib/api';
 import { HqPackagesPanel } from '../../components/hq/HqPackagesPanel';
-import { CreateTenantModal } from '../../components/hq/CreateTenantModal';
-import { getPackageOptionLabel, getPlanLabel, formatBillingCycleLabel, todayIsoDate, type BillingCycle } from '../../components/hq/hqPackagePresentation';
+import {
+  CreateTenantModal,
+  emptyProvisionTenantForm,
+  type ProvisionTenantFormData,
+} from '../../components/hq/CreateTenantModal';
+import { getPackageOptionLabel, getPlanLabel, formatBillingCycleLabel, type BillingCycle } from '../../components/hq/hqPackagePresentation';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import type { HqNavTab } from '../../components/hq/HqSidebar';
 import { HQ_NAV_ITEMS } from '../../components/hq/HqSidebar';
@@ -47,9 +51,13 @@ import {
   HqAnalyticsViewTabs,
   type HqAnalyticsView,
 } from '../../components/hq/analytics/HqAnalyticsViewTabs';
-import { HqEmployeeAnalyticsDashboard } from '../../components/hq/analytics/HqEmployeeAnalyticsDashboard';
-import { HqEmployerAnalyticsDashboard } from '../../components/hq/analytics/HqEmployerAnalyticsDashboard';
+import { HqPhase1CommandDashboard } from '../../components/hq/analytics/HqPhase1CommandDashboard';
+import { HqPhase2CommandDashboard } from '../../components/hq/analytics/HqPhase2CommandDashboard';
 import { HqAnalyticsLoadingSkeleton } from '../../components/hq/analytics/HqAnalyticsLoadingSkeleton';
+import {
+  AssignCoinsModal,
+  TenantCoinsCell,
+} from '../../components/hq/HqAiCoinsPanel';
 
 interface HqStats {
   total: number;
@@ -190,21 +198,15 @@ function HQSetupPage() {
   const analyticsView: HqAnalyticsView =
     viewParam === 'employer' || viewParam === 'platform' ? viewParam : 'employee';
 
-  const activeNav = HQ_NAV_ITEMS.find((item) => item.id === activeTab);
+  const activeNav =
+    activeTab === 'dashboard' && analyticsView === 'employer'
+      ? HQ_NAV_ITEMS.find((item) => item.id === 'employerDashboard')
+      : HQ_NAV_ITEMS.find((item) => item.id === activeTab);
 
   const [bootstrapForm, setBootstrapForm] = useState({ name: '', email: '', userId: '', password: '' });
   const [isBootstrapLoading, setIsBootstrapLoading] = useState(false);
 
-  const [provisionData, setProvisionData] = useState({
-    name: '',
-    email: '',
-    loginId: '',
-    password: '',
-    organizationType: 'agency' as 'agency' | 'standalone',
-    plan: 'starter',
-    billingCycle: 'monthly' as BillingCycle,
-    planStartDate: todayIsoDate(),
-  });
+  const [provisionData, setProvisionData] = useState<ProvisionTenantFormData>(emptyProvisionTenantForm());
   const [isProvisionLoading, setIsProvisionLoading] = useState(false);
   const [createTenantModalOpen, setCreateTenantModalOpen] = useState(false);
 
@@ -284,18 +286,6 @@ function HQSetupPage() {
     return () => window.clearInterval(timer);
   }, [activeTab, analyticsView, refreshAnalytics]);
 
-  useEffect(() => {
-    if (planOptions.length === 0) return;
-    setProvisionData((prev) => {
-      if (planOptions.some((pkg) => pkg.id === prev.plan)) return prev;
-      const starter =
-        planOptions.find((pkg) => pkg.slug === 'starter') ||
-        planOptions.find((pkg) => getPackageOptionLabel(pkg) === 'STARTER') ||
-        planOptions[0];
-      return starter ? { ...prev, plan: starter.id } : prev;
-    });
-  }, [planOptions]);
-
   const handleBootstrapSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsBootstrapLoading(true);
@@ -329,21 +319,41 @@ function HQSetupPage() {
     setIsProvisionLoading(true);
     setStatus({ type: 'idle', message: '' });
     try {
+      if (provisionData.enabledModules.length === 0) {
+        setStatus({ type: 'error', message: 'Select at least one CRM or Recruitment tab.' });
+        setIsProvisionLoading(false);
+        return;
+      }
+      if (provisionData.source === 'company' && !provisionData.companyId) {
+        setStatus({ type: 'error', message: 'Select an HQ company, or switch to Manual create.' });
+        setIsProvisionLoading(false);
+        return;
+      }
+      const maxUsers = provisionData.maxUsers ? Number(provisionData.maxUsers) : null;
+      const maxJobs = provisionData.maxJobs ? Number(provisionData.maxJobs) : null;
       const res = await apiHqProvisionTenant({
         name: provisionData.name.trim(),
         email: provisionData.email.trim().toLowerCase(),
         loginId: provisionData.loginId.trim(),
         password: provisionData.password,
         organizationType: provisionData.organizationType,
+        productLine: provisionData.productLine,
+        enabledModules: provisionData.enabledModules,
         billingCycle: provisionData.billingCycle,
-        planStartDate: provisionData.planStartDate,
-        plan: provisionData.plan
-          ? {
-              id: provisionData.plan,
-              billingCycle: provisionData.billingCycle,
-              planStartDate: provisionData.planStartDate,
-            }
-          : undefined,
+        planStartDate: provisionData.planStartDate || undefined,
+        companyId:
+          provisionData.source === 'company' && provisionData.companyId
+            ? provisionData.companyId
+            : undefined,
+        plan: {
+          name: provisionData.planName,
+          billingCycle: provisionData.billingCycle,
+          planStartDate: provisionData.planStartDate || undefined,
+          ...(provisionData.customPrice ? { price: provisionData.customPrice } : {}),
+          ...(maxUsers ? { maxUsers } : {}),
+          ...(maxJobs ? { maxJobs } : {}),
+          ...(provisionData.coins ? { coins: Number(provisionData.coins) || 0 } : {}),
+        } as any,
       });
       const d = res.data as {
         tenantDbName?: string;
@@ -357,22 +367,17 @@ function HQSetupPage() {
         : d?.credentialEmailError
           ? ` Credential email failed: ${d.credentialEmailError}`
           : '';
+      const fromCompany =
+        provisionData.source === 'company' ? ' from HQ company' : ' (manual)';
       setStatus({
         type: 'success',
-        message: `Tenant provisioned. DB: ${d?.tenantDbName || '—'} (${
+        message: `Tenant provisioned${fromCompany} (${
+          provisionData.productLine === 'recruitment' ? 'Recruitment' : 'CRM'
+        }, ${provisionData.enabledModules.length} tabs). DB: ${d?.tenantDbName || '—'} (${
           d?.organizationType || provisionData.organizationType
-        }) — plan: ${getPlanLabel(d?.subscriptionPlan, planOptions) || provisionData.plan || 'Unassigned'}.${emailSuffix}`,
+        }). Assign a plan on Tenants or Billing when ready.${emailSuffix}`,
       });
-      setProvisionData({
-        name: '',
-        email: '',
-        loginId: '',
-        password: '',
-        organizationType: 'agency',
-        plan: 'starter',
-        billingCycle: 'monthly',
-        planStartDate: todayIsoDate(),
-      });
+      setProvisionData(emptyProvisionTenantForm());
       setCreateTenantModalOpen(false);
       void refreshTenants();
     } catch (error: any) {
@@ -478,6 +483,57 @@ function HQSetupPage() {
     return [...known, { name: 'Unassigned', count: unassigned }];
   }, [stats, planOptions]);
 
+  const isPhase1EmployeeDashboard = activeTab === 'dashboard' && analyticsView === 'employee';
+  const isPhase2EmployerDashboard = activeTab === 'dashboard' && analyticsView === 'employer';
+
+  if (isPhase1EmployeeDashboard) {
+    return (
+      <main className="min-h-screen overflow-y-auto bg-[#F8FAFC]">
+        {analyticsLoading && !analytics ? (
+          <div className="p-8">
+            <HqAnalyticsLoadingSkeleton />
+          </div>
+        ) : analyticsError && !analytics ? (
+          <div className="p-8">
+            <HqAlert type="error" message={analyticsError} />
+          </div>
+        ) : (
+          <HqPhase1CommandDashboard
+            data={analytics?.employee || null}
+            generatedAt={analytics?.generatedAt}
+            durationMs={analytics?.durationMs}
+            loading={analyticsLoading}
+            onRefresh={() => void refreshDashboard()}
+          />
+        )}
+      </main>
+    );
+  }
+
+  if (isPhase2EmployerDashboard) {
+    return (
+      <main className="min-h-screen overflow-y-auto bg-[#F8FAFC]">
+        {analyticsLoading && !analytics ? (
+          <div className="p-8">
+            <HqAnalyticsLoadingSkeleton />
+          </div>
+        ) : analyticsError && !analytics ? (
+          <div className="p-8">
+            <HqAlert type="error" message={analyticsError} />
+          </div>
+        ) : (
+          <HqPhase2CommandDashboard
+            data={analytics?.employer || null}
+            generatedAt={analytics?.generatedAt}
+            durationMs={analytics?.durationMs}
+            loading={analyticsLoading}
+            onRefresh={() => void refreshDashboard()}
+          />
+        )}
+      </main>
+    );
+  }
+
   return (
     <HqPageMain>
       <motion.div
@@ -490,11 +546,7 @@ function HQSetupPage() {
             <HqPageHeader
               title={
                 activeTab === 'dashboard'
-                  ? analyticsView === 'employee'
-                    ? 'Employee analytics'
-                    : analyticsView === 'employer'
-                      ? 'Employer analytics'
-                      : 'Platform overview'
+                  ? 'Platform overview'
                   : activeNav?.label || 'Dashboard'
               }
               subtitle={
@@ -541,42 +593,8 @@ function HQSetupPage() {
               <HqAnalyticsLoadingSkeleton />
             ) : analyticsError && !analytics ? (
               <HqAlert type="error" message={analyticsError} />
-            ) : analyticsView === 'employee' ? (
-              <div className="space-y-3">
-                {analytics?.generatedAt ? (
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                      Live
-                    </span>
-                    <span>
-                      Updated {new Date(analytics.generatedAt).toLocaleString()}
-                      {typeof analytics.durationMs === 'number' ? ` · ${analytics.durationMs}ms` : ''}
-                      {analyticsLoading ? ' · refreshing…' : ' · auto-refresh 45s'}
-                    </span>
-                  </div>
-                ) : null}
-                {analyticsError ? <HqAlert type="error" message={analyticsError} /> : null}
-                <HqEmployeeAnalyticsDashboard data={analytics?.employee || null} />
-              </div>
             ) : (
-              <div className="space-y-3">
-                {analytics?.generatedAt ? (
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                      Live
-                    </span>
-                    <span>
-                      Updated {new Date(analytics.generatedAt).toLocaleString()}
-                      {typeof analytics.durationMs === 'number' ? ` · ${analytics.durationMs}ms` : ''}
-                      {analyticsLoading ? ' · refreshing…' : ' · auto-refresh 45s'}
-                    </span>
-                  </div>
-                ) : null}
-                {analyticsError ? <HqAlert type="error" message={analyticsError} /> : null}
-                <HqEmployerAnalyticsDashboard data={analytics?.employer || null} />
-              </div>
+              <HqAlert type="error" message="Unknown dashboard view." />
             )}
           </>
         )}
@@ -595,7 +613,11 @@ function HQSetupPage() {
               pendingDeleteEmail={pendingDeleteEmail}
               onSetTenantPause={handleSetTenantPause}
               pendingPauseEmail={pendingPauseEmail}
-              onCreateTenant={() => setCreateTenantModalOpen(true)}
+              onCreateTenant={() => {
+                setProvisionData(emptyProvisionTenantForm());
+                setCreateTenantModalOpen(true);
+              }}
+              onCoinsUpdated={() => void refreshTenants()}
             />
             <CreateTenantModal
               open={createTenantModalOpen}
@@ -604,7 +626,6 @@ function HQSetupPage() {
               onChange={setProvisionData}
               onSubmit={handleProvisionSubmit}
               isLoading={isProvisionLoading}
-              planOptions={planOptions}
             />
           </>
         )}
@@ -704,6 +725,11 @@ function DashboardPanel({
                   </div>
                   <div className="shrink-0 text-right">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-sky-700">{t.organizationType}</div>
+                    {t.productLine ? (
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                        {t.productLine === 'recruitment' ? 'Recruitment' : 'CRM'}
+                      </div>
+                    ) : null}
                     <div className="text-xs text-slate-500">{getPlanLabel(t.subscriptionPlan, planOptions) || '—'}</div>
                   </div>
                 </div>
@@ -730,6 +756,7 @@ function isTenantPaused(tenant: HqTenantRow) {
 function tenantSignupSourceLabel(source?: string) {
   if (source === 'landing_purchase') return 'Landing purchase';
   if (source === 'landing_trial') return 'Landing trial';
+  if (source === 'hq_company') return 'From company';
   if (source === 'hq_manual') return 'HQ created';
   return 'Platform tenant';
 }
@@ -737,6 +764,7 @@ function tenantSignupSourceLabel(source?: string) {
 function tenantSignupSourceClass(source?: string) {
   if (source === 'landing_purchase') return 'bg-violet-50 text-violet-700 ring-violet-100';
   if (source === 'landing_trial') return 'bg-orange-50 text-orange-700 ring-orange-100';
+  if (source === 'hq_company') return 'bg-emerald-50 text-emerald-700 ring-emerald-100';
   if (source === 'hq_manual') return 'bg-slate-100 text-slate-600 ring-slate-200';
   return 'bg-sky-50 text-sky-700 ring-sky-100';
 }
@@ -754,6 +782,7 @@ function TenantsPanel({
   onSetTenantPause,
   pendingPauseEmail,
   onCreateTenant,
+  onCoinsUpdated,
 }: {
   tenants: HqTenantRow[];
   tenantStats: HqStats | null;
@@ -767,15 +796,23 @@ function TenantsPanel({
   onSetTenantPause: (email: string, paused: boolean) => void;
   pendingPauseEmail: string;
   onCreateTenant: () => void;
+  onCoinsUpdated: () => void;
 }) {
   const landingPurchases = tenantStats?.landingPurchases ?? tenants.filter((t) => t.signupSource === 'landing_purchase').length;
   const landingTrials = tenantStats?.landingTrials ?? tenants.filter((t) => t.signupSource === 'landing_trial').length;
+  const [coinsTenant, setCoinsTenant] = useState<HqTenantRow | null>(null);
 
   return (
     <HqPanel className="p-0">
+      <AssignCoinsModal
+        open={Boolean(coinsTenant)}
+        tenant={coinsTenant}
+        onClose={() => setCoinsTenant(null)}
+        onSaved={onCoinsUpdated}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <HqPanelTitle
-          title="All tenants"
+          title="Tenants"
           meta={
             <span className="text-[10px] text-slate-400">
               {tenants.length} total · {landingPurchases} landing purchases · {landingTrials} landing trials
@@ -800,8 +837,10 @@ function TenantsPanel({
                 <th className="py-2 pr-3">Email</th>
                 <th className="py-2 pr-3">Source</th>
                 <th className="py-2 pr-3">Type</th>
+                <th className="py-2 pr-3">Product</th>
                 <th className="py-2 pr-3">DB</th>
                 <th className="py-2 pr-3">Plan</th>
+                <th className="py-2 pr-3">AI coins</th>
                 <th className="py-2 pr-3">Limits</th>
                 <th className="py-2 pr-3">Billing</th>
                 <th className="py-2 pr-3">Start</th>
@@ -831,6 +870,26 @@ function TenantsPanel({
                     ) : null}
                   </td>
                   <td className="py-3 pr-3 font-semibold text-sky-700">{t.organizationType}</td>
+                  <td className="py-3 pr-3">
+                    {t.productLine ? (
+                      <div className="space-y-0.5">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${
+                            t.productLine === 'recruitment'
+                              ? 'bg-amber-50 text-amber-800 ring-amber-100'
+                              : 'bg-sky-50 text-sky-800 ring-sky-100'
+                          }`}
+                        >
+                          {t.productLine === 'recruitment' ? 'Recruitment' : 'CRM'}
+                        </span>
+                        {Array.isArray(t.enabledModules) && t.enabledModules.length > 0 ? (
+                          <p className="text-[10px] text-slate-500">{t.enabledModules.length} tabs</p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="py-3 pr-3 font-mono text-xs text-slate-500">{t.tenantDbName || '—'}</td>
                   <td className="py-3 pr-3">
                     <div className="space-y-1">
@@ -861,6 +920,9 @@ function TenantsPanel({
                         </p>
                       ) : null}
                     </div>
+                  </td>
+                  <td className="py-3 pr-3">
+                    <TenantCoinsCell tenant={t} onEdit={setCoinsTenant} />
                   </td>
                   <td className="py-3 pr-3 text-xs font-medium text-slate-600">{formatPlanLimits(t.subscriptionPlan)}</td>
                   <td className="py-3 pr-3">

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { CalendarPlus, ChevronRight } from 'lucide-react';
 import {
   apiCreateScheduledMeeting,
+  apiGetClient,
   apiGetLead,
   apiGetLeadAssignableMembers,
   apiUpdateLead,
@@ -111,25 +112,44 @@ export function ScheduleMeetingForm({
         if (!cancelled) setLoadingMembers(false);
       }
 
-      if (entityType !== 'lead' || !entityId) return;
-      try {
-        const leadRes = await apiGetLead(entityId);
-        const lead = leadRes?.data as any;
-        if (!lead || cancelled) return;
-        const phones = [
-          ...(Array.isArray(lead.phones) ? lead.phones : []),
-          lead.phone,
-          lead.teamMemberPhone,
-        ].filter(Boolean);
-        const emails = [
-          ...(Array.isArray(lead.emails) ? lead.emails : []),
-          lead.email,
-          lead.teamMemberEmail,
-        ].filter(Boolean);
-        setPhoneOptions(phones.map(String));
-        setEmailOptions(emails.map(String));
-      } catch {
-        /* ignore */
+      if (entityType === 'lead' && entityId) {
+        try {
+          const leadRes = await apiGetLead(entityId);
+          const lead = leadRes?.data as any;
+          if (!lead || cancelled) return;
+          const phones = [
+            ...(Array.isArray(lead.phones) ? lead.phones : []),
+            lead.phone,
+            lead.teamMemberPhone,
+          ].filter(Boolean);
+          const emails = [
+            ...(Array.isArray(lead.emails) ? lead.emails : []),
+            lead.email,
+            lead.teamMemberEmail,
+          ].filter(Boolean);
+          setPhoneOptions(phones.map(String));
+          setEmailOptions(emails.map(String));
+        } catch {
+          /* ignore */
+        }
+      } else if (entityType === 'client' && entityId) {
+        try {
+          const clientRes = await apiGetClient(entityId);
+          const client = (clientRes?.data ?? clientRes) as any;
+          if (!client || cancelled) return;
+          const phones = [
+            ...(Array.isArray(client.phones) ? client.phones : []),
+            client.teamMemberPhone,
+          ].filter(Boolean);
+          const emails = [
+            ...(Array.isArray(client.emails) ? client.emails : []),
+            client.teamMemberEmail,
+          ].filter(Boolean);
+          setPhoneOptions(phones.map(String));
+          setEmailOptions(emails.map(String));
+        } catch {
+          /* ignore */
+        }
       }
     };
     void load();
@@ -182,6 +202,15 @@ export function ScheduleMeetingForm({
               ? schedule.followUpReminder
               : undefined,
           notes: buildFollowUpStatusRemark({ ...schedule, nextFollowUp: isoDateTime }),
+          followUpSchedule: {
+            type: schedule.followUpType || resolvedType,
+            contact: schedule.followUpContact,
+            meetLink: schedule.followUpMeetLink,
+            reminder: schedule.followUpReminder,
+            timezone: schedule.followUpTimezone,
+            attendeeIds: schedule.followUpAttendeeIds,
+            notes: schedule.followUpNotes,
+          },
         });
       } else {
         await apiUpdateLead(entityId, {

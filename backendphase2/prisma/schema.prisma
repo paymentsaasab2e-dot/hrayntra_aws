@@ -342,6 +342,8 @@ model ScheduledMeeting {
   scheduledAt   DateTime // Combined date and time
   reminder      String? // 10 minutes before, 30 minutes before, 1 hour before, 1 day before
   notes         String?
+  /// Invite/reminder metadata (contact, meetLink, timezone, attendeeIds, inviteSentAt, reminderAt, reminderSentAt)
+  scheduleMeta  Json?
   status        ScheduledMeetingStatus @default(SCHEDULED) // SCHEDULED, COMPLETED, CANCELLED, RESCHEDULED
   completedAt   DateTime?
   cancelledAt   DateTime?
@@ -2578,4 +2580,49 @@ model UserDashboardLayout {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_dashboard_layouts")
+}
+
+// Job portal LMS events (shared jobportal DB — written by HQ / Phase 2, read by Phase 1).
+model LmsEvent {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  title            String
+  description      String
+  location         String?
+  sections         Json?
+  type             String
+  hostName         String?
+  hostAvatar       String?
+  scheduledAt      DateTime
+  durationMinutes  Int      @default(0)
+  mode             String
+  meetingUrl       String?
+  capacity         Int?
+  tags             String[] @default([])
+  isPublished      Boolean  @default(false)
+  createdById      String?
+  createdByEmail   String?
+  createdByName    String?
+  source           String?
+  tenantDbName     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  registrations LmsEventRegistration[]
+
+  @@map("lms_events")
+  @@index([createdById, source])
+  @@index([isPublished, scheduledAt])
+}
+
+model LmsEventRegistration {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  eventId      String   @db.ObjectId
+  registeredAt DateTime @default(now())
+  attended     Boolean  @default(false)
+
+  event LmsEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@map("lms_event_registrations")
 }

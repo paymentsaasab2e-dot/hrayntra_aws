@@ -8,13 +8,7 @@ export const DEFAULT_HQ_PACKAGES = [
     price: '149',
     yearlyPrice: '119',
     pricePeriod: 'per month',
-    features: [
-      'Up to 25 active job postings',
-      'AI CV screening & ATS scoring',
-      'Candidate pipeline & interviews',
-      'Basic analytics dashboard',
-      'Email support (48h response)',
-    ],
+    features: [],
     isPopular: false,
     maxUsers: 5,
     maxJobs: 25,
@@ -30,15 +24,7 @@ export const DEFAULT_HQ_PACKAGES = [
     price: '399',
     yearlyPrice: '319',
     pricePeriod: 'per month',
-    features: [
-      'Unlimited job postings',
-      'Full AI recruitment suite',
-      'Employee management & onboarding',
-      'Performance & payroll modules',
-      'Multi-platform job publishing',
-      'Priority support (24h response)',
-      'Team collaboration & roles',
-    ],
+    features: [],
     isPopular: true,
     maxUsers: 25,
     maxJobs: null,
@@ -54,15 +40,7 @@ export const DEFAULT_HQ_PACKAGES = [
     price: '999',
     yearlyPrice: '799',
     pricePeriod: 'per month',
-    features: [
-      'Everything in Professional',
-      'Custom workflows & integrations',
-      'Dedicated account manager',
-      'SSO & advanced security',
-      'SLA-backed uptime',
-      'On-premise / private cloud options',
-      'Custom contracts & training',
-    ],
+    features: [],
     isPopular: false,
     maxUsers: null,
     maxJobs: null,
@@ -97,7 +75,7 @@ export function enrichPackageDoc(doc) {
   const template = getDefaultPackageTemplate(doc?.slug, doc?.name);
   const features = Array.isArray(doc?.features)
     ? doc.features.map(String).filter(Boolean)
-    : template?.features || [];
+    : [];
 
   return {
     ...doc,
@@ -111,7 +89,7 @@ export function enrichPackageDoc(doc) {
     yearlyPrice: String(doc?.yearlyPrice ?? template?.yearlyPrice ?? '').trim(),
     pricePeriod:
       String(doc?.pricePeriod || '').trim() || template?.pricePeriod || 'per month',
-    features: features.length > 0 ? features : template?.features || [],
+    features,
     isPopular:
       doc?.isPopular === undefined || doc?.isPopular === null
         ? Boolean(template?.isPopular)
@@ -192,6 +170,10 @@ export function toAssignablePlan(pkg, billingCycle = 'monthly', planStartDate) {
   if (!pkg) return null;
   const limits = resolvePackageLimits(pkg, billingCycle);
   const start = parsePlanStartDate(planStartDate) || todayPlanStartDate();
+  const coins =
+    pkg?.coins === undefined || pkg?.coins === null
+      ? undefined
+      : Math.max(0, Number(pkg.coins) || 0);
   return {
     id: String(pkg.id || pkg._id || ''),
     name: String(pkg.name || '').trim(),
@@ -200,6 +182,8 @@ export function toAssignablePlan(pkg, billingCycle = 'monthly', planStartDate) {
     maxJobs: limits.maxJobs,
     planStartDate: start,
     planEndDate: computePlanEndDate(start, limits.billingCycle),
+    ...(coins !== undefined ? { coins } : {}),
+    ...(pkg?.price ? { price: String(pkg.price) } : {}),
   };
 }
 

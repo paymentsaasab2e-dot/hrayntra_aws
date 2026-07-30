@@ -102,7 +102,7 @@ function toCompanyRow(doc) {
   return {
     id: doc._id.toString(),
     name: doc.companyName,
-    contact: doc.primaryContactName || '',
+    contact: doc.primaryContactName || doc.directorName || '',
     industry: doc.industry || '',
     score: doc.score || 'Cold',
     users: doc.expectedUsers ?? 0,
@@ -115,6 +115,8 @@ function toCompanyRow(doc) {
     phone: doc.phone || '',
     website: doc.website || '',
     country: doc.country || '',
+    state: doc.state || '',
+    city: doc.city || '',
     estimatedDealValue: doc.estimatedDealValue ?? 0,
     companySource: doc.companySource || '',
     interestedModules: doc.interestedModules || [],
@@ -122,6 +124,35 @@ function toCompanyRow(doc) {
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : null,
     followUps: mapFollowUps(doc.followUps),
     remarks: mapRemarks(doc.remarks),
+    directorName: doc.directorName || doc.primaryContactName || '',
+    directorSalutation: doc.directorSalutation || null,
+    emails: Array.isArray(doc.emails) ? doc.emails : doc.email ? [doc.email] : [],
+    phones: Array.isArray(doc.phones) ? doc.phones : doc.phone ? [doc.phone] : [],
+    companySize: doc.companySize || '',
+    location: doc.location || '',
+    hiringLocations: doc.hiringLocations || '',
+    servicesNeeded: doc.servicesNeeded || '',
+    expectedBusinessValue: doc.expectedBusinessValue || String(doc.estimatedDealValue || ''),
+    linkedin: doc.linkedin || '',
+    timezone: doc.timezone || '',
+    priority: doc.priority || '',
+    sla: doc.sla || '',
+    leadStatus: doc.leadStatus || '',
+    latitude: typeof doc.latitude === 'number' ? doc.latitude : null,
+    longitude: typeof doc.longitude === 'number' ? doc.longitude : null,
+    teamMemberDesignation: doc.teamMemberDesignation || null,
+    teamMemberEmail: doc.teamMemberEmail || null,
+    teamMemberPhone: doc.teamMemberPhone || null,
+    otherDetails: Array.isArray(doc.otherDetails) ? doc.otherDetails : [],
+    assignedToId: doc.assignedToId || null,
+    formSchema: doc.formSchema || null,
+    convertedFromLeadId: doc.convertedFromLeadId ? String(doc.convertedFromLeadId) : null,
+    companyTag: doc.companyTag || null,
+    hqProductLine: doc.hqProductLine || null,
+    tenantDbName: doc.tenantDbName || null,
+    tenantAdminEmail: doc.tenantAdminEmail || null,
+    tenantProvisionedAt:
+      doc.tenantProvisionedAt instanceof Date ? doc.tenantProvisionedAt.toISOString() : null,
   };
 }
 
@@ -184,55 +215,211 @@ function parseNextFollowUpAt(raw) {
   return dt;
 }
 
+function parseOptionalNextFollowUpAt(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) throw new Error('Invalid next follow-up date and time');
+  return dt;
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function primaryFromList(list, fallback) {
+  if (Array.isArray(list)) {
+    for (const item of list) {
+      const text = String(item ?? '').trim();
+      if (text) return text;
+    }
+  }
+  return String(fallback || '').trim();
+}
+
+function parseMoneyLike(value) {
+  if (value == null) return 0;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const cleaned = String(value).replace(/[^0-9.\-]/g, '');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function companySizeToExpectedUsers(companySize) {
+  const size = String(companySize || '').toLowerCase();
+  if (size.includes('1–10') || size.includes('1-10')) return 5;
+  if (size.includes('11–50') || size.includes('11-50')) return 30;
+  if (size.includes('51–200') || size.includes('51-200')) return 100;
+  if (size.includes('201–500') || size.includes('201-500')) return 350;
+  if (size.includes('501–1,000') || size.includes('501-1,000') || size.includes('501–1000')) {
+    return 750;
+  }
+  if (size.includes('1,000+') || size.includes('1000+')) return 1500;
+  return 0;
+}
+
+function mapClientStatusToHq(status, leadStatus) {
+  const s = String(status || leadStatus || '').trim().toLowerCase();
+  if (!s) return 'active';
+  if (s.includes('inactive')) return 'inactive';
+  if (s.includes('hold')) return 'on_hold';
+  if (s.includes('closed') || s.includes('churn')) return 'closed';
+  if (s === 'prospect' || s === 'active' || s.includes('hot') || s.includes('active')) return 'active';
+  return normalizeStatus(s);
+}
+
+function extractDirectorName(data) {
+  const fromField = firstNonEmpty(
+    data?.primaryContactName,
+    data?.directorName,
+    data?.contactPerson,
+    data?.contact,
+  );
+  if (fromField) return fromField;
+  if (Array.isArray(data?.otherDetails)) {
+    for (const row of data.otherDetails) {
+      const label = String(row?.label || '').toLowerCase();
+      if (label.includes('director') && row?.value) return String(row.value).trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Accepts legacy HQ company payload and Phase 2 CreateClientData.
+ */
 function parseCompanyInput(data) {
+  const isPhase2Shape = Boolean(
+    data?.directorName ||
+      data?.leadStatus ||
+      data?.servicesNeeded ||
+      data?.expectedBusinessValue ||
+      data?.emails ||
+      data?.phones ||
+      data?.state ||
+      data?.hiringLocations ||
+      data?.formSchema === 'phase2',
+  );
+
   const companyName = String(data?.companyName || '').trim();
-  const primaryContactName = String(data?.primaryContactName || '').trim();
-  const email = String(data?.email || '').trim().toLowerCase();
+  const primaryContactName = extractDirectorName(data);
+  const email = primaryFromList(data?.emails, data?.email).toLowerCase();
+  const phone = primaryFromList(data?.phones, data?.phone);
   const industry = String(data?.industry || '').trim();
   const country = String(data?.country || '').trim();
-  const accountOwner = String(data?.accountOwner || '').trim();
-  const companySource = String(data?.companySource || '').trim();
-  const expectedUsers = Number(data?.expectedUsers) || 0;
-  const estimatedDealValue = Number(data?.estimatedDealValue) || 0;
+  const accountOwner = firstNonEmpty(data?.accountOwner, data?.assignedToId, data?.owner) || '';
+  const companySource = firstNonEmpty(data?.companySource, data?.source, 'Phase 2 Client Form') || 'Phase 2 Client Form';
+  const expectedUsers =
+    Number(data?.expectedUsers) || companySizeToExpectedUsers(data?.companySize) || 0;
+  const estimatedDealValue =
+    Number(data?.estimatedDealValue) || parseMoneyLike(data?.expectedBusinessValue) || 0;
   const interestedModules = Array.isArray(data?.interestedModules)
     ? data.interestedModules.map((item) => String(item).trim()).filter(Boolean)
-    : [];
+    : String(data?.servicesNeeded || '')
+        .split(/[,|\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
 
-  if (!companyName || !primaryContactName || !email) {
-    throw new Error('Company name, primary contact, and email are required');
+  if (!companyName) {
+    throw new Error('Company name is required');
   }
-  if (!industry || !country || !expectedUsers || !estimatedDealValue) {
-    throw new Error('Industry, country, expected users, and deal value are required');
-  }
-  if (!accountOwner || !companySource) {
-    throw new Error('Account owner and company source are required');
-  }
-  if (interestedModules.length === 0) {
-    throw new Error('Select at least one interested module');
+  if (!primaryContactName && !email) {
+    throw new Error('Primary contact name or email is required');
   }
 
-  const status = normalizeStatus(String(data?.status || 'active').trim());
+  if (!isPhase2Shape) {
+    if (!primaryContactName || !email) {
+      throw new Error('Company name, primary contact, and email are required');
+    }
+    if (!industry || !country || !expectedUsers || !estimatedDealValue) {
+      throw new Error('Industry, country, expected users, and deal value are required');
+    }
+    if (!accountOwner || !companySource) {
+      throw new Error('Account owner and company source are required');
+    }
+    if (interestedModules.length === 0) {
+      throw new Error('Select at least one interested module');
+    }
+  }
+
+  const status = isPhase2Shape
+    ? mapClientStatusToHq(data?.status, data?.leadStatus)
+    : normalizeStatus(String(data?.status || 'active').trim());
   if (!VALID_STATUSES.includes(status)) {
     throw new Error('Invalid company status');
   }
 
+  const nextFollowUpAt = isPhase2Shape
+    ? parseOptionalNextFollowUpAt(data?.nextFollowUpAt || data?.nextFollowUpDue || null)
+    : parseNextFollowUpAt(data?.nextFollowUpAt);
+
+  const emails = Array.isArray(data?.emails)
+    ? data.emails.map((item) => String(item).trim()).filter(Boolean)
+    : email
+      ? [email]
+      : [];
+  const phones = Array.isArray(data?.phones)
+    ? data.phones.map((item) => String(item).trim()).filter(Boolean)
+    : phone
+      ? [phone]
+      : [];
+
   return {
     companyName,
-    primaryContactName,
+    primaryContactName: primaryContactName || email || 'Contact',
     email,
-    phone: String(data?.phone || '').trim(),
+    phone,
     website: String(data?.website || '').trim(),
     industry,
     country,
+    state: String(data?.state || '').trim(),
+    city: String(data?.city || '').trim(),
     expectedUsers,
     estimatedDealValue,
     accountOwner,
     companySource,
     interestedModules,
-    initialNotes: String(data?.initialNotes || '').trim(),
+    initialNotes: firstNonEmpty(data?.initialNotes, data?.servicesNeeded, data?.notes),
     status,
-    score: inferScore(estimatedDealValue, expectedUsers),
-    nextFollowUpAt: parseNextFollowUpAt(data?.nextFollowUpAt),
+    score: data?.score || inferScore(estimatedDealValue, expectedUsers),
+    nextFollowUpAt,
+    // Phase 2 client parity fields
+    directorName: primaryContactName || null,
+    directorSalutation: String(data?.directorSalutation || '').trim() || null,
+    emails,
+    phones,
+    companySize: String(data?.companySize || '').trim() || null,
+    location: String(data?.location || '').trim() || null,
+    hiringLocations: String(data?.hiringLocations || '').trim() || null,
+    servicesNeeded: String(data?.servicesNeeded || '').trim() || null,
+    expectedBusinessValue: String(data?.expectedBusinessValue || '').trim() || null,
+    linkedin: String(data?.linkedin || '').trim() || null,
+    timezone: String(data?.timezone || '').trim() || null,
+    priority: String(data?.priority || '').trim() || null,
+    sla: String(data?.sla || '').trim() || null,
+    leadStatus: String(data?.leadStatus || '').trim() || null,
+    latitude: typeof data?.latitude === 'number' ? data.latitude : null,
+    longitude: typeof data?.longitude === 'number' ? data.longitude : null,
+    teamMemberDesignation: String(data?.teamMemberDesignation || '').trim() || null,
+    teamMemberEmail: String(data?.teamMemberEmail || '').trim() || null,
+    teamMemberPhone: String(data?.teamMemberPhone || '').trim() || null,
+    otherDetails: Array.isArray(data?.otherDetails) ? data.otherDetails : [],
+    assignedToId: data?.assignedToId || null,
+    formSchema: isPhase2Shape ? 'phase2' : 'hq-legacy',
+    hqProductLine: (() => {
+      const raw = String(data?.hqProductLine || '').trim().toLowerCase();
+      if (raw === 'crm' || raw === 'recruitment') return raw;
+      const modules = Array.isArray(data?.interestedModules)
+        ? data.interestedModules.map((m) => String(m).toLowerCase())
+        : [];
+      if (modules.includes('recruitment')) return 'recruitment';
+      if (modules.includes('crm')) return 'crm';
+      return null;
+    })(),
   };
 }
 
@@ -281,59 +468,143 @@ export const hqCompaniesService = {
       return { company: toCompanyRow(existing), alreadyExisted: true };
     }
 
-    const nextFollowUpAt =
+    const isPhase2 =
+      leadDoc.formSchema === 'phase2' ||
+      Boolean(leadDoc.contactPerson || leadDoc.directorName || leadDoc.source || leadDoc.status);
+
+    const companyName = String(leadDoc.companyName || '').trim();
+    const primaryContactName = firstNonEmpty(
+      leadDoc.contactName,
+      leadDoc.contactPerson,
+      leadDoc.directorName,
+      leadDoc.primaryContactName,
+    );
+    const email = primaryFromList(leadDoc.emails, leadDoc.email).toLowerCase();
+    const phone = primaryFromList(leadDoc.phones, leadDoc.phone);
+    const industry = String(leadDoc.industry || '').trim();
+    const country = String(leadDoc.country || '').trim();
+    const expectedUsers =
+      Number(leadDoc.expectedUsers) || companySizeToExpectedUsers(leadDoc.companySize) || 0;
+    const estimatedDealValue =
+      Number(leadDoc.estimatedDealValue) ||
+      parseMoneyLike(leadDoc.expectedBusinessValue) ||
+      0;
+    const interestedModules = Array.isArray(leadDoc.interestedModules)
+      ? leadDoc.interestedModules.map((item) => String(item).trim()).filter(Boolean)
+      : String(leadDoc.interestedNeeds || leadDoc.servicesNeeded || '')
+          .split(/[,|\n]/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+    if (!companyName) {
+      throw new Error('Lead is missing company name — cannot convert to client/company');
+    }
+    if (!primaryContactName && !email) {
+      throw new Error('Lead needs a contact name or email to convert to client/company');
+    }
+
+    // Legacy HQ leads keep stricter commercial checks; Phase 2 CRM leads are looser.
+    if (!isPhase2) {
+      if (!primaryContactName || !email) {
+        throw new Error('Lead is missing required fields to convert to company');
+      }
+      if (!industry || !country || !expectedUsers || !estimatedDealValue) {
+        throw new Error('Lead is missing required fields to convert to company');
+      }
+      if (!leadDoc.leadOwner || !(leadDoc.leadSource || leadDoc.source)) {
+        throw new Error('Lead is missing required fields to convert to company');
+      }
+      if (interestedModules.length === 0) {
+        throw new Error('Lead must have at least one interested module to convert');
+      }
+    }
+
+    let nextFollowUpAt =
       leadDoc.nextFollowUpAt instanceof Date
         ? leadDoc.nextFollowUpAt
         : leadDoc.nextFollowUpAt
           ? new Date(leadDoc.nextFollowUpAt)
-          : new Date();
-
-    if (Number.isNaN(nextFollowUpAt.getTime())) {
-      throw new Error('Lead has an invalid next follow-up date');
+          : null;
+    if (!nextFollowUpAt || Number.isNaN(nextFollowUpAt.getTime())) {
+      nextFollowUpAt = new Date();
+      nextFollowUpAt.setDate(nextFollowUpAt.getDate() + 7);
+      nextFollowUpAt.setHours(9, 0, 0, 0);
     }
 
-    const interestedModules = Array.isArray(leadDoc.interestedModules)
-      ? leadDoc.interestedModules.map((item) => String(item).trim()).filter(Boolean)
-      : [];
+    const emails = Array.isArray(leadDoc.emails)
+      ? leadDoc.emails.map((item) => String(item).trim()).filter(Boolean)
+      : email
+        ? [email]
+        : [];
+    const phones = Array.isArray(leadDoc.phones)
+      ? leadDoc.phones.map((item) => String(item).trim()).filter(Boolean)
+      : phone
+        ? [phone]
+        : [];
 
     const doc = {
-      companyName: String(leadDoc.companyName || '').trim(),
-      primaryContactName: String(leadDoc.contactName || '').trim(),
-      email: String(leadDoc.email || '').trim().toLowerCase(),
-      phone: String(leadDoc.phone || '').trim(),
-      website: '',
-      industry: String(leadDoc.industry || '').trim(),
-      country: String(leadDoc.country || '').trim(),
-      expectedUsers: Number(leadDoc.expectedUsers) || 0,
-      estimatedDealValue: Number(leadDoc.estimatedDealValue) || 0,
-      accountOwner: String(leadDoc.leadOwner || '').trim(),
-      companySource: String(leadDoc.leadSource || '').trim(),
+      companyName,
+      primaryContactName: primaryContactName || email || 'Contact',
+      email,
+      phone,
+      website: String(leadDoc.website || '').trim(),
+      industry,
+      country,
+      state: String(leadDoc.state || '').trim(),
+      city: String(leadDoc.city || '').trim(),
+      expectedUsers,
+      estimatedDealValue,
+      accountOwner: firstNonEmpty(leadDoc.leadOwner, leadDoc.assignedToId) || '',
+      companySource: firstNonEmpty(leadDoc.leadSource, leadDoc.source, 'Converted Lead') || 'Converted Lead',
       interestedModules,
-      initialNotes: String(leadDoc.initialNotes || '').trim(),
+      initialNotes: firstNonEmpty(
+        leadDoc.initialNotes,
+        leadDoc.notes,
+        leadDoc.interestedNeeds,
+        leadDoc.servicesNeeded,
+      ),
       status: 'active',
-      score: leadDoc.score || inferScore(leadDoc.estimatedDealValue ?? 0, leadDoc.expectedUsers ?? 0),
+      score: leadDoc.score || inferScore(estimatedDealValue, expectedUsers),
       nextFollowUpAt,
       followUps: [],
       remarks: [],
       companyTag: 'converted_lead',
       convertedFromLeadId: leadId,
+      // Phase 2 client parity — same record powers /hq/clients and /hq/company
+      directorName: primaryContactName || null,
+      directorSalutation: leadDoc.directorSalutation || null,
+      emails,
+      phones,
+      companySize: String(leadDoc.companySize || '').trim() || null,
+      location: String(leadDoc.location || '').trim() || null,
+      hiringLocations: String(leadDoc.hiringLocations || '').trim() || null,
+      servicesNeeded: firstNonEmpty(leadDoc.servicesNeeded, leadDoc.interestedNeeds) || null,
+      expectedBusinessValue:
+        firstNonEmpty(leadDoc.expectedBusinessValue, String(estimatedDealValue || '')) || null,
+      linkedin: String(leadDoc.linkedIn || leadDoc.linkedin || '').trim() || null,
+      timezone: String(leadDoc.timezone || '').trim() || null,
+      priority: String(leadDoc.priority || '').trim() || null,
+      sla: null,
+      leadStatus: 'Active',
+      latitude: typeof leadDoc.latitude === 'number' ? leadDoc.latitude : null,
+      longitude: typeof leadDoc.longitude === 'number' ? leadDoc.longitude : null,
+      teamMemberDesignation: leadDoc.teamMemberDesignation || null,
+      teamMemberEmail: leadDoc.teamMemberEmail || null,
+      teamMemberPhone: leadDoc.teamMemberPhone || null,
+      otherDetails: Array.isArray(leadDoc.otherDetails) ? leadDoc.otherDetails : [],
+      assignedToId: leadDoc.assignedToId || null,
+      formSchema: isPhase2 ? 'phase2' : leadDoc.formSchema || 'hq-legacy',
+      hqProductLine: (() => {
+        const raw = String(leadDoc.hqProductLine || '').trim().toLowerCase();
+        if (raw === 'crm' || raw === 'recruitment') return raw;
+        if (interestedModules.map((m) => m.toLowerCase()).includes('recruitment')) return 'recruitment';
+        if (interestedModules.map((m) => m.toLowerCase()).includes('crm')) return 'crm';
+        return null;
+      })(),
       createdAt: new Date(),
       updatedAt: new Date(),
       createdByEmail: reqUser?.email || null,
     };
-
-    if (!doc.companyName || !doc.primaryContactName || !doc.email) {
-      throw new Error('Lead is missing required fields to convert to company');
-    }
-    if (!doc.industry || !doc.country || !doc.expectedUsers || !doc.estimatedDealValue) {
-      throw new Error('Lead is missing required fields to convert to company');
-    }
-    if (!doc.accountOwner || !doc.companySource) {
-      throw new Error('Lead is missing required fields to convert to company');
-    }
-    if (doc.interestedModules.length === 0) {
-      throw new Error('Lead must have at least one interested module to convert');
-    }
 
     const result = await collection.insertOne(doc);
     const inserted = await collection.findOne({ _id: result.insertedId });
@@ -360,6 +631,47 @@ export const hqCompaniesService = {
     );
     const updated = await collection.findOne({ _id: objectId });
     return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  /**
+   * Link an HQ company to a provisioned tenant workspace (Lead → Client → Company → Tenant).
+   */
+  async linkTenant(id, data, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const tenantDbName = String(data?.tenantDbName || '').trim();
+    if (!tenantDbName) throw new Error('tenantDbName is required');
+
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+    if (existing.tenantDbName && existing.tenantDbName !== tenantDbName) {
+      throw new Error('This company is already linked to another tenant');
+    }
+
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          tenantDbName,
+          tenantAdminEmail: String(data?.tenantAdminEmail || '').trim().toLowerCase() || null,
+          tenantProvisionedAt: new Date(),
+          updatedAt: new Date(),
+          updatedByEmail: reqUser?.email || null,
+        },
+      },
+    );
+    const updated = await collection.findOne({ _id: objectId });
+    return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  async deleteCompany(id) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const result = await collection.deleteOne({ _id: objectId });
+    if (!result.deletedCount) throw new Error('Company not found');
+    return { deleted: true, id, storage: getStorageInfo() };
   },
 
   async addFollowUp(id, data, reqUser) {

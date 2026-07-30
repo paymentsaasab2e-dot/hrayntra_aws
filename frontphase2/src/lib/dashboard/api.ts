@@ -202,6 +202,14 @@ export type CrmOverview = {
     assignee?: string;
     createdAt?: string;
     href?: string;
+    totalMeetings?: number;
+    meetingsBreakdown?: {
+      calls?: number;
+      meetings?: number;
+      emails?: number;
+      whatsapp?: number;
+      followups?: number;
+    };
   }>;
   clientsTable?: Array<{
     id: string;

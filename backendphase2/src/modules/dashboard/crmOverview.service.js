@@ -857,6 +857,118 @@ export async function getCrmOverview(req) {
     prisma.user.count({ where: { isActive: true } }).catch(() => (teamUsers || []).length),
   ]);
 
+  const leadIds = (leadRows || []).map((l) => String(l.id)).filter(Boolean);
+
+  const classifyLeadTouch = (raw) => {
+    const t = String(raw || '').toLowerCase();
+    if (!t) return null;
+    if (t.includes('whatsapp')) return 'whatsapp';
+    if (t.includes('meeting') || /\bmeet\b/.test(t)) return 'meetings';
+    if (t.includes('email') || t.includes('e-mail') || /\bmail\b/.test(t)) return 'emails';
+    if (/\bcall\b/.test(t) || t.includes('phone')) return 'calls';
+    if (t.includes('follow-up') || t.includes('follow up') || t.includes('followup')) return 'followups';
+    return null;
+  };
+
+  const emptyTouchBucket = () => ({
+    calls: 0,
+    meetings: 0,
+    emails: 0,
+    whatsapp: 0,
+    followups: 0,
+    total: 0,
+  });
+
+  const leadTouchMap = new Map();
+  const bumpLeadTouch = (leadId, kind) => {
+    if (!leadId || !kind) return;
+    const key = String(leadId);
+    const bucket = leadTouchMap.get(key) || emptyTouchBucket();
+    bucket[kind] = (bucket[kind] || 0) + 1;
+    bucket.total += 1;
+    leadTouchMap.set(key, bucket);
+  };
+
+  if (leadIds.length) {
+    // Only completed touchpoints count toward Total meetings (not scheduled/pending).
+    const completedTasks = await prisma.task
+      .findMany({
+        where: {
+          linkedEntityId: { in: leadIds },
+          status: 'DONE',
+          taskType: {
+            in: [
+              'Call',
+              'call',
+              'Email',
+              'email',
+              'Meeting',
+              'meeting',
+              'WhatsApp',
+              'whatsapp',
+              'Follow-up',
+              'Follow-Up',
+              'follow-up',
+            ],
+          },
+        },
+        select: { linkedEntityId: true, taskType: true, title: true },
+        take: 5000,
+      })
+      .catch(() => []);
+
+    for (const task of completedTasks || []) {
+      const kind = classifyLeadTouch(task.taskType) || classifyLeadTouch(task.title);
+      if (kind) bumpLeadTouch(task.linkedEntityId, kind);
+    }
+
+    // Completed lead activities (explicitly marked done/completed/held — skip scheduled).
+    const leadActivities = await prisma.activity
+      .findMany({
+        where: {
+          entityType: 'LEAD',
+          entityId: { in: leadIds },
+          OR: [
+            { action: { contains: 'completed', mode: 'insensitive' } },
+            { action: { contains: 'done', mode: 'insensitive' } },
+            { description: { contains: 'completed', mode: 'insensitive' } },
+            { description: { contains: 'done', mode: 'insensitive' } },
+            { description: { contains: 'held', mode: 'insensitive' } },
+            { description: { contains: 'finished', mode: 'insensitive' } },
+          ],
+        },
+        select: {
+          entityId: true,
+          action: true,
+          description: true,
+          category: true,
+          metadata: true,
+        },
+        take: 5000,
+      })
+      .catch(() => []);
+
+    for (const activity of leadActivities || []) {
+      const blob = `${activity.action || ''} ${activity.description || ''}`.toLowerCase();
+      if (blob.includes('scheduled') || blob.includes('upcoming') || blob.includes('reminder')) {
+        continue;
+      }
+      const metaType =
+        activity?.metadata && typeof activity.metadata === 'object'
+          ? activity.metadata.followUpType ||
+            activity.metadata.type ||
+            activity.metadata.channel ||
+            ''
+          : '';
+      const kind =
+        classifyLeadTouch(metaType) ||
+        classifyLeadTouch(activity.category) ||
+        classifyLeadTouch(activity.action) ||
+        classifyLeadTouch(activity.description);
+      if (kind) bumpLeadTouch(activity.entityId, kind);
+    }
+  }
+
   const aiTokens = {
     total: 10000,
     used: Math.min(
@@ -943,24 +1055,35 @@ export async function getCrmOverview(req) {
     clientGrowth,
     leadSpark,
     aiTokens,
-    leadsTable: (leadRows || []).map((l) => ({
-      id: l.id,
-      name: l.companyName || l.contactName || l.directorName || 'Untitled Lead',
-      contact: l.directorName || l.contactName || '',
-      email: l.email || '',
-      phone: l.phone || '',
-      status: l.status || '',
-      priority: l.priority || '',
-      source: l.source || '',
-      industry: l.industry || '',
-      location: [l.city, l.country].filter(Boolean).join(', '),
-      value: parseMoney(l.expectedBusinessValue),
-      lastActivity: l.lastFollowUp || l.updatedAt || l.createdAt || null,
-      nextFollowUp: l.nextFollowUp || null,
-      assignee: formatPersonName(l.assignedTo) || l.assignedTo?.email || 'Unassigned',
-      createdAt: l.createdAt,
-      href: '/leads',
-    })),
+    leadsTable: (leadRows || []).map((l) => {
+      const touches = leadTouchMap.get(String(l.id)) || emptyTouchBucket();
+      return {
+        id: l.id,
+        name: l.companyName || l.contactName || l.directorName || 'Untitled Lead',
+        contact: l.directorName || l.contactName || '',
+        email: l.email || '',
+        phone: l.phone || '',
+        status: l.status || '',
+        priority: l.priority || '',
+        source: l.source || '',
+        industry: l.industry || '',
+        location: [l.city, l.country].filter(Boolean).join(', '),
+        value: parseMoney(l.expectedBusinessValue),
+        lastActivity: l.lastFollowUp || l.updatedAt || l.createdAt || null,
+        nextFollowUp: l.nextFollowUp || null,
+        assignee: formatPersonName(l.assignedTo) || l.assignedTo?.email || 'Unassigned',
+        createdAt: l.createdAt,
+        href: '/leads',
+        totalMeetings: touches.total,
+        meetingsBreakdown: {
+          calls: touches.calls,
+          meetings: touches.meetings,
+          emails: touches.emails,
+          whatsapp: touches.whatsapp,
+          followups: touches.followups,
+        },
+      };
+    }),
     clientsTable: (clientRows || []).map((c) => ({
       id: c.id,
       name: c.companyName || 'Untitled Client',

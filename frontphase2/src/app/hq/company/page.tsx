@@ -14,6 +14,12 @@ import {
 import { CreateHqCompanyModal } from '@/components/hq/CreateHqCompanyModal';
 import { HqCompanyDetailDrawer } from '@/components/hq/HqCompanyDetailDrawer';
 import {
+  CreateTenantModal,
+  emptyProvisionTenantForm,
+  provisionFormFromCompany,
+  type ProvisionTenantFormData,
+} from '@/components/hq/CreateTenantModal';
+import {
   HqPageContainer,
   HqPageHeader,
   HqPageMain,
@@ -33,12 +39,14 @@ import {
 import {
   apiHqCreateCompany,
   apiHqListCompanies,
+  apiHqProvisionTenant,
   apiHqUpdateCompany,
   type HqCompanyStats,
   type HqLeadStorageInfo,
 } from '@/lib/api';
 import type { CreateHqCompanyFormValues } from '@/components/hq/CreateHqCompanyModal';
 import type { EditHqCompanyFormValues } from '@/components/hq/HqCompanyDetailDrawer';
+import { toast } from 'sonner';
 
 function ScoreBadge({ score }: { score: HqCompanyScore }) {
   if (score === 'Hot') {
@@ -95,6 +103,10 @@ export default function HqCompanyPage() {
   const [search, setSearch] = useState('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<HqCompanyRow | null>(null);
+  const [createTenantOpen, setCreateTenantOpen] = useState(false);
+  const [provisionData, setProvisionData] = useState<ProvisionTenantFormData>(emptyProvisionTenantForm());
+  const [provisionLoading, setProvisionLoading] = useState(false);
+  const [lockCompanyForTenant, setLockCompanyForTenant] = useState(false);
 
   const loadCompanies = useCallback(async () => {
     setLoading(true);
@@ -159,6 +171,56 @@ export default function HqCompanyPage() {
     setCompanies((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
   };
 
+  const openCreateTenantFromCompany = (company: HqCompanyRow) => {
+    if (company.tenantDbName) {
+      toast.error(`Company already linked to tenant ${company.tenantDbName}`);
+      return;
+    }
+    setProvisionData(provisionFormFromCompany(company));
+    setLockCompanyForTenant(true);
+    setSelectedCompany(null);
+    setCreateTenantOpen(true);
+  };
+
+  const handleProvisionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (provisionData.enabledModules.length === 0) {
+      toast.error('Select at least one CRM or Recruitment tab');
+      return;
+    }
+    if (provisionData.source === 'company' && !provisionData.companyId) {
+      toast.error('Select an HQ company');
+      return;
+    }
+    setProvisionLoading(true);
+    try {
+      const res = await apiHqProvisionTenant({
+        name: provisionData.name.trim(),
+        email: provisionData.email.trim().toLowerCase(),
+        loginId: provisionData.loginId.trim(),
+        password: provisionData.password,
+        organizationType: provisionData.organizationType,
+        productLine: provisionData.productLine,
+        enabledModules: provisionData.enabledModules,
+        companyId:
+          provisionData.source === 'company' && provisionData.companyId
+            ? provisionData.companyId
+            : undefined,
+      });
+      toast.success(
+        `Tenant created${res.data?.tenantDbName ? `: ${res.data.tenantDbName}` : ''}. Assign a plan on Tenants / Billing when ready.`,
+      );
+      setCreateTenantOpen(false);
+      setProvisionData(emptyProvisionTenantForm());
+      setLockCompanyForTenant(false);
+      await loadCompanies();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to create tenant');
+    } finally {
+      setProvisionLoading(false);
+    }
+  };
+
   return (
     <HqPageMain>
       <CreateHqCompanyModal
@@ -166,17 +228,31 @@ export default function HqCompanyPage() {
         onClose={() => setCreateModalOpen(false)}
         onCreate={handleCreateCompany}
       />
+      <CreateTenantModal
+        open={createTenantOpen}
+        onClose={() => {
+          if (provisionLoading) return;
+          setCreateTenantOpen(false);
+          setLockCompanyForTenant(false);
+        }}
+        data={provisionData}
+        onChange={setProvisionData}
+        onSubmit={handleProvisionSubmit}
+        isLoading={provisionLoading}
+        lockCompany={lockCompanyForTenant}
+      />
       <HqCompanyDetailDrawer
         open={!!selectedCompany}
         company={selectedCompany}
         onClose={() => setSelectedCompany(null)}
         onSave={handleUpdateCompany}
         onCompanyUpdated={handleCompanyUpdated}
+        onCreateTenant={openCreateTenantFromCompany}
       />
       <HqPageContainer>
         <HqPageHeader
           title="Companies"
-          subtitle="Manage prospective and active companies, track account progress, and convert them into tenants."
+          subtitle="Lead → Client → Company → Tenant. Converted leads land here; create a tenant from a company when ready."
           actions={
             <>
               <HqSecondaryButton>
@@ -186,6 +262,16 @@ export default function HqCompanyPage() {
               <HqSecondaryButton>
                 <Download className="h-4 w-4" />
                 Export
+              </HqSecondaryButton>
+              <HqSecondaryButton
+                onClick={() => {
+                  setProvisionData(emptyProvisionTenantForm({ source: 'company' }));
+                  setLockCompanyForTenant(false);
+                  setCreateTenantOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                Create tenant
               </HqSecondaryButton>
               <HqPrimaryButton onClick={() => setCreateModalOpen(true)}>
                 <Plus className="h-4 w-4" />
@@ -311,7 +397,16 @@ export default function HqCompanyPage() {
                       onClick={() => setSelectedCompany(company)}
                       className="cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60"
                     >
-                      <td className="px-4 py-3.5 font-semibold text-slate-900">{company.name}</td>
+                      <td className="px-4 py-3.5 font-semibold text-slate-900">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{company.name}</span>
+                          {company.convertedFromLeadId || company.companyTag === 'converted_lead' ? (
+                            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
+                              From lead
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="px-4 py-3.5 text-slate-600">{company.contact}</td>
                       <td className="px-4 py-3.5 text-slate-600">{company.industry}</td>
                       <td className="px-4 py-3.5">
