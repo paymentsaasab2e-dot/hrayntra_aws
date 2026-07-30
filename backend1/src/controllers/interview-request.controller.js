@@ -662,11 +662,24 @@ async function postInterviewRequestChat(req, res) {
       return res.status(403).json({ success: false, message: 'Not authorized to post in this chat' });
     }
 
+    // When the same account is both parties (local testing), honor explicit asRole from the room UI.
+    const requestedRole = String(req.body?.asRole || req.body?.senderRole || '')
+      .trim()
+      .toLowerCase();
+    let senderRole = 'candidate';
+    if (isCandidate && isInterviewer) {
+      senderRole = requestedRole === 'interviewer' ? 'interviewer' : 'candidate';
+    } else if (isInterviewer) {
+      senderRole = 'interviewer';
+    } else {
+      senderRole = 'candidate';
+    }
+
     const row = {
       id: `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       interviewRequestId: requestId,
       senderCandidateId: actorId,
-      senderRole: isCandidate ? 'candidate' : 'interviewer',
+      senderRole,
       message,
       createdAt: new Date(),
     };
