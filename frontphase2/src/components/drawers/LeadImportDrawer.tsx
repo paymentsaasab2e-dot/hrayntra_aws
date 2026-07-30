@@ -218,7 +218,7 @@ export function LeadImportDrawer({
         directorName: 'John Smith',
         email: 'jane.doe@acme.com',
         phone: '+1 415 555 0100',
-        type: 'Inbound',
+        type: 'Company',
         source: 'Website',
         status: 'New',
         priority: 'High',

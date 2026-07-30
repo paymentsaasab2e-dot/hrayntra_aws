@@ -36,10 +36,12 @@ import {
 import { formatDirectorDisplay } from '../constants/salutations';
 import { formatDateDMY, formatDateTimeDMY } from '../utils/dateDisplay';
 import { NotificationDrawer } from './NotificationDrawer';
+import { useTenantCoins } from './coins/TenantCoinsContext';
 import { 
   Search, 
-  Calendar, 
-  Mail, 
+  Calendar,
+  CalendarDays,
+  Mail,
   Bell, 
   Gift, 
   HelpCircle, 
@@ -69,6 +71,8 @@ import {
   History,
   MessageSquarePlus,
   ShieldCheck,
+  Coins,
+  Lock,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -493,6 +497,217 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate
 };
 
 // ─── Collapsible Nav Group ────────────────────────────────────────────────────
+interface NavFlyoutItemConfig {
+  icon: React.ElementType;
+  label: string;
+  href: string;
+  accent?: keyof typeof NAV_ICON_ACCENTS;
+}
+
+interface NavGroupFlyoutProps {
+  icon: React.ElementType;
+  label: string;
+  collapsed: boolean;
+  accent?: keyof typeof NAV_ICON_ACCENTS;
+  active?: boolean;
+  items: NavFlyoutItemConfig[];
+  onNavigate?: () => void;
+}
+
+const FLYOUT_PANEL_WIDTH = 188;
+const FLYOUT_GAP = 12;
+
+const NavGroupFlyout = ({
+  icon: Icon,
+  label,
+  collapsed,
+  accent = 'sky',
+  active = false,
+  items,
+  onNavigate,
+}: NavGroupFlyoutProps) => {
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const [panelStyle, setPanelStyle] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const tone = NAV_ICON_ACCENTS[accent] || NAV_ICON_ACCENTS.sky;
+
+  const computePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const viewportH = window.innerHeight;
+    const estimatedHeight = Math.max(items.length * 48 + 16, 100);
+    const top = Math.max(8, Math.min(rect.top, viewportH - estimatedHeight - 8));
+    setPanelStyle({ top, left: rect.right + FLYOUT_GAP });
+  }, [items.length]);
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const openFlyout = () => {
+    if (!items.length) return;
+    clearCloseTimer();
+    computePosition();
+    setOpen(true);
+  };
+
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 120);
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    computePosition();
+  }, [open, computePosition, collapsed]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onScrollOrResize = () => computePosition();
+    window.addEventListener('resize', onScrollOrResize);
+    window.addEventListener('scroll', onScrollOrResize, true);
+    return () => {
+      window.removeEventListener('resize', onScrollOrResize);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+    };
+  }, [open, computePosition]);
+
+  useEffect(() => () => clearCloseTimer(), []);
+
+  const flyoutPanel =
+    open && typeof window !== 'undefined' && panelStyle && items.length
+      ? createPortal(
+          <div
+            ref={panelRef}
+            style={{
+              position: 'fixed',
+              top: panelStyle.top,
+              left: panelStyle.left,
+              width: FLYOUT_PANEL_WIDTH,
+              zIndex: 1000,
+            }}
+            className="relative rounded-2xl border border-white/[0.08] bg-[#0d1a2d]/95 p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl ring-1 ring-white/[0.04]"
+            onMouseEnter={openFlyout}
+            onMouseLeave={scheduleClose}
+          >
+            {/* Arrow pointing to sidebar */}
+            <div
+              className="pointer-events-none absolute -left-1.5 top-4 h-3 w-3 rotate-45 border-b border-l border-white/[0.08] bg-[#0d1a2d]/95"
+              aria-hidden
+            />
+            <div className="flex flex-col gap-0.5">
+              {items.map((item) => {
+                const ItemIcon = item.icon;
+                const itemTone = NAV_ICON_ACCENTS[item.accent || accent] || tone;
+                const isActive =
+                  pathname === item.href || (pathname || '').startsWith(`${item.href}/`);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => {
+                      onNavigate?.();
+                      setOpen(false);
+                    }}
+                    className={`group/item relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] transition-all duration-150 ${
+                      isActive
+                        ? 'bg-white/[0.1] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                        : 'text-[#94a3b8] hover:bg-white/[0.06] hover:text-white'
+                    }`}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+                    )}
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-150 ${
+                        isActive
+                          ? itemTone.activeWrap
+                          : 'border border-white/[0.06] bg-white/[0.03] group-hover/item:border-white/10 group-hover/item:bg-white/[0.06]'
+                      }`}
+                    >
+                      <ItemIcon
+                        size={16}
+                        strokeWidth={isActive ? 2 : 1.75}
+                        className={
+                          isActive
+                            ? itemTone.activeIcon
+                            : `${itemTone.idle} group-hover/item:text-white`
+                        }
+                      />
+                    </span>
+                    <span className={isActive ? 'font-semibold tracking-tight' : 'font-medium'}>
+                      {item.label}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <>
+      <div
+        ref={triggerRef}
+        onMouseEnter={openFlyout}
+        onMouseLeave={scheduleClose}
+        className="relative"
+      >
+        <div
+          className={`relative mx-2.5 my-0.5 flex h-11 cursor-pointer items-center rounded-xl transition-all duration-150 group ${
+            collapsed ? 'justify-center px-2' : 'pl-2.5 pr-2.5'
+          } ${
+            active || open
+              ? 'border border-white/20 bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+              : 'border border-transparent text-[#8899AA] hover:bg-white/[0.04] hover:text-white'
+          }`}
+        >
+          {(active || open) && (
+            <div className="absolute -left-[3px] top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)]" />
+          )}
+
+          <div
+            className={`flex shrink-0 items-center justify-center rounded-lg transition-all duration-150 ${
+              collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'
+            } ${
+              active || open ? tone.activeWrap : 'border border-white/[0.05] bg-white/[0.02]'
+            }`}
+          >
+            <Icon
+              size={17}
+              strokeWidth={active || open ? 2 : 1.6}
+              className={active || open ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
+            />
+          </div>
+
+          {!collapsed && (
+            <span className={`overflow-hidden whitespace-nowrap text-[13px] ${active || open ? 'font-semibold text-white' : 'font-medium'}`}>
+              {label}
+            </span>
+          )}
+
+          {collapsed && !open && (
+            <div className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg border border-white/10 bg-[#0A1929] px-2.5 py-1.5 text-xs text-white opacity-0 shadow-xl transition-all duration-150 group-hover:opacity-100">
+              {label}
+              <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-[#0A1929]" />
+            </div>
+          )}
+        </div>
+      </div>
+      {flyoutPanel}
+    </>
+  );
+};
+
 interface NavGroupProps {
   icon: React.ElementType;
   label: string;
@@ -620,6 +835,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [mounted, setMounted] = useState(false);
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const { coins: tenantCoins, openPurchase } = useTenantCoins();
   const [navSearch, setNavSearch] = useState('');
   const [billingNavEnabled, setBillingNavEnabled] = useState(true);
   const [orgPlanName, setOrgPlanName] = useState<string>('');
@@ -1225,6 +1441,28 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                 <Calendar className="w-5 h-5" />
               </Link>
             </Tooltip>
+            <Tooltip content={tenantCoins > 0 ? `${tenantCoins} AI coins — click to buy more` : 'No coins — click to purchase'}>
+              <button
+                type="button"
+                onClick={() => openPurchase({ balance: tenantCoins })}
+                className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition hover:scale-[1.02] ${
+                  tenantCoins > 0 ? 'bg-amber-500/15' : 'bg-rose-500/15'
+                }`}
+              >
+                {tenantCoins > 0 ? (
+                  <Coins className="w-4 h-4 text-amber-400" />
+                ) : (
+                  <Lock className="w-4 h-4 text-rose-400" />
+                )}
+                <span
+                  className={`text-xs font-bold ${
+                    tenantCoins > 0 ? 'text-amber-300' : 'text-rose-300'
+                  }`}
+                >
+                  {tenantCoins.toLocaleString()}
+                </span>
+              </button>
+            </Tooltip>
             <Tooltip content="Notifications">
               <button
                 type="button"
@@ -1286,25 +1524,27 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           onScroll={persistScrollPosition}
           className="sidenav-scrollbar flex-1 overflow-y-auto overflow-x-hidden py-2"
         >
-          {/* CRM — collapsible group holding Leads, Clients and Dashboard */}
+          {/* CRM — hover flyout on the right with Leads, Clients, Dashboard */}
           {mounted && (canViewLeads || canViewClients || canViewDashboard) && (
-            <NavGroup
+            <NavGroupFlyout
               icon={Building2}
               label="CRM"
               collapsed={isCollapsed}
               accent="sky"
-              forceOpen={isCrmRouteActive}
-            >
-              {canViewLeads && (
-                <NavItem icon={Target} label="Leads" href="/leads" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="rose" nested />
-              )}
-              {canViewClients && (
-                <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" nested />
-              )}
-              {canViewDashboard && (
-                <NavItem icon={LayoutDashboard} label="CRM Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" nested />
-              )}
-            </NavGroup>
+              active={isCrmRouteActive}
+              onNavigate={persistScrollPosition}
+              items={[
+                ...(canViewLeads
+                  ? [{ icon: Target, label: 'Leads', href: '/leads', accent: 'rose' as const }]
+                  : []),
+                ...(canViewClients
+                  ? [{ icon: Users, label: 'Clients', href: '/client', accent: 'blue' as const }]
+                  : []),
+                ...(canViewDashboard
+                  ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard', accent: 'sky' as const }]
+                  : []),
+              ]}
+            />
           )}
 
           {/* Recruitment — Jobs, Candidates, Interviews, Placements, Dashboard */}
@@ -1352,6 +1592,10 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
           {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Tasks))) && (
             <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="lime" />
+          )}
+
+          {mounted && (
+            <NavItem icon={CalendarDays} label="Portal Events" href="/events" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
           )}
 
           {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Inbox))) && (

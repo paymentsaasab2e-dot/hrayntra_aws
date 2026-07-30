@@ -49,7 +49,7 @@ function resolvePhase2InternalApiOrigin() {
     return PRODUCTION_PHASE2_API_ORIGIN;
   }
 
-  return candidates[0] || 'http://localhost:5001';
+  return candidates[0] || 'http://127.0.0.1:5001';
 }
 
 /**

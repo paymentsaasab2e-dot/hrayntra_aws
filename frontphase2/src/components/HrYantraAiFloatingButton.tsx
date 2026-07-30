@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2, Send, Sparkles, X } from 'lucide-react';
@@ -12,6 +11,7 @@ import {
   HRYANTRA_AI_WELCOME,
   type HrYantraChatMessage,
 } from '../lib/hrYantraLocalAssistant';
+import { HqBrandLogo } from './hq/HqBrandLogo';
 
 const STORAGE_KEY = 'hryantra-ai-floating-position';
 const SIZE = 56;
@@ -198,7 +198,7 @@ export function HrYantraAiFloatingButton() {
               <div className="relative flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-[#2098C8]/20">
-                    <Image src="/hryantra-logo.png" alt="HRYantra" width={38} height={38} className="object-contain" />
+                    <HqBrandLogo className="h-[38px] w-[38px] object-contain" alt="HRYantra" variant="mark" />
                     <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#2098C8] text-white shadow-sm">
                       <Sparkles className="h-2.5 w-2.5" />
                     </span>
@@ -350,7 +350,7 @@ export function HrYantraAiFloatingButton() {
         }}
       >
         <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#E8F6FC] to-white">
-          <Image src="/hryantra-logo.png" alt="" width={34} height={34} className="object-contain" />
+          <HqBrandLogo className="h-[34px] w-[34px] object-contain" alt="" variant="mark" />
           <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#F08818] text-white shadow-sm">
             <Sparkles className="h-2.5 w-2.5" />
           </span>

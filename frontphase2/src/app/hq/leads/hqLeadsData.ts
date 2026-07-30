@@ -1,4 +1,4 @@
-export type HqLeadStage = 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
+export type HqLeadStage = 'new' | 'demo' | 'contacted' | 'qualified' | 'converted' | 'lost';
 
 export type HqLeadScore = 'Hot' | 'Warm' | 'Cold';
 
@@ -25,6 +25,9 @@ export type HqLeadRow = {
   followUps?: HqLeadFollowUp[];
   remarks?: HqLeadRemark[];
   convertedToCompanyId?: string | null;
+  employerDemoRequestId?: string | null;
+  preferredDemoDate?: string | null;
+  preferredDemoTime?: string | null;
 };
 
 export type HqLeadFollowUp = {
@@ -133,6 +136,7 @@ export function formatNextFollowUpDisplay(value?: string | null): string {
 
 export const HQ_LEAD_STAGE_LABELS: Record<HqLeadStage, string> = {
   new: 'New',
+  demo: 'Demo',
   contacted: 'Contacted',
   qualified: 'Qualified',
   converted: 'Converted',
@@ -141,6 +145,7 @@ export const HQ_LEAD_STAGE_LABELS: Record<HqLeadStage, string> = {
 
 export const HQ_LEAD_STAGE_STYLES: Record<HqLeadStage, string> = {
   new: 'bg-sky-50 text-sky-700 ring-sky-200',
+  demo: 'bg-orange-50 text-orange-700 ring-orange-200',
   contacted: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
   qualified: 'bg-violet-50 text-violet-700 ring-violet-200',
   converted: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
@@ -150,8 +155,8 @@ export const HQ_LEAD_STAGE_STYLES: Record<HqLeadStage, string> = {
 export const HQ_LEAD_TABS: { id: 'all' | HqLeadStage; label: string }[] = [
   { id: 'all', label: 'All Status' },
   { id: 'new', label: 'New' },
+  { id: 'demo', label: 'Demo' },
   { id: 'contacted', label: 'Contacted' },
-  { id: 'qualified', label: 'Qualified' },
   { id: 'converted', label: 'Converted' },
   { id: 'lost', label: 'Lost' },
 ];
@@ -202,6 +207,32 @@ export const HQ_DEMO_STATUS_LABELS: Record<HqDemoRequestStatus, string> = {
   PENDING: 'Pending',
   EXPIRED: 'Expired',
 };
+
+export const BOOK_A_DEMO_TAG_CLASS =
+  'bg-sky-50 text-sky-700 ring-sky-200';
+
+/** True when this HQ lead came from the employers "Request / Book a demo" form. */
+export function isBookADemoLead(lead: {
+  leadSource?: string | null;
+  leadSourceDetail?: string | null;
+  employerDemoRequestId?: string | null;
+  initialNotes?: string | null;
+  preferredDemoDate?: string | null;
+}): boolean {
+  if (lead.employerDemoRequestId) return true;
+  if (lead.preferredDemoDate) return true;
+  const detail = String(lead.leadSourceDetail || '').toLowerCase();
+  if (detail.includes('request demo') || detail.includes('try-free')) return true;
+  const notes = String(lead.initialNotes || '');
+  if (/\[demo-slot:/i.test(notes) || /booked demo:/i.test(notes)) return true;
+  if (
+    String(lead.leadSource || '') === 'Website form fill up' &&
+    /demo/i.test(`${detail} ${notes}`)
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export function countLeadsByStage(leads: HqLeadRow[] = []) {
   const counts: Record<string, number> = { all: leads.length };

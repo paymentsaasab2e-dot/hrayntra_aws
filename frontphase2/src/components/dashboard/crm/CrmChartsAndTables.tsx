@@ -167,6 +167,24 @@ function PieBlock({
   );
 }
 
+function formatMeetingsBreakdown(row: Record<string, unknown>) {
+  const breakdown = (row.meetingsBreakdown || {}) as {
+    calls?: number;
+    meetings?: number;
+    emails?: number;
+    whatsapp?: number;
+    followups?: number;
+  };
+  const parts = [
+    breakdown.calls ? `${breakdown.calls} call${breakdown.calls === 1 ? '' : 's'}` : null,
+    breakdown.meetings ? `${breakdown.meetings} meet` : null,
+    breakdown.emails ? `${breakdown.emails} email` : null,
+    breakdown.whatsapp ? `${breakdown.whatsapp} WA` : null,
+    breakdown.followups ? `${breakdown.followups} follow-up` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 function LeadsClientsTable({ overview }: { overview: CrmOverview | null }) {
   const { openDrillDown } = useCrmDashboard();
   const [mode, setMode] = useState<'leads' | 'clients'>('leads');
@@ -180,7 +198,16 @@ function LeadsClientsTable({ overview }: { overview: CrmOverview | null }) {
     const needle = q.trim().toLowerCase();
     if (!needle) return source;
     return source.filter((r) =>
-      [r.name, r.contact, r.email, r.status, r.industry, r.assignee, r.location]
+      [
+        r.name,
+        r.contact,
+        r.email,
+        r.status,
+        r.industry,
+        r.assignee,
+        r.location,
+        r.totalMeetings,
+      ]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(needle)),
     );
@@ -191,6 +218,8 @@ function LeadsClientsTable({ overview }: { overview: CrmOverview | null }) {
       ? overview?.leadsTable?.length || 0
       : overview?.clientsTable?.length || 0;
   const href = mode === 'leads' ? '/leads' : '/client';
+  const leadColSpan = 6;
+  const clientColSpan = 7;
 
   return (
     <section className={`${crmCard} overflow-hidden`}>
@@ -260,108 +289,138 @@ function LeadsClientsTable({ overview }: { overview: CrmOverview | null }) {
           <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-400">
             <tr>
               <th className="px-4 py-2.5 font-semibold">Name</th>
-              {mode === 'leads' ? <th className="px-3 py-2.5 font-semibold">Contact</th> : null}
               <th className="px-3 py-2.5 font-semibold">Status</th>
-              <th className="px-3 py-2.5 font-semibold">Industry</th>
+              {mode === 'clients' ? <th className="px-3 py-2.5 font-semibold">Industry</th> : null}
               <th className="px-3 py-2.5 font-semibold">Assignee</th>
-              {mode === 'clients' ? <th className="px-3 py-2.5 font-semibold">Value</th> : null}
+              {mode === 'leads' ? (
+                <th className="px-3 py-2.5 font-semibold">Total meetings</th>
+              ) : (
+                <th className="px-3 py-2.5 font-semibold">Value</th>
+              )}
               <th className="px-3 py-2.5 font-semibold">Last Activity</th>
               <th className="px-3 py-2.5 font-semibold">Next Follow-up</th>
-              <th className="px-4 py-2.5 font-semibold">Location</th>
+              {mode === 'clients' ? (
+                <th className="px-4 py-2.5 font-semibold">Location</th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {rows.length ? (
-              rows.map((row) => (
-                <tr
-                  key={`${mode}-${String(row.id)}`}
-                  className="cursor-pointer border-t border-slate-100 hover:bg-blue-50/40"
-                  onClick={() =>
-                    openDrillDown({
-                      title: String(row.name || 'Record'),
-                      href: String(row.href || href),
-                      rows:
-                        mode === 'leads'
-                          ? mapLeadDrillRows([
-                              row as unknown as NonNullable<CrmOverview['leadsTable']>[number],
-                            ])
-                          : mapClientDrillRows([
-                              row as unknown as NonNullable<CrmOverview['clientsTable']>[number],
-                            ]),
-                    })
-                  }
-                >
-                  <td className="px-4 py-2.5 font-semibold text-slate-800">
-                    {String(row.name || '—')}
-                  </td>
-                  {mode === 'leads' ? (
-                    <td className="px-3 py-2.5 text-slate-600">{String(row.contact || '—')}</td>
-                  ) : null}
-                  <td className="px-3 py-2.5">
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
-                      {String(row.status || '—')}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 text-slate-600">{String(row.industry || '—')}</td>
-                  <td className="px-3 py-2.5 text-slate-600">{String(row.assignee || '—')}</td>
-                  {mode === 'clients' ? (
-                    <td className="px-3 py-2.5 font-medium text-slate-800">
-                      {formatInr(Number(row.value || 0))}
+              rows.map((row) => {
+                const meetingsBreakdown = formatMeetingsBreakdown(row);
+                const totalMeetings = Number(row.totalMeetings || 0);
+                return (
+                  <tr
+                    key={`${mode}-${String(row.id)}`}
+                    className="cursor-pointer border-t border-slate-100 hover:bg-blue-50/40"
+                    onClick={() =>
+                      openDrillDown({
+                        title: String(row.name || 'Record'),
+                        href: String(row.href || href),
+                        rows:
+                          mode === 'leads'
+                            ? mapLeadDrillRows([
+                                row as unknown as NonNullable<CrmOverview['leadsTable']>[number],
+                              ])
+                            : mapClientDrillRows([
+                                row as unknown as NonNullable<CrmOverview['clientsTable']>[number],
+                              ]),
+                      })
+                    }
+                  >
+                    <td className="px-4 py-2.5 font-semibold text-slate-800">
+                      {String(row.name || '—')}
                     </td>
-                  ) : null}
-                  <td className="px-3 py-2.5 text-slate-600">
-                    <span className="block text-[12px]">
-                      {formatDateTime(row.lastActivity ? String(row.lastActivity) : null)}
-                    </span>
-                    {row.lastActivity ? (
-                      <span
-                        className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          (() => {
-                            const days = Math.round(
-                              (Date.now() - new Date(String(row.lastActivity)).getTime()) /
-                                (24 * 60 * 60 * 1000),
-                            );
-                            if (days <= 7) return 'bg-emerald-50 text-emerald-700';
-                            if (days <= 30) return 'bg-amber-50 text-amber-700';
-                            return 'bg-rose-50 text-rose-700';
-                          })()
-                        }`}
-                      >
-                        {relativeTime(String(row.lastActivity))}
+                    <td className="px-3 py-2.5">
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                        {String(row.status || '—')}
                       </span>
+                    </td>
+                    {mode === 'clients' ? (
+                      <td className="px-3 py-2.5 text-slate-600">{String(row.industry || '—')}</td>
                     ) : null}
-                  </td>
-                  <td className="px-3 py-2.5 text-slate-600">
-                    {row.nextFollowUp ? (
-                      (() => {
-                        const nextAt = new Date(String(row.nextFollowUp));
-                        const isOverdue =
-                          Number.isFinite(nextAt.getTime()) && nextAt.getTime() < Date.now();
-                        return (
-                          <div className="flex flex-col items-start gap-1">
-                            <span className="text-[12px]">{formatDateTime(String(row.nextFollowUp))}</span>
-                            {isOverdue ? (
-                              <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-100">
-                                Overdue
-                              </span>
-                            ) : (
-                              <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-100">
-                                Upcoming
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()
+                    <td className="px-3 py-2.5 text-slate-600">{String(row.assignee || '—')}</td>
+                    {mode === 'leads' ? (
+                      <td className="px-3 py-2.5 text-slate-700">
+                        <span className="block text-sm font-semibold tabular-nums text-slate-900">
+                          {totalMeetings}
+                        </span>
+                        {meetingsBreakdown ? (
+                          <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                            {meetingsBreakdown}
+                          </span>
+                        ) : (
+                          <span className="mt-0.5 block text-[10px] text-slate-400">
+                            Completed only
+                          </span>
+                        )}
+                      </td>
                     ) : (
-                      '—'
+                      <td className="px-3 py-2.5 font-medium text-slate-800">
+                        {formatInr(Number(row.value || 0))}
+                      </td>
                     )}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-500">{String(row.location || '—')}</td>
-                </tr>
-              ))
+                    <td className="px-3 py-2.5 text-slate-600">
+                      <span className="block text-[12px]">
+                        {formatDateTime(row.lastActivity ? String(row.lastActivity) : null)}
+                      </span>
+                      {row.lastActivity ? (
+                        <span
+                          className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            (() => {
+                              const days = Math.round(
+                                (Date.now() - new Date(String(row.lastActivity)).getTime()) /
+                                  (24 * 60 * 60 * 1000),
+                              );
+                              if (days <= 7) return 'bg-emerald-50 text-emerald-700';
+                              if (days <= 30) return 'bg-amber-50 text-amber-700';
+                              return 'bg-rose-50 text-rose-700';
+                            })()
+                          }`}
+                        >
+                          {relativeTime(String(row.lastActivity))}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-600">
+                      {row.nextFollowUp ? (
+                        (() => {
+                          const nextAt = new Date(String(row.nextFollowUp));
+                          const isOverdue =
+                            Number.isFinite(nextAt.getTime()) && nextAt.getTime() < Date.now();
+                          return (
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="text-[12px]">
+                                {formatDateTime(String(row.nextFollowUp))}
+                              </span>
+                              {isOverdue ? (
+                                <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-100">
+                                  Overdue
+                                </span>
+                              ) : (
+                                <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-100">
+                                  Upcoming
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    {mode === 'clients' ? (
+                      <td className="px-4 py-2.5 text-slate-500">{String(row.location || '—')}</td>
+                    ) : null}
+                  </tr>
+                );
+              })
             ) : (
               <tr>
-                <td colSpan={mode === 'leads' ? 8 : 8} className="px-4 py-10 text-center text-slate-400">
+                <td
+                  colSpan={mode === 'leads' ? leadColSpan : clientColSpan}
+                  className="px-4 py-10 text-center text-slate-400"
+                >
                   No {mode} found
                 </td>
               </tr>

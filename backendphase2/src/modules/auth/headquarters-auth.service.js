@@ -387,9 +387,22 @@ function normalizeSubscriptionPlanForHq(value) {
       ...(value.purchasedAt ? { purchasedAt: String(value.purchasedAt) } : {}),
       ...(value.employerDemoRequestId ? { employerDemoRequestId: String(value.employerDemoRequestId) } : {}),
       ...(value.upgradedBy ? { upgradedBy: String(value.upgradedBy) } : {}),
+      ...(value.coins !== undefined && value.coins !== null
+        ? { coins: Math.max(0, Number(value.coins) || 0) }
+        : {}),
+      ...(value.price ? { price: String(value.price) } : {}),
     };
   }
   return null;
+}
+
+function normalizeProductLine(value) {
+  return String(value || '').trim().toLowerCase() === 'recruitment' ? 'recruitment' : 'crm';
+}
+
+function normalizeEnabledModules(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((m) => String(m || '').trim()).filter(Boolean))];
 }
 
 function normalizeHeadquartersUser(document) {
@@ -400,6 +413,8 @@ function normalizeHeadquartersUser(document) {
     password: String(document.password || ''),
     loginId: String(document.loginId || document.email || ''),
     organizationType: normalizeOrgType(document.organizationType),
+    productLine: document.productLine ? normalizeProductLine(document.productLine) : '',
+    enabledModules: normalizeEnabledModules(document.enabledModules),
     subscriptionPlan: normalizeSubscriptionPlanForHq(document.subscriptionPlan),
     role: String(document.role || ''),
     status: String(document.status || 'ACTIVE'),
@@ -435,6 +450,8 @@ export const headquartersAuthService = {
     const normalizedLoginId = normalizeLookupValue(data?.loginId) || normalizedEmail;
     const organizationType = normalizeOrgType(data?.organizationType);
     const subscriptionPlan = normalizeSubscriptionPlanForHq(data?.subscriptionPlan);
+    const productLine = data?.productLine ? normalizeProductLine(data.productLine) : '';
+    const enabledModules = normalizeEnabledModules(data?.enabledModules);
 
     if (!normalizedEmail || !normalizedPassword) {
       throw new Error('Email and password are required');
@@ -476,6 +493,8 @@ export const headquartersAuthService = {
       tenantProvisioningMode: provisioning.provisioningMode,
       ...(organizationName ? { organizationName } : {}),
       ...(signupSource ? { signupSource } : {}),
+      ...(productLine ? { productLine } : {}),
+      ...(enabledModules.length ? { enabledModules } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -677,6 +696,42 @@ export const headquartersAuthService = {
       { $set: { subscriptionPlan: normalizedPlan, updatedAt: new Date() } }
     );
     const updated = await collection.findOne({ email: normalizedEmail });
+    return normalizeHeadquartersUser(updated);
+  },
+
+  async setCoinsForEmail(email, coins) {
+    const collection = await getCollection();
+    if (!collection) return null;
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return null;
+    const next = Math.max(0, Math.floor(Number(coins) || 0));
+    const existing = await collection.findOne({ email: normalizedEmail });
+    if (!existing) return null;
+    const plan = normalizeSubscriptionPlanForHq(existing.subscriptionPlan) || { name: 'Custom' };
+    plan.coins = next;
+    await collection.updateOne(
+      { email: normalizedEmail },
+      { $set: { subscriptionPlan: plan, updatedAt: new Date() } }
+    );
+    const updated = await collection.findOne({ email: normalizedEmail });
+    return normalizeHeadquartersUser(updated);
+  },
+
+  async setCoinsForTenantDb(tenantDbName, coins) {
+    const collection = await getCollection();
+    if (!collection) return null;
+    const dbName = String(tenantDbName || '').trim();
+    if (!dbName) return null;
+    const next = Math.max(0, Math.floor(Number(coins) || 0));
+    const existing = await collection.findOne({ tenantDbName: dbName });
+    if (!existing) return null;
+    const plan = normalizeSubscriptionPlanForHq(existing.subscriptionPlan) || { name: 'Custom' };
+    plan.coins = next;
+    await collection.updateOne(
+      { _id: existing._id },
+      { $set: { subscriptionPlan: plan, updatedAt: new Date() } }
+    );
+    const updated = await collection.findOne({ _id: existing._id });
     return normalizeHeadquartersUser(updated);
   },
 

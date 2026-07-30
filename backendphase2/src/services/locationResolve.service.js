@@ -7,6 +7,7 @@ import { env } from '../config/env.js';
 import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 
 const NOMINATIM_ENDPOINT = 'https://nominatim.openstreetmap.org/search';
+const NOMINATIM_REVERSE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
 const NOMINATIM_USER_AGENT =
   process.env.NOMINATIM_USER_AGENT ||
   'HrayntraCRM/1.0 (location-autocomplete; contact: support@hrayntra.com)';
@@ -216,6 +217,57 @@ export async function resolveLocation(query) {
   const resolved = toResolvedPayload(top, 'nominatim');
   if (!resolved?.country) {
     const err = new Error('Could not resolve location');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+  return resolved;
+}
+
+/**
+ * Reverse geocode coordinates via Nominatim (lat/lng → structured address).
+ * @param {number} latitude
+ * @param {number} longitude
+ */
+export async function reverseGeocode(latitude, longitude) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    const err = new Error('Valid latitude and longitude are required');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    const err = new Error('Latitude must be between -90 and 90, longitude between -180 and 180');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lon),
+    format: 'json',
+    addressdetails: '1',
+    zoom: '18',
+  });
+
+  const response = await fetch(`${NOMINATIM_REVERSE_ENDPOINT}?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'Accept-Language': 'en',
+      'User-Agent': NOMINATIM_USER_AGENT,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Nominatim reverse request failed (${response.status})`);
+  }
+
+  const raw = await response.json().catch(() => null);
+  const parsed = parseNominatimItem(raw);
+  const resolved = toResolvedPayload(parsed, 'nominatim-reverse');
+  if (!resolved?.location) {
+    const err = new Error('Could not resolve coordinates to an address');
     err.code = 'NOT_FOUND';
     throw err;
   }

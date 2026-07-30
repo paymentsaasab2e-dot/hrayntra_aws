@@ -121,6 +121,7 @@ import {
   BarChart3,
   AlertCircle,
   Sparkles,
+  Lock,
   User,
   ArrowRight,
   UserCheck,
@@ -169,6 +170,7 @@ import {
   apiGetContacts,
   apiGetJob,
   apiGetJobs,
+  apiHqListTeam,
   apiUpdateClient,
   apiUpdateContact,
   apiUpdateJob,
@@ -179,6 +181,7 @@ import {
   type BackendContact,
   type CreateContactData,
   type BackendClient,
+  type CreateClientData,
   type EntityFile,
   type ScheduledMeeting,
   isOrgBillingNavEnabled,
@@ -188,6 +191,7 @@ import { CrossDepartmentClientHandoff } from '../team/CrossDepartmentClientHando
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { ClientAiChatDrawer } from '../clients/ClientAiChatDrawer';
+import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import {
   clientAiHasAgreementData,
@@ -899,6 +903,19 @@ interface ClientDetailsDrawerProps {
   /** Keeps the clients table/list in sync after drawer saves (e.g. lead status). */
   onClientUpdated?: (patch: Partial<Client> & { id: string }) => void;
   onJobCreated?: () => void;
+  /**
+   * Optional create path (e.g. HQ clients). When set, replaces `apiCreateClient`
+   * and skips tenant contact/file uploads that need a CRM session.
+   */
+  createClientOverride?: (data: CreateClientData) => Promise<BackendClient | undefined | null>;
+  /**
+   * Optional update path (e.g. HQ clients). When set, replaces `apiUpdateClient`
+   * for overview saves and skips tenant contact sync / file uploads.
+   */
+  updateClientOverride?: (
+    clientId: string,
+    data: Record<string, unknown>,
+  ) => Promise<BackendClient | undefined | null>;
 }
 
 export function ClientDetailsDrawer({
@@ -912,8 +929,12 @@ export function ClientDetailsDrawer({
   onClientCreated,
   onClientUpdated,
   onJobCreated,
+  createClientOverride,
+  updateClientOverride,
 }: ClientDetailsDrawerProps) {
   const drawerIsOpen = Boolean(client) || propIsAddMode;
+  const clientAiGate = useAiCoinGate('ai.client_details');
+  const isHqOverrideMode = Boolean(createClientOverride || updateClientOverride);
   usePageDrawerLifecycle(drawerIsOpen);
   const {
     panelRef: clientDrawerPanelRef,
@@ -946,6 +967,10 @@ export function ClientDetailsDrawer({
   // Fetch full client data when drawer opens to ensure all fields are available
   useEffect(() => {
     if (client?.id && !propIsAddMode) {
+      if (isHqOverrideMode) {
+        setFullClientData(client);
+        return;
+      }
       const fetchFullClient = async () => {
         try {
           const response = await apiFetch<BackendClient>(`/clients/${client.id}`, {
@@ -986,7 +1011,7 @@ export function ClientDetailsDrawer({
     } else {
       setFullClientData(client);
     }
-  }, [client?.id, propIsAddMode]);
+  }, [client?.id, propIsAddMode, isHqOverrideMode, client]);
 
   // Keep drawer view/edit state aligned when the parent list updates (e.g. inline table status).
   useEffect(() => {
@@ -1459,6 +1484,39 @@ export function ClientDetailsDrawer({
       return;
     }
 
+    // HQ companies have no tenant contacts collection — synthesize primary contact from row.
+    if (isHqOverrideMode) {
+      const director = directorFromOtherDetails(client.otherDetails);
+      const name =
+        director.directorName ||
+        client.teamMemberDesignation ||
+        client.name ||
+        'Primary contact';
+      const email =
+        (Array.isArray(client.emails) && client.emails[0]) ||
+        client.teamMemberEmail ||
+        '';
+      const phone =
+        (Array.isArray(client.phones) && client.phones[0]) ||
+        client.teamMemberPhone ||
+        '';
+      const synthetic: ClientContact = {
+        id: `hq-primary-${client.id}`,
+        name,
+        designation: 'Director',
+        department: 'Other',
+        email: email && !String(email).includes('@placeholder.local') ? email : '',
+        phone: phone || '',
+        isPrimary: true,
+        lastContacted: 'Never',
+        activity: [],
+      };
+      setClientContacts(email || phone || director.directorName ? [synthetic] : []);
+      setClientTeamMemberContacts([]);
+      setLoadingContacts(false);
+      return;
+    }
+
     setLoadingContacts(true);
     try {
       const response = await apiGetContacts({ clientId: client.id, type: 'CLIENT' });
@@ -1484,7 +1542,7 @@ export function ClientDetailsDrawer({
     } finally {
       setLoadingContacts(false);
     }
-  }, [client?.id, mapBackendContactToClientContact]);
+  }, [client, isHqOverrideMode, mapBackendContactToClientContact]);
 
   const syncClientTeamMemberContacts = useCallback(async (
     clientId: string,
@@ -1960,7 +2018,7 @@ export function ClientDetailsDrawer({
     uploadFile,
     deleteFile,
     refresh: refetchClientFiles,
-  } = useFiles('client', client?.id);
+  } = useFiles('client', isHqOverrideMode ? null : client?.id);
   const clientKycFiles = useMemo(() => filterKycFiles(clientFiles), [clientFiles]);
 
   const [showChangeStageForm, setShowChangeStageForm] = useState(false);
@@ -2110,7 +2168,7 @@ export function ClientDetailsDrawer({
       return;
     }
 
-    if (isAddMode || !client?.id) {
+    if (isAddMode || !client?.id || isHqOverrideMode) {
       const previewUrl = URL.createObjectURL(file);
       if (pendingClientLogoPreview.startsWith('blob:')) {
         URL.revokeObjectURL(pendingClientLogoPreview);
@@ -2150,34 +2208,54 @@ export function ClientDetailsDrawer({
     // straight from state can return stale/empty values if contacts haven't
     // finished loading by the time the user clicks Edit (or when the drawer
     // opens with `initialMode === 'edit'`), causing email/phone to render blank.
+    // HQ override mode stores clients in headquarters DB — never hit tenant /clients/:id.
     let fetchedClient: BackendClient | null = null;
     let assignedToId = '';
     let fetchedContacts: BackendContact[] = [];
-    try {
-      const [clientRes, contactsRes] = await Promise.all([
-        apiFetch<BackendClient>(`/clients/${client.id}`, {
-        method: 'GET',
-        auth: true,
-        }),
-        apiGetContacts({ clientId: client.id, type: 'CLIENT' }).catch((error) => {
-          console.error('Failed to fetch contacts for edit form:', error);
-          return null;
-        }),
-      ]);
-      fetchedClient = clientRes.data;
-      assignedToId = fetchedClient?.assignedTo?.id || '';
-      if (contactsRes) {
-        const raw = contactsRes.data as any;
-        fetchedContacts = Array.isArray(raw)
-          ? raw
-          : raw?.data || raw?.items || [];
+    if (isHqOverrideMode) {
+      assignedToId = client.assignedToId || '';
+      if (!assignedToId && client.owner?.name && users.length > 0) {
+        const matchedUser = users.find((u) => u.name === client.owner?.name);
+        if (matchedUser) assignedToId = matchedUser.id;
       }
-    } catch (error) {
-      console.error('Failed to fetch client details:', error);
-      if (client.owner?.name && users.length > 0) {
-        const matchedUser = users.find(u => u.name === client.owner?.name);
-        if (matchedUser) {
-          assignedToId = matchedUser.id;
+      fetchedContacts = clientContacts.length
+        ? (clientContacts.map((c) => ({
+            id: c.id,
+            firstName: c.name?.split(/\s+/)[0] || c.name || '',
+            lastName: c.name?.split(/\s+/).slice(1).join(' ') || '',
+            email: c.email || '',
+            phone: c.phone || '',
+            designation: c.designation || '',
+            isPrimary: Boolean(c.isPrimary),
+          })) as BackendContact[])
+        : [];
+    } else {
+      try {
+        const [clientRes, contactsRes] = await Promise.all([
+          apiFetch<BackendClient>(`/clients/${client.id}`, {
+            method: 'GET',
+            auth: true,
+          }),
+          apiGetContacts({ clientId: client.id, type: 'CLIENT' }).catch((error) => {
+            console.error('Failed to fetch contacts for edit form:', error);
+            return null;
+          }),
+        ]);
+        fetchedClient = clientRes.data;
+        assignedToId = fetchedClient?.assignedTo?.id || '';
+        if (contactsRes) {
+          const raw = contactsRes.data as any;
+          fetchedContacts = Array.isArray(raw)
+            ? raw
+            : raw?.data || raw?.items || [];
+        }
+      } catch (error) {
+        console.error('Failed to fetch client details:', error);
+        if (client.owner?.name && users.length > 0) {
+          const matchedUser = users.find((u) => u.name === client.owner?.name);
+          if (matchedUser) {
+            assignedToId = matchedUser.id;
+          }
         }
       }
     }
@@ -2188,7 +2266,7 @@ export function ClientDetailsDrawer({
       setClientTeamMemberContacts(
         fetchedContacts.filter((contact) => isClientTeamMemberContact(contact)),
       );
-    } else {
+    } else if (!isHqOverrideMode) {
       setClientContacts([]);
       setClientTeamMemberContacts([]);
     }
@@ -2422,6 +2500,7 @@ export function ClientDetailsDrawer({
           latitude: typeof overviewEditForm.latitude === 'number' ? overviewEditForm.latitude : undefined,
           longitude: typeof overviewEditForm.longitude === 'number' ? overviewEditForm.longitude : undefined,
           directorSalutation: overviewEditForm.directorSalutation || undefined,
+          directorName: overviewEditForm.directorName || undefined,
           ...teamMemberPayloadFromForm(
             primaryTeamMemberFromList(overviewEditForm.teamMembers),
           ),
@@ -2443,10 +2522,16 @@ export function ClientDetailsDrawer({
           ...postServiceKycFormApiPayload(overviewEditForm.postServiceKycForm),
         };
 
-        const createdClient = await apiCreateClient(createData);
+        let createdClientPayload: BackendClient | null | undefined = null;
+        if (createClientOverride) {
+          createdClientPayload = await createClientOverride(createData as CreateClientData);
+        } else {
+          const createdClient = await apiCreateClient(createData);
+          createdClientPayload = createdClient.data;
+        }
 
-        const createdClientId = createdClient.data?.id;
-        if (createdClientId && pendingClientLogoFile) {
+        const createdClientId = createdClientPayload?.id;
+        if (!createClientOverride && createdClientId && pendingClientLogoFile) {
           const uploadResponse = await filesApiUpload('client', createdClientId, pendingClientLogoFile, 'LOGO');
           const logoUrl = uploadResponse.data?.fileUrl;
           if (logoUrl) {
@@ -2458,6 +2543,7 @@ export function ClientDetailsDrawer({
         // Add Lead does. Persist them as the client's primary Contact so the Contacts tab and
         // downstream automations see the same record.
         if (
+          !createClientOverride &&
           createdClientId &&
           (overviewEditForm.directorName.trim() ||
             contactChannels.email ||
@@ -2481,7 +2567,7 @@ export function ClientDetailsDrawer({
           }
         }
 
-        if (createdClientId) {
+        if (!createClientOverride && createdClientId) {
           await syncClientTeamMemberContacts(
             createdClientId,
             primaryAssignedToId || undefined,
@@ -2493,7 +2579,7 @@ export function ClientDetailsDrawer({
         }
 
         // Agreements & Terms — upload after creation so we have a client id to scope the file under.
-        if (createdClientId && pendingAgreementsFile) {
+        if (!createClientOverride && createdClientId && pendingAgreementsFile) {
           try {
             setUploadingAgreements(true);
             const uploadResponse = await filesApiUpload(
@@ -2528,7 +2614,11 @@ export function ClientDetailsDrawer({
           (sum, files) => sum + files.length,
           0,
         );
-        if (createdClientId && (pendingClientKyc.length > 0 || pendingStructuredKycCount > 0)) {
+        if (
+          !createClientOverride &&
+          createdClientId &&
+          (pendingClientKyc.length > 0 || pendingStructuredKycCount > 0)
+        ) {
           try {
             setUploadingKyc(true);
             if (pendingClientKyc.length > 0) {
@@ -2624,6 +2714,10 @@ export function ClientDetailsDrawer({
         }
         if (overviewEditForm.directorSalutation !== undefined) {
           updateData.directorSalutation = overviewEditForm.directorSalutation || null;
+        }
+        if (overviewEditForm.directorName !== undefined) {
+          updateData.directorName = overviewEditForm.directorName || null;
+          updateData.primaryContactName = overviewEditForm.directorName || null;
         }
         const mergedHiringLocations = [overviewEditForm.city, overviewEditForm.state, overviewEditForm.country]
           .filter(Boolean)
@@ -2722,6 +2816,43 @@ export function ClientDetailsDrawer({
         Object.assign(updateData, postServiceKycFormApiPayload(nextPostServiceKycForm));
 
         console.log('Updating client with data:', updateData);
+        if (updateClientOverride) {
+          const updated = await updateClientOverride(client.id, updateData);
+          if (updated) {
+            const mapped = mergeBackendClientRecord(client, updated);
+            setFullClientData(mapped);
+            onClientUpdated?.({
+              id: client.id,
+              name: mapped.name,
+              industry: mapped.industry,
+              location: mapped.location,
+              companySize: mapped.companySize,
+              hiringLocations: mapped.hiringLocations,
+              servicesNeeded: mapped.servicesNeeded,
+              expectedBusinessValue: mapped.expectedBusinessValue,
+              leadStatus: mapped.leadStatus,
+              leadStatusValue: mapped.leadStatusValue,
+              website: mapped.website,
+              linkedin: mapped.linkedin,
+              timezone: mapped.timezone,
+              priority: mapped.priority,
+              stage: mapped.stage,
+              owner: mapped.owner,
+              city: mapped.city,
+              state: mapped.state,
+              country: mapped.country,
+              latitude: mapped.latitude,
+              longitude: mapped.longitude,
+              emails: mapped.emails,
+              phones: mapped.phones,
+              otherDetails: mapped.otherDetails,
+              directorSalutation: mapped.directorSalutation,
+            });
+          }
+          setOverviewEditMode(false);
+          markClientDrawerClean();
+          return;
+        }
         await apiUpdateClient(client.id, updateData);
         await syncPrimaryClientContact(client.id, {
           contactId: primaryClientContact?.id,
@@ -2805,7 +2936,10 @@ export function ClientDetailsDrawer({
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
         const pendingClientKycUpdate = [...pendingKycFiles];
-        if (pendingClientKycUpdate.length > 0 || pendingStructuredKycCount > 0 || removedPostServiceKycFileIds.length > 0) {
+        if (
+          !isHqOverrideMode &&
+          (pendingClientKycUpdate.length > 0 || pendingStructuredKycCount > 0 || removedPostServiceKycFileIds.length > 0)
+        ) {
           try {
             if (pendingClientKycUpdate.length > 0) {
               setUploadingKyc(true);
@@ -2903,6 +3037,25 @@ export function ClientDetailsDrawer({
     const fetchUsers = async () => {
       setLoadingUsers(true);
       try {
+        if (isHqOverrideMode) {
+          const hqTeam = await apiHqListTeam();
+          const members = hqTeam.data?.members ?? [];
+          const mapped = members.map((member) => {
+            const fullName = member.name || member.email || 'User';
+            const nameParts = fullName.split(/\s+/).filter(Boolean);
+            return {
+              id: member.id,
+              firstName: nameParts[0] || fullName,
+              lastName: nameParts.slice(1).join(' '),
+              name: fullName,
+              email: member.email,
+              role: member.role ? { roleName: member.role } : undefined,
+            };
+          });
+          setRecruiters(mapped as unknown as TeamMember[]);
+          setUsers(mapped as any);
+          return;
+        }
         const response = await apiGetClientAssignableMembers();
         const members = Array.isArray(response.data) ? response.data : [];
         const toTeamMember = (member: (typeof members)[number]) => {
@@ -2942,13 +3095,23 @@ export function ClientDetailsDrawer({
       }
     };
     fetchUsers();
-  }, []);
+  }, [isHqOverrideMode]);
 
   useEffect(() => {
     if (!propIsAddMode && !client) return;
 
     let cancelled = false;
     const fetchClientLeadStatusCatalog = async () => {
+      if (isHqOverrideMode) {
+        setClientLeadStatusCatalog(
+          mergeCatalogOptions(
+            DEFAULT_CLIENT_STATUS_LABELS,
+            undefined,
+            client?.leadStatusValue ?? overviewEditForm.leadStatusValue,
+          ),
+        );
+        return;
+      }
       try {
         const response = await apiGetClientLeadStatusCatalog();
         if (cancelled) return;
@@ -2973,6 +3136,16 @@ export function ClientDetailsDrawer({
     };
 
     const fetchClientPriorityCatalog = async () => {
+      if (isHqOverrideMode) {
+        setClientPriorityCatalog(
+          mergeCatalogOptions(
+            DEFAULT_CLIENT_PRIORITY_LABELS,
+            undefined,
+            client?.priority ?? overviewEditForm.priority,
+          ),
+        );
+        return;
+      }
       try {
         const response = await apiGetClientPriorityCatalog();
         if (cancelled) return;
@@ -2997,6 +3170,16 @@ export function ClientDetailsDrawer({
     };
 
     const fetchAgreementLevelCatalog = async () => {
+      if (isHqOverrideMode) {
+        setAgreementLevelCatalog(
+          mergeCatalogOptions(
+            AGREEMENT_LEVEL_OPTIONS,
+            undefined,
+            client?.agreementLevel ?? overviewEditForm.agreementLevel,
+          ),
+        );
+        return;
+      }
       try {
         const response = await apiGetAgreementLevelCatalog();
         if (cancelled) return;
@@ -3026,7 +3209,7 @@ export function ClientDetailsDrawer({
     return () => {
       cancelled = true;
     };
-  }, [propIsAddMode, client?.id]);
+  }, [propIsAddMode, client?.id, isHqOverrideMode]);
 
   const addClientLeadStatusOption = async (onSelect: (status: string) => void) => {
     const status = String(newClientLeadStatusValue || '').trim();
@@ -3237,6 +3420,11 @@ export function ClientDetailsDrawer({
         setClientActivities([]);
         return;
       }
+      if (isHqOverrideMode) {
+        setClientActivities([]);
+        setLoadingActivities(false);
+        return;
+      }
 
       setLoadingActivities(true);
       try {
@@ -3296,12 +3484,17 @@ export function ClientDetailsDrawer({
     };
 
     fetchActivities();
-  }, [client?.id, activeTab]);
+  }, [client?.id, activeTab, isHqOverrideMode]);
 
   // Fetch jobs for the client (refetch after CreateJobDrawer saves)
   const refreshClientJobs = useCallback(async () => {
     if (!client?.id) {
       setClientJobs([]);
+      return;
+    }
+    if (isHqOverrideMode) {
+      setClientJobs([]);
+      setLoadingJobs(false);
       return;
     }
 
@@ -3346,7 +3539,7 @@ export function ClientDetailsDrawer({
     } finally {
       setLoadingJobs(false);
     }
-  }, [client?.id]);
+  }, [client?.id, isHqOverrideMode]);
 
   useEffect(() => {
     void refreshClientJobs();
@@ -3361,6 +3554,11 @@ export function ClientDetailsDrawer({
   useEffect(() => {
     const fetchScheduledMeetings = async () => {
       if (!client?.id || activeTab !== 'schedule') {
+        return;
+      }
+      if (isHqOverrideMode) {
+        setScheduledMeetings([]);
+        setLoadingMeetings(false);
         return;
       }
 
@@ -3379,7 +3577,7 @@ export function ClientDetailsDrawer({
     };
 
     fetchScheduledMeetings();
-  }, [client?.id, activeTab]);
+  }, [client?.id, activeTab, isHqOverrideMode]);
 
   // Reset form when entering add mode
   useEffect(() => {
@@ -3559,11 +3757,27 @@ export function ClientDetailsDrawer({
                     <>
                       <button
                         type="button"
-                        onClick={() => setClientAiChatOpen(true)}
-                        className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                        onClick={() => {
+                          if (clientAiGate.locked) {
+                            clientAiGate.confirmAndUnlock();
+                            return;
+                          }
+                          setClientAiChatOpen(true);
+                        }}
+                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                          clientAiGate.locked
+                            ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                            : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                        }`}
+                        title={
+                          clientAiGate.locked
+                            ? `Locked — needs ${clientAiGate.cost} coins`
+                            : `Open AI assistant (${clientAiGate.cost}+ coins per action)`
+                        }
                       >
-                        <Sparkles size={14} />
+                        {clientAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} />}
                         Create with AI
+                        <AiCoinLockBadge featureId="ai.client_details" />
                       </button>
                       <button
                         type="button"
@@ -3705,11 +3919,25 @@ export function ClientDetailsDrawer({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setClientAiChatOpen(true)}
-                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                        onClick={() => {
+                          if (clientAiGate.locked) {
+                            clientAiGate.confirmAndUnlock();
+                            return;
+                          }
+                          setClientAiChatOpen(true);
+                        }}
+                        className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors ${
+                          clientAiGate.locked ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
+                        title={
+                          clientAiGate.locked
+                            ? `Locked — needs ${clientAiGate.cost} coins`
+                            : `Open AI assistant (${clientAiGate.cost}+ coins per action)`
+                        }
                       >
-                        <Sparkles size={16} />
+                        {clientAiGate.locked ? <Lock size={16} /> : <Sparkles size={16} />}
                         {clientAiChatOpen ? 'Continue AI chat' : 'Open AI assistant'}
+                        <AiCoinLockBadge featureId="ai.client_details" />
                       </button>
                     </div>
 
@@ -6665,7 +6893,7 @@ export function ClientDetailsDrawer({
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <DocumentUploadButton
-                          disabled={!client?.id}
+                          disabled={!client?.id || isHqOverrideMode}
                           isUploading={filesUploading}
                           uploadSuccess={filesUploadSuccess}
                           uploadPercent={filesUploadPercent}
@@ -6687,6 +6915,11 @@ export function ClientDetailsDrawer({
                           ))}
                         </div>
                       </div>
+                      {isHqOverrideMode && (
+                        <p className="mt-2 text-sm text-slate-500">
+                          File storage for HQ clients is not available yet.
+                        </p>
+                      )}
                       {filesError && <p className="mt-2 text-sm text-red-600">{filesError}</p>}
                     </div>
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

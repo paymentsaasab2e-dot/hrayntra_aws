@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, MessageSquare, Sparkles } from 'lucide-react';
+import { ArrowUp, Lock, MessageSquare, Sparkles } from 'lucide-react';
 import type { AddLeadFormData } from '../drawers/LeadDetailsDrawer';
 import { apiGenerateLeadDetails, apiLeadAiChat, type LeadAiChatMessage } from '@/lib/api';
 import {
@@ -13,6 +13,8 @@ import {
 } from '@/lib/leadAiHelpers';
 import { DrawerCloseButton } from '../drawers/DrawerCloseButton';
 import { LeadAiChatMessageContent } from './LeadAiChatMessageContent';
+import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
+import { AiCoinLockBanner } from '../coins/TenantCoinsContext';
 
 type Props = {
   isOpen: boolean;
@@ -37,6 +39,8 @@ export function LeadAiChatDrawer({
   onCreateLead,
   createDisabled = false,
 }: Props) {
+  const pasteGate = useAiCoinGate('ai.lead_details');
+  const chatGate = useAiCoinGate('ai.lead_chat');
   const [mode, setMode] = useState<'paste' | 'chat'>('chat');
   const [pasteText, setPasteText] = useState('');
   const [chatInput, setChatInput] = useState('');
@@ -100,6 +104,7 @@ export function LeadAiChatDrawer({
       setError('Paste or type lead details first.');
       return;
     }
+    if (!pasteGate.confirmAndUnlock()) return;
     setBusy(true);
     setError('');
     setStatus('');
@@ -130,6 +135,7 @@ export function LeadAiChatDrawer({
   const runChatTurn = async () => {
     const input = chatInput.trim();
     if (!input) return;
+    if (!chatGate.confirmAndUnlock()) return;
     setBusy(true);
     setError('');
     const nextHistory: LeadAiChatMessage[] = [...chatHistory, { role: 'user', content: input }];
@@ -252,13 +258,23 @@ export function LeadAiChatDrawer({
                     placeholder={`Example:\nCompany: ABC Technologies\nWebsite: https://abc.com | LinkedIn: https://linkedin.com/company/abc\nDirector: Rajesh Sharma (CEO) — rajesh@abc.com, +91 9876543210\nTeam member: Priya Nair — priya@abc.com\nLocation: Bengaluru, Karnataka, India\nIndustry: Technology | Source: Website\nServices: Executive placement, ATS\nExpected value: ₹10 lakh annual\nFollow-up: 20/06/2026 10:00 AM\nAssign to: Sarah Chen`}
                     className="w-full flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                   />
+                  <AiCoinLockBanner featureId="ai.lead_details" className="mb-1" />
                   <button
                     type="button"
                     onClick={() => void runPasteExtract()}
                     disabled={busy || !pasteText.trim()}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${
+                      pasteGate.locked ? 'bg-slate-500 hover:bg-slate-600' : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
+                    title={
+                      pasteGate.locked
+                        ? `Locked — needs ${pasteGate.cost} coins`
+                        : `Spend ${pasteGate.cost} coins to unlock`
+                    }
                   >
+                    {pasteGate.locked ? <Lock size={14} /> : null}
                     {busy ? 'Analyzing…' : 'Analyze & fill form'}
+                    <AiCoinLockBadge featureId="ai.lead_details" />
                   </button>
                 </div>
               ) : (
@@ -296,6 +312,7 @@ export function LeadAiChatDrawer({
                         {error}
                       </p>
                     ) : null}
+                    <AiCoinLockBanner featureId="ai.lead_chat" className="mb-2" />
                     <div className="flex items-end gap-2">
                       <textarea
                         ref={inputRef}
@@ -309,17 +326,29 @@ export function LeadAiChatDrawer({
                         }}
                         rows={2}
                         disabled={busy}
-                        placeholder="Reply to continue…"
+                        placeholder={
+                          chatGate.locked
+                            ? `Locked — needs ${chatGate.cost} coins to chat`
+                            : 'Reply to continue…'
+                        }
                         className="min-h-[48px] flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                       />
                       <button
                         type="button"
                         onClick={() => void runChatTurn()}
                         disabled={busy || !chatInput.trim()}
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-300"
+                        className={`relative flex h-11 min-w-[2.75rem] shrink-0 items-center justify-center gap-1 rounded-full px-2 text-white disabled:bg-slate-300 ${
+                          chatGate.locked ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-slate-800'
+                        }`}
                         aria-label="Send"
+                        title={
+                          chatGate.locked
+                            ? `Locked — needs ${chatGate.cost} coins`
+                            : `Spend ${chatGate.cost} coins`
+                        }
                       >
-                        <ArrowUp size={18} />
+                        {chatGate.locked ? <Lock size={14} /> : <ArrowUp size={18} />}
+                        <AiCoinLockBadge featureId="ai.lead_chat" className="absolute -right-1 -top-1" />
                       </button>
                     </div>
                   </div>

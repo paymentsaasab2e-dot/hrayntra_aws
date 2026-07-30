@@ -1,9 +1,8 @@
 import type { HqSubscriptionPackage } from '@/lib/api';
 
 export const HQ_PLANS_SECTION = {
-  title: 'Plans that scale with your hiring',
-  description:
-    'Simple pricing for teams of every size. All plans include the HRYANTRA employer platform, AI tools, and onboarding support.',
+  title: 'Subscription plans',
+  description: 'Create plans with names, pricing, and limits — then assign them to tenants.',
 };
 
 export type BillingCycle = 'monthly' | 'annual';
@@ -67,11 +66,6 @@ export type PackagePresentation = {
   footnote: string;
   isPopular?: boolean;
 };
-
-function formatLimitBullet(value: number | null | undefined, unit: string) {
-  if (value === null || value === undefined) return `Unlimited ${unit}`;
-  return `Up to ${value} ${unit}`;
-}
 
 export function formatBillingCycleLabel(cycle?: string | null) {
   return cycle === 'annual' ? 'Annual' : 'Monthly';
@@ -153,41 +147,13 @@ export function findPackageForPlan(
 }
 
 export function getPackagePresentation(pkg: HqSubscriptionPackage): PackagePresentation {
-  const storedFeatures = Array.isArray(pkg.features)
-    ? pkg.features.map((item) => String(item).trim()).filter(Boolean)
-    : [];
-
-  if (pkg.price || pkg.yearlyPrice || storedFeatures.length > 0 || pkg.displayName) {
-    return {
-      displayName: pkg.displayName || pkg.name.toUpperCase(),
-      monthlyPrice: pkg.price || '—',
-      yearlyPrice: pkg.yearlyPrice || pkg.price || '—',
-      period: pkg.pricePeriod || 'per month',
-      features:
-        storedFeatures.length > 0
-          ? storedFeatures
-          : [
-              formatLimitBullet(pkg.maxUsers, 'team users'),
-              formatLimitBullet(pkg.maxJobs, 'active job postings'),
-              'All platform modules included',
-            ],
-      footnote: pkg.description || '',
-      isPopular: Boolean(pkg.isPopular),
-    };
-  }
-
   return {
-    displayName: pkg.name.toUpperCase(),
-    monthlyPrice: '—',
-    yearlyPrice: '—',
-    period: 'per month',
-    features: [
-      formatLimitBullet(pkg.maxUsers, 'team users'),
-      formatLimitBullet(pkg.maxJobs, 'active job postings'),
-      'All platform modules included',
-      'Recruitment, HR, payroll, analytics & AI tools',
-    ],
-    footnote: pkg.description || 'Custom package for tenant assignment.',
+    displayName: pkg.displayName || pkg.name,
+    monthlyPrice: pkg.price || '—',
+    yearlyPrice: pkg.yearlyPrice || pkg.price || '—',
+    period: pkg.pricePeriod || 'per month',
+    features: [],
+    footnote: pkg.description || '',
     isPopular: Boolean(pkg.isPopular),
   };
 }

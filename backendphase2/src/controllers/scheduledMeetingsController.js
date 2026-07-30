@@ -1,6 +1,10 @@
 import { prisma } from '../config/prisma.js';
 import { sendResponse, sendError } from '../utils/response.js';
 import { activityService } from '../services/activityService.js';
+import {
+  normalizeClientMeetingSchedule,
+  sendClientMeetScheduleInvites,
+} from '../modules/client/clientMeetingNotify.js';
 
 /**
  * Get all scheduled meetings for a client
@@ -63,7 +67,18 @@ export async function getClientScheduledMeetings(req, res) {
 export async function createScheduledMeeting(req, res) {
   try {
     const { clientId } = req.params;
-    const { meetingType, scheduledAt, reminder, notes } = req.body;
+    const {
+      meetingType,
+      scheduledAt,
+      reminder,
+      notes,
+      contact,
+      meetLink,
+      timezone,
+      attendeeIds,
+      followUpNotes,
+      followUpSchedule,
+    } = req.body;
     const userId = req.user.id;
 
     if (!meetingType || !scheduledAt) {
@@ -76,6 +91,42 @@ export async function createScheduledMeeting(req, res) {
       return sendError(res, 400, 'Invalid scheduled date/time format');
     }
 
+    const schedulePayload =
+      followUpSchedule && typeof followUpSchedule === 'object'
+        ? followUpSchedule
+        : {
+            type: meetingType,
+            contact,
+            meetLink,
+            reminder,
+            timezone,
+            attendeeIds,
+            notes: followUpNotes,
+          };
+
+    let scheduleMeta = normalizeClientMeetingSchedule(
+      schedulePayload,
+      scheduledDate.toISOString(),
+    );
+
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
+      include: {
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    if (!client) {
+      return sendError(res, 404, 'Client not found');
+    }
+
+    if (scheduleMeta) {
+      scheduleMeta = await sendClientMeetScheduleInvites({
+        client,
+        schedule: scheduleMeta,
+      });
+    }
+
     // Create the scheduled meeting
     const meeting = await prisma.scheduledMeeting.create({
       data: {
@@ -85,6 +136,7 @@ export async function createScheduledMeeting(req, res) {
         scheduledAt: scheduledDate,
         reminder: reminder || null,
         notes: notes || null,
+        scheduleMeta: scheduleMeta || undefined,
         status: 'SCHEDULED',
       },
       include: {

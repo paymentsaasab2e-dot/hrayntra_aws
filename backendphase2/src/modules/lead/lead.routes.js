@@ -20,7 +20,7 @@ router.get('/assignable-members', requireAnyPermission(['leads_create', 'leads_u
 router.get('/conversion-capabilities', requireAnyPermission(['leads_read', 'leads_update']), leadController.getConversionCapabilities);
 router.get('/', requireAnyPermission(['leads_read']), leadController.getAll);
 // Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.
-router.get('/trash', requireAnyPermission(['leads_read', 'leads_delete']), leadController.listTrash);
+router.get('/trash', requireAnyPermission(['leads_read', 'leads_update', 'leads_delete']), leadController.listTrash);
 router.post('/trash/bulk-purge', requireAnyPermission(['leads_delete']), leadController.bulkPurge);
 router.post('/:id/restore', requireAnyPermission(['leads_update', 'leads_create']), leadController.restore);
 router.delete('/:id/purge', requireAnyPermission(['leads_delete']), leadController.purge);
@@ -29,7 +29,12 @@ router.post('/import/preview', requireAnyPermission(['leads_create']), importUpl
 router.post('/import/check-duplicates', requireAnyPermission(['leads_create']), leadController.checkImportDuplicates);
 router.post('/import', requireAnyPermission(['leads_create']), leadController.importLeads);
 router.get('/:id', requireAnyPermission(['leads_read']), leadController.getById);
-router.get('/:id/activities', leadController.getActivities);
+router.get('/:id/activities', requireAnyPermission(['leads_read']), leadController.getActivities);
+router.post(
+  '/:id/follow-ups/complete',
+  requireAnyPermission(['leads_update']),
+  leadController.completeFollowUp
+);
 router.post('/', requireAnyPermission(['leads_create']), leadController.create);
 router.patch('/:id', requireAnyPermission(['leads_update']), leadController.update);
 router.post('/:id/conversion-request', requireAnyPermission(['leads_update']), submitLeadConversionRequest);

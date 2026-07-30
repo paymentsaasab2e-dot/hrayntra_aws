@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import Link from 'next/link';
 import {
   AlertTriangle,
   Bell,
@@ -181,12 +180,11 @@ export function CrmAnalyticsRow({ overview }: Props) {
 export function CrmFollowupActivity({ overview }: Props) {
   const { openDrillDown } = useCrmDashboard();
   const fu = overview?.followups;
-  const calendar = overview?.calendar || [];
   const activities = overview?.activityTimeline || [];
 
   return (
     <div className="grid gap-4 xl:grid-cols-12">
-      <section className={`${crmCard} p-5 xl:col-span-5`}>
+      <section className={`${crmCard} p-5 xl:col-span-6`}>
         <h2 className="mb-3 text-sm font-bold text-slate-900">Follow-up Dashboard</h2>
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
@@ -260,32 +258,7 @@ export function CrmFollowupActivity({ overview }: Props) {
         </ul>
       </section>
 
-      <section className={`${crmCard} p-5 xl:col-span-3`}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-900">Calendar</h2>
-          <Link href="/Task&Activites" className="text-[11px] font-semibold text-blue-600">
-            View all →
-          </Link>
-        </div>
-        <ul className="max-h-[22rem] space-y-2 overflow-y-auto">
-          {calendar.length ? (
-            calendar.map((item) => (
-              <li key={item.id} className="rounded-xl border border-slate-100 px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase text-slate-400">{item.type}</p>
-                <p className="text-sm font-semibold text-slate-800">{item.title}</p>
-                <p className="text-[11px] text-slate-500">
-                  {item.at ? new Date(item.at).toLocaleString() : '—'}
-                  {item.time ? ` · ${item.time}` : ''}
-                </p>
-              </li>
-            ))
-          ) : (
-            <li className="text-sm text-slate-400">No meetings or calls upcoming</li>
-          )}
-        </ul>
-      </section>
-
-      <section className={`${crmCard} p-5 xl:col-span-4`}>
+      <section className={`${crmCard} p-5 xl:col-span-6`}>
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold text-slate-900">Recent Activities</h2>

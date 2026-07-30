@@ -1,9 +1,11 @@
 'use client';
 
 import React from 'react';
-import { ArrowUp, Sparkles, X } from 'lucide-react';
+import { ArrowUp, Lock, Sparkles, X } from 'lucide-react';
 import type { SmartSearchExample, SmartSearchKeywordChip } from '../../lib/smart-search/types';
 import { keywordChipClass } from '../../lib/smart-search/core';
+import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
+import { AiCoinLockBanner } from '../coins/TenantCoinsContext';
 
 type SmartSearchToolbarProps = {
   open: boolean;
@@ -25,19 +27,37 @@ export function SmartSearchToggleButton({
   open: boolean;
   onToggle: () => void;
 }) {
+  const gate = useAiCoinGate('ai.smart_search');
   return (
     <button
       type="button"
-      onClick={onToggle}
+      onClick={() => {
+        if (gate.locked) {
+          gate.confirmAndUnlock();
+          return;
+        }
+        onToggle();
+      }}
       className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-all active:scale-[0.98] ${
-        open
-          ? 'border-violet-300 bg-violet-50 text-violet-800 shadow-sm'
-          : 'border-indigo-100/90 bg-white/95 text-indigo-900 shadow-sm hover:border-violet-200 hover:bg-violet-50/60'
+        gate.locked
+          ? 'border-amber-300 bg-amber-50 text-amber-900'
+          : open
+            ? 'border-violet-300 bg-violet-50 text-violet-800 shadow-sm'
+            : 'border-indigo-100/90 bg-white/95 text-indigo-900 shadow-sm hover:border-violet-200 hover:bg-violet-50/60'
       }`}
-      title="Search with a natural-language prompt"
+      title={
+        gate.locked
+          ? `Locked — needs ${gate.cost} coins`
+          : 'Search with a natural-language prompt'
+      }
     >
-      <Sparkles size={14} className={open ? 'text-violet-600' : 'text-indigo-600'} strokeWidth={2.25} />
+      {gate.locked ? (
+        <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
+      ) : (
+        <Sparkles size={14} className={open ? 'text-violet-600' : 'text-indigo-600'} strokeWidth={2.25} />
+      )}
       Smart Search
+      <AiCoinLockBadge featureId="ai.smart_search" />
     </button>
   );
 }
@@ -53,8 +73,16 @@ export function SmartSearchPromptPanel({
   placeholder,
   applying = false,
 }: Omit<SmartSearchToolbarProps, 'open' | 'onToggle'> & { placeholder?: string }) {
+  const gate = useAiCoinGate('ai.smart_search');
+
+  const handleApply = () => {
+    if (!gate.confirmAndUnlock()) return;
+    onApply();
+  };
+
   return (
     <div className="space-y-2 border-b border-indigo-100/50 bg-gradient-to-r from-violet-50/50 via-white to-indigo-50/30 px-3 py-2.5 sm:px-4">
+      <AiCoinLockBanner featureId="ai.smart_search" />
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <label htmlFor="smart-search-prompt" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-violet-700/80">
@@ -67,7 +95,7 @@ export function SmartSearchPromptPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                onApply();
+                handleApply();
               }
             }}
             rows={2}
@@ -80,13 +108,22 @@ export function SmartSearchPromptPanel({
         </div>
         <button
           type="button"
-          onClick={onApply}
+          onClick={handleApply}
           disabled={applying}
-          className="mt-5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+          className={`relative mt-5 inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center rounded-full px-2 text-white disabled:cursor-wait disabled:opacity-60 ${
+            gate.locked ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-slate-800'
+          }`}
           aria-label="Apply smart search prompt"
-          title={applying ? 'Parsing with AI…' : 'Apply prompt (Enter)'}
+          title={
+            applying
+              ? 'Parsing with AI…'
+              : gate.locked
+                ? `Locked — needs ${gate.cost} coins`
+                : `Spend ${gate.cost} coins · Apply prompt (Enter)`
+          }
         >
-          <ArrowUp size={16} strokeWidth={2.25} className={applying ? 'animate-pulse' : undefined} />
+          {gate.locked ? <Lock size={14} strokeWidth={2.25} /> : <ArrowUp size={16} strokeWidth={2.25} className={applying ? 'animate-pulse' : undefined} />}
+          <AiCoinLockBadge featureId="ai.smart_search" className="absolute -right-1 -top-1" />
         </button>
       </div>
 

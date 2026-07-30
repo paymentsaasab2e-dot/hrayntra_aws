@@ -1,6 +1,7 @@
 ﻿import express from 'express';
 import multer from 'multer';
 import { authMiddleware as authenticate } from '../middleware/auth.middleware.js';
+import { requireCoins } from '../middleware/requireCoins.middleware.js';
 import {
   handleAriaMessage,
   handleAriaUndo,
@@ -24,7 +25,7 @@ const upload = multer({
   },
 });
 
-router.post('/', authenticate, upload.single('file'), handleAriaMessage);
+router.post('/', authenticate, upload.single('file'), requireCoins('ai.aria_leads'), handleAriaMessage);
 router.post('/undo', authenticate, handleAriaUndo);
 
 export default router;

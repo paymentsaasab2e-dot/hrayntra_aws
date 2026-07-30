@@ -6,6 +6,7 @@ import { PageTitleSync } from "../components/PageTitleSync";
 import { UserPermissionsSync } from "../components/UserPermissionsSync";
 import { TrialPlanHost } from "../components/trial/TrialPlanHost";
 import { TenantPausedHost } from "../components/tenant/TenantPausedHost";
+import { TenantCoinsProvider } from "../components/coins/TenantCoinsContext";
 import "./globals.css";
 import "../styles/nexus-dashboard.css";
 
@@ -25,14 +26,16 @@ export default function RootLayout({
   return (
     <html lang="en-GB" suppressHydrationWarning>
       <body suppressHydrationWarning>
-        {children}
-        <PageTitleSync />
-        <UserPermissionsSync />
-        <GlobalAlertHost />
-        <TrialPlanHost />
-        <TenantPausedHost />
-        <ActiveSessionManager />
-        <FloatingBotMount />
+        <TenantCoinsProvider>
+          {children}
+          <PageTitleSync />
+          <UserPermissionsSync />
+          <GlobalAlertHost />
+          <TrialPlanHost />
+          <TenantPausedHost />
+          <ActiveSessionManager />
+          <FloatingBotMount />
+        </TenantCoinsProvider>
       </body>
     </html>
   );

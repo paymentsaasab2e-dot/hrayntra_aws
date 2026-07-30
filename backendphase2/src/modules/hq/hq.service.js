@@ -10,6 +10,8 @@ import { resolvePackageSlug, todayPlanStartDate } from './hq-packages.config.js'
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { hqLeadsService } from './hq-leads.service.js';
 import { hqCompaniesService } from './hq-companies.service.js';
+import { hqTeamService } from './hq-team.service.js';
+import { hqRolesService } from './hq-roles.service.js';
 import { hqPortalService } from './hq-portal.service.js';
 import { hqDemosService } from './hq-demos.service.js';
 import { hqPackagesService } from './hq-packages.service.js';
@@ -17,12 +19,40 @@ import { hqAnalyticsService } from './hq-analytics.service.js';
 
 async function resolvePlanInput(raw, billingCycle, planStartDate) {
   const plan = await hqPackagesService.resolvePlanInput(raw, billingCycle, planStartDate);
-  if (plan) return plan;
-  if (raw) {
-    const label = typeof raw === 'string' ? raw : raw?.name || raw?.id || 'plan';
-    throw new Error(`Unknown subscription package: ${label}`);
+  if (!plan) {
+    if (raw) {
+      const label = typeof raw === 'string' ? raw : raw?.name || raw?.id || 'plan';
+      throw new Error(`Unknown subscription package: ${label}`);
+    }
+    return hqPackagesService.resolvePlanInput('Starter', billingCycle || 'monthly', planStartDate);
   }
-  return hqPackagesService.resolvePlanInput('Starter', billingCycle || 'monthly', planStartDate);
+
+  // Merge HQ form overrides (coins, custom limits, price) onto the package plan.
+  if (raw && typeof raw === 'object') {
+    if (raw.coins !== undefined && raw.coins !== null && raw.coins !== '') {
+      plan.coins = Math.max(0, Number(raw.coins) || 0);
+    }
+    if (raw.price !== undefined && raw.price !== null && String(raw.price).trim()) {
+      plan.price = String(raw.price).trim();
+    }
+    if (raw.maxUsers !== undefined) {
+      plan.maxUsers =
+        raw.maxUsers === null || raw.maxUsers === ''
+          ? null
+          : Number.isFinite(Number(raw.maxUsers))
+            ? Number(raw.maxUsers)
+            : plan.maxUsers;
+    }
+    if (raw.maxJobs !== undefined) {
+      plan.maxJobs =
+        raw.maxJobs === null || raw.maxJobs === ''
+          ? null
+          : Number.isFinite(Number(raw.maxJobs))
+            ? Number(raw.maxJobs)
+            : plan.maxJobs;
+    }
+  }
+  return plan;
 }
 
 function tenantMatchesPlan(tenant, pkg) {
@@ -139,6 +169,8 @@ function mapTenantForHqResponse(tenant) {
     organizationType: tenant.organizationType,
     organizationName: tenant.organizationName || '',
     signupSource: tenant.signupSource || 'hq_manual',
+    productLine: tenant.productLine || '',
+    enabledModules: Array.isArray(tenant.enabledModules) ? tenant.enabledModules : [],
     subscriptionPlan: tenant.subscriptionPlan,
     tenantDbName: tenant.tenantDbName,
     tenantProvisioningMode: tenant.tenantProvisioningMode,
@@ -305,6 +337,11 @@ export const hqService = {
     const password = String(data?.password || '');
     const organizationType =
       String(data?.organizationType || 'agency').toLowerCase() === 'standalone' ? 'standalone' : 'agency';
+    const productLine =
+      String(data?.productLine || 'crm').toLowerCase() === 'recruitment' ? 'recruitment' : 'crm';
+    const enabledModules = Array.isArray(data?.enabledModules)
+      ? [...new Set(data.enabledModules.map((m) => String(m || '').trim()).filter(Boolean))]
+      : [];
     const subscriptionPlan = await resolvePlanInput(
       data?.plan ?? data?.subscriptionPlan ?? 'Starter',
       data?.billingCycle ?? data?.plan?.billingCycle ?? data?.subscriptionPlan?.billingCycle,
@@ -316,6 +353,9 @@ export const hqService = {
     if (password.length < 8) {
       throw new Error('Password must be at least 8 characters');
     }
+    if (enabledModules.length === 0) {
+      throw new Error('Select at least one CRM or Recruitment tab');
+    }
     const hqUser = await headquartersAuthService.registerWorkspaceUserAndProvisionTenant({
       name,
       email,
@@ -323,7 +363,9 @@ export const hqService = {
       loginId,
       organizationType,
       subscriptionPlan,
-      signupSource: 'hq_manual',
+      signupSource: data?.companyId ? 'hq_company' : 'hq_manual',
+      productLine,
+      enabledModules,
     });
     const localUser = await authService.provisionHeadquartersMappedTenant(hqUser);
     await authService.finalizeHeadquartersTenantWorkspace(hqUser, localUser);
@@ -332,6 +374,27 @@ export const hqService = {
         await runWithTenantContext(hqUser.tenantDbName, () => setSubscriptionPlan(subscriptionPlan));
       } catch (err) {
         console.warn('[hq] failed to seed subscription plan in tenant:', err?.message || err);
+      }
+    }
+
+    let linkedCompanyId = null;
+    const companyId = String(data?.companyId || '').trim();
+    if (companyId) {
+      try {
+        const linked = await hqCompaniesService.linkTenant(
+          companyId,
+          {
+            tenantDbName: hqUser.tenantDbName,
+            tenantAdminEmail: email,
+          },
+          reqUser,
+        );
+        linkedCompanyId = linked?.company?.id || companyId;
+      } catch (linkErr) {
+        console.warn('[hq] failed to link company to tenant:', linkErr?.message || linkErr);
+        throw new Error(
+          `Tenant was created (${hqUser.tenantDbName}) but company link failed: ${linkErr?.message || linkErr}`,
+        );
       }
     }
 
@@ -363,10 +426,13 @@ export const hqService = {
       tenantDatabaseUrl: hqUser.tenantDatabaseUrl,
       tenantProvisioningMode: hqUser.tenantProvisioningMode,
       organizationType,
+      productLine: hqUser.productLine || productLine,
+      enabledModules: hqUser.enabledModules || enabledModules,
       subscriptionPlan,
       user: { id: localUser.id, email: localUser.email, loginId },
       credentialEmailSent,
       credentialEmailError,
+      companyId: linkedCompanyId,
     };
   },
 
@@ -420,6 +486,17 @@ export const hqService = {
 
     const enrichedPlan = {
       ...plan,
+      // Keep existing AI coin balance unless HQ explicitly sets coins on assign.
+      coins:
+        data?.coins !== undefined && data?.coins !== null
+          ? Math.max(0, Number(data.coins) || 0)
+          : data?.plan?.coins !== undefined && data?.plan?.coins !== null
+            ? Math.max(0, Number(data.plan.coins) || 0)
+            : previousPlan?.coins != null
+              ? Math.max(0, Number(previousPlan.coins) || 0)
+              : plan.coins != null
+                ? Math.max(0, Number(plan.coins) || 0)
+                : 0,
       ...(tierChanged && previousPlan?.name
         ? {
             upgradedFrom: String(previousPlan.name),
@@ -437,6 +514,52 @@ export const hqService = {
     }
 
     return { email: updated.email, subscriptionPlan: updated.subscriptionPlan };
+  },
+
+  async setTenantCoins(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email is required');
+    if (data?.coins === undefined || data?.coins === null || data?.coins === '') {
+      throw new Error('coins is required');
+    }
+    const coins = Math.max(0, Math.floor(Number(data.coins) || 0));
+
+    const tenants = await headquartersAuthService.listTenants();
+    const existing = tenants.find((t) => String(t.email || '').toLowerCase() === email);
+    if (!existing) throw new Error('Tenant not found');
+
+    const plan = existing.subscriptionPlan || { name: 'Custom' };
+    const enrichedPlan = {
+      ...plan,
+      name: plan.name || 'Custom',
+      coins,
+    };
+
+    const updated = await headquartersAuthService.setSubscriptionPlanForEmail(email, enrichedPlan);
+    if (!updated) throw new Error('Tenant not found');
+
+    if (updated.tenantDbName) {
+      await applyTenantSubscriptionPlan(updated.tenantDbName, enrichedPlan, { throwOnFailure: true });
+    }
+
+    return {
+      email: updated.email,
+      coins,
+      subscriptionPlan: updated.subscriptionPlan,
+    };
+  },
+
+  async listAiFeatures(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAiFeaturesService } = await import('./hq-ai-features.service.js');
+    return { features: await hqAiFeaturesService.listFeatures() };
+  },
+
+  async updateAiFeatures(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAiFeaturesService } = await import('./hq-ai-features.service.js');
+    return hqAiFeaturesService.updateCosts(data, reqUser);
   },
 
   async setTenantPause(data, reqUser) {
@@ -545,6 +668,11 @@ export const hqService = {
     return hqCompaniesService.updateCompany(id, data, reqUser);
   },
 
+  async deleteCompany(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.deleteCompany(id);
+  },
+
   async addCompanyFollowUp(id, data, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqCompaniesService.addFollowUp(id, data, reqUser);
@@ -570,9 +698,59 @@ export const hqService = {
     return hqCompaniesService.addRemark(id, data, reqUser);
   },
 
+  async listTeamMembers(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTeamService.listMembers();
+  },
+
+  async createTeamMember(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTeamService.createMember(data, reqUser);
+  },
+
+  async updateTeamMember(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTeamService.updateMember(id, data, reqUser);
+  },
+
+  async deleteTeamMember(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTeamService.deleteMember(id);
+  },
+
+  async listHqPermissions(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqRolesService.listPermissions();
+  },
+
+  async listHqRoles(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqRolesService.listRoles();
+  },
+
+  async createHqRole(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqRolesService.createRole(data, reqUser);
+  },
+
+  async updateHqRole(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqRolesService.updateRole(id, data, reqUser);
+  },
+
+  async deleteHqRole(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqRolesService.deleteRole(id);
+  },
+
   async getPortalOverview(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqPortalService.getPortalOverview();
+  },
+
+  async listAllCandidates(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqPortalService.listAllCandidates();
   },
 
   async getAnalytics(reqUser) {

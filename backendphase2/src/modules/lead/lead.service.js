@@ -32,6 +32,7 @@ import {
   resolveDirectorSalutationFromLeadContext,
 } from '../../utils/directorOtherDetails.js';
 import { assertCanAssignCrm, newlyAddedAssigneeIds, currentLeadAssigneeIds } from '../../services/crmAssignmentScope.service.js';
+import { isDepartmentHeadUser } from '../../services/departmentRole.service.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import {
   queueAiEntryRecommendation,
@@ -41,7 +42,9 @@ import {
   formatFollowUpInTimezone,
   mergeFollowUpScheduleIntoOtherDetails,
   normalizeFollowUpSchedule,
+  readFollowUpScheduleFromOtherDetails,
   sendLeadMeetScheduleInvites,
+  sendLeadFollowUpContactNotifications,
 } from './leadFollowUpNotify.js';
 
 function isValidObjectId(value) {
@@ -132,16 +135,16 @@ function buildFollowUpSchedulePayload(data, nextFollowUpIso) {
   // Fallback: parse type from statusRemark when frontend only sends remark text.
   const remark = String(data?.statusRemark || '');
   if (!nextFollowUpIso || !remark.includes('Follow-up scheduled:')) return null;
-  const typeMatch = remark.match(/Follow-up scheduled:\s*([^.]+)/i);
-  const type = String(typeMatch?.[1] || '').split('.')[0].trim();
-  if (type.toLowerCase() !== 'meet') return null;
+  const typeMatch = remark.match(/Follow-up scheduled:\s*([^.\n]+)/i);
+  const type = String(typeMatch?.[1] || '').trim();
+  if (!type) return null;
   const meetLinkMatch = remark.match(/Meet link:\s*([^\s.]+)/i);
   const reminderMatch = remark.match(/Reminder:\s*([^.\n]+)/i);
   const timezoneMatch = remark.match(/Timezone:\s*([^.\n]+)/i);
   const contactMatch = remark.match(/Contact:\s*([^.\n]+)/i);
   return normalizeFollowUpSchedule(
     {
-      type: 'Meet',
+      type,
       meetLink: meetLinkMatch?.[1],
       reminder: reminderMatch?.[1],
       timezone: timezoneMatch?.[1],
@@ -151,6 +154,20 @@ function buildFollowUpSchedulePayload(data, nextFollowUpIso) {
     },
     nextFollowUpIso,
   );
+}
+
+async function assertCanDirectConvertLead(req, userId) {
+  const isHead = userId ? await isDepartmentHeadUser(userId) : false;
+  const isSuperAdmin =
+    req?.userWithPermissions?.isSuperAdmin ||
+    String(req?.user?.role || '').toUpperCase().includes('SUPER');
+  if (!isHead && !isSuperAdmin) {
+    const err = new Error(
+      'Submit a conversion request for your department head to approve. Direct conversion is for department heads only.',
+    );
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 async function persistMeetScheduleAndNotify(leadId, leadSnapshot, schedule) {
@@ -927,7 +944,24 @@ export const leadService = {
     });
 
     if (createFollowUpSchedule && data.nextFollowUp) {
-      return persistMeetScheduleAndNotify(lead.id, lead, createFollowUpSchedule);
+      const meetType = String(createFollowUpSchedule.type || '').toLowerCase() === 'meet';
+      if (meetType) {
+        return persistMeetScheduleAndNotify(lead.id, lead, createFollowUpSchedule);
+      }
+      try {
+        const whenLabel = formatFollowUpInTimezone(
+          data.nextFollowUp,
+          createFollowUpSchedule.timezone || 'UTC',
+        );
+        await sendLeadFollowUpContactNotifications({
+          lead,
+          schedule: createFollowUpSchedule,
+          whenLabel,
+          followUpNotes: createFollowUpSchedule.notes || data.statusRemark || null,
+        });
+      } catch (notifyErr) {
+        console.error('Failed to send follow-up notification on create:', notifyErr);
+      }
     }
 
     return lead;
@@ -1114,6 +1148,7 @@ export const leadService = {
     // Status → Converted without a linked client: create Client + link (same as POST /leads/:id/convert).
     if (data.status === 'Converted' && !currentLead.convertedToClientId) {
       const performedById = data.performedById || req?.user?.id || null;
+      await assertCanDirectConvertLead(req, performedById);
       await this.convertToClient(id, {
         performedById,
         assignedToId: data.assignedToId !== undefined ? data.assignedToId : currentLead.assignedToId,
@@ -1348,7 +1383,7 @@ export const leadService = {
 
           changes.push(followUpDescription);
 
-          // Non-meet: email lead contact. Meet invites are sent via persistMeetScheduleAndNotify.
+          // Non-meet: notify lead contact via email. Meet invites use persistMeetScheduleAndNotify.
           const resolvedType = String(
             updateFollowUpSchedule?.type || followUpType || 'Follow-up',
           ).trim();
@@ -1358,17 +1393,17 @@ export const leadService = {
               const whenLabel = updateFollowUpSchedule
                 ? formatFollowUpInTimezone(data.nextFollowUp, tz)
                 : formattedDate;
-              if (currentLead.email) {
-                await sendLeadFollowUpEmail(
-                  currentLead.email,
-                  currentLead.companyName,
-                  whenLabel,
-                  resolvedType,
-                  followUpNotes || data.statusRemark || null,
-                );
-              }
+              await sendLeadFollowUpContactNotifications({
+                lead: currentLead,
+                schedule: updateFollowUpSchedule || {
+                  type: resolvedType,
+                  notes: followUpNotes || null,
+                },
+                whenLabel,
+                followUpNotes: followUpNotes || data.statusRemark || null,
+              });
             } catch (emailError) {
-              console.error('Failed to send follow-up email:', emailError);
+              console.error('Failed to send follow-up notification:', emailError);
             }
           }
         }
@@ -2043,5 +2078,88 @@ export const leadService = {
     });
 
     return activities;
+  },
+
+  /**
+   * Mark the currently scheduled follow-up / meet as done with a completion remark.
+   * Clears nextFollowUp, moves it to lastFollowUp, and removes the stored schedule.
+   */
+  async completeFollowUp(id, data = {}) {
+    const remarkText = String(data.remark || '').trim();
+    if (!remarkText) {
+      const err = new Error('Remark is required to complete the follow-up');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const currentLead = await prisma.lead.findUnique({
+      where: { id },
+      include: {
+        assignedTo: {
+          select: { id: true, name: true, email: true },
+        },
+      },
+    });
+    if (!currentLead) {
+      const err = new Error('Lead not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (!currentLead.nextFollowUp) {
+      const err = new Error('No scheduled follow-up to complete');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const schedule = readFollowUpScheduleFromOtherDetails(currentLead.otherDetails);
+    const completedAt = new Date();
+    const previousNext = currentLead.nextFollowUp;
+    const clearedOtherDetails = mergeFollowUpScheduleIntoOtherDetails(
+      Array.isArray(currentLead.otherDetails) ? currentLead.otherDetails : [],
+      null,
+    );
+
+    const updated = await prisma.lead.update({
+      where: { id },
+      data: {
+        lastFollowUp: previousNext,
+        nextFollowUp: null,
+        otherDetails: clearedOtherDetails,
+      },
+      include: {
+        assignedTo: {
+          select: { id: true, name: true, email: true, avatar: true },
+        },
+      },
+    });
+
+    if (data.performedById) {
+      try {
+        const typeLabel = String(schedule?.type || 'Meet').trim() || 'Meet';
+        await activityService.logLeadActivity({
+          entityId: id,
+          performedById: data.performedById,
+          action: 'Follow-up Completed',
+          description: `${typeLabel} marked as done. Remark: ${remarkText}`,
+          metadata: {
+            remark: remarkText,
+            completedAt: completedAt.toISOString(),
+            scheduledAt:
+              previousNext instanceof Date
+                ? previousNext.toISOString()
+                : previousNext
+                  ? new Date(previousNext).toISOString()
+                  : null,
+            type: typeLabel,
+            status: 'completed',
+          },
+        });
+      } catch (err) {
+        console.error('Failed to log follow-up completion:', err);
+      }
+    }
+
+    await attachAssignees(updated);
+    return updated;
   },
 };

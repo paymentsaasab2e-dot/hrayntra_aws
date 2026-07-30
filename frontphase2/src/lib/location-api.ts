@@ -57,3 +57,23 @@ export async function apiResolveLocation(query: string): Promise<ResolvedLocatio
   });
   return res.data;
 }
+
+export async function apiReverseGeocode(
+  latitude: number,
+  longitude: number,
+  options?: { signal?: AbortSignal },
+): Promise<ResolvedLocationDto> {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error('Valid latitude and longitude are required');
+  }
+  const params = new URLSearchParams({
+    lat: String(latitude),
+    lon: String(longitude),
+  });
+  const res = await apiFetch<ResolvedLocationDto>(`/ai/location/reverse?${params.toString()}`, {
+    method: 'GET',
+    auth: true,
+    signal: options?.signal,
+  });
+  return res.data;
+}

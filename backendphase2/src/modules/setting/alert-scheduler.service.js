@@ -11,8 +11,9 @@ import {
 import {
   mergeFollowUpScheduleIntoOtherDetails,
   readFollowUpScheduleFromOtherDetails,
-  sendLeadMeetReminderEmails,
+  sendLeadFollowUpReminderEmails,
 } from '../lead/leadFollowUpNotify.js';
+import { sendClientMeetReminderEmails } from '../client/clientMeetingNotify.js';
 
 const FEEDBACK_OVERDUE_HOURS = Number(process.env.ALERT_FEEDBACK_OVERDUE_HOURS || 48);
 const PLACEMENT_REMINDER_DAYS = Number(process.env.ALERT_PLACEMENT_REMINDER_DAYS || 30);
@@ -94,11 +95,11 @@ async function processLeadFollowUps() {
     const label = lead.companyName || lead.contactPerson || 'Lead';
     const followUp = lead.nextFollowUp;
 
-    // Meet reminder emails (timezone + offset stored on the lead)
+    // Timed follow-up reminder emails (stored on lead otherDetails)
     try {
       const schedule = readFollowUpScheduleFromOtherDetails(lead.otherDetails);
-      if (schedule && String(schedule.type || '').toLowerCase() === 'meet' && schedule.reminderAt && !schedule.reminderSentAt) {
-        const updatedSchedule = await sendLeadMeetReminderEmails({ lead, schedule });
+      if (schedule && schedule.reminderAt && !schedule.reminderSentAt) {
+        const updatedSchedule = await sendLeadFollowUpReminderEmails({ lead, schedule });
         if (updatedSchedule?.reminderSentAt && updatedSchedule.reminderSentAt !== schedule.reminderSentAt) {
           await prisma.lead.update({
             where: { id: lead.id },
@@ -163,6 +164,50 @@ async function processLeadFollowUps() {
           );
         },
       });
+    }
+  }
+}
+
+async function processClientScheduledMeetingReminders() {
+  const now = new Date();
+  const meetings = await prisma.scheduledMeeting.findMany({
+    where: {
+      status: 'SCHEDULED',
+      scheduleMeta: { not: null },
+      scheduledAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+    },
+    include: {
+      client: {
+        include: {
+          assignedTo: { select: { id: true, name: true, email: true } },
+        },
+      },
+    },
+    take: 200,
+  });
+
+  for (const meeting of meetings) {
+    const schedule = meeting.scheduleMeta;
+    if (!schedule || typeof schedule !== 'object') continue;
+    if (!schedule.reminderAt || schedule.reminderSentAt) continue;
+
+    try {
+      const updated = await sendClientMeetReminderEmails({
+        client: meeting.client,
+        meeting,
+        schedule,
+      });
+      if (updated?.reminderSentAt && updated.reminderSentAt !== schedule.reminderSentAt) {
+        await prisma.scheduledMeeting.update({
+          where: { id: meeting.id },
+          data: { scheduleMeta: updated },
+        });
+      }
+    } catch (reminderErr) {
+      console.warn(
+        '[alert-scheduler] client meet reminder failed:',
+        reminderErr?.message || reminderErr,
+      );
     }
   }
 }
@@ -705,6 +750,7 @@ export async function runAlertScheduler() {
     await Promise.allSettled([
       processLeadFollowUps(),
       processClientFollowUps(),
+      processClientScheduledMeetingReminders(),
       processPipelineFollowUps(),
       processTaskReminders(),
       processInvoiceOverdue(),

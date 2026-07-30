@@ -38,6 +38,12 @@ export type HqCompanyRow = {
   estimatedDealValue?: number;
   companySource?: string;
   interestedModules?: string[];
+  convertedFromLeadId?: string | null;
+  companyTag?: string | null;
+  hqProductLine?: string | null;
+  tenantDbName?: string | null;
+  tenantAdminEmail?: string | null;
+  tenantProvisionedAt?: string | null;
   initialNotes?: string;
   createdAt?: string | null;
   followUps?: HqCompanyFollowUp[];

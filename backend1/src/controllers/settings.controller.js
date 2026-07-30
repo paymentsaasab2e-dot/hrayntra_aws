@@ -1,4 +1,5 @@
 const { prisma } = require('../lib/prisma');
+const { buildSessionClosePatch } = require('../utils/session-tracking.util');
 
 /**
  * Get user settings
@@ -359,10 +360,26 @@ async function logoutAllSessions(req, res) {
       });
     }
 
-    // Delete all sessions except current
-    await prisma.session.deleteMany({
-      where: { candidateId },
+    const now = new Date();
+    const sessions = await prisma.session.findMany({
+      where: {
+        candidateId,
+        OR: [{ isActive: true }, { isActive: { isSet: false } }, { isActive: null }],
+      },
     });
+
+    // Soft-close so HQ can still report login/logout/duration/device/geo history.
+    await Promise.all(
+      sessions.map((session) =>
+        prisma.session.update({
+          where: { id: session.id },
+          data: {
+            ...buildSessionClosePatch(session, now),
+            token: `revoked_${session.id}_${now.getTime()}`,
+          },
+        })
+      )
+    );
 
     res.json({
       success: true,

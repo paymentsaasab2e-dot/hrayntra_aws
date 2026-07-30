@@ -224,6 +224,15 @@ async function sendDemoRequestOtp(req, res) {
     const showOTP =
       process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
 
+    // Push into HQ CRM leads as soon as the demo form is submitted (before OTP verify).
+    void syncEmployerDemoToHq({
+      id: record.id,
+      ...payload,
+      otpStatus: OtpStatus.PENDING,
+    }).catch((err) => {
+      console.warn('[EmployerDemo] HQ lead sync on submit failed', err?.message || err);
+    });
+
     return res.json({
       success: true,
       message: emailResult.success
@@ -385,11 +394,17 @@ async function syncEmployerDemoToHq(verified) {
     organizationName: verified.organizationName,
     organizationType: verified.organizationType || 'agency',
     outcome: verified.outcome || '',
+    requestKind: verified.requestKind || 'demo',
+    emailVerified:
+      Boolean(verified.emailVerifiedAt) ||
+      String(verified.otpStatus || '').toUpperCase() === 'VERIFIED',
   });
 
   if (!result.ok) {
     logPhase2SyncFailure('EmployerDemo', result);
+    return null;
   }
+  return result.data?.data || null;
 }
 
 async function verifyDemoRequestOtp(req, res) {

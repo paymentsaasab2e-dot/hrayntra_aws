@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
   Edit,
   Mail,
@@ -34,6 +34,8 @@ import { formatDateDMY, formatDateTimeDMY } from '../../../utils/dateDisplay';
 export default function TeamMemberProfilePage() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
+  const teamBase = pathname?.startsWith('/hq/team') ? '/hq/team' : '/team';
   const memberId = params.id as string;
 
   const [loading, setLoading] = useState(true);
@@ -110,7 +112,7 @@ export default function TeamMemberProfilePage() {
         <div className="text-center">
           <p className="text-slate-600 mb-4">Team member not found</p>
           <button
-            onClick={() => router.push('/team')}
+            onClick={() => router.push(teamBase)}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             Back to Team
@@ -126,7 +128,7 @@ export default function TeamMemberProfilePage() {
         {/* Header */}
         <div className="mb-6">
           <button
-            onClick={() => router.push('/team')}
+            onClick={() => router.push(teamBase)}
             className="text-sm text-slate-500 hover:text-slate-700 mb-4"
           >
             ← Back to Team

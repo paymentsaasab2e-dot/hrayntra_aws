@@ -109,6 +109,43 @@ router.get('/recruitment-summary', async (req, res) => {
   }
 });
 
+router.get('/coins', async (req, res) => {
+  try {
+    const { getCoinsOverview } = await import('./tenantCoinWallet.service.js');
+    const overview = await getCoinsOverview();
+    sendResponse(res, 200, 'OK', overview);
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to get coins', error);
+  }
+});
+
+router.get('/coins/packs', async (req, res) => {
+  try {
+    const { listCoinPacks } = await import('./tenantCoinWallet.service.js');
+    sendResponse(res, 200, 'OK', { packs: listCoinPacks(), demo: true });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to list coin packs', error);
+  }
+});
+
+router.post('/coins/purchase', async (req, res) => {
+  try {
+    const packId = String(req.body?.packId || '').trim();
+    if (!packId) return sendError(res, 400, 'packId is required');
+    const { purchaseCoinPack } = await import('./tenantCoinWallet.service.js');
+    const result = await purchaseCoinPack(packId, { user: req.user });
+    res.setHeader('X-Coin-Balance', String(result.coins));
+    res.setHeader('X-Coins-Spent', '0');
+    sendResponse(res, 200, result.message || 'Coins purchased', {
+      ...result,
+      coinBalance: result.coins,
+      coinsSpent: 0,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to purchase coins', error);
+  }
+});
+
 /** Standalone tenants: internal workspace company (no Clients module). */
 router.get('/workspace-client', async (req, res) => {
   try {

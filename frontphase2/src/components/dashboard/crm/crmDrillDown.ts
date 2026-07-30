@@ -26,20 +26,33 @@ function formatWhen(iso?: string | null) {
 }
 
 export function mapLeadDrillRows(rows: ReturnType<typeof leadRows>) {
-  return rows.map((row) => ({
-    Name: row.name || '—',
-    Contact: row.contact || '—',
-    Email: row.email || '—',
-    Phone: row.phone || '—',
-    Status: row.status || '—',
-    Priority: row.priority || '—',
-    Source: row.source || '—',
-    Industry: row.industry || '—',
-    Assignee: row.assignee || '—',
-    Location: row.location || '—',
-    'Last Activity': formatWhen(row.lastActivity),
-    'Next Follow-up': formatWhen(row.nextFollowUp),
-  }));
+  return rows.map((row) => {
+    const b = row.meetingsBreakdown || {};
+    const breakdown = [
+      b.calls ? `${b.calls} calls` : null,
+      b.meetings ? `${b.meetings} meetings` : null,
+      b.emails ? `${b.emails} emails` : null,
+      b.whatsapp ? `${b.whatsapp} WhatsApp` : null,
+      b.followups ? `${b.followups} follow-ups` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    return {
+      Name: row.name || '—',
+      Contact: row.contact || '—',
+      Email: row.email || '—',
+      Phone: row.phone || '—',
+      Status: row.status || '—',
+      Priority: row.priority || '—',
+      Source: row.source || '—',
+      Assignee: row.assignee || '—',
+      'Total meetings': String(row.totalMeetings ?? 0),
+      Breakdown: breakdown || '—',
+      'Last Activity': formatWhen(row.lastActivity),
+      'Next Follow-up': formatWhen(row.nextFollowUp),
+    };
+  });
 }
 
 export function mapClientDrillRows(rows: ReturnType<typeof clientRows>) {

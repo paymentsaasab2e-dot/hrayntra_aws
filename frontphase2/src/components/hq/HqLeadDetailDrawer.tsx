@@ -7,6 +7,7 @@ import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
 import { apiHqAddLeadFollowUp, apiHqAddLeadRemark, apiHqCompleteLeadFollowUp, apiHqDeleteLeadFollowUp, apiHqUpdateLeadFollowUp } from '@/lib/api';
 import { HqFollowUpTabPanel } from './HqFollowUpTabPanel';
 import {
+  BOOK_A_DEMO_TAG_CLASS,
   HQ_LEAD_FOLLOW_UP_TYPES,
   HQ_LEAD_INDUSTRY_OPTIONS,
   HQ_LEAD_MODULE_OPTIONS,
@@ -15,6 +16,7 @@ import {
   HQ_LEAD_TABS,
   formatHqLeadSourceDisplay,
   formatNextFollowUpDisplay,
+  isBookADemoLead,
   toDatetimeLocalValue,
   type HqLeadDrawerTab,
   type HqLeadRow,
@@ -67,7 +69,7 @@ function leadToFormValues(lead: HqLeadRow): EditHqLeadFormValues {
     nextFollowUpAt: toDatetimeLocalValue(lead.nextFollowUpAt),
     interestedModules: [...(lead.interestedModules ?? [])],
     initialNotes: lead.initialNotes || '',
-    stage: lead.stage,
+    stage: lead.stage === 'qualified' ? 'demo' : lead.stage,
   };
 }
 
@@ -369,10 +371,34 @@ export function HqLeadDetailDrawer({
         aria-labelledby="hq-lead-detail-title"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
-        className="absolute right-0 top-0 z-10 flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl pointer-events-auto"
+        className="absolute right-0 top-0 z-10 flex h-full w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl pointer-events-auto"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-rose-50/40 to-white px-6 py-5">
           <div>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              {isBookADemoLead(lead) ? (
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${BOOK_A_DEMO_TAG_CLASS}`}
+                >
+                  BOOK A DEMO
+                </span>
+              ) : (
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${HQ_LEAD_STAGE_STYLES[lead.stage === 'qualified' ? 'demo' : lead.stage]}`}>
+                  {HQ_LEAD_STAGE_LABELS[lead.stage === 'qualified' ? 'demo' : lead.stage].toUpperCase()}
+                </span>
+              )}
+              <span
+                className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${
+                  lead.score === 'Hot'
+                    ? 'bg-rose-50 text-rose-700 ring-rose-200'
+                    : lead.score === 'Warm'
+                      ? 'bg-amber-50 text-amber-700 ring-amber-200'
+                      : 'bg-slate-50 text-slate-600 ring-slate-200'
+                }`}
+              >
+                {lead.score.toUpperCase()}
+              </span>
+            </div>
             <h2 id="hq-lead-detail-title" className="text-2xl font-bold text-slate-900">
               {activeTab === 'followup'
                 ? 'Follow-up'
@@ -380,7 +406,7 @@ export function HqLeadDetailDrawer({
                   ? 'Remarks'
                   : isEditing
                     ? 'Edit Lead'
-                    : 'Lead Details'}
+                    : lead.name}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               {activeTab === 'followup'
@@ -389,15 +415,11 @@ export function HqLeadDetailDrawer({
                   ? `Add internal remarks and notes for ${lead.name}.`
                   : isEditing
                     ? 'Update the prospective client details below and save to your CRM.'
-                    : `Full CRM profile for ${lead.name} at ${lead.company}.`}
+                    : `${lead.company} · HQ CRM lead profile`}
             </p>
             {!isEditing ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <StageBadge stage={lead.stage} />
-                <ScoreBadge score={lead.score} />
-                <span className="text-xs text-slate-500">
-                  Next follow-up: {formatNextFollowUpDisplay(lead.nextFollowUpAt) || lead.nextFollowUp}
-                </span>
+              <div className="mt-3 text-xs text-slate-500">
+                Next follow-up: {formatNextFollowUpDisplay(lead.nextFollowUpAt) || lead.nextFollowUp}
               </div>
             ) : null}
           </div>
@@ -613,8 +635,16 @@ export function HqLeadDetailDrawer({
                     <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   </div>
                 ) : (
-                  <div className="pt-1">
-                    <StageBadge stage={lead.stage} />
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {isBookADemoLead(lead) ? (
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${BOOK_A_DEMO_TAG_CLASS}`}
+                      >
+                        BOOK A DEMO
+                      </span>
+                    ) : (
+                      <StageBadge stage={lead.stage === 'qualified' ? 'demo' : lead.stage} />
+                    )}
                   </div>
                 )}
               </div>

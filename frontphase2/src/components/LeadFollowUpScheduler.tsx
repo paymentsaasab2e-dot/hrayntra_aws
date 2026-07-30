@@ -315,6 +315,9 @@ export function LeadFollowUpScheduler({
               );
             })}
           </div>
+          <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+            The selected contact receives an email when scheduled and before the reminder time.
+          </p>
         </div>
         <div>
           <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">

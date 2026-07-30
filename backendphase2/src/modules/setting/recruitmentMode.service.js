@@ -201,6 +201,8 @@ export async function getSubscriptionPlan() {
       ...(v.upgradedFrom ? { upgradedFrom: String(v.upgradedFrom) } : {}),
       ...(v.lastPaymentReference ? { lastPaymentReference: String(v.lastPaymentReference) } : {}),
       ...(v.upgradedBy ? { upgradedBy: String(v.upgradedBy) } : {}),
+      ...(v.coins != null ? { coins: Number(v.coins) || 0 } : { coins: 0 }),
+      ...(v.price ? { price: String(v.price) } : {}),
     };
   }
   return null;
@@ -211,21 +213,35 @@ export async function setSubscriptionPlan(plan) {
   if (!name) throw new Error('Plan name is required');
   const planStartDate = String(plan?.planStartDate || '').trim();
   const planEndDate = String(plan?.planEndDate || '').trim();
+
+  // Preserve existing coin balance when the caller does not send coins.
+  let coins = plan?.coins;
+  if (coins === undefined || coins === null) {
+    try {
+      const existing = await getSubscriptionPlan();
+      if (existing?.coins != null) coins = existing.coins;
+    } catch {
+      /* ignore */
+    }
+  }
+
   const payload = {
     ...(plan?.id ? { id: String(plan.id) } : {}),
     name,
     billingCycle: String(plan?.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
     maxUsers: plan?.maxUsers ?? null,
     maxJobs: plan?.maxJobs ?? null,
-      ...(planStartDate ? { planStartDate } : {}),
-      ...(planEndDate ? { planEndDate } : {}),
-      ...(plan?.isTrial ? { isTrial: true } : {}),
-      ...(plan?.trialDays ? { trialDays: Number(plan.trialDays) || undefined } : {}),
-      ...(plan?.upgradedAt ? { upgradedAt: String(plan.upgradedAt) } : {}),
-      ...(plan?.upgradedFrom ? { upgradedFrom: String(plan.upgradedFrom) } : {}),
-      ...(plan?.lastPaymentReference ? { lastPaymentReference: String(plan.lastPaymentReference) } : {}),
-      ...(plan?.upgradedBy ? { upgradedBy: String(plan.upgradedBy) } : {}),
-    };
+    ...(planStartDate ? { planStartDate } : {}),
+    ...(planEndDate ? { planEndDate } : {}),
+    ...(plan?.isTrial ? { isTrial: true } : {}),
+    ...(plan?.trialDays ? { trialDays: Number(plan.trialDays) || undefined } : {}),
+    ...(plan?.upgradedAt ? { upgradedAt: String(plan.upgradedAt) } : {}),
+    ...(plan?.upgradedFrom ? { upgradedFrom: String(plan.upgradedFrom) } : {}),
+    ...(plan?.lastPaymentReference ? { lastPaymentReference: String(plan.lastPaymentReference) } : {}),
+    ...(plan?.upgradedBy ? { upgradedBy: String(plan.upgradedBy) } : {}),
+    ...(coins !== undefined && coins !== null ? { coins: Math.max(0, Number(coins) || 0) } : {}),
+    ...(plan?.price ? { price: String(plan.price) } : {}),
+  };
   await upsertOrgSettingJson(KEY_SUBSCRIPTION_PLAN, payload);
   return payload;
 }

@@ -38,6 +38,33 @@ export const hqController = {
     }
   },
 
+  async setTenantCoins(req, res) {
+    try {
+      const result = await hqService.setTenantCoins(req.body, req.user);
+      sendResponse(res, 200, 'Coins updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listAiFeatures(req, res) {
+    try {
+      const result = await hqService.listAiFeatures(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateAiFeatures(req, res) {
+    try {
+      const result = await hqService.updateAiFeatures(req.body, req.user);
+      sendResponse(res, 200, 'AI feature costs updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async setTenantPause(req, res) {
     try {
       const result = await hqService.setTenantPause(req.body, req.user);
@@ -195,6 +222,15 @@ export const hqController = {
     }
   },
 
+  async deleteCompany(req, res) {
+    try {
+      const result = await hqService.deleteCompany(req.params.id, req.user);
+      sendResponse(res, 200, 'Company deleted', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async addCompanyFollowUp(req, res) {
     try {
       const result = await hqService.addCompanyFollowUp(req.params.id, req.body, req.user);
@@ -253,9 +289,99 @@ export const hqController = {
     }
   },
 
+  async listTeamMembers(req, res) {
+    try {
+      const result = await hqService.listTeamMembers(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async createTeamMember(req, res) {
+    try {
+      const result = await hqService.createTeamMember(req.body, req.user);
+      sendResponse(res, 201, 'Team member created', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateTeamMember(req, res) {
+    try {
+      const result = await hqService.updateTeamMember(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Team member updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async deleteTeamMember(req, res) {
+    try {
+      const result = await hqService.deleteTeamMember(req.params.id, req.user);
+      sendResponse(res, 200, 'Team member deleted', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listHqPermissions(req, res) {
+    try {
+      const result = await hqService.listHqPermissions(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listHqRoles(req, res) {
+    try {
+      const result = await hqService.listHqRoles(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async createHqRole(req, res) {
+    try {
+      const result = await hqService.createHqRole(req.body, req.user);
+      sendResponse(res, 201, 'Role created', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateHqRole(req, res) {
+    try {
+      const result = await hqService.updateHqRole(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Role updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async deleteHqRole(req, res) {
+    try {
+      const result = await hqService.deleteHqRole(req.params.id, req.user);
+      sendResponse(res, 200, 'Role deleted', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async getPortalOverview(req, res) {
     try {
       const result = await hqService.getPortalOverview(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listAllCandidates(req, res) {
+    try {
+      const result = await hqService.listAllCandidates(req.user);
       sendResponse(res, 200, 'OK', result);
     } catch (error) {
       sendError(res, 400, error.message, error);

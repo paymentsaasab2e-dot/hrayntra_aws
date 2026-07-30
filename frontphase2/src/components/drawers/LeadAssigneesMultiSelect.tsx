@@ -92,8 +92,8 @@ export function LeadAssigneesMultiSelect({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return members;
-    return members.filter((m) => {
-      const haystack = `${m.firstName ?? ''} ${m.lastName ?? ''} ${m.email ?? ''}`.toLowerCase();
+                return members.filter((m) => {
+      const haystack = `${m.firstName ?? ''} ${m.lastName ?? ''} ${m.email ?? ''} ${m.role?.roleName ?? ''}`.toLowerCase();
       return haystack.includes(q);
     });
   }, [members, query]);
@@ -225,9 +225,9 @@ export function LeadAssigneesMultiSelect({
                           <span className="block truncate text-slate-900">
                             {member.firstName} {member.lastName}
                           </span>
-                          {member.email && (
-                            <span className="block truncate text-[11px] text-slate-500">{member.email}</span>
-                          )}
+                          <span className="block truncate text-[11px] text-slate-500">
+                            {[member.role?.roleName, member.email].filter(Boolean).join(' · ')}
+                          </span>
                         </span>
                       </button>
                     </li>

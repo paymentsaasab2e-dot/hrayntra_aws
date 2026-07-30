@@ -136,12 +136,15 @@ export function HqCompanyDetailDrawer({
   onClose,
   onSave,
   onCompanyUpdated,
+  onCreateTenant,
 }: {
   open: boolean;
   company: HqCompanyRow | null;
   onClose: () => void;
   onSave: (companyId: string, values: EditHqCompanyFormValues) => Promise<void>;
   onCompanyUpdated: (company: HqCompanyRow) => void;
+  /** Open Create Tenant prefilled from this company (Lead → Client → Company → Tenant). */
+  onCreateTenant?: (company: HqCompanyRow) => void;
 }) {
   const [activeTab, setActiveTab] = useState<HqCompanyDrawerTab>('details');
   const [isEditing, setIsEditing] = useState(false);
@@ -808,6 +811,21 @@ export function HqCompanyDetailDrawer({
                 <HqSecondaryButton type="button" onClick={onClose}>
                   Close
                 </HqSecondaryButton>
+                {activeTab === 'details' && onCreateTenant && company && !company.tenantDbName ? (
+                  <HqSecondaryButton
+                    type="button"
+                    onClick={() => {
+                      onCreateTenant(company);
+                    }}
+                  >
+                    Create tenant
+                  </HqSecondaryButton>
+                ) : null}
+                {activeTab === 'details' && company?.tenantDbName ? (
+                  <span className="mr-auto text-xs font-semibold text-emerald-700">
+                    Tenant: {company.tenantDbName}
+                  </span>
+                ) : null}
                 {activeTab === 'details' ? (
                   <HqPrimaryButton
                     type="button"

@@ -428,6 +428,7 @@ export async function apiFetch<T>(
             const retryJson = await readApiJson<any>(retryRes);
 
             if (retryRes.ok && retryJson?.success !== false) {
+              maybeNotifyTenantCoinsChanged(path, options.method || 'GET', retryRes, retryJson);
               return retryJson as ApiResponse<T>;
             }
           }
@@ -498,12 +499,25 @@ export async function apiFetch<T>(
     const friendlyMsg = authPaths.some((p) => path === p || path.startsWith(`${p}?`))
       ? formatAuthErrorMessage({ status: res.status, message: detailedMsg }, detailedMsg)
       : detailedMsg;
+    if (
+      typeof window !== 'undefined' &&
+      (res.status === 402 || json?.data?.code === 'INSUFFICIENT_COINS')
+    ) {
+      notifyTenantCoinsChanged({
+        coins:
+          json?.data?.balance != null && Number.isFinite(Number(json.data.balance))
+            ? Number(json.data.balance)
+            : undefined,
+      });
+    }
     throw createHttpApiError(res.status, friendlyMsg, {
       data: json?.data,
       raw: json,
       validationIssues,
     });
   }
+
+  maybeNotifyTenantCoinsChanged(path, options.method || 'GET', res, json);
 
   if (debugApiLogs) {
     console.log('[apiFetch] response ok', {
@@ -517,6 +531,96 @@ export async function apiFetch<T>(
   }
 
   return json as ApiResponse<T>;
+}
+
+export const TENANT_COINS_REFRESH_EVENT = 'hrayntra:tenant-coins-refresh';
+
+/** Notify UI to refresh AI coin balance (optional known balance for instant update). */
+export function notifyTenantCoinsChanged(detail?: { coins?: number; spent?: number }) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(TENANT_COINS_REFRESH_EVENT, { detail: detail || {} }));
+}
+
+function shouldRefreshTenantCoins(path: string, method: string, res: Response): boolean {
+  const p = (path.startsWith('/') ? path : `/${path}`).toLowerCase();
+  const m = (method || 'GET').toUpperCase();
+  const balanceHeader =
+    res.headers.get('x-coin-balance') ?? res.headers.get('X-Coin-Balance');
+  if (balanceHeader != null && balanceHeader !== '') return true;
+
+  if (p.startsWith('/settings/org/coins')) {
+    // Refresh after purchase; skip plain GET (avoids refresh loops)
+    return m === 'POST' || m === 'PUT' || m === 'PATCH';
+  }
+  if (p.startsWith('/ai/')) {
+    // History GET/PUT/DELETE should not count as spend
+    if (p.includes('/assistant-history')) return false;
+    if (p.includes('/workspace-brief/alerts') || p.includes('/workspace-brief/entity-alerts')) {
+      return false;
+    }
+    if (p.includes('/entry-recommendations') && m === 'GET') return false;
+    if (p.includes('/workspace-brief') && m === 'GET') return false;
+    if (p.includes('/location/search') || p.includes('/location/reverse')) return false;
+    return m === 'POST' || m === 'PUT' || m === 'PATCH';
+  }
+  if (p.includes('/kyc/parse-document')) return m === 'POST';
+  return false;
+}
+
+function coinsSpentFromResponse(res: Response, json: any): number | undefined {
+  const spentHeader = res.headers.get('x-coins-spent') ?? res.headers.get('X-Coins-Spent');
+  if (spentHeader != null && Number.isFinite(Number(spentHeader))) {
+    return Number(spentHeader);
+  }
+  const bodySpent = json?.data?.coinsSpent ?? json?.coinsSpent;
+  if (bodySpent != null && Number.isFinite(Number(bodySpent))) {
+    return Number(bodySpent);
+  }
+  return undefined;
+}
+
+function coinBalanceFromResponse(res: Response, json: any): number | undefined {
+  const header =
+    res.headers.get('x-coin-balance') ?? res.headers.get('X-Coin-Balance');
+  if (header != null && header !== '' && Number.isFinite(Number(header))) {
+    return Math.max(0, Number(header));
+  }
+  // Prefer explicit coinBalance from requireCoins middleware (safe on AI payloads).
+  const bodyBalance = json?.data?.coinBalance ?? json?.coinBalance;
+  if (bodyBalance != null && Number.isFinite(Number(bodyBalance))) {
+    return Math.max(0, Number(bodyBalance));
+  }
+  // Purchase / overview payloads use data.coins as the tenant balance.
+  const bodyCoins = json?.data?.coins;
+  if (bodyCoins != null && Number.isFinite(Number(bodyCoins))) {
+    return Math.max(0, Number(bodyCoins));
+  }
+  return undefined;
+}
+
+function jsonHasCoinSpend(_res: Response, json: any): boolean {
+  return (
+    json?.data?.coinBalance != null ||
+    json?.coinBalance != null ||
+    json?.data?.coinsSpent != null ||
+    json?.coinsSpent != null
+  );
+}
+
+/** Shared by apiFetch + apiFetchFormData so sidenav balance updates without a page reload. */
+function maybeNotifyTenantCoinsChanged(
+  path: string,
+  method: string,
+  res: Response,
+  json: any
+) {
+  if (typeof window === 'undefined') return;
+  const hasBodySpend = jsonHasCoinSpend(res, json);
+  if (!shouldRefreshTenantCoins(path, method, res) && !hasBodySpend) return;
+  notifyTenantCoinsChanged({
+    coins: coinBalanceFromResponse(res, json),
+    spent: coinsSpentFromResponse(res, json),
+  });
 }
 
 /** Dispatched when org recruitment / billing visibility cache changes (login, settings save, etc.). */
@@ -795,6 +899,8 @@ export interface HqTenantSubscriptionPlan {
   purchasedAt?: string;
   employerDemoRequestId?: string;
   upgradedBy?: string;
+  coins?: number;
+  price?: string;
 }
 
 export async function apiGetSubscriptionPlan() {
@@ -1121,6 +1227,12 @@ export async function apiHqProvisionTenant(body: {
   organizationType?: 'agency' | 'standalone';
   billingCycle?: 'monthly' | 'annual';
   planStartDate?: string;
+  /** Phase 2 workspace line: CRM or Recruitment */
+  productLine?: 'crm' | 'recruitment';
+  /** Enabled Phase 2 sidebar module ids for this tenant */
+  enabledModules?: string[];
+  /** Optional HQ company id (Lead → Client → Company funnel) */
+  companyId?: string;
   plan?: { id?: string; name?: string; billingCycle?: 'monthly' | 'annual'; planStartDate?: string };
 }) {
   return apiFetch<{
@@ -1128,8 +1240,11 @@ export async function apiHqProvisionTenant(body: {
     tenantDatabaseUrl?: string;
     tenantProvisioningMode?: string;
     organizationType?: string;
+    productLine?: 'crm' | 'recruitment';
+    enabledModules?: string[];
     subscriptionPlan?: { name: string } | null;
     user?: { id: string; email: string; loginId: string };
+    companyId?: string | null;
   }>('/hq/provision-tenant', { method: 'POST', auth: true, body });
 }
 
@@ -1141,6 +1256,8 @@ export interface HqTenantRow {
   organizationType: 'agency' | 'standalone';
   organizationName?: string;
   signupSource?: 'landing_purchase' | 'landing_trial' | 'hq_manual' | string;
+  productLine?: 'crm' | 'recruitment' | string;
+  enabledModules?: string[];
   subscriptionPlan: HqTenantSubscriptionPlan | null;
   tenantDbName: string;
   tenantProvisioningMode: string;
@@ -1285,12 +1402,14 @@ export type HqLeadApiRow = {
   score: 'Hot' | 'Warm' | 'Cold';
   users: number;
   owner: string;
-  stage: 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
+  stage: 'new' | 'demo' | 'contacted' | 'qualified' | 'converted' | 'lost';
   nextFollowUp: string;
   nextFollowUpAt?: string | null;
   email?: string;
   phone?: string;
   country?: string;
+  state?: string;
+  city?: string;
   estimatedDealValue?: number;
   leadSource?: string;
   leadSourceDetail?: string;
@@ -1300,6 +1419,49 @@ export type HqLeadApiRow = {
   followUps?: HqLeadFollowUp[];
   remarks?: HqLeadRemark[];
   convertedToCompanyId?: string | null;
+  contactPerson?: string;
+  directorName?: string;
+  directorSalutation?: string | null;
+  emails?: string[];
+  phones?: string[];
+  type?: string;
+  source?: string | null;
+  status?: string;
+  priority?: string;
+  website?: string | null;
+  companyLinks?: string[];
+  linkedIn?: string | null;
+  location?: string | null;
+  designation?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  campaignName?: string | null;
+  campaignLink?: string | null;
+  referralName?: string | null;
+  sourceWebsiteUrl?: string | null;
+  sourceLinkedInUrl?: string | null;
+  sourceEmail?: string | null;
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
+  otherDetails?: Array<{ label: string; value: string }>;
+  interestedNeeds?: string | null;
+  servicesNeeded?: string | null;
+  expectedBusinessValue?: string | null;
+  notes?: string | null;
+  assignedToId?: string | null;
+  assignedToIds?: string[];
+  assignedToUsers?: Array<{
+    id: string;
+    name: string;
+    email?: string;
+    role?: string;
+    roleId?: string | null;
+  }>;
+  formSchema?: string | null;
+  employerDemoRequestId?: string | null;
+  preferredDemoDate?: string | null;
+  preferredDemoTime?: string | null;
 };
 
 export type HqLeadFollowUp = {
@@ -1344,22 +1506,26 @@ export async function apiHqDeleteDemoRequest(demoId: string) {
   }>(`/hq/demos/${encodeURIComponent(demoId)}`, { method: 'DELETE', auth: true });
 }
 
-export async function apiHqCreateLead(body: {
-  contactName: string;
-  companyName: string;
-  email: string;
-  phone?: string;
-  industry: string;
-  country: string;
-  expectedUsers: string | number;
-  estimatedDealValue: string | number;
-  leadSource: string;
-  leadSourceDetail?: string;
-  stage?: 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
-  nextFollowUpAt?: string;
-  interestedModules: string[];
-  initialNotes?: string;
-}) {
+export async function apiHqCreateLead(
+  body:
+    | CreateLeadData
+    | {
+        contactName: string;
+        companyName: string;
+        email: string;
+        phone?: string;
+        industry: string;
+        country: string;
+        expectedUsers: string | number;
+        estimatedDealValue: string | number;
+        leadSource: string;
+        leadSourceDetail?: string;
+        stage?: 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
+        nextFollowUpAt?: string;
+        interestedModules: string[];
+        initialNotes?: string;
+      },
+) {
   return apiFetch<{
     lead: HqLeadApiRow;
     storage: HqLeadStorageInfo;
@@ -1368,22 +1534,25 @@ export async function apiHqCreateLead(body: {
 
 export async function apiHqUpdateLead(
   leadId: string,
-  body: {
-    contactName: string;
-    companyName: string;
-    email: string;
-    phone?: string;
-    industry: string;
-    country: string;
-    expectedUsers: string | number;
-    estimatedDealValue: string | number;
-    leadSource: string;
-    leadSourceDetail?: string;
-    nextFollowUpAt?: string;
-    interestedModules: string[];
-    initialNotes?: string;
-    stage: HqLeadApiRow['stage'];
-  }
+  body:
+    | CreateLeadData
+    | Record<string, unknown>
+    | {
+        contactName: string;
+        companyName: string;
+        email: string;
+        phone?: string;
+        industry: string;
+        country: string;
+        expectedUsers: string | number;
+        estimatedDealValue: string | number;
+        leadSource: string;
+        leadSourceDetail?: string;
+        nextFollowUpAt?: string;
+        interestedModules: string[];
+        initialNotes?: string;
+        stage: HqLeadApiRow['stage'];
+      },
 ) {
   return apiFetch<{
     lead: HqLeadApiRow;
@@ -1487,6 +1656,8 @@ export type HqCompanyApiRow = {
   phone?: string;
   website?: string;
   country?: string;
+  state?: string;
+  city?: string;
   estimatedDealValue?: number;
   companySource?: string;
   interestedModules?: string[];
@@ -1494,6 +1665,34 @@ export type HqCompanyApiRow = {
   createdAt?: string | null;
   followUps?: HqLeadFollowUp[];
   remarks?: HqLeadRemark[];
+  directorName?: string;
+  directorSalutation?: string | null;
+  emails?: string[];
+  phones?: string[];
+  companySize?: string;
+  location?: string;
+  hiringLocations?: string;
+  servicesNeeded?: string;
+  expectedBusinessValue?: string;
+  linkedin?: string;
+  timezone?: string;
+  priority?: string;
+  sla?: string;
+  leadStatus?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
+  otherDetails?: Array<{ label: string; value: string }>;
+  assignedToId?: string | null;
+  formSchema?: string | null;
+  convertedFromLeadId?: string | null;
+  companyTag?: string | null;
+  hqProductLine?: string | null;
+  tenantDbName?: string | null;
+  tenantAdminEmail?: string | null;
+  tenantProvisionedAt?: string | null;
 };
 
 export type HqCompanyStats = {
@@ -1513,22 +1712,26 @@ export async function apiHqListCompanies() {
   }>('/hq/companies', { auth: true });
 }
 
-export async function apiHqCreateCompany(body: {
-  companyName: string;
-  primaryContactName: string;
-  email: string;
-  phone?: string;
-  website?: string;
-  industry: string;
-  country: string;
-  expectedUsers: string | number;
-  estimatedDealValue: string | number;
-  accountOwner: string;
-  companySource: string;
-  nextFollowUpAt: string;
-  interestedModules: string[];
-  initialNotes?: string;
-}) {
+export async function apiHqCreateCompany(
+  body:
+    | CreateClientData
+    | {
+        companyName: string;
+        primaryContactName: string;
+        email: string;
+        phone?: string;
+        website?: string;
+        industry: string;
+        country: string;
+        expectedUsers: string | number;
+        estimatedDealValue: string | number;
+        accountOwner: string;
+        companySource: string;
+        nextFollowUpAt: string;
+        interestedModules: string[];
+        initialNotes?: string;
+      },
+) {
   return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
     '/hq/companies',
     { method: 'POST', auth: true, body }
@@ -1537,27 +1740,37 @@ export async function apiHqCreateCompany(body: {
 
 export async function apiHqUpdateCompany(
   companyId: string,
-  body: {
-    companyName: string;
-    primaryContactName: string;
-    email: string;
-    phone?: string;
-    website?: string;
-    industry: string;
-    country: string;
-    expectedUsers: string | number;
-    estimatedDealValue: string | number;
-    accountOwner: string;
-    companySource: string;
-    nextFollowUpAt: string;
-    interestedModules: string[];
-    initialNotes?: string;
-    status: HqCompanyApiRow['status'];
-  }
+  body:
+    | CreateClientData
+    | Record<string, unknown>
+    | {
+        companyName: string;
+        primaryContactName: string;
+        email: string;
+        phone?: string;
+        website?: string;
+        industry: string;
+        country: string;
+        expectedUsers: string | number;
+        estimatedDealValue: string | number;
+        accountOwner: string;
+        companySource: string;
+        nextFollowUpAt: string;
+        interestedModules: string[];
+        initialNotes?: string;
+        status: HqCompanyApiRow['status'];
+      },
 ) {
   return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
     `/hq/companies/${encodeURIComponent(companyId)}`,
     { method: 'PUT', auth: true, body }
+  );
+}
+
+export async function apiHqDeleteCompany(companyId: string) {
+  return apiFetch<{ deleted: boolean; id: string; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}`,
+    { method: 'DELETE', auth: true },
   );
 }
 
@@ -1601,6 +1814,160 @@ export async function apiHqAddCompanyRemark(companyId: string, body: { text: str
     `/hq/companies/${encodeURIComponent(companyId)}/remarks`,
     { method: 'POST', auth: true, body }
   );
+}
+
+export type HqTeamMemberStatus = 'active' | 'inactive';
+
+export type HqTeamMemberRow = {
+  id: string;
+  name: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  role: string;
+  roleId?: string;
+  roleColor?: string;
+  permissionIds?: string[];
+  phone: string;
+  designation?: string;
+  status: HqTeamMemberStatus;
+  department: string;
+  loginId?: string;
+  hasCredentials?: boolean;
+  createdAt: string | null;
+  updatedAt?: string | null;
+};
+
+export type HqTeamStats = {
+  total: number;
+  active: number;
+  inactive: number;
+};
+
+export type HqRoleRow = {
+  id: string;
+  roleName: string;
+  description: string;
+  color: string;
+  permissionIds: string[];
+  isSystem?: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type HqPermissionRow = {
+  id: string;
+  permissionName: string;
+  module: string;
+  description: string;
+};
+
+export async function apiHqListTeam() {
+  return apiFetch<{
+    members: HqTeamMemberRow[];
+    stats: HqTeamStats;
+    storage: HqLeadStorageInfo;
+  }>('/hq/team', { auth: true });
+}
+
+export async function apiHqCreateTeamMember(body: {
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  role?: string;
+  roleId?: string;
+  permissionIds?: string[];
+  phone?: string;
+  designation?: string;
+  status?: HqTeamMemberStatus;
+  department?: string;
+  generateCredentials?: boolean;
+  sendInvite?: boolean;
+  customLoginId?: string;
+  tempPassword?: string;
+}) {
+  return apiFetch<{
+    member: HqTeamMemberRow;
+    credentials?: { loginId: string; tempPassword: string; email: string; sendInvite: boolean } | null;
+    storage: HqLeadStorageInfo;
+  }>('/hq/team', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqUpdateTeamMember(
+  memberId: string,
+  body: {
+    name?: string;
+    firstName?: string;
+    lastName?: string;
+    email: string;
+    role?: string;
+    roleId?: string;
+    permissionIds?: string[];
+    phone?: string;
+    designation?: string;
+    status?: HqTeamMemberStatus;
+    department?: string;
+  },
+) {
+  return apiFetch<{ member: HqTeamMemberRow; storage: HqLeadStorageInfo }>(
+    `/hq/team/${encodeURIComponent(memberId)}`,
+    { method: 'PUT', auth: true, body },
+  );
+}
+
+export async function apiHqDeleteTeamMember(memberId: string) {
+  return apiFetch<{ deleted: boolean; id: string; storage: HqLeadStorageInfo }>(
+    `/hq/team/${encodeURIComponent(memberId)}`,
+    { method: 'DELETE', auth: true },
+  );
+}
+
+export async function apiHqListPermissions() {
+  return apiFetch<{
+    permissions: HqPermissionRow[];
+    permissionsByModule: Record<string, HqPermissionRow[]>;
+  }>('/hq/permissions', { auth: true });
+}
+
+export async function apiHqListRoles() {
+  return apiFetch<{ roles: HqRoleRow[] }>('/hq/roles', { auth: true });
+}
+
+export async function apiHqCreateRole(body: {
+  roleName: string;
+  description?: string;
+  color?: string;
+  permissionIds: string[];
+}) {
+  return apiFetch<{ role: HqRoleRow }>('/hq/roles', { method: 'POST', auth: true, body });
+}
+
+export async function apiHqUpdateRole(
+  roleId: string,
+  body: {
+    roleName: string;
+    description?: string;
+    color?: string;
+    permissionIds: string[];
+  },
+) {
+  return apiFetch<{ role: HqRoleRow }>(`/hq/roles/${encodeURIComponent(roleId)}`, {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqDeleteRole(roleId: string) {
+  return apiFetch<{ deleted: boolean; id: string }>(`/hq/roles/${encodeURIComponent(roleId)}`, {
+    method: 'DELETE',
+    auth: true,
+  });
 }
 
 export type HqPortalCandidateRow = {
@@ -1673,6 +2040,17 @@ export async function apiHqListPortal() {
   }>('/hq/portal', { auth: true });
 }
 
+export async function apiHqListCandidates() {
+  return apiFetch<{
+    candidates: HqPortalCandidateRow[];
+    stats: Pick<
+      HqPortalStats,
+      'totalCandidates' | 'portalCandidates' | 'commonCandidates' | 'phase2Candidates' | 'tenantCount'
+    >;
+    storage: HqPortalStorageInfo;
+  }>('/hq/candidates', { auth: true });
+}
+
 export type HqAnalyticsChartPoint = { name: string; value: number; [key: string]: string | number };
 
 export type HqAnalyticsInsight = {
@@ -1692,6 +2070,9 @@ export type HqEmployeeAnalytics = {
     portalJobs: number;
     openJobs: number;
     closedJobs?: number;
+    jobsPostedToday?: number;
+    jobsPosted7d?: number;
+    jobsPosted30d?: number;
     applications: number;
     activeApplications: number;
     applicationsToday?: number;
@@ -1710,6 +2091,12 @@ export type HqEmployeeAnalytics = {
     lmsEnrollments?: number;
     aiMatches?: number;
     profileCompleteness?: number;
+    loginsToday?: number;
+    logins7d?: number;
+    logins30d?: number;
+    activeSessions?: number;
+    totalSessionsTracked?: number;
+    avgSessionDurationMs?: number | null;
   };
   charts: {
     applicationsByStatus: HqAnalyticsChartPoint[];
@@ -1725,6 +2112,13 @@ export type HqEmployeeAnalytics = {
     jobsByStatus?: HqAnalyticsChartPoint[];
     matchScoreBuckets?: HqAnalyticsChartPoint[];
     interviewRequestsByStatus?: HqAnalyticsChartPoint[];
+    loginsByCountry?: HqAnalyticsChartPoint[];
+    loginsByState?: HqAnalyticsChartPoint[];
+    loginsByCity?: HqAnalyticsChartPoint[];
+    loginsByDevice?: HqAnalyticsChartPoint[];
+    loginsByBrowser?: HqAnalyticsChartPoint[];
+    loginsOverTime?: HqAnalyticsChartPoint[];
+    loginsDaily?: HqAnalyticsChartPoint[];
   };
   tables: {
     recentCandidates: Array<{
@@ -1755,6 +2149,9 @@ export type HqEmployeeAnalytics = {
       status: string;
       location: string;
       openings?: number | null;
+      avgMatchScore?: number | null;
+      selected?: number;
+      joined?: number;
     }>;
     recentOpenJobs?: Array<{
       id: string;
@@ -1773,6 +2170,20 @@ export type HqEmployeeAnalytics = {
       matchingScore: number | null;
       preferredDate: string | null;
       createdAt: string | null;
+    }>;
+    recentSessions?: Array<{
+      candidateId: string;
+      candidate: string;
+      loginAt: string | null;
+      logoutAt: string | null;
+      durationMs: number;
+      deviceType: string;
+      browser: string;
+      operatingSystem: string;
+      country: string;
+      state: string;
+      city: string;
+      isActive: boolean;
     }>;
   };
   insights: HqAnalyticsInsight[];
@@ -1970,12 +2381,48 @@ export async function apiHqDeletePortalJob(
 export async function apiHqAssignTenantPlan(body: {
   email: string;
   billingCycle?: 'monthly' | 'annual';
-  plan: { id?: string; name?: string; billingCycle?: 'monthly' | 'annual' };
+  coins?: number;
+  plan: { id?: string; name?: string; billingCycle?: 'monthly' | 'annual'; coins?: number };
 }) {
   return apiFetch<{ email: string; subscriptionPlan: HqTenantSubscriptionPlan | null }>(
     '/hq/tenants/plan',
     { method: 'PUT', auth: true, body }
   );
+}
+
+export async function apiHqSetTenantCoins(body: { email: string; coins: number }) {
+  return apiFetch<{
+    email: string;
+    coins: number;
+    subscriptionPlan: HqTenantSubscriptionPlan | null;
+  }>('/hq/tenants/coins', { method: 'PUT', auth: true, body });
+}
+
+export type HqAiFeature = {
+  id: string;
+  name: string;
+  description: string;
+  coins: number;
+  category: string;
+  defaultCoins?: number;
+  isCustomCost?: boolean;
+  locked?: boolean;
+  affordable?: boolean;
+};
+
+export async function apiHqListAiFeatures() {
+  return apiFetch<{ features: HqAiFeature[] }>('/hq/ai-features', { auth: true });
+}
+
+export async function apiHqUpdateAiFeatures(body: {
+  features?: Array<{ id: string; coins: number }>;
+  costs?: Record<string, number>;
+}) {
+  return apiFetch<{ features: HqAiFeature[]; costs: Record<string, number> }>('/hq/ai-features', {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
 }
 
 export async function apiHqSetTenantPause(body: { email: string; paused: boolean }) {
@@ -2175,11 +2622,24 @@ export async function apiFetchFormData<T>(
         data: summarizeForLog(json?.data),
       });
     }
+    if (
+      typeof window !== 'undefined' &&
+      (res.status === 402 || json?.data?.code === 'INSUFFICIENT_COINS')
+    ) {
+      notifyTenantCoinsChanged({
+        coins:
+          json?.data?.balance != null && Number.isFinite(Number(json.data.balance))
+            ? Number(json.data.balance)
+            : undefined,
+      });
+    }
     throw createHttpApiError(res.status, json?.message || `Request failed with status ${res.status}`, {
       data: json?.data,
       raw: json,
     });
   }
+
+  maybeNotifyTenantCoinsChanged(path, options.method || 'POST', res, json);
 
   if (debugApiLogs) {
     console.log('[apiFetchFormData] response ok', {
@@ -5347,6 +5807,8 @@ export interface CreateLeadData {
   assignedToId?: string;
   /** Multi-assignee list. First item also written to `assignedToId` (primary). */
   assignedToIds?: string[];
+  /** Display name(s) for assignee(s) — used by HQ leadOwner snapshot. */
+  assignedToName?: string;
   /**
    * Optional remark when changing status from the leads table.
    * Used only for activity logging; not stored directly on the Lead model.
@@ -5468,6 +5930,15 @@ export const apiUpdateLead = async (id: string, data: Partial<CreateLeadData>) =
   return apiFetch<BackendLead>(`/leads/${id}`, {
     method: 'PATCH',
     body: data,
+    auth: true,
+  });
+};
+
+/** Mark the lead’s current scheduled follow-up / meet as done with a completion remark. */
+export const apiCompleteLeadFollowUp = async (leadId: string, body: { remark: string }) => {
+  return apiFetch<BackendLead>(`/leads/${encodeURIComponent(leadId)}/follow-ups/complete`, {
+    method: 'POST',
+    body,
     auth: true,
   });
 };
@@ -5807,6 +6278,20 @@ export interface CreateScheduledMeetingData {
   scheduledAt: string; // ISO datetime string
   reminder?: string;
   notes?: string;
+  contact?: string;
+  meetLink?: string;
+  timezone?: string;
+  attendeeIds?: string[];
+  followUpNotes?: string;
+  followUpSchedule?: {
+    type?: string;
+    contact?: string;
+    meetLink?: string;
+    reminder?: string;
+    timezone?: string;
+    attendeeIds?: string[];
+    notes?: string;
+  };
 }
 
 export interface UpdateScheduledMeetingData {
@@ -8536,6 +9021,61 @@ export async function apiGetNotificationUnreadCount(): Promise<{
     success: !!(res as unknown as { success: boolean }).success,
     count: Number((res as unknown as { count?: number }).count ?? 0),
   };
+}
+
+export type AiCoinPack = {
+  id: string;
+  name: string;
+  coins: number;
+  priceUsd: number;
+  priceLabel: string;
+  description: string;
+  popular?: boolean;
+};
+
+export async function apiGetTenantCoins(): Promise<{
+  coins: number;
+  planName: string | null;
+  features: HqAiFeature[];
+  packs: AiCoinPack[];
+}> {
+  const res = await apiFetch<{
+    coins: number;
+    planName: string | null;
+    features?: HqAiFeature[];
+    packs?: AiCoinPack[];
+  }>('/settings/org/coins', {
+    method: 'GET',
+    auth: true,
+  });
+  return {
+    coins: Number(res.data?.coins ?? 0),
+    planName: res.data?.planName ?? null,
+    features: Array.isArray(res.data?.features) ? res.data.features : [],
+    packs: Array.isArray(res.data?.packs) ? res.data.packs : [],
+  };
+}
+
+export async function apiGetAiCoinPacks() {
+  return apiFetch<{ packs: AiCoinPack[]; demo: boolean }>('/settings/org/coins/packs', {
+    method: 'GET',
+    auth: true,
+  });
+}
+
+export async function apiPurchaseAiCoinPack(packId: string) {
+  return apiFetch<{
+    demo: boolean;
+    message: string;
+    coins: number;
+    previous: number;
+    added: number;
+    pack: AiCoinPack;
+  }>('/settings/org/coins/purchase', {
+    method: 'POST',
+    auth: true,
+    body: { packId },
+  });
 }
 
 export async function apiMarkNotificationRead(id: string) {

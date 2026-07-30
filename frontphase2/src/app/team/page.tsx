@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Plus, Users, Download, RefreshCcw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Toaster } from 'sonner';
@@ -20,6 +20,8 @@ type TabType = 'members' | 'roles' | 'departments' | 'targets' | 'credentials';
 function TeamPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
+  const teamBase = pathname?.startsWith('/hq/team') ? '/hq/team' : '/team';
   const { hasPermission, isSuperAdmin } = usePermissions();
   const [mounted, setMounted] = useState(false);
   const tabFromUrl = searchParams?.get('tab') as TabType | null;
@@ -65,7 +67,7 @@ function TeamPageContent() {
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
-    router.push(`/team?tab=${tab}`, { scroll: false });
+    router.push(`${teamBase}?tab=${tab}`, { scroll: false });
   };
 
   const getActionButtonLabel = () => {

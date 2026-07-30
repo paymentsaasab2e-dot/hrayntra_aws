@@ -20,7 +20,9 @@ import {
   Trash2,
   Inbox,
   Sparkles,
+  Lock,
 } from 'lucide-react';
+import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildJobsCsvColumns, JOBS_EXPORT_COLUMNS } from '../../lib/export/jobsExportColumns';
@@ -1051,6 +1053,7 @@ export default function JobsPage() {
     'move_pipeline',
     'submit_candidate',
   ]);
+  const jobAiGate = useAiCoinGate('ai.job_from_prompt');
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [clientFilterId, setClientFilterId] = useState('');
@@ -1316,16 +1319,20 @@ export default function JobsPage() {
     const linkedinParam = params.get('linkedin');
     const integrationConnected = params.get('integration_connected');
     const integrationError = params.get('integration_error');
+    const shouldReopenAiWizard = sessionStorage.getItem('reopen_job_ai_wizard') === '1';
     const shouldReopenDrawer =
-      sessionStorage.getItem('reopen_create_job_drawer') === '1' ||
-      linkedinParam === 'connected' ||
-      linkedinParam === 'error' ||
-      integrationConnected === 'twitter' ||
-      integrationConnected === 'facebook' ||
-      integrationError === 'twitter' ||
-      integrationError === 'facebook';
+      !shouldReopenAiWizard &&
+      (sessionStorage.getItem('reopen_create_job_drawer') === '1' ||
+        linkedinParam === 'connected' ||
+        linkedinParam === 'error' ||
+        integrationConnected === 'twitter' ||
+        integrationConnected === 'facebook' ||
+        integrationError === 'twitter' ||
+        integrationError === 'facebook');
 
-    if (shouldReopenDrawer) {
+    if (shouldReopenAiWizard) {
+      setJobAiWizardOpen(true);
+    } else if (shouldReopenDrawer) {
       setCreateJobDrawerOpen(true);
       sessionStorage.removeItem('reopen_create_job_drawer');
       sessionStorage.removeItem('oauth_navigation');
@@ -2156,12 +2163,31 @@ export default function JobsPage() {
               <>
                 <button
                   type="button"
-                  onClick={() => setJobAiWizardOpen(true)}
-                  className="bg-white hover:bg-teal-50 text-teal-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(13,148,136,0.25)] border border-teal-200/80 hover:border-teal-300 active:scale-[0.98]"
-                  title="Create a job with AI"
+                  onClick={() => {
+                    if (jobAiGate.locked) {
+                      jobAiGate.confirmAndUnlock();
+                      return;
+                    }
+                    setJobAiWizardOpen(true);
+                  }}
+                  className={`px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(13,148,136,0.25)] border active:scale-[0.98] ${
+                    jobAiGate.locked
+                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200/80 hover:border-amber-300'
+                      : 'bg-white hover:bg-teal-50 text-teal-900 border-teal-200/80 hover:border-teal-300'
+                  }`}
+                  title={
+                    jobAiGate.locked
+                      ? `Locked — needs ${jobAiGate.cost} coins (you have ${jobAiGate.coins})`
+                      : `Create a job with AI (${jobAiGate.cost} coins when you generate)`
+                  }
                 >
-                  <Sparkles size={16} className="text-teal-600" strokeWidth={2.25} />
+                  {jobAiGate.locked ? (
+                    <Lock size={16} className="text-amber-600" strokeWidth={2.25} />
+                  ) : (
+                    <Sparkles size={16} className="text-teal-600" strokeWidth={2.25} />
+                  )}
                   <span>Create Job with AI</span>
+                  <AiCoinLockBadge featureId="ai.job_from_prompt" />
                 </button>
                 <button
                   type="button"

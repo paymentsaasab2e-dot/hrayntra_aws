@@ -10,19 +10,44 @@ export const LEAD_OCCASION_DETAIL_LABELS = {
   specialOccasionEmail: 'Special Occasion Email',
 } as const;
 
-const OCCASION_LABEL_SET = new Set<string>(Object.values(LEAD_OCCASION_DETAIL_LABELS));
+const LEGACY_OCCASION_LABEL_SET = new Set<string>(Object.values(LEAD_OCCASION_DETAIL_LABELS));
 
-export type LeadOccasionPersonFields = {
+const EVENT_NAME_RE = /^Event\s+(\d+)\s+Name$/i;
+const EVENT_DATE_RE = /^Event\s+(\d+)\s+Date$/i;
+const EVENT_REMINDER_RE = /^Event\s+(\d+)\s+Reminder$/i;
+const EVENT_EMAIL_RE = /^Event\s+(\d+)\s+Email$/i;
+const EVENT_PERSON_RE = /^Event\s+(\d+)\s+Person$/i;
+
+export const LEAD_OCCASION_REMINDER_OPTIONS = [
+  'No reminder',
+  'On the day',
+  '1 day before',
+  '3 days before',
+  '1 week before',
+] as const;
+
+export type LeadOccasionEventRow = {
+  id: string;
+  eventName: string;
   date: string;
+  reminder: string;
   contactId: string;
   name: string;
   email: string;
 };
 
+/** @deprecated kept for older call sites; prefer events[] */
+export type LeadOccasionPersonFields = {
+  date: string;
+  contactId: string;
+  name: string;
+  email: string;
+  reminder?: string;
+  eventName?: string;
+};
+
 export type LeadOccasionFormValues = {
-  birthday: LeadOccasionPersonFields;
-  anniversary: LeadOccasionPersonFields;
-  specialOccasion: LeadOccasionPersonFields;
+  events: LeadOccasionEventRow[];
 };
 
 export type LeadOccasionContactOption = {
@@ -32,43 +57,61 @@ export type LeadOccasionContactOption = {
 };
 
 export function emptyLeadOccasionPerson(): LeadOccasionPersonFields {
-  return { date: '', contactId: '', name: '', email: '' };
+  return { date: '', contactId: '', name: '', email: '', reminder: 'No reminder', eventName: '' };
+}
+
+export function createLeadOccasionEventRow(
+  patch?: Partial<LeadOccasionEventRow>,
+): LeadOccasionEventRow {
+  return {
+    id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    eventName: '',
+    date: '',
+    reminder: 'No reminder',
+    contactId: '',
+    name: '',
+    email: '',
+    ...patch,
+  };
 }
 
 export function emptyLeadOccasionForm(): LeadOccasionFormValues {
-  return {
-    birthday: emptyLeadOccasionPerson(),
-    anniversary: emptyLeadOccasionPerson(),
-    specialOccasion: emptyLeadOccasionPerson(),
-  };
+  return { events: [] };
 }
 
 export function isLeadOccasionDetailLabel(label?: string | null): boolean {
-  return OCCASION_LABEL_SET.has(String(label ?? '').trim());
+  const text = String(label ?? '').trim();
+  if (!text) return false;
+  if (LEGACY_OCCASION_LABEL_SET.has(text)) return true;
+  return (
+    EVENT_NAME_RE.test(text) ||
+    EVENT_DATE_RE.test(text) ||
+    EVENT_REMINDER_RE.test(text) ||
+    EVENT_EMAIL_RE.test(text) ||
+    EVENT_PERSON_RE.test(text)
+  );
 }
 
-function readMapValue(
-  byLabel: Map<string, string>,
-  label: string,
-): string {
+function readMapValue(byLabel: Map<string, string>, label: string): string {
   return byLabel.get(label) || '';
 }
 
-function personFromLabels(
-  byLabel: Map<string, string>,
-  dateLabel: string,
-  nameLabel: string,
-  emailLabel: string,
-): LeadOccasionPersonFields {
-  const date = readMapValue(byLabel, dateLabel);
-  const name = readMapValue(byLabel, nameLabel);
-  const email = readMapValue(byLabel, emailLabel);
-  return {
+function personToEvent(
+  eventName: string,
+  date: string,
+  name: string,
+  email: string,
+  reminder = 'No reminder',
+): LeadOccasionEventRow | null {
+  if (!date && !name && !email && !eventName) return null;
+  return createLeadOccasionEventRow({
+    eventName,
     date,
     name,
     email,
+    reminder: reminder || 'No reminder',
     contactId: name || email ? `stored:${name}|${email}` : '',
-  };
+  });
 }
 
 export function readLeadOccasionFromOtherDetails(
@@ -81,26 +124,85 @@ export function readLeadOccasionFromOtherDetails(
     ]),
   );
 
-  return {
-    birthday: personFromLabels(
-      byLabel,
-      LEAD_OCCASION_DETAIL_LABELS.birthday,
-      LEAD_OCCASION_DETAIL_LABELS.birthdayName,
-      LEAD_OCCASION_DETAIL_LABELS.birthdayEmail,
+  const indexed = new Map<
+    number,
+    Partial<Pick<LeadOccasionEventRow, 'eventName' | 'date' | 'reminder' | 'email' | 'name'>>
+  >();
+
+  for (const [label, value] of byLabel.entries()) {
+    let match = label.match(EVENT_NAME_RE);
+    if (match) {
+      const idx = Number(match[1]);
+      indexed.set(idx, { ...(indexed.get(idx) || {}), eventName: value });
+      continue;
+    }
+    match = label.match(EVENT_DATE_RE);
+    if (match) {
+      const idx = Number(match[1]);
+      indexed.set(idx, { ...(indexed.get(idx) || {}), date: value });
+      continue;
+    }
+    match = label.match(EVENT_REMINDER_RE);
+    if (match) {
+      const idx = Number(match[1]);
+      indexed.set(idx, { ...(indexed.get(idx) || {}), reminder: value });
+      continue;
+    }
+    match = label.match(EVENT_EMAIL_RE);
+    if (match) {
+      const idx = Number(match[1]);
+      indexed.set(idx, { ...(indexed.get(idx) || {}), email: value });
+      continue;
+    }
+    match = label.match(EVENT_PERSON_RE);
+    if (match) {
+      const idx = Number(match[1]);
+      indexed.set(idx, { ...(indexed.get(idx) || {}), name: value });
+    }
+  }
+
+  const events: LeadOccasionEventRow[] = [...indexed.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, row]) =>
+      createLeadOccasionEventRow({
+        eventName: row.eventName || '',
+        date: row.date || '',
+        reminder: row.reminder || 'No reminder',
+        email: row.email || '',
+        name: row.name || '',
+        contactId:
+          row.name || row.email ? `stored:${row.name || ''}|${row.email || ''}` : '',
+      }),
+    )
+    .filter((row) => row.eventName || row.date || row.email || row.name || row.reminder !== 'No reminder');
+
+  if (events.length > 0) {
+    return { events };
+  }
+
+  // Legacy birthday / anniversary / special occasion → event rows
+  const legacy = [
+    personToEvent(
+      'Birthday',
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.birthday),
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.birthdayName),
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.birthdayEmail),
     ),
-    anniversary: personFromLabels(
-      byLabel,
-      LEAD_OCCASION_DETAIL_LABELS.anniversary,
-      LEAD_OCCASION_DETAIL_LABELS.anniversaryName,
-      LEAD_OCCASION_DETAIL_LABELS.anniversaryEmail,
+    personToEvent(
+      'Anniversary',
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.anniversary),
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.anniversaryName),
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.anniversaryEmail),
     ),
-    specialOccasion: personFromLabels(
-      byLabel,
-      LEAD_OCCASION_DETAIL_LABELS.specialOccasion,
-      LEAD_OCCASION_DETAIL_LABELS.specialOccasionName,
-      LEAD_OCCASION_DETAIL_LABELS.specialOccasionEmail,
+    personToEvent(
+      'Special Occasion',
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.specialOccasion),
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.specialOccasionName),
+      readMapValue(byLabel, LEAD_OCCASION_DETAIL_LABELS.specialOccasionEmail),
     ),
-  };
+  ].filter(Boolean) as LeadOccasionEventRow[];
+
+  return { events: legacy };
 }
 
 export function stripLeadOccasionLabels(
@@ -109,49 +211,31 @@ export function stripLeadOccasionLabels(
   return (otherDetails ?? []).filter((item) => !isLeadOccasionDetailLabel(item.label));
 }
 
-function pushPerson(
-  entries: Array<{ label: string; value: string }>,
-  dateLabel: string,
-  nameLabel: string,
-  emailLabel: string,
-  person?: LeadOccasionPersonFields,
-) {
-  const date = String(person?.date ?? '').trim();
-  const name = String(person?.name ?? '').trim();
-  const email = String(person?.email ?? '').trim();
-  if (!date && !name && !email) return;
-  if (date) entries.push({ label: dateLabel, value: date });
-  if (name) entries.push({ label: nameLabel, value: name });
-  if (email) entries.push({ label: emailLabel, value: email });
-}
-
 export function mergeOccasionIntoOtherDetails(
   existing: Array<{ label: string; value: string }> | undefined,
   occasions: LeadOccasionFormValues,
 ): Array<{ label: string; value: string }> | undefined {
   const entries = [...stripLeadOccasionLabels(existing)];
+  const events = Array.isArray(occasions?.events) ? occasions.events : [];
 
-  pushPerson(
-    entries,
-    LEAD_OCCASION_DETAIL_LABELS.birthday,
-    LEAD_OCCASION_DETAIL_LABELS.birthdayName,
-    LEAD_OCCASION_DETAIL_LABELS.birthdayEmail,
-    occasions.birthday,
-  );
-  pushPerson(
-    entries,
-    LEAD_OCCASION_DETAIL_LABELS.anniversary,
-    LEAD_OCCASION_DETAIL_LABELS.anniversaryName,
-    LEAD_OCCASION_DETAIL_LABELS.anniversaryEmail,
-    occasions.anniversary,
-  );
-  pushPerson(
-    entries,
-    LEAD_OCCASION_DETAIL_LABELS.specialOccasion,
-    LEAD_OCCASION_DETAIL_LABELS.specialOccasionName,
-    LEAD_OCCASION_DETAIL_LABELS.specialOccasionEmail,
-    occasions.specialOccasion,
-  );
+  events.forEach((event, index) => {
+    const n = index + 1;
+    const eventName = String(event?.eventName ?? '').trim();
+    const date = String(event?.date ?? '').trim();
+    const reminder = String(event?.reminder ?? '').trim();
+    const email = String(event?.email ?? '').trim();
+    const name = String(event?.name ?? '').trim();
+    if (!eventName && !date && !email && !name && (!reminder || reminder === 'No reminder')) {
+      return;
+    }
+    if (eventName) entries.push({ label: `Event ${n} Name`, value: eventName });
+    if (date) entries.push({ label: `Event ${n} Date`, value: date });
+    if (reminder && reminder !== 'No reminder') {
+      entries.push({ label: `Event ${n} Reminder`, value: reminder });
+    }
+    if (name) entries.push({ label: `Event ${n} Person`, value: name });
+    if (email) entries.push({ label: `Event ${n} Email`, value: email });
+  });
 
   return entries.length ? entries : undefined;
 }
@@ -209,8 +293,16 @@ export function buildLeadOccasionContactOptions(input: {
   return options;
 }
 
-export function formatOccasionPersonDisplay(person?: LeadOccasionPersonFields): string {
+export function formatOccasionPersonDisplay(person?: LeadOccasionPersonFields | LeadOccasionEventRow): string {
   if (!person) return '';
-  const parts = [person.date, person.name, person.email].map((part) => String(part || '').trim()).filter(Boolean);
+  const eventName = 'eventName' in person ? person.eventName : '';
+  const reminder = 'reminder' in person ? person.reminder : '';
+  const parts = [eventName, person.date, reminder && reminder !== 'No reminder' ? reminder : '', person.name, person.email]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean);
   return parts.join(' · ');
+}
+
+export function formatOccasionEventDisplay(event?: LeadOccasionEventRow): string {
+  return formatOccasionPersonDisplay(event);
 }
