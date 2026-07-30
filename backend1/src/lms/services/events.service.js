@@ -53,8 +53,9 @@ async function fetchEventDetail(userId, eventId) {
   const event = await prisma.lmsEvent.findUnique({
     where: { id: eventId },
     include: {
-      registrations: { where: { userId } }
-    }
+      registrations: { where: { userId } },
+      _count: { select: { registrations: true } },
+    },
   });
 
   if (!event) return null;
@@ -66,23 +67,7 @@ async function fetchEventDetail(userId, eventId) {
       .map(item => item.targetId)
   );
 
-  const relatedCourses = await prisma.lmsCourse.findMany({
-    where: {
-      isPublished: true,
-      tags: { hasSome: event.tags }
-    },
-    take: 3
-  });
-
-  const relatedQuizzes = await prisma.lmsQuiz.findMany({
-    where: {
-      isPublished: true,
-      skillTags: { hasSome: event.tags }
-    },
-    take: 3
-  });
-
-  const { registrations, ...rest } = event;
+  const { registrations, _count, ...rest } = event;
   const isRegistered = registrations.length > 0;
 
   return {
@@ -90,8 +75,7 @@ async function fetchEventDetail(userId, eventId) {
     isRegistered,
     registeredAt: isRegistered ? registrations[0].registeredAt : null,
     plannedInCareerPath: plannedIds.has(event.id),
-    relatedCourses,
-    relatedQuizzes
+    registrationCount: _count?.registrations ?? 0,
   };
 }
 

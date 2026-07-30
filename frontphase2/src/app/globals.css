@@ -102,18 +102,36 @@
 }
 
 @layer components {
-  /** HQ console — Playfair Display serif across all text (see app/hq/layout.tsx). */
+  /**
+   * HQ console theme — Manrope body + Space Grotesk display
+   * (see app/hq/layout.tsx). Shared surfaces + modern tables apply under .hq-theme.
+   */
   .hq-theme {
-    font-family: var(--font-hq-serif), Georgia, "Times New Roman", Times, serif;
+    --hq-bg-0: #eef2f7;
+    --hq-bg-1: #f7f9fc;
+    --hq-surface: #ffffff;
+    --hq-surface-muted: #f1f5f9;
+    --hq-border: rgba(15, 23, 42, 0.08);
+    --hq-border-strong: rgba(15, 23, 42, 0.12);
+    --hq-ink: #0f172a;
+    --hq-muted: #64748b;
+    --hq-accent: #0f766e;
+    --hq-accent-soft: rgba(15, 118, 110, 0.1);
+    --hq-row-hover: rgba(15, 118, 110, 0.04);
+    --hq-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.04);
+    --hq-shadow-md: 0 2px 4px rgba(15, 23, 42, 0.04), 0 16px 40px rgba(15, 23, 42, 0.06);
+    --hq-radius: 1rem;
+    --hq-radius-sm: 0.75rem;
+
+    font-family: var(--font-hq-sans), "Manrope", ui-sans-serif, system-ui, sans-serif;
+    color: var(--hq-ink);
+    letter-spacing: -0.01em;
   }
 
   .hq-theme input,
   .hq-theme select,
   .hq-theme textarea,
-  .hq-theme button {
-    font-family: inherit;
-  }
-
+  .hq-theme button,
   .hq-theme table,
   .hq-theme th,
   .hq-theme td,
@@ -122,6 +140,85 @@
   .hq-theme span,
   .hq-theme a {
     font-family: inherit;
+  }
+
+  .hq-theme .hq-display,
+  .hq-theme h1 {
+    font-family: var(--font-hq-display), "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.03em;
+  }
+
+  .hq-theme h2,
+  .hq-theme h3 {
+    font-family: var(--font-hq-display), "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  /** Modern HQ data tables — applies to every table under HQ */
+  .hq-theme table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+
+  .hq-theme thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    color: #64748b;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--hq-border-strong);
+    padding: 0.85rem 1rem;
+  }
+
+  .hq-theme tbody td {
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid var(--hq-border);
+    color: #334155;
+    vertical-align: middle;
+  }
+
+  .hq-theme tbody tr {
+    transition: background-color 160ms ease;
+  }
+
+  .hq-theme tbody tr:hover td {
+    background: var(--hq-row-hover);
+  }
+
+  .hq-theme tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .hq-theme .hq-table-wrap {
+    overflow: hidden;
+    border-radius: var(--hq-radius);
+    border: 1px solid var(--hq-border);
+    background: var(--hq-surface);
+    box-shadow: var(--hq-shadow-sm);
+  }
+
+  .hq-theme .hq-table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .hq-theme .hq-surface {
+    border-radius: var(--hq-radius);
+    border: 1px solid var(--hq-border);
+    background: var(--hq-surface);
+    box-shadow: var(--hq-shadow-sm);
+  }
+
+  .hq-theme .hq-surface-muted {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   }
 
   /** Standard elevated panel — use on dashboards, lists, drawers */
@@ -168,6 +265,13 @@
     overflow: hidden;
   }
 
+  /** HQ console uses the same lock when a Phase 2–style page shell is present */
+  .hq-theme .ph2-main-surface:has(.ph2-page-shell) {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
   /**
    * Default white stat/list cards: slight blue rim so panels feel tinted site-wide.
    * Skips elements that already use ph2-card (duplicate shadows avoided via ring opacity).
@@ -180,6 +284,25 @@
   .ph2-main-surface .rounded-2xl.border.border-slate-200.bg-white:not(.ph2-card):not(.ph2-card-sm):hover {
     border-color: rgb(191 219 254 / 0.9);
     box-shadow: 0 8px 24px -8px rgb(37 99 235 / 0.12);
+  }
+
+  /** HQ employee / employer command dashboards */
+  .hq-theme .hq-dash-page {
+    background:
+      radial-gradient(ellipse 90% 55% at 8% -8%, rgba(99, 102, 241, 0.1), transparent 55%),
+      radial-gradient(ellipse 70% 45% at 96% 0%, rgba(20, 184, 166, 0.07), transparent 50%),
+      radial-gradient(ellipse 50% 35% at 50% 100%, rgba(59, 130, 246, 0.05), transparent 60%);
+  }
+
+  .hq-theme .hq-dash-card {
+    transition:
+      transform 0.18s ease,
+      box-shadow 0.18s ease,
+      border-color 0.18s ease;
+  }
+
+  .hq-theme .hq-dash-card:hover {
+    border-color: rgba(165, 180, 252, 0.55);
   }
 }
 

@@ -553,13 +553,43 @@ export const hqService = {
   async listAiFeatures(reqUser) {
     assertPlatformProvisioner(reqUser);
     const { hqAiFeaturesService } = await import('./hq-ai-features.service.js');
-    return { features: await hqAiFeaturesService.listFeatures() };
+    return { features: await hqAiFeaturesService.listFeatures({ bypassCache: true }) };
   },
 
   async updateAiFeatures(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     const { hqAiFeaturesService } = await import('./hq-ai-features.service.js');
     return hqAiFeaturesService.updateCosts(data, reqUser);
+  },
+
+  async listAiCoinPacks(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAiCoinPacksService } = await import('./hq-ai-coin-packs.service.js');
+    return { packs: await hqAiCoinPacksService.listPacks({ includeInactive: true }) };
+  },
+
+  async saveAiCoinPacks(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAiCoinPacksService } = await import('./hq-ai-coin-packs.service.js');
+    return hqAiCoinPacksService.savePacks(data, reqUser);
+  },
+
+  async getPhase1TokenConfig(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqPhase1TokensService } = await import('./hq-phase1-tokens.service.js');
+    return hqPhase1TokensService.getOverview({ includeInactive: true });
+  },
+
+  async savePhase1TokenPacks(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqPhase1TokensService } = await import('./hq-phase1-tokens.service.js');
+    return hqPhase1TokensService.savePacks(data, reqUser);
+  },
+
+  async savePhase1TokenCosts(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqPhase1TokensService } = await import('./hq-phase1-tokens.service.js');
+    return hqPhase1TokensService.saveServiceCosts(data, reqUser);
   },
 
   async setTenantPause(data, reqUser) {
@@ -751,6 +781,18 @@ export const hqService = {
   async listAllCandidates(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqPortalService.listAllCandidates();
+  },
+
+  async getCandidateBehavior(reqUser, candidateId) {
+    assertPlatformProvisioner(reqUser);
+    const { getCandidateBehaviorAnalysis } = await import('./hq-candidate-behavior.service.js');
+    return getCandidateBehaviorAnalysis(candidateId);
+  },
+
+  async getTenantBehavior(reqUser, tenantDbName, tenantMeta = {}) {
+    assertPlatformProvisioner(reqUser);
+    const { getHqTenantBehaviorAnalysis } = await import('./hq-tenant-behavior.service.js');
+    return getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta });
   },
 
   async getAnalytics(reqUser) {

@@ -169,4 +169,7 @@ module.exports = {
   resolvePhase2PortalSyncSecret,
   buildPhase2InternalUrl,
   postPhase2Internal,
+  toPublicUploadsApiUrl,
+  isLoopbackHost,
+  normalizePhase2ApiOrigin,
 };

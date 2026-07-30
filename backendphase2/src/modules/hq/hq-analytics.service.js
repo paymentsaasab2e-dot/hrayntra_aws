@@ -16,7 +16,121 @@ const SAMPLE_LIMIT = Math.min(
   Math.max(500, Number(process.env.HQ_ANALYTICS_SAMPLE_MAX || 4000) || 4000),
 );
 
+/** Sessions with no logout older than this are treated as stale, not "online now". */
+const ONLINE_SESSION_WINDOW_MS = 30 * 60 * 1000;
+/** Cap open-session duration used in averages so abandoned sessions don't inflate KPIs. */
+const MAX_OPEN_SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
+/** Heartbeat freshness for Phase 1 behaviour tracker payloads. */
+const LIVE_BEHAVIOR_ONLINE_MS = 2 * 60 * 1000;
+
 let portalMongoClient = null;
+
+function phase1FrontendBase() {
+  return String(
+    process.env.PHASE1_FRONTEND_URL ||
+      process.env.JOB_PORTAL_FRONTEND_URL ||
+      process.env.NEXT_PUBLIC_PHASE1_FRONTEND_URL ||
+      'http://localhost:3000',
+  )
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+async function fetchPhase1LiveBehaviorAggregate() {
+  try {
+    const url = `${phase1FrontendBase()}/api/hq-behavior`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const payload = json?.data;
+    if (!payload || !Array.isArray(payload.users)) return null;
+
+    const now = Date.now();
+    let onlineNow = 0;
+    let trackedUsers = 0;
+    let totalActiveMs7d = 0;
+    let totalVisits7d = 0;
+    let totalApplies7d = 0;
+    let totalJobClicks7d = 0;
+    let totalLogins7d = 0;
+    let totalSessions7d = 0;
+    const pageVisitMap = {};
+    const triggerMap = {};
+    const liveFeed = [];
+
+    for (const user of payload.users) {
+      if (!user?.userId) continue;
+      trackedUsers += 1;
+      const rollup = user.rollup7d || {};
+      const updatedAt = user.activityStateUpdatedAt || user.capturedAt;
+      const updatedMs = updatedAt ? new Date(updatedAt).getTime() : NaN;
+      if (Number.isFinite(updatedMs) && now - updatedMs <= LIVE_BEHAVIOR_ONLINE_MS) {
+        onlineNow += 1;
+      }
+
+      totalActiveMs7d += Number(rollup.activeMs) || 0;
+      totalVisits7d += Number(rollup.visits) || 0;
+      totalApplies7d += Number(rollup.applies) || 0;
+      totalJobClicks7d += Number(rollup.jobCardClicks) || 0;
+      totalLogins7d += Number(rollup.logins) || 0;
+      totalSessions7d += Number(rollup.sessionCount) || 0;
+
+      for (const [cat, count] of Object.entries(rollup.pageVisitsByCategory || {})) {
+        bump(pageVisitMap, cat, Number(count) || 0);
+      }
+      for (const trigger of Array.isArray(user.triggers) ? user.triggers : rollup.hqTriggers || []) {
+        const key = trigger?.flag || trigger?.id || trigger?.title || 'signal';
+        bump(triggerMap, key, 1);
+      }
+
+      liveFeed.push({
+        userId: user.userId,
+        capturedAt: user.capturedAt || null,
+        activityStateUpdatedAt: user.activityStateUpdatedAt || null,
+        activeMs7d: Number(rollup.activeMs) || 0,
+        visits7d: Number(rollup.visits) || 0,
+        applies7d: Number(rollup.applies) || 0,
+        jobCardClicks7d: Number(rollup.jobCardClicks) || 0,
+        topTrigger:
+          (Array.isArray(user.triggers) && user.triggers[0]?.title) ||
+          (Array.isArray(rollup.hqTriggers) && rollup.hqTriggers[0]?.title) ||
+          null,
+      });
+    }
+
+    liveFeed.sort((a, b) =>
+      String(b.activityStateUpdatedAt || b.capturedAt || '').localeCompare(
+        String(a.activityStateUpdatedAt || a.capturedAt || ''),
+      ),
+    );
+
+    return {
+      available: true,
+      source: 'phase1_behavior_tracker',
+      trackedUsers,
+      onlineNow,
+      totalActiveMs7d,
+      totalVisits7d,
+      totalApplies7d,
+      totalJobClicks7d,
+      totalLogins7d,
+      totalSessions7d,
+      avgActiveMsPerUser7d: trackedUsers > 0 ? Math.round(totalActiveMs7d / trackedUsers) : 0,
+      pageVisitsByCategory: toChartArray(pageVisitMap, { limit: 10 }),
+      topTriggers: toChartArray(triggerMap, { limit: 8 }),
+      liveFeed: liveFeed.slice(0, 20),
+      capturedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.warn('[hq-analytics] Phase 1 live behaviour fetch failed:', error?.message || error);
+    return null;
+  }
+}
 
 function notSoftDeletedWhere() {
   return {
@@ -70,6 +184,65 @@ function iso(value) {
 function pct(part, whole) {
   if (!whole) return 0;
   return Math.round((Number(part) / Number(whole)) * 1000) / 10;
+}
+
+function formatDurationShort(ms) {
+  if (ms == null || !Number.isFinite(Number(ms)) || Number(ms) <= 0) return '—';
+  const totalSec = Math.round(Number(ms) / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const mins = Math.floor(totalSec / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem ? `${hours}h ${rem}m` : `${hours}h`;
+}
+
+function normalizeSkillList(skills) {
+  if (!Array.isArray(skills)) {
+    if (typeof skills === 'string' && skills.trim()) {
+      return skills
+        .split(/[,|]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    return [];
+  }
+  const out = [];
+  for (const item of skills) {
+    if (!item) continue;
+    if (typeof item === 'string') {
+      const s = item.trim();
+      if (s) out.push(s);
+      continue;
+    }
+    const name = String(item.name || item.skill || item.label || item.title || '').trim();
+    if (name) out.push(name);
+  }
+  return out;
+}
+
+function resolveSessionDurationMs(row, nowMs, { online = false } = {}) {
+  const loginAt = row.loginAt || row.createdAt;
+  const loginMs = loginAt ? new Date(loginAt).getTime() : NaN;
+  if (typeof row.durationMs === 'number' && row.durationMs > 0 && row.logoutAt) {
+    return Math.round(row.durationMs);
+  }
+  if (row.logoutAt && Number.isFinite(loginMs)) {
+    const endMs = new Date(row.logoutAt).getTime();
+    if (Number.isFinite(endMs) && endMs >= loginMs) return Math.round(endMs - loginMs);
+  }
+  if (online && Number.isFinite(loginMs)) {
+    return Math.max(0, Math.round(nowMs - loginMs));
+  }
+  const lastSeenRaw = row.lastUsedAt;
+  if (lastSeenRaw && Number.isFinite(loginMs)) {
+    const lastMs = new Date(lastSeenRaw).getTime();
+    if (Number.isFinite(lastMs) && lastMs >= loginMs) return Math.round(lastMs - loginMs);
+  }
+  if (typeof row.durationMs === 'number' && row.durationMs > 0) {
+    return Math.min(MAX_OPEN_SESSION_DURATION_MS, Math.round(row.durationMs));
+  }
+  return null;
 }
 
 async function safe(label, fn, fallback) {
@@ -339,6 +512,8 @@ async function buildEmployeeAnalytics() {
             skills: true,
             experience: true,
             experienceYears: true,
+            resumeUrl: true,
+            resume: true,
             createdAt: true,
             updatedAt: true,
           },
@@ -391,7 +566,8 @@ async function buildEmployeeAnalytics() {
       () =>
         groupByModel(portal, 'candidate', {
           by: ['status'],
-          where: { AND: [softWhere, { status: { not: null } }] },
+          // status is a required enum — Prisma Mongo rejects `{ not: null }`
+          where: softWhere,
           _count: { _all: true },
         }),
       [],
@@ -401,7 +577,8 @@ async function buildEmployeeAnalytics() {
       () =>
         groupByModel(portal, 'candidate', {
           by: ['source'],
-          where: { AND: [softWhere, { source: { not: null } }] },
+          // Mongo optional fields: use isSet, not `{ not: null }`
+          where: { AND: [softWhere, { source: { isSet: true } }] },
           _count: { _all: true },
         }),
       [],
@@ -457,6 +634,9 @@ async function buildEmployeeAnalytics() {
   const sourceMap = {};
   const experienceMap = {};
   let withSkills = 0;
+  let resumesUploaded = 0;
+  let profileCompletenessSum = 0;
+  let profileCompletenessN = 0;
 
   for (const row of statusGroups || []) bump(statusMap, row.status || 'Unknown', row._count?._all || 0);
   for (const row of sourceGroups || []) bump(sourceMap, row.source || 'Unknown', row._count?._all || 0);
@@ -466,15 +646,21 @@ async function buildEmployeeAnalytics() {
     if (!sourceGroups?.length) bump(sourceMap, c.source || 'Unknown');
     bump(locationMap, c.city || c.location || c.country || 'Unknown');
     const years = c.experienceYears ?? c.experience;
-    if (typeof years === 'number') {
+    if (typeof years === 'number' && Number.isFinite(years)) {
       if (years < 2) bump(experienceMap, '0-2 yrs');
       else if (years < 5) bump(experienceMap, '2-5 yrs');
       else if (years < 10) bump(experienceMap, '5-10 yrs');
       else bump(experienceMap, '10+ yrs');
     }
-    if ((c.skills || []).length) {
+    const skills = normalizeSkillList(c.skills);
+    if (skills.length) {
       withSkills += 1;
-      for (const skill of c.skills) if (skill) bump(skillMap, skill);
+      for (const skill of skills) bump(skillMap, skill);
+    }
+    if (String(c.resumeUrl || c.resume || '').trim()) resumesUploaded += 1;
+    if (typeof c.profileCompleteness === 'number' && Number.isFinite(c.profileCompleteness)) {
+      profileCompletenessSum += Math.max(0, Math.min(100, c.profileCompleteness));
+      profileCompletenessN += 1;
     }
   }
 
@@ -533,7 +719,14 @@ async function buildEmployeeAnalytics() {
   const avgMatchScore = matchScoreN > 0 ? Math.round((matchScoreSum / matchScoreN) * 10) / 10 : null;
   const avgCvScore = cvScoreN > 0 ? Math.round((cvScoreSum / cvScoreN) * 10) / 10 : null;
   const avgAtsScore = atsScoreN > 0 ? Math.round((atsScoreSum / atsScoreN) * 10) / 10 : null;
-  const profileCompleteness = pct(withSkills, candidatesSample.length || 1);
+  const profileCompleteness =
+    profileCompletenessN > 0
+      ? Math.round(profileCompletenessSum / profileCompletenessN)
+      : candidatesSample?.length
+        ? Math.round(
+            ((withSkills + resumesUploaded) / (2 * Math.max(candidatesSample.length, 1))) * 100,
+          )
+        : 0;
 
   const applicationsByStatus = [
     'SUBMITTED',
@@ -633,6 +826,7 @@ async function buildEmployeeAnalytics() {
           loginAt: 1,
           logoutAt: 1,
           createdAt: 1,
+          lastUsedAt: 1,
           durationMs: 1,
           deviceType: 1,
           browser: 1,
@@ -661,6 +855,7 @@ async function buildEmployeeAnalytics() {
   let durationSum = 0;
   let durationN = 0;
   const nowMs = Date.now();
+  const uniqueActiveCandidates = new Set();
 
   for (const row of sessionRows || []) {
     const loginAt = row.loginAt || row.createdAt;
@@ -670,24 +865,29 @@ async function buildEmployeeAnalytics() {
       if (loginMs >= since7.getTime()) logins7d += 1;
       if (loginMs >= since30.getTime()) logins30d += 1;
     }
-    const active = row.isActive !== false && !row.logoutAt;
-    if (active) activeSessions += 1;
 
-    let duration = typeof row.durationMs === 'number' ? row.durationMs : null;
-    if (duration == null && Number.isFinite(loginMs)) {
-      const endMs = row.logoutAt ? new Date(row.logoutAt).getTime() : nowMs;
-      if (Number.isFinite(endMs)) duration = Math.max(0, endMs - loginMs);
+    const lastSeenRaw = row.lastUsedAt || row.logoutAt || loginAt;
+    const lastSeenMs = lastSeenRaw ? new Date(lastSeenRaw).getTime() : NaN;
+    const looksOpen = row.isActive !== false && !row.logoutAt;
+    const recentlySeen =
+      Number.isFinite(lastSeenMs) && nowMs - lastSeenMs <= ONLINE_SESSION_WINDOW_MS;
+    const isOnlineNow = looksOpen && recentlySeen;
+    if (isOnlineNow) {
+      activeSessions += 1;
+      if (row.candidateId) uniqueActiveCandidates.add(String(row.candidateId));
     }
-    if (typeof duration === 'number' && duration > 0) {
+
+    const duration = resolveSessionDurationMs(row, nowMs, { online: isOnlineNow });
+    if (typeof duration === 'number' && duration > 0 && (row.logoutAt || isOnlineNow)) {
       durationSum += duration;
       durationN += 1;
     }
 
-    bump(countryLoginMap, row.country || 'Unknown');
-    bump(stateLoginMap, row.state || row.timezone || 'Unknown');
-    bump(cityLoginMap, row.city || 'Unknown');
-    bump(deviceLoginMap, row.deviceType || 'Unknown');
-    bump(browserLoginMap, row.browser || 'Unknown');
+    if (row.country) bump(countryLoginMap, row.country);
+    if (row.state || row.timezone) bump(stateLoginMap, row.state || row.timezone);
+    if (row.city) bump(cityLoginMap, row.city);
+    if (row.deviceType) bump(deviceLoginMap, row.deviceType);
+    if (row.browser) bump(browserLoginMap, row.browser);
   }
 
   const totalSessionsTracked = (sessionRows || []).length;
@@ -700,12 +900,15 @@ async function buildEmployeeAnalytics() {
 
   const recentSessions = (sessionRows || []).slice(0, 20).map((row) => {
     const loginAt = row.loginAt || row.createdAt;
-    const loginMs = loginAt ? new Date(loginAt).getTime() : NaN;
-    let durationMs = typeof row.durationMs === 'number' ? row.durationMs : null;
-    if (durationMs == null && Number.isFinite(loginMs)) {
-      const endMs = row.logoutAt ? new Date(row.logoutAt).getTime() : nowMs;
-      if (Number.isFinite(endMs)) durationMs = Math.max(0, endMs - loginMs);
-    }
+    const lastSeenRaw = row.lastUsedAt || row.logoutAt || loginAt;
+    const lastSeenMs = lastSeenRaw ? new Date(lastSeenRaw).getTime() : NaN;
+    const looksOpen = row.isActive !== false && !row.logoutAt;
+    const isOnlineNow =
+      looksOpen &&
+      Number.isFinite(lastSeenMs) &&
+      nowMs - lastSeenMs <= ONLINE_SESSION_WINDOW_MS;
+    const isIdleOpen = looksOpen && !isOnlineNow;
+    const durationMs = resolveSessionDurationMs(row, nowMs, { online: isOnlineNow });
     return {
       candidateId: row.candidateId || '',
       candidate: candidateNameById[row.candidateId] || '—',
@@ -718,20 +921,32 @@ async function buildEmployeeAnalytics() {
       country: row.country || '—',
       state: row.state || '—',
       city: row.city || '—',
-      isActive: row.isActive !== false && !row.logoutAt,
+      isActive: isOnlineNow,
+      status: isOnlineNow ? 'online' : isIdleOpen ? 'idle' : 'closed',
     };
   });
+
+  const liveTracking = await fetchPhase1LiveBehaviorAggregate();
+  const sessionOnline = uniqueActiveCandidates.size || activeSessions;
+  const onlineNow = liveTracking?.available
+    ? Math.max(Number(liveTracking.onlineNow) || 0, sessionOnline)
+    : sessionOnline;
 
   const insights = [];
   insights.push({
     tone: 'info',
     text: `Live Phase 1 snapshot: ${totalCandidates} candidates · ${applicationTotal} applications · ${apps1d} applied today.`,
   });
-  if (logins7d > 0 || activeSessions > 0) {
+  if (liveTracking?.available) {
     insights.push({
       tone: 'good',
-      text: `Sessions: ${logins7d} logins in 7d · ${activeSessions} active now · avg duration ${
-        avgSessionDurationMs != null ? `${Math.round(avgSessionDurationMs / 60000)}m` : '—'
+      text: `Live tracker: ${liveTracking.onlineNow} online now · ${liveTracking.trackedUsers} tracked · ${Math.round((liveTracking.totalActiveMs7d || 0) / 60000)}m active (7d) · ${liveTracking.totalApplies7d} applies · ${liveTracking.totalJobClicks7d} job clicks.`,
+    });
+  } else if (logins7d > 0 || onlineNow > 0) {
+    insights.push({
+      tone: 'good',
+      text: `Sessions: ${logins7d} logins in 7d · ${onlineNow} active now · avg duration ${
+        avgSessionDurationMs != null ? formatDurationShort(avgSessionDurationMs) : '—'
       }.`,
     });
   }
@@ -810,12 +1025,36 @@ async function buildEmployeeAnalytics() {
       lmsEnrollments,
       aiMatches,
       profileCompleteness,
+      resumesUploaded,
+      candidatesWithSkills: withSkills,
       loginsToday: logins1d,
       logins7d,
       logins30d,
-      activeSessions,
+      activeSessions: onlineNow,
       totalSessionsTracked,
       avgSessionDurationMs,
+      liveTrackedUsers: liveTracking?.trackedUsers ?? 0,
+      liveVisits7d: liveTracking?.totalVisits7d ?? 0,
+      liveApplies7d: liveTracking?.totalApplies7d ?? 0,
+      liveJobClicks7d: liveTracking?.totalJobClicks7d ?? 0,
+      liveActiveMs7d: liveTracking?.totalActiveMs7d ?? 0,
+    },
+    liveTracking: liveTracking || {
+      available: false,
+      source: 'portal_db_sessions',
+      trackedUsers: 0,
+      onlineNow,
+      totalActiveMs7d: 0,
+      totalVisits7d: 0,
+      totalApplies7d: 0,
+      totalJobClicks7d: 0,
+      totalLogins7d: logins7d,
+      totalSessions7d: totalSessionsTracked,
+      avgActiveMsPerUser7d: 0,
+      pageVisitsByCategory: [],
+      topTriggers: [],
+      liveFeed: [],
+      capturedAt: new Date().toISOString(),
     },
     charts: {
       applicationsByStatus,
@@ -978,7 +1217,8 @@ async function tenantActivitySnapshot(tenant) {
           'tenant.task.open',
           () =>
             countModel(prisma, 'task', {
-              status: { in: ['TODO', 'IN_PROGRESS', 'OPEN', 'PENDING'] },
+              // TaskStatus enum: PENDING | IN_PROGRESS | AWAITING_APPROVAL | DONE | CANCELLED
+              status: { in: ['PENDING', 'IN_PROGRESS', 'AWAITING_APPROVAL'] },
             }),
           0,
         ),

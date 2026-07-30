@@ -100,12 +100,28 @@ export const HQ_COMPANY_SOURCE_OPTIONS = [
 ] as const;
 
 export const HQ_COMPANY_MODULE_OPTIONS = [
-  'Recruitment',
-  'Payroll',
-  'Time & Attendance',
+  'CRM',
+  'ATS',
   'Employee Management',
-  'Performance',
+  'Payroll',
 ] as const;
+
+export const HQ_COMPANY_BILLING_CYCLES = [
+  { id: 'monthly' as const, label: 'Monthly', hint: 'Billed every month' },
+  { id: 'yearly' as const, label: 'Yearly', hint: 'Billed once a year' },
+] as const;
+
+export type HqCompanyBillingCycle = (typeof HQ_COMPANY_BILLING_CYCLES)[number]['id'];
+
+/** Final package price from users × per-user cost (same cycle). */
+export function computeHqCompanyFinalPrice(
+  expectedUsers: string | number,
+  pricePerUser: string | number,
+): number {
+  const users = Math.max(0, Number(expectedUsers) || 0);
+  const unit = Math.max(0, Number(pricePerUser) || 0);
+  return Math.round(users * unit * 100) / 100;
+}
 
 export const HQ_COMPANY_FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'] as const;
 

@@ -1,9 +1,20 @@
 import express from 'express';
+import multer from 'multer';
 import { hqController } from './hq.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { portalEventsController } from '../portal-events/portal-events.controller.js';
+import {
+  PORTAL_EVENT_MEDIA_MAX_BYTES,
+  portalEventMediaMulterFilter,
+} from '../portal-events/portal-events-media.service.js';
 
 const router = express.Router();
+
+const eventMediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: PORTAL_EVENT_MEDIA_MAX_BYTES, files: 10 },
+  fileFilter: portalEventMediaMulterFilter,
+});
 
 // Setup initial Super Admin credentials directly
 // Note: This is an unsecured setup route intended for bootstrap/initialization.
@@ -16,6 +27,11 @@ router.put('/tenants/coins', authMiddleware, hqController.setTenantCoins);
 router.put('/tenants/pause', authMiddleware, hqController.setTenantPause);
 router.get('/ai-features', authMiddleware, hqController.listAiFeatures);
 router.put('/ai-features', authMiddleware, hqController.updateAiFeatures);
+router.get('/ai-coin-packs', authMiddleware, hqController.listAiCoinPacks);
+router.put('/ai-coin-packs', authMiddleware, hqController.saveAiCoinPacks);
+router.get('/phase1-tokens', authMiddleware, hqController.getPhase1TokenConfig);
+router.put('/phase1-tokens/packs', authMiddleware, hqController.savePhase1TokenPacks);
+router.put('/phase1-tokens/costs', authMiddleware, hqController.savePhase1TokenCosts);
 
 router.get('/packages/public', hqController.listPublicPackages);
 router.get('/packages', authMiddleware, hqController.listPackages);
@@ -66,12 +82,18 @@ router.delete('/roles/:id', authMiddleware, hqController.deleteHqRole);
 
 router.get('/portal', authMiddleware, hqController.getPortalOverview);
 router.get('/candidates', authMiddleware, hqController.listAllCandidates);
+router.get('/tenants/:tenantDbName/behavior', authMiddleware, hqController.getTenantBehavior);
+router.get('/candidates/:id/behavior', authMiddleware, hqController.getCandidateBehavior);
 router.delete('/portal/jobs/:id', authMiddleware, hqController.deletePortalJob);
 
 router.get('/analytics', authMiddleware, hqController.getAnalytics);
 
 router.get('/events', authMiddleware, portalEventsController.listHqEvents);
 router.post('/events', authMiddleware, portalEventsController.createHqEvent);
+router.post('/events/media', authMiddleware, eventMediaUpload.array('files', 10), portalEventsController.uploadHqEventMedia);
 router.get('/events/:id/registrations', authMiddleware, portalEventsController.listHqEventRegistrations);
+router.put('/events/:id', authMiddleware, portalEventsController.updateHqEvent);
+router.post('/events/:id/cancel', authMiddleware, portalEventsController.cancelHqEvent);
+router.delete('/events/:id', authMiddleware, portalEventsController.deleteHqEvent);
 
 export default router;

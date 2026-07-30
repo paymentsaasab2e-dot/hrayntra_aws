@@ -34,7 +34,7 @@ async function getCatalog(req, res) {
         balance = null;
       }
     }
-    const catalog = tokenService.getCatalog();
+    const catalog = await tokenService.getCatalog();
     return res.json({
       success: true,
       data: {

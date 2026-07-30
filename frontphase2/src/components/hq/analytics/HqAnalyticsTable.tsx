@@ -1,6 +1,6 @@
 'use client';
 
-import { HqPanel, HqPanelTitle } from '../hqUi';
+import { HqPanel, HqPanelTitle, HqTableShell } from '../hqUi';
 
 export function HqAnalyticsTable({
   title,
@@ -16,39 +16,45 @@ export function HqAnalyticsTable({
   empty?: string;
 }) {
   return (
-    <HqPanel className="overflow-x-auto">
-      <HqPanelTitle title={title} meta={meta} />
+    <HqPanel className="!p-0 overflow-hidden">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <HqPanelTitle title={title} meta={meta} />
+      </div>
       {rows.length === 0 ? (
-        <p className="text-xs text-slate-500">{empty}</p>
+        <p className="px-5 py-8 text-center text-xs font-medium text-slate-500">{empty}</p>
       ) : (
-        <table className="w-full min-w-[520px] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400">
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className={`px-2 py-2 font-semibold ${col.align === 'right' ? 'text-right' : 'text-left'}`}
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, idx) => (
-              <tr key={idx} className="border-b border-slate-50 last:border-b-0">
+        <HqTableShell className="rounded-none border-0 shadow-none">
+          <table className="min-w-[520px] text-left">
+            <thead>
+              <tr>
                 {columns.map((col) => (
-                  <td
+                  <th
                     key={col.key}
-                    className={`px-2 py-2.5 text-slate-700 ${col.align === 'right' ? 'text-right font-semibold text-slate-900' : ''}`}
+                    className={col.align === 'right' ? 'text-right' : 'text-left'}
                   >
-                    {row[col.key] ?? '—'}
-                  </td>
+                    {col.label}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={idx}>
+                  {columns.map((col) => (
+                    <td
+                      key={col.key}
+                      className={
+                        col.align === 'right' ? 'text-right font-semibold text-slate-900' : ''
+                      }
+                    >
+                      {row[col.key] ?? '—'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </HqTableShell>
       )}
     </HqPanel>
   );

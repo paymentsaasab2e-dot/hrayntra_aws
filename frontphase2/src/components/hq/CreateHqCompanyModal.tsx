@@ -1,13 +1,16 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
 import {
+  computeHqCompanyFinalPrice,
   defaultNextFollowUpLocal,
+  HQ_COMPANY_BILLING_CYCLES,
   HQ_COMPANY_INDUSTRY_OPTIONS,
   HQ_COMPANY_MODULE_OPTIONS,
   HQ_COMPANY_SOURCE_OPTIONS,
+  type HqCompanyBillingCycle,
 } from '@/app/hq/company/hqCompaniesData';
 
 export type CreateHqCompanyFormValues = {
@@ -19,6 +22,11 @@ export type CreateHqCompanyFormValues = {
   industry: string;
   country: string;
   expectedUsers: string;
+  /** Cost per user for the selected billing cycle */
+  pricePerUser: string;
+  billingCycle: HqCompanyBillingCycle;
+  /** Final package price (users × per-user). Synced to estimatedDealValue for API. */
+  finalPrice: string;
   estimatedDealValue: string;
   accountOwner: string;
   companySource: string;
@@ -36,6 +44,9 @@ const EMPTY_FORM: CreateHqCompanyFormValues = {
   industry: '',
   country: '',
   expectedUsers: '',
+  pricePerUser: '',
+  billingCycle: 'monthly',
+  finalPrice: '',
   estimatedDealValue: '',
   accountOwner: '',
   companySource: '',
@@ -68,10 +79,12 @@ export function CreateHqCompanyModal({
   const [form, setForm] = useState<CreateHqCompanyFormValues>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [finalPriceManual, setFinalPriceManual] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setForm({ ...EMPTY_FORM, nextFollowUpAt: defaultNextFollowUpLocal() });
+    setFinalPriceManual(false);
     setError(null);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -84,6 +97,21 @@ export function CreateHqCompanyModal({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open, onClose]);
+
+  const computedFinal = useMemo(
+    () => computeHqCompanyFinalPrice(form.expectedUsers, form.pricePerUser),
+    [form.expectedUsers, form.pricePerUser],
+  );
+
+  useEffect(() => {
+    if (!open || finalPriceManual) return;
+    const next = computedFinal > 0 ? String(computedFinal) : '';
+    setForm((prev) =>
+      prev.finalPrice === next && prev.estimatedDealValue === next
+        ? prev
+        : { ...prev, finalPrice: next, estimatedDealValue: next },
+    );
+  }, [open, computedFinal, finalPriceManual]);
 
   if (!open) return null;
 
@@ -104,8 +132,20 @@ export function CreateHqCompanyModal({
       setError('Company name, primary contact, and email are required.');
       return;
     }
-    if (!form.industry || !form.country.trim() || !form.expectedUsers.trim() || !form.estimatedDealValue.trim()) {
-      setError('Please fill in all required fields.');
+    if (!form.industry || !form.country.trim() || !form.expectedUsers.trim()) {
+      setError('Please fill in industry, country, and expected users.');
+      return;
+    }
+    if (!form.pricePerUser.trim()) {
+      setError('Enter final per user costing.');
+      return;
+    }
+    const deal =
+      form.finalPrice.trim() ||
+      form.estimatedDealValue.trim() ||
+      (computedFinal > 0 ? String(computedFinal) : '');
+    if (!deal) {
+      setError('Final pricing is required (users × per-user cost).');
       return;
     }
     if (!form.accountOwner.trim() || !form.companySource) {
@@ -123,7 +163,11 @@ export function CreateHqCompanyModal({
 
     setSubmitting(true);
     try {
-      await onCreate(form);
+      await onCreate({
+        ...form,
+        finalPrice: deal,
+        estimatedDealValue: deal,
+      });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create company');
@@ -131,6 +175,8 @@ export function CreateHqCompanyModal({
       setSubmitting(false);
     }
   };
+
+  const cycleUnitLabel = form.billingCycle === 'yearly' ? '/ user / year' : '/ user / month';
 
   return (
     <div className="fixed inset-0 z-[500] flex items-start justify-center overflow-y-auto p-4 sm:p-6">
@@ -153,7 +199,7 @@ export function CreateHqCompanyModal({
               Create New Company
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Enter company details below to add them to your CRM pipeline.
+              Same commercial fields as Add Client — set per-user cost, billing cycle, and final pricing.
             </p>
           </div>
           <button
@@ -257,18 +303,10 @@ export function CreateHqCompanyModal({
                 className={INPUT_CLASS}
                 placeholder="100"
                 value={form.expectedUsers}
-                onChange={(e) => setForm({ ...form, expectedUsers: e.target.value })}
-              />
-            </div>
-            <div>
-              <FieldLabel required>Estimated Deal Value ($)</FieldLabel>
-              <input
-                type="number"
-                min={0}
-                className={INPUT_CLASS}
-                placeholder="5000"
-                value={form.estimatedDealValue}
-                onChange={(e) => setForm({ ...form, estimatedDealValue: e.target.value })}
+                onChange={(e) => {
+                  setFinalPriceManual(false);
+                  setForm({ ...form, expectedUsers: e.target.value });
+                }}
               />
             </div>
             <div>
@@ -298,7 +336,7 @@ export function CreateHqCompanyModal({
                 <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
-            <div className="sm:col-span-2">
+            <div>
               <FieldLabel required>Next Follow-up (Date & Time)</FieldLabel>
               <input
                 type="datetime-local"
@@ -306,6 +344,95 @@ export function CreateHqCompanyModal({
                 value={form.nextFollowUpAt}
                 onChange={(e) => setForm({ ...form, nextFollowUpAt: e.target.value })}
               />
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-4 rounded-xl border border-indigo-100/70 bg-gradient-to-br from-white via-indigo-50/30 to-violet-50/20 p-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Pricing</h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Final per-user costing and package total — Monthly or Yearly.
+              </p>
+            </div>
+
+            <div>
+              <FieldLabel required>Billing cycle</FieldLabel>
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
+                {HQ_COMPANY_BILLING_CYCLES.map((cycle) => {
+                  const active = form.billingCycle === cycle.id;
+                  return (
+                    <button
+                      key={cycle.id}
+                      type="button"
+                      onClick={() => setForm({ ...form, billingCycle: cycle.id })}
+                      className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                        active
+                          ? 'border-indigo-300 bg-indigo-50 ring-2 ring-indigo-400/20'
+                          : 'border-slate-200 bg-white hover:border-indigo-200'
+                      }`}
+                    >
+                      <p className="text-sm font-bold text-slate-900">{cycle.label}</p>
+                      <p className="text-[11px] text-slate-500">{cycle.hint}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <FieldLabel required>Final per user costing ($)</FieldLabel>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    className={`${INPUT_CLASS} pr-28`}
+                    placeholder="e.g. 25"
+                    value={form.pricePerUser}
+                    onChange={(e) => {
+                      setFinalPriceManual(false);
+                      setForm({ ...form, pricePerUser: e.target.value });
+                    }}
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400">
+                    {cycleUnitLabel}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <FieldLabel required>Final pricing ($)</FieldLabel>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className={INPUT_CLASS}
+                  placeholder="Auto = users × per-user"
+                  value={form.finalPrice}
+                  onChange={(e) => {
+                    setFinalPriceManual(true);
+                    setForm({
+                      ...form,
+                      finalPrice: e.target.value,
+                      estimatedDealValue: e.target.value,
+                    });
+                  }}
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {form.expectedUsers && form.pricePerUser
+                    ? `${form.expectedUsers} users × $${form.pricePerUser} = $${computedFinal.toLocaleString()} (${form.billingCycle})`
+                    : 'Enter users and per-user cost to auto-calculate.'}
+                  {finalPriceManual ? (
+                    <button
+                      type="button"
+                      className="ml-2 font-semibold text-indigo-600 hover:underline"
+                      onClick={() => setFinalPriceManual(false)}
+                    >
+                      Reset auto
+                    </button>
+                  ) : null}
+                </p>
+              </div>
             </div>
           </div>
 

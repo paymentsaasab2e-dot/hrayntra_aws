@@ -1356,6 +1356,8 @@ model LmsEvent {
   capacity         Int?
   tags             String[] @default([])
   isPublished      Boolean  @default(false)
+  status           String   @default("active")
+  media            Json?
   createdById      String?
   createdByEmail   String?
   createdByName    String?

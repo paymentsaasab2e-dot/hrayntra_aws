@@ -31,6 +31,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import {
+  ArrowLeft,
+  ArrowRight,
   Edit2,
   MoreVertical,
   Building2,
@@ -391,6 +393,118 @@ function validateLeadRequiredFields(form: {
   return errors;
 }
 
+type AddLeadWizardStep =
+  | 'workspace'
+  | 'company'
+  | 'location'
+  | 'contacts'
+  | 'source'
+  | 'followup'
+  | 'business'
+  | 'other';
+
+const TENANT_ADD_LEAD_WIZARD_STEPS: AddLeadWizardStep[] = [
+  'company',
+  'location',
+  'contacts',
+  'source',
+  'followup',
+  'business',
+  'other',
+];
+
+const ADD_LEAD_WIZARD_STEP_LABELS: Record<AddLeadWizardStep, string> = {
+  workspace: 'Workspace',
+  company: 'Company',
+  location: 'Location',
+  contacts: 'Contacts',
+  source: 'Source',
+  followup: 'Follow-up',
+  business: 'Business',
+  other: 'Other',
+};
+
+function validateAddLeadWizardStep(
+  step: AddLeadWizardStep,
+  form: Parameters<typeof validateLeadRequiredFields>[0],
+): LeadRequiredFieldErrors {
+  switch (step) {
+    case 'workspace':
+      return {};
+    case 'company':
+      return String(form.companyName || '').trim()
+        ? {}
+        : { companyName: 'Company is required' };
+    case 'location': {
+      const errors: LeadRequiredFieldErrors = {};
+      if (!String(form.country || '').trim()) errors.country = 'Country is required';
+      if (!String(form.state || '').trim()) errors.state = 'State is required';
+      return errors;
+    }
+    case 'contacts': {
+      const all = validateLeadRequiredFields(form);
+      const errors: LeadRequiredFieldErrors = {};
+      if (all.contactPerson) errors.contactPerson = all.contactPerson;
+      if (all.email) errors.email = all.email;
+      if (all.phone) errors.phone = all.phone;
+      return errors;
+    }
+    default:
+      return {};
+  }
+}
+
+function AddLeadWizardProgress({
+  steps,
+  currentStep,
+}: {
+  steps: AddLeadWizardStep[];
+  currentStep: AddLeadWizardStep;
+}) {
+  const stepIndex = Math.max(0, steps.indexOf(currentStep));
+
+  return (
+    <div className="shrink-0 border-b border-blue-100/80 bg-white/90 px-6 py-4">
+      <div className="flex items-center gap-1.5">
+        {steps.map((step, i) => {
+          const done = i < stepIndex;
+          const active = i === stepIndex;
+          return (
+            <div key={step} className="flex min-w-0 flex-1 items-center gap-1.5">
+              <div
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-bold transition-all ${
+                  done
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
+                    : active
+                      ? 'bg-blue-600 text-white ring-4 ring-blue-500/20'
+                      : 'bg-slate-100 text-slate-400 ring-1 ring-slate-200'
+                }`}
+                title={ADD_LEAD_WIZARD_STEP_LABELS[step]}
+              >
+                {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+              </div>
+              {i < steps.length - 1 ? (
+                <div
+                  className={`h-1 min-w-[6px] flex-1 rounded-full ${
+                    done
+                      ? 'bg-blue-600'
+                      : active
+                        ? 'bg-gradient-to-r from-blue-600 to-slate-200'
+                        : 'bg-slate-200'
+                  }`}
+                />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-slate-400">
+        Step {stepIndex + 1} of {steps.length} · {ADD_LEAD_WIZARD_STEP_LABELS[currentStep]}
+      </p>
+    </div>
+  );
+}
+
 export type AssignLeadFormData = {
   /** Legacy single-assignee — kept for backwards compatibility (primary owner). */
   assignTo: string;
@@ -578,6 +692,79 @@ function getInitialAddLeadDrawerWidth(): number {
   }
 
   return clampAddLeadDrawerWidth(Math.min(Math.round(window.innerWidth * 0.64), ADD_LEAD_DRAWER_DEFAULT_WIDTH));
+}
+
+function LeadDetailsPanelShell({
+  mode,
+  panelRef,
+  drawerWidth,
+  onBeginResize,
+  children,
+  dialogTitleId = 'lead-details-modal-title',
+  size = 'md',
+}: {
+  mode: 'modal' | 'drawer';
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  drawerWidth: number;
+  onBeginResize: (event: React.MouseEvent<HTMLDivElement>) => void;
+  children: React.ReactNode;
+  dialogTitleId?: string;
+  size?: 'md' | 'lg';
+}) {
+  if (mode === 'modal') {
+    const modalMaxWidth = size === 'lg' ? 'max-w-6xl' : 'max-w-4xl';
+    const modalHeight = size === 'lg' ? 'h-[min(92vh,920px)]' : 'h-[min(90vh,880px)]';
+    return (
+      <div className="pointer-events-none fixed inset-0 z-[501] flex items-center justify-center p-4 sm:p-6">
+        <motion.div
+          key={size === 'lg' ? 'lead-detail-modal' : 'add-lead-modal'}
+          ref={panelRef}
+          initial={{ opacity: 0, scale: 0.96, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: 12 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+          className={`pointer-events-auto relative flex ${modalHeight} w-full ${modalMaxWidth} flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={dialogTitleId}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      key="panel"
+      ref={panelRef}
+      initial={{ x: '100%' }}
+      animate={{ x: 0 }}
+      exit={{ x: '100%' }}
+      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+      className="pointer-events-auto fixed right-0 top-0 z-[56] flex h-full flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl"
+      style={{ width: drawerWidth }}
+    >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize lead drawer"
+        title="Drag to resize drawer"
+        onMouseDown={onBeginResize}
+        className="group absolute left-0 top-0 z-20 flex h-full w-3 -translate-x-1/2 cursor-col-resize items-center justify-center hover:bg-blue-500/5 active:bg-blue-500/10"
+      >
+        <div className="flex h-14 w-4 items-center justify-center rounded-full border border-slate-200/80 bg-white shadow-sm transition-colors group-hover:border-blue-200 group-hover:bg-blue-50 group-active:border-blue-300">
+          <GripVertical
+            size={12}
+            className="text-slate-400 transition-colors group-hover:text-blue-500 group-active:text-blue-600"
+            aria-hidden
+          />
+        </div>
+      </div>
+      {children}
+    </motion.div>
+  );
 }
 
 const FieldRow = ({
@@ -1255,6 +1442,7 @@ export function LeadDetailsDrawer({
     setPendingAddLeadKycFiles([]);
     setPendingAddLeadTeamMemberKycFiles([]);
     if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
+    setAddLeadWizardStep(isHqOverrideMode ? 'workspace' : 'company');
     resetLeadAiAssistant();
   };
 
@@ -1404,6 +1592,14 @@ export function LeadDetailsDrawer({
     leadDetails: false,
   };
   const [addLeadSectionsOpen, setAddLeadSectionsOpen] = useState(DEFAULT_ADD_LEAD_SECTIONS);
+  const [addLeadWizardStep, setAddLeadWizardStep] = useState<AddLeadWizardStep>('company');
+  const addLeadWizardSteps = useMemo((): AddLeadWizardStep[] => {
+    return isHqOverrideMode ? ['workspace', ...TENANT_ADD_LEAD_WIZARD_STEPS] : TENANT_ADD_LEAD_WIZARD_STEPS;
+  }, [isHqOverrideMode]);
+  const addLeadWizardStepIndex = addLeadWizardSteps.indexOf(addLeadWizardStep);
+  const isAddLeadWizardFirstStep = addLeadWizardStepIndex <= 0;
+  const isAddLeadWizardLastStep =
+    addLeadWizardStepIndex >= 0 && addLeadWizardStepIndex === addLeadWizardSteps.length - 1;
   const [leadAiChatOpen, setLeadAiChatOpen] = useState(false);
   const [leadAiChatHistory, setLeadAiChatHistory] = useState<LeadAiChatMessage[]>([]);
   const [allowDuplicateCreate, setAllowDuplicateCreate] = useState(false);
@@ -1435,7 +1631,10 @@ export function LeadDetailsDrawer({
     if (!lead && !addLeadMode) return;
     setOverviewOpen(DEFAULT_LEAD_OVERVIEW_SECTIONS);
     setAddLeadSectionsOpen(DEFAULT_ADD_LEAD_SECTIONS);
-  }, [lead?.id, addLeadMode]);
+    if (addLeadMode) {
+      setAddLeadWizardStep(isHqOverrideMode ? 'workspace' : 'company');
+    }
+  }, [lead?.id, addLeadMode, isHqOverrideMode]);
   const [overviewEditMode, setOverviewEditMode] = useState(false);
   const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
   const [savingOverviewEdit, setSavingOverviewEdit] = useState(false);
@@ -1445,6 +1644,27 @@ export function LeadDetailsDrawer({
       onClose,
       enabled: true,
     });
+
+  useEffect(() => {
+    if (!drawerIsOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !leadAiChatOpen) {
+        void requestLeadDrawerClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [drawerIsOpen, leadAiChatOpen, requestLeadDrawerClose]);
+
+  const [leadPanelPortalReady, setLeadPanelPortalReady] = useState(false);
+  useEffect(() => {
+    setLeadPanelPortalReady(true);
+  }, []);
   const [overviewEditForm, setOverviewEditForm] = useState({
     companyName: '',
     industry: '',
@@ -2366,6 +2586,26 @@ export function LeadDetailsDrawer({
     );
   }, [addLeadForm]);
 
+  const goAddLeadWizardNext = useCallback(() => {
+    const stepErrors = validateAddLeadWizardStep(addLeadWizardStep, addLeadForm);
+    if (Object.keys(stepErrors).length > 0) {
+      setAddLeadErrors(stepErrors);
+      return;
+    }
+    setAddLeadErrors({});
+    const idx = addLeadWizardSteps.indexOf(addLeadWizardStep);
+    if (idx >= 0 && idx < addLeadWizardSteps.length - 1) {
+      setAddLeadWizardStep(addLeadWizardSteps[idx + 1]!);
+    }
+  }, [addLeadForm, addLeadWizardStep, addLeadWizardSteps]);
+
+  const goAddLeadWizardBack = useCallback(() => {
+    const idx = addLeadWizardSteps.indexOf(addLeadWizardStep);
+    if (idx > 0) {
+      setAddLeadWizardStep(addLeadWizardSteps[idx - 1]!);
+    }
+  }, [addLeadWizardStep, addLeadWizardSteps]);
+
   const handleSubmitAddLead = useCallback(async (options?: { skipDuplicateCheck?: boolean }) => {
     const nextErrors = validateLeadRequiredFields(addLeadForm);
     setAddLeadErrors(nextErrors);
@@ -2587,10 +2827,7 @@ export function LeadDetailsDrawer({
         { id: 'files' as const, label: 'Files', icon: Paperclip },
       ];
 
-  const drawerPanelClass =
-    'fixed right-0 top-0 z-[56] flex h-full flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl pointer-events-auto';
-
-  return (
+  const drawerTree = (
     <AnimatePresence>
       {(lead || addLeadMode) && (
         <>
@@ -2600,59 +2837,61 @@ export function LeadDetailsDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={leadAiChatOpen ? undefined : () => void requestLeadDrawerClose()}
-            className={`fixed inset-0 z-50 ${
+            className={`fixed inset-0 z-[500] ${
               addLeadMode && leadAiChatOpen
                 ? 'pointer-events-none bg-slate-900/10'
-                : addLeadMode
-                  ? 'pointer-events-auto bg-slate-900/40 backdrop-blur-[2px]'
-                  : 'pointer-events-auto bg-slate-900/40 backdrop-blur-[2px]'
+                : 'pointer-events-auto bg-slate-900/45 backdrop-blur-[2px]'
             }`}
             data-drawer-skip-dirty="true"
           />
-          <motion.div
-            key="panel"
-            ref={leadDrawerPanelRef}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className={drawerPanelClass}
-            style={{ width: addLeadDrawerWidth }}
+          <LeadDetailsPanelShell
+            mode="modal"
+            size={addLeadMode ? 'md' : 'lg'}
+            dialogTitleId={addLeadMode ? 'add-lead-modal-title' : 'lead-detail-modal-title'}
+            panelRef={leadDrawerPanelRef}
+            drawerWidth={addLeadDrawerWidth}
+            onBeginResize={beginAddLeadDrawerResize}
           >
           <div className="relative flex h-full min-h-0 flex-col">
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize lead drawer"
-              title="Drag to resize drawer"
-              onMouseDown={beginAddLeadDrawerResize}
-              className="group absolute left-0 top-0 z-20 flex h-full w-3 -translate-x-1/2 cursor-col-resize items-center justify-center hover:bg-blue-500/5 active:bg-blue-500/10"
-            >
-              <div className="flex h-14 w-4 items-center justify-center rounded-full border border-slate-200/80 bg-white shadow-sm transition-colors group-hover:border-blue-200 group-hover:bg-blue-50 group-active:border-blue-300">
-                <GripVertical
-                  size={12}
-                  className="text-slate-400 transition-colors group-hover:text-blue-500 group-active:text-blue-600"
-                  aria-hidden
-                />
-              </div>
-            </div>
           {/* Header */}
           <div
-            className={`flex shrink-0 items-start justify-between gap-3 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white px-6 py-5`}
+            className={`flex shrink-0 items-start justify-between gap-3 px-6 py-5 ${
+              addLeadMode
+                ? 'border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white'
+                : 'border-b border-slate-200 bg-white sm:px-8'
+            }`}
           >
             <div className="flex-1 min-w-0 flex items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
+              <div
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg ${
+                  addLeadMode
+                    ? 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-blue-500/25'
+                    : 'bg-gradient-to-br from-slate-700 to-slate-900 shadow-slate-900/20'
+                }`}
+              >
                 <Building2 size={20} />
               </div>
               <div className="min-w-0">
                 {addLeadMode ? (
                   <>
-                    <h2 className="text-lg font-bold tracking-tight text-slate-900">Add Lead</h2>
+                    <h2 id="add-lead-modal-title" className="text-lg font-bold tracking-tight text-slate-900">
+                      Add Lead
+                    </h2>
                     <p className="mt-0.5 text-xs text-slate-500">Create a new lead and capture company details</p>
                   </>
                 ) : (
                   <>
-                    <h2 className="text-lg font-bold text-slate-900 truncate">{lead!.companyName}</h2>
+                    <h2 id="lead-detail-modal-title" className="text-xl font-bold text-slate-900 truncate">
+                      {lead!.companyName}
+                    </h2>
+                    <p className="mt-0.5 text-sm text-slate-500 truncate">
+                      {formatDirectorDisplay(lead!.directorSalutation, lead!.contactPerson) ||
+                        lead!.contactPerson ||
+                        'No contact assigned'}
+                      {lead!.city || lead!.location
+                        ? ` · ${[lead!.city, lead!.state].filter(Boolean).join(', ') || lead!.location}`
+                        : ''}
+                    </p>
                     <span
                       className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
                         STATUS_STYLES[lead!.status as DefaultLeadStatus] || 'bg-slate-50 text-slate-700 border-slate-200'
@@ -2728,22 +2967,7 @@ export function LeadDetailsDrawer({
                       <AiCoinLockBadge featureId="ai.lead_details" />
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void handleSubmitAddLead()}
-                    disabled={isCreateLeadDisabled || uploadingAgreements || uploadingKyc}
-                    className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Plus size={14} />
-                    Create Lead
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void requestLeadDrawerClose()}
-                    className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
+                  <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
                 </>
               ) : (
                 <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
@@ -2794,7 +3018,11 @@ export function LeadDetailsDrawer({
             </div>
           </div>
 
-          {addLeadMode && !isPublicIntakeMode && !isHqOverrideMode && (
+          {addLeadMode ? (
+            <AddLeadWizardProgress steps={addLeadWizardSteps} currentStep={addLeadWizardStep} />
+          ) : null}
+
+          {addLeadMode && !isPublicIntakeMode && !isHqOverrideMode && addLeadWizardStep === 'company' ? (
             <div className="shrink-0 border-b border-blue-100 bg-blue-50/70 px-6 py-3">
               <div className="flex items-start gap-2">
                 <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
@@ -2857,7 +3085,7 @@ export function LeadDetailsDrawer({
                 </div>
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Tabs — hidden in add mode (header already shows Add Lead) */}
           {!addLeadMode ? (
@@ -3686,8 +3914,17 @@ export function LeadDetailsDrawer({
                   </div>
                 </div>
               ) : activeTab === 'add' ? (
-                <div className="space-y-5">
-                  {isHqOverrideMode ? (
+                <>
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={addLeadWizardStep}
+                    initial={{ opacity: 0, x: 16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -16 }}
+                    transition={{ duration: 0.22 }}
+                    className="space-y-5"
+                  >
+                  {addLeadWizardStep === 'workspace' && isHqOverrideMode ? (
                     <AddLeadSectionCard
                       title="Workspace"
                       subtitle="Choose CRM or Recruitment for this HQ lead"
@@ -3759,6 +3996,7 @@ export function LeadDetailsDrawer({
                     </AddLeadSectionCard>
                   ) : null}
 
+                  {addLeadWizardStep === 'company' ? (
                   <AddLeadSectionCard
                     title="Company Details"
                     subtitle="Organization name and online presence"
@@ -3772,9 +4010,17 @@ export function LeadDetailsDrawer({
                           icon={Building2}
                           iconClassName="text-blue-400"
                           value={addLeadForm.companyName}
-                          onChange={(e) => setAddLeadForm((p) => ({ ...p, companyName: e.target.value }))}
+                          onChange={(e) => {
+                            setAddLeadForm((p) => ({ ...p, companyName: e.target.value }));
+                            if (addLeadErrors.companyName) {
+                              setAddLeadErrors((prev) => ({ ...prev, companyName: undefined }));
+                            }
+                          }}
                           placeholder="e.g. Acme Inc."
                         />
+                        {addLeadErrors.companyName ? (
+                          <p className="mt-1 text-xs text-rose-600">{addLeadErrors.companyName}</p>
+                        ) : null}
                       </div>
                       <div>
                         <div className="mb-1.5 flex items-center justify-between gap-3">
@@ -3814,7 +4060,9 @@ export function LeadDetailsDrawer({
                       </div>
                     </div>
                   </AddLeadSectionCard>
+                  ) : null}
 
+                  {addLeadWizardStep === 'location' ? (
                   <AddLeadSectionCard
                     title="Location & Industry"
                     subtitle="Where the company operates"
@@ -3859,7 +4107,9 @@ export function LeadDetailsDrawer({
                       </div>
                     </div>
                   </AddLeadSectionCard>
+                  ) : null}
 
+                  {addLeadWizardStep === 'contacts' ? (
                   <AddLeadSectionCard
                     title="Contacts"
                     subtitle="Director and team member details"
@@ -3952,7 +4202,9 @@ export function LeadDetailsDrawer({
                       </div>
                     </div>
                   </AddLeadSectionCard>
+                  ) : null}
 
+                  {addLeadWizardStep === 'source' ? (
                   <AddLeadSectionCard
                     title="Source & Qualification"
                     subtitle="How you found this lead and its stage"
@@ -4050,7 +4302,9 @@ export function LeadDetailsDrawer({
                       </div>
                     </div>
                   </AddLeadSectionCard>
+                  ) : null}
 
+                  {addLeadWizardStep === 'followup' ? (
                   <AddLeadSectionCard
                     title="Follow-up & Assignment"
                     subtitle="Schedule the first follow-up and assign an owner"
@@ -4120,7 +4374,9 @@ export function LeadDetailsDrawer({
                       </div>
                     </div>
                   </AddLeadSectionCard>
+                  ) : null}
 
+                  {addLeadWizardStep === 'business' ? (
                   <AddLeadSectionCard
                     title="Business Opportunity"
                     subtitle="Services and expected value"
@@ -4173,7 +4429,9 @@ export function LeadDetailsDrawer({
                       ) : null}
                     </div>
                   </AddLeadSectionCard>
+                  ) : null}
 
+                  {addLeadWizardStep === 'other' ? (
                   <AddLeadSectionCard
                     title="Other"
                     subtitle="Add events with name, date, reminder, and email"
@@ -4191,6 +4449,10 @@ export function LeadDetailsDrawer({
                       onChange={(occasions) => setAddLeadForm((p) => ({ ...p, occasions }))}
                     />
                   </AddLeadSectionCard>
+                  ) : null}
+
+                  </motion.div>
+                </AnimatePresence>
 
                   <div className="hidden">
                   {/* Section 1 — Company Information */}
@@ -4537,7 +4799,7 @@ export function LeadDetailsDrawer({
                     )}
                   </section>
                   </div>
-                </div>
+                </>
               ) : activeTab === 'overview' ? (
                 <div className="space-y-5">
                       {isLeadAlreadyConverted(lead) ? (
@@ -6123,9 +6385,55 @@ export function LeadDetailsDrawer({
             </div>
             </div>
 
+          {addLeadMode ? (
+            <div className="relative shrink-0 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-sm">
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent" />
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={goAddLeadWizardBack}
+                  disabled={isAddLeadWizardFirstStep}
+                  className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void requestLeadDrawerClose()}
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  {isAddLeadWizardLastStep ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleSubmitAddLead()}
+                      disabled={isCreateLeadDisabled || uploadingAgreements || uploadingKyc}
+                      className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus size={14} />
+                      Create Lead
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={goAddLeadWizardNext}
+                      className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                    >
+                      Continue
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           </div>
           </div>
-        </motion.div>
+          </LeadDetailsPanelShell>
 
         {addLeadMode ? (
           <LeadAiChatDrawer
@@ -6151,7 +6459,7 @@ export function LeadDetailsDrawer({
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: '100%', opacity: 0 }}
               transition={{ type: 'spring', damping: 26, stiffness: 200 }}
-              className="fixed bottom-8 right-8 z-[60] w-full max-w-sm"
+              className={`fixed bottom-8 z-[520] w-full max-w-sm ${addLeadMode ? 'left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-8' : 'right-8'}`}
             >
               <div className="rounded-xl border border-slate-200 bg-white shadow-lg overflow-hidden">
                 <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50/80">
@@ -6244,4 +6552,10 @@ export function LeadDetailsDrawer({
       )}
     </AnimatePresence>
   );
+
+  if (drawerIsOpen && leadPanelPortalReady && typeof document !== 'undefined') {
+    return createPortal(drawerTree, document.body);
+  }
+
+  return drawerTree;
 }

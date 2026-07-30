@@ -19,26 +19,25 @@ import {
 import {
   ArrowRight,
   Award,
-  Bell,
   Calendar,
   CheckCircle2,
-  ChevronDown,
   ClipboardList,
   Clock3,
-  Download,
   Globe2,
-  Info,
   LogIn,
   MapPin,
   MonitorSmartphone,
+  MousePointerClick,
+  Radio,
   RefreshCcw,
   Trophy,
   Upload,
   UserPlus,
+  Users,
+  Zap,
 } from 'lucide-react';
 import type { HqEmployeeAnalytics } from '@/lib/api';
 import { HQ_SVG_ASSETS, HqSvgKpiCard } from './HqSvgKpiCard';
-import { HqPhase1ConnectionBar } from '../HqPhase1ConnectionBar';
 
 const INDIGO = '#6366F1';
 const PURPLE = '#8B5CF6';
@@ -70,8 +69,18 @@ function num(n: number | null | undefined) {
 }
 
 function growthPct(recent: number, baseline: number) {
-  if (!baseline) return recent > 0 ? 100 : 0;
-  return Math.round(((recent / baseline) * 1000) / 10);
+  if (!baseline && !recent) return null;
+  if (!baseline) return recent > 0 ? 100 : null;
+  return Math.round(((recent - baseline) / baseline) * 1000) / 10;
+}
+
+function sumLast(rows: { value: number }[], n: number) {
+  return rows.slice(-n).reduce((s, d) => s + (Number(d.value) || 0), 0);
+}
+
+function sumPrior(rows: { value: number }[], n: number) {
+  if (rows.length < n * 2) return sumLast(rows.slice(0, -n), n);
+  return rows.slice(-(n * 2), -n).reduce((s, d) => s + (Number(d.value) || 0), 0);
 }
 
 function mapPoints(rows?: Array<{ name: string; value: number }> | null) {
@@ -117,8 +126,9 @@ function formatClock(isoStr: string | null | undefined) {
 
 function EmptyChart({ label = 'No live data yet' }: { label?: string }) {
   return (
-    <div className="flex h-full min-h-[120px] items-center justify-center text-xs text-slate-400">
-      {label}
+    <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200/80 bg-slate-50/40 px-4 text-center">
+      <span className="h-8 w-8 rounded-full bg-slate-100 ring-1 ring-slate-200/80" />
+      <p className="text-xs font-medium text-slate-400">{label}</p>
     </div>
   );
 }
@@ -166,10 +176,14 @@ function Card({
 }) {
   return (
     <motion.div
-      whileHover={{ y: -1 }}
-      transition={{ duration: 0.15 }}
-      className={`rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${className}`}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
+      className={`hq-dash-card relative overflow-hidden rounded-2xl border border-white/80 bg-white/75 p-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.18)] backdrop-blur-xl ${className}`}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-indigo-300/60 to-transparent"
+      />
       {children}
     </motion.div>
   );
@@ -184,18 +198,57 @@ function SectionTitle({
 }) {
   return (
     <div className="mb-4 flex items-center justify-between gap-3">
-      <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
+        <h3 className="truncate text-[13px] font-semibold tracking-tight text-slate-800">{title}</h3>
+      </div>
       {right}
     </div>
   );
 }
 
+function RangeToggle({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex rounded-full border border-slate-200/80 bg-slate-50/80 p-0.5 text-[10px] font-semibold shadow-inner">
+      {options.map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => onChange(opt)}
+          className={`rounded-full px-2.5 py-1 transition ${
+            value === opt
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const tip = {
-  borderRadius: 10,
-  border: '1px solid #e2e8f0',
+  borderRadius: 12,
+  border: '1px solid rgba(99,102,241,0.14)',
   fontSize: 12,
-  boxShadow: '0 8px 24px rgba(15,23,42,0.08)',
+  fontWeight: 500,
+  background: 'rgba(255,255,255,0.96)',
+  color: '#0f172a',
+  boxShadow: '0 16px 40px -12px rgba(15,23,42,0.2)',
+  padding: '8px 12px',
 };
+
+const axisTick = { fontSize: 11, fill: '#94A3B8', fontWeight: 500 as const };
+const gridStroke = '#EEF2FF';
 
 export function HqPhase1CommandDashboard({
   data,
@@ -207,6 +260,8 @@ export function HqPhase1CommandDashboard({
   const c = data?.charts;
   const t = data?.tables;
   const insights = data?.insights || [];
+  const liveTracking = data?.liveTracking;
+  const hasLiveTracker = Boolean(liveTracking?.available && liveTracking.source === 'phase1_behavior_tracker');
   const isLive = Boolean(data?.live ?? data?.available);
   const [appRange, setAppRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
   const [candRange, setCandRange] = useState<'Daily' | 'Monthly'>('Monthly');
@@ -219,7 +274,7 @@ export function HqPhase1CommandDashboard({
   const interviewReqs = num(k?.interviewRequests);
   const matchAvg = k?.avgMatchScore != null ? Math.round(Number(k.avgMatchScore)) : null;
   const profilePct = k?.profileCompleteness != null ? Math.round(Number(k.profileCompleteness)) : null;
-  const totalResumes = num(k?.cvAnalyses);
+  const totalResumes = num(k?.resumesUploaded);
   const aiMatches = num(k?.aiMatches);
   const selected = num(k?.selectedApplications);
   const placements = selected;
@@ -228,74 +283,10 @@ export function HqPhase1CommandDashboard({
   const apps7d = num(k?.applications7d);
   const apps30d = num(k?.applications30d);
   const new7d = num(k?.new7d);
+  const new1d = num(k?.new1d);
   const jobsToday = num(k?.jobsPostedToday);
   const jobsWeek = num(k?.jobsPosted7d);
   const jobsMonth = num(k?.jobsPosted30d);
-
-  const candGrowth = growthPct(new7d, Math.max(totalCandidates - new7d, 1));
-  const newGrowth = growthPct(num(k?.new1d), Math.max(new7d, 1));
-  const appGrowth = growthPct(apps7d, Math.max(applications - apps7d, 1));
-  const activeAppGrowth = growthPct(apps7d, Math.max(activeApplications, 1));
-  const interviewGrowth = growthPct(num(k?.interviewPending), Math.max(interviewReqs, 1));
-
-  const kpis = [
-    {
-      label: 'Total Candidates',
-      value: totalCandidates,
-      growth: candGrowth,
-      iconSrc: HQ_SVG_ASSETS.totalCandidates.icon,
-      sparkSrc: HQ_SVG_ASSETS.totalCandidates.spark,
-    },
-    {
-      label: 'New Candidates',
-      value: newCandidates,
-      growth: newGrowth,
-      iconSrc: HQ_SVG_ASSETS.newCandidates.icon,
-      sparkSrc: HQ_SVG_ASSETS.newCandidates.spark,
-    },
-    {
-      label: 'Open Jobs',
-      value: activeJobs,
-      growth: growthPct(jobsWeek, Math.max(activeJobs, 1)),
-      iconSrc: HQ_SVG_ASSETS.openJobs.icon,
-      sparkSrc: HQ_SVG_ASSETS.openJobs.spark,
-    },
-    {
-      label: 'Applications',
-      value: applications,
-      growth: appGrowth,
-      iconSrc: HQ_SVG_ASSETS.applications.icon,
-      sparkSrc: HQ_SVG_ASSETS.applications.spark,
-    },
-    {
-      label: 'Active Applications',
-      value: activeApplications,
-      growth: activeAppGrowth,
-      iconSrc: HQ_SVG_ASSETS.activeApplications.icon,
-      sparkSrc: HQ_SVG_ASSETS.activeApplications.spark,
-    },
-    {
-      label: 'Interview Requests',
-      value: interviewReqs,
-      growth: interviewGrowth,
-      iconSrc: HQ_SVG_ASSETS.interviewRequests.icon,
-      sparkSrc: HQ_SVG_ASSETS.interviewRequests.spark,
-    },
-    {
-      label: 'Avg Match Score',
-      value: matchAvg == null ? '—' : `${matchAvg}%`,
-      growth: matchAvg == null ? 0 : Math.max(0, Math.round(matchAvg - 50)),
-      iconSrc: HQ_SVG_ASSETS.avgMatchScore.icon,
-      sparkSrc: HQ_SVG_ASSETS.avgMatchScore.spark,
-    },
-    {
-      label: 'Profile Completeness',
-      value: profilePct == null ? '—' : `${profilePct}%`,
-      growth: profilePct == null ? 0 : Math.max(0, Math.round(profilePct - 50)),
-      iconSrc: HQ_SVG_ASSETS.profileCompleteness.icon,
-      sparkSrc: HQ_SVG_ASSETS.profileCompleteness.spark,
-    },
-  ];
 
   const candidatesMonthly = useMemo(() => mapPoints(c?.candidatesOverTime), [c]);
   const candidatesDaily = useMemo(() => mapPoints(c?.candidatesDaily), [c]);
@@ -322,17 +313,103 @@ export function HqPhase1CommandDashboard({
     return applicationsMonthly;
   }, [appRange, applicationsDaily, applicationsWeekly, applicationsMonthly]);
 
+  const loginsDaily = useMemo(() => mapPoints(c?.loginsDaily), [c]);
+  const candGrowth = growthPct(sumLast(candidatesDaily, 7), sumPrior(candidatesDaily, 7));
+  const newGrowth = growthPct(new1d, Math.max(new7d - new1d, 0));
+  const appGrowth = growthPct(sumLast(applicationsDaily, 7), sumPrior(applicationsDaily, 7));
+  const interviewGrowth = growthPct(num(k?.interviewPending), Math.max(interviewReqs - num(k?.interviewPending), 0));
+
+  const kpis = [
+    {
+      label: 'Total Candidates',
+      value: totalCandidates,
+      growth: candGrowth,
+      iconSrc: HQ_SVG_ASSETS.totalCandidates.icon,
+      sparkData: seriesToSpark(candidatesDaily.length ? candidatesDaily : candidatesMonthly),
+      sparkColor: INDIGO,
+      compareLabel: new7d ? `${new7d} new in 7d` : 'from Phase 1',
+    },
+    {
+      label: 'New Candidates',
+      value: newCandidates,
+      growth: newGrowth,
+      iconSrc: HQ_SVG_ASSETS.newCandidates.icon,
+      sparkData: seriesToSpark(candidatesDaily),
+      sparkColor: GREEN,
+      compareLabel: `${new1d} today · ${new7d} in 7d`,
+    },
+    {
+      label: 'Open Jobs',
+      value: activeJobs,
+      growth: null,
+      iconSrc: HQ_SVG_ASSETS.openJobs.icon,
+      sparkData: seriesToSpark([{ value: activeJobs }, { value: num(k?.closedJobs) }, { value: activeJobs }]),
+      sparkColor: GOLD,
+      compareLabel: `${jobsWeek} posted in 7d`,
+    },
+    {
+      label: 'Applications',
+      value: applications,
+      growth: appGrowth,
+      iconSrc: HQ_SVG_ASSETS.applications.icon,
+      sparkData: seriesToSpark(applicationsDaily.length ? applicationsDaily : applicationsMonthly),
+      sparkColor: PURPLE,
+      compareLabel: `${apps7d} in 7d`,
+    },
+    {
+      label: 'Active Applications',
+      value: activeApplications,
+      growth: null,
+      iconSrc: HQ_SVG_ASSETS.activeApplications.icon,
+      sparkData: seriesToSpark(applicationsDaily),
+      sparkColor: ORANGE,
+      compareLabel: `${num(k?.applicationsToday)} today`,
+    },
+    {
+      label: 'Interview Requests',
+      value: interviewReqs,
+      growth: interviewGrowth,
+      iconSrc: HQ_SVG_ASSETS.interviewRequests.icon,
+      sparkData: seriesToSpark([
+        { value: num(k?.interviewCompleted) },
+        { value: num(k?.interviewPending) },
+        { value: interviewReqs },
+      ]),
+      sparkColor: '#EC4899',
+      compareLabel: `${num(k?.interviewPending)} open`,
+    },
+    {
+      label: 'Avg Match Score',
+      value: matchAvg == null ? '—' : `${matchAvg}%`,
+      growth: null,
+      iconSrc: HQ_SVG_ASSETS.avgMatchScore.icon,
+      sparkData: seriesToSpark(mapPoints(c?.matchScoreBuckets)),
+      sparkColor: '#84CC16',
+      compareLabel: matchAvg == null ? 'no scored apps yet' : 'live avg',
+    },
+    {
+      label: 'Profile Completeness',
+      value: profilePct == null ? '—' : `${profilePct}%`,
+      growth: null,
+      iconSrc: HQ_SVG_ASSETS.profileCompleteness.icon,
+      sparkData: seriesToSpark([
+        { value: num(k?.candidatesWithSkills) },
+        { value: totalResumes },
+        { value: profilePct ?? 0 },
+      ]),
+      sparkColor: '#64748B',
+      compareLabel: `${totalResumes} resumes · ${num(k?.candidatesWithSkills)} with skills`,
+    },
+  ];
+
   const funnel = useMemo(() => {
     const byStatus = mapPoints(c?.applicationsByStatus);
-    const shortlisted =
-      byStatus.find((d) => /shortlist/i.test(d.name))?.value ??
-      Math.min(aiMatches || applications, applications);
-    const interviewStage =
-      byStatus.find((d) => /interview/i.test(d.name))?.value ?? interviewReqs;
+    const shortlisted = byStatus.find((d) => /shortlist/i.test(d.name))?.value ?? 0;
+    const interviewStage = byStatus.find((d) => /interview/i.test(d.name))?.value ?? 0;
     return [
       { name: 'Jobs Published', value: activeJobs },
       { name: 'Applications', value: applications },
-      { name: 'AI Shortlisted', value: aiMatches || shortlisted },
+      { name: 'AI Shortlisted', value: shortlisted || aiMatches },
       { name: 'Interview Requests', value: interviewReqs || interviewStage },
       { name: 'Selected', value: selected },
       { name: 'Joined', value: placements },
@@ -351,8 +428,25 @@ export function HqPhase1CommandDashboard({
   const recentSessions = t?.recentSessions || [];
   const loginsToday = num(k?.loginsToday);
   const logins7d = num(k?.logins7d);
-  const activeSessions = num(k?.activeSessions);
-  const avgSessionMs = k?.avgSessionDurationMs ?? null;
+  const activeSessions = Math.max(
+    num(k?.activeSessions),
+    hasLiveTracker ? num(liveTracking?.onlineNow) : 0,
+  );
+  const avgSessionMs = k?.avgSessionDurationMs ?? liveTracking?.avgActiveMsPerUser7d ?? null;
+  const liveVisits7d = num(k?.liveVisits7d ?? liveTracking?.totalVisits7d);
+  const liveApplies7d = num(k?.liveApplies7d ?? liveTracking?.totalApplies7d);
+  const liveJobClicks7d = num(k?.liveJobClicks7d ?? liveTracking?.totalJobClicks7d);
+  const liveActiveMs7d = num(k?.liveActiveMs7d ?? liveTracking?.totalActiveMs7d);
+  const liveTrackedUsers = num(k?.liveTrackedUsers ?? liveTracking?.trackedUsers);
+  const livePageVisits = useMemo(
+    () => mapPoints(liveTracking?.pageVisitsByCategory).slice(0, 6),
+    [liveTracking],
+  );
+  const liveTriggers = useMemo(
+    () => mapPoints(liveTracking?.topTriggers).slice(0, 5),
+    [liveTracking],
+  );
+  const liveFeed = liveTracking?.liveFeed || [];
 
   const topJobs = useMemo(() => {
     if (!t?.topJobsByApplications?.length) return [];
@@ -366,19 +460,55 @@ export function HqPhase1CommandDashboard({
   }, [t, matchAvg]);
 
   const journey = [
-    { label: 'Registration', value: totalCandidates, growth: candGrowth, icon: UserPlus, color: INDIGO },
-    { label: 'Resume Upload', value: totalResumes, growth: growthPct(totalResumes, Math.max(totalCandidates, 1)), icon: Upload, color: BLUE },
+    {
+      label: 'Registration',
+      value: totalCandidates,
+      rate: 100,
+      icon: UserPlus,
+      color: INDIGO,
+    },
+    {
+      label: 'Resume Upload',
+      value: totalResumes,
+      rate: totalCandidates > 0 ? Math.round((totalResumes / totalCandidates) * 1000) / 10 : 0,
+      icon: Upload,
+      color: BLUE,
+    },
     {
       label: 'Profile Complete',
       value: profilePct == null ? 0 : Math.round(totalCandidates * (profilePct / 100)),
-      growth: profilePct ?? 0,
+      rate: profilePct ?? 0,
       icon: CheckCircle2,
       color: TEAL,
     },
-    { label: 'Application', value: applications, growth: appGrowth, icon: ClipboardList, color: ORANGE },
-    { label: 'Interview', value: interviewReqs, growth: interviewGrowth, icon: Calendar, color: PURPLE },
-    { label: 'Offer', value: selected, growth: growthPct(selected, Math.max(applications, 1)), icon: Award, color: GOLD },
-    { label: 'Joined', value: placements, growth: growthPct(placements, Math.max(selected, 1)), icon: Trophy, color: GREEN },
+    {
+      label: 'Application',
+      value: applications,
+      rate: totalCandidates > 0 ? Math.round((applications / totalCandidates) * 1000) / 10 : 0,
+      icon: ClipboardList,
+      color: ORANGE,
+    },
+    {
+      label: 'Interview',
+      value: interviewReqs,
+      rate: applications > 0 ? Math.round((interviewReqs / applications) * 1000) / 10 : 0,
+      icon: Calendar,
+      color: PURPLE,
+    },
+    {
+      label: 'Offer',
+      value: selected,
+      rate: applications > 0 ? Math.round((selected / applications) * 1000) / 10 : 0,
+      icon: Award,
+      color: GOLD,
+    },
+    {
+      label: 'Joined',
+      value: placements,
+      rate: selected > 0 ? Math.round((placements / selected) * 1000) / 10 : 0,
+      icon: Trophy,
+      color: GREEN,
+    },
   ];
 
   const categories = useMemo(() => {
@@ -419,97 +549,57 @@ export function HqPhase1CommandDashboard({
       })
     : '—';
 
-  const rangeLabel = useMemo(() => {
-    const end = generatedAt ? new Date(generatedAt) : new Date();
-    const start = new Date(end);
-    start.setDate(start.getDate() - 29);
-    const fmtDate = (d: Date) =>
-      d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
-    return `${fmtDate(start)} - ${fmtDate(end)}`;
-  }, [generatedAt]);
-
   const maxFunnel = Math.max(...funnel.map((f) => f.value), 1);
 
   return (
-    <div className="min-h-full bg-[#F8FAFC] font-[Inter,ui-sans-serif,system-ui,sans-serif] text-slate-900">
-      <div className="mx-auto w-full max-w-[1800px] px-5 py-5 xl:px-7">
-        {/* HEADER */}
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[28px] font-bold tracking-tight text-slate-900">Phase 1 Dashboard</h1>
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                  isLive ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                {isLive ? 'Live Phase 1' : 'Waiting for data'}
+    <div className="hq-dash-page min-h-full text-slate-900">
+      <div className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 xl:px-8">
+        <header className="hq-dash-card mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-white/80 bg-white/75 px-4 py-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:px-6">
+          <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/80">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                {hasLiveTracker ? 'Live Phase 1 tracker' : 'Live Phase 1'}
               </span>
             </div>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
-              Talent Platform Overview · connected to Phase 1 portal backend
-              <Info className="h-3.5 w-3.5 text-slate-400" />
+            <h1 className="hq-display text-[1.75rem] font-bold tracking-tight text-slate-900 sm:text-[2rem]">
+              Employees dashboard
+            </h1>
+            <p className="mt-1.5 text-sm font-medium text-slate-500">
+              Talent platform overview · Phase 1 portal analytics
+            </p>
+            <p className="mt-1 text-[11px] text-slate-400">
+              Updated {updatedLabel}
+              {hasLiveTracker
+                ? ` · tracker ${liveTrackedUsers} users · ${activeSessions} online`
+                : ' · portal DB + sessions'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm"
-            >
-              <Calendar className="h-4 w-4 text-slate-400" />
-              {rangeLabel}
-              <ChevronDown className="h-4 w-4 text-slate-400" />
-            </button>
-            <button
-              type="button"
               onClick={onRefresh}
               disabled={loading}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm disabled:opacity-50"
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50"
             >
               <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
-            <button
-              type="button"
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm"
-            >
-              <Download className="h-4 w-4" />
-              Export
-            </button>
-            <button
-              type="button"
-              className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm"
-            >
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
-            </button>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-xs font-bold text-white shadow-sm">
-              SA
-            </div>
           </div>
-        </div>
-
-        <HqPhase1ConnectionBar
-          live={isLive}
-          generatedAt={generatedAt}
-          candidateCount={totalCandidates}
-          sessionLogins7d={logins7d}
-          onRefresh={onRefresh}
-          loading={loading}
-        />
+        </header>
 
         {insights.length > 0 ? (
           <div className="mb-5 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {insights.slice(0, 3).map((insight, i) => (
               <div
                 key={`${insight.text}-${i}`}
-                className={`rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed ${
+                className={`rounded-2xl border px-3.5 py-3 text-xs leading-relaxed shadow-[0_10px_28px_-18px_rgba(15,23,42,0.2)] backdrop-blur-sm ${
                   insight.tone === 'good'
-                    ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
+                    ? 'border-emerald-200/80 bg-emerald-50/80 text-emerald-800'
                     : insight.tone === 'warn'
-                      ? 'border-amber-200 bg-amber-50/70 text-amber-800'
-                      : 'border-slate-200 bg-white text-slate-600'
+                      ? 'border-amber-200/80 bg-amber-50/80 text-amber-800'
+                      : 'border-white/70 bg-white/75 text-slate-600'
                 }`}
               >
                 {insight.text}
@@ -518,33 +608,125 @@ export function HqPhase1CommandDashboard({
           </div>
         ) : null}
 
-        {/* ROW 1 — 8 KPIs using real /public/svgs icons + sparkline charts */}
-        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+        {/* Live Phase 1 behaviour tracker */}
+        <div className="mb-5 grid grid-cols-12 gap-4">
+          <Card className="col-span-12 xl:col-span-8">
+            <SectionTitle
+              title="Phase 1 live tracking"
+              right={
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
+                  <Radio className="h-3 w-3" />
+                  {hasLiveTracker ? 'Behaviour engine' : 'Sessions fallback'}
+                </span>
+              }
+            />
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+              {[
+                { label: 'Online now', value: fmt(activeSessions), icon: Radio, color: TEAL },
+                { label: 'Tracked users', value: fmt(liveTrackedUsers), icon: Users, color: INDIGO },
+                { label: 'Visits 7d', value: fmt(liveVisits7d), icon: Globe2, color: BLUE },
+                { label: 'Job clicks 7d', value: fmt(liveJobClicks7d), icon: MousePointerClick, color: ORANGE },
+                { label: 'Applies 7d', value: fmt(liveApplies7d), icon: ClipboardList, color: PURPLE },
+                {
+                  label: 'Active time 7d',
+                  value: formatDurationMs(liveActiveMs7d || null),
+                  icon: Zap,
+                  color: GREEN,
+                },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    key={item.label}
+                    className="rounded-xl border border-white/70 bg-gradient-to-br from-white to-slate-50/90 p-3 shadow-[0_8px_20px_-14px_rgba(15,23,42,0.2)] ring-1 ring-slate-100/80"
+                  >
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      <Icon className="h-3 w-3" style={{ color: item.color }} />
+                      {item.label}
+                    </div>
+                    <p className="mt-1.5 text-lg font-bold tabular-nums text-slate-900">{item.value}</p>
+                  </div>
+                );
+              })}
+            </div>
+            {!hasLiveTracker ? (
+              <p className="mt-3 text-[11px] text-slate-400">
+                Waiting for Phase 1 behaviour heartbeats. Open the job portal while logged in so
+                `/api/hq-behavior` starts receiving live payloads.
+              </p>
+            ) : null}
+          </Card>
+
+          <Card className="col-span-12 md:col-span-6 xl:col-span-2">
+            <SectionTitle title="Page mix (7d)" />
+            {livePageVisits.length ? (
+              <ul className="space-y-2">
+                {livePageVisits.map((row) => (
+                  <li key={row.name} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate capitalize text-slate-600">{row.name.replace(/_/g, ' ')}</span>
+                    <span className="font-bold tabular-nums text-slate-900">{row.value}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyChart label="No page visits yet" />
+            )}
+          </Card>
+
+          <Card className="col-span-12 md:col-span-6 xl:col-span-2">
+            <SectionTitle title="Live feed" />
+            {liveFeed.length ? (
+              <ul className="max-h-[180px] space-y-2 overflow-y-auto">
+                {liveFeed.slice(0, 6).map((row) => (
+                  <li
+                    key={`${row.userId}-${row.capturedAt}`}
+                    className="rounded-lg border border-slate-100 bg-slate-50/70 px-2.5 py-2 text-[11px]"
+                  >
+                    <p className="font-semibold text-slate-800">
+                      {formatDurationMs(row.activeMs7d)} · {row.visits7d} visits
+                    </p>
+                    <p className="mt-0.5 truncate text-slate-500">
+                      {row.topTrigger || `${row.applies7d} applies · ${row.jobCardClicks7d} clicks`}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-slate-400">
+                      {formatClock(row.activityStateUpdatedAt || row.capturedAt)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : liveTriggers.length ? (
+              <ul className="space-y-2">
+                {liveTriggers.map((row) => (
+                  <li key={row.name} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate text-slate-600">{row.name.replace(/_/g, ' ')}</span>
+                    <span className="font-bold tabular-nums text-slate-900">{row.value}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyChart label="No live events yet" />
+            )}
+          </Card>
+        </div>
+
+        {/* KPI cards */}
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
           {kpis.map((item) => (
             <HqSvgKpiCard key={item.label} item={{ ...item, compareLabel: 'vs prior' }} />
           ))}
         </div>
 
-        {/* ROW 2 — Charts + Funnel */}
-        <div className="mb-5 grid grid-cols-12 gap-4">
+        {/* Charts + Funnel */}
+        <div className="mb-6 grid grid-cols-12 gap-4">
           <Card className="col-span-12 lg:col-span-5">
             <SectionTitle
               title="Candidates Joined Over Time"
               right={
-                <div className="flex rounded-lg border border-slate-200 p-0.5 text-[10px] font-semibold">
-                  {(['Daily', 'Monthly'] as const).map((opt) => (
-                    <button
-                      key={opt}
-                      type="button"
-                      onClick={() => setCandRange(opt)}
-                      className={`rounded-md px-2 py-1 transition ${
-                        candRange === opt ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
+                <RangeToggle
+                  options={['Daily', 'Monthly'] as const}
+                  value={candRange}
+                  onChange={(v) => setCandRange(v as 'Daily' | 'Monthly')}
+                />
               }
             />
             <div className="h-[250px]">
@@ -553,15 +735,23 @@ export function HqPhase1CommandDashboard({
                   <AreaChart data={candidatesOverTime} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="candFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={PURPLE} stopOpacity={0.28} />
+                        <stop offset="0%" stopColor={PURPLE} stopOpacity={0.34} />
                         <stop offset="100%" stopColor={PURPLE} stopOpacity={0.02} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={40} />
-                    <Tooltip contentStyle={tip} />
-                    <Area type="monotone" dataKey="value" stroke={PURPLE} fill="url(#candFill)" strokeWidth={2.4} />
+                    <CartesianGrid strokeDasharray="4 8" stroke={gridStroke} vertical={false} />
+                    <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} />
+                    <YAxis tick={axisTick} axisLine={false} tickLine={false} width={40} />
+                    <Tooltip contentStyle={tip} cursor={{ stroke: '#C7D2FE', strokeWidth: 1 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke={PURPLE}
+                      fill="url(#candFill)"
+                      strokeWidth={2.6}
+                      strokeLinecap="round"
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
@@ -585,7 +775,7 @@ export function HqPhase1CommandDashboard({
                         initial={{ scaleX: 0.7, opacity: 0 }}
                         animate={{ scaleX: 1, opacity: 1 }}
                         transition={{ delay: i * 0.05, duration: 0.35 }}
-                        className="flex h-8 items-center justify-center rounded-md text-[10px] font-bold text-white shadow-sm"
+                        className="flex h-8 items-center justify-center rounded-lg text-[10px] font-bold text-white shadow-[0_8px_16px_-8px_rgba(15,23,42,0.45)]"
                         style={{
                           width: `${Math.max(28, (step.value / maxFunnel) * widthPct + 20)}%`,
                           background: FUNNEL_COLORS[i],
@@ -604,20 +794,11 @@ export function HqPhase1CommandDashboard({
             <SectionTitle
               title="Applications Over Time"
               right={
-                <div className="flex rounded-lg border border-slate-200 p-0.5 text-[10px] font-semibold">
-                  {(['Daily', 'Weekly', 'Monthly'] as const).map((opt) => (
-                    <button
-                      key={opt}
-                      type="button"
-                      onClick={() => setAppRange(opt)}
-                      className={`rounded-md px-2 py-1 transition ${
-                        appRange === opt ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
+                <RangeToggle
+                  options={['Daily', 'Weekly', 'Monthly'] as const}
+                  value={appRange}
+                  onChange={(v) => setAppRange(v as 'Daily' | 'Weekly' | 'Monthly')}
+                />
               }
             />
             <div className="h-[250px]">
@@ -626,15 +807,23 @@ export function HqPhase1CommandDashboard({
                   <AreaChart data={applicationsOverTime} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="appFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={INDIGO} stopOpacity={0.28} />
+                        <stop offset="0%" stopColor={INDIGO} stopOpacity={0.32} />
                         <stop offset="100%" stopColor={INDIGO} stopOpacity={0.02} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={40} />
-                    <Tooltip contentStyle={tip} />
-                    <Area type="monotone" dataKey="value" stroke={INDIGO} fill="url(#appFill)" strokeWidth={2.4} />
+                    <CartesianGrid strokeDasharray="4 8" stroke={gridStroke} vertical={false} />
+                    <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} />
+                    <YAxis tick={axisTick} axisLine={false} tickLine={false} width={40} />
+                    <Tooltip contentStyle={tip} cursor={{ stroke: '#C7D2FE', strokeWidth: 1 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke={INDIGO}
+                      fill="url(#appFill)"
+                      strokeWidth={2.6}
+                      strokeLinecap="round"
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
@@ -653,7 +842,16 @@ export function HqPhase1CommandDashboard({
                 <div className="h-[170px] w-[170px] shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={sources} dataKey="value" nameKey="name" innerRadius={48} outerRadius={72} paddingAngle={2}>
+                      <Pie
+                        data={sources}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={50}
+                        outerRadius={74}
+                        paddingAngle={3}
+                        stroke="#fff"
+                        strokeWidth={2}
+                      >
                         {sources.map((_, i) => (
                           <Cell key={i} fill={SOURCE_COLORS[i % SOURCE_COLORS.length]} />
                         ))}
@@ -688,7 +886,7 @@ export function HqPhase1CommandDashboard({
                     <XAxis type="number" hide />
                     <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={tip} />
-                    <Bar dataKey="value" fill={PURPLE} radius={[0, 6, 6, 0]} barSize={12} />
+                    <Bar dataKey="value" fill={PURPLE} radius={[0, 8, 8, 0]} barSize={11} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -703,11 +901,11 @@ export function HqPhase1CommandDashboard({
               {experience.length ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={experience} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} interval={0} />
-                    <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={28} />
-                    <Tooltip contentStyle={tip} />
-                    <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={18}>
+                    <CartesianGrid strokeDasharray="4 8" stroke={gridStroke} vertical={false} />
+                    <XAxis dataKey="name" tick={{ ...axisTick, fontSize: 9 }} axisLine={false} tickLine={false} interval={0} />
+                    <YAxis tick={{ ...axisTick, fontSize: 10 }} axisLine={false} tickLine={false} width={28} />
+                    <Tooltip contentStyle={tip} cursor={{ fill: 'rgba(99,102,241,0.06)' }} />
+                    <Bar dataKey="value" radius={[8, 8, 0, 0]} barSize={18}>
                       {experience.map((_, i) => (
                         <Cell key={i} fill={i % 2 === 0 ? INDIGO : PURPLE} />
                       ))}
@@ -724,12 +922,12 @@ export function HqPhase1CommandDashboard({
             <SectionTitle title="Top Candidate Locations" />
             {locations.length ? (
               <div className="flex gap-3">
-                <div className="relative flex h-[150px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-50 ring-1 ring-slate-100">
-                  <svg viewBox="0 0 120 150" className="h-full w-full opacity-80">
+                <div className="relative flex h-[150px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-50/80 to-teal-50/50 ring-1 ring-indigo-100/70">
+                  <svg viewBox="0 0 120 150" className="h-full w-full opacity-90">
                     <path
                       d="M58 18c8 2 18 8 24 18 6 10 10 14 14 24 4 10 2 18-2 26-4 8-10 16-12 24-2 8 0 16 2 22-8 2-16 0-24-4-8-4-14-8-20-6-6 2-12 8-18 6-4-10-2-20 2-28 4-8 8-14 8-22 0-8-4-16-2-24 6-8 16-14 28-16z"
-                      fill="#E2E8F0"
-                      stroke="#CBD5E1"
+                      fill="#E0E7FF"
+                      stroke="#A5B4FC"
                       strokeWidth="1.5"
                     />
                     {locations.slice(0, 6).map((_, i) => {
@@ -776,9 +974,12 @@ export function HqPhase1CommandDashboard({
                 { label: 'Avg Resume Score', value: cvScore, suffix: '%', color: TEAL, spark: aiSparks[2] },
                 { label: 'Profile Completeness', value: profilePct, suffix: '%', color: ORANGE, spark: aiSparks[3] },
               ].map((m) => (
-                <div key={m.label} className="rounded-xl border border-slate-100 bg-slate-50/70 p-2.5">
+                <div
+                  key={m.label}
+                  className="rounded-xl border border-white/70 bg-gradient-to-br from-white to-slate-50/80 p-2.5 shadow-[0_8px_20px_-14px_rgba(15,23,42,0.25)] ring-1 ring-slate-100/80"
+                >
                   <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 leading-tight">{m.label}</p>
-                  <p className="mt-1 text-lg font-bold" style={{ color: m.color }}>
+                  <p className="mt-1 text-lg font-bold tabular-nums" style={{ color: m.color }}>
                     {m.value == null ? '—' : `${m.value}${m.suffix}`}
                   </p>
                   <MiniSpark data={m.spark} color={m.color} height={22} />
@@ -797,7 +998,16 @@ export function HqPhase1CommandDashboard({
                 <div className="h-[170px] w-[170px] shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={interviewStatus} dataKey="value" nameKey="name" innerRadius={48} outerRadius={72} paddingAngle={2}>
+                      <Pie
+                        data={interviewStatus}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={50}
+                        outerRadius={74}
+                        paddingAngle={3}
+                        stroke="#fff"
+                        strokeWidth={2}
+                      >
                         {interviewStatus.map((_, i) => (
                           <Cell key={i} fill={INTERVIEW_COLORS[i % INTERVIEW_COLORS.length]} />
                         ))}
@@ -895,7 +1105,7 @@ export function HqPhase1CommandDashboard({
                     </div>
                     <p className="mt-2 text-[10px] font-medium leading-tight text-slate-500">{step.label}</p>
                     <p className="mt-1 text-sm font-bold text-slate-900">{fmt(step.value)}</p>
-                    <p className="mt-0.5 text-[10px] font-semibold text-emerald-600">▲ {step.growth}%</p>
+                    <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{step.rate}%</p>
                   </div>
                 );
               })}
@@ -935,9 +1145,13 @@ export function HqPhase1CommandDashboard({
             <SectionTitle title="Job Status Mix" />
             {categories.length ? (
               <>
-                <div className="mb-3 flex h-3 overflow-hidden rounded-full">
+                <div className="mb-3 flex h-3.5 overflow-hidden rounded-full bg-slate-100/80 ring-1 ring-slate-100">
                   {categories.map((cat, i) => (
-                    <div key={cat.name} style={{ width: `${cat.pct}%`, background: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }} />
+                    <div
+                      key={cat.name}
+                      className="h-full first:rounded-l-full last:rounded-r-full"
+                      style={{ width: `${cat.pct}%`, background: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }}
+                    />
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-2">
@@ -956,10 +1170,10 @@ export function HqPhase1CommandDashboard({
           </Card>
 
           <Card className="col-span-6 lg:col-span-2">
-            <p className="text-[11px] font-medium text-slate-500">Application Rate</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Application Rate</p>
             <div className="mt-2 flex items-end justify-between gap-2">
               <div>
-                <p className="text-2xl font-bold text-indigo-600">{appRate}%</p>
+                <p className="hq-display text-2xl font-bold tabular-nums text-indigo-600">{appRate}%</p>
                 <p className="mt-1 text-[11px] text-slate-400">apps / candidates</p>
               </div>
               <div className="w-16">
@@ -969,10 +1183,10 @@ export function HqPhase1CommandDashboard({
           </Card>
 
           <Card className="col-span-6 lg:col-span-2">
-            <p className="text-[11px] font-medium text-slate-500">Offer Rate</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Offer Rate</p>
             <div className="mt-2 flex items-end justify-between gap-2">
               <div>
-                <p className="text-2xl font-bold text-violet-600">{offerRate}%</p>
+                <p className="hq-display text-2xl font-bold tabular-nums text-violet-600">{offerRate}%</p>
                 <p className="mt-1 text-[11px] text-slate-400">selected / apps · 7d {fmt(apps7d)}</p>
               </div>
               <div className="w-16">
@@ -990,17 +1204,30 @@ export function HqPhase1CommandDashboard({
               {[
                 { label: 'Logins today', value: fmt(loginsToday), icon: LogIn, color: INDIGO },
                 { label: 'Logins 7d', value: fmt(logins7d), icon: Calendar, color: PURPLE },
-                { label: 'Active now', value: fmt(activeSessions), icon: MonitorSmartphone, color: TEAL },
-                { label: 'Avg duration', value: formatDurationMs(avgSessionMs), icon: Clock3, color: ORANGE },
+                {
+                  label: 'Online now',
+                  value: fmt(activeSessions),
+                  icon: MonitorSmartphone,
+                  color: TEAL,
+                },
+                {
+                  label: 'Avg duration',
+                  value: formatDurationMs(avgSessionMs),
+                  icon: Clock3,
+                  color: ORANGE,
+                },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
-                  <div key={item.label} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                  <div
+                    key={item.label}
+                    className="rounded-xl border border-white/70 bg-gradient-to-br from-white to-slate-50/90 p-3 shadow-[0_8px_20px_-14px_rgba(15,23,42,0.2)] ring-1 ring-slate-100/80"
+                  >
                     <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                       <Icon className="h-3 w-3" style={{ color: item.color }} />
                       {item.label}
                     </div>
-                    <p className="mt-1.5 text-xl font-bold text-slate-900">{item.value}</p>
+                    <p className="mt-1.5 text-xl font-bold tabular-nums text-slate-900">{item.value}</p>
                   </div>
                 );
               })}
@@ -1015,9 +1242,17 @@ export function HqPhase1CommandDashboard({
                         <stop offset="100%" stopColor={TEAL} stopOpacity={0.02} />
                       </linearGradient>
                     </defs>
-                    <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={tip} />
-                    <Area type="monotone" dataKey="value" stroke={TEAL} fill="url(#loginFill)" strokeWidth={2} />
+                    <XAxis dataKey="name" tick={{ ...axisTick, fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={tip} cursor={{ stroke: '#99F6E4', strokeWidth: 1 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke={TEAL}
+                      fill="url(#loginFill)"
+                      strokeWidth={2.4}
+                      strokeLinecap="round"
+                      activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
@@ -1033,7 +1268,16 @@ export function HqPhase1CommandDashboard({
                 <div className="h-[170px] w-[150px] shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={loginsByCountry} dataKey="value" nameKey="name" innerRadius={42} outerRadius={66} paddingAngle={2}>
+                      <Pie
+                        data={loginsByCountry}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={44}
+                        outerRadius={68}
+                        paddingAngle={3}
+                        stroke="#fff"
+                        strokeWidth={2}
+                      >
                         {loginsByCountry.map((_, i) => (
                           <Cell key={i} fill={SOURCE_COLORS[i % SOURCE_COLORS.length]} />
                         ))}
@@ -1118,8 +1362,10 @@ export function HqPhase1CommandDashboard({
                         <td className="px-4 py-2.5">
                           <div className="font-semibold text-slate-900">{row.candidate}</div>
                           <div className="text-[10px] text-slate-400">
-                            {row.isActive ? (
-                              <span className="font-semibold text-emerald-600">Active</span>
+                            {row.status === 'online' || row.isActive ? (
+                              <span className="font-semibold text-emerald-600">Online</span>
+                            ) : row.status === 'idle' ? (
+                              <span className="font-semibold text-amber-600">Idle</span>
                             ) : (
                               'Closed'
                             )}
@@ -1127,7 +1373,9 @@ export function HqPhase1CommandDashboard({
                         </td>
                         <td className="px-3 py-2.5 text-[11px] text-slate-600">{formatClock(row.loginAt)}</td>
                         <td className="px-3 py-2.5 text-[11px] text-slate-600">{formatClock(row.logoutAt)}</td>
-                        <td className="px-3 py-2.5 text-[11px] font-semibold text-slate-800">{formatDurationMs(row.durationMs)}</td>
+                        <td className="px-3 py-2.5 text-[11px] font-semibold text-slate-800">
+                          {row.durationMs > 0 ? formatDurationMs(row.durationMs) : '—'}
+                        </td>
                         <td className="px-3 py-2.5 text-[11px] text-slate-600">
                           <div className="font-medium capitalize">{row.deviceType}</div>
                           <div className="text-[10px] text-slate-400">{row.browser} · {row.operatingSystem}</div>
@@ -1160,7 +1408,7 @@ export function HqPhase1CommandDashboard({
         </div>
 
         {/* FOOTER */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white px-5 py-3 text-xs text-slate-500 shadow-sm">
+        <div className="hq-dash-card flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/80 bg-white/75 px-5 py-3.5 text-xs text-slate-500 shadow-[0_18px_48px_-24px_rgba(15,23,42,0.14)] backdrop-blur-xl">
           <div className="flex items-center gap-2">
             <span>
               Last updated: <strong className="text-slate-700">{updatedLabel}</strong>
@@ -1179,7 +1427,7 @@ export function HqPhase1CommandDashboard({
           <div className="inline-flex items-center gap-1.5">
             <span className={`h-1.5 w-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
             {isLive
-              ? 'Live Phase 1 data · auto-refreshes every 45s'
+              ? 'Live Phase 1 data · auto-refreshes every 15s'
               : 'Waiting for Phase 1 analytics response'}
           </div>
         </div>

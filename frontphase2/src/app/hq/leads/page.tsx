@@ -761,13 +761,13 @@ export default function HqLeadsPage() {
                   )}
                   <table className="w-full min-w-[760px] text-left" aria-label="Landing signups">
                     <thead className="sticky top-0 z-10">
-                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
-                        <th className="px-3 sm:px-4 py-2">Contact</th>
-                        <th className="px-3 sm:px-4 py-2">Company</th>
-                        <th className="px-3 sm:px-4 py-2">Kind</th>
-                        <th className="px-3 sm:px-4 py-2">Status</th>
-                        <th className="px-3 sm:px-4 py-2">Submitted</th>
-                        <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
+                      <tr>
+                        <th>Contact</th>
+                        <th>Company</th>
+                        <th>Kind</th>
+                        <th>Status</th>
+                        <th>Submitted</th>
+                        <th className="text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/80">
@@ -831,14 +831,14 @@ export default function HqLeadsPage() {
                 ) : (
                   <table className="w-full min-w-[760px] text-left" aria-label="Leads">
                     <thead className="sticky top-0 z-10">
-                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
-                        <th className="px-3 sm:px-4 py-2 min-w-[11rem]">Lead</th>
-                        <th className="px-3 sm:px-4 py-2">Source</th>
-                        <th className="px-3 sm:px-4 py-2">Contact</th>
-                        <th className="px-3 sm:px-4 py-2">Status</th>
-                        <th className="px-3 sm:px-4 py-2">Assigned To</th>
-                        <th className="px-3 sm:px-4 py-2">Next Follow-up</th>
-                        <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
+                      <tr>
+                        <th className="min-w-[11rem]">Lead</th>
+                        <th>Source</th>
+                        <th>Contact</th>
+                        <th>Status</th>
+                        <th>Assigned To</th>
+                        <th>Next Follow-up</th>
+                        <th className="text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/80">

@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Coins, Lock } from 'lucide-react';
-import { apiGetTenantCoins, type AiCoinPack, type HqAiFeature, TENANT_COINS_REFRESH_EVENT } from '@/lib/api';
+import { apiGetTenantCoins, type AiCoinPack, type HqAiFeature, TENANT_COINS_REFRESH_EVENT, AI_FEATURE_COSTS_UPDATED_EVENT, AI_FEATURE_COSTS_UPDATED_STORAGE_KEY } from '@/lib/api';
 import { ApiRequestError } from '@/lib/apiNetworkErrors';
 import {
   AiCoinPurchaseModal,
@@ -84,6 +84,9 @@ export function TenantCoinsProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     void refresh();
     const onFocus = () => void refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
     const onCoins = (event: Event) => {
       const detail = (event as CustomEvent<{ coins?: number; spent?: number }>).detail || {};
       if (detail.coins != null && Number.isFinite(Number(detail.coins))) {
@@ -103,11 +106,25 @@ export function TenantCoinsProvider({ children }: { children: React.ReactNode })
       }
       scheduleRefresh();
     };
+    const onCostsUpdated = () => void refresh();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === AI_FEATURE_COSTS_UPDATED_STORAGE_KEY) void refresh();
+    };
+
     window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener(TENANT_COINS_REFRESH_EVENT, onCoins);
+    window.addEventListener(AI_FEATURE_COSTS_UPDATED_EVENT, onCostsUpdated);
+    window.addEventListener('storage', onStorage);
+    const poll = window.setInterval(() => void refresh(), 30_000);
+
     return () => {
       window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener(TENANT_COINS_REFRESH_EVENT, onCoins);
+      window.removeEventListener(AI_FEATURE_COSTS_UPDATED_EVENT, onCostsUpdated);
+      window.removeEventListener('storage', onStorage);
+      window.clearInterval(poll);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
   }, [refresh, scheduleRefresh, applyCoins]);
