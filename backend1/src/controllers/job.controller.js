@@ -4,6 +4,10 @@ const { runJobMatchingPipeline: runJobMatchingPipelinePhase1 } = require('../ser
 const { formatPortalJob, shouldShowClientNamePublicly } = require('../utils/formatPortalJob.util');
 const { normalizeContentLocale } = require('../services/contentTranslation.service');
 const { localizePortalJob, localizePortalJobs } = require('../utils/localizePortalJob.util');
+const {
+  recordAdminAudit,
+  auditContextFromReq,
+} = require('../services/audit.service');
 
 // simple in-memory cache
 const cache = {
@@ -1186,6 +1190,18 @@ async function deleteJob(req, res) {
       });
     });
 
+    recordAdminAudit({
+      ...auditContextFromReq(req, { source: 'superadminpage' }),
+      action: 'job.delete',
+      entityType: 'job',
+      entityId: jobId,
+      status: 'success',
+      metadata: {
+        title: existingJob.title || null,
+        applicationsRemoved: applicationIds.length,
+      },
+    });
+
     return res.json({
       success: true,
       message: 'Job deleted successfully',
@@ -1262,6 +1278,18 @@ async function bulkDeleteJobs(req, res) {
       await tx.job.deleteMany({
         where: { id: { in: jobIds } },
       });
+    });
+
+    recordAdminAudit({
+      ...auditContextFromReq(req, { source: 'superadminpage' }),
+      action: 'job.bulk_delete',
+      entityType: 'job',
+      entityId: jobIds.join(',').slice(0, 120),
+      status: 'success',
+      metadata: {
+        count: jobIds.length,
+        jobs: existingJobs,
+      },
     });
 
     return res.json({

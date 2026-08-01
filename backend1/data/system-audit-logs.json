@@ -1,0 +1,41 @@
+[
+  {
+    "id": "6a6b285d8476bd0fb656ef13",
+    "action": "audit.hq_release",
+    "entityType": "hq_release",
+    "entityId": "hqaud_ms7dkqzp_yqlrq6q",
+    "actorId": "portal-admin-ui",
+    "actorLabel": "HQ",
+    "actorRole": "hq",
+    "source": "audit.hq.release",
+    "status": "success",
+    "ipAddress": null,
+    "userAgent": null,
+    "metadata": {
+      "eventCount": 1,
+      "sinceHours": 24,
+      "acknowledged": true,
+      "note": "Released from Administration UI"
+    },
+    "capturedAt": "2026-07-30T10:33:01.862Z",
+    "createdAt": "2026-07-30T10:33:01.895Z"
+  },
+  {
+    "id": "6a6b161d699c0297bcce81c0",
+    "action": "audit.smoke_test",
+    "entityType": "system",
+    "entityId": null,
+    "actorId": "admin",
+    "actorLabel": "Setup",
+    "actorRole": "admin",
+    "source": "complete-request",
+    "status": "success",
+    "ipAddress": "::1",
+    "userAgent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.8875",
+    "metadata": {
+      "ok": true
+    },
+    "capturedAt": "2026-07-30T09:15:09.429Z",
+    "createdAt": "2026-07-30T09:15:09.567Z"
+  }
+]

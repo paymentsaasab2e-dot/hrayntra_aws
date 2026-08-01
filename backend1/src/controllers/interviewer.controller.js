@@ -1,6 +1,10 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 
 const INTERNAL_ADMIN_KEY = process.env.INTERVIEW_ADMIN_KEY || process.env.INTERNAL_API_KEY || '';
+const {
+  recordAdminAudit,
+  auditContextFromReq,
+} = require('../services/audit.service');
 
 function normalizeStatusLabel(status) {
   return String(status || '')
@@ -278,6 +282,25 @@ async function reviewInterviewerApplication(req, res) {
         },
       })
     ).catch(() => {});
+
+    recordAdminAudit({
+      ...auditContextFromReq(req, {
+        source: 'interviewer.admin',
+        actorLabel: reviewedBy || 'admin',
+      }),
+      action:
+        status === 'APPROVED'
+          ? 'interviewer.application_approve'
+          : 'interviewer.application_reject',
+      entityType: 'interviewer_application',
+      entityId: application.id,
+      status: 'success',
+      metadata: {
+        candidateId: application.candidateId,
+        decision: status,
+        reviewNotes: reviewNotes || null,
+      },
+    });
 
     return res.json({
       success: true,

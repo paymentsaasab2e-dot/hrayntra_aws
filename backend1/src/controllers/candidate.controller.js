@@ -1,6 +1,10 @@
 const { prisma } = require('../lib/prisma');
 const { getCandidateCommonPrisma } = require('../lib/candidateCommonPrisma');
 const { destroyByCloudinaryUrl } = require('../lib/s3');
+const {
+  recordAdminAudit,
+  auditContextFromReq,
+} = require('../services/audit.service');
 
 const CANDIDATE_DELETE_PREVIEW_INCLUDE = {
   profile: true,
@@ -776,6 +780,19 @@ async function deleteCandidate(req, res) {
 
     const purgeResult = await purgeCandidateById(id);
 
+    recordAdminAudit({
+      ...auditContextFromReq(req, { source: 'superadminpage' }),
+      action: 'candidate.hard_delete',
+      entityType: 'candidate',
+      entityId: id,
+      status: 'success',
+      metadata: {
+        email: candidate.email || null,
+        whatsappNumber: candidate.whatsappNumber || null,
+        commonDatabaseRemoved: Boolean(purgeResult.commonPurge?.removed),
+      },
+    });
+
     res.json({
       success: true,
       message:
@@ -857,6 +874,20 @@ async function bulkDeleteCandidates(req, res) {
         data: { failed },
       });
     }
+
+    recordAdminAudit({
+      ...auditContextFromReq(req, { source: 'superadminpage' }),
+      action: 'candidate.bulk_delete',
+      entityType: 'candidate',
+      entityId: existing.map((r) => r.id).join(',').slice(0, 120),
+      status: failed.length ? 'partial' : 'success',
+      metadata: {
+        requestedIds: ids,
+        deletedCount,
+        commonDatabaseRemovedIds: commonRemoved,
+        failed,
+      },
+    });
 
     return res.json({
       success: true,

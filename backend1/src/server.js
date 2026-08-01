@@ -127,6 +127,8 @@ app.use('/api/resume-preview', resumePreviewRoutes);
 app.use('/api/employers/demo-request', employerDemoRoutes);
 app.use('/api/events/public', publicEventsRoutes);
 app.use('/api/tokens', tokenRoutes);
+app.use('/api/audit', require('./routes/audit.routes'));
+app.use('/api/hq-chat', require('./routes/hq-chat.routes'));
 app.use('/api/document-download', require('./routes/documentDownload.routes'));
 app.use('/api/document-view', require('./routes/documentView.routes'));
 

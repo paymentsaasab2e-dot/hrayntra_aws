@@ -1742,3 +1742,32 @@ model EmployerDemoRequest {
   @@map("employer_demo_requests")
 }
 
+// ============================================================
+// SYSTEM AUDIT LOGS (admin / privileged actions)
+// ============================================================
+
+model SystemAuditLog {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  /// e.g. candidate.hard_delete | job.bulk_delete | audit.hq_release
+  action      String
+  entityType  String
+  entityId    String?
+  actorId     String?
+  actorLabel  String?
+  actorRole   String?
+  source      String?
+  status      String   @default("success")
+  ipAddress   String?
+  userAgent   String?
+  /// Free-form details (before/after, counts, HQ package ids, etc.)
+  metadata    Json?
+  capturedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([action])
+  @@index([entityType])
+  @@index([actorId])
+  @@index([capturedAt])
+  @@map("system_audit_logs")
+}
+

@@ -1281,6 +1281,154 @@ async function setPassword(req, res) {
   }
 }
 
+async function checkCredential(req, res) {
+  try {
+    const {
+      type: rawType,
+      value,
+      countryCode,
+      excludeCandidateId,
+      intent: rawIntent,
+    } = req.body || {};
+    const type = String(rawType || '').toLowerCase() === 'phone' ? 'phone' : 'email';
+    const intent = String(rawIntent || 'signup').toLowerCase();
+
+    if (type === 'email') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const normalizedEmail = String(value || '').trim().toLowerCase();
+      if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
+        return res.status(400).json({
+          success: false,
+          available: false,
+          code: 'INVALID_EMAIL',
+          message: 'Please enter a valid email address',
+        });
+      }
+
+      // Indexed lookup only — no full table scan
+      const existing = await retryQuery(async () => {
+        return await prisma.candidate.findFirst({
+          where: {
+            email: normalizedEmail,
+            ...(excludeCandidateId ? { NOT: { id: String(excludeCandidateId) } } : {}),
+          },
+          select: { id: true, isVerified: true, passwordHash: true },
+        });
+      });
+
+      if (existing && (existing.isVerified || existing.passwordHash || intent === 'signup')) {
+        return res.json({
+          success: true,
+          available: false,
+          takenByOther: true,
+          code: 'EMAIL_TAKEN',
+          message:
+            intent === 'profile'
+              ? 'This email is already used by another account.'
+              : 'An account with this email already exists. Sign in instead.',
+        });
+      }
+
+      return res.json({
+        success: true,
+        available: true,
+        takenByOther: false,
+        code: 'EMAIL_AVAILABLE',
+      });
+    }
+
+    // phone
+    const cleanNumber = String(value || '').replace(/\D/g, '');
+    if (!cleanNumber || cleanNumber.length < 6) {
+      return res.status(400).json({
+        success: false,
+        available: false,
+        code: 'INVALID_PHONE',
+        message: 'Please enter a valid mobile number',
+      });
+    }
+
+    const resolvedCountryCode = countryCode || '+91';
+    const fullWhatsAppNumber = `${resolvedCountryCode}${cleanNumber}`;
+    const resolvedPhone = resolveWhatsAppLogin({
+      countryCode: resolvedCountryCode,
+      whatsappNumber: cleanNumber,
+      existingFullNumber: fullWhatsAppNumber,
+    });
+    const normalizedFull =
+      resolvedPhone?.fullNumber || fullWhatsAppNumber;
+
+    // Prefer unique index on whatsappNumber; fallback legacy match helper
+    let existing = await retryQuery(async () => {
+      return await prisma.candidate.findFirst({
+        where: {
+          whatsappNumber: normalizedFull,
+          ...(excludeCandidateId ? { NOT: { id: String(excludeCandidateId) } } : {}),
+        },
+        select: { id: true, isVerified: true, passwordHash: true },
+      });
+    });
+
+    if (!existing) {
+      existing = await findCandidateByWhatsAppFlexible(normalizedFull, excludeCandidateId);
+    }
+
+    if (existing && (existing.isVerified || existing.passwordHash || intent === 'signup')) {
+      return res.json({
+        success: true,
+        available: false,
+        takenByOther: true,
+        code: 'PHONE_TAKEN',
+        message:
+          intent === 'profile'
+            ? 'This mobile number is already used by another account.'
+            : 'An account with this mobile number already exists. Sign in instead.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      available: true,
+      takenByOther: false,
+      code: 'PHONE_AVAILABLE',
+    });
+  } catch (error) {
+    console.error('Error checking credential:', error);
+    return res.status(500).json({
+      success: false,
+      available: false,
+      code: 'CHECK_FAILED',
+      message: 'Could not verify uniqueness right now',
+    });
+  }
+}
+
+/**
+ * Flexible WhatsApp match using existing helpers — still candidate-scoped, not a dump of all users.
+ */
+async function findCandidateByWhatsAppFlexible(normalizedFull, excludeCandidateId) {
+  try {
+    const dialDigits = String(normalizedFull || '').replace(/\D/g, '');
+    if (dialDigits.length < 6) return null;
+    const last10 = dialDigits.slice(-10);
+    const rows = await retryQuery(async () => {
+      return await prisma.candidate.findMany({
+        where: {
+          whatsappNumber: { contains: last10 },
+          ...(excludeCandidateId ? { NOT: { id: String(excludeCandidateId) } } : {}),
+        },
+        select: { id: true, isVerified: true, passwordHash: true, whatsappNumber: true },
+        take: 8,
+      });
+    });
+    return (
+      rows.find((row) => whatsappNumbersMatch(row.whatsappNumber, normalizedFull)) || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -1288,6 +1436,7 @@ module.exports = {
   loginWithPassword,
   setPassword,
   logout,
+  checkCredential,
 };
 
 

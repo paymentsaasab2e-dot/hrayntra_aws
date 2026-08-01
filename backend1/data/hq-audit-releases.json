@@ -1,0 +1,53 @@
+[
+  {
+    "releaseId": "hqaud_ms7dkqzp_yqlrq6q",
+    "version": "1.0",
+    "product": "HRYantra Portal (backend1)",
+    "purpose": "System audit logs for administrative actions — HQ attach package",
+    "generatedAt": "2026-07-30T10:33:01.861Z",
+    "window": {
+      "sinceHours": 24,
+      "from": "2026-07-29T10:33:01.848Z",
+      "to": "2026-07-30T10:33:01.861Z"
+    },
+    "summary": {
+      "eventCount": 1,
+      "totalMatched": 1,
+      "byAction": {
+        "audit.smoke_test": 1
+      },
+      "highRiskActions": []
+    },
+    "events": [
+      {
+        "id": "6a6b161d699c0297bcce81c0",
+        "action": "audit.smoke_test",
+        "entityType": "system",
+        "entityId": null,
+        "actorId": "admin",
+        "actorLabel": "Setup",
+        "actorRole": "admin",
+        "source": "complete-request",
+        "status": "success",
+        "ipAddress": "::1",
+        "userAgent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.8875",
+        "metadata": {
+          "ok": true
+        },
+        "capturedAt": "2026-07-30T09:15:09.429Z",
+        "createdAt": "2026-07-30T09:15:09.438Z"
+      }
+    ],
+    "attachHints": {
+      "header": "x-internal-admin-key",
+      "pollFeed": "GET /api/audit/hq/feed",
+      "release": "GET|POST /api/audit/hq/release",
+      "listEvents": "GET /api/audit/events",
+      "writeEvent": "POST /api/audit/events",
+      "nextProxy": "GET|POST /api/hq-audit (jobportal Next app)"
+    },
+    "acknowledgedAt": "2026-07-30T10:33:01.861Z",
+    "acknowledgedBy": "portal-admin-ui",
+    "note": "Released from Administration UI"
+  }
+]
