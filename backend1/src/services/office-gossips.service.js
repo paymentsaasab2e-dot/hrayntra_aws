@@ -138,6 +138,51 @@ function slimPost(post) {
   };
 }
 
+/** Merge DM threads: upsert by id, union messages by message id. */
+function mergeDmThreads(existing, incoming) {
+  const map = new Map();
+  for (const row of existing || []) {
+    if (row && row.id != null) map.set(String(row.id), row);
+  }
+  for (const row of incoming || []) {
+    if (!row || row.id == null) continue;
+    const id = String(row.id);
+    const prev = map.get(id);
+    if (!prev) {
+      map.set(id, row);
+      continue;
+    }
+    const msgMap = new Map();
+    for (const m of prev.messages || []) {
+      if (m && m.id != null) msgMap.set(String(m.id), m);
+    }
+    for (const m of row.messages || []) {
+      if (m && m.id != null) msgMap.set(String(m.id), m);
+    }
+    const messages = [...msgMap.values()].sort(
+      (a, b) => ts(a.createdAt) - ts(b.createdAt),
+    );
+    const prevT = ts(prev.updatedAt || prev.createdAt);
+    const nextT = ts(row.updatedAt || row.createdAt);
+    const base = nextT >= prevT ? { ...prev, ...row } : { ...row, ...prev };
+    map.set(id, { ...base, messages });
+  }
+  return [...map.values()];
+}
+
+function mergeSocial(current, incoming) {
+  if (!incoming || typeof incoming !== 'object') return current || null;
+  const cur =
+    current && typeof current === 'object'
+      ? current
+      : { companyFollows: [], peopleFollows: [], dms: [] };
+  return {
+    companyFollows: upsertById(cur.companyFollows || [], incoming.companyFollows || []),
+    peopleFollows: upsertById(cur.peopleFollows || [], incoming.peopleFollows || []),
+    dms: mergeDmThreads(cur.dms || [], incoming.dms || []),
+  };
+}
+
 /**
  * Merge a client push into the durable bundle.
  */
@@ -175,10 +220,7 @@ function mergeClientPush(payload = {}) {
     };
   }
 
-  let social = current.social;
-  if (payload.social && typeof payload.social === 'object') {
-    social = payload.social;
-  }
+  const social = mergeSocial(current.social, payload.social);
 
   const next = saveBundle({
     ...current,
