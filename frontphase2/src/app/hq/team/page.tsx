@@ -1,10 +1,7 @@
 'use client';
 
-/**
- * HQ Team — Phase 2–style Members + Roles with permissions (HQ Mongo).
- */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   KeyRound,
   Plus,
@@ -12,18 +9,22 @@ import {
   Search,
   Shield,
   Trash2,
+  UserCheck,
+  Users,
   UsersRound,
+  UserX,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  HqPageContainer,
-  HqPageMain,
-  HqPrimaryButton,
-  HqSecondaryButton,
-  HqStatCard,
-} from '@/components/hq/hqUi';
+  HqModulePageLayout,
+  HQ_TABLE_BODY_SCROLL_CLASS,
+  HQ_TABLE_CARD_CLASS,
+  HQ_TOOLBAR_ROW_CLASS,
+} from '@/components/hq/HqModulePageLayout';
+import { HqPrimaryButton, HqSecondaryButton } from '@/components/hq/hqUi';
 import { PermissionPicker } from '@/components/team/PermissionPicker';
+import { SummaryCard } from '@/components/ui/SummaryCard';
 import {
   apiHqCreateRole,
   apiHqCreateTeamMember,
@@ -42,10 +43,32 @@ import {
 } from '@/lib/api';
 
 type TabType = 'members' | 'roles';
+type Credentials = { loginId: string; tempPassword: string };
+
+type MemberForm = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  designation: string;
+  department: string;
+  roleId: string;
+  permissionIds: string[];
+  status: HqTeamMemberStatus;
+  generateCredentials: boolean;
+  sendInvite: boolean;
+};
+
+type RoleForm = {
+  roleName: string;
+  description: string;
+  color: string;
+  permissionIds: string[];
+};
 
 const EMPTY_STATS: HqTeamStats = { total: 0, active: 0, inactive: 0 };
 
-const MEMBER_FORM_EMPTY = {
+const emptyMemberForm = (): MemberForm => ({
   firstName: '',
   lastName: '',
   email: '',
@@ -53,64 +76,65 @@ const MEMBER_FORM_EMPTY = {
   designation: '',
   department: '',
   roleId: '',
-  permissionIds: [] as string[],
-  status: 'active' as HqTeamMemberStatus,
+  permissionIds: [],
+  status: 'active',
   generateCredentials: true,
   sendInvite: false,
-};
+});
 
-const ROLE_FORM_EMPTY = {
+const emptyRoleForm = (): RoleForm => ({
   roleName: '',
   description: '',
   color: '#6366F1',
-  permissionIds: [] as string[],
-};
+  permissionIds: [],
+});
 
-function statusPill(status: string) {
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+}
+
+function statusPill(status: HqTeamMemberStatus) {
   const active = status === 'active';
   return (
     <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${
+      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
         active
-          ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-          : 'bg-slate-100 text-slate-600 ring-slate-200'
+          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+          : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
       }`}
     >
-      {status}
+      {active ? 'Active' : 'Inactive'}
     </span>
   );
 }
 
 export default function HqTeamPage() {
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const tabParam = searchParams.get('tab');
-  const activeTab: TabType = tabParam === 'roles' ? 'roles' : 'members';
+  const searchParams = useSearchParams();
+  const activeTab: TabType = searchParams.get('tab') === 'roles' ? 'roles' : 'members';
 
   const [members, setMembers] = useState<HqTeamMemberRow[]>([]);
-  const [stats, setStats] = useState<HqTeamStats>(EMPTY_STATS);
   const [roles, setRoles] = useState<HqRoleRow[]>([]);
+  const [stats, setStats] = useState<HqTeamStats>(EMPTY_STATS);
   const [permissionsByModule, setPermissionsByModule] = useState<
-    Record<string, HqPermissionRow[]>
+    Record<string, Array<HqPermissionRow & { createdAt: string }>>
   >({});
+  const [moduleOrder, setModuleOrder] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
 
   const [memberDrawerOpen, setMemberDrawerOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<HqTeamMemberRow | null>(null);
-  const [memberForm, setMemberForm] = useState(MEMBER_FORM_EMPTY);
+  const [memberForm, setMemberForm] = useState<MemberForm>(emptyMemberForm);
   const [savingMember, setSavingMember] = useState(false);
-  const [createdCredentials, setCreatedCredentials] = useState<{
-    loginId: string;
-    tempPassword: string;
-    email: string;
-  } | null>(null);
+  const [createdCredentials, setCreatedCredentials] = useState<Credentials | null>(null);
 
   const [roleDrawerOpen, setRoleDrawerOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<HqRoleRow | null>(null);
-  const [roleForm, setRoleForm] = useState(ROLE_FORM_EMPTY);
+  const [roleForm, setRoleForm] = useState<RoleForm>(emptyRoleForm);
   const [savingRole, setSavingRole] = useState(false);
+
   const [showInlineCreateRole, setShowInlineCreateRole] = useState(false);
   const [inlineRoleName, setInlineRoleName] = useState('');
   const [inlineRoleDescription, setInlineRoleDescription] = useState('');
@@ -121,17 +145,32 @@ export default function HqTeamPage() {
     setLoading(true);
     setError('');
     try {
-      const [teamRes, rolesRes, permsRes] = await Promise.all([
+      const [teamResponse, rolesResponse, permissionsResponse] = await Promise.all([
         apiHqListTeam(),
         apiHqListRoles(),
         apiHqListPermissions(),
       ]);
-      setMembers(teamRes.data?.members ?? []);
-      setStats(teamRes.data?.stats ?? EMPTY_STATS);
-      setRoles(rolesRes.data?.roles ?? []);
-      setPermissionsByModule(permsRes.data?.permissionsByModule ?? {});
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load HQ team');
+      const teamData = teamResponse.data;
+      const rolesData = rolesResponse.data;
+      const permissionsData = permissionsResponse.data;
+      setMembers(teamData.members);
+      setStats(teamData.stats);
+      setRoles(rolesData.roles);
+      setPermissionsByModule(
+        Object.fromEntries(
+          Object.entries(permissionsData.permissionsByModule).map(([module, permissions]) => [
+            module,
+            permissions.map((permission) => ({ ...permission, createdAt: '' })),
+          ]),
+        ),
+      );
+      setModuleOrder(
+        permissionsData.moduleOrder?.length
+          ? permissionsData.moduleOrder
+          : Object.keys(permissionsData.permissionsByModule),
+      );
+    } catch (loadError) {
+      setError(errorMessage(loadError));
     } finally {
       setLoading(false);
     }
@@ -141,220 +180,90 @@ export default function HqTeamPage() {
     void loadAll();
   }, [loadAll]);
 
-  const setTab = (tab: TabType) => {
-    router.push(tab === 'members' ? '/hq/team' : `/hq/team?tab=${tab}`, { scroll: false });
-  };
-
   const filteredMembers = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return members;
-    return members.filter((m) =>
-      [m.name, m.email, m.role, m.department, m.designation, m.loginId]
-        .join(' ')
-        .toLowerCase()
-        .includes(q),
+    const query = search.trim().toLowerCase();
+    if (!query) return members;
+    return members.filter((member) =>
+      [
+        member.name,
+        member.email,
+        member.phone,
+        member.role,
+        member.department,
+        member.designation,
+        member.status,
+      ].some((value) => value?.toLowerCase().includes(query)),
     );
   }, [members, search]);
 
   const filteredRoles = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return roles;
-    return roles.filter((r) =>
-      [r.roleName, r.description].join(' ').toLowerCase().includes(q),
+    const query = search.trim().toLowerCase();
+    if (!query) return roles;
+    return roles.filter((role) =>
+      [role.roleName, role.description].some((value) => value?.toLowerCase().includes(query)),
     );
   }, [roles, search]);
 
-  const openCreateMember = () => {
-    setEditingMember(null);
-    setCreatedCredentials(null);
-    setShowInlineCreateRole(false);
-    setInlineRoleName('');
-    setInlineRoleDescription('');
-    setInlineRoleColor('#6366F1');
-    const defaultRole = roles[0];
-    setMemberForm({
-      ...MEMBER_FORM_EMPTY,
-      roleId: defaultRole?.id || '',
-      permissionIds: [...(defaultRole?.permissionIds || [])],
-    });
-    setMemberDrawerOpen(true);
-  };
-
-  const openEditMember = (member: HqTeamMemberRow) => {
-    setEditingMember(member);
-    setCreatedCredentials(null);
-    setShowInlineCreateRole(false);
-    setInlineRoleName('');
-    setInlineRoleDescription('');
-    setInlineRoleColor('#6366F1');
-    const rolePerms = roles.find((r) => r.id === member.roleId)?.permissionIds || [];
-    setMemberForm({
-      firstName: member.firstName || member.name.split(/\s+/)[0] || '',
-      lastName: member.lastName || member.name.split(/\s+/).slice(1).join(' ') || '',
-      email: member.email,
-      phone: member.phone || '',
-      designation: member.designation || '',
-      department: member.department || '',
-      roleId: member.roleId || '',
-      permissionIds:
-        Array.isArray(member.permissionIds) && member.permissionIds.length > 0
-          ? [...member.permissionIds]
-          : [...rolePerms],
-      status: member.status || 'active',
-      generateCredentials: false,
-      sendInvite: false,
-    });
-    setMemberDrawerOpen(true);
-  };
-
-  const applyRolePermissions = (roleId: string) => {
-    const role = roles.find((r) => r.id === roleId);
-    setMemberForm((prev) => ({
-      ...prev,
-      roleId,
-      permissionIds: [...(role?.permissionIds || [])],
-    }));
-  };
-
-  const createRoleFromMemberDrawer = async () => {
-    const roleName = inlineRoleName.trim();
-    if (!roleName) {
-      toast.error('Role name is required');
-      return;
-    }
-    if (memberForm.permissionIds.length === 0) {
-      toast.error('Select HQ permissions below, then create the role');
-      return;
-    }
-    setCreatingInlineRole(true);
-    try {
-      const res = await apiHqCreateRole({
-        roleName,
-        description: inlineRoleDescription.trim(),
-        color: inlineRoleColor,
-        permissionIds: memberForm.permissionIds,
-      });
-      const created = res.data?.role;
-      const rolesRes = await apiHqListRoles();
-      const nextRoles = rolesRes.data?.roles ?? [];
-      setRoles(nextRoles);
-      const selectedId =
-        created?.id || nextRoles.find((r) => r.roleName.toLowerCase() === roleName.toLowerCase())?.id || '';
-      const nextPerms = [...(created?.permissionIds || memberForm.permissionIds)];
-      setMemberForm((prev) => ({
-        ...prev,
-        roleId: selectedId,
-        permissionIds: nextPerms,
-      }));
-      setShowInlineCreateRole(false);
-      setInlineRoleName('');
-      setInlineRoleDescription('');
-      setInlineRoleColor('#6366F1');
-      toast.success(`Role "${roleName}" created and selected`);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to create role');
-    } finally {
-      setCreatingInlineRole(false);
-    }
-  };
-
+  const selectedPermissionIds = useMemo(
+    () => new Set(roleForm.permissionIds),
+    [roleForm.permissionIds],
+  );
   const memberSelectedPermissionIds = useMemo(
     () => new Set(memberForm.permissionIds),
     [memberForm.permissionIds],
   );
 
-  const toggleMemberPermission = (id: string) => {
-    setMemberForm((prev) => {
-      const has = prev.permissionIds.includes(id);
-      return {
-        ...prev,
-        permissionIds: has
-          ? prev.permissionIds.filter((p) => p !== id)
-          : [...prev.permissionIds, id],
-      };
+  function setTab(tab: TabType) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === 'roles') params.set('tab', 'roles');
+    else params.delete('tab');
+    setSearch('');
+    router.replace(params.size ? `/hq/team?${params.toString()}` : '/hq/team');
+  }
+
+  function resetInlineRole() {
+    setShowInlineCreateRole(false);
+    setInlineRoleName('');
+    setInlineRoleDescription('');
+    setInlineRoleColor('#6366F1');
+  }
+
+  function openCreateMember() {
+    setEditingMember(null);
+    setMemberForm(emptyMemberForm());
+    setCreatedCredentials(null);
+    resetInlineRole();
+    setMemberDrawerOpen(true);
+  }
+
+  function openEditMember(member: HqTeamMemberRow) {
+    const nameParts = member.name.trim().split(/\s+/);
+    setEditingMember(member);
+    setMemberForm({
+      firstName: member.firstName || nameParts[0] || '',
+      lastName: member.lastName || nameParts.slice(1).join(' '),
+      email: member.email,
+      phone: member.phone || '',
+      designation: member.designation || '',
+      department: member.department || '',
+      roleId: member.roleId || roles.find((role) => role.roleName === member.role)?.id || '',
+      permissionIds: [...(member.permissionIds || [])],
+      status: member.status,
+      generateCredentials: false,
+      sendInvite: false,
     });
-  };
+    setCreatedCredentials(null);
+    resetInlineRole();
+    setMemberDrawerOpen(true);
+  }
 
-  const memberModuleSelectAll = (module: string) => {
-    const modulePerms = permissionsByModule[module] || [];
-    const ids = modulePerms.map((p) => p.id);
-    const allSelected = ids.every((id) => memberForm.permissionIds.includes(id));
-    setMemberForm((prev) => ({
-      ...prev,
-      permissionIds: allSelected
-        ? prev.permissionIds.filter((id) => !ids.includes(id))
-        : [...new Set([...prev.permissionIds, ...ids])],
-    }));
-  };
-
-  const saveMember = async () => {
-    if (!memberForm.email.trim() || (!memberForm.firstName.trim() && !memberForm.lastName.trim())) {
-      toast.error('First name and email are required');
-      return;
-    }
-    if (!memberForm.roleId) {
-      toast.error('Select a role');
-      return;
-    }
-    if (memberForm.permissionIds.length === 0) {
-      toast.error('Select at least one HQ permission');
-      return;
-    }
-    setSavingMember(true);
-    try {
-      const payload = {
-        firstName: memberForm.firstName.trim(),
-        lastName: memberForm.lastName.trim(),
-        name: `${memberForm.firstName} ${memberForm.lastName}`.trim(),
-        email: memberForm.email.trim().toLowerCase(),
-        phone: memberForm.phone.trim(),
-        designation: memberForm.designation.trim(),
-        department: memberForm.department.trim(),
-        roleId: memberForm.roleId,
-        permissionIds: memberForm.permissionIds,
-        status: memberForm.status,
-        generateCredentials: memberForm.generateCredentials,
-        sendInvite: memberForm.sendInvite,
-      };
-      if (editingMember) {
-        await apiHqUpdateTeamMember(editingMember.id, payload);
-        toast.success('Team member updated');
-        setMemberDrawerOpen(false);
-      } else {
-        const res = await apiHqCreateTeamMember(payload);
-        toast.success('Team member created');
-        if (res.data?.credentials) {
-          setCreatedCredentials(res.data.credentials);
-        } else {
-          setMemberDrawerOpen(false);
-        }
-      }
-      await loadAll();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to save member');
-    } finally {
-      setSavingMember(false);
-    }
-  };
-
-  const deleteMember = async (member: HqTeamMemberRow) => {
-    if (!window.confirm(`Remove ${member.name} from HQ team?`)) return;
-    try {
-      await apiHqDeleteTeamMember(member.id);
-      toast.success('Member removed');
-      await loadAll();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to delete member');
-    }
-  };
-
-  const openCreateRole = () => {
+  function openCreateRole() {
     setEditingRole(null);
-    setRoleForm(ROLE_FORM_EMPTY);
+    setRoleForm(emptyRoleForm());
     setRoleDrawerOpen(true);
-  };
+  }
 
-  const openEditRole = (role: HqRoleRow) => {
+  function openEditRole(role: HqRoleRow) {
     setEditingRole(role);
     setRoleForm({
       roleName: role.roleName,
@@ -363,321 +272,210 @@ export default function HqTeamPage() {
       permissionIds: [...(role.permissionIds || [])],
     });
     setRoleDrawerOpen(true);
-  };
+  }
 
-  const selectedPermissionIds = useMemo(
-    () => new Set(roleForm.permissionIds),
-    [roleForm.permissionIds],
-  );
-
-  const togglePermission = (id: string) => {
-    setRoleForm((prev) => {
-      const has = prev.permissionIds.includes(id);
-      return {
-        ...prev,
-        permissionIds: has
-          ? prev.permissionIds.filter((p) => p !== id)
-          : [...prev.permissionIds, id],
-      };
-    });
-  };
-
-  const moduleSelectAll = (module: string) => {
-    const modulePerms = permissionsByModule[module] || [];
-    const ids = modulePerms.map((p) => p.id);
-    const allSelected = ids.every((id) => roleForm.permissionIds.includes(id));
-    setRoleForm((prev) => ({
-      ...prev,
-      permissionIds: allSelected
-        ? prev.permissionIds.filter((id) => !ids.includes(id))
-        : [...new Set([...prev.permissionIds, ...ids])],
+  function applyRolePermissions(roleId: string) {
+    const role = roles.find((candidate) => candidate.id === roleId);
+    setMemberForm((current) => ({
+      ...current,
+      roleId,
+      permissionIds: role ? [...role.permissionIds] : [],
     }));
-  };
+  }
 
-  const saveRole = async () => {
-    if (!roleForm.roleName.trim()) {
-      toast.error('Role name is required');
+  function togglePermission(permissionId: string) {
+    setRoleForm((current) => ({
+      ...current,
+      permissionIds: current.permissionIds.includes(permissionId)
+        ? current.permissionIds.filter((id) => id !== permissionId)
+        : [...current.permissionIds, permissionId],
+    }));
+  }
+
+  function toggleMemberPermission(permissionId: string) {
+    setMemberForm((current) => ({
+      ...current,
+      permissionIds: current.permissionIds.includes(permissionId)
+        ? current.permissionIds.filter((id) => id !== permissionId)
+        : [...current.permissionIds, permissionId],
+    }));
+  }
+
+  function toggleModule(
+    module: string,
+    selectedIds: string[],
+    update: (permissionIds: string[]) => void,
+  ) {
+    const moduleIds = (permissionsByModule[module] || []).map((permission) => permission.id);
+    const allSelected = moduleIds.length > 0 && moduleIds.every((id) => selectedIds.includes(id));
+    update(
+      allSelected
+        ? selectedIds.filter((id) => !moduleIds.includes(id))
+        : Array.from(new Set([...selectedIds, ...moduleIds])),
+    );
+  }
+
+  function moduleSelectAll(module: string) {
+    toggleModule(module, roleForm.permissionIds, (permissionIds) =>
+      setRoleForm((current) => ({ ...current, permissionIds })),
+    );
+  }
+
+  function memberModuleSelectAll(module: string) {
+    toggleModule(module, memberForm.permissionIds, (permissionIds) =>
+      setMemberForm((current) => ({ ...current, permissionIds })),
+    );
+  }
+
+  async function saveMember() {
+    const firstName = memberForm.firstName.trim();
+    const lastName = memberForm.lastName.trim();
+    const email = memberForm.email.trim();
+    const role = roles.find((candidate) => candidate.id === memberForm.roleId);
+    if (!firstName || !email || !role) {
+      toast.error('First name, email, and role are required.');
       return;
     }
-    if (roleForm.permissionIds.length === 0) {
-      toast.error('Select at least one permission');
+
+    setSavingMember(true);
+    try {
+      const payload = {
+        name: `${firstName} ${lastName}`.trim(),
+        firstName,
+        lastName,
+        email,
+        phone: memberForm.phone.trim(),
+        designation: memberForm.designation.trim(),
+        department: memberForm.department.trim(),
+        role: role.roleName,
+        roleId: role.id,
+        permissionIds: memberForm.permissionIds,
+        status: memberForm.status,
+      };
+
+      if (editingMember) {
+        await apiHqUpdateTeamMember(editingMember.id, payload);
+        toast.success('Team member updated.');
+        setMemberDrawerOpen(false);
+      } else {
+        const response = await apiHqCreateTeamMember({
+          ...payload,
+          generateCredentials: memberForm.generateCredentials,
+          sendInvite: memberForm.generateCredentials && memberForm.sendInvite,
+        });
+        toast.success('Team member created.');
+        if (response.data.credentials) {
+          setCreatedCredentials({
+            loginId: response.data.credentials.loginId,
+            tempPassword: response.data.credentials.tempPassword,
+          });
+        } else {
+          setMemberDrawerOpen(false);
+        }
+      }
+      await loadAll();
+    } catch (saveError) {
+      toast.error(errorMessage(saveError));
+    } finally {
+      setSavingMember(false);
+    }
+  }
+
+  async function saveRole() {
+    const roleName = roleForm.roleName.trim();
+    if (!roleName) {
+      toast.error('Role name is required.');
       return;
     }
+
     setSavingRole(true);
     try {
       const payload = {
-        roleName: roleForm.roleName.trim(),
+        roleName,
         description: roleForm.description.trim(),
         color: roleForm.color,
         permissionIds: roleForm.permissionIds,
       };
       if (editingRole) {
         await apiHqUpdateRole(editingRole.id, payload);
-        toast.success('Role updated');
+        toast.success('Role updated.');
       } else {
         await apiHqCreateRole(payload);
-        toast.success('Role created');
+        toast.success('Role created.');
       }
       setRoleDrawerOpen(false);
       await loadAll();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to save role');
+    } catch (saveError) {
+      toast.error(errorMessage(saveError));
     } finally {
       setSavingRole(false);
     }
-  };
+  }
 
-  const deleteRole = async (role: HqRoleRow) => {
-    if (role.isSystem) {
-      toast.error('System roles cannot be deleted');
+  async function createRoleFromMemberDrawer() {
+    const roleName = inlineRoleName.trim();
+    if (!roleName) {
+      toast.error('Role name is required.');
       return;
     }
-    if (!window.confirm(`Delete role "${role.roleName}"?`)) return;
+    setCreatingInlineRole(true);
+    try {
+      const response = await apiHqCreateRole({
+        roleName,
+        description: inlineRoleDescription.trim(),
+        color: inlineRoleColor,
+        permissionIds: memberForm.permissionIds,
+      });
+      const createdRole = response.data.role;
+      setRoles((current) => [...current, createdRole]);
+      setMemberForm((current) => ({
+        ...current,
+        roleId: createdRole.id,
+        permissionIds: [...createdRole.permissionIds],
+      }));
+      resetInlineRole();
+      toast.success('Role created and selected.');
+    } catch (createError) {
+      toast.error(errorMessage(createError));
+    } finally {
+      setCreatingInlineRole(false);
+    }
+  }
+
+  async function deleteMember(member: HqTeamMemberRow) {
+    if (!window.confirm(`Delete ${member.name}? This cannot be undone.`)) return;
+    try {
+      await apiHqDeleteTeamMember(member.id);
+      toast.success('Team member deleted.');
+      await loadAll();
+    } catch (deleteError) {
+      toast.error(errorMessage(deleteError));
+    }
+  }
+
+  async function deleteRole(role: HqRoleRow) {
+    if (role.isSystem) {
+      toast.error('System roles cannot be deleted.');
+      return;
+    }
+    if (!window.confirm(`Delete the ${role.roleName} role? This cannot be undone.`)) return;
     try {
       await apiHqDeleteRole(role.id);
-      toast.success('Role deleted');
+      toast.success('Role deleted.');
       await loadAll();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to delete role');
+    } catch (deleteError) {
+      toast.error(errorMessage(deleteError));
     }
-  };
+  }
 
-  return (
-    <HqPageMain>
-      <HqPageContainer>
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-100">
-              <UsersRound className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Team</h1>
-              <p className="mt-0.5 text-sm text-slate-500">
-                HQ team members with roles and permissions — same pattern as Phase 2 Team.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <HqSecondaryButton onClick={() => void loadAll()} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </HqSecondaryButton>
-            {activeTab === 'members' ? (
-              <HqPrimaryButton onClick={openCreateMember}>
-                <Plus className="h-4 w-4" />
-                Add Member
-              </HqPrimaryButton>
-            ) : (
-              <HqPrimaryButton onClick={openCreateRole}>
-                <Plus className="h-4 w-4" />
-                Add Role
-              </HqPrimaryButton>
-            )}
-          </div>
-        </header>
-
-        {error ? (
-          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-            {error}
-          </div>
-        ) : null}
-
-        <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-          <HqStatCard label="Members" value={stats.total} active />
-          <HqStatCard label="Active" value={stats.active} />
-          <HqStatCard label="Inactive" value={stats.inactive} />
-          <HqStatCard label="Roles" value={roles.length} />
-        </section>
-
-        <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
-            <div className="flex items-center gap-1">
-              {(
-                [
-                  { id: 'members' as const, label: 'Members' },
-                  { id: 'roles' as const, label: 'Roles' },
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setTab(tab.id)}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                    activeTab === tab.id
-                      ? 'bg-slate-100 text-slate-900'
-                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={
-                  activeTab === 'members' ? 'Search members…' : 'Search roles…'
-                }
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm outline-none focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-100"
-              />
-            </div>
-          </div>
-
-          {activeTab === 'members' ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="px-4 py-3">Member</th>
-                    <th className="px-4 py-3">Role</th>
-                    <th className="px-4 py-3">Department</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Access</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredMembers.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                        {loading ? 'Loading members…' : 'No HQ team members yet. Add one with a role.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredMembers.map((member) => (
-                      <tr
-                        key={member.id}
-                        className="border-b border-slate-100 transition hover:bg-slate-50/60"
-                      >
-                        <td className="px-4 py-3">
-                          <button
-                            type="button"
-                            onClick={() => openEditMember(member)}
-                            className="text-left"
-                          >
-                            <div className="font-semibold text-slate-900">{member.name}</div>
-                            <div className="text-xs text-slate-500">{member.email}</div>
-                          </button>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-slate-200"
-                            style={{ color: member.roleColor || '#4F46E5' }}
-                          >
-                            <Shield className="h-3 w-3" />
-                            {member.role}
-                          </span>
-                          <div className="mt-1 text-[10px] text-slate-400">
-                            {(member.permissionIds || []).length} permissions
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {member.department || member.designation || '—'}
-                        </td>
-                        <td className="px-4 py-3">{statusPill(member.status)}</td>
-                        <td className="px-4 py-3">
-                          {member.hasCredentials ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                              <KeyRound className="h-3.5 w-3.5" />
-                              {member.loginId || 'Credentials set'}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-400">No login yet</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => void deleteMember(member)}
-                            className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700 hover:bg-rose-100"
-                            title="Delete member"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="px-4 py-3">Role</th>
-                    <th className="px-4 py-3">Description</th>
-                    <th className="px-4 py-3">Permissions</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRoles.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
-                        {loading ? 'Loading roles…' : 'No roles yet.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredRoles.map((role) => (
-                      <tr
-                        key={role.id}
-                        className="border-b border-slate-100 transition hover:bg-slate-50/60"
-                      >
-                        <td className="px-4 py-3">
-                          <button
-                            type="button"
-                            onClick={() => openEditRole(role)}
-                            className="flex items-center gap-2 text-left font-semibold text-slate-900"
-                          >
-                            <span
-                              className="inline-block h-3 w-3 rounded-full"
-                              style={{ backgroundColor: role.color || '#6366F1' }}
-                            />
-                            {role.roleName}
-                            {role.isSystem ? (
-                              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500">
-                                System
-                              </span>
-                            ) : null}
-                          </button>
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{role.description || '—'}</td>
-                        <td className="px-4 py-3 font-semibold text-slate-800">
-                          {(role.permissionIds || []).length}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => void deleteRole(role)}
-                            disabled={Boolean(role.isSystem)}
-                            className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
-                            title={role.isSystem ? 'System role' : 'Delete role'}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </HqPageContainer>
-
-      {/* Member drawer */}
+  const drawers = (
+    <>
       {memberDrawerOpen ? (
         <div className="fixed inset-0 z-[500]">
           <button
             type="button"
             className="absolute inset-0 bg-slate-900/40"
-            aria-label="Close"
+            aria-label="Close member drawer"
             onClick={() => !savingMember && setMemberDrawerOpen(false)}
           />
           <aside className="absolute right-0 top-0 flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white shadow-2xl">
@@ -687,13 +485,15 @@ export default function HqTeamPage() {
                   {editingMember ? 'Edit member' : 'Add HQ team member'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Pick a role, then grant or tweak HQ module permissions for this person.
+                  Assign a role and customize this member&apos;s HQ permissions.
                 </p>
               </div>
               <button
                 type="button"
+                aria-label="Close member drawer"
                 onClick={() => setMemberDrawerOpen(false)}
-                className="rounded-lg border border-slate-200 p-2 text-slate-500"
+                disabled={savingMember}
+                className="rounded-lg border border-slate-200 p-2 text-slate-500 disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -704,75 +504,81 @@ export default function HqTeamPage() {
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
                   <p className="font-bold">Credentials generated</p>
                   <p className="mt-2">
-                    Login ID: <span className="font-mono font-semibold">{createdCredentials.loginId}</span>
+                    Login ID:{' '}
+                    <span className="font-mono font-semibold">{createdCredentials.loginId}</span>
                   </p>
                   <p>
                     Temp password:{' '}
-                    <span className="font-mono font-semibold">{createdCredentials.tempPassword}</span>
+                    <span className="font-mono font-semibold">
+                      {createdCredentials.tempPassword}
+                    </span>
                   </p>
                   <p className="mt-2 text-xs text-emerald-800">
-                    Share these securely. Permissions saved on this member control HQ module access.
+                    Copy these credentials now and share them securely.
                   </p>
-                  <HqPrimaryButton
-                    className="mt-3"
-                    type="button"
-                    onClick={() => setMemberDrawerOpen(false)}
-                  >
-                    Done
-                  </HqPrimaryButton>
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                       First name *
                       <input
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                         value={memberForm.firstName}
-                        onChange={(e) =>
-                          setMemberForm((p) => ({ ...p, firstName: e.target.value }))
+                        onChange={(event) =>
+                          setMemberForm((current) => ({
+                            ...current,
+                            firstName: event.target.value,
+                          }))
                         }
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                       />
                     </label>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                       Last name
                       <input
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                         value={memberForm.lastName}
-                        onChange={(e) =>
-                          setMemberForm((p) => ({ ...p, lastName: e.target.value }))
+                        onChange={(event) =>
+                          setMemberForm((current) => ({
+                            ...current,
+                            lastName: event.target.value,
+                          }))
                         }
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                       />
                     </label>
                   </div>
+
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                     Email *
                     <input
                       type="email"
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                       value={memberForm.email}
-                      onChange={(e) => setMemberForm((p) => ({ ...p, email: e.target.value }))}
+                      onChange={(event) =>
+                        setMemberForm((current) => ({ ...current, email: event.target.value }))
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                     />
                   </label>
+
                   <div>
                     <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                         Role *
-                      </label>
-                      <div className="flex flex-wrap items-center gap-2">
+                      </span>
+                      <div className="flex items-center gap-3">
                         {memberForm.roleId ? (
                           <button
                             type="button"
                             onClick={() => applyRolePermissions(memberForm.roleId)}
-                            className="text-xs font-semibold text-violet-600 hover:text-violet-700"
+                            className="text-xs font-semibold text-violet-600"
                           >
-                            Apply role permissions
+                            Reset to role permissions
                           </button>
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => setShowInlineCreateRole((prev) => !prev)}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-violet-700 hover:text-violet-800"
+                          onClick={() => setShowInlineCreateRole((current) => !current)}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-violet-700"
                         >
                           <Plus className="h-3.5 w-3.5" />
                           {showInlineCreateRole ? 'Cancel' : 'Create role'}
@@ -780,14 +586,14 @@ export default function HqTeamPage() {
                       </div>
                     </div>
                     <select
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
                       value={memberForm.roleId}
-                      onChange={(e) => applyRolePermissions(e.target.value)}
+                      onChange={(event) => applyRolePermissions(event.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
                     >
                       <option value="">Select role…</option>
                       {roles.map((role) => (
                         <option key={role.id} value={role.id}>
-                          {role.roleName} ({role.permissionIds.length} perms)
+                          {role.roleName} ({role.permissionIds.length} permissions)
                         </option>
                       ))}
                     </select>
@@ -795,67 +601,43 @@ export default function HqTeamPage() {
                     {showInlineCreateRole ? (
                       <div className="mt-3 space-y-3 rounded-xl border border-violet-200 bg-violet-50/50 p-3">
                         <p className="text-xs font-semibold text-violet-900">
-                          Create a new HQ role and select it for this member
+                          Create a role using the permissions selected below
                         </p>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Role name *
-                          <input
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
-                            value={inlineRoleName}
-                            onChange={(e) => setInlineRoleName(e.target.value)}
-                            placeholder="e.g. HQ Sales"
-                          />
-                        </label>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Description
-                          <input
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
-                            value={inlineRoleDescription}
-                            onChange={(e) => setInlineRoleDescription(e.target.value)}
-                            placeholder="Optional"
-                          />
-                        </label>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Color
-                          <input
-                            type="color"
-                            className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-2"
-                            value={inlineRoleColor}
-                            onChange={(e) => setInlineRoleColor(e.target.value)}
-                          />
-                        </label>
-                        <p className="text-[11px] text-slate-600">
-                          This role will be created with the{' '}
-                          <span className="font-semibold">{memberForm.permissionIds.length}</span>{' '}
-                          HQ permission(s) selected in the checklist below.
-                        </p>
+                        <input
+                          value={inlineRoleName}
+                          onChange={(event) => setInlineRoleName(event.target.value)}
+                          placeholder="Role name *"
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                        />
+                        <input
+                          value={inlineRoleDescription}
+                          onChange={(event) => setInlineRoleDescription(event.target.value)}
+                          placeholder="Description"
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                        />
+                        <input
+                          type="color"
+                          value={inlineRoleColor}
+                          onChange={(event) => setInlineRoleColor(event.target.value)}
+                          aria-label="Role color"
+                          className="h-10 w-full rounded-xl border border-slate-200 bg-white px-2"
+                        />
                         <div className="flex justify-end gap-2">
                           <HqSecondaryButton
-                            type="button"
-                            onClick={() => {
-                              setShowInlineCreateRole(false);
-                              setInlineRoleName('');
-                              setInlineRoleDescription('');
-                            }}
+                            onClick={resetInlineRole}
                             disabled={creatingInlineRole}
                           >
                             Cancel
                           </HqSecondaryButton>
                           <HqPrimaryButton
-                            type="button"
                             onClick={() => void createRoleFromMemberDrawer()}
                             loading={creatingInlineRole}
                           >
-                            Create & select
+                            Create &amp; select
                           </HqPrimaryButton>
                         </div>
                       </div>
-                    ) : (
-                      <p className="mt-1.5 text-[11px] text-slate-500">
-                        Changing the role loads its permissions below — you can still check/uncheck
-                        individual HQ modules. Use Create role to add a new role here.
-                      </p>
-                    )}
+                    ) : null}
                   </div>
 
                   <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3">
@@ -863,7 +645,7 @@ export default function HqTeamPage() {
                       <div className="flex items-center gap-2">
                         <Shield className="h-4 w-4 text-violet-600" />
                         <p className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                          HQ permissions *
+                          HQ permissions
                         </p>
                       </div>
                       <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-violet-700 ring-1 ring-violet-200">
@@ -876,67 +658,76 @@ export default function HqTeamPage() {
                       onToggle={toggleMemberPermission}
                       onModuleSelectAll={memberModuleSelectAll}
                       maxHeightClass="max-h-[320px]"
+                      moduleOrder={moduleOrder}
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                       Phone
                       <input
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                         value={memberForm.phone}
-                        onChange={(e) => setMemberForm((p) => ({ ...p, phone: e.target.value }))}
+                        onChange={(event) =>
+                          setMemberForm((current) => ({ ...current, phone: event.target.value }))
+                        }
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                       />
                     </label>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                       Status
                       <select
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
                         value={memberForm.status}
-                        onChange={(e) =>
-                          setMemberForm((p) => ({
-                            ...p,
-                            status: e.target.value as HqTeamMemberStatus,
+                        onChange={(event) =>
+                          setMemberForm((current) => ({
+                            ...current,
+                            status: event.target.value as HqTeamMemberStatus,
                           }))
                         }
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
                       >
                         <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
                       </select>
                     </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                       Designation
                       <input
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                         value={memberForm.designation}
-                        onChange={(e) =>
-                          setMemberForm((p) => ({ ...p, designation: e.target.value }))
+                        onChange={(event) =>
+                          setMemberForm((current) => ({
+                            ...current,
+                            designation: event.target.value,
+                          }))
                         }
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                       />
                     </label>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                       Department
                       <input
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                         value={memberForm.department}
-                        onChange={(e) =>
-                          setMemberForm((p) => ({ ...p, department: e.target.value }))
+                        onChange={(event) =>
+                          setMemberForm((current) => ({
+                            ...current,
+                            department: event.target.value,
+                          }))
                         }
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                       />
                     </label>
                   </div>
+
                   {!editingMember ? (
                     <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
                       <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
                         <input
                           type="checkbox"
                           checked={memberForm.generateCredentials}
-                          onChange={(e) =>
-                            setMemberForm((p) => ({
-                              ...p,
-                              generateCredentials: e.target.checked,
+                          onChange={(event) =>
+                            setMemberForm((current) => ({
+                              ...current,
+                              generateCredentials: event.target.checked,
+                              sendInvite: event.target.checked ? current.sendInvite : false,
                             }))
                           }
                         />
@@ -946,10 +737,13 @@ export default function HqTeamPage() {
                         <input
                           type="checkbox"
                           checked={memberForm.sendInvite}
-                          onChange={(e) =>
-                            setMemberForm((p) => ({ ...p, sendInvite: e.target.checked }))
-                          }
                           disabled={!memberForm.generateCredentials}
+                          onChange={(event) =>
+                            setMemberForm((current) => ({
+                              ...current,
+                              sendInvite: event.target.checked,
+                            }))
+                          }
                         />
                         Mark invite pending
                       </label>
@@ -959,31 +753,33 @@ export default function HqTeamPage() {
               )}
             </div>
 
-            {!createdCredentials ? (
-              <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-                <HqSecondaryButton
-                  type="button"
-                  onClick={() => setMemberDrawerOpen(false)}
-                  disabled={savingMember}
-                >
-                  Cancel
-                </HqSecondaryButton>
-                <HqPrimaryButton type="button" onClick={() => void saveMember()} loading={savingMember}>
-                  {editingMember ? 'Save changes' : 'Create member'}
-                </HqPrimaryButton>
-              </div>
-            ) : null}
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+              {createdCredentials ? (
+                <HqPrimaryButton onClick={() => setMemberDrawerOpen(false)}>Done</HqPrimaryButton>
+              ) : (
+                <>
+                  <HqSecondaryButton
+                    onClick={() => setMemberDrawerOpen(false)}
+                    disabled={savingMember}
+                  >
+                    Cancel
+                  </HqSecondaryButton>
+                  <HqPrimaryButton onClick={() => void saveMember()} loading={savingMember}>
+                    {editingMember ? 'Save changes' : 'Create member'}
+                  </HqPrimaryButton>
+                </>
+              )}
+            </div>
           </aside>
         </div>
       ) : null}
 
-      {/* Role drawer */}
       {roleDrawerOpen ? (
         <div className="fixed inset-0 z-[500]">
           <button
             type="button"
             className="absolute inset-0 bg-slate-900/40"
-            aria-label="Close"
+            aria-label="Close role drawer"
             onClick={() => !savingRole && setRoleDrawerOpen(false)}
           />
           <aside className="absolute right-0 top-0 flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white shadow-2xl">
@@ -993,13 +789,15 @@ export default function HqTeamPage() {
                   {editingRole ? 'Edit role' : 'Add HQ role'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Pick HQ module permissions — like Phase 2 roles.
+                  Choose the HQ modules and actions available to this role.
                 </p>
               </div>
               <button
                 type="button"
+                aria-label="Close role drawer"
                 onClick={() => setRoleDrawerOpen(false)}
-                className="rounded-lg border border-slate-200 p-2 text-slate-500"
+                disabled={savingRole}
+                className="rounded-lg border border-slate-200 p-2 text-slate-500 disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1008,27 +806,33 @@ export default function HqTeamPage() {
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                 Role name *
                 <input
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                   value={roleForm.roleName}
-                  onChange={(e) => setRoleForm((p) => ({ ...p, roleName: e.target.value }))}
+                  onChange={(event) =>
+                    setRoleForm((current) => ({ ...current, roleName: event.target.value }))
+                  }
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                 />
               </label>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                 Description
                 <textarea
                   rows={2}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                   value={roleForm.description}
-                  onChange={(e) => setRoleForm((p) => ({ ...p, description: e.target.value }))}
+                  onChange={(event) =>
+                    setRoleForm((current) => ({ ...current, description: event.target.value }))
+                  }
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
                 />
               </label>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                 Color
                 <input
                   type="color"
-                  className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-2"
                   value={roleForm.color}
-                  onChange={(e) => setRoleForm((p) => ({ ...p, color: e.target.value }))}
+                  onChange={(event) =>
+                    setRoleForm((current) => ({ ...current, color: event.target.value }))
+                  }
+                  className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-2"
                 />
               </label>
               <div>
@@ -1040,24 +844,258 @@ export default function HqTeamPage() {
                   selectedIds={selectedPermissionIds}
                   onToggle={togglePermission}
                   onModuleSelectAll={moduleSelectAll}
+                  moduleOrder={moduleOrder}
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
               <HqSecondaryButton
-                type="button"
                 onClick={() => setRoleDrawerOpen(false)}
                 disabled={savingRole}
               >
                 Cancel
               </HqSecondaryButton>
-              <HqPrimaryButton type="button" onClick={() => void saveRole()} loading={savingRole}>
+              <HqPrimaryButton onClick={() => void saveRole()} loading={savingRole}>
                 {editingRole ? 'Save role' : 'Create role'}
               </HqPrimaryButton>
             </div>
           </aside>
         </div>
       ) : null}
-    </HqPageMain>
+    </>
+  );
+
+  return (
+    <HqModulePageLayout
+      title="Team"
+      subtitle="Manage HQ members, credentials, roles, and module-level permissions."
+      icon={<UsersRound className="h-5 w-5" />}
+      actions={
+        <>
+          <HqSecondaryButton onClick={() => void loadAll()} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </HqSecondaryButton>
+          {activeTab === 'members' ? (
+            <HqPrimaryButton onClick={openCreateMember}>
+              <Plus className="h-4 w-4" />
+              Add Member
+            </HqPrimaryButton>
+          ) : (
+            <HqPrimaryButton onClick={openCreateRole}>
+              <Plus className="h-4 w-4" />
+              Add Role
+            </HqPrimaryButton>
+          )}
+        </>
+      }
+      belowScroll={drawers}
+    >
+      {error ? (
+        <div className="mb-4 shrink-0 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        <SummaryCard
+          label="Members"
+          count={stats.total}
+          color="indigo"
+          icon={<Users className="h-4 w-4" />}
+          active
+        />
+        <SummaryCard
+          label="Active"
+          count={stats.active}
+          color="green"
+          icon={<UserCheck className="h-4 w-4" />}
+        />
+        <SummaryCard
+          label="Inactive"
+          count={stats.inactive}
+          color="gray"
+          icon={<UserX className="h-4 w-4" />}
+        />
+        <SummaryCard
+          label="Roles"
+          count={roles.length}
+          color="purple"
+          icon={<Shield className="h-4 w-4" />}
+        />
+      </div>
+
+      <div className={HQ_TABLE_CARD_CLASS}>
+        <div className={HQ_TOOLBAR_ROW_CLASS}>
+          <div className="flex items-center gap-1">
+            {(['members', 'roles'] as TabType[]).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setTab(tab)}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold capitalize transition ${
+                  activeTab === tab
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
+                    : 'text-slate-500 hover:bg-indigo-50/60 hover:text-slate-800'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={activeTab === 'members' ? 'Search members…' : 'Search roles…'}
+              className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 py-2 pl-10 pr-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/25"
+            />
+          </div>
+        </div>
+
+        <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
+          {activeTab === 'members' ? (
+            <table className="min-w-full text-left">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Role</th>
+                  <th>Department</th>
+                  <th>Status</th>
+                  <th>Access</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMembers.length ? (
+                  filteredMembers.map((member) => (
+                    <tr
+                      key={member.id}
+                      className="border-b border-slate-100 transition hover:bg-indigo-50/40"
+                    >
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => openEditMember(member)}
+                          className="text-left"
+                        >
+                          <span className="block font-semibold text-slate-900">{member.name}</span>
+                          <span className="block text-xs text-slate-500">{member.email}</span>
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-slate-200"
+                          style={{ color: member.roleColor || '#4F46E5' }}
+                        >
+                          <Shield className="h-3 w-3" />
+                          {member.role}
+                        </span>
+                        <span className="mt-1 block text-[10px] text-slate-400">
+                          {(member.permissionIds || []).length} permissions
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {member.department || member.designation || '—'}
+                      </td>
+                      <td className="px-4 py-3">{statusPill(member.status)}</td>
+                      <td className="px-4 py-3">
+                        {member.hasCredentials ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                            <KeyRound className="h-3.5 w-3.5" />
+                            {member.loginId || 'Credentials set'}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">No login yet</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => void deleteMember(member)}
+                          title="Delete member"
+                          className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700 hover:bg-rose-100"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                      {loading ? 'Loading members…' : 'No matching HQ team members.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="min-w-full text-left">
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Description</th>
+                  <th>Permissions</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRoles.length ? (
+                  filteredRoles.map((role) => (
+                    <tr
+                      key={role.id}
+                      className="border-b border-slate-100 transition hover:bg-indigo-50/40"
+                    >
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => openEditRole(role)}
+                          className="flex items-center gap-2 text-left font-semibold text-slate-900"
+                        >
+                          <span
+                            className="inline-block h-3 w-3 rounded-full"
+                            style={{ backgroundColor: role.color || '#6366F1' }}
+                          />
+                          {role.roleName}
+                          {role.isSystem ? (
+                            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500">
+                              System
+                            </span>
+                          ) : null}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{role.description || '—'}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-800">
+                        {role.permissionIds.length}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => void deleteRole(role)}
+                          disabled={Boolean(role.isSystem)}
+                          title={role.isSystem ? 'System roles cannot be deleted' : 'Delete role'}
+                          className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
+                      {loading ? 'Loading roles…' : 'No matching roles.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </HqModulePageLayout>
   );
 }

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowDownUp,
+  Building2,
   Download,
   MoreVertical,
   Plus,
@@ -20,13 +21,12 @@ import {
   type ProvisionTenantFormData,
 } from '@/components/hq/CreateTenantModal';
 import {
-  HqPageContainer,
-  HqPageHeader,
-  HqPageMain,
-  HqPrimaryButton,
-  HqSecondaryButton,
-  HqStatCard,
-} from '@/components/hq/hqUi';
+  HqModulePageLayout,
+  HQ_TABLE_BODY_SCROLL_CLASS,
+  HQ_TABLE_CARD_CLASS,
+  HQ_TOOLBAR_ROW_CLASS,
+} from '@/components/hq/HqModulePageLayout';
+import { HqPrimaryButton, HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import {
   countCompaniesByStatus,
   HQ_COMPANY_STATUS_LABELS,
@@ -222,39 +222,12 @@ export default function HqCompanyPage() {
   };
 
   return (
-    <HqPageMain>
-      <CreateHqCompanyModal
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        onCreate={handleCreateCompany}
-      />
-      <CreateTenantModal
-        open={createTenantOpen}
-        onClose={() => {
-          if (provisionLoading) return;
-          setCreateTenantOpen(false);
-          setLockCompanyForTenant(false);
-        }}
-        data={provisionData}
-        onChange={setProvisionData}
-        onSubmit={handleProvisionSubmit}
-        isLoading={provisionLoading}
-        lockCompany={lockCompanyForTenant}
-      />
-      <HqCompanyDetailDrawer
-        open={!!selectedCompany}
-        company={selectedCompany}
-        onClose={() => setSelectedCompany(null)}
-        onSave={handleUpdateCompany}
-        onCompanyUpdated={handleCompanyUpdated}
-        onCreateTenant={openCreateTenantFromCompany}
-      />
-      <HqPageContainer>
-        <HqPageHeader
-          title="Companies"
-          subtitle="Lead → Client → Company → Tenant. Converted leads land here; create a tenant from a company when ready."
-          actions={
-            <>
+    <HqModulePageLayout
+      title="Companies"
+      subtitle="Lead → Client → Company → Tenant. Converted leads land here; create a tenant from a company when ready."
+      icon={<Building2 className="h-5 w-5" />}
+      actions={
+        <>
               <HqSecondaryButton>
                 <Upload className="h-4 w-4" />
                 Import
@@ -277,9 +250,39 @@ export default function HqCompanyPage() {
                 <Plus className="h-4 w-4" />
                 Add New Company
               </HqPrimaryButton>
-            </>
-          }
-        />
+        </>
+      }
+      belowScroll={
+        <>
+          <CreateHqCompanyModal
+            open={createModalOpen}
+            onClose={() => setCreateModalOpen(false)}
+            onCreate={handleCreateCompany}
+          />
+          <CreateTenantModal
+            open={createTenantOpen}
+            onClose={() => {
+              if (provisionLoading) return;
+              setCreateTenantOpen(false);
+              setLockCompanyForTenant(false);
+            }}
+            data={provisionData}
+            onChange={setProvisionData}
+            onSubmit={handleProvisionSubmit}
+            isLoading={provisionLoading}
+            lockCompany={lockCompanyForTenant}
+          />
+          <HqCompanyDetailDrawer
+            open={!!selectedCompany}
+            company={selectedCompany}
+            onClose={() => setSelectedCompany(null)}
+            onSave={handleUpdateCompany}
+            onCompanyUpdated={handleCompanyUpdated}
+            onCreateTenant={openCreateTenantFromCompany}
+          />
+        </>
+      }
+    >
 
         {storage ? (
           <p className="mb-4 text-xs text-slate-500">
@@ -302,17 +305,18 @@ export default function HqCompanyPage() {
           </div>
         ) : null}
 
-        <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-6">
           <HqStatCard label="Total Companies" value={stats.total} />
           <HqStatCard label="Active" value={stats.active} delta="+12%" active />
           <HqStatCard label="Inactive" value={stats.inactive} />
           <HqStatCard label="On Hold" value={stats.onHold} />
           <HqStatCard label="Closed" value={stats.closed} />
           <HqStatCard label="Follow-ups Today" value={stats.followUpsToday} />
-        </section>
+        </div>
 
-        <section className="mb-4 overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-          <div className="flex min-w-max items-center gap-1 border-b border-slate-100 px-2 py-2">
+        <div className={HQ_TABLE_CARD_CLASS}>
+          <div className={HQ_TOOLBAR_ROW_CLASS}>
+            <div className="flex min-w-max items-center gap-1 overflow-x-auto">
             {HQ_COMPANY_TABS.map((tab) => {
               const count = tabCounts[tab.id] ?? 0;
               const active = activeTab === tab.id;
@@ -322,13 +326,13 @@ export default function HqCompanyPage() {
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
                   className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                    active ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                    active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
                   }`}
                 >
                   {tab.label}
                   <span
                     className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                      active ? 'bg-white text-slate-700 ring-1 ring-slate-200' : 'bg-slate-100 text-slate-500'
+                      active ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'
                     }`}
                   >
                     {count}
@@ -336,9 +340,7 @@ export default function HqCompanyPage() {
                 </button>
               );
             })}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
+            </div>
             <div className="relative min-w-[240px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -346,7 +348,7 @@ export default function HqCompanyPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search companies by name, contact, or owner..."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-10 pr-4 text-sm text-slate-800 outline-none transition focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-200"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-800 outline-none transition focus:border-teal-300 focus:ring-2 focus:ring-teal-100"
               />
             </div>
             <HqSecondaryButton>
@@ -355,24 +357,24 @@ export default function HqCompanyPage() {
             </HqSecondaryButton>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+          <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
+            <table className="min-w-full text-left">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50 text-left text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  <th className="px-4 py-3">
+                <tr>
+                  <th>
                     <span className="inline-flex items-center gap-1">
                       Company
                       <ArrowDownUp className="h-3 w-3 opacity-50" />
                     </span>
                   </th>
-                  <th className="px-4 py-3">Contact</th>
-                  <th className="px-4 py-3">Industry</th>
-                  <th className="px-4 py-3">Score</th>
-                  <th className="px-4 py-3">Users</th>
-                  <th className="px-4 py-3">Owner</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Next Follow-up</th>
-                  <th className="w-10 px-4 py-3" />
+                  <th>Contact</th>
+                  <th>Industry</th>
+                  <th>Score</th>
+                  <th>Users</th>
+                  <th>Owner</th>
+                  <th>Status</th>
+                  <th>Next Follow-up</th>
+                  <th className="w-10" />
                 </tr>
               </thead>
               <tbody>
@@ -437,8 +439,7 @@ export default function HqCompanyPage() {
               </tbody>
             </table>
           </div>
-        </section>
-      </HqPageContainer>
-    </HqPageMain>
+        </div>
+    </HqModulePageLayout>
   );
 }

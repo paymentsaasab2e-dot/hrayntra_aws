@@ -65,6 +65,51 @@ export const hqController = {
     }
   },
 
+  async listAiCoinPacks(req, res) {
+    try {
+      const result = await hqService.listAiCoinPacks(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async saveAiCoinPacks(req, res) {
+    try {
+      const result = await hqService.saveAiCoinPacks(req.body, req.user);
+      sendResponse(res, 200, 'AI coin packs saved', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getPhase1TokenConfig(req, res) {
+    try {
+      const result = await hqService.getPhase1TokenConfig(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async savePhase1TokenPacks(req, res) {
+    try {
+      const result = await hqService.savePhase1TokenPacks(req.body, req.user);
+      sendResponse(res, 200, 'Phase 1 coin packs saved', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async savePhase1TokenCosts(req, res) {
+    try {
+      const result = await hqService.savePhase1TokenCosts(req.body, req.user);
+      sendResponse(res, 200, 'Phase 1 spend costs saved', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async setTenantPause(req, res) {
     try {
       const result = await hqService.setTenantPause(req.body, req.user);
@@ -384,6 +429,34 @@ export const hqController = {
       const result = await hqService.listAllCandidates(req.user);
       sendResponse(res, 200, 'OK', result);
     } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getCandidateBehavior(req, res) {
+    try {
+      const result = await hqService.getCandidateBehavior(req.user, req.params.id);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      if (error?.code === 'VALIDATION') return sendError(res, 400, error.message);
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getTenantBehavior(req, res) {
+    try {
+      const tenantDbName = String(req.params.tenantDbName || req.query.tenantDbName || '').trim();
+      if (!tenantDbName) return sendError(res, 400, 'tenantDbName is required');
+
+      const tenants = await hqService.listTenants(req.user);
+      const tenant = (tenants?.tenants || []).find(
+        (t) => String(t.tenantDbName || '').trim() === tenantDbName,
+      );
+
+      const result = await hqService.getTenantBehavior(req.user, tenantDbName, tenant || {});
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      if (error?.code === 'VALIDATION') return sendError(res, 400, error.message);
       sendError(res, 400, error.message, error);
     }
   },

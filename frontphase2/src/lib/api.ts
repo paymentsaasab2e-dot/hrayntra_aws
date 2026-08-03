@@ -530,15 +530,43 @@ export async function apiFetch<T>(
     });
   }
 
+  // Intelligent tenant behaviour: track successful CRM mutations end-to-end
+  if (typeof window !== 'undefined' && res.ok && json?.success !== false) {
+    import('./tenant-behavior-engine/track').then(({ trackTenantApiCall }) => {
+      trackTenantApiCall(path, options.method || 'GET', options.body);
+    }).catch(() => {});
+  }
+
   return json as ApiResponse<T>;
 }
 
 export const TENANT_COINS_REFRESH_EVENT = 'hrayntra:tenant-coins-refresh';
+/** Fired after HQ saves AI feature coin costs (same-origin tabs pick this up). */
+export const AI_FEATURE_COSTS_UPDATED_EVENT = 'hrayntra:ai-feature-costs-updated';
+export const AI_FEATURE_COSTS_UPDATED_STORAGE_KEY = 'hrayntra:ai-feature-costs-updated-at';
 
 /** Notify UI to refresh AI coin balance (optional known balance for instant update). */
 export function notifyTenantCoinsChanged(detail?: { coins?: number; spent?: number }) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(TENANT_COINS_REFRESH_EVENT, { detail: detail || {} }));
+}
+
+/** Tell Phase 2 tenants (other tabs) to reload AI feature spend costs. */
+export function notifyAiFeatureCostsUpdated(detail?: {
+  updatedAt?: string;
+  changed?: Array<{ id: string; name?: string; previous?: number; coins?: number }>;
+}) {
+  if (typeof window === 'undefined') return;
+  const payload = {
+    updatedAt: detail?.updatedAt || new Date().toISOString(),
+    changed: detail?.changed || [],
+  };
+  try {
+    localStorage.setItem(AI_FEATURE_COSTS_UPDATED_STORAGE_KEY, payload.updatedAt);
+  } catch {
+    /* ignore quota / private mode */
+  }
+  window.dispatchEvent(new CustomEvent(AI_FEATURE_COSTS_UPDATED_EVENT, { detail: payload }));
 }
 
 function shouldRefreshTenantCoins(path: string, method: string, res: Response): boolean {
@@ -1725,6 +1753,9 @@ export async function apiHqCreateCompany(
         country: string;
         expectedUsers: string | number;
         estimatedDealValue: string | number;
+        pricePerUser?: string | number;
+        billingCycle?: 'monthly' | 'yearly' | 'annual';
+        finalPrice?: string | number;
         accountOwner: string;
         companySource: string;
         nextFollowUpAt: string;
@@ -1753,6 +1784,9 @@ export async function apiHqUpdateCompany(
         country: string;
         expectedUsers: string | number;
         estimatedDealValue: string | number;
+        pricePerUser?: string | number;
+        billingCycle?: 'monthly' | 'yearly' | 'annual';
+        finalPrice?: string | number;
         accountOwner: string;
         companySource: string;
         nextFollowUpAt: string;
@@ -1931,6 +1965,7 @@ export async function apiHqListPermissions() {
   return apiFetch<{
     permissions: HqPermissionRow[];
     permissionsByModule: Record<string, HqPermissionRow[]>;
+    moduleOrder?: string[];
   }>('/hq/permissions', { auth: true });
 }
 
@@ -2051,6 +2086,220 @@ export async function apiHqListCandidates() {
   }>('/hq/candidates', { auth: true });
 }
 
+export type HqCandidateBehaviorInsight = {
+  id: string;
+  label: string;
+  severity: 'info' | 'watch' | 'action';
+  summary: string;
+  evidence: string[];
+};
+
+export type HqCandidateBehaviorRollup = {
+  userId?: string;
+  range?: string;
+  fromDate?: string;
+  toDate?: string;
+  logins?: number;
+  visits?: number;
+  jobCardClicks?: number;
+  applies?: number;
+  activeMs?: number;
+  sessionCount?: number;
+  daysActive?: number;
+  avgActiveMsPerDay?: number;
+  topFirstOpen?: string;
+  pageVisitsByCategory?: Record<string, number>;
+  activeMsByCategory?: Record<string, number>;
+  firstOpenBreakdown?: Record<string, number>;
+  insights?: HqCandidateBehaviorInsight[];
+  behaviourSignals?: {
+    preferSlotIds?: string[];
+    deprioritizeSlotIds?: string[];
+    insightIds?: string[];
+  };
+  recentEvents?: Array<{
+    id: string;
+    at: string;
+    type: string;
+    category: string;
+    path?: string;
+    sessionId?: string;
+    meta?: Record<string, unknown>;
+  }>;
+  recentSessions?: Array<{
+    id: string;
+    startedAt: string;
+    endedAt?: string;
+    durationMs: number;
+    pageCount: number;
+    firstPath?: string;
+    lastPath?: string;
+    deviceType?: string;
+    browser?: string;
+    operatingSystem?: string;
+    country?: string;
+    state?: string;
+    city?: string;
+  }>;
+  profileSnapshot?: {
+    skillsCount?: number | null;
+    profileCompleteness?: number | null;
+    cvScore?: number | null;
+    applicationsTotal?: number;
+    rejectionsTotal?: number;
+  };
+  hqTriggers?: Array<{
+    id: string;
+    flag: string;
+    title: string;
+    reason: string;
+    evidence: string[];
+    recommendedAction: string;
+    priority: number;
+  }>;
+};
+
+export type HqCandidateBehaviorAnalysis = {
+  candidateId: string;
+  candidate: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    title: string;
+    location: string;
+    status: string;
+    source: string;
+    lastActivity: string | null;
+  } | null;
+  capturedAt: string | null;
+  activityStateUpdatedAt: string | null;
+  rollup7d: HqCandidateBehaviorRollup | null;
+  triggers: HqCandidateBehaviorRollup['hqTriggers'];
+  suggestionMetrics: Record<string, unknown> | null;
+  portalSessions: Array<{
+    id: string;
+    startedAt: string;
+    endedAt: string | null;
+    durationMs: number;
+    durationLabel: string;
+    deviceType: string | null;
+    browser: string | null;
+    operatingSystem: string | null;
+    country: string | null;
+    state: string | null;
+    city: string | null;
+    isActive: boolean;
+  }>;
+  applications: Array<{
+    id: string;
+    status: string;
+    jobTitle: string;
+    company: string;
+    createdAt: string;
+  }>;
+  applicationStats: { total: number; rejections: number };
+  dbSummary: {
+    logins: number;
+    applies: number;
+    activeMs: number;
+    sessionCount: number;
+    activeSessions: number;
+    rejectionsTotal: number;
+  };
+  dataSource: 'phase1_behavior_tracker' | 'portal_db_sessions' | 'none';
+  phase1BehaviorUrl: string;
+};
+
+export async function apiHqGetCandidateBehavior(candidateId: string) {
+  return apiFetch<HqCandidateBehaviorAnalysis>(
+    `/hq/candidates/${encodeURIComponent(candidateId)}/behavior`,
+    { auth: true },
+  );
+}
+
+export type HqTenantBehaviorAnalysis = {
+  tenantDbName: string;
+  tenantName: string;
+  tenantEmail?: string;
+  organizationType?: string;
+  planName?: string;
+  capturedAt: string;
+  dataSource: 'behavior_engine' | 'sessions_fallback' | 'none';
+  engagement: {
+    trackedUsers: number;
+    teamMembersTotal: number;
+    activeUsers7d: number;
+    onlineNow: number;
+    totalLogins7d: number;
+    totalLogouts7d: number;
+    totalSessions7d: number;
+    totalActiveMs7d: number;
+    totalActiveMsToday: number;
+    totalVisits7d: number;
+    totalActions7d: number;
+    totalApiMutations7d: number;
+    totalEntityViews7d: number;
+    totalSearches7d: number;
+    avgTimePerUser7d: number;
+    lastActivityAt: string | null;
+    firstActivityAt: string | null;
+  };
+  tenantHealthScore: number;
+  weekMetrics: {
+    visits: number;
+    actions: number;
+    apiMutations: number;
+    entityViews: number;
+    searches: number;
+    activeMs: number;
+    avgWorkflow: number;
+  };
+  todayMetrics: { visits: number; actions: number; activeMs: number };
+  crmContext: Record<string, number | string | null> | null;
+  moduleMatrix: Array<{
+    category: string;
+    label: string;
+    visits: number;
+    activeMs: number;
+    actions: number;
+    entityViews: number;
+    conversionRate: number;
+  }>;
+  funnelSteps: Array<{ category: string; label: string; visits: number }>;
+  actionBreakdown: Record<string, number>;
+  topTriggers: Array<{
+    id: string;
+    flag: string;
+    title: string;
+    reason: string;
+    evidence: string[];
+    recommendedAction: string;
+    priority: number;
+  }>;
+  intelligenceSummary: string[];
+  insights: Array<{
+    id: string;
+    label: string;
+    severity: string;
+    summary: string;
+    evidence: string[];
+  }>;
+  liveFeed: Array<{
+    at: string;
+    type: string;
+    category: string;
+    path?: string;
+  }>;
+};
+
+export async function apiHqGetTenantBehavior(tenantDbName: string) {
+  return apiFetch<HqTenantBehaviorAnalysis>(
+    `/hq/tenants/${encodeURIComponent(tenantDbName)}/behavior`,
+    { auth: true },
+  );
+}
+
 export type HqAnalyticsChartPoint = { name: string; value: number; [key: string]: string | number };
 
 export type HqAnalyticsInsight = {
@@ -2097,6 +2346,39 @@ export type HqEmployeeAnalytics = {
     activeSessions?: number;
     totalSessionsTracked?: number;
     avgSessionDurationMs?: number | null;
+    liveTrackedUsers?: number;
+    liveVisits7d?: number;
+    liveApplies7d?: number;
+    liveJobClicks7d?: number;
+    liveActiveMs7d?: number;
+    resumesUploaded?: number;
+    candidatesWithSkills?: number;
+  };
+  liveTracking?: {
+    available: boolean;
+    source: 'phase1_behavior_tracker' | 'portal_db_sessions' | string;
+    trackedUsers: number;
+    onlineNow: number;
+    totalActiveMs7d: number;
+    totalVisits7d: number;
+    totalApplies7d: number;
+    totalJobClicks7d: number;
+    totalLogins7d: number;
+    totalSessions7d: number;
+    avgActiveMsPerUser7d: number;
+    pageVisitsByCategory: HqAnalyticsChartPoint[];
+    topTriggers: HqAnalyticsChartPoint[];
+    liveFeed: Array<{
+      userId: string;
+      capturedAt: string | null;
+      activityStateUpdatedAt: string | null;
+      activeMs7d: number;
+      visits7d: number;
+      applies7d: number;
+      jobCardClicks7d: number;
+      topTrigger: string | null;
+    }>;
+    capturedAt: string;
   };
   charts: {
     applicationsByStatus: HqAnalyticsChartPoint[];
@@ -2184,6 +2466,7 @@ export type HqEmployeeAnalytics = {
       state: string;
       city: string;
       isActive: boolean;
+      status?: 'online' | 'idle' | 'closed' | string;
     }>;
   };
   insights: HqAnalyticsInsight[];
@@ -2418,7 +2701,92 @@ export async function apiHqUpdateAiFeatures(body: {
   features?: Array<{ id: string; coins: number }>;
   costs?: Record<string, number>;
 }) {
-  return apiFetch<{ features: HqAiFeature[]; costs: Record<string, number> }>('/hq/ai-features', {
+  return apiFetch<{
+    features: HqAiFeature[];
+    costs: Record<string, number>;
+    changed?: Array<{ id: string; name?: string; previous?: number; coins?: number }>;
+    updatedAt?: string;
+  }>('/hq/ai-features', {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export type HqAiCoinPack = {
+  id: string;
+  name: string;
+  coins: number;
+  priceUsd: number;
+  priceLabel: string;
+  description: string;
+  popular?: boolean;
+  active?: boolean;
+  sortOrder?: number;
+};
+
+export async function apiHqListAiCoinPacks() {
+  return apiFetch<{ packs: HqAiCoinPack[] }>('/hq/ai-coin-packs', { auth: true });
+}
+
+export async function apiHqSaveAiCoinPacks(body: { packs: HqAiCoinPack[] }) {
+  return apiFetch<{ packs: HqAiCoinPack[] }>('/hq/ai-coin-packs', {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export type HqPhase1TokenPack = {
+  id: string;
+  name: string;
+  tokens: number;
+  priceAmount: number;
+  priceLabel: string;
+  currency?: string;
+  description?: string;
+  popular?: boolean;
+  active?: boolean;
+  sortOrder?: number;
+};
+
+export type HqPhase1TokenService = {
+  id: string;
+  name: string;
+  description: string;
+  cost: number;
+  category: string;
+  defaultCost?: number;
+  isCustomCost?: boolean;
+};
+
+export async function apiHqGetPhase1TokenConfig() {
+  return apiFetch<{
+    packs: HqPhase1TokenPack[];
+    services: HqPhase1TokenService[];
+    serviceCosts: Record<string, number>;
+    updatedAt?: string | null;
+  }>('/hq/phase1-tokens', { auth: true });
+}
+
+export async function apiHqSavePhase1TokenPacks(body: { packs: HqPhase1TokenPack[] }) {
+  return apiFetch<{ packs: HqPhase1TokenPack[]; updatedAt?: string }>('/hq/phase1-tokens/packs', {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqSavePhase1TokenCosts(body: {
+  services?: Array<{ id: string; cost: number }>;
+  costs?: Record<string, number>;
+}) {
+  return apiFetch<{
+    services: HqPhase1TokenService[];
+    serviceCosts: Record<string, number>;
+    changed?: Array<{ id: string; name?: string; previous?: number; cost?: number }>;
+    updatedAt?: string;
+  }>('/hq/phase1-tokens/costs', {
     method: 'PUT',
     auth: true,
     body,
@@ -2650,6 +3018,12 @@ export async function apiFetchFormData<T>(
       data: summarizeForLog(json?.data),
       pagination: json?.pagination,
     });
+  }
+
+  if (typeof window !== 'undefined' && res.ok && json?.success !== false) {
+    import('./tenant-behavior-engine/track').then(({ trackTenantApiCall }) => {
+      trackTenantApiCall(path, options.method || 'POST');
+    }).catch(() => {});
   }
 
   return json as ApiResponse<T>;

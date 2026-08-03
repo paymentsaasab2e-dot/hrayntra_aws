@@ -2,7 +2,12 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Coins, Lock, RefreshCcw, Save } from 'lucide-react';
-import { apiHqListAiFeatures, apiHqUpdateAiFeatures, type HqAiFeature } from '@/lib/api';
+import {
+  apiHqListAiFeatures,
+  apiHqUpdateAiFeatures,
+  notifyAiFeatureCostsUpdated,
+  type HqAiFeature,
+} from '@/lib/api';
 import { HqPanel, HqPanelTitle, HqPrimaryButton, HqSecondaryButton } from './hqUi';
 
 const inputClass =
@@ -48,6 +53,13 @@ export function HqAiPlansPanel({
     });
   }, [features, draft]);
 
+  const editedCount = useMemo(() => {
+    return features.filter((f) => {
+      const current = Math.max(0, Math.floor(Number(draft[f.id]) || 0));
+      return current !== Math.max(0, Number(f.coins) || 0);
+    }).length;
+  }, [features, draft]);
+
   const byCategory = useMemo(() => {
     return features.reduce<Record<string, HqAiFeature[]>>((acc, f) => {
       const key = f.category || 'Other';
@@ -58,6 +70,7 @@ export function HqAiPlansPanel({
   }, [features]);
 
   const handleSave = async () => {
+    if (!dirty || saving) return;
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -72,7 +85,26 @@ export function HqAiPlansPanel({
       const next: Record<string, string> = {};
       for (const f of list) next[f.id] = String(f.coins ?? 0);
       setDraft(next);
-      setSuccess('AI coin costs saved. Phase 2 will spend these amounts on each AI action.');
+
+      const changed = res.data?.changed || [];
+      const summary =
+        changed.length > 0
+          ? changed
+              .slice(0, 4)
+              .map((c) => `${c.name || c.id}: ${c.previous ?? '?'} → ${c.coins}`)
+              .join(' · ')
+          : 'No cost values changed';
+
+      setSuccess(
+        `Saved. Phase 2 will spend the new amounts on the next AI use. ${summary}${
+          changed.length > 4 ? ` · +${changed.length - 4} more` : ''
+        }`
+      );
+
+      notifyAiFeatureCostsUpdated({
+        updatedAt: res.data?.updatedAt,
+        changed,
+      });
       onRefreshExtra?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save AI feature costs');
@@ -92,7 +124,7 @@ export function HqAiPlansPanel({
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">AI Plans</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Set how many coins each Phase 2 AI feature spends. Tenants are charged these amounts when they use AI.
+            Set how many coins each Phase 2 AI feature spends. Click Save — tenants use the new cost on the next AI action.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -102,10 +134,21 @@ export function HqAiPlansPanel({
           </HqSecondaryButton>
           <HqPrimaryButton type="button" onClick={() => void handleSave()} disabled={saving || !dirty}>
             <Save className="h-4 w-4" />
-            {saving ? 'Saving…' : 'Save coin costs'}
+            {saving
+              ? 'Saving…'
+              : dirty
+                ? `Save coin costs (${editedCount})`
+                : 'Save coin costs'}
           </HqPrimaryButton>
         </div>
       </div>
+
+      {dirty ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          You have <strong>{editedCount}</strong> unsaved change{editedCount === 1 ? '' : 's'}. Click{' '}
+          <strong>Save coin costs</strong> to update Phase 2 spending.
+        </div>
+      ) : null}
 
       {error ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
@@ -120,7 +163,7 @@ export function HqAiPlansPanel({
         <HqPanelTitle title="Phase 2 AI feature coin prices" />
         <p className="mb-4 text-sm text-slate-500">
           Example: set &quot;AI job from prompt&quot; to <strong>10</strong> coins — creating a job with AI in Phase 2 will
-          spend 10 coins from that tenant&apos;s balance.
+          spend 10 coins from that tenant&apos;s balance after you save.
         </p>
 
         {loading && features.length === 0 ? (
@@ -130,15 +173,15 @@ export function HqAiPlansPanel({
             {Object.entries(byCategory).map(([category, items]) => (
               <div key={category}>
                 <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">{category}</h3>
-                <div className="overflow-hidden rounded-xl border border-slate-200">
-                  <table className="w-full text-left text-sm">
+                <div className="hq-table-wrap overflow-hidden">
+                  <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/80 text-[10px] uppercase tracking-wider text-slate-400">
-                        <th className="px-4 py-2.5 font-semibold">Feature</th>
-                        <th className="px-3 py-2.5 font-semibold">Default</th>
-                        <th className="px-3 py-2.5 font-semibold">Coin cost</th>
-                        <th className="px-3 py-2.5 font-semibold">Status</th>
-                        <th className="px-4 py-2.5 font-semibold text-right">Reset</th>
+                      <tr>
+                        <th>Feature</th>
+                        <th>Default</th>
+                        <th>Coin cost</th>
+                        <th>Status</th>
+                        <th className="text-right">Reset</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -147,6 +190,11 @@ export function HqAiPlansPanel({
                         const changed =
                           Math.max(0, Math.floor(Number(draftVal) || 0)) !==
                           Math.max(0, Number(f.coins) || 0);
+                        const isCustom =
+                          !changed &&
+                          f.isCustomCost &&
+                          Math.max(0, Number(f.coins) || 0) !==
+                            Math.max(0, Number(f.defaultCoins ?? f.coins) || 0);
                         return (
                           <tr key={f.id} className="border-b border-slate-50 last:border-0">
                             <td className="px-4 py-3">
@@ -169,9 +217,17 @@ export function HqAiPlansPanel({
                                   onChange={(e) =>
                                     setDraft((prev) => ({ ...prev, [f.id]: e.target.value }))
                                   }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && dirty) {
+                                      e.preventDefault();
+                                      void handleSave();
+                                    }
+                                  }}
                                 />
                                 {changed ? (
                                   <span className="text-[10px] font-bold uppercase text-amber-600">Edited</span>
+                                ) : isCustom ? (
+                                  <span className="text-[10px] font-bold uppercase text-sky-600">Custom</span>
                                 ) : null}
                               </div>
                             </td>

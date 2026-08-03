@@ -11,6 +11,8 @@ type PermissionPickerProps = {
   onModuleSelectAll: (module: string) => void;
   disabled?: boolean;
   maxHeightClass?: string;
+  /** Optional module order (HQ Team uses sidebar-aligned order). */
+  moduleOrder?: string[];
 };
 
 export function PermissionPicker({
@@ -20,8 +22,18 @@ export function PermissionPicker({
   onModuleSelectAll,
   disabled = false,
   maxHeightClass = 'max-h-[420px]',
+  moduleOrder,
 }: PermissionPickerProps) {
-  const modules = sortModules(Object.keys(permissionsByModule));
+  const modules = moduleOrder?.length
+    ? [...Object.keys(permissionsByModule)].sort((a, b) => {
+        const aIndex = moduleOrder.indexOf(a);
+        const bIndex = moduleOrder.indexOf(b);
+        if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+      })
+    : sortModules(Object.keys(permissionsByModule));
 
   if (!modules.length) {
     return (

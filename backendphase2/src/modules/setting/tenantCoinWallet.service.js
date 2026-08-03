@@ -2,7 +2,7 @@ import { getSubscriptionPlan, setSubscriptionPlan } from './recruitmentMode.serv
 import { getAiFeature, listAiFeaturesWithLockState } from './aiCoinCatalog.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { hqAiFeaturesService } from '../hq/hq-ai-features.service.js';
-import { getCoinPack, listCoinPacks } from './aiCoinPacks.js';
+import { getCoinPackAsync, listCoinPacksAsync } from './aiCoinPacks.js';
 
 function insufficientError(balance, required, featureId) {
   const err = new Error(
@@ -134,7 +134,7 @@ export async function spendTenantCoins(featureId, { user, meta } = {}) {
 
 /** Demo purchase — credits pack coins immediately (no real payment). */
 export async function purchaseCoinPack(packId, { user } = {}) {
-  const pack = getCoinPack(packId);
+  const pack = await getCoinPackAsync(packId);
   if (!pack) throw new Error('Unknown coin pack');
 
   const result = await addTenantCoins(pack.coins, {
@@ -155,18 +155,20 @@ export async function getCoinsOverview() {
   const { coins, planName } = await getTenantCoinBalance();
   let features = [];
   try {
-    features = await hqAiFeaturesService.listFeatures();
+    // Fresh HQ costs so Phase 2 badges match the latest Save coin costs.
+    features = await hqAiFeaturesService.listFeatures({ bypassCache: true });
   } catch (err) {
     console.warn('[coins] failed to load HQ AI feature costs:', err?.message || err);
     features = listAiFeaturesWithLockState(coins);
   }
+  const packs = await listCoinPacksAsync();
   return {
     coins,
     planName,
     features: listAiFeaturesWithLockState(coins, features),
     catalog: features,
-    packs: listCoinPacks(),
+    packs,
   };
 }
 
-export { listAiFeaturesWithLockState, getAiFeature, listCoinPacks, getCoinPack };
+export { listAiFeaturesWithLockState, getAiFeature, listCoinPacksAsync as listCoinPacks, getCoinPackAsync as getCoinPack };

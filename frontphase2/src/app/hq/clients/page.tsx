@@ -595,18 +595,18 @@ export default function HqClientsPage() {
                   ))}
             </div>
 
-            <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-              <div className="flex shrink-0 items-center gap-2 overflow-x-auto ph2-invisible-scrollbar border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
+            <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden hq-table-wrap">
+              <div className="flex shrink-0 items-center gap-2 overflow-x-auto ph2-invisible-scrollbar border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/80 p-3 sm:p-4">
                 <div className="relative min-w-[14rem] max-w-md shrink-0 grow basis-[14rem] sm:basis-[18rem]">
                   <Search
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-teal-600/70"
                     size={16}
                     strokeWidth={2.25}
                   />
                   <input
                     type="text"
                     placeholder="Search clients by name, contact, or owner..."
-                    className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                    className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-100"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
@@ -616,15 +616,15 @@ export default function HqClientsPage() {
               <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
                 <table className="w-full min-w-[760px] text-left" aria-label="Clients">
                   <thead className="sticky top-0 z-10">
-                    <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
-                      <th className="px-3 sm:px-4 py-2 min-w-[11rem]">Client</th>
-                      <th className="px-3 sm:px-4 py-2">Contact</th>
-                      <th className="px-3 sm:px-4 py-2">Industry</th>
-                      <th className="px-3 sm:px-4 py-2">Score</th>
-                      <th className="px-3 sm:px-4 py-2">Owner</th>
-                      <th className="px-3 sm:px-4 py-2">Status</th>
-                      <th className="px-3 sm:px-4 py-2">Next Follow-up</th>
-                      <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
+                    <tr>
+                      <th className="min-w-[11rem]">Client</th>
+                      <th>Contact</th>
+                      <th>Industry</th>
+                      <th>Score</th>
+                      <th>Owner</th>
+                      <th>Status</th>
+                      <th>Next Follow-up</th>
+                      <th className="text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100/80">

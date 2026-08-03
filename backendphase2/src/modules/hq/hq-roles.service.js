@@ -2,6 +2,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
 import {
   HQ_DEFAULT_ROLES,
+  HQ_MODULE_ORDER,
   listHqPermissions,
   normalizePermissionIds,
   permissionsByModule,
@@ -69,6 +70,40 @@ async function ensureDefaultRoles() {
     );
   }
   defaultsSeeded = true;
+  await syncSystemRolesWithCatalog();
+}
+
+/**
+ * Keep seeded HQ Admin / Manager / Viewer permission sets aligned with the
+ * current HQ sidebar catalog (Events, Subscriptions, CRM dashboard, etc.).
+ */
+async function syncSystemRolesWithCatalog() {
+  const collection = await getCollection();
+  const now = new Date();
+  for (const def of HQ_DEFAULT_ROLES) {
+    const existing = await collection.findOne({
+      roleName: def.roleName,
+      isSystem: true,
+    });
+    if (!existing) continue;
+    const next = normalizePermissionIds(def.permissionIds);
+    const prev = normalizePermissionIds(existing.permissionIds);
+    const prevSet = new Set(prev);
+    const same =
+      next.length === prev.length && next.every((id) => prevSet.has(id));
+    if (same && String(existing.description || '') === String(def.description || '')) continue;
+    await collection.updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          permissionIds: next,
+          description: def.description,
+          updatedAt: now,
+          syncedFromCatalogAt: now,
+        },
+      },
+    );
+  }
 }
 
 export const hqRolesService = {
@@ -76,6 +111,7 @@ export const hqRolesService = {
     return {
       permissions: listHqPermissions(),
       permissionsByModule: permissionsByModule(),
+      moduleOrder: HQ_MODULE_ORDER,
     };
   },
 

@@ -5,12 +5,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BarChart3, Loader2, RefreshCw } from 'lucide-react';
-import {
-  HqPageContainer,
-  HqPageMain,
-  HqSecondaryButton,
-  HqStatCard,
-} from '@/components/hq/hqUi';
+import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';
+import { HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import {
   apiHqListCompanies,
   apiHqListLeads,
@@ -84,25 +80,18 @@ export default function HqReportsPage() {
   }, [leads, companies]);
 
   return (
-    <HqPageMain>
-      <HqPageContainer>
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pink-50 text-pink-600 ring-1 ring-pink-100">
-              <BarChart3 className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Reports</h1>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Headquarters CRM reports — HQ database only (not tenant CRM).
-              </p>
-            </div>
-          </div>
+    <HqModulePageLayout
+      title="Reports"
+      subtitle="Headquarters CRM reports — HQ database only (not tenant CRM)."
+      icon={<BarChart3 className="h-5 w-5" />}
+      locked={false}
+      actions={
           <HqSecondaryButton onClick={() => void load()} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Refresh
           </HqSecondaryButton>
-        </header>
+      }
+    >
 
         {error ? (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -120,8 +109,8 @@ export default function HqReportsPage() {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-slate-900">Leads by stage</h2>
+          <div className="hq-surface p-5">
+            <h2 className="hq-display text-sm font-semibold text-slate-900">Leads by stage</h2>
             <ul className="mt-4 space-y-2">
               {report.byStage.map((row) => (
                 <li key={row.stage} className="flex justify-between text-sm">
@@ -131,8 +120,8 @@ export default function HqReportsPage() {
               ))}
             </ul>
           </div>
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-slate-900">Leads by source</h2>
+          <div className="hq-surface p-5">
+            <h2 className="hq-display text-sm font-semibold text-slate-900">Leads by source</h2>
             <ul className="mt-4 space-y-2">
               {report.bySource.length === 0 ? (
                 <li className="text-sm text-slate-500">No source data yet.</li>
@@ -146,8 +135,8 @@ export default function HqReportsPage() {
               )}
             </ul>
           </div>
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-slate-900">Clients by status</h2>
+          <div className="hq-surface p-5">
+            <h2 className="hq-display text-sm font-semibold text-slate-900">Clients by status</h2>
             <ul className="mt-4 space-y-2">
               {report.clientsByStatus.map((row) => (
                 <li key={row.status} className="flex justify-between text-sm capitalize">
@@ -158,7 +147,6 @@ export default function HqReportsPage() {
             </ul>
           </div>
         </section>
-      </HqPageContainer>
-    </HqPageMain>
+    </HqModulePageLayout>
   );
 }

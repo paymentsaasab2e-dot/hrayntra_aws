@@ -1,4 +1,9 @@
 import { getJobPortalPrismaClient } from '../../config/prisma.js';
+import { notifyPortalEventApplicants } from './portal-event-notifications.js';
+import {
+  normalizePortalEventMedia,
+  storePortalEventMediaFile,
+} from './portal-events-media.service.js';
 
 function portalDb() {
   return getJobPortalPrismaClient();
@@ -12,6 +17,36 @@ function creatorDisplayName(user) {
     user.email ||
     'Organizer'
   );
+}
+
+function buildOwnershipWhere({ eventId, createdById, source, tenantDbName }) {
+  const where = {
+    id: String(eventId),
+    createdById: String(createdById),
+    source: String(source),
+  };
+  if (tenantDbName) where.tenantDbName = String(tenantDbName);
+  return where;
+}
+
+async function findOwnedEvent({ eventId, createdById, source, tenantDbName }) {
+  const event = await portalDb().lmsEvent.findFirst({
+    where: buildOwnershipWhere({ eventId, createdById, source, tenantDbName }),
+    include: { _count: { select: { registrations: true } } },
+  });
+  if (!event) {
+    const err = new Error('Event not found');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+  return event;
+}
+
+async function loadEventRegistrations(eventId) {
+  return portalDb().lmsEventRegistration.findMany({
+    where: { eventId: String(eventId) },
+    select: { id: true, userId: true },
+  });
 }
 
 function normalizeSections(sections) {
@@ -67,6 +102,7 @@ function buildEventCreateData(payload, creator, source, tenantDbName) {
     capacity: payload?.capacity != null ? Math.max(1, Number(payload.capacity) || 0) : null,
     tags: Array.isArray(payload?.tags) ? payload.tags.map(String).filter(Boolean) : [],
     isPublished: payload?.isPublished !== false,
+    media: normalizePortalEventMedia(payload?.media),
     hostName: creatorDisplayName(creator),
     createdById: String(creator.id),
     createdByEmail: creator.email ? String(creator.email).trim() : null,
@@ -99,19 +135,7 @@ export async function listPortalEventsForCreator({ createdById, source, tenantDb
 }
 
 export async function getPortalEventRegistrations({ eventId, createdById, source, tenantDbName }) {
-  const where = {
-    id: String(eventId),
-    createdById: String(createdById),
-    source: String(source),
-  };
-  if (tenantDbName) where.tenantDbName = String(tenantDbName);
-
-  const event = await portalDb().lmsEvent.findFirst({ where });
-  if (!event) {
-    const err = new Error('Event not found');
-    err.code = 'NOT_FOUND';
-    throw err;
-  }
+  const event = await findOwnedEvent({ eventId, createdById, source, tenantDbName });
 
   const registrations = await portalDb().lmsEventRegistration.findMany({
     where: { eventId: event.id },
@@ -162,6 +186,138 @@ export async function getPortalEventRegistrations({ eventId, createdById, source
   };
 }
 
+export async function updatePortalEvent({ eventId, payload, createdById, source, tenantDbName }) {
+  const existing = await findOwnedEvent({ eventId, createdById, source, tenantDbName });
+  if (String(existing.status || 'active') === 'cancelled') {
+    const err = new Error('Cancelled events cannot be edited');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
+  const data = {};
+  if (payload?.title != null) {
+    const title = String(payload.title).trim();
+    if (!title) {
+      const err = new Error('Event title is required');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+    data.title = title;
+  }
+  if (payload?.description != null) {
+    const description = String(payload.description).trim();
+    if (!description) {
+      const err = new Error('Event description is required');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+    data.description = description;
+  }
+  if (payload?.location != null) {
+    const location = String(payload.location).trim();
+    if (!location) {
+      const err = new Error('Event location is required');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+    data.location = location;
+  }
+  if (payload?.scheduledAt != null) {
+    const scheduledAt = new Date(payload.scheduledAt);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      const err = new Error('Valid event date/time is required');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+    data.scheduledAt = scheduledAt;
+  }
+  if (payload?.sections != null) {
+    data.sections = normalizeSections(payload.sections);
+  }
+  if (payload?.type != null) {
+    data.type = String(payload.type).trim() || 'workshop';
+  }
+  if (payload?.mode != null) {
+    data.mode = String(payload.mode).trim() || 'Offline';
+  }
+  if (payload?.durationMinutes != null) {
+    data.durationMinutes = Math.max(15, Number(payload.durationMinutes) || 60);
+  }
+  if (payload?.isPublished != null) {
+    data.isPublished = Boolean(payload.isPublished);
+  }
+  if (payload?.media != null) {
+    data.media = normalizePortalEventMedia(payload.media);
+  }
+
+  if (Object.keys(data).length === 0) {
+    const err = new Error('No valid fields to update');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
+  const updated = await portalDb().lmsEvent.update({
+    where: { id: existing.id },
+    data,
+    include: { _count: { select: { registrations: true } } },
+  });
+
+  return serializeEventRow(updated, updated._count?.registrations ?? 0);
+}
+
+export async function cancelPortalEvent({ eventId, createdById, source, tenantDbName, organizerName }) {
+  const existing = await findOwnedEvent({ eventId, createdById, source, tenantDbName });
+  if (String(existing.status || 'active') === 'cancelled') {
+    const err = new Error('Event is already cancelled');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
+  const registrations = await loadEventRegistrations(existing.id);
+
+  const updated = await portalDb().lmsEvent.update({
+    where: { id: existing.id },
+    data: {
+      status: 'cancelled',
+      isPublished: false,
+    },
+    include: { _count: { select: { registrations: true } } },
+  });
+
+  void notifyPortalEventApplicants({
+    event: updated,
+    registrations,
+    action: 'cancelled',
+    organizerName,
+  });
+
+  return serializeEventRow(updated, updated._count?.registrations ?? 0);
+}
+
+export async function deletePortalEvent({ eventId, createdById, source, tenantDbName, organizerName }) {
+  const existing = await findOwnedEvent({ eventId, createdById, source, tenantDbName });
+  const registrations = await loadEventRegistrations(existing.id);
+
+  void notifyPortalEventApplicants({
+    event: existing,
+    registrations,
+    action: 'deleted',
+    organizerName,
+  });
+
+  await portalDb().lmsEvent.delete({ where: { id: existing.id } });
+
+  return { id: existing.id, deleted: true };
+}
+
+export async function uploadPortalEventMediaFiles({ files, tenantDbName }) {
+  const uploaded = [];
+  for (const file of files) {
+    uploaded.push(await storePortalEventMediaFile(file, { tenantDbName }));
+  }
+  return uploaded;
+}
+
 function serializeEventRow(event, registrationCount = 0) {
   return {
     id: event.id,
@@ -174,6 +330,8 @@ function serializeEventRow(event, registrationCount = 0) {
     scheduledAt: event.scheduledAt,
     durationMinutes: event.durationMinutes,
     isPublished: event.isPublished,
+    status: event.status || 'active',
+    media: normalizePortalEventMedia(event.media),
     source: event.source,
     tenantDbName: event.tenantDbName,
     createdById: event.createdById,

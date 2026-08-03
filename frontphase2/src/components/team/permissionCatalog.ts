@@ -52,8 +52,12 @@ export function sortModules(modules: string[]): string[] {
 }
 
 export function formatPermissionLabel(name: string): string {
-  return name
+  const normalized = String(name || '')
+    .replace(/^hq_/, '')
+    .trim();
+  return normalized
     .split('_')
+    .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }

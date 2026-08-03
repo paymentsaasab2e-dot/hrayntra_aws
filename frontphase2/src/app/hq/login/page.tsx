@@ -7,6 +7,7 @@ import { Building2, Lock, LogIn, Mail, Shield } from 'lucide-react';
 import { apiLogin, formatAuthErrorMessage } from '../../../lib/api';
 import { buildLoginDevicePayload } from '../../../lib/sessionAuth';
 import { HQ_PLATFORM_EMAIL, isEmailAllowedForHq } from '../../../lib/hqAccess';
+import { writeHqPermissionIds } from '../../../lib/hqNavPermissions';
 
 export default function HqLoginPage() {
   const router = useRouter();
@@ -39,11 +40,14 @@ export default function HqLoginPage() {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
           localStorage.removeItem('currentUser');
+          writeHqPermissionIds(null);
         }
         setError('This account is not authorized for Headquarters access.');
         return;
       }
 
+      // Platform HQ login is unrestricted — clear any leftover team permission filter.
+      writeHqPermissionIds(null);
       router.replace('/hq');
     } catch (err: unknown) {
       setError(formatAuthErrorMessage(err as { status?: number; message?: string }, 'Invalid email or password.'));
@@ -53,15 +57,15 @@ export default function HqLoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(ellipse_at_top,_rgba(15,118,110,0.18),_transparent_50%),linear-gradient(160deg,#020617_0%,#0f172a_45%,#134e4a_100%)] p-4">
       <div className="w-full max-w-md">
-        <div className="overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900/90 shadow-2xl shadow-black/40 backdrop-blur-sm">
-          <div className="border-b border-slate-700/60 bg-slate-900/80 px-6 py-5 text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30">
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/80 shadow-2xl shadow-black/50 backdrop-blur-md">
+          <div className="border-b border-white/10 bg-white/[0.03] px-6 py-5 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-500/15 text-teal-300 ring-1 ring-teal-400/30">
               <Shield size={24} strokeWidth={2} />
             </div>
-            <h1 className="text-xl font-bold text-white">Headquarters login</h1>
-            <p className="mt-1 text-sm text-slate-400">Platform operator access for tenant provisioning</p>
+            <h1 className="hq-display text-xl font-semibold text-white">Headquarters login</h1>
+            <p className="mt-1 text-sm font-medium text-slate-400">Platform operator access for tenant provisioning</p>
           </div>
 
           <div className="p-6">
@@ -103,7 +107,7 @@ export default function HqLoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 py-2.5 text-sm font-semibold text-white shadow-lg shadow-teal-900/30 transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <LogIn size={16} />
                 {loading ? 'Signing in…' : 'Sign in to HQ'}

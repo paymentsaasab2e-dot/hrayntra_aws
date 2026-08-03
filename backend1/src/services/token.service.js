@@ -1,10 +1,6 @@
 const { prisma } = require('../lib/prisma');
 const {
   WELCOME_TOKEN_AMOUNT,
-  getServiceCost,
-  getPurchasePack,
-  SERVICE_CATALOG,
-  PURCHASE_PACKS,
   EARN_TASK_CATALOG,
   PROFILE_SECTION_EARN_MAP,
   REOPENABLE_EARN_KEYS,
@@ -119,7 +115,8 @@ async function grantWelcomeTokensIfNeeded(candidateId) {
  * Deduct tokens for a catalogued service. Throws with status 402 if insufficient.
  */
 async function spendTokens(candidateId, serviceId) {
-  const cost = getServiceCost(serviceId);
+  const { getServiceCostAsync } = require('./hqPhase1TokenConfig.service');
+  const cost = await getServiceCostAsync(serviceId);
   if (cost == null) {
     const err = new Error(`Unknown billable service: ${serviceId}`);
     err.status = 400;
@@ -336,7 +333,8 @@ async function grantTokensAmount(candidateId, amount, serviceId, description) {
  * Mock purchase — credits tokens without a real payment gateway.
  */
 async function purchasePack(candidateId, packageId, paymentReference) {
-  const pack = getPurchasePack(packageId);
+  const { getPurchasePackAsync } = require('./hqPhase1TokenConfig.service');
+  const pack = await getPurchasePackAsync(packageId);
   if (!pack) {
     const err = new Error('Invalid package');
     err.status = 400;
@@ -397,10 +395,18 @@ async function listRecentTransactions(candidateId, limit = 20) {
   });
 }
 
-function getCatalog() {
+async function getCatalog() {
+  const {
+    listPurchasePacks,
+    getMergedServiceCatalog,
+  } = require('./hqPhase1TokenConfig.service');
+  const [packs, services] = await Promise.all([
+    listPurchasePacks(),
+    getMergedServiceCatalog(),
+  ]);
   return {
-    services: SERVICE_CATALOG,
-    packs: PURCHASE_PACKS,
+    services,
+    packs,
     earnTasks: EARN_TASK_CATALOG,
     welcomeAmount: WELCOME_TOKEN_AMOUNT,
   };

@@ -1,15 +1,16 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search, UserRound } from 'lucide-react';
 import {
-  HqPageContainer,
-  HqPageHeader,
-  HqPageMain,
-  HqSecondaryButton,
-  HqStatCard,
-} from '@/components/hq/hqUi';
+  HqModulePageLayout,
+  HQ_TABLE_BODY_SCROLL_CLASS,
+  HQ_TABLE_CARD_CLASS,
+  HQ_TOOLBAR_ROW_CLASS,
+} from '@/components/hq/HqModulePageLayout';
+import { HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import { HqPhase1ConnectionBar } from '@/components/hq/HqPhase1ConnectionBar';
+import { HqCandidateBehaviorPanel } from '@/components/hq/HqCandidateBehaviorPanel';
 import {
   apiHqListCandidates,
   type HqPortalCandidateRow,
@@ -75,6 +76,7 @@ export default function HqCandidatesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
+  const [selectedCandidate, setSelectedCandidate] = useState<HqPortalCandidateRow | null>(null);
 
   const loadCandidates = useCallback(async () => {
     setLoading(true);
@@ -142,26 +144,32 @@ export default function HqCandidatesPage() {
   );
 
   return (
-    <HqPageMain>
-      <HqPageContainer>
-        <HqPageHeader
-          title="Candidates"
-          subtitle="Phase 1 candidates only — job portal and common pool."
-          actions={
-            <HqSecondaryButton onClick={() => void loadCandidates()} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </HqSecondaryButton>
-          }
-        />
-
-        <HqPhase1ConnectionBar
-          live={!loadError && !loading}
-          candidateCount={stats.totalCandidates}
-          onRefresh={() => void loadCandidates()}
-          loading={loading}
-          compact
-        />
+    <HqModulePageLayout
+      title="Candidates"
+      subtitle="Phase 1 candidates only — job portal and common pool."
+      icon={<UserRound className="h-5 w-5" />}
+      actions={
+        <HqSecondaryButton onClick={() => void loadCandidates()} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </HqSecondaryButton>
+      }
+      belowScroll={
+        selectedCandidate ? (
+          <HqCandidateBehaviorPanel
+            candidate={selectedCandidate}
+            onClose={() => setSelectedCandidate(null)}
+          />
+        ) : null
+      }
+    >
+      <HqPhase1ConnectionBar
+        live={!loadError && !loading}
+        candidateCount={stats.totalCandidates}
+        onRefresh={() => void loadCandidates()}
+        loading={loading}
+        compact
+      />
 
         {storage ? (
           <p className="mb-4 text-xs text-slate-500">
@@ -189,43 +197,40 @@ export default function HqCandidatesPage() {
           </div>
         ) : null}
 
-        <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3">
+        <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
           <HqStatCard label="Phase 1 Total" value={stats.totalCandidates} active />
           <HqStatCard label="Portal" value={stats.portalCandidates} />
           <HqStatCard label="Common Pool" value={stats.commonCandidates} />
-        </section>
+        </div>
 
-        <section className="mb-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-          <div className="flex min-w-max items-center gap-1 overflow-x-auto border-b border-slate-100 px-2 py-2">
-            {ORIGIN_TABS.map((tab) => {
-              const active = originFilter === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setOriginFilter(tab.id)}
-                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                    active
-                      ? 'bg-slate-100 text-slate-900'
-                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-                  }`}
-                >
-                  {tab.label}
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+        <div className={HQ_TABLE_CARD_CLASS}>
+          <div className={HQ_TOOLBAR_ROW_CLASS}>
+            <div className="flex min-w-max items-center gap-1 overflow-x-auto">
+              {ORIGIN_TABS.map((tab) => {
+                const active = originFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setOriginFilter(tab.id)}
+                    className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
                       active
-                        ? 'bg-white text-slate-700 ring-1 ring-slate-200'
-                        : 'bg-slate-100 text-slate-500'
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
                     }`}
                   >
-                    {tabCounts[tab.id]}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
+                    {tab.label}
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                        active ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {tabCounts[tab.id]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             <div className="relative min-w-[220px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -233,28 +238,28 @@ export default function HqCandidatesPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search Phase 1 candidates by name, email, title…"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-100"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-teal-300 focus:ring-2 focus:ring-teal-100"
               />
             </div>
             <p className="text-xs font-semibold text-slate-500">
               {loading
                 ? 'Loading Phase 1 candidates…'
-                : `${filteredCandidates.length} of ${candidates.length} listed`}
+                : `${filteredCandidates.length} of ${candidates.length} listed · click a row for behaviour analysis`}
             </p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+          <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
+            <table className="min-w-full text-left">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="px-4 py-3">#</th>
-                  <th className="px-4 py-3">Candidate</th>
-                  <th className="px-4 py-3">Contact</th>
-                  <th className="px-4 py-3">Title</th>
-                  <th className="px-4 py-3">Location</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Source</th>
-                  <th className="px-4 py-3">Updated</th>
+                <tr>
+                  <th>#</th>
+                  <th>Candidate</th>
+                  <th>Contact</th>
+                  <th>Title</th>
+                  <th>Location</th>
+                  <th>Status</th>
+                  <th>Source</th>
+                  <th>Updated</th>
                 </tr>
               </thead>
               <tbody>
@@ -268,7 +273,8 @@ export default function HqCandidatesPage() {
                   filteredCandidates.map((row, index) => (
                     <tr
                       key={`${row.origin}-${row.id}`}
-                      className="border-b border-slate-100 transition hover:bg-slate-50/60"
+                      onClick={() => setSelectedCandidate(row)}
+                      className="cursor-pointer border-b border-slate-100 transition hover:bg-indigo-50/40"
                     >
                       <td className="px-4 py-3 text-xs text-slate-400">{index + 1}</td>
                       <td className="px-4 py-3">
@@ -294,8 +300,7 @@ export default function HqCandidatesPage() {
               </tbody>
             </table>
           </div>
-        </section>
-      </HqPageContainer>
-    </HqPageMain>
+        </div>
+    </HqModulePageLayout>
   );
 }

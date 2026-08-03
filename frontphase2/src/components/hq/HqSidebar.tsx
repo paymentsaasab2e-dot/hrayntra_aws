@@ -21,6 +21,11 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { HqBrandLogo } from './HqBrandLogo';
+import {
+  canAccessHqNav,
+  HQ_PERMISSIONS_STORAGE_KEY,
+  readHqPermissionIds,
+} from '@/lib/hqNavPermissions';
 
 export type HqNavTab = 'dashboard' | 'tenants' | 'plans' | 'bootstrap';
 
@@ -378,12 +383,25 @@ export function HqSidebar() {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
   const view = searchParams.get('view');
+  const [permissionIds, setPermissionIds] = useState<string[] | null>(null);
 
-  const employeeItems = HQ_NAV_ITEMS.filter((item) => item.group === 'employees');
-  const employerItems = HQ_NAV_ITEMS.filter((item) => item.group === 'employers');
-  const platformItems = HQ_NAV_ITEMS.filter((item) => item.group === 'platform');
-  const crmItems = HQ_NAV_ITEMS.filter((item) => item.group === 'crm');
-  const opsItems = HQ_NAV_ITEMS.filter((item) => item.group === 'ops');
+  useEffect(() => {
+    setPermissionIds(readHqPermissionIds());
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === HQ_PERMISSIONS_STORAGE_KEY) {
+        setPermissionIds(readHqPermissionIds());
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const visibleItems = HQ_NAV_ITEMS.filter((item) => canAccessHqNav(item.id, permissionIds));
+  const employeeItems = visibleItems.filter((item) => item.group === 'employees');
+  const employerItems = visibleItems.filter((item) => item.group === 'employers');
+  const platformItems = visibleItems.filter((item) => item.group === 'platform');
+  const crmItems = visibleItems.filter((item) => item.group === 'crm');
+  const opsItems = visibleItems.filter((item) => item.group === 'ops');
 
   const employeesActive = isEmployeesSectionActive(pathname, tab, view);
   const employersActive = isEmployersSectionActive(pathname, tab, view);
@@ -406,7 +424,7 @@ export function HqSidebar() {
 
   return (
     <aside
-      className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-white/[0.06] bg-[#0b1220] text-white"
+      className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-white/[0.06] bg-[#071018] text-white"
       style={{ width: HQ_SIDEBAR_W }}
     >
       <div className="shrink-0 border-b border-white/[0.06] px-4 py-4">
@@ -415,8 +433,12 @@ export function HqSidebar() {
             <HqBrandLogo className="h-7 w-7 object-contain" variant="mark" />
           </div>
           <div className="min-w-0">
-            <h1 className="truncate text-[15px] font-bold tracking-tight text-white">Headquarters</h1>
-            <p className="mt-0.5 text-[11px] leading-snug text-[#8899AA]">Phase 1 + Phase 2 console</p>
+            <h1 className="hq-display truncate text-[15px] font-semibold tracking-tight text-white">
+              Headquarters
+            </h1>
+            <p className="mt-0.5 text-[11px] font-medium leading-snug text-[#7a92a8]">
+              Phase 1 + Phase 2 console
+            </p>
           </div>
         </Link>
       </div>
@@ -425,39 +447,45 @@ export function HqSidebar() {
         className="sidenav-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-3"
         aria-label="HQ sections"
       >
-        <p className="mb-1.5 px-5 text-[9px] font-bold uppercase tracking-[0.12em] text-[#4A6070]">
-          Platform
-        </p>
+        {employeeItems.length > 0 || employerItems.length > 0 || platformItems.length > 0 ? (
+          <p className="mb-1.5 px-5 text-[9px] font-bold uppercase tracking-[0.12em] text-[#4A6070]">
+            Platform
+          </p>
+        ) : null}
 
-        <CollapsibleNavGroup
-          label="Employees"
-          icon={Users}
-          accentActiveClass="ring-sky-400/30"
-          open={employeesOpen}
-          onToggle={() => setEmployeesOpen((open) => !open)}
-          active={employeesActive}
-        >
-          {employeeItems.map((item) => (
-            <li key={item.id}>
-              <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
-            </li>
-          ))}
-        </CollapsibleNavGroup>
+        {employeeItems.length > 0 ? (
+          <CollapsibleNavGroup
+            label="Employees"
+            icon={Users}
+            accentActiveClass="ring-sky-400/30"
+            open={employeesOpen}
+            onToggle={() => setEmployeesOpen((open) => !open)}
+            active={employeesActive}
+          >
+            {employeeItems.map((item) => (
+              <li key={item.id}>
+                <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
+              </li>
+            ))}
+          </CollapsibleNavGroup>
+        ) : null}
 
-        <CollapsibleNavGroup
-          label="Employers"
-          icon={Briefcase}
-          accentActiveClass="ring-indigo-400/30"
-          open={employersOpen}
-          onToggle={() => setEmployersOpen((open) => !open)}
-          active={employersActive}
-        >
-          {employerItems.map((item) => (
-            <li key={item.id}>
-              <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
-            </li>
-          ))}
-        </CollapsibleNavGroup>
+        {employerItems.length > 0 ? (
+          <CollapsibleNavGroup
+            label="Employers"
+            icon={Briefcase}
+            accentActiveClass="ring-indigo-400/30"
+            open={employersOpen}
+            onToggle={() => setEmployersOpen((open) => !open)}
+            active={employersActive}
+          >
+            {employerItems.map((item) => (
+              <li key={item.id}>
+                <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
+              </li>
+            ))}
+          </CollapsibleNavGroup>
+        ) : null}
 
         {platformItems.length > 0 ? (
           <ul className="mb-4 flex flex-col">
@@ -469,23 +497,27 @@ export function HqSidebar() {
           </ul>
         ) : null}
 
-        <p className="mb-1.5 px-5 text-[9px] font-bold uppercase tracking-[0.12em] text-[#4A6070]">
-          Workspace
-        </p>
-        <CollapsibleNavGroup
-          label="CRM"
-          icon={Target}
-          accentActiveClass="ring-rose-400/30"
-          open={crmOpen}
-          onToggle={() => setCrmOpen((open) => !open)}
-          active={crmActive}
-        >
-          {crmItems.map((item) => (
-            <li key={item.id}>
-              <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
-            </li>
-          ))}
-        </CollapsibleNavGroup>
+        {crmItems.length > 0 || opsItems.length > 0 ? (
+          <p className="mb-1.5 px-5 text-[9px] font-bold uppercase tracking-[0.12em] text-[#4A6070]">
+            Workspace
+          </p>
+        ) : null}
+        {crmItems.length > 0 ? (
+          <CollapsibleNavGroup
+            label="CRM"
+            icon={Target}
+            accentActiveClass="ring-rose-400/30"
+            open={crmOpen}
+            onToggle={() => setCrmOpen((open) => !open)}
+            active={crmActive}
+          >
+            {crmItems.map((item) => (
+              <li key={item.id}>
+                <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
+              </li>
+            ))}
+          </CollapsibleNavGroup>
+        ) : null}
 
         {opsItems.length > 0 ? (
           <ul className="mt-2 flex flex-col">

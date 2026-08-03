@@ -2599,6 +2599,8 @@ model LmsEvent {
   capacity         Int?
   tags             String[] @default([])
   isPublished      Boolean  @default(false)
+  status           String   @default("active")
+  media            Json?
   createdById      String?
   createdByEmail   String?
   createdByName    String?
@@ -2625,4 +2627,18 @@ model LmsEventRegistration {
 
   @@unique([userId, eventId])
   @@map("lms_event_registrations")
+}
+
+// Phase 2 CRM behaviour snapshots — one latest payload per tenant user (7d rollup + triggers).
+model TenantBehaviorSnapshot {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @unique
+  userName   String?
+  payload    Json
+  capturedAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("tenant_behavior_snapshots")
+  @@index([capturedAt])
 }
