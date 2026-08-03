@@ -45,6 +45,7 @@ import {
   DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
   getClientPageFieldVisibility,
   setClientPageFieldVisibility,
+  getHqEnabledModules,
 } from './recruitmentMode.service.js';
 import { getOrCreateWorkspaceClient } from './workspace-client.service.js';
 import {
@@ -80,14 +81,28 @@ router.get('/recruitment-summary', async (req, res) => {
     const planUsage = await getPlanUsageSnapshot();
     const defaultCurrency = await getDefaultCurrency();
     const clientPageFieldVisibility = await getClientPageFieldVisibility();
+    const tenantModules = await getHqEnabledModules();
     const tenantDbName = String(getActiveTenantDbName() || '').trim();
     let tenantPaused = false;
     let tenantPausedAt = null;
+    let productLine = tenantModules.productLine || '';
+    let enabledModules = tenantModules.enabledModules || [];
+    let modulesRestricted = Boolean(tenantModules.modulesRestricted);
     if (tenantDbName) {
       try {
         const hqTenant = await headquartersAuthService.findTenantByDbName(tenantDbName);
         tenantPaused = headquartersAuthService.isTenantPaused(hqTenant);
         tenantPausedAt = hqTenant?.pausedAt || null;
+        if (hqTenant) {
+          if (hqTenant.productLine) productLine = hqTenant.productLine;
+          if (Array.isArray(hqTenant.enabledModules) && hqTenant.enabledModules.length > 0) {
+            enabledModules = hqTenant.enabledModules;
+            modulesRestricted = true;
+          } else if (hqTenant.modulesRestricted) {
+            modulesRestricted = true;
+            enabledModules = Array.isArray(hqTenant.enabledModules) ? hqTenant.enabledModules : [];
+          }
+        }
       } catch (err) {
         console.warn('[recruitment-summary] tenant pause lookup failed:', err?.message || err);
       }
@@ -103,6 +118,9 @@ router.get('/recruitment-summary', async (req, res) => {
       clientPageFieldVisibility,
       tenantPaused,
       tenantPausedAt,
+      productLine: productLine || null,
+      enabledModules,
+      modulesRestricted,
     });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load org summary', error);

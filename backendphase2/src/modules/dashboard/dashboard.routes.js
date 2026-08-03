@@ -12,6 +12,7 @@ router.use(authMiddleware, attachUserPermissions);
 router.get('/catalog', dashboardRead, dashboardController.getCatalog);
 router.get('/overview', dashboardRead, dashboardController.getOverview);
 router.get('/crm-overview', dashboardRead, dashboardController.getCrmOverview);
+router.get('/recruitment-overview', dashboardRead, dashboardController.getRecruitmentOverview);
 router.get('/data/:datasetId', dashboardRead, dashboardController.getDataset);
 router.post('/analyze', dashboardRead, dashboardController.analyze);
 router.get('/layout', dashboardRead, dashboardController.getLayout);

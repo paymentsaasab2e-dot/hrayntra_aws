@@ -13,6 +13,7 @@ import {
   CreditCard,
   Database,
   Globe,
+  GraduationCap,
   LayoutDashboard,
   Server,
   Target,
@@ -37,6 +38,7 @@ export type HqNavId =
   | HqNavTab
   | 'employerDashboard'
   | 'candidates'
+  | 'courses'
   | 'subscriptions'
   | 'leads'
   | 'clients'
@@ -71,6 +73,14 @@ export const HQ_NAV_ITEMS: {
     href: '/hq/candidates',
     icon: UserRound,
     accent: 'emerald',
+    group: 'employees',
+  },
+  {
+    id: 'courses',
+    label: 'Courses',
+    href: '/hq/courses',
+    icon: GraduationCap,
+    accent: 'violet',
     group: 'employees',
   },
   {
@@ -222,6 +232,9 @@ function isNavActive(
   if (item.id === 'candidates') {
     return pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/');
   }
+  if (item.id === 'courses') {
+    return pathname === '/hq/courses' || pathname.startsWith('/hq/courses/');
+  }
   if (item.id === 'subscriptions') {
     return pathname === '/hq/subscriptions' || pathname.startsWith('/hq/subscriptions/');
   }
@@ -241,6 +254,7 @@ function isNavActive(
 
 function isEmployeesSectionActive(pathname: string, tab: string | null, view: string | null) {
   if (pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/')) return true;
+  if (pathname === '/hq/courses' || pathname.startsWith('/hq/courses/')) return true;
   if (pathname === '/hq/portal' || pathname.startsWith('/hq/portal/')) return true;
   if (pathname === '/hq/events' || pathname.startsWith('/hq/events/')) return true;
   if (pathname === '/hq/subscriptions' || pathname.startsWith('/hq/subscriptions/')) return true;

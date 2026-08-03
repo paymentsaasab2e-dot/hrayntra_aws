@@ -26,6 +26,7 @@ import {
 } from '../../lib/api';
 import { HqPackagesPanel } from '../../components/hq/HqPackagesPanel';
 import { HqTenantBehaviorDrawer } from '../../components/hq/HqTenantBehaviorDrawer';
+import { EditTenantModulesModal } from '../../components/hq/EditTenantModulesModal';
 import {
   CreateTenantModal,
   emptyProvisionTenantForm,
@@ -804,6 +805,7 @@ function TenantsPanel({
   const landingTrials = tenantStats?.landingTrials ?? tenants.filter((t) => t.signupSource === 'landing_trial').length;
   const [coinsTenant, setCoinsTenant] = useState<HqTenantRow | null>(null);
   const [behaviorTenant, setBehaviorTenant] = useState<HqTenantRow | null>(null);
+  const [modulesTenant, setModulesTenant] = useState<HqTenantRow | null>(null);
 
   const toggleBehavior = (tenant: HqTenantRow) => {
     if (!tenant.tenantDbName) return;
@@ -816,6 +818,12 @@ function TenantsPanel({
         open={Boolean(coinsTenant)}
         tenant={coinsTenant}
         onClose={() => setCoinsTenant(null)}
+        onSaved={onCoinsUpdated}
+      />
+      <EditTenantModulesModal
+        open={Boolean(modulesTenant)}
+        tenant={modulesTenant}
+        onClose={() => setModulesTenant(null)}
         onSaved={onCoinsUpdated}
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/80 px-5 py-4">
@@ -897,10 +905,21 @@ function TenantsPanel({
                         </span>
                         {Array.isArray(t.enabledModules) && t.enabledModules.length > 0 ? (
                           <p className="text-[10px] text-slate-500">{t.enabledModules.length} tabs</p>
-                        ) : null}
+                        ) : t.modulesRestricted ? (
+                          <p className="text-[10px] text-amber-600">0 tabs</p>
+                        ) : (
+                          <p className="text-[10px] text-slate-400">All tabs</p>
+                        )}
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">—</span>
+                      <div className="space-y-0.5">
+                        <span className="text-xs text-slate-400">—</span>
+                        {Array.isArray(t.enabledModules) && t.enabledModules.length > 0 ? (
+                          <p className="text-[10px] text-slate-500">{t.enabledModules.length} tabs</p>
+                        ) : (
+                          <p className="text-[10px] text-slate-400">Use Tabs to configure</p>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="py-3 pr-3 font-mono text-xs text-slate-500">{t.tenantDbName || '—'}</td>
@@ -985,6 +1004,14 @@ function TenantsPanel({
                         <span className="text-[10px] text-slate-400">View only</span>
                       ) : (
                         <>
+                          <button
+                            type="button"
+                            onClick={() => setModulesTenant(t)}
+                            className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700 transition hover:bg-indigo-100"
+                            title="Enable or disable Phase 2 sidenav tabs for this tenant"
+                          >
+                            Tabs
+                          </button>
                           {isTenantPaused(t) ? (
                             <button
                               type="button"

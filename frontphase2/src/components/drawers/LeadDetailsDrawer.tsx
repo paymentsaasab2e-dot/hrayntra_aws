@@ -584,6 +584,10 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   followUpReminder?: string;
   followUpTimezone?: string;
   followUpAttendeeIds?: string[];
+  /** Mark initial follow-up as postponed with a later date. */
+  followUpPostponed?: boolean;
+  followUpPostponeReason?: string;
+  followUpPostponePreset?: string;
   occasions?: LeadOccasionFormValues;
 };
 
@@ -1158,6 +1162,9 @@ export function LeadDetailsDrawer({
     followUpReminder: 'No reminder',
     followUpTimezone: 'Asia/Kolkata',
     followUpAttendeeIds: [],
+    followUpPostponed: false,
+    followUpPostponeReason: '',
+    followUpPostponePreset: '',
     occasions: emptyLeadOccasionForm(),
   });
   const [addLeadStatusIsCustom, setAddLeadStatusIsCustom] = useState(false);
@@ -1435,6 +1442,9 @@ export function LeadDetailsDrawer({
       followUpReminder: 'No reminder',
       followUpTimezone: 'Asia/Kolkata',
       followUpAttendeeIds: [],
+      followUpPostponed: false,
+      followUpPostponeReason: '',
+      followUpPostponePreset: '',
       occasions: emptyLeadOccasionForm(),
     });
     setAddLeadErrors({});
@@ -2699,6 +2709,8 @@ export function LeadDetailsDrawer({
               followUpTimezone: addLeadForm.followUpTimezone,
               followUpAttendeeIds: addLeadForm.followUpAttendeeIds,
               followUpNotes: addLeadForm.followUpNotes,
+              followUpPostponed: addLeadForm.followUpPostponed,
+              followUpPostponeReason: addLeadForm.followUpPostponeReason,
             })
           : undefined,
         followUpSchedule: addLeadForm.nextFollowUp
@@ -2709,7 +2721,17 @@ export function LeadDetailsDrawer({
               reminder: addLeadForm.followUpReminder,
               timezone: addLeadForm.followUpTimezone,
               attendeeIds: addLeadForm.followUpAttendeeIds,
-              notes: addLeadForm.followUpNotes,
+              notes: [
+                addLeadForm.followUpPostponed ? 'Postponed' : null,
+                addLeadForm.followUpPostponeReason?.trim()
+                  ? `Postpone reason: ${addLeadForm.followUpPostponeReason.trim()}`
+                  : null,
+                addLeadForm.followUpNotes?.trim() || null,
+              ]
+                .filter(Boolean)
+                .join('. ') || addLeadForm.followUpNotes,
+              postponed: Boolean(addLeadForm.followUpPostponed),
+              postponeReason: addLeadForm.followUpPostponeReason || undefined,
             }
           : undefined,
         assignedToId: addLeadForm.assignedToId || undefined,
@@ -4322,6 +4344,9 @@ export function LeadDetailsDrawer({
                           followUpTimezone: addLeadForm.followUpTimezone,
                           followUpAttendeeIds: addLeadForm.followUpAttendeeIds,
                           followUpNotes: addLeadForm.followUpNotes,
+                          followUpPostponed: addLeadForm.followUpPostponed,
+                          followUpPostponeReason: addLeadForm.followUpPostponeReason,
+                          followUpPostponePreset: addLeadForm.followUpPostponePreset,
                         }}
                         onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
                         phoneOptions={[...(addLeadForm.phones || []), addLeadForm.phone]}
@@ -4754,6 +4779,9 @@ export function LeadDetailsDrawer({
                               followUpTimezone: addLeadForm.followUpTimezone,
                               followUpAttendeeIds: addLeadForm.followUpAttendeeIds,
                               followUpNotes: addLeadForm.followUpNotes,
+                              followUpPostponed: addLeadForm.followUpPostponed,
+                              followUpPostponeReason: addLeadForm.followUpPostponeReason,
+                              followUpPostponePreset: addLeadForm.followUpPostponePreset,
                             }}
                             onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
                             phoneOptions={[...(addLeadForm.phones || []), addLeadForm.phone]}

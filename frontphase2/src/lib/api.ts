@@ -695,6 +695,35 @@ export function getCachedOrgDefaultCurrency(): string {
   return v && v.length === 3 ? v.toUpperCase() : 'USD';
 }
 
+/** When false, HQ has not restricted tabs — Phase 2 shows all RBAC-allowed modules. */
+export function isOrgModulesRestricted(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem('orgModulesRestricted') === '1';
+}
+
+export function getCachedOrgEnabledModules(): string[] {
+  if (typeof window === 'undefined') return [];
+  const raw = localStorage.getItem('orgEnabledModules');
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.map((m) => String(m || '').trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** HQ module gate for Phase 2 sidenav / routes. Unrestricted tenants always return true. */
+export function isOrgModuleEnabled(moduleId: string): boolean {
+  if (!moduleId) return true;
+  if (!isOrgModulesRestricted()) return true;
+  const list = getCachedOrgEnabledModules();
+  if (list.length === 0) return false;
+  return list.includes(moduleId);
+}
+
 export function getCachedTenantPaused(): { paused: boolean; pausedAt: string | null } {
   if (typeof window === 'undefined') return { paused: false, pausedAt: null };
   return {
@@ -713,6 +742,9 @@ export function applyOrgRecruitmentSummaryPayload(
         defaultCurrency?: string | null;
         tenantPaused?: boolean;
         tenantPausedAt?: string | null;
+        productLine?: string | null;
+        enabledModules?: string[] | null;
+        modulesRestricted?: boolean;
         clientPageFieldVisibility?: {
           interestLevel?: boolean;
           status?: boolean;
@@ -777,6 +809,22 @@ export function applyOrgRecruitmentSummaryPayload(
       normalizeClientPageFieldVisibility(payload.clientPageFieldVisibility),
     );
   }
+  if (payload && Object.prototype.hasOwnProperty.call(payload, 'modulesRestricted')) {
+    const restricted =
+      payload.modulesRestricted === true ||
+      (Array.isArray(payload.enabledModules) && payload.enabledModules.length > 0);
+    localStorage.setItem('orgModulesRestricted', restricted ? '1' : '0');
+    const modules = Array.isArray(payload.enabledModules)
+      ? payload.enabledModules.map((m) => String(m || '').trim()).filter(Boolean)
+      : [];
+    localStorage.setItem('orgEnabledModules', JSON.stringify(modules));
+    const line = String(payload.productLine || '').trim().toLowerCase();
+    if (line === 'crm' || line === 'recruitment') {
+      localStorage.setItem('orgProductLine', line);
+    } else {
+      localStorage.removeItem('orgProductLine');
+    }
+  }
   if (payload?.tenantPaused) {
     localStorage.setItem('orgTenantPaused', '1');
     if (payload.tenantPausedAt) {
@@ -804,6 +852,9 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
       tenantPaused?: boolean;
       tenantPausedAt?: string | null;
       defaultCurrency?: string | null;
+      productLine?: string | null;
+      enabledModules?: string[] | null;
+      modulesRestricted?: boolean;
       clientPageFieldVisibility?: {
         interestLevel?: boolean;
         status?: boolean;
@@ -1286,6 +1337,7 @@ export interface HqTenantRow {
   signupSource?: 'landing_purchase' | 'landing_trial' | 'hq_manual' | string;
   productLine?: 'crm' | 'recruitment' | string;
   enabledModules?: string[];
+  modulesRestricted?: boolean;
   subscriptionPlan: HqTenantSubscriptionPlan | null;
   tenantDbName: string;
   tenantProvisioningMode: string;
@@ -2086,6 +2138,148 @@ export async function apiHqListCandidates() {
   }>('/hq/candidates', { auth: true });
 }
 
+export type HqCourseRow = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  level: string;
+  thumbnailUrl?: string | null;
+  videoUrl?: string | null;
+  instructorName?: string | null;
+  instructorAvatar?: string | null;
+  totalLessons: number;
+  estimatedHours: number;
+  tags: string[];
+  isPublished: boolean;
+  accessTier: string;
+  tokenCost: number;
+  isCertified: boolean;
+  enrolledCount?: number;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type HqCourseStats = {
+  total: number;
+  published: number;
+  draft: number;
+  premium: number;
+  enrollments?: number;
+};
+
+export type HqCourseLearner = {
+  id: string;
+  userId: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  avatar?: string | null;
+  title?: string | null;
+  location?: string | null;
+  progressPercent: number;
+  completedLessonCount: number;
+  completedAt?: string | null;
+  startedAt?: string | null;
+  lastAccessedAt?: string | null;
+  savedAt?: string | null;
+  status: 'joined' | 'in_progress' | 'completed' | string;
+};
+
+export type HqCourseEnrollmentResult = {
+  course: HqCourseRow;
+  learners: HqCourseLearner[];
+  stats: {
+    total: number;
+    completed: number;
+    inProgress: number;
+    joined: number;
+  };
+};
+
+export type HqCoursePayload = {
+  title: string;
+  description?: string;
+  category?: string;
+  level?: string;
+  thumbnailUrl?: string;
+  videoUrl?: string;
+  instructorName?: string;
+  estimatedHours?: number;
+  totalLessons?: number;
+  tags?: string[] | string;
+  isPublished?: boolean;
+  accessTier?: string;
+  tokenCost?: number;
+  isCertified?: boolean;
+};
+
+export async function apiHqListCourses() {
+  return apiFetch<{ courses: HqCourseRow[]; stats: HqCourseStats }>('/hq/courses', { auth: true });
+}
+
+export async function apiHqListCourseEnrollments(id: string) {
+  return apiFetch<HqCourseEnrollmentResult>(`/hq/courses/${encodeURIComponent(id)}/enrollments`, {
+    auth: true,
+  });
+}
+
+export async function apiHqCreateCourse(body: HqCoursePayload) {
+  return apiFetch<{ course: HqCourseRow }>('/hq/courses', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqUpdateCourse(id: string, body: Partial<HqCoursePayload>) {
+  return apiFetch<{ course: HqCourseRow }>(`/hq/courses/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqDeleteCourse(id: string) {
+  return apiFetch<{ deleted: boolean; id: string }>(`/hq/courses/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+}
+
+export async function apiHqBulkDeleteCourses(ids: string[]) {
+  return apiFetch<{
+    deleted: boolean;
+    deletedCount: number;
+    requested: number;
+    invalid?: string[];
+  }>('/hq/courses/bulk-delete', {
+    method: 'POST',
+    auth: true,
+    body: { ids },
+  });
+}
+
+export async function apiHqUploadCourseThumbnail(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetchFormData<{ thumbnail: { url: string; name?: string; size?: number } }>(
+    '/hq/courses/thumbnail',
+    formData,
+    { method: 'POST', auth: true },
+  );
+}
+
+export async function apiHqUploadCourseVideo(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetchFormData<{ video: { url: string; name?: string; size?: number } }>(
+    '/hq/courses/video',
+    formData,
+    { method: 'POST', auth: true },
+  );
+}
+
 export type HqCandidateBehaviorInsight = {
   id: string;
   label: string;
@@ -2800,6 +2994,20 @@ export async function apiHqSetTenantPause(body: { email: string; paused: boolean
     pausedAt?: string | null;
     pausedBy?: string;
   }>('/hq/tenants/pause', { method: 'PUT', auth: true, body });
+}
+
+export async function apiHqUpdateTenantModules(body: {
+  email: string;
+  productLine?: 'crm' | 'recruitment';
+  enabledModules: string[];
+}) {
+  return apiFetch<{
+    email: string;
+    productLine?: string;
+    enabledModules?: string[];
+    modulesRestricted?: boolean;
+    tenantDbName?: string;
+  }>('/hq/tenants/modules', { method: 'PUT', auth: true, body });
 }
 
 export interface InvoiceActivityEvent {
@@ -6166,6 +6374,8 @@ export interface CreateLeadData {
     followUpAttendeeIds?: string[];
     notes?: string;
     followUpNotes?: string;
+    postponed?: boolean;
+    postponeReason?: string;
   };
   /** Agreements & Terms — single primary document uploaded against the lead. */
   agreementsFileName?: string | null;
@@ -6665,6 +6875,8 @@ export interface CreateScheduledMeetingData {
     timezone?: string;
     attendeeIds?: string[];
     notes?: string;
+    postponed?: boolean;
+    postponeReason?: string;
   };
 }
 

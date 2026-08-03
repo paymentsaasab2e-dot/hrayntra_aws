@@ -36,6 +36,44 @@ export async function setClientPageFieldVisibility(fields) {
   return normalized;
 }
 
+const KEY_TENANT_MODULES = 'hqEnabledModules';
+
+function normalizeProductLine(raw) {
+  return String(raw || '').trim().toLowerCase() === 'recruitment' ? 'recruitment' : 'crm';
+}
+
+function normalizeEnabledModules(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((m) => String(m || '').trim()).filter(Boolean))];
+}
+
+/**
+ * HQ-controlled Phase 2 tabs for this tenant.
+ * When `modulesRestricted` is false, Phase 2 shows all RBAC-allowed tabs (legacy / unset).
+ */
+export async function getHqEnabledModules() {
+  const row = await findOrgSettingRow(KEY_TENANT_MODULES);
+  const value = row?.value && typeof row.value === 'object' ? row.value : null;
+  const enabledModules = normalizeEnabledModules(value?.enabledModules);
+  const modulesRestricted = value?.modulesRestricted === true || enabledModules.length > 0;
+  return {
+    productLine: value?.productLine ? normalizeProductLine(value.productLine) : '',
+    enabledModules,
+    modulesRestricted,
+  };
+}
+
+export async function setHqEnabledModules({ productLine, enabledModules, modulesRestricted = true }) {
+  const normalized = {
+    productLine: productLine ? normalizeProductLine(productLine) : '',
+    enabledModules: normalizeEnabledModules(enabledModules),
+    modulesRestricted: modulesRestricted !== false,
+    updatedAt: new Date().toISOString(),
+  };
+  await upsertOrgSettingJson(KEY_TENANT_MODULES, normalized);
+  return normalized;
+}
+
 export const SUBSCRIPTION_PLAN_OPTIONS = [
   { id: 'basic', name: 'Basic' },
   { id: 'pro', name: 'Pro' },

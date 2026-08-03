@@ -899,7 +899,8 @@ interface ClientDetailsDrawerProps {
   onAddJob?: (clientId: string) => void;
   onMessage?: (clientId: string) => void;
   onDelete?: (clientId: string) => void;
-  onClientCreated?: () => void;
+  /** Called after create (or logo refresh). Passes the created client when available. */
+  onClientCreated?: (client?: BackendClient | null) => void;
   /** Keeps the clients table/list in sync after drawer saves (e.g. lead status). */
   onClientUpdated?: (patch: Partial<Client> & { id: string }) => void;
   onJobCreated?: () => void;
@@ -916,6 +917,11 @@ interface ClientDetailsDrawerProps {
     clientId: string,
     data: Record<string, unknown>,
   ) => Promise<BackendClient | undefined | null>;
+  /**
+   * Stacking class for backdrop + panel (e.g. `z-[100]` when opened above AI Job Creation).
+   * Defaults to `z-50`.
+   */
+  stackClassName?: string;
 }
 
 export function ClientDetailsDrawer({
@@ -931,6 +937,7 @@ export function ClientDetailsDrawer({
   onJobCreated,
   createClientOverride,
   updateClientOverride,
+  stackClassName = 'z-50',
 }: ClientDetailsDrawerProps) {
   const drawerIsOpen = Boolean(client) || propIsAddMode;
   const clientAiGate = useAiCoinGate('ai.client_details');
@@ -2653,7 +2660,7 @@ export function ClientDetailsDrawer({
         setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
         setRemovedPostServiceKycFileIds([]);
         resetClientAiAssistant();
-        onClientCreated?.();
+        onClientCreated?.(createdClientPayload);
         markClientDrawerClean();
         onClose();
       } catch (error: any) {
@@ -3725,7 +3732,7 @@ export function ClientDetailsDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => void requestClientDrawerClose()}
-            className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
+            className={`fixed inset-0 ${stackClassName} bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto`}
           />
           <motion.div
             key="panel"
@@ -3735,7 +3742,7 @@ export function ClientDetailsDrawer({
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             onClick={(e) => e.stopPropagation()}
-            className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+            className={`fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl ${stackClassName} pointer-events-auto border-l border-slate-200 flex flex-col`}
           >
             {/* Sticky Header */}
             <div className="shrink-0 bg-white border-b border-slate-200">

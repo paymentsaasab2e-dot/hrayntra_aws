@@ -2,6 +2,7 @@
 
 import { Sidenav } from '../../components/Sidenav';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
+import { DashboardLayoutProvider } from '../../lib/dashboard/DashboardLayoutProvider';
 import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
 
 const RECRUITMENT_PERMS = [
@@ -24,7 +25,7 @@ export default function RecruitmentLayout({
     <div className="min-h-screen bg-slate-50 font-['Arimo',sans-serif]">
       <Sidenav avatarUrl={avatarUrl}>
         <PermissionRouteGuard anyPermissions={RECRUITMENT_PERMS}>
-          {children}
+          <DashboardLayoutProvider>{children}</DashboardLayoutProvider>
         </PermissionRouteGuard>
       </Sidenav>
     </div>

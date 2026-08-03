@@ -2,32 +2,22 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Award,
-  BarChart3,
-  Briefcase,
   Building2,
-  Calendar,
-  CheckSquare,
-  Contact,
-  GitBranch,
   Hash,
-  LayoutDashboard,
   Lock,
-  Mail,
-  Settings,
-  Target,
   User,
-  UserPlus,
-  UserRound,
-  Users,
   X,
-  Zap,
-  type LucideIcon,
 } from 'lucide-react';
 import { apiHqListCompanies, type HqCompanyApiRow } from '@/lib/api';
+import {
+  CRM_TENANT_MODULES,
+  RECRUITMENT_TENANT_MODULES,
+  defaultModulesForProductLine,
+  type TenantProductLine,
+} from '@/lib/tenantModuleCatalog';
 import { HqFieldText, HqPrimaryButton, HqSecondaryButton } from './hqUi';
 
-export type TenantProductLine = 'crm' | 'recruitment';
+export type { TenantProductLine };
 export type TenantCreateSource = 'company' | 'manual';
 
 export type TenantBillingCycle = 'monthly' | 'annual';
@@ -52,33 +42,11 @@ export type ProvisionTenantFormData = {
   coins: string;
 };
 
-export const CRM_TENANT_MODULES: Array<{ id: string; label: string; icon: LucideIcon }> = [
-  { id: 'leads', label: 'Leads', icon: Target },
-  { id: 'clients', label: 'Clients', icon: Users },
-  { id: 'crm_dashboard', label: 'CRM Dashboard', icon: LayoutDashboard },
-  { id: 'team', label: 'Team', icon: UserPlus },
-  { id: 'reports', label: 'Reports', icon: BarChart3 },
-  { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'tasks_activities', label: 'Tasks & Activities', icon: CheckSquare },
-];
-
-export const RECRUITMENT_TENANT_MODULES: Array<{ id: string; label: string; icon: LucideIcon }> = [
-  { id: 'jobs', label: 'Jobs', icon: Briefcase },
-  { id: 'candidates', label: 'Candidates', icon: UserRound },
-  { id: 'interviews', label: 'Interviews', icon: Calendar },
-  { id: 'placements', label: 'Placements', icon: Award },
-  { id: 'command_center', label: 'Command Center', icon: LayoutDashboard },
-  { id: 'pipeline', label: 'Pipeline', icon: GitBranch },
-  { id: 'matches', label: 'Matches', icon: Zap },
-  { id: 'tasks_activities', label: 'Tasks & Activities', icon: CheckSquare },
-  { id: 'inbox', label: 'Inbox', icon: Mail },
-  { id: 'contacts', label: 'Contacts', icon: Contact },
-];
-
-export function defaultModulesForProductLine(line: TenantProductLine): string[] {
-  const list = line === 'recruitment' ? RECRUITMENT_TENANT_MODULES : CRM_TENANT_MODULES;
-  return list.map((m) => m.id);
-}
+export {
+  CRM_TENANT_MODULES,
+  RECRUITMENT_TENANT_MODULES,
+  defaultModulesForProductLine,
+};
 
 const PLAN_PRESETS: Record<TenantPlanName, { price: string; yearlyPrice: string; maxUsers: string; maxJobs: string; coins: string }> = {
   Starter: { price: '149', yearlyPrice: '119', maxUsers: '5', maxJobs: '25', coins: '100' },

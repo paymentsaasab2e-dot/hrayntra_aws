@@ -24,6 +24,10 @@ export type DashboardLayoutV2 = {
   crm?: {
     hiddenSections?: string[];
   };
+  /** Recruitment Command Center preferences. */
+  recruitment?: {
+    hiddenSections?: string[];
+  };
 };
 
 const EMPTY_MODULE: ModuleCommandCenterLayout = {
@@ -87,6 +91,8 @@ export function parseDashboardLayout(raw: unknown): DashboardLayoutV2 {
       hiddenTabs: Array.isArray(layout.hiddenTabs) ? layout.hiddenTabs : [],
       enterprise: layout.enterprise && typeof layout.enterprise === 'object' ? layout.enterprise : undefined,
       crm: layout.crm && typeof layout.crm === 'object' ? layout.crm : undefined,
+      recruitment:
+        layout.recruitment && typeof layout.recruitment === 'object' ? layout.recruitment : undefined,
     };
   }
   return createEmptyLayout();
@@ -229,6 +235,7 @@ export function serializeLayout(layout: DashboardLayoutV2): DashboardLayoutV2 {
     hiddenTabs: [...(layout.hiddenTabs || [])],
     enterprise: layout.enterprise ? { ...layout.enterprise } : undefined,
     crm: layout.crm ? { ...layout.crm } : undefined,
+    recruitment: layout.recruitment ? { ...layout.recruitment } : undefined,
   };
 }
 
@@ -269,5 +276,6 @@ export function filterLayoutByAllowedDatasets(
     hiddenTabs,
     enterprise: layout.enterprise ? { ...layout.enterprise } : undefined,
     crm: layout.crm ? { ...layout.crm } : undefined,
+    recruitment: layout.recruitment ? { ...layout.recruitment } : undefined,
   };
 }

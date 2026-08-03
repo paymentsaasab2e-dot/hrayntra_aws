@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-03T07:20:48.569Z",
+  "communities": [
+    {
+      "id": "c_job_seekers",
+      "name": "Job Seekers Hub",
+      "description": "Share tips, openings, and interview wins with fellow candidates.",
+      "visibility": "public",
+      "ownerId": "system",
+      "ownerName": "Office Gossips",
+      "memberIds": [],
+      "createdAt": "2026-07-29T07:20:48.448Z"
+    },
+    {
+      "id": "c_interview_prep",
+      "name": "Interview Prep Circle",
+      "description": "Practice questions, voice answers, and peer feedback.",
+      "visibility": "public",
+      "ownerId": "system",
+      "ownerName": "Office Gossips",
+      "memberIds": [],
+      "createdAt": "2026-07-31T07:20:48.449Z"
+    },
+    {
+      "id": "c_watercooler",
+      "name": "Watercooler",
+      "description": "Light office chatter — memes, wins, and weekend plans.",
+      "visibility": "public",
+      "ownerId": "system",
+      "ownerName": "Office Gossips",
+      "memberIds": [],
+      "createdAt": "2026-08-02T07:20:48.449Z"
+    },
+    {
+      "id": "c_managers_private",
+      "name": "Managers Lounge",
+      "description": "Private room for leads — hiring gossip stays inside.",
+      "visibility": "private",
+      "ownerId": "system",
+      "ownerName": "Office Gossips",
+      "memberIds": [],
+      "createdAt": "2026-08-01T07:20:48.449Z"
+    }
+  ],
+  "companyPages": [
+    {
+      "id": "co_aitikit",
+      "domainKey": "aitikit.com",
+      "name": "AiTikit",
+      "description": "Connect if AiTikit is on your CV (current or past). Creating this page requires a verified @aitikit.com work email.",
+      "logoLetter": "A",
+      "memberIds": [
+        "demo_ref_ananya",
+        "demo_ref_vikram",
+        "demo_ref_meera",
+        "demo_ref_arjun",
+        "demo_ref_priya"
+      ],
+      "createdBy": "system",
+      "createdAt": "2026-07-30T07:20:48.449Z"
+    },
+    {
+      "id": "co_infosys",
+      "domainKey": "infosys.com",
+      "name": "Infosys",
+      "description": "Connect with Infosys on your CV. Page creation needs a verified @infosys.com email.",
+      "logoLetter": "I",
+      "memberIds": [
+        "demo_ref_ananya",
+        "demo_ref_meera"
+      ],
+      "createdBy": "system",
+      "createdAt": "2026-07-28T07:20:48.449Z"
+    },
+    {
+      "id": "co_tcs",
+      "domainKey": "tcs.com",
+      "name": "TCS",
+      "description": "Connect if TCS is on your CV. Only @tcs.com can create the official page.",
+      "logoLetter": "T",
+      "memberIds": [
+        "demo_ref_vikram"
+      ],
+      "createdBy": "system",
+      "createdAt": "2026-07-27T07:20:48.449Z"
+    },
+    {
+      "id": "co_wipro",
+      "domainKey": "wipro.com",
+      "name": "Wipro",
+      "description": "Connect via CV company match. Create requires @wipro.com.",
+      "logoLetter": "W",
+      "memberIds": [],
+      "createdBy": "system",
+      "createdAt": "2026-07-26T07:20:48.449Z"
+    },
+    {
+      "id": "co_accenture",
+      "domainKey": "accenture.com",
+      "name": "Accenture",
+      "description": "Connect via CV company match. Create requires @accenture.com.",
+      "logoLetter": "A",
+      "memberIds": [
+        "demo_ref_arjun",
+        "demo_ref_priya"
+      ],
+      "createdBy": "system",
+      "createdAt": "2026-07-25T07:20:48.449Z"
+    }
+  ],
+  "posts": [
+    {
+      "id": "p_seed_01",
+      "communityId": "c_watercooler",
+      "communityName": "Watercooler",
+      "authorId": "system",
+      "authorName": "Neha M.",
+      "type": "text",
+      "text": "Boss just scheduled an urgent meeting 10 mins before I leave office… again 😭 anyone else stuck?",
+      "likeIds": [],
+      "createdAt": "2026-08-03T06:56:48.449Z"
+    },
+    {
+      "id": "p_seed_02",
+      "companyPageId": "co_aitikit",
+      "companyName": "AiTikit",
+      "authorId": "system",
+      "authorName": "Riya (AiTikit)",
+      "type": "text",
+      "text": "Coffee machine is dead on floor 3. Consider this your official alert. Bring your own caffeine.",
+      "likeIds": [],
+      "createdAt": "2026-08-03T06:20:48.449Z"
+    },
+    {
+      "id": "p_seed_03",
+      "communityId": "c_watercooler",
+      "communityName": "Watercooler",
+      "authorId": "system",
+      "authorName": "Kabir T.",
+      "type": "text",
+      "text": "Someone left “confidential strategy deck” open on the shared TV. We do not talk about what we saw.",
+      "likeIds": [],
+      "createdAt": "2026-08-03T05:50:48.449Z"
+    },
+    {
+      "id": "p_seed_04",
+      "communityId": "c_interview_prep",
+      "communityName": "Interview Prep Circle",
+      "authorId": "system",
+      "authorName": "Arjun K.",
+      "type": "text",
+      "text": "Voice tip: record STAR answers and play back at 1.25x — filler words become painfully obvious.",
+      "likeIds": [],
+      "createdAt": "2026-08-03T05:20:48.449Z"
+    },
+    {
+      "id": "p_seed_05",
+      "communityId": "c_watercooler",
+      "communityName": "Watercooler",
+      "authorId": "system",
+      "authorName": "Simran P.",
+      "type": "text",
+      "text": "HR sent a “quick sync” invite for Friday 6:45pm. That’s not a sync, that’s a hostage situation.",
+      "likeIds": [],
+      "createdAt": "2026-08-03T04:20:48.449Z"
+    },
+    {
+      "id": "p_seed_06",
+      "communityId": "c_job_seekers",
+      "communityName": "Job Seekers Hub",
+      "authorId": "system",
+      "authorName": "Priya S.",
+      "type": "text",
+      "text": "Cleared system design today 🔥 drop a reaction if you want the rough checklist I used.",
+      "likeIds": [],
+      "createdAt": "2026-08-03T03:20:48.449Z"
+    },
+    {
+      "id": "p_seed_07",
+      "communityId": "c_watercooler",
+      "communityName": "Watercooler",
+      "authorId": "system",
+      "authorName": "Aman R.",
+      "type": "text",
+      "text": "Update: standup moved to 8:55am “because leaders have another call.” Please send coffee IV.",
+      "likeIds": [],
+      "createdAt": "2026-08-03T02:20:48.450Z"
+    },
+    {
+      "id": "p_seed_08",
+      "companyPageId": "co_aitikit",
+      "companyName": "AiTikit",
+      "authorId": "system",
+      "authorName": "Dev M.",
+      "type": "text",
+      "text": "Prod deploy went green on first try. Suspicious. Checking logs before I jinx it.",
+      "likeIds": [],
+      "createdAt": "2026-08-03T00:20:48.450Z"
+    },
+    {
+      "id": "p_seed_09",
+      "communityId": "c_interview_prep",
+      "communityName": "Interview Prep Circle",
+      "authorId": "system",
+      "authorName": "Meera J.",
+      "type": "text",
+      "text": "Recruiter: “quick chat.” 45 mins later I’m explaining every project since college. Classic.",
+      "likeIds": [],
+      "createdAt": "2026-08-02T22:20:48.450Z"
+    },
+    {
+      "id": "p_seed_10",
+      "communityId": "c_watercooler",
+      "communityName": "Watercooler",
+      "authorId": "system",
+      "authorName": "Rohan V.",
+      "type": "text",
+      "text": "Who ate the last samosa from the client meeting tray? Confess. No judgment. Okay, some judgment.",
+      "likeIds": [],
+      "createdAt": "2026-08-02T20:20:48.450Z"
+    }
+  ],
+  "comments": [
+    {
+      "id": "cm_1",
+      "postId": "p_seed_06",
+      "authorId": "system",
+      "authorName": "Dev M.",
+      "text": "Yes please share the checklist!",
+      "createdAt": "2026-08-03T03:50:48.450Z"
+    },
+    {
+      "id": "cm_2",
+      "postId": "p_seed_01",
+      "authorId": "system",
+      "authorName": "Kabir T.",
+      "text": "Same energy every Thursday. Stay strong.",
+      "createdAt": "2026-08-03T07:02:48.450Z"
+    },
+    {
+      "id": "cm_3",
+      "postId": "p_seed_01",
+      "authorId": "system",
+      "authorName": "Neha M.",
+      "text": "Update: meeting cancelled. Chaos continues.",
+      "createdAt": "2026-08-03T07:08:48.450Z"
+    },
+    {
+      "id": "cm_4",
+      "postId": "p_seed_05",
+      "authorId": "system",
+      "authorName": "Aman R.",
+      "text": "Decline and protect your weekend.",
+      "createdAt": "2026-08-03T04:50:48.450Z"
+    }
+  ],
+  "identities": {},
+  "referenceChecks": [],
+  "social": {
+    "companyFollows": [],
+    "peopleFollows": [],
+    "dms": []
+  }
+}

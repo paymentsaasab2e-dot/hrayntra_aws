@@ -2,13 +2,20 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarPlus, Check, Loader2, X } from 'lucide-react';
+import { CalendarClock, CalendarPlus, Check, Loader2, X } from 'lucide-react';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
+import { FollowUpDateTimeField } from '../FollowUpDateTimeField';
+import {
+  FOLLOW_UP_POSTPONE_PRESETS,
+  buildFollowUpStatusRemark,
+  computePostponedFollowUpIso,
+} from '../LeadFollowUpScheduler';
 import { formatFollowUpDisplay } from '../../utils/formatLeadDateTime';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import {
   apiCompleteLeadFollowUp,
   apiGetLeadActivities,
+  apiUpdateLead,
   type BackendActivity,
 } from '../../lib/api';
 import { requestError, requestWarning } from '../../lib/appDialog';
@@ -28,6 +35,8 @@ type FollowUpScheduleInfo = {
   notes?: string | null;
   meetLink?: string | null;
   contact?: string | null;
+  postponed?: boolean | null;
+  postponeReason?: string | null;
 };
 
 function isCompletedActivity(activity: BackendActivity): boolean {
@@ -50,6 +59,8 @@ function readFollowUpSchedule(
       notes: parsed.notes || parsed.followUpNotes || null,
       meetLink: parsed.meetLink || parsed.followUpMeetLink || null,
       contact: parsed.contact || parsed.followUpContact || null,
+      postponed: Boolean(parsed.postponed || parsed.followUpPostponed),
+      postponeReason: parsed.postponeReason || parsed.followUpPostponeReason || null,
     };
   } catch {
     return null;
@@ -76,12 +87,18 @@ export function LeadFollowUpTabPanel({
   const [historyKey, setHistoryKey] = useState(0);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [postponeOpen, setPostponeOpen] = useState(false);
   const [remark, setRemark] = useState('');
   const [completing, setCompleting] = useState(false);
+  const [postponing, setPostponing] = useState(false);
+  const [postponeDate, setPostponeDate] = useState('');
+  const [postponeReason, setPostponeReason] = useState('');
+  const [postponePreset, setPostponePreset] = useState('1d');
 
   const scheduleInfo = useMemo(() => readFollowUpSchedule(otherDetails), [otherDetails]);
   const scheduledType = String(scheduleInfo?.type || 'Meet').trim() || 'Meet';
   const hasScheduledMeet = Boolean(nextFollowUp);
+  const isPostponed = Boolean(scheduleInfo?.postponed);
 
   useEffect(() => {
     if (!leadId) return;
@@ -145,6 +162,19 @@ export function LeadFollowUpTabPanel({
     setRemark('');
   };
 
+  const openPostponeModal = () => {
+    setPostponePreset('1d');
+    setPostponeDate(computePostponedFollowUpIso(1, nextFollowUp));
+    setPostponeReason('');
+    setPostponeOpen(true);
+  };
+
+  const closePostponeModal = () => {
+    if (postponing) return;
+    setPostponeOpen(false);
+    setPostponeReason('');
+  };
+
   const handleCompleteMeet = async () => {
     const trimmed = remark.trim();
     if (!trimmed) {
@@ -165,9 +195,60 @@ export function LeadFollowUpTabPanel({
     }
   };
 
+  const handlePostponeFollowUp = async () => {
+    const iso = String(postponeDate || '').trim();
+    if (!iso) {
+      void requestWarning('Please choose a postponed date and time.');
+      return;
+    }
+    const when = new Date(iso);
+    if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
+      void requestWarning('Postponed follow-up must be in the future.');
+      return;
+    }
+
+    setPostponing(true);
+    try {
+      const fields = {
+        nextFollowUp: iso,
+        followUpType: scheduledType,
+        followUpContact: scheduleInfo?.contact || undefined,
+        followUpMeetLink: scheduleInfo?.meetLink || undefined,
+        followUpNotes: scheduleInfo?.notes || undefined,
+        followUpPostponed: true,
+        followUpPostponeReason: postponeReason.trim(),
+      };
+      await apiUpdateLead(leadId, {
+        nextFollowUp: iso,
+        statusRemark: buildFollowUpStatusRemark(fields),
+        followUpSchedule: {
+          type: scheduledType,
+          contact: scheduleInfo?.contact || undefined,
+          meetLink: scheduleInfo?.meetLink || undefined,
+          notes: [
+            'Postponed',
+            postponeReason.trim() ? `Postpone reason: ${postponeReason.trim()}` : null,
+            scheduleInfo?.notes || null,
+          ]
+            .filter(Boolean)
+            .join('. '),
+          postponed: true,
+          postponeReason: postponeReason.trim() || undefined,
+        },
+      });
+      setPostponeOpen(false);
+      setPostponeReason('');
+      setHistoryKey((k) => k + 1);
+      onScheduled?.();
+    } catch (error: any) {
+      void requestError(error?.message || 'Failed to postpone follow-up');
+    } finally {
+      setPostponing(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
-      {/* Schedule button top-right */}
       <div className="flex justify-end">
         <button
           type="button"
@@ -179,28 +260,41 @@ export function LeadFollowUpTabPanel({
         </button>
       </div>
 
-      {/* Scheduled follow-ups section */}
       <section>
         <div className="mb-3">
           <h3 className="text-sm font-bold text-slate-900">Scheduled follow-ups</h3>
         </div>
 
-        {/* Current upcoming follow-up with Complete button */}
         {hasScheduledMeet ? (
-          <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50/40 p-4 shadow-sm">
+          <div
+            className={`mb-3 rounded-xl border p-4 shadow-sm ${
+              isPostponed ? 'border-amber-200 bg-amber-50/40' : 'border-sky-200 bg-sky-50/40'
+            }`}
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 ring-1 ring-sky-200">
                     {scheduledType}
                   </span>
-                  <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
-                    Upcoming
+                  <span
+                    className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${
+                      isPostponed
+                        ? 'bg-amber-100 text-amber-800 ring-amber-200'
+                        : 'bg-amber-50 text-amber-700 ring-amber-200'
+                    }`}
+                  >
+                    {isPostponed ? 'Postponed' : 'Upcoming'}
                   </span>
                 </div>
                 <p className="mt-2 text-sm font-semibold text-slate-900">
                   {formatFollowUpDisplay(nextFollowUp)}
                 </p>
+                {scheduleInfo?.postponeReason ? (
+                  <p className="mt-1.5 text-sm leading-relaxed text-amber-800">
+                    Reason: {scheduleInfo.postponeReason}
+                  </p>
+                ) : null}
                 {scheduleInfo?.notes ? (
                   <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{scheduleInfo.notes}</p>
                 ) : null}
@@ -218,14 +312,24 @@ export function LeadFollowUpTabPanel({
                   </p>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={openCompleteModal}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-              >
-                <Check className="h-3.5 w-3.5" />
-                Complete follow-up
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openPostponeModal}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-white px-3.5 py-2 text-xs font-semibold text-amber-800 shadow-sm transition hover:bg-amber-50"
+                >
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  Postpone
+                </button>
+                <button
+                  type="button"
+                  onClick={openCompleteModal}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Complete follow-up
+                </button>
+              </div>
             </div>
           </div>
         ) : (
@@ -235,7 +339,6 @@ export function LeadFollowUpTabPanel({
         )}
       </section>
 
-      {/* Completed follow-ups section */}
       <section>
         <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="text-sm font-bold text-slate-900">Completed follow-ups</h3>
@@ -274,7 +377,6 @@ export function LeadFollowUpTabPanel({
         )}
       </section>
 
-      {/* Schedule follow-up popup */}
       {scheduleOpen && typeof document !== 'undefined'
         ? createPortal(
             <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
@@ -295,9 +397,7 @@ export function LeadFollowUpTabPanel({
                     <h2 id="schedule-followup-title" className="text-base font-bold text-slate-900">
                       Schedule a follow-up
                     </h2>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      Pick a type, date and time.
-                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">Pick a type, date and time.</p>
                   </div>
                   <button
                     type="button"
@@ -324,7 +424,118 @@ export function LeadFollowUpTabPanel({
           )
         : null}
 
-      {/* Complete meet popup */}
+      {postponeOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]"
+                aria-label="Close"
+                onClick={closePostponeModal}
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="postpone-followup-title"
+                className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <h2 id="postpone-followup-title" className="text-base font-bold text-slate-900">
+                      Postpone follow-up
+                    </h2>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Move this follow-up to a later date and add a reason.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closePostponeModal}
+                    disabled={postponing}
+                    className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                    aria-label="Close dialog"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="space-y-3 px-5 py-4">
+                  <div className="flex flex-wrap gap-1.5">
+                    {FOLLOW_UP_POSTPONE_PRESETS.map((preset) => {
+                      const selected = postponePreset === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            setPostponePreset(preset.id);
+                            setPostponeDate(computePostponedFollowUpIso(preset.days, nextFollowUp));
+                          }}
+                          className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                            selected
+                              ? 'border-amber-500 bg-amber-100 text-amber-900 shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-amber-300'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <FollowUpDateTimeField
+                    value={postponeDate}
+                    onChange={(iso) => {
+                      setPostponePreset('custom');
+                      setPostponeDate(iso);
+                    }}
+                    showFollowUpTypes={false}
+                    label="New date & time"
+                  />
+                  <div>
+                    <label
+                      htmlFor="postpone-followup-reason"
+                      className="mb-1.5 block text-sm font-medium text-slate-800"
+                    >
+                      Reason
+                    </label>
+                    <textarea
+                      id="postpone-followup-reason"
+                      value={postponeReason}
+                      onChange={(e) => setPostponeReason(e.target.value)}
+                      rows={3}
+                      placeholder="Why is this follow-up being postponed?"
+                      className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={closePostponeModal}
+                    disabled={postponing}
+                    className="rounded-xl border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handlePostponeFollowUp()}
+                    disabled={postponing}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {postponing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CalendarClock className="h-3.5 w-3.5" />
+                    )}
+                    Save postpone
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
       {completeOpen && typeof document !== 'undefined'
         ? createPortal(
             <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
@@ -377,13 +588,11 @@ export function LeadFollowUpTabPanel({
                     </label>
                     <textarea
                       id="complete-meet-remark"
-                      rows={4}
                       value={remark}
                       onChange={(e) => setRemark(e.target.value)}
-                      placeholder="What was discussed / outcome of the meet..."
-                      className="min-h-[100px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
-                      disabled={completing}
-                      autoFocus
+                      rows={3}
+                      placeholder="What was discussed / outcome?"
+                      className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                     />
                   </div>
                 </div>
@@ -392,7 +601,7 @@ export function LeadFollowUpTabPanel({
                     type="button"
                     onClick={closeCompleteModal}
                     disabled={completing}
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded-xl border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -400,14 +609,14 @@ export function LeadFollowUpTabPanel({
                     type="button"
                     onClick={() => void handleCompleteMeet()}
                     disabled={completing}
-                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
                   >
                     {completing ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      <Check className="h-4 w-4" />
+                      <Check className="h-3.5 w-3.5" />
                     )}
-                    {completing ? 'Marking done...' : 'Mark as done'}
+                    Mark done
                   </button>
                 </div>
               </div>

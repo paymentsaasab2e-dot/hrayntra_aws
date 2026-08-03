@@ -73,6 +73,9 @@ export function normalizeFollowUpSchedule(raw, nextFollowUpIso) {
       ? (raw.attendeeIds || raw.followUpAttendeeIds).map(String).filter(Boolean)
       : [],
     notes: String(raw.notes || raw.followUpNotes || '').trim() || null,
+    postponed: Boolean(raw.postponed || raw.followUpPostponed),
+    postponeReason:
+      String(raw.postponeReason || raw.followUpPostponeReason || '').trim() || null,
     scheduledAt: scheduledAt.toISOString(),
     reminderAt: reminderAt && !Number.isNaN(reminderAt.getTime()) ? reminderAt.toISOString() : null,
     inviteSentAt: raw.inviteSentAt || null,
