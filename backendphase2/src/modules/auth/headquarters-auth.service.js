@@ -415,6 +415,9 @@ function normalizeHeadquartersUser(document) {
     organizationType: normalizeOrgType(document.organizationType),
     productLine: document.productLine ? normalizeProductLine(document.productLine) : '',
     enabledModules: normalizeEnabledModules(document.enabledModules),
+    modulesRestricted:
+      document.modulesRestricted === true ||
+      normalizeEnabledModules(document.enabledModules).length > 0,
     subscriptionPlan: normalizeSubscriptionPlanForHq(document.subscriptionPlan),
     role: String(document.role || ''),
     status: String(document.status || 'ACTIVE'),
@@ -695,6 +698,27 @@ export const headquartersAuthService = {
       { email: normalizedEmail },
       { $set: { subscriptionPlan: normalizedPlan, updatedAt: new Date() } }
     );
+    const updated = await collection.findOne({ email: normalizedEmail });
+    return normalizeHeadquartersUser(updated);
+  },
+
+  /**
+   * Update CRM/Recruitment product line + enabled Phase 2 tabs for an existing tenant.
+   */
+  async setEnabledModulesForEmail(email, { productLine, enabledModules } = {}) {
+    const collection = await getCollection();
+    if (!collection) return null;
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return null;
+    const modules = normalizeEnabledModules(enabledModules);
+    const line = productLine ? normalizeProductLine(productLine) : '';
+    const $set = {
+      enabledModules: modules,
+      modulesRestricted: true,
+      updatedAt: new Date(),
+    };
+    if (line) $set.productLine = line;
+    await collection.updateOne({ email: normalizedEmail }, { $set });
     const updated = await collection.findOne({ email: normalizedEmail });
     return normalizeHeadquartersUser(updated);
   },

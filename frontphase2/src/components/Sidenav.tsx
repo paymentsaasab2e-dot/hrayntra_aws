@@ -22,6 +22,7 @@ import {
   apiGetNotificationUnreadCount,
   NOTIFICATIONS_UPDATED_EVENT,
   isOrgBillingNavEnabled,
+  isOrgModuleEnabled,
   getCachedOrgSubscriptionPlanName,
   getCachedOrgPlanUsage,
   getCachedOrgRecruitmentMode,
@@ -838,6 +839,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const { coins: tenantCoins, openPurchase } = useTenantCoins();
   const [navSearch, setNavSearch] = useState('');
   const [billingNavEnabled, setBillingNavEnabled] = useState(true);
+  const [hqModulesTick, setHqModulesTick] = useState(0);
   const [orgPlanName, setOrgPlanName] = useState<string>('');
   const [orgPlanUsage, setOrgPlanUsage] = useState<ReturnType<typeof getCachedOrgPlanUsage>>(null);
   const [orgSubscriptionPlan, setOrgSubscriptionPlan] = useState(
@@ -869,6 +871,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
       setOrgPlanUsage(getCachedOrgPlanUsage());
       setOrgSubscriptionPlan(getCachedOrgSubscriptionPlan());
       setRecruitmentMode(getCachedOrgRecruitmentMode());
+      setHqModulesTick((n) => n + 1);
     };
     sync();
     window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
@@ -1102,12 +1105,22 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const SIDEBAR_W = isCollapsed ? 60 : 220;
 
   // CRM group visibility + auto-expansion when the user is on one of its routes.
-  const canViewDashboard = mounted && (showAll || hasAnyPermission(['view_dashboard']) || isSuperAdmin());
+  // HQ `enabledModules` gates tabs even for tenant Super Admins.
+  // hqModulesTick re-reads localStorage when HQ updates tenant tabs.
+  void hqModulesTick;
+  const canViewDashboard =
+    mounted &&
+    isOrgModuleEnabled('crm_dashboard') &&
+    (showAll || hasAnyPermission(['view_dashboard']) || isSuperAdmin());
   const canViewLeads =
-    mounted && isAgencyMode && (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']));
+    mounted &&
+    isAgencyMode &&
+    isOrgModuleEnabled('leads') &&
+    (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']));
   const canViewClients =
     mounted &&
     isAgencyMode &&
+    isOrgModuleEnabled('clients') &&
     (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']));
   const isCrmRouteActive = ['/leads', '/client', '/dashboard'].some(
     (route) => pathname === route || (pathname || '').startsWith(`${route}/`)
@@ -1116,6 +1129,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   // Recruitment group — Jobs, Candidates, Interviews, Placements, Dashboard
   const canViewJobs =
     mounted &&
+    isOrgModuleEnabled('jobs') &&
     (showAll ||
       hasAnyPermission([
         'jobs_read',
@@ -1130,6 +1144,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
       ]));
   const canViewCandidates =
     mounted &&
+    isOrgModuleEnabled('candidates') &&
     (showAll ||
       hasAnyPermission([
         'candidates_read',
@@ -1144,11 +1159,16 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
       ]));
   const canViewInterviews =
     mounted &&
+    isOrgModuleEnabled('interviews') &&
     (showAll || hasAnyPermission(['interviews_read', 'interviews_create', 'interviews_update', 'interviews_delete']));
   const canViewPlacements =
     mounted &&
+    isOrgModuleEnabled('placements') &&
     (showAll || hasAnyPermission(['placements_read', 'placements_create', 'placements_update', 'placements_delete']));
-  const canViewRecruitmentDashboard = canViewDashboard || canViewJobs || canViewCandidates || canViewInterviews || canViewPlacements;
+  const canViewRecruitmentDashboard =
+    mounted &&
+    isOrgModuleEnabled('command_center') &&
+    (canViewDashboard || canViewJobs || canViewCandidates || canViewInterviews || canViewPlacements || showAll);
   const isRecruitmentRouteActive = ['/job', '/candidate', '/interviews', '/placement', '/placements', '/recruitment'].some(
     (route) => pathname === route || (pathname || '').startsWith(`${route}/`)
   );
@@ -1576,7 +1596,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           )}
           
           {/* Pipeline */}
-          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Pipeline))) && (
+          {(mounted && isOrgModuleEnabled('pipeline') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Pipeline))) && (
             <>
               <SectionLabel label="Recruitment Hub" collapsed={isCollapsed} />
               <NavItem icon={GitBranch} label="Pipeline" href="/pipeline" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
@@ -1584,44 +1604,44 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           )}
           
           {/* Matches */}
-          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Matches))) && (
+          {(mounted && isOrgModuleEnabled('matches') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Matches))) && (
             <NavItem icon={Zap} label="Matches" href="/matches" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="orange" />
           )}
 
           <Divider />
 
-          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Tasks))) && (
+          {(mounted && isOrgModuleEnabled('tasks_activities') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Tasks))) && (
             <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="lime" />
           )}
 
-          {mounted && (
+          {mounted && isOrgModuleEnabled('events') && (
             <NavItem icon={CalendarDays} label="Portal Events" href="/events" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
           )}
 
-          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Inbox))) && (
+          {(mounted && isOrgModuleEnabled('inbox') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Inbox))) && (
             <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} onNavigate={persistScrollPosition} accent="fuchsia" />
           )}
 
-          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Contacts))) && (
+          {(mounted && isOrgModuleEnabled('contacts') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Contacts))) && (
             <NavItem icon={Contact} label="Contacts" href="/contacts" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="teal" />
           )}
 
           <Divider />
 
           {/* Reports */}
-          {(mounted && (showAll || hasAnyPermission(['reports_read', 'reports_create', 'reports_update', 'reports_delete']))) && (
+          {(mounted && isOrgModuleEnabled('reports') && (showAll || hasAnyPermission(['reports_read', 'reports_create', 'reports_update', 'reports_delete']))) && (
             <NavItem icon={BarChart3} label="Reports" href="/reports" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="pink" />
           )}
           
           {/* Billing - show if Super Admin or has access_billing */}
-          {(mounted && billingNavEnabled && (showAll || hasPermission('access_billing'))) && (
+          {(mounted && isOrgModuleEnabled('billing') && billingNavEnabled && (showAll || hasPermission('access_billing'))) && (
             <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
           )}
 
           {/* Recycle Bin — soft-deleted leads / clients / candidates / jobs land here.
               Visible to anyone with delete permission on at least one of those modules so the
               menu surfaces alongside the relevant deletion actions. */}
-          {(mounted && (showAll || hasAnyPermission([
+          {(mounted && isOrgModuleEnabled('recycle_bin') && (showAll || hasAnyPermission([
             'leads_delete',
             'clients_delete',
             'candidates_delete',
@@ -1632,7 +1652,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             <NavItem icon={Trash2} label="Recycle Bin" href="/recycle-bin" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
           )}
 
-          {mounted ? (
+          {mounted && isOrgModuleEnabled('activity_feed') ? (
             <NavItem icon={History} label="Activity log" href="/activity-feed" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="violet" />
           ) : null}
 
@@ -1640,27 +1660,26 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
           {/* Team */}
           {mounted &&
+            (isOrgModuleEnabled('team') || isOrgModuleEnabled('requests') || isOrgModuleEnabled('approvals')) &&
             (showAll ||
               hasAnyPermission(MODULE_ACCESS_MAP.Team) ||
               hasAnyPermission(MODULE_ACCESS_MAP.Request)) && (
             <>
               <SectionLabel label="Team Management" collapsed={isCollapsed} />
-              {(showAll || hasAnyPermission(MODULE_ACCESS_MAP.Team)) && (
+              {(isOrgModuleEnabled('team') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Team))) && (
                 <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
               )}
-              {(showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request)) && (
-                <>
-                  <NavItem icon={MessageSquarePlus} label="Request" href="/request" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
-                  <NavItem icon={ShieldCheck} label="Approvals" href="/request/approval" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" />
-                </>
+              {(isOrgModuleEnabled('requests') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request))) && (
+                <NavItem icon={MessageSquarePlus} label="Request" href="/request" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
+              )}
+              {(isOrgModuleEnabled('approvals') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request))) && (
+                <NavItem icon={ShieldCheck} label="Approvals" href="/request/approval" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" />
               )}
             </>
           )}
 
-          {/* Settings — visible to every signed-in user. Profile + basic
-              preferences are always available; confidential subsections inside
-              `/setting` are gated by permission. */}
-          {mounted && (
+          {/* Settings — gated by HQ modules when restricted; otherwise always available. */}
+          {mounted && isOrgModuleEnabled('settings') && (
             <NavItem icon={Settings} label="Settings" href="/setting" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
           )}
           

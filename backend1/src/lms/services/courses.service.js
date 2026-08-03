@@ -26,7 +26,7 @@ async function checkCareerPathAdvancement(userId, courseId) {
 async function fetchCourses(userId, filters) {
   const { search, category, level, tag, saved, focusTopic } = filters;
   
-  // Get user's goal to prioritize content
+  // Get user's goal to prioritize content (do not hard-exclude other published courses)
   const careerPreferences = await prisma.careerPreferences.findUnique({
     where: { candidateId: userId }
   });
@@ -38,15 +38,14 @@ async function fetchCourses(userId, filters) {
     where.title = { contains: search, mode: 'insensitive' };
   }
   if (category) where.category = category;
-  if (level) where.level = level;
+  if (level) {
+    // Accept Beginner / beginner (HQ + legacy seed casing)
+    where.level = { equals: String(level).trim(), mode: 'insensitive' };
+  }
   
-  // If a tag is requested specifically, use it. 
-  // Otherwise, if we have a userGoal and no search/category, filter by userGoal
+  // Explicit tag filter only — career goal is used for sorting, not exclusion
   if (tag) {
     where.tags = { has: tag };
-  } else if (userGoal && !search && !category) {
-    // If no specific filters, show courses tagged with the user's goal
-    where.tags = { has: userGoal };
   }
 
   let courses = await prisma.lmsCourse.findMany({
@@ -59,20 +58,14 @@ async function fetchCourses(userId, filters) {
     }
   });
 
-  // If we found NO courses for the user's specific goal, show ALL published courses as fallback
-  if (courses.length === 0 && userGoal && !search && !category && !tag) {
-    courses = await prisma.lmsCourse.findMany({
-      where: { isPublished: true },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        enrollments: { where: { userId } }
-      }
-    });
-  }
-
   if (saved === 'true') {
     courses = courses.filter(c => c.enrollments[0]?.savedAt);
   }
+
+  const goalStr = String(userGoal || '').trim().toLowerCase();
+  const goalKeywords = goalStr
+    ? goalStr.split(/\s+/).filter((w) => w.length > 2)
+    : [];
 
   // Map progress wrapper
   let mapped = courses.map(course => {
@@ -80,8 +73,17 @@ async function fetchCourses(userId, filters) {
     const { enrollments, ...rest } = course;
     const tokenCost = Number(rest.tokenCost) || 0;
     const accessTier = rest.accessTier || (tokenCost > 0 ? (rest.isCertified ? 'certified' : 'premium') : 'free');
+    const tags = Array.isArray(rest.tags) ? rest.tags.map(String) : [];
+    const hay = [rest.title, rest.description, rest.category, ...tags]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    const goalMatch =
+      Boolean(goalStr) &&
+      (hay.includes(goalStr) || goalKeywords.some((w) => hay.includes(w)));
     return {
       ...rest,
+      tags,
       accessTier,
       tokenCost,
       isCertified: Boolean(rest.isCertified) || accessTier === 'certified',
@@ -91,18 +93,27 @@ async function fetchCourses(userId, filters) {
       progressPercent: enrollment ? enrollment.progressPercent : 0,
       isSaved: enrollment ? !!enrollment.savedAt : false,
       isCompleted: enrollment ? !!enrollment.completedAt : false,
-      focusReason: focusTopic && rest.tags.includes(focusTopic) ? `Prioritized because it covers your focus area: ${focusTopic}.` : undefined
+      goalMatch,
+      focusReason:
+        focusTopic && tags.some((t) => String(t).toLowerCase() === String(focusTopic).toLowerCase())
+          ? `Prioritized because it covers your focus area: ${focusTopic}.`
+          : goalMatch && userGoal
+            ? `Related to your career goal: ${userGoal}.`
+            : undefined,
     };
   });
 
-  if (focusTopic) {
-    mapped = mapped.sort((a, b) => {
-      // Prioritize focus topic matches
+  // Newest first, with career-goal / focus matches lifted
+  mapped = mapped.sort((a, b) => {
+    if (focusTopic) {
       if (a.focusReason && !b.focusReason) return -1;
       if (!a.focusReason && b.focusReason) return 1;
-      return 0;
-    });
-  }
+    }
+    if (a.goalMatch !== b.goalMatch) return a.goalMatch ? -1 : 1;
+    const aTime = new Date(a.createdAt || 0).getTime();
+    const bTime = new Date(b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
 
   return mapped;
 }

@@ -1231,6 +1231,8 @@ model LmsCourse {
   category        String
   level           String
   thumbnailUrl    String?
+  /// Uploaded video URL or YouTube link for the course intro
+  videoUrl        String?
   instructorName  String?
   instructorAvatar String?
   totalLessons    Int      @default(0)

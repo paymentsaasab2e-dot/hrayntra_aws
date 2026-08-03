@@ -7,6 +7,12 @@ import {
   PORTAL_EVENT_MEDIA_MAX_BYTES,
   portalEventMediaMulterFilter,
 } from '../portal-events/portal-events-media.service.js';
+import {
+  HQ_COURSE_THUMBNAIL_MAX_BYTES,
+  HQ_COURSE_VIDEO_MAX_BYTES,
+  courseThumbnailMulterFilter,
+  courseVideoMulterFilter,
+} from './hq-courses.service.js';
 
 const router = express.Router();
 
@@ -14,6 +20,18 @@ const eventMediaUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: PORTAL_EVENT_MEDIA_MAX_BYTES, files: 10 },
   fileFilter: portalEventMediaMulterFilter,
+});
+
+const courseThumbnailUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: HQ_COURSE_THUMBNAIL_MAX_BYTES, files: 1 },
+  fileFilter: courseThumbnailMulterFilter,
+});
+
+const courseVideoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: HQ_COURSE_VIDEO_MAX_BYTES, files: 1 },
+  fileFilter: courseVideoMulterFilter,
 });
 
 // Setup initial Super Admin credentials directly
@@ -25,6 +43,7 @@ router.get('/tenants', authMiddleware, hqController.listTenants);
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.put('/tenants/coins', authMiddleware, hqController.setTenantCoins);
 router.put('/tenants/pause', authMiddleware, hqController.setTenantPause);
+router.put('/tenants/modules', authMiddleware, hqController.updateTenantModules);
 router.get('/ai-features', authMiddleware, hqController.listAiFeatures);
 router.put('/ai-features', authMiddleware, hqController.updateAiFeatures);
 router.get('/ai-coin-packs', authMiddleware, hqController.listAiCoinPacks);
@@ -85,6 +104,25 @@ router.get('/candidates', authMiddleware, hqController.listAllCandidates);
 router.get('/tenants/:tenantDbName/behavior', authMiddleware, hqController.getTenantBehavior);
 router.get('/candidates/:id/behavior', authMiddleware, hqController.getCandidateBehavior);
 router.delete('/portal/jobs/:id', authMiddleware, hqController.deletePortalJob);
+
+router.get('/courses', authMiddleware, hqController.listCourses);
+router.post('/courses', authMiddleware, hqController.createCourse);
+router.post('/courses/bulk-delete', authMiddleware, hqController.deleteCourses);
+router.post(
+  '/courses/thumbnail',
+  authMiddleware,
+  courseThumbnailUpload.single('file'),
+  hqController.uploadCourseThumbnail,
+);
+router.post(
+  '/courses/video',
+  authMiddleware,
+  courseVideoUpload.single('file'),
+  hqController.uploadCourseVideo,
+);
+router.get('/courses/:id/enrollments', authMiddleware, hqController.listCourseEnrollments);
+router.put('/courses/:id', authMiddleware, hqController.updateCourse);
+router.delete('/courses/:id', authMiddleware, hqController.deleteCourse);
 
 router.get('/analytics', authMiddleware, hqController.getAnalytics);
 

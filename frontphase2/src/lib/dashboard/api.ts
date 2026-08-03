@@ -295,6 +295,126 @@ export async function apiCrmDashboardOverview(filters?: CrmDashboardFilters) {
   return res.data;
 }
 
+export type RecruitmentOverview = {
+  scope?: 'recruitment';
+  kpis: Record<string, number | null | undefined>;
+  health?: { score: number; label: string };
+  todaySummary?: {
+    interviewsToday: number;
+    openJobs: number;
+    newCandidates: number;
+    pendingOffers: number;
+    placementRevenue: number;
+  };
+  insights?: DashboardInsight[];
+  recommendations?: Array<{ id: string; text: string; detail?: string; href?: string }>;
+  alerts?: DashboardAlert[];
+  pipeline?: PipelineStage[];
+  jobStatusPie?: ChartSlice[];
+  candidateStatusPie?: ChartSlice[];
+  interviewStatusPie?: ChartSlice[];
+  placementStatusPie?: ChartSlice[];
+  candidateSources?: ChartSlice[];
+  jobsByDepartment?: ChartSlice[];
+  jobSpark?: Array<{ label: string; value: number }>;
+  jobsTable?: Array<{
+    id: string;
+    title: string;
+    status?: string;
+    openings?: number;
+    department?: string;
+    location?: string;
+    priority?: string;
+    hot?: boolean;
+    noCandidates?: boolean;
+    slaRisk?: boolean;
+    client?: string;
+    applicants?: number;
+    interviews?: number;
+    placements?: number;
+    assignee?: string;
+    postedDate?: string | null;
+    updatedAt?: string | null;
+    href?: string;
+  }>;
+  candidatesTable?: Array<{
+    id: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    status?: string;
+    source?: string;
+    location?: string;
+    title?: string;
+    company?: string;
+    experience?: number | null;
+    assignee?: string;
+    updatedAt?: string | null;
+    href?: string;
+  }>;
+  interviewsTable?: Array<{
+    id: string;
+    candidate: string;
+    job?: string;
+    status?: string;
+    round?: string;
+    scheduledAt?: string | null;
+    href?: string;
+  }>;
+  placementsTable?: Array<{
+    id: string;
+    candidate: string;
+    client?: string;
+    job?: string;
+    status?: string;
+    revenue?: number;
+    offerDate?: string | null;
+    joiningDate?: string | null;
+    updatedAt?: string | null;
+    href?: string;
+  }>;
+  schedule?: Array<{
+    id: string;
+    title: string;
+    at?: string | null;
+    status?: string;
+    round?: string;
+    type?: string;
+    assignee?: string;
+    href?: string;
+  }>;
+  activityTimeline?: DashboardTimelineItem[];
+  leaderboard?: Array<{
+    id: string;
+    name: string;
+    email?: string;
+    openJobs: number;
+    interviews: number;
+    placements: number;
+    candidates: number;
+    score?: number;
+  }>;
+  teamOptions?: Array<{ id: string; name: string }>;
+  filtersApplied?: Record<string, string | null>;
+  generatedAt?: string;
+};
+
+export type RecruitmentDashboardFilters = {
+  dateRange?: string;
+  assignedTo?: string;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+};
+
+export async function apiRecruitmentDashboardOverview(filters?: RecruitmentDashboardFilters) {
+  const res = await apiFetch<RecruitmentOverview>(
+    `/dashboard/recruitment-overview${filtersToQuery(filters)}`,
+    { auth: true },
+  );
+  return res.data;
+}
+
 export async function apiDashboardCatalog(): Promise<DashboardCatalog> {
   const res = await apiFetch<DashboardCatalog>('/dashboard/catalog', { auth: true });
   return {

@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import {
   Bell,
+  CalendarClock,
   Globe2,
   Link2,
   Mail,
@@ -24,6 +25,14 @@ export const FOLLOW_UP_REMINDER_OPTIONS = [
   '1 day before',
 ] as const;
 
+export const FOLLOW_UP_POSTPONE_PRESETS = [
+  { id: '1d', label: 'Tomorrow', days: 1 },
+  { id: '2d', label: '+2 days', days: 2 },
+  { id: '3d', label: '+3 days', days: 3 },
+  { id: '7d', label: '+1 week', days: 7 },
+  { id: '14d', label: '+2 weeks', days: 14 },
+] as const;
+
 export type LeadFollowUpScheduleFields = {
   nextFollowUp: string;
   followUpType: string;
@@ -33,7 +42,31 @@ export type LeadFollowUpScheduleFields = {
   followUpTimezone?: string;
   followUpAttendeeIds?: string[];
   followUpNotes?: string;
+  /** When true, follow-up is marked as postponed to the selected date. */
+  followUpPostponed?: boolean;
+  /** Why the follow-up was postponed. */
+  followUpPostponeReason?: string;
+  /** Active postpone preset id (for UI highlight). */
+  followUpPostponePreset?: string;
 };
+
+/** Move a follow-up forward by N days (keeps time of day, or defaults to 10:00). */
+export function computePostponedFollowUpIso(days: number, fromIso?: string | null): string {
+  const source = fromIso ? new Date(fromIso) : new Date();
+  const base =
+    source && !Number.isNaN(source.getTime()) ? new Date(source.getTime()) : new Date();
+  if (!fromIso || Number.isNaN(new Date(fromIso).getTime())) {
+    base.setHours(10, 0, 0, 0);
+  }
+  base.setDate(base.getDate() + Math.max(1, days));
+  if (base.getTime() <= Date.now()) {
+    const fallback = new Date();
+    fallback.setHours(10, 0, 0, 0);
+    fallback.setDate(fallback.getDate() + Math.max(1, days));
+    return fallback.toISOString();
+  }
+  return base.toISOString();
+}
 
 const TYPE_BUTTONS = [
   { id: 'Call', label: 'Call', hint: 'Phone call', icon: Phone, tone: 'emerald' },
@@ -75,7 +108,14 @@ function uniqueNonEmpty(values: Array<string | null | undefined>): string[] {
 
 export function buildFollowUpStatusRemark(fields: LeadFollowUpScheduleFields): string {
   const type = String(fields.followUpType || 'General').trim() || 'General';
-  const parts = [`Follow-up scheduled: ${type}`];
+  const parts = [
+    fields.followUpPostponed
+      ? `Follow-up postponed: ${type}`
+      : `Follow-up scheduled: ${type}`,
+  ];
+  if (fields.followUpPostponeReason?.trim()) {
+    parts.push(`Postpone reason: ${fields.followUpPostponeReason.trim()}`);
+  }
   if (fields.followUpContact?.trim()) {
     parts.push(`Contact: ${fields.followUpContact.trim()}`);
   }
@@ -108,6 +148,8 @@ type Props = {
   loadingMembers?: boolean;
   /** Show follow-up notes textarea. Default true. */
   showNotes?: boolean;
+  /** Show postpone controls. Default true. */
+  showPostpone?: boolean;
   /** Show assigned owner multi-select separately — this only covers meet attendees. */
   className?: string;
   inputClassName?: string;
@@ -121,6 +163,7 @@ export function LeadFollowUpScheduler({
   teamMembers = [],
   loadingMembers = false,
   showNotes = true,
+  showPostpone = true,
   className = '',
   inputClassName = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20',
 }: Props) {
@@ -132,6 +175,7 @@ export function LeadFollowUpScheduler({
   const isCallLike = followUpType === 'Call' || followUpType === 'WhatsApp';
   const isEmail = followUpType === 'Email';
   const isMeetLike = followUpType === 'Meet';
+  const isPostponed = Boolean(value.followUpPostponed);
 
   const phones = useMemo(() => uniqueNonEmpty(phoneOptions), [phoneOptions]);
   const emails = useMemo(() => uniqueNonEmpty(emailOptions), [emailOptions]);
@@ -142,6 +186,14 @@ export function LeadFollowUpScheduler({
     : followUpType === 'WhatsApp'
       ? 'Choose WhatsApp number'
       : 'Choose phone number';
+
+  const applyPostponePreset = (presetId: string, days: number) => {
+    onChange({
+      followUpPostponed: true,
+      followUpPostponePreset: presetId,
+      nextFollowUp: computePostponedFollowUpIso(days, value.nextFollowUp),
+    });
+  };
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -285,10 +337,98 @@ export function LeadFollowUpScheduler({
 
       <FollowUpDateTimeField
         value={value.nextFollowUp || ''}
-        onChange={(iso) => onChange({ nextFollowUp: iso })}
+        onChange={(iso) =>
+          onChange({
+            nextFollowUp: iso,
+            ...(isPostponed ? { followUpPostponePreset: 'custom' } : {}),
+          })
+        }
         showFollowUpTypes={false}
-        label="Date & time"
+        label={isPostponed ? 'Postponed date & time' : 'Date & time'}
       />
+
+      {showPostpone ? (
+        <div
+          className={`rounded-xl border p-3.5 ${
+            isPostponed
+              ? 'border-amber-200 bg-amber-50/50'
+              : 'border-slate-200 bg-slate-50/60'
+          }`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-700/90">
+                <CalendarClock size={12} />
+                Postpone follow-up
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Push this follow-up later and keep a reason for the team.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (isPostponed) {
+                  onChange({
+                    followUpPostponed: false,
+                    followUpPostponeReason: '',
+                    followUpPostponePreset: '',
+                  });
+                  return;
+                }
+                onChange({
+                  followUpPostponed: true,
+                  followUpPostponePreset: '1d',
+                  nextFollowUp: computePostponedFollowUpIso(1, value.nextFollowUp),
+                });
+              }}
+              className={`rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
+                isPostponed
+                  ? 'bg-amber-600 text-white shadow-sm hover:bg-amber-700'
+                  : 'border border-amber-300 bg-white text-amber-800 hover:bg-amber-50'
+              }`}
+            >
+              {isPostponed ? 'Postponed' : 'Mark postponed'}
+            </button>
+          </div>
+
+          {isPostponed ? (
+            <div className="mt-3 space-y-3">
+              <div className="flex flex-wrap gap-1.5">
+                {FOLLOW_UP_POSTPONE_PRESETS.map((preset) => {
+                  const selected = value.followUpPostponePreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyPostponePreset(preset.id, preset.days)}
+                      className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                        selected
+                          ? 'border-amber-500 bg-amber-100 text-amber-900 shadow-sm'
+                          : 'border-amber-200/80 bg-white text-slate-600 hover:border-amber-400'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div>
+                <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-amber-700/80">
+                  Postpone reason
+                </label>
+                <textarea
+                  value={value.followUpPostponeReason || ''}
+                  onChange={(e) => onChange({ followUpPostponeReason: e.target.value })}
+                  rows={2}
+                  placeholder="e.g. Client asked to reconnect next week…"
+                  className={`${inputClassName} resize-none`}
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>

@@ -50,6 +50,7 @@ import {
   type CreateJobDetailsFormData,
   type JobLanguageEntry,
 } from '@/components/drawers/CreateJobDetailsForm';
+import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
 import { PublicVisibilityToggle } from '@/components/forms/PublicVisibilityToggle';
 import { useLinkedIn } from '@/hooks/useLinkedIn';
 import { useDrawerUnsavedGuard } from '@/hooks/useDrawerUnsavedGuard';
@@ -405,6 +406,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
   const [clients, setClients] = useState<BackendClient[]>([]);
   const [clientSearch, setClientSearch] = useState('');
   const [loadingClients, setLoadingClients] = useState(false);
+  const [showCreateClient, setShowCreateClient] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState('');
@@ -443,6 +445,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
     setStep('client');
     setDraft({ ...EMPTY_DRAFT, targetHireDate: defaultTargetHireDate() });
     setClientSearch('');
+    setShowCreateClient(false);
     setError('');
     setGenerating(false);
     setPublishing(false);
@@ -524,36 +527,69 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
     void loadSocialConnections();
   }, [isOpen, publishFlowStep, loadSocialConnections]);
 
+  const loadClients = useCallback(async () => {
+    setLoadingClients(true);
+    try {
+      const res = await apiGetClients({ page: 1, limit: 200 });
+      const raw = res.data as unknown;
+      const list = Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as { data?: BackendClient[] })?.data)
+          ? (raw as { data: BackendClient[] }).data
+          : Array.isArray((raw as { items?: BackendClient[] })?.items)
+            ? (raw as { items: BackendClient[] }).items
+            : [];
+      setClients(list as BackendClient[]);
+      return list as BackendClient[];
+    } catch {
+      setError('Could not load clients.');
+      return [] as BackendClient[];
+    } finally {
+      setLoadingClients(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isOpen) {
       reset();
       return;
     }
     let cancelled = false;
-    setLoadingClients(true);
-    void apiGetClients({ page: 1, limit: 200 })
-      .then((res) => {
-        if (cancelled) return;
-        const raw = res.data as unknown;
-        const list = Array.isArray(raw)
-          ? raw
-          : Array.isArray((raw as { data?: BackendClient[] })?.data)
-            ? (raw as { data: BackendClient[] }).data
-            : Array.isArray((raw as { items?: BackendClient[] })?.items)
-              ? (raw as { items: BackendClient[] }).items
-              : [];
-        setClients(list as BackendClient[]);
-      })
-      .catch(() => {
-        if (!cancelled) setError('Could not load clients.');
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingClients(false);
-      });
+    void loadClients().then(() => {
+      if (cancelled) return;
+    });
     return () => {
       cancelled = true;
     };
-  }, [isOpen, reset]);
+  }, [isOpen, reset, loadClients]);
+
+  const handleClientCreatedFromWizard = useCallback(
+    (created?: BackendClient | null) => {
+      setShowCreateClient(false);
+      void loadClients().then((list) => {
+        const match =
+          (created?.id && list.find((c) => c.id === created.id)) ||
+          (created?.id ? created : null) ||
+          (created?.companyName
+            ? list.find(
+                (c) =>
+                  (c.companyName || '').toLowerCase() ===
+                  String(created.companyName || '').toLowerCase(),
+              )
+            : null);
+        if (match?.id) {
+          markWizardDirty();
+          setDraft((prev) => ({
+            ...prev,
+            clientId: match.id,
+            clientName: match.companyName || created?.companyName || 'Client',
+          }));
+          setClientSearch('');
+        }
+      });
+    },
+    [loadClients, markWizardDirty],
+  );
 
   const jobDetailsFormData = useMemo(() => draftToJobDetailsForm(draft), [draft]);
 
@@ -1259,21 +1295,31 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                     <div>
                       <p className="font-semibold text-slate-900">Select your client</p>
                       <p className="mt-0.5 text-sm text-slate-500">
-                        Search or tap a company below — this job will be linked to them.
+                        Search or tap a company below — this job will be linked to them. Or create a new client with the same fields as the Clients page.
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#2098C8]/80" />
-                  <input
-                    type="search"
-                    value={clientSearch}
-                    onChange={(e) => setClientSearch(e.target.value)}
-                    placeholder="Search clients…"
-                    className={`${fieldClass} pl-10`}
-                  />
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#2098C8]/80" />
+                    <input
+                      type="search"
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                      placeholder="Search clients…"
+                      className={`${fieldClass} pl-10`}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateClient(true)}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-[#2098C8]/35 bg-white px-4 py-2.5 text-sm font-semibold text-[#176F96] shadow-sm transition hover:border-[#2098C8] hover:bg-[#E8F6FC] hover:text-[#0F5A7A]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create client
+                  </button>
                 </div>
                 {loadingClients ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-14 text-sm text-slate-500">
@@ -1283,8 +1329,16 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                 ) : (
                   <div className="max-h-[420px] space-y-2.5 overflow-y-auto pr-1 [scrollbar-width:thin]">
                     {filteredClients.length === 0 ? (
-                      <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-white/70 py-12 text-center text-sm text-slate-500">
-                        No clients found.
+                      <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-white/70 px-4 py-10 text-center">
+                        <p className="text-sm text-slate-500">No clients found.</p>
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateClient(true)}
+                          className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-[#2098C8] hover:underline"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Create a new client
+                        </button>
                       </div>
                     ) : (
                       filteredClients.map((client, index) => {
@@ -2015,6 +2069,16 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
           )}
         </div>
       </motion.div>
+
+      {showCreateClient ? (
+        <ClientDetailsDrawer
+          client={null}
+          isAddMode
+          stackClassName="z-[100]"
+          onClose={() => setShowCreateClient(false)}
+          onClientCreated={handleClientCreatedFromWizard}
+        />
+      ) : null}
     </div>
   );
 }

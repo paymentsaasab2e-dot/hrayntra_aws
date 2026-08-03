@@ -1,5 +1,6 @@
 import { dashboardService } from './dashboard.service.js';
 import { getCrmOverview } from './crmOverview.service.js';
+import { getRecruitmentOverview } from './recruitmentOverview.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 
 export const dashboardController = {
@@ -24,6 +25,15 @@ export const dashboardController = {
   async getCrmOverview(req, res) {
     try {
       const overview = await getCrmOverview(req);
+      sendResponse(res, 200, 'OK', overview);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getRecruitmentOverview(req, res) {
+    try {
+      const overview = await getRecruitmentOverview(req);
       sendResponse(res, 200, 'OK', overview);
     } catch (error) {
       sendError(res, 500, error.message, error);

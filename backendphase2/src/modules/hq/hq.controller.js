@@ -119,6 +119,15 @@ export const hqController = {
     }
   },
 
+  async updateTenantModules(req, res) {
+    try {
+      const result = await hqService.updateTenantModules(req.body, req.user);
+      sendResponse(res, 200, 'Tenant modules updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listLeads(req, res) {
     try {
       const result = await hqService.listLeads(req.user);
@@ -553,6 +562,87 @@ export const hqController = {
       sendResponse(res, 200, 'Package deleted', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listCourses(req, res) {
+    try {
+      const result = await hqService.listCourses(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async listCourseEnrollments(req, res) {
+    try {
+      const result = await hqService.listCourseEnrollments(req.params.id, req.user);
+      sendResponse(res, 200, 'Course learners fetched', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async createCourse(req, res) {
+    try {
+      const result = await hqService.createCourse(req.body, req.user);
+      sendResponse(res, 201, 'Course created', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async updateCourse(req, res) {
+    try {
+      const result = await hqService.updateCourse(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Course updated', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async deleteCourse(req, res) {
+    try {
+      const result = await hqService.deleteCourse(req.params.id, req.user);
+      sendResponse(res, 200, 'Course deleted', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async deleteCourses(req, res) {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const result = await hqService.deleteCourses(ids, req.user);
+      sendResponse(res, 200, 'Courses deleted', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async uploadCourseThumbnail(req, res) {
+    try {
+      const file = req.file;
+      if (!file) {
+        return sendError(res, 400, 'No image file provided');
+      }
+      const result = await hqService.uploadCourseThumbnail(file, req.user);
+      sendResponse(res, 201, 'Thumbnail uploaded', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async uploadCourseVideo(req, res) {
+    try {
+      const file = req.file;
+      if (!file) {
+        return sendError(res, 400, 'No video file provided');
+      }
+      const result = await hqService.uploadCourseVideo(file, req.user);
+      sendResponse(res, 201, 'Video uploaded', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
     }
   },
 };

@@ -36,6 +36,7 @@ import {
   Copy,
   ExternalLink,
   Link2,
+  Share2,
   Archive,
   ChevronDown,
   ChevronRight,
@@ -1083,7 +1084,71 @@ export function JobDetailsDrawer({
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
   const [applyLinkLoading, setApplyLinkLoading] = useState(false);
   const [applyLinkCopied, setApplyLinkCopied] = useState(false);
+  const [applyShareOpen, setApplyShareOpen] = useState(false);
+  const applyShareRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!applyShareOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!applyShareRef.current?.contains(event.target as Node)) {
+        setApplyShareOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [applyShareOpen]);
+
+  useEffect(() => {
+    setApplyShareOpen(false);
+  }, [job?.id, applyUrl]);
+
+  const shareApplyLink = useCallback(async () => {
+    if (!applyUrl) return;
+    const title = job?.title ? `Apply: ${job.title}` : 'Job apply link';
+    const text = job?.title
+      ? `Check out this job opportunity: ${job.title}`
+      : 'Check out this job opportunity';
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share({ title, text, url: applyUrl });
+        setApplyShareOpen(false);
+        return;
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return;
+    }
+    setApplyShareOpen((open) => !open);
+  }, [applyUrl, job?.title]);
+
+  const openApplyShareTarget = useCallback(
+    (platform: 'whatsapp' | 'linkedin' | 'x' | 'facebook' | 'email' | 'telegram') => {
+      if (!applyUrl) return;
+      const title = job?.title ? String(job.title) : 'this role';
+      const text = `Check out this job opportunity: ${title}`;
+      const encodedUrl = encodeURIComponent(applyUrl);
+      const encodedText = encodeURIComponent(text);
+      const encodedSubject = encodeURIComponent(job?.title ? `Job: ${job.title}` : 'Job opportunity');
+      const encodedBody = encodeURIComponent(`${text}\n\n${applyUrl}`);
+      const hrefByPlatform: Record<string, string> = {
+        whatsapp: `https://wa.me/?text=${encodeURIComponent(`${text}\n${applyUrl}`)}`,
+        linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+        x: `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`,
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+        email: `mailto:?subject=${encodedSubject}&body=${encodedBody}`,
+        telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`,
+      };
+      const href = hrefByPlatform[platform];
+      if (!href) return;
+      if (platform === 'email') {
+        window.location.href = href;
+      } else {
+        window.open(href, '_blank', 'noopener,noreferrer,width=640,height=640');
+      }
+      setApplyShareOpen(false);
+    },
+    [applyUrl, job?.title],
+  );
 
   useEffect(() => {
     if (!job?.id) {
@@ -1474,6 +1539,56 @@ export function JobDetailsDrawer({
                       <Copy size={14} />
                       {applyLinkCopied ? 'Copied' : 'Copy'}
                     </button>
+                    <div className="relative" ref={applyShareRef}>
+                      <button
+                        type="button"
+                        onClick={() => void shareApplyLink()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                      >
+                        <Share2 size={14} />
+                        Share
+                      </button>
+                      {applyShareOpen ? (
+                        <div className="absolute right-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            Share via
+                          </p>
+                          {(
+                            [
+                              { id: 'whatsapp', label: 'WhatsApp' },
+                              { id: 'linkedin', label: 'LinkedIn' },
+                              { id: 'x', label: 'X / Twitter' },
+                              { id: 'facebook', label: 'Facebook' },
+                              { id: 'telegram', label: 'Telegram' },
+                              { id: 'email', label: 'Email' },
+                            ] as const
+                          ).map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => openApplyShareTarget(item.id)}
+                              className="flex w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-900"
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(applyUrl).then(() => {
+                                setApplyLinkCopied(true);
+                                setApplyShareOpen(false);
+                                window.setTimeout(() => setApplyLinkCopied(false), 2000);
+                                requestInfo('Apply link copied');
+                              });
+                            }}
+                            className="flex w-full border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Copy link
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     <a
                       href={applyUrl}
                       target="_blank"

@@ -5,7 +5,7 @@ import { authService } from '../auth/auth.service.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { env } from '../../config/env.js';
 import { applyTenantSubscriptionPlan } from '../setting/planAccess.service.js';
-import { setSubscriptionPlan } from '../setting/recruitmentMode.service.js';
+import { setSubscriptionPlan, setHqEnabledModules } from '../setting/recruitmentMode.service.js';
 import { resolvePackageSlug, todayPlanStartDate } from './hq-packages.config.js';
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { hqLeadsService } from './hq-leads.service.js';
@@ -16,6 +16,7 @@ import { hqPortalService } from './hq-portal.service.js';
 import { hqDemosService } from './hq-demos.service.js';
 import { hqPackagesService } from './hq-packages.service.js';
 import { hqAnalyticsService } from './hq-analytics.service.js';
+import { hqCoursesService } from './hq-courses.service.js';
 
 async function resolvePlanInput(raw, billingCycle, planStartDate) {
   const plan = await hqPackagesService.resolvePlanInput(raw, billingCycle, planStartDate);
@@ -171,6 +172,7 @@ function mapTenantForHqResponse(tenant) {
     signupSource: tenant.signupSource || 'hq_manual',
     productLine: tenant.productLine || '',
     enabledModules: Array.isArray(tenant.enabledModules) ? tenant.enabledModules : [],
+    modulesRestricted: Boolean(tenant.modulesRestricted),
     subscriptionPlan: tenant.subscriptionPlan,
     tenantDbName: tenant.tenantDbName,
     tenantProvisioningMode: tenant.tenantProvisioningMode,
@@ -376,6 +378,19 @@ export const hqService = {
         console.warn('[hq] failed to seed subscription plan in tenant:', err?.message || err);
       }
     }
+    if (enabledModules.length > 0 && hqUser.tenantDbName) {
+      try {
+        await runWithTenantContext(hqUser.tenantDbName, () =>
+          setHqEnabledModules({
+            productLine,
+            enabledModules,
+            modulesRestricted: true,
+          }),
+        );
+      } catch (err) {
+        console.warn('[hq] failed to seed enabled modules in tenant:', err?.message || err);
+      }
+    }
 
     let linkedCompanyId = null;
     const companyId = String(data?.companyId || '').trim();
@@ -514,6 +529,56 @@ export const hqService = {
     }
 
     return { email: updated.email, subscriptionPlan: updated.subscriptionPlan };
+  },
+
+  async updateTenantModules(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email is required');
+
+    const productLine =
+      String(data?.productLine || '').toLowerCase() === 'recruitment'
+        ? 'recruitment'
+        : String(data?.productLine || '').toLowerCase() === 'crm'
+          ? 'crm'
+          : '';
+    const enabledModules = Array.isArray(data?.enabledModules)
+      ? [...new Set(data.enabledModules.map((m) => String(m || '').trim()).filter(Boolean))]
+      : [];
+    if (enabledModules.length === 0) {
+      throw new Error('Select at least one Phase 2 tab to keep enabled');
+    }
+
+    const updated = await headquartersAuthService.setEnabledModulesForEmail(email, {
+      productLine: productLine || undefined,
+      enabledModules,
+    });
+    if (!updated) throw new Error('Tenant not found');
+
+    if (updated.tenantDbName) {
+      try {
+        await runWithTenantContext(updated.tenantDbName, () =>
+          setHqEnabledModules({
+            productLine: updated.productLine || productLine || 'crm',
+            enabledModules,
+            modulesRestricted: true,
+          }),
+        );
+      } catch (err) {
+        console.warn('[hq] failed to sync modules into tenant DB:', err?.message || err);
+        throw new Error(
+          `Modules saved in HQ but tenant sync failed: ${err?.message || err}. Retry after tenant DB is reachable.`,
+        );
+      }
+    }
+
+    return {
+      email: updated.email,
+      productLine: updated.productLine || productLine || '',
+      enabledModules: updated.enabledModules || enabledModules,
+      modulesRestricted: true,
+      tenantDbName: updated.tenantDbName || '',
+    };
   },
 
   async setTenantCoins(data, reqUser) {
@@ -838,5 +903,45 @@ export const hqService = {
   async deletePackage(id, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqPackagesService.deletePackage(id);
+  },
+
+  async listCourses(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.listCourses();
+  },
+
+  async listCourseEnrollments(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.listCourseEnrollments(id);
+  },
+
+  async createCourse(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.createCourse(data);
+  },
+
+  async updateCourse(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.updateCourse(id, data);
+  },
+
+  async deleteCourse(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.deleteCourse(id);
+  },
+
+  async deleteCourses(ids, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.deleteCourses(ids);
+  },
+
+  async uploadCourseThumbnail(file, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.uploadThumbnail(file);
+  },
+
+  async uploadCourseVideo(file, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.uploadVideo(file);
   },
 };

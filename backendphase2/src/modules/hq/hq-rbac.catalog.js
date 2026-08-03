@@ -20,6 +20,21 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'Manage Phase 1 candidates',
   },
   {
+    permissionName: 'hq_courses_read',
+    module: 'Employees · Courses',
+    description: 'View Phase 1 LMS courses',
+  },
+  {
+    permissionName: 'hq_courses_write',
+    module: 'Employees · Courses',
+    description: 'Create and edit Phase 1 LMS courses',
+  },
+  {
+    permissionName: 'hq_courses_delete',
+    module: 'Employees · Courses',
+    description: 'Delete Phase 1 LMS courses',
+  },
+  {
     permissionName: 'hq_portal_read',
     module: 'Employees · Portal',
     description: 'View portal jobs',
@@ -171,6 +186,7 @@ export const HQ_PERMISSION_CATALOG = [
 export const HQ_MODULE_ORDER = [
   'Employees · Dashboard',
   'Employees · Candidates',
+  'Employees · Courses',
   'Employees · Portal',
   'Employees · Events',
   'Employees · Subscriptions',
@@ -208,6 +224,7 @@ const MANAGER_DENY = new Set([
   'hq_subscriptions_write',
   'hq_companies_delete',
   'hq_candidates_write',
+  'hq_courses_delete',
   'hq_roles_manage',
 ]);
 
@@ -236,6 +253,7 @@ export const HQ_DEFAULT_ROLES = [
 export const HQ_NAV_PERMISSION_MAP = {
   dashboard: ['hq_dashboard_read', 'hq_analytics_read'],
   candidates: ['hq_candidates_read'],
+  courses: ['hq_courses_read'],
   portal: ['hq_portal_read'],
   events: ['hq_events_read'],
   subscriptions: ['hq_subscriptions_read'],
