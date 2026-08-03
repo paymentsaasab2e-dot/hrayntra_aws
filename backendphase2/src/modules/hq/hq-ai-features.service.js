@@ -60,22 +60,25 @@ async function loadOverrides({ bypassCache = false } = {}) {
 }
 
 function mergeFeature(feature, overrides) {
+  const catalog = getCatalogFeature(feature.id) || feature;
+  const catalogCoins = Math.max(0, Number(catalog.coins) || 0);
   const override = overrides[feature.id];
   const coins =
     override === undefined || override === null
-      ? Math.max(0, Number(feature.coins) || 0)
+      ? catalogCoins
       : Math.max(0, Number(override) || 0);
   return {
     ...feature,
+    ...catalog,
     coins,
-    defaultCoins: Math.max(0, Number(feature.coins) || 0),
+    defaultCoins: catalogCoins,
     isCustomCost: override !== undefined && override !== null,
   };
 }
 
 export const hqAiFeaturesService = {
-  async listFeatures() {
-    const overrides = await loadOverrides();
+  async listFeatures({ bypassCache = false } = {}) {
+    const overrides = await loadOverrides({ bypassCache });
     return PHASE2_AI_FEATURE_CATALOG.map((f) => mergeFeature({ ...f }, overrides));
   },
 
@@ -83,7 +86,8 @@ export const hqAiFeaturesService = {
     const id = String(featureId || '').trim();
     const catalog = getCatalogFeature(id);
     if (!catalog) return 0;
-    const overrides = await loadOverrides();
+    // Always re-read for spend so HQ Save applies on the next AI action.
+    const overrides = await loadOverrides({ bypassCache: true });
     if (overrides[id] !== undefined && overrides[id] !== null) {
       return Math.max(0, Number(overrides[id]) || 0);
     }
@@ -94,7 +98,7 @@ export const hqAiFeaturesService = {
     const id = String(featureId || '').trim();
     const catalog = getCatalogFeature(id);
     if (!catalog) return null;
-    const overrides = await loadOverrides();
+    const overrides = await loadOverrides({ bypassCache: true });
     return mergeFeature({ ...catalog }, overrides);
   },
 
@@ -111,6 +115,7 @@ export const hqAiFeaturesService = {
 
     const current = await loadOverrides({ bypassCache: true });
     const next = { ...current };
+    const changed = [];
 
     for (const row of incoming) {
       const id = String(row?.id || row?.featureId || '').trim();
@@ -120,16 +125,27 @@ export const hqAiFeaturesService = {
       if (row.coins === undefined || row.coins === null || row.coins === '') {
         throw new Error(`coins is required for ${id}`);
       }
-      next[id] = Math.max(0, Math.floor(Number(row.coins) || 0));
+      const coins = Math.max(0, Math.floor(Number(row.coins) || 0));
+      const prev = current[id];
+      next[id] = coins;
+      if (prev !== coins) {
+        changed.push({
+          id,
+          name: getCatalogFeature(id)?.name || id,
+          previous: prev === undefined ? Math.max(0, Number(getCatalogFeature(id)?.coins) || 0) : prev,
+          coins,
+        });
+      }
     }
 
     const collection = await getCollection();
+    const updatedAt = new Date();
     await collection.updateOne(
       { _id: GLOBAL_ID },
       {
         $set: {
           costs: next,
-          updatedAt: new Date(),
+          updatedAt,
           updatedBy: reqUser?.email || reqUser?.id || null,
         },
         $setOnInsert: { createdAt: new Date() },
@@ -143,6 +159,8 @@ export const hqAiFeaturesService = {
     return {
       features: PHASE2_AI_FEATURE_CATALOG.map((f) => mergeFeature({ ...f }, next)),
       costs: next,
+      changed,
+      updatedAt: updatedAt.toISOString(),
     };
   },
 

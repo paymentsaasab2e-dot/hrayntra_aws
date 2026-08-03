@@ -122,7 +122,8 @@ router.get('/coins', async (req, res) => {
 router.get('/coins/packs', async (req, res) => {
   try {
     const { listCoinPacks } = await import('./tenantCoinWallet.service.js');
-    sendResponse(res, 200, 'OK', { packs: listCoinPacks(), demo: true });
+    const packs = await listCoinPacks();
+    sendResponse(res, 200, 'OK', { packs, demo: true });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to list coin packs', error);
   }

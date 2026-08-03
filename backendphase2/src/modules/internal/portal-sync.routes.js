@@ -112,4 +112,28 @@ router.post(
   postProvisionEmployerPaid
 );
 
+/** Phase 1 token packs + spend costs (HQ-managed) for backend1 catalog. */
+router.get('/phase1-token-catalog', portalSyncSecretMiddleware, async (req, res) => {
+  try {
+    const { hqPhase1TokensService } = await import('../hq/hq-phase1-tokens.service.js');
+    const overview = await hqPhase1TokensService.getOverview({ includeInactive: false });
+    return res.status(200).json({
+      success: true,
+      message: 'OK',
+      data: {
+        packs: overview.packs,
+        services: overview.services,
+        serviceCosts: overview.serviceCosts,
+        updatedAt: overview.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error('[portal-sync] phase1-token-catalog', error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to load Phase 1 token catalog',
+    });
+  }
+});
+
 export default router;

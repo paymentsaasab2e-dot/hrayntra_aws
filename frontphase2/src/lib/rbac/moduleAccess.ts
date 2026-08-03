@@ -31,6 +31,7 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
     'manage_settings', 'access_integrations', 'export_data', 'view_activity_log',
     'recycle_bin_manage', 'view_dashboard',
   ],
+  Behaviour: ['view_team_activity', 'reports_read', 'view_activity_log', 'manage_settings', 'view_dashboard'],
 };
 
 export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
@@ -52,6 +53,7 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/request/approval': MODULE_ACCESS_MAP.Request,
   '/inbox': MODULE_ACCESS_MAP.Inbox,
   '/calendar': MODULE_ACCESS_MAP.Calendar,
+  '/events': MODULE_ACCESS_MAP.Calendar,
   '/activity-feed': ['view_activity_log', 'reports_read', 'view_team_activity'],
   '/recycle-bin': ['recycle_bin_manage'],
   '/dashboard': ['view_dashboard'],
@@ -63,4 +65,11 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
     'view_dashboard',
   ],
   '/administration': ['manage_settings', 'manage_roles', 'assign_roles'],
+  '/thebehave': [
+    'view_team_activity',
+    'reports_read',
+    'view_activity_log',
+    'manage_settings',
+    'view_dashboard',
+  ],
 };

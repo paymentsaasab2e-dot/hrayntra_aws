@@ -6,12 +6,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { LayoutDashboard, Loader2, RefreshCw } from 'lucide-react';
-import {
-  HqPageContainer,
-  HqPageMain,
-  HqSecondaryButton,
-  HqStatCard,
-} from '@/components/hq/hqUi';
+import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';
+import { HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import {
   apiHqListCompanies,
   apiHqListLeads,
@@ -88,30 +84,23 @@ export default function HqCrmDashboardPage() {
   const recentClients = useMemo(() => companies.slice(0, 8), [companies]);
 
   return (
-    <HqPageMain>
-      <HqPageContainer>
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
-              <LayoutDashboard className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Dashboard</h1>
-              <p className="mt-0.5 text-sm text-slate-500">
-                HQ CRM overview — leads and clients from the headquarters database.
-              </p>
-              {generatedAt ? (
-                <p className="mt-1 text-[11px] text-slate-400">
-                  Last updated {new Date(generatedAt).toLocaleString()}
-                </p>
-              ) : null}
-            </div>
-          </div>
+    <HqModulePageLayout
+      title="Dashboard"
+      subtitle="HQ CRM overview — leads and clients from the headquarters database."
+      icon={<LayoutDashboard className="h-5 w-5" />}
+      locked={false}
+      actions={
           <HqSecondaryButton onClick={() => void load()} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Refresh
           </HqSecondaryButton>
-        </header>
+      }
+    >
+        {generatedAt ? (
+          <p className="mb-4 shrink-0 text-[11px] text-slate-400">
+            Last updated {new Date(generatedAt).toLocaleString()}
+          </p>
+        ) : null}
 
         {error ? (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -129,8 +118,8 @@ export default function HqCrmDashboardPage() {
         </section>
 
         <section className="mb-6 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-slate-900">Leads by stage</h2>
+          <div className="hq-surface p-5">
+            <h2 className="hq-display text-sm font-semibold text-slate-900">Leads by stage</h2>
             <ul className="mt-4 space-y-2">
               {(Object.keys(HQ_LEAD_STAGE_LABELS) as HqLeadStage[]).map((stage) => (
                 <li key={stage} className="flex items-center justify-between text-sm">
@@ -139,13 +128,13 @@ export default function HqCrmDashboardPage() {
                 </li>
               ))}
             </ul>
-            <Link href="/hq/leads" className="mt-4 inline-block text-sm font-semibold text-sky-600 hover:underline">
+            <Link href="/hq/leads" className="mt-4 inline-block text-sm font-semibold text-teal-700 hover:underline">
               Open leads →
             </Link>
           </div>
 
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-slate-900">Quick links</h2>
+          <div className="hq-surface p-5">
+            <h2 className="hq-display text-sm font-semibold text-slate-900">Quick links</h2>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {[
                 { href: '/hq/leads', label: 'Leads' },
@@ -164,17 +153,17 @@ export default function HqCrmDashboardPage() {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-2">
-          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-900">
+          <div className="hq-table-wrap">
+            <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
               Recent HQ leads
             </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
+            <div className="hq-table-scroll">
+              <table className="min-w-full text-left">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/50 text-left text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    <th className="px-4 py-2">Name</th>
-                    <th className="px-4 py-2">Company</th>
-                    <th className="px-4 py-2">Stage</th>
+                  <tr>
+                    <th>Name</th>
+                    <th>Company</th>
+                    <th>Stage</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -206,17 +195,17 @@ export default function HqCrmDashboardPage() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-900">
+          <div className="hq-table-wrap">
+            <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
               Recent HQ clients
             </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
+            <div className="hq-table-scroll">
+              <table className="min-w-full text-left">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/50 text-left text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    <th className="px-4 py-2">Company</th>
-                    <th className="px-4 py-2">Contact</th>
-                    <th className="px-4 py-2">Status</th>
+                  <tr>
+                    <th>Company</th>
+                    <th>Contact</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -248,7 +237,6 @@ export default function HqCrmDashboardPage() {
             </div>
           </div>
         </section>
-      </HqPageContainer>
-    </HqPageMain>
+    </HqModulePageLayout>
   );
 }

@@ -8,7 +8,11 @@ const router = Router();
 
 router.get('/', async (req, res) => {
   try {
-    const events = await listPublishedEvents({ search: req.query?.search });
+    const scope = String(req.query?.scope || 'upcoming').toLowerCase();
+    const events = await listPublishedEvents({
+      search: req.query?.search,
+      scope: ['all', 'upcoming', 'past'].includes(scope) ? scope : 'upcoming',
+    });
     res.json({ success: true, data: { events } });
   } catch (error) {
     console.error('[public-events:list]', error);

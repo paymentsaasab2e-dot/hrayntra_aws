@@ -25,6 +25,7 @@ import {
   type HqAnalyticsPayload,
 } from '../../lib/api';
 import { HqPackagesPanel } from '../../components/hq/HqPackagesPanel';
+import { HqTenantBehaviorDrawer } from '../../components/hq/HqTenantBehaviorDrawer';
 import {
   CreateTenantModal,
   emptyProvisionTenantForm,
@@ -280,9 +281,10 @@ function HQSetupPage() {
   useEffect(() => {
     if (activeTab !== 'dashboard') return;
     if (analyticsView === 'platform') return;
+  const intervalMs = analyticsView === 'employee' || analyticsView === 'employer' ? 15000 : 45000;
     const timer = window.setInterval(() => {
       void refreshAnalytics({ silent: true });
-    }, 45000);
+    }, intervalMs);
     return () => window.clearInterval(timer);
   }, [activeTab, analyticsView, refreshAnalytics]);
 
@@ -488,13 +490,13 @@ function HQSetupPage() {
 
   if (isPhase1EmployeeDashboard) {
     return (
-      <main className="min-h-screen overflow-y-auto bg-[#F8FAFC]">
+      <main className="ph2-main-surface min-h-full overflow-y-auto">
         {analyticsLoading && !analytics ? (
-          <div className="p-8">
+          <div className="p-6 sm:p-8">
             <HqAnalyticsLoadingSkeleton />
           </div>
         ) : analyticsError && !analytics ? (
-          <div className="p-8">
+          <div className="p-6 sm:p-8">
             <HqAlert type="error" message={analyticsError} />
           </div>
         ) : (
@@ -512,13 +514,13 @@ function HQSetupPage() {
 
   if (isPhase2EmployerDashboard) {
     return (
-      <main className="min-h-screen overflow-y-auto bg-[#F8FAFC]">
+      <main className="ph2-main-surface min-h-full overflow-y-auto">
         {analyticsLoading && !analytics ? (
-          <div className="p-8">
+          <div className="p-6 sm:p-8">
             <HqAnalyticsLoadingSkeleton />
           </div>
         ) : analyticsError && !analytics ? (
-          <div className="p-8">
+          <div className="p-6 sm:p-8">
             <HqAlert type="error" message={analyticsError} />
           </div>
         ) : (
@@ -801,20 +803,26 @@ function TenantsPanel({
   const landingPurchases = tenantStats?.landingPurchases ?? tenants.filter((t) => t.signupSource === 'landing_purchase').length;
   const landingTrials = tenantStats?.landingTrials ?? tenants.filter((t) => t.signupSource === 'landing_trial').length;
   const [coinsTenant, setCoinsTenant] = useState<HqTenantRow | null>(null);
+  const [behaviorTenant, setBehaviorTenant] = useState<HqTenantRow | null>(null);
+
+  const toggleBehavior = (tenant: HqTenantRow) => {
+    if (!tenant.tenantDbName) return;
+    setBehaviorTenant(tenant);
+  };
 
   return (
-    <HqPanel className="p-0">
+    <HqPanel className="!p-0 overflow-hidden">
       <AssignCoinsModal
         open={Boolean(coinsTenant)}
         tenant={coinsTenant}
         onClose={() => setCoinsTenant(null)}
         onSaved={onCoinsUpdated}
       />
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/80 px-5 py-4">
         <HqPanelTitle
           title="Tenants"
           meta={
-            <span className="text-[10px] text-slate-400">
+            <span className="text-[10px] font-medium text-slate-400">
               {tenants.length} total · {landingPurchases} landing purchases · {landingTrials} landing trials
             </span>
           }
@@ -829,29 +837,34 @@ function TenantsPanel({
       ) : tenants.length === 0 ? (
         <div className="px-5 pb-5 text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No tenants yet.'}</div>
       ) : (
-        <div className="overflow-x-auto px-5 pb-5">
-          <table className="min-w-full text-sm">
+        <div className="hq-table-scroll px-1 pb-2">
+          <table className="min-w-full text-left">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                <th className="py-2 pr-3">Name</th>
-                <th className="py-2 pr-3">Email</th>
-                <th className="py-2 pr-3">Source</th>
-                <th className="py-2 pr-3">Type</th>
-                <th className="py-2 pr-3">Product</th>
-                <th className="py-2 pr-3">DB</th>
-                <th className="py-2 pr-3">Plan</th>
-                <th className="py-2 pr-3">AI coins</th>
-                <th className="py-2 pr-3">Limits</th>
-                <th className="py-2 pr-3">Billing</th>
-                <th className="py-2 pr-3">Start</th>
-                <th className="py-2 pr-3">End</th>
-                <th className="py-2 pr-3">Status</th>
-                <th className="py-2 pl-3 text-right">Actions</th>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Source</th>
+                <th>Type</th>
+                <th>Product</th>
+                <th>DB</th>
+                <th>Plan</th>
+                <th>AI coins</th>
+                <th>Limits</th>
+                <th>Billing</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Status</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {tenants.map((t) => (
-                <tr key={t.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60">
+                <tr
+                  key={t.id}
+                  className={`border-b border-slate-100 last:border-b-0 transition-colors hover:bg-slate-50/60 ${t.tenantDbName ? 'cursor-pointer' : ''}`}
+                  onClick={() => t.tenantDbName && toggleBehavior(t)}
+                  title={t.tenantDbName ? 'Open behaviour analytics drawer' : undefined}
+                >
                   <td className="py-3 pr-3">
                     <p className="font-semibold text-slate-900">{t.name}</p>
                     {t.organizationName ? (
@@ -891,7 +904,7 @@ function TenantsPanel({
                     )}
                   </td>
                   <td className="py-3 pr-3 font-mono text-xs text-slate-500">{t.tenantDbName || '—'}</td>
-                  <td className="py-3 pr-3">
+                  <td className="py-3 pr-3" onClick={(e) => e.stopPropagation()}>
                     <div className="space-y-1">
                       <select
                         value={tenantPlanId(t, planOptions)}
@@ -921,11 +934,11 @@ function TenantsPanel({
                       ) : null}
                     </div>
                   </td>
-                  <td className="py-3 pr-3">
+                  <td className="py-3 pr-3" onClick={(e) => e.stopPropagation()}>
                     <TenantCoinsCell tenant={t} onEdit={setCoinsTenant} />
                   </td>
                   <td className="py-3 pr-3 text-xs font-medium text-slate-600">{formatPlanLimits(t.subscriptionPlan)}</td>
-                  <td className="py-3 pr-3">
+                  <td className="py-3 pr-3" onClick={(e) => e.stopPropagation()}>
                     <select
                       value={tenantBillingCycle(t)}
                       onChange={(e) => {
@@ -957,8 +970,17 @@ function TenantsPanel({
                       </span>
                     )}
                   </td>
-                  <td className="py-3 pl-3 text-right">
+                  <td className="py-3 pl-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex flex-wrap items-center justify-end gap-2">
+                      {t.tenantDbName ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleBehavior(t)}
+                          className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-700 transition hover:bg-sky-100"
+                        >
+                          Analytics
+                        </button>
+                      ) : null}
                       {t.isLandingSignupOnly ? (
                         <span className="text-[10px] text-slate-400">View only</span>
                       ) : (
@@ -1003,6 +1025,9 @@ function TenantsPanel({
           </table>
         </div>
       )}
+      {behaviorTenant?.tenantDbName ? (
+        <HqTenantBehaviorDrawer tenant={behaviorTenant} onClose={() => setBehaviorTenant(null)} />
+      ) : null}
     </HqPanel>
   );
 }

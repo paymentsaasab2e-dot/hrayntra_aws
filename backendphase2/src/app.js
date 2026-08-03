@@ -69,6 +69,7 @@ import publicUploadsRoutes from './routes/publicUploads.routes.js';
 import resumePreviewRoutes from './routes/resumePreview.routes.js';
 import hqRoutes from './modules/hq/hq.routes.js';
 import portalEventsRoutes from './modules/portal-events/portal-events.routes.js';
+import tenantBehaviorRoutes from './modules/tenant-behavior/tenant-behavior.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
@@ -140,6 +141,12 @@ app.use('/uploads', express.static(uploadsPath, {
       res.setHeader('Content-Type', 'image/gif');
     } else if (filePath.endsWith('.webp')) {
       res.setHeader('Content-Type', 'image/webp');
+    } else if (filePath.endsWith('.mp4')) {
+      res.setHeader('Content-Type', 'video/mp4');
+    } else if (filePath.endsWith('.webm')) {
+      res.setHeader('Content-Type', 'video/webm');
+    } else if (filePath.endsWith('.mov')) {
+      res.setHeader('Content-Type', 'video/quicktime');
     } else if (filePath.endsWith('.pdf')) {
       // Default `application/octet-stream` forces a download — the
       // recruiter wants to *view* the offer letter inline, so let the
@@ -217,6 +224,7 @@ app.use('/api/v1/auth', authRoutes);
 // router-level auth middlewares mounted on generic /api/v1 routers.
 app.use('/api/v1/hq', hqRoutes);
 app.use('/api/v1/portal-events', portalEventsRoutes);
+app.use('/api/v1/tenant-behavior', tenantBehaviorRoutes);
 // Public job apply — register before any `/api/v1` router with router-level authMiddleware
 app.get('/api/v1/jobs/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
 app.post(

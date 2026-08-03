@@ -9,13 +9,11 @@ import {
   Database,
   Download,
   FileText,
-  HardDrive,
   Mail,
   MessageSquare,
   Moon,
   RefreshCcw,
   Search,
-  Server,
   Sparkles,
   Users,
   Zap,
@@ -31,10 +29,14 @@ export function HqPhase2Card({
 }) {
   return (
     <motion.div
-      whileHover={{ y: -1 }}
-      transition={{ duration: 0.15 }}
-      className={`rounded-[18px] border border-slate-200/80 bg-white p-6 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.03)] ${className}`}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
+      className={`hq-dash-card relative overflow-hidden rounded-2xl border border-white/80 bg-white/75 p-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:p-6 ${className}`}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-indigo-300/60 to-transparent"
+      />
       {children}
     </motion.div>
   );
@@ -49,7 +51,10 @@ export function HqPhase2Title({
 }) {
   return (
     <div className="mb-4 flex items-center justify-between gap-3">
-      <h3 className="text-sm font-semibold text-[#111827]">{title}</h3>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
+        <h3 className="truncate text-[13px] font-semibold tracking-tight text-slate-800">{title}</h3>
+      </div>
       {right}
     </div>
   );
@@ -147,35 +152,42 @@ export function HqPhase2PageHeader({
   loading,
   onRefresh,
 }: {
-  updatedLabel: string;
+  updatedLabel?: string;
   loading?: boolean;
   onRefresh?: () => void;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="text-[32px] font-bold tracking-tight text-[#111827]">Phase 2 Dashboard</h1>
-        <p className="mt-1 text-sm text-[#6B7280]">Business & Platform Overview</p>
+    <header className="hq-dash-card mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-white/80 bg-white/75 px-4 py-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:px-6">
+      <div className="min-w-0">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/80">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+            Live Phase 2
+          </span>
+        </div>
+        <h1 className="hq-display text-[1.75rem] font-bold tracking-tight text-slate-900 sm:text-[2rem]">
+          Employers dashboard
+        </h1>
+        <p className="mt-1.5 text-sm font-medium text-slate-500">
+          Business &amp; platform overview · Phase 2 tenant analytics
+        </p>
+        {updatedLabel ? (
+          <p className="mt-1 text-[11px] text-slate-400">Last updated: {updatedLabel}</p>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-          Live
-        </span>
-        <span className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-[#6B7280] ring-1 ring-slate-200">
-          Last Updated: {updatedLabel}
-        </span>
         <button
           type="button"
           onClick={onRefresh}
           disabled={loading}
-          className="inline-flex h-9 items-center gap-2 rounded-xl bg-[#111827] px-3.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-60"
+          className="inline-flex h-10 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50"
         >
-          <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
-    </div>
+    </header>
   );
 }
 
@@ -250,19 +262,38 @@ export function HqPhase2ActivityFeed({
   );
 }
 
-export function HqPhase2SystemHealth() {
-  const items = [
-    { label: 'Server', value: 'Operational', icon: Server, warn: false },
-    { label: 'Database', value: 'Operational', icon: Database, warn: false },
-    { label: 'API', value: 'Operational', icon: Zap, warn: false },
-    { label: 'Storage', value: '82%', icon: HardDrive, warn: true },
-    { label: 'AI Matching', value: '14 queued', icon: Sparkles, warn: false },
-    { label: 'Email', value: '3 queued', icon: Mail, warn: false },
-    { label: 'Background', value: '8 jobs', icon: FileText, warn: false },
-  ];
+export function HqPhase2SystemHealth({
+  items,
+}: {
+  items?: Array<{ label: string; value: string; warn?: boolean }>;
+}) {
+  const rows =
+    items && items.length
+      ? items.map((s) => ({
+          ...s,
+          icon:
+            s.label === 'Analytics'
+              ? Zap
+              : s.label === 'Tenants'
+                ? Users
+                : s.label === 'Open jobs'
+                  ? Building2
+                  : s.label === 'Database' || s.label === 'Paused'
+                    ? Database
+                    : s.label === 'Email' || s.label === 'Follow-ups today'
+                      ? Mail
+                      : s.label === 'AI Matching' || s.label === 'Interviews today'
+                        ? Sparkles
+                        : FileText,
+        }))
+      : [
+          { label: 'Analytics', value: 'Waiting', icon: Zap, warn: true },
+          { label: 'Tenants', value: '—', icon: Users, warn: false },
+        ];
+
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
-      {items.map((s) => {
+      {rows.map((s) => {
         const Icon = s.icon;
         return (
           <div key={s.label} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">

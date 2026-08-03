@@ -1,11 +1,18 @@
 const { prisma } = require('../lib/prisma');
 
 async function listPublishedEvents(filters = {}) {
-  const { search } = filters;
+  const { search, scope = 'upcoming' } = filters;
   const where = {
     isPublished: true,
-    scheduledAt: { gte: new Date(Date.now() - 1000 * 60 * 60 * 24) },
+    NOT: { status: 'cancelled' },
   };
+  const now = new Date();
+
+  if (scope === 'upcoming') {
+    where.scheduledAt = { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) };
+  } else if (scope === 'past') {
+    where.scheduledAt = { lt: now };
+  }
 
   if (search) {
     where.OR = [
@@ -33,13 +40,15 @@ async function listPublishedEvents(filters = {}) {
     durationMinutes: event.durationMinutes,
     hostName: event.hostName,
     source: event.source,
+    createdByName: event.createdByName,
+    media: Array.isArray(event.media) ? event.media : [],
     registrationCount: event._count?.registrations ?? 0,
   }));
 }
 
 async function getPublishedEventById(eventId) {
   const event = await prisma.lmsEvent.findFirst({
-    where: { id: String(eventId), isPublished: true },
+    where: { id: String(eventId), isPublished: true, NOT: { status: 'cancelled' } },
     include: { _count: { select: { registrations: true } } },
   });
 
@@ -59,6 +68,8 @@ async function getPublishedEventById(eventId) {
     capacity: event.capacity,
     hostName: event.hostName,
     source: event.source,
+    createdByName: event.createdByName,
+    media: Array.isArray(event.media) ? event.media : [],
     registrationCount: event._count?.registrations ?? 0,
   };
 }

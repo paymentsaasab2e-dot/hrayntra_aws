@@ -118,6 +118,9 @@ function toCompanyRow(doc) {
     state: doc.state || '',
     city: doc.city || '',
     estimatedDealValue: doc.estimatedDealValue ?? 0,
+    pricePerUser: doc.pricePerUser ?? null,
+    billingCycle: doc.billingCycle || null,
+    finalPrice: doc.finalPrice ?? doc.estimatedDealValue ?? 0,
     companySource: doc.companySource || '',
     interestedModules: doc.interestedModules || [],
     initialNotes: doc.initialNotes || '',
@@ -315,8 +318,17 @@ function parseCompanyInput(data) {
   const companySource = firstNonEmpty(data?.companySource, data?.source, 'Phase 2 Client Form') || 'Phase 2 Client Form';
   const expectedUsers =
     Number(data?.expectedUsers) || companySizeToExpectedUsers(data?.companySize) || 0;
+  const pricePerUser = Math.max(0, Number(data?.pricePerUser) || 0);
+  const billingCycleRaw = String(data?.billingCycle || '').trim().toLowerCase();
+  const billingCycle =
+    billingCycleRaw === 'yearly' || billingCycleRaw === 'annual' ? 'yearly' : billingCycleRaw === 'monthly' ? 'monthly' : null;
+  const finalPriceParsed = Number(data?.finalPrice);
   const estimatedDealValue =
-    Number(data?.estimatedDealValue) || parseMoneyLike(data?.expectedBusinessValue) || 0;
+    Number(data?.estimatedDealValue) ||
+    (Number.isFinite(finalPriceParsed) && finalPriceParsed > 0 ? finalPriceParsed : 0) ||
+    (pricePerUser > 0 && expectedUsers > 0 ? Math.round(expectedUsers * pricePerUser * 100) / 100 : 0) ||
+    parseMoneyLike(data?.expectedBusinessValue) ||
+    0;
   const interestedModules = Array.isArray(data?.interestedModules)
     ? data.interestedModules.map((item) => String(item).trim()).filter(Boolean)
     : String(data?.servicesNeeded || '')
@@ -380,6 +392,9 @@ function parseCompanyInput(data) {
     city: String(data?.city || '').trim(),
     expectedUsers,
     estimatedDealValue,
+    pricePerUser: pricePerUser > 0 ? pricePerUser : null,
+    billingCycle,
+    finalPrice: estimatedDealValue || null,
     accountOwner,
     companySource,
     interestedModules,
