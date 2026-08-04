@@ -129,6 +129,7 @@ app.use('/api/events/public', publicEventsRoutes);
 app.use('/api/tokens', tokenRoutes);
 app.use('/api/audit', require('./routes/audit.routes'));
 app.use('/api/hq-chat', require('./routes/hq-chat.routes'));
+app.use('/api/hq', require('./routes/hq.routes'));
 app.use('/api/office-gossips', require('./routes/office-gossips.routes'));
 app.use('/api/document-download', require('./routes/documentDownload.routes'));
 app.use('/api/document-view', require('./routes/documentView.routes'));
