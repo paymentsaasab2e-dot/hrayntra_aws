@@ -50,22 +50,44 @@ export type LeadFollowUpScheduleFields = {
   followUpPostponePreset?: string;
 };
 
-/** Move a follow-up forward by N days (keeps time of day, or defaults to 10:00). */
+/**
+ * Postpone presets are relative to **today** (local calendar), not the current follow-up date.
+ * e.g. Tomorrow = today+1, +2 weeks = today+14. Keeps time-of-day from `fromIso` when valid.
+ */
 export function computePostponedFollowUpIso(days: number, fromIso?: string | null): string {
-  const source = fromIso ? new Date(fromIso) : new Date();
-  const base =
-    source && !Number.isNaN(source.getTime()) ? new Date(source.getTime()) : new Date();
-  if (!fromIso || Number.isNaN(new Date(fromIso).getTime())) {
-    base.setHours(10, 0, 0, 0);
+  const offset = Math.max(1, Math.floor(Number(days) || 1));
+  const now = new Date();
+
+  let hours = 10;
+  let minutes = 0;
+  if (fromIso) {
+    const source = new Date(fromIso);
+    if (!Number.isNaN(source.getTime())) {
+      hours = source.getHours();
+      minutes = source.getMinutes();
+    }
   }
-  base.setDate(base.getDate() + Math.max(1, days));
-  if (base.getTime() <= Date.now()) {
-    const fallback = new Date();
-    fallback.setHours(10, 0, 0, 0);
-    fallback.setDate(fallback.getDate() + Math.max(1, days));
-    return fallback.toISOString();
+
+  // Build from local Y/M/D so timezone does not shift the calendar day.
+  const target = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + offset,
+    hours,
+    minutes,
+    0,
+    0,
+  );
+
+  if (target.getTime() <= Date.now()) {
+    target.setHours(Math.max(hours, now.getHours() + 1), minutes, 0, 0);
+    if (target.getTime() <= Date.now()) {
+      target.setDate(target.getDate() + 1);
+      target.setHours(hours, minutes, 0, 0);
+    }
   }
-  return base.toISOString();
+
+  return target.toISOString();
 }
 
 const TYPE_BUTTONS = [
@@ -415,15 +437,22 @@ export function LeadFollowUpScheduler({
               </div>
               <div>
                 <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-amber-700/80">
-                  Postpone reason
+                  Postpone reason <span className="text-rose-600">*</span>
                 </label>
                 <textarea
                   value={value.followUpPostponeReason || ''}
                   onChange={(e) => onChange({ followUpPostponeReason: e.target.value })}
                   rows={2}
+                  required
+                  aria-required="true"
                   placeholder="e.g. Client asked to reconnect next week…"
                   className={`${inputClassName} resize-none`}
                 />
+                {!String(value.followUpPostponeReason || '').trim() ? (
+                  <p className="mt-1 text-[11px] font-medium text-amber-700">
+                    Reason is required when postponing.
+                  </p>
+                ) : null}
               </div>
             </div>
           ) : null}

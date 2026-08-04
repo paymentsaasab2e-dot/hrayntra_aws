@@ -276,6 +276,7 @@ export function ScheduleMeetingForm({
           emailOptions={emailOptions}
           teamMembers={teamMembers}
           loadingMembers={loadingMembers}
+          showPostpone={false}
         />
       </div>
       <div className="flex justify-end gap-3">
