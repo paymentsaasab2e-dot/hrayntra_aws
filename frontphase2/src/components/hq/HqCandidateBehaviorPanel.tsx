@@ -190,6 +190,33 @@ function BehaviorBody({
         />
       </section>
 
+      {analysis.alertTiming ? (
+        <section className="rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-4">
+          <h3 className="text-lg font-semibold text-slate-900">Best time to send alerts</h3>
+          <p className="mt-1 text-sm text-slate-700">
+            <span className="font-semibold text-emerald-900">
+              {analysis.alertTiming.bestWindowLabel}
+            </span>
+            {analysis.alertTiming.timezone ? (
+              <span className="text-slate-500"> · {analysis.alertTiming.timezone}</span>
+            ) : null}
+            <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-800">
+              {analysis.alertTiming.confidence} confidence
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-slate-600">{analysis.alertTiming.reason}</p>
+          {(analysis.locations?.length || 0) > 0 ? (
+            <p className="mt-2 text-xs text-slate-600">
+              Locations:{' '}
+              {analysis.locations!
+                .slice(0, 3)
+                .map((l) => `${l.key} (${l.sessions})`)
+                .join(' · ')}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       {Array.isArray(analysis.triggers) && analysis.triggers.length > 0 ? (
         <section>
           <h3 className="mb-3 text-lg font-semibold text-slate-900">HQ follow-up triggers</h3>

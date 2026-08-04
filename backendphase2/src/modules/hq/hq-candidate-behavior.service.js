@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js';
 import { getJobPortalPrismaClient } from '../../config/prisma.js';
+import { buildSessionEngagementStats } from './session-engagement.util.js';
 
 function phase1FrontendBase() {
   return String(
@@ -84,6 +85,7 @@ async function loadPortalSessions(candidateId) {
       loginAt: true,
       logoutAt: true,
       durationMs: true,
+      ipAddress: true,
       deviceType: true,
       browser: true,
       operatingSystem: true,
@@ -148,12 +150,14 @@ function serializeSession(row) {
     endedAt: row.logoutAt || null,
     durationMs: durationMs || 0,
     durationLabel: formatDuration(durationMs || 0),
+    ipAddress: row.ipAddress || null,
     deviceType: row.deviceType || null,
     browser: row.browser || null,
     operatingSystem: row.operatingSystem || null,
     country: row.country || null,
     state: row.state || null,
     city: row.city || null,
+    timezone: row.timezone || null,
     isActive: row.isActive !== false && !row.logoutAt,
   };
 }
@@ -202,6 +206,16 @@ export async function getCandidateBehaviorAnalysis(candidateId) {
   const sessions = sessionsRaw.map(serializeSession);
   const rollup7d = behaviorPayload?.rollup7d || null;
   const dbSummary = buildDbFallbackSummary({ sessions, applications, candidate });
+  const fromPhase1 = behaviorPayload?.sessionEngagement || null;
+  const sessionEngagement =
+    fromPhase1 ||
+    (sessions.length ? buildSessionEngagementStats(sessions) : null);
+  const alertTiming =
+    behaviorPayload?.alertTiming || sessionEngagement?.alertTiming || null;
+  const locations =
+    (Array.isArray(behaviorPayload?.locations) && behaviorPayload.locations.length
+      ? behaviorPayload.locations
+      : sessionEngagement?.locations) || [];
 
   return {
     candidateId: id,
@@ -224,6 +238,9 @@ export async function getCandidateBehaviorAnalysis(candidateId) {
     triggers: Array.isArray(behaviorPayload?.triggers) ? behaviorPayload.triggers : rollup7d?.hqTriggers || [],
     suggestionMetrics: behaviorPayload?.suggestionMetrics || null,
     portalSessions: sessions,
+    sessionEngagement,
+    alertTiming,
+    locations,
     applications: applications.recent,
     applicationStats: {
       total: applications.total,
