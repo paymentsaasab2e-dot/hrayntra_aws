@@ -1112,13 +1112,14 @@ async function loginWithPassword(req, res) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const hasEmail = Boolean(normalizedEmail);
-    const hasPhone = Boolean(whatsappNumber && countryCode);
+    const rawPhone = String(whatsappNumber || '').trim();
+    const hasPhone = Boolean(rawPhone);
 
     if (!password || (!hasEmail && !hasPhone)) {
       return res.status(400).json({
         success: false,
         code: 'MISSING_FIELDS',
-        message: 'Password and either WhatsApp number or email are required',
+        message: 'Password and either mobile number or email are required',
       });
     }
 
@@ -1139,21 +1140,49 @@ async function loginWithPassword(req, res) {
         });
       });
     } else {
-      const cleanNumber = String(whatsappNumber).replace(/\D/g, '');
-      if (cleanNumber.length < 6) {
+      const cleanNumber = rawPhone.replace(/\D/g, '');
+      if (cleanNumber.length < 6 && !rawPhone.startsWith('+')) {
         return res.status(400).json({
           success: false,
           code: 'INVALID_NUMBER',
-          message: 'Invalid WhatsApp number',
+          message: 'Invalid mobile number',
         });
       }
 
-      const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
-      candidate = await retryQuery(async () => {
-        return await prisma.candidate.findUnique({
-          where: { whatsappNumber: fullWhatsAppNumber },
-        });
+      const resolvedPhone = resolveWhatsAppLogin({
+        countryCode: countryCode || '+91',
+        whatsappNumber: rawPhone.startsWith('+') ? rawPhone : cleanNumber,
       });
+      const fullWhatsAppNumber = resolvedPhone.fullWhatsAppNumber;
+      const localNumber = resolvedPhone.localNumber;
+
+      // Primary: flexible WhatsApp match (handles +91 / 91 / legacy formats)
+      candidate = await findCandidateByWhatsApp(fullWhatsAppNumber);
+
+      // Fallback: profile / candidate local phone (Basic Info updates)
+      if (!candidate && localNumber) {
+        const last10 = localNumber.slice(-10);
+        candidate = await retryQuery(async () => {
+          return await prisma.candidate.findFirst({
+            where: {
+              OR: [
+                { phone: localNumber },
+                { phone: last10 },
+                { phone: { endsWith: last10 } },
+                {
+                  profile: {
+                    OR: [
+                      { phoneNumber: localNumber },
+                      { phoneNumber: last10 },
+                      { phoneNumber: { endsWith: last10 } },
+                    ],
+                  },
+                },
+              ],
+            },
+          });
+        });
+      }
     }
 
     // Account does not exist (or never completed verification) → create account
@@ -1429,6 +1458,76 @@ async function findCandidateByWhatsAppFlexible(normalizedFull, excludeCandidateI
   }
 }
 
+/**
+ * List login sessions for the authenticated candidate (device / IP / location).
+ * GET /api/auth/sessions
+ */
+async function listSessions(req, res) {
+  try {
+    const candidateId = req.user?.candidateId || req.user?.id;
+    if (!candidateId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 40));
+    const sessions = await retryQuery(async () =>
+      prisma.session.findMany({
+        where: { candidateId },
+        orderBy: { loginAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          loginAt: true,
+          logoutAt: true,
+          durationMs: true,
+          ipAddress: true,
+          deviceType: true,
+          browser: true,
+          operatingSystem: true,
+          country: true,
+          state: true,
+          city: true,
+          timezone: true,
+          isActive: true,
+          createdAt: true,
+          lastUsedAt: true,
+          expiresAt: true,
+        },
+      }),
+    );
+
+    const activeCount = sessions.filter((s) => s.isActive !== false).length;
+    const uniqueIps = new Set(
+      sessions.map((s) => s.ipAddress).filter((ip) => ip && ip !== 'unknown'),
+    );
+    const uniqueDevices = new Set(
+      sessions
+        .map((s) => [s.deviceType, s.browser, s.operatingSystem].filter(Boolean).join('|'))
+        .filter(Boolean),
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        sessions,
+        summary: {
+          total: sessions.length,
+          active: activeCount,
+          uniqueIps: uniqueIps.size,
+          uniqueDevices: uniqueDevices.size,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error listing sessions:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load sessions',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -1437,6 +1536,7 @@ module.exports = {
   setPassword,
   logout,
   checkCredential,
+  listSessions,
 };
 
 
