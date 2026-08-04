@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-03T07:20:48.569Z",
+  "updatedAt": "2026-08-04T09:14:00.381Z",
   "communities": [
     {
       "id": "c_job_seekers",
@@ -255,8 +255,63 @@
       "createdAt": "2026-08-03T04:50:48.450Z"
     }
   ],
-  "identities": {},
-  "referenceChecks": [],
+  "identities": {
+    "b1c869d84e75048c5c61c5e3": {
+      "userId": "b1c869d84e75048c5c61c5e3",
+      "createdAt": "2026-07-30T06:00:26.749Z",
+      "updatedAt": "2026-07-30T06:00:26.749Z",
+      "isAnonymous": true,
+      "username": "keen_owl83",
+      "showInCompanyConnections": true,
+      "availableForReferenceCheck": true,
+      "referenceFeeTokens": 5,
+      "completedReferenceChecks": 0,
+      "allowPeopleToFollow": true,
+      "followAnonymously": true
+    }
+  },
+  "referenceChecks": [
+    {
+      "id": "ref_ms73qmmj_nauikh",
+      "companyPageId": "co_aitikit",
+      "companyName": "AiTikit",
+      "requesterId": "b1c869d84e75048c5c61c5e3",
+      "requesterRealName": "Himanshu Dinesh Ghode",
+      "requesterName": "Anonymous",
+      "requesterAnonymous": true,
+      "refereeId": "demo_ref_ananya",
+      "refereeRealName": "ananya_s",
+      "refereeName": "ananya_s",
+      "refereeAnonymous": false,
+      "enquiryRole": "employer",
+      "questions": [
+        "How would you describe working with ananya_s?",
+        "What are ananya_s's strongest skills on the job?",
+        "Would you rehire or recommend ananya_s?",
+        "Anyone who has worked with ananya_s — what stood out?"
+      ],
+      "answers": [],
+      "feeTokens": 6,
+      "escrowHeld": true,
+      "status": "awaiting_answers",
+      "messages": [
+        {
+          "id": "rm_ms73qmmj_owzyqd",
+          "senderId": "b1c869d84e75048c5c61c5e3",
+          "text": "Reference enquiry (employer) for AiTikit:\n1. How would you describe working with ananya_s?\n2. What are ananya_s's strongest skills on the job?\n3. Would you rehire or recommend ananya_s?\n4. Anyone who has worked with ananya_s — what stood out?",
+          "createdAt": "2026-07-30T05:57:39.979Z"
+        },
+        {
+          "id": "rm_ms73qmmj_11axk8",
+          "senderId": "demo_ref_ananya",
+          "text": "Happy to help — I’ll answer your questions shortly.",
+          "createdAt": "2026-07-30T05:57:39.980Z"
+        }
+      ],
+      "createdAt": "2026-07-30T05:57:39.979Z",
+      "updatedAt": "2026-07-30T05:57:39.979Z"
+    }
+  ],
   "social": {
     "companyFollows": [],
     "peopleFollows": [],

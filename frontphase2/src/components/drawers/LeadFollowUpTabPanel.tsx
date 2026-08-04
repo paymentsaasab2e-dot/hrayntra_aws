@@ -98,7 +98,23 @@ export function LeadFollowUpTabPanel({
   const scheduleInfo = useMemo(() => readFollowUpSchedule(otherDetails), [otherDetails]);
   const scheduledType = String(scheduleInfo?.type || 'Meet').trim() || 'Meet';
   const hasScheduledMeet = Boolean(nextFollowUp);
-  const isPostponed = Boolean(scheduleInfo?.postponed);
+  const displayedPostponeReason = useMemo(() => {
+    const direct = String(scheduleInfo?.postponeReason || '').trim();
+    if (direct) return direct;
+    const notes = String(scheduleInfo?.notes || '');
+    const match = notes.match(/Postpone reason:\s*(.+?)(?:\.|$)/i);
+    return match?.[1]?.trim() || '';
+  }, [scheduleInfo]);
+
+  const displayedNotes = useMemo(() => {
+    return String(scheduleInfo?.notes || '')
+      .replace(/^\s*Postponed\.?\s*/i, '')
+      .replace(/Postpone reason:\s*[^.]*\.?\s*/gi, '')
+      .trim();
+  }, [scheduleInfo]);
+
+  // Single declaration — postponed flag or a saved reason both count as postponed.
+  const isPostponed = Boolean(scheduleInfo?.postponed || displayedPostponeReason);
 
   useEffect(() => {
     if (!leadId) return;
@@ -197,6 +213,7 @@ export function LeadFollowUpTabPanel({
 
   const handlePostponeFollowUp = async () => {
     const iso = String(postponeDate || '').trim();
+    const reason = postponeReason.trim();
     if (!iso) {
       void requestWarning('Please choose a postponed date and time.');
       return;
@@ -204,6 +221,10 @@ export function LeadFollowUpTabPanel({
     const when = new Date(iso);
     if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
       void requestWarning('Postponed follow-up must be in the future.');
+      return;
+    }
+    if (!reason) {
+      void requestWarning('Please enter a reason for postponing this follow-up.');
       return;
     }
 
@@ -216,8 +237,12 @@ export function LeadFollowUpTabPanel({
         followUpMeetLink: scheduleInfo?.meetLink || undefined,
         followUpNotes: scheduleInfo?.notes || undefined,
         followUpPostponed: true,
-        followUpPostponeReason: postponeReason.trim(),
+        followUpPostponeReason: reason,
       };
+      const cleanNotes = String(scheduleInfo?.notes || '')
+        .replace(/^\s*Postponed\.?\s*/i, '')
+        .replace(/Postpone reason:\s*[^.]*\.?\s*/gi, '')
+        .trim();
       await apiUpdateLead(leadId, {
         nextFollowUp: iso,
         statusRemark: buildFollowUpStatusRemark(fields),
@@ -225,15 +250,9 @@ export function LeadFollowUpTabPanel({
           type: scheduledType,
           contact: scheduleInfo?.contact || undefined,
           meetLink: scheduleInfo?.meetLink || undefined,
-          notes: [
-            'Postponed',
-            postponeReason.trim() ? `Postpone reason: ${postponeReason.trim()}` : null,
-            scheduleInfo?.notes || null,
-          ]
-            .filter(Boolean)
-            .join('. '),
+          notes: cleanNotes || undefined,
           postponed: true,
-          postponeReason: postponeReason.trim() || undefined,
+          postponeReason: reason,
         },
       });
       setPostponeOpen(false);
@@ -290,13 +309,18 @@ export function LeadFollowUpTabPanel({
                 <p className="mt-2 text-sm font-semibold text-slate-900">
                   {formatFollowUpDisplay(nextFollowUp)}
                 </p>
-                {scheduleInfo?.postponeReason ? (
-                  <p className="mt-1.5 text-sm leading-relaxed text-amber-800">
-                    Reason: {scheduleInfo.postponeReason}
-                  </p>
+                {displayedPostponeReason ? (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700/90">
+                      Postpone reason
+                    </p>
+                    <p className="mt-0.5 text-sm leading-relaxed text-amber-900">
+                      {displayedPostponeReason}
+                    </p>
+                  </div>
                 ) : null}
-                {scheduleInfo?.notes ? (
-                  <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{scheduleInfo.notes}</p>
+                {displayedNotes ? (
+                  <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{displayedNotes}</p>
                 ) : null}
                 {scheduleInfo?.meetLink ? (
                   <p className="mt-1 text-xs text-slate-500">
@@ -495,16 +519,27 @@ export function LeadFollowUpTabPanel({
                       htmlFor="postpone-followup-reason"
                       className="mb-1.5 block text-sm font-medium text-slate-800"
                     >
-                      Reason
+                      Reason <span className="text-rose-600">*</span>
                     </label>
                     <textarea
                       id="postpone-followup-reason"
                       value={postponeReason}
                       onChange={(e) => setPostponeReason(e.target.value)}
                       rows={3}
+                      required
+                      aria-required="true"
                       placeholder="Why is this follow-up being postponed?"
-                      className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                      className={`w-full rounded-xl border px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
+                        postponeReason.trim()
+                          ? 'border-slate-200 focus:border-amber-500 focus:ring-amber-500/20'
+                          : 'border-amber-300 focus:border-amber-500 focus:ring-amber-500/20'
+                      }`}
                     />
+                    {!postponeReason.trim() ? (
+                      <p className="mt-1.5 text-[11px] font-medium text-amber-700">
+                        Reason is required to postpone this follow-up.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
@@ -519,7 +554,7 @@ export function LeadFollowUpTabPanel({
                   <button
                     type="button"
                     onClick={() => void handlePostponeFollowUp()}
-                    disabled={postponing}
+                    disabled={postponing || !postponeReason.trim()}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-amber-700 disabled:opacity-50"
                   >
                     {postponing ? (

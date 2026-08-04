@@ -2626,6 +2626,13 @@ export function LeadDetailsDrawer({
       toast.error('Enter a custom status before creating the lead.');
       return;
     }
+    if (
+      addLeadForm.followUpPostponed &&
+      !String(addLeadForm.followUpPostponeReason || '').trim()
+    ) {
+      toast.error('Please enter a reason for postponing the follow-up.');
+      return;
+    }
 
     try {
       if (!createLeadOverride && !options?.skipDuplicateCheck && !allowDuplicateCreate) {
