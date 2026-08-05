@@ -2377,13 +2377,65 @@ export type HqCandidateBehaviorAnalysis = {
     endedAt: string | null;
     durationMs: number;
     durationLabel: string;
+    ipAddress?: string | null;
     deviceType: string | null;
     browser: string | null;
     operatingSystem: string | null;
     country: string | null;
     state: string | null;
     city: string | null;
+    timezone?: string | null;
     isActive: boolean;
+  }>;
+  sessionEngagement?: {
+    sessionCount: number;
+    activeCount: number;
+    totalDurationMs: number;
+    avgDurationMs: number;
+    medianDurationMs: number;
+    uniqueIps: number;
+    uniqueDevices: number;
+    locations: Array<{
+      key: string;
+      city: string | null;
+      state: string | null;
+      country: string | null;
+      sessions: number;
+      totalDurationMs: number;
+    }>;
+    byHour: Array<{
+      hour: number;
+      label: string;
+      sessions: number;
+      totalDurationMs: number;
+    }>;
+    byWeekday: Array<{
+      weekday: number;
+      label: string;
+      sessions: number;
+      totalDurationMs: number;
+    }>;
+  } | null;
+  alertTiming?: {
+    bestHours: number[];
+    bestHourLabels: string[];
+    bestWeekdays: string[];
+    bestWindowLabel: string;
+    avoidHours: number[];
+    timezone: string | null;
+    confidence: 'low' | 'medium' | 'high';
+    reason: string;
+    sampleSessions: number;
+    avgDurationMs: number;
+    medianDurationMs: number;
+  } | null;
+  locations?: Array<{
+    key: string;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    sessions: number;
+    totalDurationMs: number;
   }>;
   applications: Array<{
     id: string;

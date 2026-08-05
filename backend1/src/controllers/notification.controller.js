@@ -39,7 +39,12 @@ async function getNotifications(req, res) {
     // Transform notifications to match frontend interface (timestamp instead of createdAt)
     const transformedNotifications = visibleNotifications.slice(0, 50).map((n) => ({
       ...n,
-      timestamp: n.createdAt,
+      timestamp:
+        n.createdAt instanceof Date
+          ? n.createdAt.toISOString()
+          : n.createdAt
+            ? new Date(n.createdAt).toISOString()
+            : new Date().toISOString(),
     }));
 
     res.json({

@@ -1,6 +1,6 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { getMissingProfileSections } = require('../utils/profile-completeness.util');
-const { resolveCandidateLocalPhone } = require('../utils/phone.util');
+const { resolveCandidateLocalPhone, resolveWhatsAppLogin, normalizeE164 } = require('../utils/phone.util');
 const {
   mapEmploymentTypeToDb,
   mapWorkModeToDb,
@@ -751,13 +751,71 @@ async function updatePersonalInfo(req, res) {
 
     const emailToPersist = normalizedEmail;
 
-    // Upsert candidate profile (duplicate emails across candidates are allowed)
+    // Email + mobile are unique login credentials — block taking another account's
+    const emailTaken = await prisma.candidate.findFirst({
+      where: {
+        email: emailToPersist,
+        NOT: { id: saveCandidateId },
+        OR: [{ isVerified: true }, { passwordHash: { not: null } }],
+      },
+      select: { id: true },
+    });
+    if (emailTaken) {
+      return res.status(409).json({
+        success: false,
+        code: 'EMAIL_TAKEN',
+        message: 'This email is already used by another account.',
+      });
+    }
+
+    let dialCode = '+91';
+    let localPhone = normalizedInfo.phone || '';
+    let fullWhatsAppNumber = null;
+    if (normalizedInfo.phone) {
+      const resolved = resolveWhatsAppLogin({
+        countryCode: (normalizedInfo.phoneCode || '+91').split(' ')[0],
+        whatsappNumber: normalizedInfo.phone,
+      });
+      dialCode = resolved.dialCode;
+      localPhone = resolved.localNumber;
+      fullWhatsAppNumber = resolved.fullWhatsAppNumber;
+
+      const phoneCandidates = await prisma.candidate.findMany({
+        where: {
+          NOT: { id: saveCandidateId },
+          AND: [
+            {
+              OR: [{ isVerified: true }, { passwordHash: { not: null } }],
+            },
+            {
+              OR: [
+                { whatsappNumber: fullWhatsAppNumber },
+                { whatsappNumber: normalizeE164(fullWhatsAppNumber) },
+                { phone: localPhone },
+                { profile: { phoneNumber: localPhone } },
+              ],
+            },
+          ],
+        },
+        select: { id: true },
+        take: 1,
+      });
+      if (phoneCandidates.length > 0) {
+        return res.status(409).json({
+          success: false,
+          code: 'PHONE_TAKEN',
+          message: 'This mobile number is already used by another account.',
+        });
+      }
+    }
+
+    // Upsert candidate profile
     await prisma.candidateProfile.upsert({
       where: { candidateId: saveCandidateId },
       update: {
         fullName,
         email: emailToPersist || '',
-        phoneNumber: normalizedInfo.phone,
+        phoneNumber: localPhone || normalizedInfo.phone,
         gender: gender || undefined,
         dateOfBirth: dateOfBirth || undefined,
         country: normalizedInfo.country,
@@ -772,7 +830,7 @@ async function updatePersonalInfo(req, res) {
         candidateId: saveCandidateId,
         fullName,
         email: emailToPersist || '',
-        phoneNumber: normalizedInfo.phone,
+        phoneNumber: localPhone || normalizedInfo.phone,
         gender: gender || undefined,
         dateOfBirth: dateOfBirth || undefined,
         country: normalizedInfo.country,
@@ -792,17 +850,30 @@ async function updatePersonalInfo(req, res) {
         firstName: normalizedInfo.firstName,
         lastName: normalizedInfo.lastName,
       };
-      if (normalizedInfo.phoneCode) {
+      if (dialCode) {
+        candidateUpdate.countryCode = dialCode;
+      } else if (normalizedInfo.phoneCode) {
         candidateUpdate.countryCode = normalizedInfo.phoneCode.split(' ')[0];
       }
-      if (normalizedInfo.phone) {
-        candidateUpdate.phone = normalizedInfo.phone;
+      if (localPhone) {
+        candidateUpdate.phone = localPhone;
+      }
+      // Keep login-by-mobile in sync with Basic Info phone
+      if (fullWhatsAppNumber) {
+        candidateUpdate.whatsappNumber = fullWhatsAppNumber;
       }
       await prisma.candidate.update({
         where: { id: saveCandidateId },
         data: candidateUpdate,
       });
     } catch (e) {
+      if (e.code === 'P2002') {
+        return res.status(409).json({
+          success: false,
+          code: 'CREDENTIAL_TAKEN',
+          message: 'Email or mobile number is already linked to another account.',
+        });
+      }
       console.warn('Candidate mirror update failed:', e.message);
     }
 
