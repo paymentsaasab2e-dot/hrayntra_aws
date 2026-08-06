@@ -57,6 +57,11 @@ export function useLinkedIn() {
   const connect = useCallback(async () => {
     try {
       setError(null);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('oauth_navigation', '1');
+        sessionStorage.setItem('oauth_provider', 'linkedin');
+        sessionStorage.setItem('reopen_create_job_drawer', '1');
+      }
       const response = await apiInitiateLinkedInAuth();
       const { authUrl, state } = response.data;
 
@@ -67,6 +72,10 @@ export function useLinkedIn() {
       window.location.href = authUrl;
     } catch (err: any) {
       console.error('Failed to initiate LinkedIn auth:', err);
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('oauth_navigation');
+        sessionStorage.removeItem('oauth_provider');
+      }
       setError(err.message || 'Failed to connect to LinkedIn');
       throw err;
     }

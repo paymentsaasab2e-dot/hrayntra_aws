@@ -22,6 +22,8 @@ import {
   apiGetTasks,
   apiGetUnifiedCalendar,
 } from './api';
+import { analyzeLeadDrawer, analyzeClientDrawer } from './tenant-drawer-engine';
+import { getCachedTenantIntelligence } from './phase2-intelligence';
 
 export type HrYantraChatMessage = {
   id: string;
@@ -524,12 +526,34 @@ function isHotLead(lead: any): boolean {
 }
 
 function isOverdueFollowUp(lead: any): boolean {
+  const analysis = analyzeLeadDrawer(lead as Record<string, unknown>);
+  if (analysis) return analysis.overdueMeetings.length > 0;
   const due = lead?.nextFollowUp;
   if (!due) return false;
   const d = new Date(due);
   if (Number.isNaN(d.getTime())) return false;
   if (statusOf(lead).includes('converted') || statusOf(lead).includes('lost')) return false;
   return d.getTime() < Date.now();
+}
+
+function countIncompleteFromSnap(snap: TenantSnapshot) {
+  const intel = getCachedTenantIntelligence()?.snapshot;
+  if (intel) {
+    return {
+      incompleteLeads: intel.incompleteLeads,
+      incompleteClients: intel.incompleteClients,
+      overdueMeetings: intel.overdueMeetings,
+    };
+  }
+  const incompleteLeads = snap.leads.filter((lead) => {
+    const a = analyzeLeadDrawer(lead as Record<string, unknown>);
+    return Boolean(a?.missingFields?.length);
+  }).length;
+  const incompleteClients = snap.clients.filter((client) => {
+    const a = analyzeClientDrawer(client as Record<string, unknown>);
+    return Boolean(a?.missingFields?.length);
+  }).length;
+  return { incompleteLeads, incompleteClients, overdueMeetings: 0 };
 }
 
 function isDueSoonFollowUp(lead: any, hours = 48): boolean {
@@ -1776,6 +1800,7 @@ function buildPulse(snap: TenantSnapshot): string {
   const upcomingInterviews = snap.interviews.filter(isUpcomingInterview).length;
   const interviewsToday = snap.interviews.filter((i) => isToday(interviewWhen(i))).length;
   const interviewsWeek = snap.interviews.filter((i) => isWithinDays(interviewWhen(i), 7)).length;
+  const completeness = countIncompleteFromSnap(snap);
 
   const m = snap.metrics;
   const hired = metricValue(m.candidates, 'hired');
@@ -1789,6 +1814,10 @@ function buildPulse(snap: TenantSnapshot): string {
     '',
     '**Attention now**',
     `• Overdue follow-ups: **${overdueFollowUps}** · due in 48h: **${dueSoon}**`,
+    completeness.overdueMeetings
+      ? `• Overdue client meetings: **${completeness.overdueMeetings}**`
+      : null,
+    `• Incomplete records: **${completeness.incompleteLeads}** leads · **${completeness.incompleteClients}** clients`,
     `• Overdue tasks: **${overdueTasks}** · interviews today: **${interviewsToday}**`,
     '',
     '**Pipeline**',
@@ -1820,6 +1849,25 @@ function buildNextActions(snap: TenantSnapshot): string {
       score: 100 + overdueFollowUps.length,
       title: `Clear ${overdueFollowUps.length} overdue lead follow-up${overdueFollowUps.length > 1 ? 's' : ''}`,
       why: `Start with **${nameOf(top) || 'top lead'}** (due ${formatWhen(top.nextFollowUp)}).`,
+    });
+  }
+
+  const completeness = countIncompleteFromSnap(snap);
+  if (completeness.incompleteLeads + completeness.incompleteClients > 0) {
+    actions.push({
+      score: 92 + completeness.incompleteLeads + completeness.incompleteClients,
+      title: `Fill ${completeness.incompleteLeads + completeness.incompleteClients} incomplete CRM record${
+        completeness.incompleteLeads + completeness.incompleteClients === 1 ? '' : 's'
+      }`,
+      why: `Missing mandatory drawer fields · **${completeness.incompleteLeads}** leads · **${completeness.incompleteClients}** clients.`,
+    });
+  }
+
+  if (completeness.overdueMeetings > 0) {
+    actions.push({
+      score: 96 + completeness.overdueMeetings,
+      title: `Complete ${completeness.overdueMeetings} overdue client meeting${completeness.overdueMeetings === 1 ? '' : 's'}`,
+      why: 'Drawer intelligence flagged scheduled meetings past due.',
     });
   }
 

@@ -64,6 +64,7 @@ import {
   replaceApplyUrlInSocialPostText,
   buildLinkedInJobPost,
   buildTwitterJobPost,
+  LINKEDIN_POST_MAX_LENGTH,
   type JobSocialPostInput,
 } from '../../lib/jobSocialPost';
 import { useLinkedIn } from '../../hooks/useLinkedIn';
@@ -729,6 +730,59 @@ const DEFAULT_JOB_DRAWER_ACCORDIONS: AccordionSection[] = [
   { id: 'publish', label: 'Publish & Share', isOpen: false },
 ];
 
+/** Survives LinkedIn / X / Facebook OAuth full-page redirects from the create-job drawer. */
+const CREATE_JOB_OAUTH_DRAFT_KEY = 'create_job_drawer_oauth_draft_v1';
+
+type CreateJobOauthDraft = {
+  formData: Record<string, unknown>;
+  linkedInPostText: string;
+  linkedInPostTextTouched: boolean;
+  twitterPostTextTouched: boolean;
+  selectedLinkedInTargets: string[];
+  selectedTwitterTargets: string[];
+  applicationApplyUrl: string;
+  skillInput: string;
+  aiDraftData?: AiDraftData;
+  savedAt: number;
+};
+
+function saveCreateJobOauthDraft(draft: Omit<CreateJobOauthDraft, 'savedAt'>) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(
+      CREATE_JOB_OAUTH_DRAFT_KEY,
+      JSON.stringify({ ...draft, savedAt: Date.now() } satisfies CreateJobOauthDraft),
+    );
+    sessionStorage.setItem('oauth_navigation', '1');
+    sessionStorage.setItem('reopen_create_job_drawer', '1');
+  } catch (err) {
+    console.warn('Failed to persist create-job draft before OAuth:', err);
+  }
+}
+
+function peekCreateJobOauthDraft(): CreateJobOauthDraft | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(CREATE_JOB_OAUTH_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CreateJobOauthDraft;
+    if (!parsed?.formData || typeof parsed.formData !== 'object') return null;
+    // Ignore drafts older than 2 hours
+    if (parsed.savedAt && Date.now() - parsed.savedAt > 2 * 60 * 60 * 1000) {
+      sessionStorage.removeItem(CREATE_JOB_OAUTH_DRAFT_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    sessionStorage.removeItem(CREATE_JOB_OAUTH_DRAFT_KEY);
+    return null;
+  }
+}
+
+function clearCreateJobOauthDraft() {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(CREATE_JOB_OAUTH_DRAFT_KEY);
+}
 interface AiDescriptionSection {
   heading: string;
   paragraphs: string[];
@@ -1006,12 +1060,43 @@ export function CreateJobDrawer({
     applicationQuestions: false,
   });
 
-  // Collapse accordion sections whenever the drawer opens
+  // Collapse accordion sections whenever the drawer opens (unless restoring OAuth draft → open Publish)
   useEffect(() => {
-    if (isOpen) {
-      setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
+    if (!isOpen) return;
+
+    const draft = !jobId && !duplicateFromJobId ? peekCreateJobOauthDraft() : null;
+    if (draft) {
+      setFormData((prev) => ({
+        ...prev,
+        ...(draft.formData as typeof prev),
+      }));
+      setLinkedInPostText(String(draft.linkedInPostText || ''));
+      setLinkedInPostTextTouched(Boolean(draft.linkedInPostTextTouched));
+      setTwitterPostTextTouched(Boolean(draft.twitterPostTextTouched));
+      setSelectedLinkedInTargets(
+        Array.isArray(draft.selectedLinkedInTargets) ? draft.selectedLinkedInTargets : [],
+      );
+      setSelectedTwitterTargets(
+        Array.isArray(draft.selectedTwitterTargets) ? draft.selectedTwitterTargets : [],
+      );
+      setApplicationApplyUrl(String(draft.applicationApplyUrl || ''));
+      setSkillInput(String(draft.skillInput || ''));
+      if (draft.aiDraftData) {
+        setAiDraftData(draft.aiDraftData);
+      }
+      setAccordions([
+        { id: 'details', label: 'Job Details', isOpen: false },
+        { id: 'application', label: 'Job Application Form', isOpen: false },
+        { id: 'publish', label: 'Publish & Share', isOpen: true },
+      ]);
+      const clearTimer = window.setTimeout(() => {
+        clearCreateJobOauthDraft();
+      }, 0);
+      return () => window.clearTimeout(clearTimer);
     }
-  }, [isOpen]);
+
+    setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
+  }, [isOpen, jobId, duplicateFromJobId]);
 
   // Reset form when switching between add and edit modes
   useEffect(() => {
@@ -1143,7 +1228,7 @@ export function CreateJobDrawer({
   useEffect(() => {
     if (!isOpen || jobId || duplicateFromJobId) return;
     if (defaultClientId) {
-      setFormData((prev) => ({ ...prev, companyId: defaultClientId }));
+      setFormData((prev) => (prev.companyId ? prev : { ...prev, companyId: defaultClientId }));
     }
   }, [isOpen, defaultClientId, jobId, duplicateFromJobId]);
 
@@ -1341,6 +1426,18 @@ export function CreateJobDrawer({
   const handleConnectSocialAccount = async (provider: 'twitter' | 'facebook') => {
     try {
       setConnectingSocialProvider(provider);
+      saveCreateJobOauthDraft({
+        formData: { ...formData },
+        linkedInPostText,
+        linkedInPostTextTouched,
+        twitterPostTextTouched,
+        selectedLinkedInTargets,
+        selectedTwitterTargets,
+        applicationApplyUrl,
+        skillInput,
+        aiDraftData,
+      });
+      sessionStorage.setItem('oauth_provider', provider);
       const returnUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
       await apiConnectIntegration(provider, returnUrl, { reopenCreateJobDrawer: true });
     } catch (err) {
@@ -1411,6 +1508,13 @@ export function CreateJobDrawer({
       skills: formData.skills,
       languages: formData.languages,
       jobDescriptionHtml: formData.jobDescriptionHtml,
+      jobSummary: formData.jobSummary,
+      keyResponsibilitiesText: formData.keyResponsibilitiesText,
+      qualificationsExperienceText: formData.qualificationsExperienceText,
+      candidateRequirementsText: formData.candidateRequirementsText,
+      compensationBenefitsText: formData.compensationBenefitsText,
+      educationalQualification: formData.educationalQualification,
+      educationalSpecialization: formData.educationalSpecialization,
       applyUrl: effectiveApplyUrl,
       showClientNamePublicly: formData.showClientNamePublicly,
       publicFieldVisibility: formData.publicFieldVisibility,
@@ -1426,6 +1530,26 @@ export function CreateJobDrawer({
     () => buildTwitterJobPost(socialPostInput),
     [socialPostInput],
   );
+
+  /** When a field is hidden from public, social posts must drop it immediately. */
+  const publicVisibilitySignature = useMemo(
+    () =>
+      JSON.stringify({
+        fields: parseJobPublicFieldVisibility(formData.publicFieldVisibility),
+        showClient: formData.showClientNamePublicly !== false,
+      }),
+    [formData.publicFieldVisibility, formData.showClientNamePublicly],
+  );
+
+  useEffect(() => {
+    if (!formData.jobTitle || !formData.companyId) return;
+    setLinkedInPostText(generatedLinkedInPost);
+    setLinkedInPostTextTouched(false);
+    setFormData((prev) => ({ ...prev, twitterTweetText: generatedTwitterPost }));
+    setTwitterPostTextTouched(false);
+    // Only react to visibility toggles — form field edits keep the existing sync effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: visibility-only
+  }, [publicVisibilitySignature]);
 
   useEffect(() => {
     if (!isOpen || !jobId) return;
@@ -1463,11 +1587,18 @@ export function CreateJobDrawer({
     if (!formData.facebookCaption) {
       const company = clients.find((c) => c.id === formData.companyId);
       const companyName = company?.companyName || '';
+      const showClient = isJobFieldPubliclyVisible(
+        formData.publicFieldVisibility,
+        'client',
+        formData.showClientNamePublicly,
+      );
+      const showTitle = isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobTitle');
+      const titleLabel = showTitle ? formData.jobTitle : 'a new role';
       setFormData((prev) => ({
         ...prev,
-        facebookCaption: formData.showClientNamePublicly
-          ? `Join our team! We're looking for a ${formData.jobTitle} at ${companyName}. Apply: ${effectiveApplyUrl}`
-          : `Join our team! We're looking for a ${formData.jobTitle}. Apply: ${effectiveApplyUrl}`,
+        facebookCaption: showClient
+          ? `Join our team! We're looking for ${titleLabel} at ${companyName}. Apply: ${effectiveApplyUrl}`
+          : `Join our team! We're looking for ${titleLabel}. Apply: ${effectiveApplyUrl}`,
       }));
     }
   }, [
@@ -1477,6 +1608,8 @@ export function CreateJobDrawer({
     formData.jobTitle,
     formData.linkedInJobTitle,
     formData.facebookCaption,
+    formData.publicFieldVisibility,
+    formData.showClientNamePublicly,
     generatedLinkedInPost,
     generatedTwitterPost,
     linkedInPostTextTouched,
@@ -2821,6 +2954,18 @@ export function CreateJobDrawer({
   const handleConnectLinkedIn = async () => {
     try {
       setConnectingLinkedIn(true);
+      saveCreateJobOauthDraft({
+        formData: { ...formData },
+        linkedInPostText,
+        linkedInPostTextTouched,
+        twitterPostTextTouched,
+        selectedLinkedInTargets,
+        selectedTwitterTargets,
+        applicationApplyUrl,
+        skillInput,
+        aiDraftData,
+      });
+      sessionStorage.setItem('oauth_provider', 'linkedin');
       await linkedIn.connect();
     } catch (error) {
       console.error('Failed to connect LinkedIn:', error);
@@ -3093,16 +3238,28 @@ export function CreateJobDrawer({
           }
 
           const previewApplyUrl = buildCandidatePortalApplyUrlPreview(getTenantDbName());
-          const resolvedLinkedInPostText = replaceApplyUrlInSocialPostText(
-            linkedInPostText,
+          // Prefer the live preview text (kept in sync when fields are hidden from public).
+          // Fall back to a fresh visibility-aware rebuild if the textarea is empty.
+          const linkedInPublishText = replaceApplyUrlInSocialPostText(
+            (linkedInPostText || '').trim() ||
+              buildLinkedInJobPost({
+                ...socialPostInput,
+                applyUrl,
+              }),
             applyUrl,
             previewApplyUrl,
           );
-          const resolvedTwitterPostText = replaceApplyUrlInSocialPostText(
-            formData.twitterTweetText,
+          const twitterPublishText = replaceApplyUrlInSocialPostText(
+            (formData.twitterTweetText || '').trim() ||
+              buildTwitterJobPost({
+                ...socialPostInput,
+                applyUrl,
+              }),
             applyUrl,
             previewApplyUrl,
           );
+          const showTitle = isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobTitle');
+          const showLocation = isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'location');
           const resolvedFacebookPostText = replaceApplyUrlInSocialPostText(
             formData.facebookCaption,
             applyUrl,
@@ -3111,7 +3268,7 @@ export function CreateJobDrawer({
 
           const result = await apiPublishSocialJob({
             jobId: createdJobId,
-            title: formData.jobTitle,
+            title: showTitle ? formData.jobTitle : '',
             companyName,
             showClientNamePublicly: formData.showClientNamePublicly,
             description:
@@ -3120,10 +3277,12 @@ export function CreateJobDrawer({
                 ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '')
                 : undefined,
             applyUrl,
-            location: formData.city || formData.fullAddress || undefined,
+            location: showLocation
+              ? formData.city || formData.fullAddress || undefined
+              : undefined,
             platforms: platformsToPublish,
-            linkedinPostText: resolvedLinkedInPostText,
-            twitterPostText: resolvedTwitterPostText,
+            linkedinPostText: linkedInPublishText,
+            twitterPostText: twitterPublishText,
             facebookPostText: resolvedFacebookPostText,
             linkedinTargets: selectedLinkedInTargets,
             twitterTargets: selectedTwitterTargets,
@@ -4055,7 +4214,9 @@ export function CreateJobDrawer({
                               <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-2">
                                   LinkedIn Post Preview
-                                  <span className="text-xs text-slate-500 ml-1">({linkedInPostText.length}/700 chars)</span>
+                                  <span className="text-xs text-slate-500 ml-1">
+                                    ({linkedInPostText.length}/{LINKEDIN_POST_MAX_LENGTH} chars)
+                                  </span>
                                 </label>
                                 <LinkedInPostPreview
                                   userName={selectedLinkedInPreviewAccount?.name || linkedIn.linkedinUser?.name || 'Your LinkedIn profile'}
@@ -4094,7 +4255,9 @@ export function CreateJobDrawer({
                               <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-2">
                                   Edit Post Text
-                                  <span className="text-xs text-slate-500 ml-1">({linkedInPostText.length}/700 chars)</span>
+                                  <span className="text-xs text-slate-500 ml-1">
+                                    ({linkedInPostText.length}/{LINKEDIN_POST_MAX_LENGTH} chars)
+                                  </span>
                                 </label>
                                 <textarea
                                   value={linkedInPostText}

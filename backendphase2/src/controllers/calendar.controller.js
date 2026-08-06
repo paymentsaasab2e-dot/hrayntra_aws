@@ -66,16 +66,52 @@ export const calendarController = {
       }
 
       const mineOnly = req.query.mineOnly !== 'false';
-      const userId = req.user?.id;
+      const currentUserId = req.user?.id;
+      const requestedUserId =
+        typeof req.query.userId === 'string' ? String(req.query.userId).trim() : '';
 
-      const ownedFilter = mineOnly && userId
+      // Scope: specific teammate → that user; else mineOnly → current user; else entire tenant.
+      const filterUserId = requestedUserId || (mineOnly ? currentUserId : null);
+
+      if (requestedUserId) {
+        const member = await prisma.user.findFirst({
+          where: { id: requestedUserId, isActive: true },
+          select: { id: true },
+        });
+        if (!member) {
+          return sendError(res, 404, 'Team member not found');
+        }
+      }
+
+      const ownedFilter = filterUserId
         ? {
             OR: [
-              { createdById: userId },
-              { assignedToId: userId },
+              { createdById: filterUserId },
+              { assignedToId: filterUserId },
             ],
           }
         : {};
+
+      const interviewFilter = filterUserId
+        ? {
+            OR: [
+              { createdById: filterUserId },
+              { interviewerId: filterUserId },
+              { panelIds: { has: filterUserId } },
+            ],
+          }
+        : {};
+
+      const meetingFilter = filterUserId
+        ? {
+            OR: [
+              { scheduledById: filterUserId },
+              { client: { is: { assignedToId: filterUserId } } },
+            ],
+          }
+        : {};
+
+      const followUpFilter = filterUserId ? { assignedToId: filterUserId } : {};
 
       const [jobs, tasks, interviews, meetings, followUps] = await Promise.all([
         prisma.job.findMany({
@@ -114,15 +150,7 @@ export const calendarController = {
           where: {
             AND: [
               { scheduledAt: { gte: rangeStart, lte: rangeEnd } },
-              mineOnly && userId
-                ? {
-                    OR: [
-                      { createdById: userId },
-                      { interviewerId: userId },
-                      { panelIds: { has: userId } },
-                    ],
-                  }
-                : {},
+              interviewFilter,
             ],
           },
           include: {
@@ -138,14 +166,7 @@ export const calendarController = {
           where: {
             AND: [
               { scheduledAt: { gte: rangeStart, lte: rangeEnd } },
-              mineOnly && userId
-                ? {
-                    OR: [
-                      { scheduledById: userId },
-                      { client: { is: { assignedToId: userId } } },
-                    ],
-                  }
-                : {},
+              meetingFilter,
             ],
           },
           include: {
@@ -158,7 +179,7 @@ export const calendarController = {
           where: {
             AND: [
               { nextFollowUpDue: { gte: rangeStart, lte: rangeEnd } },
-              mineOnly && userId ? { assignedToId: userId } : {},
+              followUpFilter,
             ],
           },
           include: {
@@ -318,6 +339,10 @@ export const calendarController = {
         range: {
           start: rangeStart.toISOString(),
           end: rangeEnd.toISOString(),
+        },
+        scope: {
+          mineOnly: Boolean(filterUserId) && !requestedUserId,
+          userId: filterUserId || null,
         },
         summary: {
           total: events.length,

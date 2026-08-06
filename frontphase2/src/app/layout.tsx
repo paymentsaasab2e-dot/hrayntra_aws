@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import ActiveSessionManager from "../components/session/ActiveSessionManager";
 import { FloatingBotMount } from "../components/FloatingBotMount";
 import { GlobalAlertHost } from "../components/GlobalAlertHost";
@@ -8,7 +7,7 @@ import { UserPermissionsSync } from "../components/UserPermissionsSync";
 import { TrialPlanHost } from "../components/trial/TrialPlanHost";
 import { TenantPausedHost } from "../components/tenant/TenantPausedHost";
 import { TenantCoinsProvider } from "../components/coins/TenantCoinsContext";
-import { TenantBehaviorTrackerHost } from "../components/tenant-behavior/TenantBehaviorTrackerHost";
+import { TenantIntelligenceHost } from "../components/phase2-intelligence/TenantIntelligenceHost";
 import "./globals.css";
 import "../styles/nexus-dashboard.css";
 
@@ -36,9 +35,7 @@ export default function RootLayout({
           <TrialPlanHost />
           <TenantPausedHost />
           <ActiveSessionManager />
-          <Suspense fallback={null}>
-            <TenantBehaviorTrackerHost />
-          </Suspense>
+          <TenantIntelligenceHost />
           <FloatingBotMount />
         </TenantCoinsProvider>
       </body>

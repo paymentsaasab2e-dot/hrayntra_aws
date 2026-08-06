@@ -115,7 +115,7 @@ export function TenantBehaviorTrackerHost() {
     return () => document.removeEventListener('click', onClick, true);
   }, [loading, userId, tenantDbName, pathname]);
 
-  // Sync live CRM workload context for intelligent triggers
+  // Sync live CRM workload context + drawer intelligence for unified Phase 2 engines
   useEffect(() => {
     if (loading || !userId || !tenantDbName) return;
     let cancelled = false;
@@ -131,8 +131,15 @@ export function TenantBehaviorTrackerHost() {
           openPlacements?: number;
           pendingTasks?: number;
         }>('/tenant-behavior/crm-context', { auth: true });
-        if (cancelled || !res.data) return;
-        syncTenantCrmSnapshot(tenantDbName, userId, res.data);
+        if (cancelled) return;
+        const base = res.data || {};
+        syncTenantCrmSnapshot(tenantDbName, userId, base);
+        const { refreshTenantIntelligence } = await import('@/lib/phase2-intelligence');
+        await refreshTenantIntelligence({
+          userId,
+          tenantDbName,
+          baseCrm: base,
+        });
       } catch {
         /* best-effort */
       }
