@@ -6898,6 +6898,10 @@ export interface UnifiedCalendarResponse {
     start: string;
     end: string;
   };
+  scope?: {
+    mineOnly: boolean;
+    userId: string | null;
+  };
   summary: {
     total: number;
     jobs: number;
@@ -6993,11 +6997,14 @@ export const apiGetUnifiedCalendar = async (params?: {
   start?: string;
   end?: string;
   mineOnly?: boolean;
+  /** When set, load that teammate’s calendar (overrides mineOnly). */
+  userId?: string;
 }) => {
   const queryParams = new URLSearchParams();
   if (params?.start) queryParams.set('start', params.start);
   if (params?.end) queryParams.set('end', params.end);
   if (params?.mineOnly !== undefined) queryParams.set('mineOnly', String(params.mineOnly));
+  if (params?.userId) queryParams.set('userId', params.userId);
 
   const queryString = queryParams.toString();
 

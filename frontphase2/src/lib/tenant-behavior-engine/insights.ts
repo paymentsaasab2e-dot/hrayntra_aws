@@ -136,6 +136,7 @@ export function buildTenantBehaviourInsights(
     | 'activeMs'
     | 'workflowScore'
   >,
+  crmSnapshot?: import('./types').TenantCrmSnapshot | null,
 ): TenantBehaviourInsight[] {
   const insights: TenantBehaviourInsight[] = [];
   const jobsVisits = rollup.pageVisitsByCategory.jobs || 0;
@@ -250,6 +251,37 @@ export function buildTenantBehaviourInsights(
     });
   }
 
+  const overdueFu = Number(crmSnapshot?.overdueFollowUps || 0);
+  const overdueMtg = Number(crmSnapshot?.overdueMeetings || 0);
+  const incompleteLeads = Number(crmSnapshot?.incompleteLeads || 0);
+  const incompleteClients = Number(crmSnapshot?.incompleteClients || 0);
+
+  if (overdueFu + overdueMtg > 0) {
+    insights.push({
+      id: 'crm_overdue_meetings',
+      label: 'Overdue follow-ups / meetings',
+      severity: 'action',
+      summary: 'Drawer intelligence found overdue meetings that need completion.',
+      evidence: [
+        `${overdueFu} overdue follow-up${overdueFu === 1 ? '' : 's'}`,
+        `${overdueMtg} overdue meeting${overdueMtg === 1 ? '' : 's'}`,
+      ],
+    });
+  }
+
+  if (incompleteLeads + incompleteClients > 0) {
+    insights.push({
+      id: 'crm_incomplete_records',
+      label: 'Incomplete lead/client records',
+      severity: 'watch',
+      summary: 'Mandatory drawer fields are missing on active CRM records.',
+      evidence: [
+        `${incompleteLeads} incomplete lead${incompleteLeads === 1 ? '' : 's'}`,
+        `${incompleteClients} incomplete client${incompleteClients === 1 ? '' : 's'}`,
+      ],
+    });
+  }
+
   if (!insights.length) {
     insights.push({
       id: 'balanced',
@@ -327,6 +359,34 @@ export function buildTenantBehaviourTriggers(input: {
       recommendedAction: 'Nudge to complete next step: assign, schedule interview, or update stage.',
       priority: 86,
       comboSignals: ['entity_views_high', 'actions_low'],
+    });
+  }
+
+  if (insights.some((i) => i.id === 'crm_overdue_meetings')) {
+    out.push({
+      id: 'tenant_overdue_meetings_nudge',
+      flag: 'ops_assist',
+      audience: 'both',
+      title: 'Clear overdue meetings & follow-ups',
+      reason: 'Drawer intelligence detected overdue CRM meetings that block pipeline progress.',
+      evidence: insights.find((i) => i.id === 'crm_overdue_meetings')?.evidence || [],
+      recommendedAction: 'Open Leads/Clients and complete or reschedule overdue items now.',
+      priority: 94,
+      comboSignals: ['overdue_followups', 'drawer_engine'],
+    });
+  }
+
+  if (insights.some((i) => i.id === 'crm_incomplete_records')) {
+    out.push({
+      id: 'tenant_incomplete_records_nudge',
+      flag: 'user_nudge',
+      audience: 'both',
+      title: 'Fill missing mandatory CRM fields',
+      reason: 'Records are opened with incomplete mandatory drawer data.',
+      evidence: insights.find((i) => i.id === 'crm_incomplete_records')?.evidence || [],
+      recommendedAction: 'Open incomplete leads/clients and fill company, contact, and phone/email.',
+      priority: 88,
+      comboSignals: ['incomplete_records', 'drawer_engine'],
     });
   }
 
@@ -450,11 +510,14 @@ export function buildTenantActivityRollup(
     workflowScore,
   };
 
-  const insights = buildTenantBehaviourInsights({
-    ...rollupBase,
-    logins: summed.logins,
-    activeMs: summed.activeMs,
-  });
+  const insights = buildTenantBehaviourInsights(
+    {
+      ...rollupBase,
+      logins: summed.logins,
+      activeMs: summed.activeMs,
+    },
+    state.crmSnapshot,
+  );
   const topMods = topModules(summed.pageVisitsByCategory, summed.activeMsByCategory);
   const triggers = buildTenantBehaviourTriggers({
     insights,

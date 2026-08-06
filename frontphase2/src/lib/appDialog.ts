@@ -5,12 +5,17 @@ export const SYSTEM_ALERT_TITLE = 'HRYANTRA';
 
 export type AppDialogKind = 'alert' | 'confirm';
 export type AppDialogTone = 'info' | 'success' | 'warning' | 'error';
+/** modal = centered overlay · corner = bottom-right toast queue (one by one) */
+export type AppDialogPlacement = 'modal' | 'corner';
 
 export type AppDialogOptions = {
   tone?: AppDialogTone;
   title?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  placement?: AppDialogPlacement;
+  /** Auto-dismiss corner alerts after ms (alert kind only). */
+  autoCloseMs?: number;
 };
 
 export type AppDialogRequestDetail = {
@@ -20,6 +25,8 @@ export type AppDialogRequestDetail = {
   title?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  placement: AppDialogPlacement;
+  autoCloseMs?: number;
   resolve: (result: boolean) => void;
 };
 
@@ -46,6 +53,8 @@ function requestDialog(kind: AppDialogKind, message: unknown, options: AppDialog
       title: options.title,
       confirmLabel: options.confirmLabel,
       cancelLabel: options.cancelLabel,
+      placement: options.placement || 'modal',
+      autoCloseMs: options.autoCloseMs,
       resolve,
     };
 
@@ -59,6 +68,26 @@ export async function requestAlert(message: unknown, options: AppDialogOptions =
 
 export function requestConfirm(message: unknown, options: AppDialogOptions = {}): Promise<boolean> {
   return requestDialog('confirm', message, options);
+}
+
+/** Corner toast alert — queues and shows one by one in the bottom-right. */
+export async function requestCornerAlert(
+  message: unknown,
+  options: Omit<AppDialogOptions, 'placement'> = {},
+): Promise<void> {
+  await requestAlert(message, {
+    ...options,
+    placement: 'corner',
+    autoCloseMs: options.autoCloseMs ?? 6500,
+  });
+}
+
+/** Corner confirm — one by one in the bottom-right. */
+export function requestCornerConfirm(
+  message: unknown,
+  options: Omit<AppDialogOptions, 'placement'> = {},
+): Promise<boolean> {
+  return requestConfirm(message, { ...options, placement: 'corner' });
 }
 
 export async function requestSuccess(message: unknown, options: Omit<AppDialogOptions, 'tone'> = {}): Promise<void> {

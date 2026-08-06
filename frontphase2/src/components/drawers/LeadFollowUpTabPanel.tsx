@@ -300,10 +300,16 @@ export function LeadFollowUpTabPanel({
                     className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${
                       isPostponed
                         ? 'bg-amber-100 text-amber-800 ring-amber-200'
-                        : 'bg-amber-50 text-amber-700 ring-amber-200'
+                        : nextFollowUp && new Date(nextFollowUp).getTime() < Date.now()
+                          ? 'bg-rose-100 text-rose-800 ring-rose-200'
+                          : 'bg-amber-50 text-amber-700 ring-amber-200'
                     }`}
                   >
-                    {isPostponed ? 'Postponed' : 'Upcoming'}
+                    {isPostponed
+                      ? 'Postponed'
+                      : nextFollowUp && new Date(nextFollowUp).getTime() < Date.now()
+                        ? 'Overdue'
+                        : 'Upcoming'}
                   </span>
                 </div>
                 <p className="mt-2 text-sm font-semibold text-slate-900">

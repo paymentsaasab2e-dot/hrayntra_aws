@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Briefcase,
   CalendarDays,
@@ -14,12 +14,18 @@ import {
   Video,
 } from 'lucide-react';
 import {
+  apiGetMe,
   apiGetUnifiedCalendar,
   type UnifiedCalendarEvent,
   type UnifiedCalendarEventType,
   type UnifiedCalendarResponse,
 } from '../../lib/api';
+import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import { formatDateDMY } from '../../utils/dateDisplay';
+
+/** Empty = my calendar; `__all__` = whole team; otherwise a teammate user id. */
+const CALENDAR_SCOPE_ALL = '__all__';
 
 const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -183,12 +189,27 @@ function parseDescriptionSections(value?: string | null) {
   return sections;
 }
 
+function eventOwnerLabel(event: UnifiedCalendarEvent) {
+  const meta = event.metadata || {};
+  return (
+    (typeof meta.assignedToName === 'string' && meta.assignedToName) ||
+    (typeof meta.interviewerName === 'string' && meta.interviewerName) ||
+    (typeof meta.scheduledByName === 'string' && meta.scheduledByName) ||
+    (typeof meta.createdByName === 'string' && meta.createdByName) ||
+    null
+  );
+}
+
 export default function CalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [calendarData, setCalendarData] = useState<UnifiedCalendarResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [calendarScope, setCalendarScope] = useState('');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string }>>([]);
   const [activeTypes, setActiveTypes] = useState<UnifiedCalendarEventType[]>([
     'JOB_CREATED',
     'TASK',
@@ -200,6 +221,63 @@ export default function CalendarPage() {
   const rangeStart = useMemo(() => getGridStart(currentMonth), [currentMonth]);
   const rangeEnd = useMemo(() => getGridEnd(currentMonth), [currentMonth]);
 
+  const showOwnerOnEvents = calendarScope === CALENDAR_SCOPE_ALL;
+
+  const scopeLabel = useMemo(() => {
+    if (!calendarScope) return 'My calendar';
+    if (calendarScope === CALENDAR_SCOPE_ALL) return 'All team calendars';
+    const member = teamMembers.find((item) => item.id === calendarScope);
+    return member ? `${member.name}'s calendar` : 'Team member calendar';
+  }, [calendarScope, teamMembers]);
+
+  const teamFilterOptions = useMemo(
+    () => [
+      { value: CALENDAR_SCOPE_ALL, label: 'All team calendars' },
+      ...teamMembers
+        .filter((member) => member.id !== currentUserId)
+        .map((member) => ({
+          value: member.id,
+          label: member.name,
+          searchText: member.id,
+        })),
+    ],
+    [currentUserId, teamMembers],
+  );
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadTeamOptions() {
+      try {
+        const [meRes, members] = await Promise.all([
+          apiGetMe().catch(() => null),
+          getAllTeamMembersForAssign().catch(() => []),
+        ]);
+        if (ignore) return;
+
+        const me = (meRes as { data?: { id?: string } } | null)?.data;
+        if (me?.id) setCurrentUserId(String(me.id));
+
+        const users = teamMembersToBackendUsers(members || []);
+        setTeamMembers(
+          users
+            .map((user) => ({
+              id: String(user.id),
+              name: user.name || user.email || 'Unnamed member',
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      } catch {
+        if (!ignore) setTeamMembers([]);
+      }
+    }
+
+    void loadTeamOptions();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
   useEffect(() => {
     let ignore = false;
 
@@ -207,10 +285,14 @@ export default function CalendarPage() {
       setLoading(true);
       setError(null);
       try {
+        const isAllTeam = calendarScope === CALENDAR_SCOPE_ALL;
+        const memberId = calendarScope && calendarScope !== CALENDAR_SCOPE_ALL ? calendarScope : undefined;
+
         const response = await apiGetUnifiedCalendar({
           start: rangeStart.toISOString(),
           end: rangeEnd.toISOString(),
-          mineOnly: true,
+          mineOnly: !isAllTeam && !memberId,
+          userId: memberId,
         });
         if (!ignore) {
           setCalendarData(response.data);
@@ -230,7 +312,11 @@ export default function CalendarPage() {
     return () => {
       ignore = true;
     };
-  }, [rangeEnd, rangeStart]);
+  }, [calendarScope, rangeEnd, rangeStart, refreshKey]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshKey((value) => value + 1);
+  }, []);
 
   const gridDays = useMemo(() => {
     const days: Date[] = [];
@@ -265,6 +351,31 @@ export default function CalendarPage() {
     });
   }, [eventsByDay, selectedDate]);
 
+  const monthLabel = `${String(currentMonth.getMonth() + 1).padStart(2, '0')}/${currentMonth.getFullYear()}`;
+  const weekday = selectedDate.toLocaleDateString('en-GB', { weekday: 'long' });
+  const selectedDayLabel = `${weekday}, ${formatDateDMY(selectedDate)}`;
+
+  const currentMonthEvents = useMemo(() => {
+    const month = currentMonth.getMonth();
+    const year = currentMonth.getFullYear();
+    return filteredEvents
+      .filter((event) => {
+        const start = new Date(event.start);
+        return start.getMonth() === month && start.getFullYear() === year;
+      })
+      .slice()
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  }, [currentMonth, filteredEvents]);
+
+  const showingMonthAgenda = selectedDayEvents.length === 0;
+  const panelEvents = showingMonthAgenda ? currentMonthEvents : selectedDayEvents;
+  const panelTitle = showingMonthAgenda ? `This month · ${monthLabel}` : selectedDayLabel;
+  const panelSubtitle = showingMonthAgenda
+    ? currentMonthEvents.length
+      ? `${currentMonthEvents.length} scheduled item${currentMonthEvents.length === 1 ? '' : 's'} in ${monthLabel}`
+      : `Nothing scheduled in ${monthLabel} yet`
+    : `${selectedDayEvents.length} item${selectedDayEvents.length === 1 ? '' : 's'} on this day`;
+
   const toggleType = (type: UnifiedCalendarEventType) => {
     setActiveTypes((current) =>
       current.includes(type) ? current.filter((item) => item !== type) : [...current, type]
@@ -277,20 +388,29 @@ export default function CalendarPage() {
     setSelectedDate(today);
   };
 
-  const monthLabel = `${String(currentMonth.getMonth() + 1).padStart(2, '0')}/${currentMonth.getFullYear()}`;
-
-  const weekday = selectedDate.toLocaleDateString('en-GB', { weekday: 'long' });
-  const selectedDayLabel = `${weekday}, ${formatDateDMY(selectedDate)}`;
-
+  function formatEventDate(event: UnifiedCalendarEvent) {
+    return formatDateDMY(new Date(event.start));
+  }
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-8">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Recruiter Calendar</h1>
+            <p className="mt-1 text-sm text-slate-500">{scopeLabel}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <SearchableToolbarFilterSelect
+              value={calendarScope}
+              onChange={setCalendarScope}
+              options={teamFilterOptions}
+              placeholder="My calendar"
+              allLabel="My calendar"
+              className="w-[12.5rem] max-w-[16rem]"
+              ariaLabel="View calendar for"
+              searchPlaceholder="Search team members…"
+            />
             <button
               type="button"
               onClick={goToToday}
@@ -300,7 +420,7 @@ export default function CalendarPage() {
             </button>
             <button
               type="button"
-              onClick={() => setCurrentMonth((value) => new Date(value))}
+              onClick={handleRefresh}
               className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"
             >
               <RefreshCw className="size-4" />
@@ -357,7 +477,13 @@ export default function CalendarPage() {
               <div>
                 <h2 className="text-xl font-bold text-slate-900">{monthLabel}</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Click any day to inspect jobs, follow-ups, meetings, and scheduled work.
+                  Click any day to inspect jobs, follow-ups, meetings, and scheduled work
+                  {calendarScope === CALENDAR_SCOPE_ALL
+                    ? ' across the team'
+                    : calendarScope
+                      ? ` for this teammate`
+                      : ''}
+                  .
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -443,6 +569,7 @@ export default function CalendarPage() {
                       <div className="mt-3 space-y-2">
                         {dayEvents.slice(0, 3).map((event) => {
                           const Icon = typeIcons[event.type];
+                          const owner = showOwnerOnEvents ? eventOwnerLabel(event) : null;
                           return (
                             <div
                               key={event.id}
@@ -453,6 +580,9 @@ export default function CalendarPage() {
                                 <span className="truncate">{event.title}</span>
                               </div>
                               <div className="mt-1 truncate text-[11px] opacity-80">{formatEventTime(event)}</div>
+                              {owner ? (
+                                <div className="mt-0.5 truncate text-[10px] font-semibold opacity-70">{owner}</div>
+                              ) : null}
                             </div>
                           );
                         })}
@@ -468,16 +598,27 @@ export default function CalendarPage() {
           </section>
 
           <aside className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="space-y-3">
-              {selectedDayEvents.length === 0 ? (
+            <div className="mb-5 border-b border-slate-100 pb-4">
+              <h2 className="text-lg font-bold text-slate-900">{panelTitle}</h2>
+              <p className="mt-1 text-sm text-slate-500">{panelSubtitle}</p>
+              {showingMonthAgenda && selectedDayEvents.length === 0 && currentMonthEvents.length > 0 ? (
+                <p className="mt-2 text-xs text-slate-400">
+                  No items on {formatDateDMY(selectedDate)} — showing the full month below.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="max-h-[calc(100vh-220px)] space-y-3 overflow-y-auto pr-1">
+              {panelEvents.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                  No scheduled items for this day.
+                  Nothing scheduled in {monthLabel}.
                 </div>
               ) : (
-                selectedDayEvents.map((event) => {
+                panelEvents.map((event) => {
                   const Icon = typeIcons[event.type];
                   const descriptionSections = parseDescriptionSections(event.description);
                   const metadataEntries = Object.entries(event.metadata).filter(([, value]) => value !== null && value !== '');
+                  const owner = eventOwnerLabel(event);
 
                   return (
                     <div key={event.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -492,6 +633,9 @@ export default function CalendarPage() {
                             </div>
                             <h3 className="mt-2 text-base font-bold text-slate-900">{event.title}</h3>
                             {event.subtitle ? <p className="mt-1 text-sm text-slate-500">{event.subtitle}</p> : null}
+                            {showOwnerOnEvents && owner ? (
+                              <p className="mt-1 text-xs font-semibold text-slate-500">Owner: {owner}</p>
+                            ) : null}
                           </div>
                         </div>
 
@@ -504,6 +648,12 @@ export default function CalendarPage() {
                       </div>
 
                       <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                        {showingMonthAgenda ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5">
+                            <CalendarDays className="size-3.5" />
+                            {formatEventDate(event)}
+                          </span>
+                        ) : null}
                         <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5">
                           <Clock3 className="size-3.5" />
                           {formatEventTime(event)}

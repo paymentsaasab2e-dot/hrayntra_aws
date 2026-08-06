@@ -26,10 +26,20 @@ export type JobSocialPostInput = {
   skills?: string[];
   languages?: Array<{ language: string; proficiency: string }>;
   jobDescriptionHtml?: string;
+  jobSummary?: string;
+  keyResponsibilitiesText?: string;
+  qualificationsExperienceText?: string;
+  candidateRequirementsText?: string;
+  compensationBenefitsText?: string;
+  educationalQualification?: string;
+  educationalSpecialization?: string;
   applyUrl: string;
   showClientNamePublicly?: boolean;
   publicFieldVisibility?: JobPublicFieldVisibility | null;
 };
+
+/** LinkedIn organic posts allow up to 3000 characters. */
+export const LINKEDIN_POST_MAX_LENGTH = 3000;
 
 export function stripHtml(html: string): string {
   return String(html || '')
@@ -87,9 +97,38 @@ function formatHireDate(value?: string): string {
   return formatted || raw;
 }
 
+function formatEducation(input: JobSocialPostInput): string {
+  const qualification = String(input.educationalQualification || '').trim();
+  const specialization = String(input.educationalSpecialization || '').trim();
+  if (qualification && specialization) return `${qualification} — ${specialization}`;
+  return qualification || specialization;
+}
+
+function toBulletLines(value?: string): string[] {
+  return String(value || '')
+    .split(/\r?\n|;/)
+    .map((line) => line.replace(/^[-•*\d.)\s]+/, '').trim())
+    .filter(Boolean);
+}
+
 function appendLine(lines: string[], label: string, value?: string) {
   const v = String(value || '').trim();
   if (v) lines.push(`${label}: ${v}`);
+}
+
+function appendSection(lines: string[], heading: string, body?: string) {
+  const bullets = toBulletLines(body);
+  if (!bullets.length) {
+    const plain = String(body || '').trim();
+    if (!plain) return;
+    lines.push('');
+    lines.push(heading);
+    lines.push(plain);
+    return;
+  }
+  lines.push('');
+  lines.push(heading);
+  bullets.forEach((item) => lines.push(`• ${item}`));
 }
 
 export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
@@ -154,18 +193,56 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
   }
 
   if (isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
+    const summary = String(input.jobSummary || '').trim();
+    if (summary) appendSection(lines, 'Overview', summary);
+  }
+
+  if (isJobFieldPubliclyVisible(visibility, 'keyResponsibilities')) {
+    appendSection(lines, 'Key Responsibilities', input.keyResponsibilitiesText);
+  }
+
+  if (isJobFieldPubliclyVisible(visibility, 'qualifications')) {
+    const education = formatEducation(input);
+    const qualificationBullets = toBulletLines(input.qualificationsExperienceText);
+    if (education || qualificationBullets.length) {
+      lines.push('');
+      lines.push('Preferred Education / Qualifications');
+      if (education) lines.push(education);
+      qualificationBullets.forEach((item) => lines.push(`• ${item}`));
+    }
+  }
+
+  if (isJobFieldPubliclyVisible(visibility, 'candidateRequirements')) {
+    appendSection(lines, 'Candidate Requirements', input.candidateRequirementsText);
+  }
+
+  if (isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
+    appendSection(lines, 'Compensation & Benefits', input.compensationBenefitsText);
+  }
+
+  // Fallback: if structured JD sections are empty, include HTML description.
+  const hasStructuredJd =
+    Boolean(String(input.keyResponsibilitiesText || '').trim()) ||
+    Boolean(String(input.qualificationsExperienceText || '').trim()) ||
+    Boolean(String(input.candidateRequirementsText || '').trim()) ||
+    Boolean(String(input.jobSummary || '').trim()) ||
+    Boolean(formatEducation(input));
+
+  if (!hasStructuredJd && isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
     const description = stripHtml(input.jobDescriptionHtml || '');
     if (description) {
-      const excerpt = description.length > 220 ? `${description.slice(0, 220).trim()}…` : description;
       lines.push('');
-      lines.push(excerpt);
+      lines.push(description);
     }
   }
 
   return lines;
 }
 
-export function buildLinkedInJobPost(input: JobSocialPostInput, maxLength = 700): string {
+export function buildLinkedInJobPost(
+  input: JobSocialPostInput,
+  maxLength = LINKEDIN_POST_MAX_LENGTH,
+): string {
   const visibility = parseJobPublicFieldVisibility(input.publicFieldVisibility);
   const showClient = isJobFieldPubliclyVisible(
     visibility,
@@ -184,26 +261,9 @@ export function buildLinkedInJobPost(input: JobSocialPostInput, maxLength = 700)
     ? `\n\nApply now:\n${applyUrl}\n\n#hiring #jobs #careers`
     : '\n\n#hiring #jobs #careers';
 
-  let post = `${header}\n\n${bodyLines.join('\n')}${footer}`;
+  const post = `${header}\n\n${bodyLines.join('\n')}${footer}`;
   if (post.length <= maxLength) return post;
-
-  // Trim description first, then drop lower-priority detail lines
-  const compactLines = bodyLines.filter((line) => !line.startsWith('Languages:') && !line.startsWith('Nationality:'));
-  post = `${header}\n\n${compactLines.join('\n')}${footer}`;
-  if (post.length <= maxLength) return post.substring(0, maxLength);
-
-  const minimal = [
-    header,
-    formatLocation(input) ? `Location: ${formatLocation(input)}` : '',
-    input.numberOfOpenings ? `Openings: ${input.numberOfOpenings}` : '',
-    input.employmentType ? `Type: ${input.employmentType}` : '',
-    applyUrl ? `Apply: ${applyUrl}` : '',
-    '#hiring #jobs #careers',
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-
-  return minimal.substring(0, maxLength);
+  return `${post.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 export function buildTwitterJobPost(input: JobSocialPostInput, maxLength = 280): string {

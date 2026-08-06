@@ -129,6 +129,7 @@ import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
 import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
+import { alertDrawerAnalysis, analyzeLeadDrawer } from '@/lib/tenant-drawer-engine';
 import type { LeadAiGeneratedPayload } from '@/lib/leadAiHelpers';
 import {
   mergeAiCompanyLinks,
@@ -1670,6 +1671,30 @@ export function LeadDetailsDrawer({
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [drawerIsOpen, leadAiChatOpen, requestLeadDrawerClose]);
+
+  // Tenant drawer engine: alert on missing mandatory fields / overdue follow-ups.
+  useEffect(() => {
+    if (!drawerIsOpen || !lead?.id || addLeadMode || isHqOverrideMode || isPublicIntakeMode) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const analysis = analyzeLeadDrawer(lead as unknown as Record<string, unknown>);
+        if (cancelled || !analysis) return;
+        const result = await alertDrawerAnalysis(analysis);
+        if (cancelled || result.action !== 'fill') return;
+        if (result.focus === 'overdue' || result.focus === 'both') {
+          setActiveTab('followup');
+        } else {
+          setActiveTab('overview');
+          setOverviewEditMode(true);
+        }
+      })();
+    }, 700);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [drawerIsOpen, lead?.id, addLeadMode, isHqOverrideMode, isPublicIntakeMode]);
 
   const [leadPanelPortalReady, setLeadPanelPortalReady] = useState(false);
   useEffect(() => {

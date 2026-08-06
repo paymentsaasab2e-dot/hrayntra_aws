@@ -92,6 +92,12 @@ export type TenantCrmSnapshot = {
   pipelineEntries?: number | null;
   openMatches?: number | null;
   teamMembers?: number | null;
+  /** From tenant-drawer-engine via phase2-intelligence bridge */
+  overdueFollowUps?: number | null;
+  overdueMeetings?: number | null;
+  incompleteLeads?: number | null;
+  incompleteClients?: number | null;
+  drawerEngineScannedAt?: string | null;
   updatedAt: string;
 };
 

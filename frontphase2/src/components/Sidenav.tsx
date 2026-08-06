@@ -1567,32 +1567,34 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             />
           )}
 
-          {/* Recruitment — Jobs, Candidates, Interviews, Placements, Dashboard */}
+          {/* Recruitment — hover flyout (same pattern as CRM) */}
           {mounted &&
             (canViewJobs || canViewCandidates || canViewInterviews || canViewPlacements || canViewRecruitmentDashboard) && (
-            <NavGroup
+            <NavGroupFlyout
               icon={Briefcase}
               label="Recruitment"
               collapsed={isCollapsed}
               accent="amber"
-              forceOpen={isRecruitmentRouteActive}
-            >
-              {canViewJobs && (
-                <NavItem icon={Briefcase} label="Jobs" href="/job" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" nested />
-              )}
-              {canViewCandidates && (
-                <NavItem icon={UserRound} label="Candidates" href="/candidate" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="violet" nested />
-              )}
-              {canViewInterviews && (
-                <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="cyan" nested />
-              )}
-              {canViewPlacements && (
-                <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" nested />
-              )}
-              {canViewRecruitmentDashboard && (
-                <NavItem icon={LayoutDashboard} label="Command Center" href="/recruitment" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" nested />
-              )}
-            </NavGroup>
+              active={isRecruitmentRouteActive}
+              onNavigate={persistScrollPosition}
+              items={[
+                ...(canViewJobs
+                  ? [{ icon: Briefcase, label: 'Jobs', href: '/job', accent: 'amber' as const }]
+                  : []),
+                ...(canViewCandidates
+                  ? [{ icon: UserRound, label: 'Candidates', href: '/candidate', accent: 'violet' as const }]
+                  : []),
+                ...(canViewInterviews
+                  ? [{ icon: Calendar, label: 'Interviews', href: '/interviews', accent: 'cyan' as const }]
+                  : []),
+                ...(canViewPlacements
+                  ? [{ icon: Award, label: 'Placements', href: '/placement', accent: 'emerald' as const }]
+                  : []),
+                ...(canViewRecruitmentDashboard
+                  ? [{ icon: LayoutDashboard, label: 'Command Center', href: '/recruitment', accent: 'indigo' as const }]
+                  : []),
+              ]}
+            />
           )}
           
           {/* Pipeline */}

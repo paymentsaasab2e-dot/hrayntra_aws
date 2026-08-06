@@ -194,6 +194,10 @@ import { ClientAiChatDrawer } from '../clients/ClientAiChatDrawer';
 import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import {
+  alertDrawerAnalysis,
+  analyzeClientDrawer,
+} from '@/lib/tenant-drawer-engine';
+import {
   clientAiHasAgreementData,
   clientAiHasKycData,
   mergeClientAiKycForm,
@@ -3585,6 +3589,49 @@ export function ClientDetailsDrawer({
 
     fetchScheduledMeetings();
   }, [client?.id, activeTab, isHqOverrideMode]);
+
+  // Tenant drawer engine: missing mandatory fields + overdue meetings/follow-ups.
+  useEffect(() => {
+    if (!drawerIsOpen || !client?.id || propIsAddMode || isHqOverrideMode) return;
+    let cancelled = false;
+
+    const run = async () => {
+      let meetings: ScheduledMeeting[] = scheduledMeetings;
+      try {
+        const res = await apiGetClientScheduledMeetings(client.id);
+        meetings = res.data || [];
+        if (!cancelled) setScheduledMeetings(meetings);
+      } catch {
+        // keep existing list
+      }
+      if (cancelled) return;
+
+      const analysis = analyzeClientDrawer(
+        client as unknown as Record<string, unknown>,
+        meetings as unknown as Array<Record<string, unknown>>,
+      );
+      if (!analysis) return;
+      const result = await alertDrawerAnalysis(analysis);
+      if (cancelled || result.action !== 'fill') return;
+      if (result.focus === 'overdue' || result.focus === 'both') {
+        setActiveTab('schedule');
+      } else {
+        setActiveTab('overview');
+        setOverviewEditMode(true);
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      void run();
+    }, 800);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // Intentionally keyed on client id / open state — not every meetings refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawerIsOpen, client?.id, propIsAddMode, isHqOverrideMode]);
 
   // Reset form when entering add mode
   useEffect(() => {
