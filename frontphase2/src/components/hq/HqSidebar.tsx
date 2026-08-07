@@ -463,7 +463,7 @@ export function HqSidebar() {
               Headquarters
             </h1>
             <p className="mt-0.5 text-[11px] font-medium leading-snug text-[#7a92a8]">
-              Phase 1 + Phase 2 console
+              Portal + employer console
             </p>
           </div>
         </Link>

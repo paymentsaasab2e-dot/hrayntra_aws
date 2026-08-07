@@ -15,10 +15,17 @@ export default function HqLoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [statusHint, setStatusHint] = useState('');
+
+  const enterHq = () => {
+    writeHqPermissionIds(null);
+    router.replace('/hq');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setStatusHint('');
 
     const normalizedEmail = email.trim().toLowerCase();
     if (normalizedEmail !== HQ_PLATFORM_EMAIL.toLowerCase()) {
@@ -32,7 +39,27 @@ export default function HqLoginPage() {
 
     try {
       setLoading(true);
-      const response = await apiLogin(normalizedEmail, password.trim(), await buildLoginDevicePayload());
+      const device = await buildLoginDevicePayload();
+
+      // First attempt — may hit a leftover session from an old tab on this same machine.
+      let response = await apiLogin(normalizedEmail, password.trim(), device);
+
+      if (response.data?.duplicateSession) {
+        setStatusHint('Ending leftover session on this machine…');
+        // Alone / single machine: take over instead of waiting for approval from yourself.
+        response = await apiLogin(normalizedEmail, password.trim(), {
+          ...device,
+          forceSessionTakeover: true,
+        });
+      }
+
+      if (response.data?.duplicateSession) {
+        setError(
+          'Another session is still blocking login. Close other HQ tabs, wait a few seconds, then try again.',
+        );
+        return;
+      }
+
       const loggedInEmail = String(response.data?.user?.email || normalizedEmail).trim().toLowerCase();
 
       if (!isEmailAllowedForHq(loggedInEmail)) {
@@ -46,13 +73,17 @@ export default function HqLoginPage() {
         return;
       }
 
-      // Platform HQ login is unrestricted — clear any leftover team permission filter.
-      writeHqPermissionIds(null);
-      router.replace('/hq');
+      if (typeof window !== 'undefined' && !localStorage.getItem('accessToken')) {
+        setError('Login succeeded but no token was stored. Please try again.');
+        return;
+      }
+
+      enterHq();
     } catch (err: unknown) {
       setError(formatAuthErrorMessage(err as { status?: number; message?: string }, 'Invalid email or password.'));
     } finally {
       setLoading(false);
+      setStatusHint('');
     }
   };
 
@@ -72,6 +103,11 @@ export default function HqLoginPage() {
             {error ? (
               <div className="mb-4 rounded-xl border border-red-500/30 bg-red-950/40 px-3 py-2.5 text-sm text-red-300">
                 {error}
+              </div>
+            ) : null}
+            {statusHint ? (
+              <div className="mb-4 rounded-xl border border-teal-500/30 bg-teal-950/40 px-3 py-2.5 text-sm text-teal-200">
+                {statusHint}
               </div>
             ) : null}
 
