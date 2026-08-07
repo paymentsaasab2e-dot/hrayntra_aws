@@ -1,8 +1,12 @@
 'use client';
 
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import {
+  AlertTriangle,
   Bell,
+  Briefcase,
   Building2,
   Calendar,
   CreditCard,
@@ -12,13 +16,156 @@ import {
   Mail,
   MessageSquare,
   Moon,
+  PieChart,
   RefreshCcw,
   Search,
   Sparkles,
   Users,
+  UserCheck,
   Zap,
 } from 'lucide-react';
 import { HqBrandLogo } from '../HqBrandLogo';
+
+/** Info tip — indigo “i”; tooltip portals to body so it never clips under cards. */
+export function HqInfoTip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [coords, setCoords] = useState<{
+    top: number;
+    left: number;
+    place: 'above' | 'below';
+  } | null>(null);
+  const tipId = useId();
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const tipRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open || !rootRef.current) {
+      setCoords(null);
+      return;
+    }
+
+    const update = () => {
+      const btn = rootRef.current?.getBoundingClientRect();
+      if (!btn) return;
+      const tipH = tipRef.current?.offsetHeight ?? 48;
+      const tipW = Math.min(tipRef.current?.offsetWidth ?? 200, 240);
+      const gap = 10;
+      const place: 'above' | 'below' =
+        btn.top < tipH + gap + 12 ? 'below' : 'above';
+      const top = place === 'above' ? btn.top - gap : btn.bottom + gap;
+      const half = tipW / 2;
+      const left = Math.min(
+        Math.max(btn.left + btn.width / 2, half + 8),
+        window.innerWidth - half - 8,
+      );
+      setCoords({ top, left, place });
+    };
+
+    update();
+    const raf = requestAnimationFrame(update);
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [open, text]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <span
+      ref={rootRef}
+      className="relative inline-flex shrink-0 items-center justify-center"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        aria-label="About this metric"
+        aria-expanded={open}
+        aria-describedby={open ? tipId : undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className={`inline-flex h-4 min-w-[14px] items-center justify-center rounded-full px-1 text-[11px] font-bold leading-none outline-none ring-1 transition focus:outline-none focus-visible:outline-none ${
+          open
+            ? 'bg-indigo-100 text-indigo-700 ring-indigo-300'
+            : 'bg-indigo-50 text-indigo-600 ring-indigo-200/90 hover:bg-indigo-100 hover:text-indigo-700'
+        }`}
+      >
+        i
+      </button>
+      {open && mounted
+        ? createPortal(
+            <span
+              ref={tipRef}
+              id={tipId}
+              role="tooltip"
+              style={
+                coords
+                  ? {
+                      position: 'fixed',
+                      top: coords.top,
+                      left: coords.left,
+                      transform:
+                        coords.place === 'above'
+                          ? 'translate(-50%, -100%)'
+                          : 'translate(-50%, 0)',
+                      zIndex: 9999,
+                      visibility: 'visible',
+                    }
+                  : {
+                      position: 'fixed',
+                      top: 0,
+                      left: 0,
+                      zIndex: -1,
+                      visibility: 'hidden',
+                    }
+              }
+              className="pointer-events-none w-max max-w-[240px] rounded-lg bg-slate-900 px-2.5 py-1.5 text-left text-[11px] font-medium leading-snug text-white shadow-lg"
+            >
+              {text}
+              {coords ? (
+                <span
+                  aria-hidden
+                  className={`absolute left-1/2 h-0 w-0 -translate-x-1/2 border-x-[5px] border-x-transparent ${
+                    coords.place === 'above'
+                      ? 'top-full border-t-[6px] border-t-slate-900'
+                      : 'bottom-full border-b-[6px] border-b-slate-900'
+                  }`}
+                />
+              ) : null}
+            </span>,
+            document.body,
+          )
+        : null}
+    </span>
+  );
+}
 
 export function HqPhase2Card({
   children,
@@ -31,7 +178,7 @@ export function HqPhase2Card({
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.18, ease: 'easeOut' }}
-      className={`hq-dash-card relative overflow-hidden rounded-2xl border border-white/80 bg-white/75 p-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:p-6 ${className}`}
+      className={`hq-dash-card relative overflow-visible rounded-2xl border border-white/80 bg-white/75 p-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:p-6 ${className}`}
     >
       <div
         aria-hidden
@@ -45,15 +192,19 @@ export function HqPhase2Card({
 export function HqPhase2Title({
   title,
   right,
+  info,
 }: {
   title: string;
   right?: React.ReactNode;
+  /** Short sentence explaining the chart / stats */
+  info?: string;
 }) {
   return (
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-2.5">
+    <div className="relative z-[1] mb-4 flex items-center justify-between gap-3 overflow-visible">
+      <div className="flex min-w-0 items-center gap-2">
         <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
         <h3 className="truncate text-[13px] font-semibold tracking-tight text-slate-800">{title}</h3>
+        {info ? <HqInfoTip text={info} /> : null}
       </div>
       {right}
     </div>
@@ -151,14 +302,17 @@ export function HqPhase2PageHeader({
   updatedLabel,
   loading,
   onRefresh,
+  actions,
 }: {
   updatedLabel?: string;
   loading?: boolean;
   onRefresh?: () => void;
+  /** Quick actions rendered beside Refresh */
+  actions?: React.ReactNode;
 }) {
   return (
-    <header className="hq-dash-card mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-white/80 bg-white/75 px-4 py-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:px-6">
-      <div className="min-w-0">
+    <header className="hq-dash-card mb-5 flex flex-col gap-4 rounded-2xl border border-white/80 bg-white/75 px-4 py-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:px-6 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0 flex-1">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/80">
@@ -170,20 +324,21 @@ export function HqPhase2PageHeader({
           Employers dashboard
         </h1>
         <p className="mt-1.5 text-sm font-medium text-slate-500">
-          Business &amp; platform overview · Phase 2 tenant analytics
+          HQ management · platform usage, monetization &amp; tenant health
         </p>
         {updatedLabel ? (
           <p className="mt-1 text-[11px] text-slate-400">Last updated: {updatedLabel}</p>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+        {actions}
         <button
           type="button"
           onClick={onRefresh}
           disabled={loading}
-          className="inline-flex h-10 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50"
+          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50 sm:w-auto sm:self-end"
         >
-          <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
@@ -206,7 +361,7 @@ export function HqPhase2HealthGauge({
   const pct = Math.min(100, Math.max(0, score)) / 100;
   const offset = half * (1 - pct);
   return (
-    <div className="relative mx-auto flex h-[160px] w-[200px] items-end justify-center">
+    <div className="relative mx-auto flex h-[118px] w-[168px] items-end justify-center">
       <svg viewBox="0 0 200 120" className="h-full w-full">
         <path
           d="M 30 110 A 70 70 0 0 1 170 110"
@@ -231,9 +386,9 @@ export function HqPhase2HealthGauge({
           </linearGradient>
         </defs>
       </svg>
-      <div className="absolute bottom-2 text-center">
-        <div className="text-3xl font-bold text-[#111827]">{score}</div>
-        <div className="text-[11px] font-medium text-[#6B7280]">/ 100</div>
+      <div className="absolute bottom-1 text-center">
+        <div className="text-2xl font-bold text-[#111827]">{score}</div>
+        <div className="text-[10px] font-medium text-[#6B7280]">/ 100</div>
       </div>
     </div>
   );
@@ -264,8 +419,11 @@ export function HqPhase2ActivityFeed({
 
 export function HqPhase2SystemHealth({
   items,
+  compact = false,
 }: {
   items?: Array<{ label: string; value: string; warn?: boolean }>;
+  /** Slim top-strip layout */
+  compact?: boolean;
 }) {
   const rows =
     items && items.length
@@ -277,19 +435,56 @@ export function HqPhase2SystemHealth({
               : s.label === 'Tenants'
                 ? Users
                 : s.label === 'Open jobs'
-                  ? Building2
-                  : s.label === 'Database' || s.label === 'Paused'
-                    ? Database
-                    : s.label === 'Email' || s.label === 'Follow-ups today'
-                      ? Mail
-                      : s.label === 'AI Matching' || s.label === 'Interviews today'
-                        ? Sparkles
-                        : FileText,
+                  ? Briefcase
+                  : s.label === 'Apps (7d)'
+                    ? FileText
+                    : s.label === 'Database' || s.label === 'Paused'
+                      ? Database
+                      : s.label === 'Email' || s.label === 'Follow-ups today' || s.label === 'Paid accounts'
+                        ? CreditCard
+                        : s.label === 'AI Matching' || s.label === 'Interviews today' || s.label === 'Joined'
+                          ? UserCheck
+                          : s.label === 'Concentration'
+                            ? PieChart
+                            : FileText,
         }))
       : [
           { label: 'Analytics', value: 'Waiting', icon: Zap, warn: true },
           { label: 'Tenants', value: '—', icon: Users, warn: false },
         ];
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        {rows.map((s) => {
+          const Icon = s.icon;
+          return (
+            <div
+              key={s.label}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${
+                s.warn
+                  ? 'border-amber-200/80 bg-amber-50/90 text-amber-800'
+                  : 'border-slate-200/80 bg-white/90 text-slate-700'
+              }`}
+              title={`${s.label}: ${s.value}`}
+            >
+              <Icon
+                className={`h-3 w-3 shrink-0 ${s.warn ? 'text-amber-600' : 'text-slate-400'}`}
+                strokeWidth={2.25}
+              />
+              <span className="text-[10px] font-medium text-slate-500">{s.label}</span>
+              <span className="text-[11px] font-bold">{s.value}</span>
+              {s.warn ? (
+                <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" strokeWidth={2.25} />
+              ) : (
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
@@ -319,6 +514,8 @@ export function HqPhase2QuickActions({
   ORANGE,
   BLUE,
   SUCCESS,
+  compact = false,
+  header = false,
 }: {
   INDIGO: string;
   PURPLE: string;
@@ -326,23 +523,80 @@ export function HqPhase2QuickActions({
   ORANGE: string;
   BLUE: string;
   SUCCESS: string;
+  /** Horizontal quick-access strip */
+  compact?: boolean;
+  /** Grid beside Refresh in the page header — full names, 2 per row */
+  header?: boolean;
 }) {
   const actions = [
     { label: 'Create Tenant', icon: Building2, color: INDIGO },
-    { label: 'Add User', icon: Users, color: PURPLE },
     { label: 'Create Plan', icon: CreditCard, color: TEAL },
-    { label: 'Send Email', icon: Mail, color: ORANGE },
     { label: 'System Logs', icon: FileText, color: BLUE },
     { label: 'Generate Report', icon: Download, color: SUCCESS },
   ];
+
+  if (header) {
+    return (
+      <div className="grid w-full grid-cols-2 gap-2 sm:w-[340px]">
+        {actions.map((a) => {
+          const Icon = a.icon;
+          return (
+            <button
+              key={a.label}
+              type="button"
+              title={a.label}
+              aria-label={a.label}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/60"
+            >
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                style={{ background: `${a.color}18`, color: a.color }}
+              >
+                <Icon className="h-3.5 w-3.5" />
+              </span>
+              <span className="truncate">{a.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        {actions.map((a) => {
+          const Icon = a.icon;
+          return (
+            <button
+              key={a.label}
+              type="button"
+              title={a.label}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/50"
+            >
+              <span
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
+                style={{ background: `${a.color}18`, color: a.color }}
+              >
+                <Icon className="h-3 w-3" />
+              </span>
+              <span className="truncate">{a.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-2">
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-2 lg:grid-cols-2">
       {actions.map((a) => {
         const Icon = a.icon;
         return (
           <button
             key={a.label}
             type="button"
+            title={a.label}
             className="flex flex-col items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-4 text-center transition hover:border-indigo-200 hover:bg-indigo-50/40 hover:shadow-sm"
           >
             <span

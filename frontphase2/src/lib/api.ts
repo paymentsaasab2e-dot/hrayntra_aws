@@ -2612,7 +2612,23 @@ export type HqEmployeeAnalytics = {
     totalLogins7d: number;
     totalSessions7d: number;
     avgActiveMsPerUser7d: number;
+    /** Visits on premium / LMS / AI CV / interview prep surfaces (7d). */
+    premiumVisits7d?: number;
+    /** Visits on community / Office Gossip / chat / reference-check surfaces (7d). */
+    communityVisits7d?: number;
     pageVisitsByCategory: HqAnalyticsChartPoint[];
+    /** Premium-services-wise usage (most → least). */
+    premiumServicesUsage?: HqAnalyticsChartPoint[];
+    /** Most popular features / trigger titles. */
+    popularFeatures?: HqAnalyticsChartPoint[];
+    /** First-open entry points (e.g. landed on Services before/at first meaningful open). */
+    entryPoints?: HqAnalyticsChartPoint[];
+    /** Office Gossip, chat, reference-check style behaviour. */
+    communityBehavior?: HqAnalyticsChartPoint[];
+    /** Top interest topics among candidates (affinity engine). */
+    topInterests?: Array<HqAnalyticsChartPoint & { key?: string; avgScore?: number; scoreSum?: number }>;
+    /** Trending topics (interests + roles + companies). */
+    trendingTopics?: Array<HqAnalyticsChartPoint & { kind?: string }>;
     topTriggers: HqAnalyticsChartPoint[];
     liveFeed: Array<{
       userId: string;
@@ -2623,6 +2639,8 @@ export type HqEmployeeAnalytics = {
       applies7d: number;
       jobCardClicks7d: number;
       topTrigger: string | null;
+      topInterest?: string | null;
+      topFirstOpen?: string | null;
     }>;
     capturedAt: string;
   };
@@ -2744,7 +2762,19 @@ export type HqEmployerTenantRow = {
   tasks?: number;
   tasksOpen?: number;
   activityScore?: number;
+  health?: number;
   error: string | null;
+};
+
+export type HqEmployerAtRiskTenant = {
+  tenantId: string;
+  name: string;
+  plan: string;
+  health: number;
+  openJobs: number;
+  applications7d: number;
+  reason: string;
+  reasons?: string[];
 };
 
 export type HqEmployerAnalytics = {
@@ -2783,10 +2813,20 @@ export type HqEmployerAnalytics = {
     demosVerified: number;
     demosPurchases: number;
     demosTrials: number;
+    demosPending?: number;
+    demosExpired?: number;
+    demosTotal?: number;
+    demosTrialsLive?: number;
     followUpsToday: number;
+    mrr?: number;
+    arr?: number;
+    platformHealthScore?: number;
+    concentrationTop1JobsPct?: number;
+    concentrationTop3JobsPct?: number;
   };
   charts: {
     hiringFunnel: HqAnalyticsChartPoint[];
+    landingFunnel?: HqAnalyticsChartPoint[];
     tenantsByPlan: HqAnalyticsChartPoint[];
     tenantsByType: HqAnalyticsChartPoint[];
     tenantsBySignup?: HqAnalyticsChartPoint[];
@@ -2799,9 +2839,12 @@ export type HqEmployerAnalytics = {
     interviewsByStatus?: HqAnalyticsChartPoint[];
     placementsByStatus?: HqAnalyticsChartPoint[];
     tenantActivity: Array<HqAnalyticsChartPoint & { openJobs?: number; placements?: number }>;
+    mrrByPlan?: Array<HqAnalyticsChartPoint & { tenantCount?: number }>;
+    featureUsage?: HqAnalyticsChartPoint[];
   };
   tables: {
     rankedTenants: HqEmployerTenantRow[];
+    atRiskTenants?: HqEmployerAtRiskTenant[];
     recentTenantActivity: Array<{
       tenant: string;
       tenantDbName: string;
@@ -2816,6 +2859,7 @@ export type HqEmployerAnalytics = {
       tasksOpen?: number;
       plan: string;
       organizationType: string;
+      health?: number;
     }>;
     recentJobs?: Array<{
       id: string;
@@ -3418,7 +3462,13 @@ interface AuthPayload {
 export async function apiLogin(
   email: string,
   password: string,
-  devicePayload?: { deviceId?: string; macAddress?: string; macId?: string; userAgent?: string }
+  devicePayload?: {
+    deviceId?: string;
+    macAddress?: string;
+    macId?: string;
+    userAgent?: string;
+    forceSessionTakeover?: boolean;
+  }
 ) {
   // Invite links include ?tenantDbName= — apply right before login so first attempt works.
   if (typeof window !== 'undefined') {
@@ -3441,6 +3491,7 @@ export async function apiLogin(
         macId: devicePayload?.macAddress || devicePayload?.deviceId,
         userAgent: devicePayload?.userAgent,
         tenantDbName: tenantDbNameHint || undefined,
+        forceSessionTakeover: devicePayload?.forceSessionTakeover === true ? true : undefined,
       },
       includeTenantHeader: !!tenantDbNameHint,
     });

@@ -71,7 +71,7 @@ interface HqStats {
 }
 
 const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
-  dashboard: 'Employee (Phase 1) and Employer (Phase 2) platform analytics, plus tenant overview.',
+  dashboard: 'Portal and employer platform analytics, plus tenant overview.',
   tenants: 'All Phase 2 workspaces — including employers who purchased from the landing page.',
   plans: '',
   bootstrap: 'Local-only super admin credential injection.',
@@ -79,9 +79,9 @@ const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
 
 const VIEW_DESCRIPTIONS: Record<HqAnalyticsView, string> = {
   employee:
-    'Phase 1 job-seeker analytics — candidates, applications, portal jobs, match scores, and talent insights.',
+    'Portal analytics — candidates, applications, jobs, match scores, and talent insights.',
   employer:
-    'Phase 2 hiring analytics — tenants, jobs, pipelines, placements, and HQ CRM lead/company funnel.',
+    'Hiring analytics — tenants, jobs, pipelines, placements, and HQ CRM lead/company funnel.',
   platform: 'Platform health, tenant counts, and plan distribution.',
 };
 

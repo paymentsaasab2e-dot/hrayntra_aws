@@ -3,6 +3,7 @@
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
+import { HqInfoTip } from './HqPhase2DashboardParts';
 
 export type HqSvgKpiItem = {
   label: string;
@@ -13,6 +14,8 @@ export type HqSvgKpiItem = {
   sparkData?: Array<{ i: number; v: number }>;
   sparkColor?: string;
   compareLabel?: string;
+  /** Short sentence for the (i) tip */
+  info?: string;
 };
 
 function AnimatedValue({ value }: { value: string | number }) {
@@ -27,7 +30,12 @@ function LiveSpark({
   data: Array<{ i: number; v: number }>;
   color: string;
 }) {
-  const id = `kpi-spark-${color.replace('#', '')}`;
+  const id = `kpi-spark-${color.replace('#', '')}-${data.length}`;
+  const vals = data.map((d) => d.v);
+  const max = Math.max(...vals, 1);
+  const min = Math.min(...vals, 0);
+  // Give flat series a little vertical room so the line isn't a hairline blob
+  const pad = max === min ? Math.max(1, max * 0.15) : (max - min) * 0.15;
   return (
     <div className="h-7 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -46,6 +54,7 @@ function LiveSpark({
             strokeWidth={1.6}
             dot={false}
             isAnimationActive={false}
+            baseValue={Math.max(0, min - pad)}
           />
         </AreaChart>
       </ResponsiveContainer>
@@ -66,7 +75,7 @@ export function HqSvgKpiCard({ item }: { item: HqSvgKpiItem }) {
     <motion.div
       whileHover={{ y: -3 }}
       transition={{ duration: 0.18, ease: 'easeOut' }}
-      className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/80 bg-white/80 shadow-[0_1px_0_rgba(255,255,255,0.9)_inset,0_16px_40px_-22px_rgba(15,23,42,0.2)] backdrop-blur-md"
+      className="group relative z-0 flex flex-col overflow-visible rounded-2xl border border-white/80 bg-white/80 shadow-[0_1px_0_rgba(255,255,255,0.9)_inset,0_16px_40px_-22px_rgba(15,23,42,0.2)] backdrop-blur-md"
     >
       <div
         aria-hidden
@@ -99,12 +108,15 @@ export function HqSvgKpiCard({ item }: { item: HqSvgKpiItem }) {
             </span>
           )}
         </div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-400">{item.label}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-400">{item.label}</p>
+          {item.info ? <HqInfoTip text={item.info} /> : null}
+        </div>
         <p className="hq-display mt-1.5 text-[1.35rem] font-bold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.45rem]">
           <AnimatedValue value={item.value} />
         </p>
         <p className="mt-1.5 text-[10px] font-medium text-slate-400">
-          {item.compareLabel || (hasGrowth ? 'vs prior 7d' : 'from Phase 1')}
+          {item.compareLabel || (hasGrowth ? 'vs prior 7d' : 'Portal')}
         </p>
       </div>
       <div className="relative border-t border-indigo-50/80 bg-gradient-to-r from-slate-50/80 via-indigo-50/40 to-teal-50/30 px-2.5 py-2">

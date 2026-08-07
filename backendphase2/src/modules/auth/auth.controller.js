@@ -18,9 +18,12 @@ export const authController = {
 
   async login(req, res) {
     try {
-      const { email, loginId, password } = req.body;
+      const { email, loginId, password, forceSessionTakeover } = req.body;
       const loginIdentifier = loginId || email;
-      const deviceMeta = buildDeviceMeta(req, req.body);
+      const deviceMeta = {
+        ...buildDeviceMeta(req, req.body),
+        forceSessionTakeover: Boolean(forceSessionTakeover),
+      };
       const ipAddress = resolveClientIp(req, req.body) || deviceMeta.ipAddress || req.ip || 'Unknown';
       const userAgent = req.get('user-agent') || deviceMeta.userAgent || 'Unknown';
       const result = await authService.login(loginIdentifier, password, ipAddress, userAgent, deviceMeta);

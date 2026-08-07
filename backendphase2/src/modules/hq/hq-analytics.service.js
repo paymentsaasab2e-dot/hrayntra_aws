@@ -36,6 +36,45 @@ function phase1FrontendBase() {
     .replace(/\/+$/, '');
 }
 
+/** Categories treated as premium / paid-prep product surfaces. */
+const PREMIUM_FEATURE_CATEGORIES = new Set([
+  'premium',
+  'courses',
+  'interview_prep',
+  'ai_cv',
+  'lms',
+  'events',
+]);
+
+/** Community / behavioural surfaces (Office Gossip, chat, reference check). */
+const COMMUNITY_FEATURE_CATEGORIES = new Set(['community']);
+
+const CATEGORY_DISPLAY = {
+  jobs: 'Jobs',
+  lms: 'LMS',
+  courses: 'Courses',
+  premium: 'Premium services',
+  community: 'Office Gossip / Chat / Ref check',
+  profile: 'Profile',
+  applications: 'Applications',
+  interview_prep: 'Interview prep',
+  ai_cv: 'AI CV',
+  events: 'Events',
+  dashboard: 'Dashboard',
+  other: 'Other',
+};
+
+function categoryDisplayName(cat) {
+  const key = String(cat || '').trim();
+  return CATEGORY_DISPLAY[key] || key.replace(/_/g, ' ') || 'Unknown';
+}
+
+function isCommunityBehaviorSignal(text) {
+  return /gossip|office|chat|reference|watercooler|community|circle|banter|refresh.?check/i.test(
+    String(text || ''),
+  );
+}
+
 async function fetchPhase1LiveBehaviorAggregate() {
   try {
     const url = `${phase1FrontendBase()}/api/hq-behavior`;
@@ -59,8 +98,19 @@ async function fetchPhase1LiveBehaviorAggregate() {
     let totalJobClicks7d = 0;
     let totalLogins7d = 0;
     let totalSessions7d = 0;
+    let premiumVisits7d = 0;
+    let communityVisits7d = 0;
     const pageVisitMap = {};
+    const premiumVisitMap = {};
+    const communityVisitMap = {};
+    const entryPointMap = {};
     const triggerMap = {};
+    const triggerTitleMap = {};
+    const interestUserCount = {};
+    const interestScoreSum = {};
+    const interestLabel = {};
+    const roleTopicMap = {};
+    const companyTopicMap = {};
     const liveFeed = [];
 
     for (const user of payload.users) {
@@ -81,11 +131,54 @@ async function fetchPhase1LiveBehaviorAggregate() {
       totalSessions7d += Number(rollup.sessionCount) || 0;
 
       for (const [cat, count] of Object.entries(rollup.pageVisitsByCategory || {})) {
-        bump(pageVisitMap, cat, Number(count) || 0);
+        const n = Number(count) || 0;
+        if (n <= 0) continue;
+        bump(pageVisitMap, cat, n);
+        if (PREMIUM_FEATURE_CATEGORIES.has(cat)) {
+          bump(premiumVisitMap, cat, n);
+          premiumVisits7d += n;
+        }
+        if (COMMUNITY_FEATURE_CATEGORIES.has(cat)) {
+          bump(communityVisitMap, cat, n);
+          communityVisits7d += n;
+        }
       }
-      for (const trigger of Array.isArray(user.triggers) ? user.triggers : rollup.hqTriggers || []) {
-        const key = trigger?.flag || trigger?.id || trigger?.title || 'signal';
-        bump(triggerMap, key, 1);
+
+      for (const [cat, count] of Object.entries(rollup.firstOpenBreakdown || {})) {
+        bump(entryPointMap, cat, Number(count) || 0);
+      }
+
+      const triggers = Array.isArray(user.triggers)
+        ? user.triggers
+        : Array.isArray(rollup.hqTriggers)
+          ? rollup.hqTriggers
+          : [];
+      for (const trigger of triggers) {
+        const flag = trigger?.flag || trigger?.id || 'signal';
+        const title = trigger?.title || flag;
+        bump(triggerMap, flag, 1);
+        bump(triggerTitleMap, title, 1);
+        const blob = [flag, title, trigger?.reason, ...(trigger?.evidence || [])].join(' ');
+        if (isCommunityBehaviorSignal(blob)) {
+          bump(communityVisitMap, `signal:${flag}`, 1);
+        }
+      }
+
+      for (const topic of Array.isArray(user.interests) ? user.interests : []) {
+        const key = String(topic?.key || '').trim();
+        if (!key) continue;
+        interestUserCount[key] = (interestUserCount[key] || 0) + 1;
+        interestScoreSum[key] = (interestScoreSum[key] || 0) + (Number(topic?.score) || 0);
+        interestLabel[key] = String(topic?.label || key).trim() || key;
+      }
+
+      for (const role of Array.isArray(rollup.topRoles) ? rollup.topRoles : []) {
+        const name = String(role?.label || role?.name || role?.key || '').trim();
+        if (name) bump(roleTopicMap, name, Number(role?.score || role?.count || 1) || 1);
+      }
+      for (const company of Array.isArray(rollup.topCompanies) ? rollup.topCompanies : []) {
+        const name = String(company?.label || company?.name || company?.key || '').trim();
+        if (name) bump(companyTopicMap, name, Number(company?.score || company?.count || 1) || 1);
       }
 
       liveFeed.push({
@@ -100,6 +193,10 @@ async function fetchPhase1LiveBehaviorAggregate() {
           (Array.isArray(user.triggers) && user.triggers[0]?.title) ||
           (Array.isArray(rollup.hqTriggers) && rollup.hqTriggers[0]?.title) ||
           null,
+        topInterest:
+          (Array.isArray(user.interests) && user.interests[0]?.label) ||
+          null,
+        topFirstOpen: rollup.topFirstOpen ? categoryDisplayName(rollup.topFirstOpen) : null,
       });
     }
 
@@ -108,6 +205,69 @@ async function fetchPhase1LiveBehaviorAggregate() {
         String(a.activityStateUpdatedAt || a.capturedAt || ''),
       ),
     );
+
+    const pageVisitsLabeled = toChartArray(pageVisitMap, { limit: 12 }).map((row) => ({
+      ...row,
+      name: categoryDisplayName(row.name),
+      category: row.name,
+    }));
+    const premiumServicesUsage = toChartArray(premiumVisitMap, { limit: 8 }).map((row) => ({
+      ...row,
+      name: categoryDisplayName(row.name),
+      category: row.name,
+    }));
+    const communityBehavior = toChartArray(communityVisitMap, { limit: 8 }).map((row) => ({
+      ...row,
+      name: String(row.name).startsWith('signal:')
+        ? String(row.name).replace(/^signal:/, '').replace(/_/g, ' ')
+        : categoryDisplayName(row.name),
+    }));
+    const entryPoints = toChartArray(entryPointMap, { limit: 8 }).map((row) => ({
+      ...row,
+      name: categoryDisplayName(row.name),
+      category: row.name,
+    }));
+
+    const topInterests = Object.keys(interestUserCount)
+      .map((key) => {
+        const usersWithInterest = interestUserCount[key] || 0;
+        const scoreSum = interestScoreSum[key] || 0;
+        const avgScore =
+          usersWithInterest > 0 ? Math.round((scoreSum / usersWithInterest) * 10) / 10 : 0;
+        return {
+          name: interestLabel[key] || key,
+          key,
+          value: usersWithInterest,
+          avgScore,
+          scoreSum: Math.round(scoreSum * 10) / 10,
+        };
+      })
+      .sort((a, b) => b.scoreSum - a.scoreSum || b.value - a.value)
+      .slice(0, 8);
+
+    const trendingTopics = [
+      ...topInterests.map((t) => ({
+        name: t.name,
+        value: Math.round(t.scoreSum) || t.value,
+        kind: 'interest',
+      })),
+      ...toChartArray(roleTopicMap, { limit: 5 }).map((r) => ({
+        ...r,
+        kind: 'role',
+      })),
+      ...toChartArray(companyTopicMap, { limit: 5 }).map((r) => ({
+        ...r,
+        kind: 'company',
+      })),
+    ]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const popularFeatures = (
+      Object.keys(triggerTitleMap).length
+        ? toChartArray(triggerTitleMap, { limit: 8 })
+        : pageVisitsLabeled
+    ).slice(0, 8);
 
     return {
       available: true,
@@ -121,7 +281,15 @@ async function fetchPhase1LiveBehaviorAggregate() {
       totalLogins7d,
       totalSessions7d,
       avgActiveMsPerUser7d: trackedUsers > 0 ? Math.round(totalActiveMs7d / trackedUsers) : 0,
-      pageVisitsByCategory: toChartArray(pageVisitMap, { limit: 10 }),
+      premiumVisits7d,
+      communityVisits7d,
+      pageVisitsByCategory: pageVisitsLabeled.slice(0, 10),
+      premiumServicesUsage,
+      popularFeatures,
+      entryPoints,
+      communityBehavior,
+      topInterests,
+      trendingTopics,
       topTriggers: toChartArray(triggerMap, { limit: 8 }),
       liveFeed: liveFeed.slice(0, 20),
       capturedAt: new Date().toISOString(),
@@ -179,6 +347,29 @@ function iso(value) {
   if (!value) return null;
   const d = value instanceof Date ? value : new Date(value);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** Parse plan price into monthly USD-ish number for MRR rollup (best-effort). */
+function parseMonthlyPlanPrice(plan) {
+  if (!plan) return 0;
+  const raw = String(plan.price || plan.amount || '').replace(/[^0-9.]/g, '');
+  const n = Number(raw) || 0;
+  if (n <= 0) return 0;
+  const cycle = String(plan.billingCycle || plan.pricePeriod || '').toLowerCase();
+  if (cycle.includes('year') || cycle.includes('annual')) return Math.round((n / 12) * 100) / 100;
+  return n;
+}
+
+/** Spec §7.1 — per-tenant health 0–100 from live activity signals. */
+function tenantHealthScore(row) {
+  let score = 0;
+  if ((row.openJobs || 0) > 0) score += 25;
+  if ((row.applications7d || 0) > 0) score += 25;
+  if ((row.interviews || 0) > 0 || (row.interviewsToday || 0) > 0) score += 20;
+  if ((row.placements || 0) > 0 || (row.placementsJoined || 0) > 0) score += 20;
+  // Login signal not always available on tenant snapshot — treat apps/jobs as engagement proxy
+  if ((row.applications7d || 0) > 0 || (row.openJobs || 0) > 0) score += 10;
+  return Math.min(100, score);
 }
 
 function pct(part, whole) {
@@ -1442,9 +1633,9 @@ async function buildEmployerAnalytics() {
     bump(demosByStatus, demo.status || 'UNKNOWN');
   }
 
+  // Throughput funnel — omit raw candidate DB size (skews conversion %). Spec §7.2.
   const hiringFunnel = [
-    { name: 'Jobs', value: totals.jobs },
-    { name: 'Candidates', value: totals.candidates },
+    { name: 'Jobs', value: totals.jobs || totals.openJobs },
     { name: 'Applications', value: totals.applications },
     { name: 'Interviews', value: totals.interviews },
     { name: 'Placements', value: totals.placements },
@@ -1452,20 +1643,89 @@ async function buildEmployerAnalytics() {
   ];
 
   const rankedTenants = [...snapshots]
-    .map((row) => ({
-      ...row,
-      activityScore:
-        (row.openJobs || 0) * 3 +
-        (row.candidates || 0) +
-        (row.applications || 0) * 2 +
-        (row.interviews || 0) * 4 +
-        (row.placements || 0) * 8 +
-        (row.applications7d || 0) * 3 +
-        (row.interviewsToday || 0) * 5,
-    }))
+    .map((row) => {
+      const health = tenantHealthScore(row);
+      return {
+        ...row,
+        health,
+        activityScore:
+          (row.openJobs || 0) * 3 +
+          (row.applications || 0) * 2 +
+          (row.interviews || 0) * 4 +
+          (row.placements || 0) * 8 +
+          (row.applications7d || 0) * 3 +
+          (row.interviewsToday || 0) * 5 +
+          health,
+      };
+    })
     .sort((a, b) => b.activityScore - a.activityScore);
 
   const idleTenants = rankedTenants.filter((t) => t.openJobs === 0 && t.candidates === 0 && !t.error).length;
+
+  // Concentration risk — % of open jobs from top 1 / top 3 tenants
+  const jobsSorted = [...rankedTenants].sort((a, b) => (b.openJobs || 0) - (a.openJobs || 0));
+  const totalOpenJobs = totals.openJobs || 0;
+  const top1Jobs = jobsSorted[0]?.openJobs || 0;
+  const top3Jobs = jobsSorted.slice(0, 3).reduce((s, t) => s + (t.openJobs || 0), 0);
+  const concentration = {
+    top1JobsPct: totalOpenJobs ? pct(top1Jobs, totalOpenJobs) : 0,
+    top3JobsPct: totalOpenJobs ? pct(top3Jobs, totalOpenJobs) : 0,
+    top1TenantName: jobsSorted[0]?.name || jobsSorted[0]?.tenantDbName || null,
+    metric: 'jobs',
+  };
+
+  const atRiskTenants = rankedTenants
+    .filter((t) => !t.error)
+    .map((t) => {
+      const reasons = [];
+      if ((t.openJobs || 0) === 0 && (t.candidates || 0) === 0) reasons.push('zero activity');
+      if ((t.health || 0) < 40) reasons.push('low health');
+      if ((t.applications7d || 0) === 0 && (t.openJobs || 0) > 0) reasons.push('jobs but no apps/7d');
+      if (String(t.status || '').toUpperCase() === 'PAUSED') reasons.push('paused');
+      return {
+        tenantId: t.tenantDbName,
+        name: t.name || t.tenantDbName,
+        plan: t.plan || 'Unassigned',
+        health: t.health || 0,
+        openJobs: t.openJobs || 0,
+        applications7d: t.applications7d || 0,
+        reason: reasons.join(', ') || 'watch',
+        reasons,
+      };
+    })
+    .filter((t) => t.reasons.length > 0 && t.reason !== 'watch')
+    .sort((a, b) => a.health - b.health)
+    .slice(0, 12);
+
+  // MRR best-effort from tenant plan prices
+  const mrrByPlanMap = {};
+  let mrr = 0;
+  for (const t of tenants || []) {
+    if (String(t.status || '').toUpperCase() === 'PAUSED') continue;
+    const monthly = parseMonthlyPlanPrice(t.subscriptionPlan);
+    if (monthly <= 0) continue;
+    mrr += monthly;
+    const planName = t.subscriptionPlan?.name || 'Custom';
+    if (!mrrByPlanMap[planName]) mrrByPlanMap[planName] = { planName, mrr: 0, tenantCount: 0 };
+    mrrByPlanMap[planName].mrr += monthly;
+    mrrByPlanMap[planName].tenantCount += 1;
+  }
+  const mrrByPlan = Object.values(mrrByPlanMap).map((r) => ({
+    planId: r.planName,
+    planName: r.planName,
+    mrr: Math.round(r.mrr * 100) / 100,
+    tenantCount: r.tenantCount,
+  }));
+  mrr = Math.round(mrr * 100) / 100;
+  const arr = Math.round(mrr * 12 * 100) / 100;
+
+  const activeTenantsCount = Math.max(0, (tenants || []).length - paused);
+  const platformHealthScore =
+    rankedTenants.length > 0
+      ? Math.round(
+          rankedTenants.reduce((s, t) => s + (t.health || 0), 0) / rankedTenants.length,
+        )
+      : 0;
   const conversionRate =
     typeof leadStats.conversionRate === 'number'
       ? leadStats.conversionRate
@@ -1511,12 +1771,18 @@ async function buildEmployerAnalytics() {
   const insights = [];
   insights.push({
     tone: 'info',
-    text: `Live Phase 2 snapshot: ${tenants.length} tenants · ${totals.openJobs} open jobs · ${totals.interviewsToday} interviews today · ${totals.applications7d} apps in 7d.`,
+    text: `Live Phase 2 snapshot: ${tenants.length} tenants (${activeTenantsCount} active) · ${totals.openJobs} open jobs · ${totals.applications7d} apps in 7d · ${totals.placementsJoined} joined.`,
   });
   if (idleTenants > 0) {
     insights.push({
       tone: 'warn',
       text: `${idleTenants} tenant(s) have zero open jobs and zero candidates.`,
+    });
+  }
+  if (concentration.top1JobsPct >= 40 && concentration.top1TenantName) {
+    insights.push({
+      tone: 'warn',
+      text: `Concentration risk: ${concentration.top1JobsPct}% of open jobs sit on “${concentration.top1TenantName}” (top 3: ${concentration.top3JobsPct}%).`,
     });
   }
   if (totals.placementsJoined > 0) {
@@ -1534,6 +1800,12 @@ async function buildEmployerAnalytics() {
     insights.push({
       tone: 'good',
       text: `${hotLeads} hot HQ CRM lead(s) · pipeline value ${pipelineValue.toLocaleString()}.`,
+    });
+  }
+  if (mrr > 0) {
+    insights.push({
+      tone: 'good',
+      text: `Estimated MRR $${mrr.toLocaleString()} (ARR $${arr.toLocaleString()}) from priced plans.`,
     });
   }
   if (leadStats.followUpsToday > 0 || companyStats.followUpsToday > 0) {
@@ -1591,10 +1863,28 @@ async function buildEmployerAnalytics() {
       demosVerified: demoStats.verified || 0,
       demosPurchases: demoStats.purchases || 0,
       demosTrials: demoStats.trials || 0,
+      demosPending: demoStats.pending || 0,
+      demosExpired: demoStats.expired || 0,
+      demosTotal: demoStats.total || 0,
+      demosTrialsLive: demoStats.trialsLive || 0,
       followUpsToday: (leadStats.followUpsToday || 0) + (companyStats.followUpsToday || 0),
+      mrr,
+      arr,
+      platformHealthScore,
+      concentrationTop1JobsPct: concentration.top1JobsPct,
+      concentrationTop3JobsPct: concentration.top3JobsPct,
     },
     charts: {
       hiringFunnel,
+      // Landing-page style funnel: requested → pending → given → trial → active → paid
+      landingFunnel: [
+        { name: 'Demo requested', value: demoStats.total || 0 },
+        { name: 'Pending / scheduled', value: demoStats.pending || 0 },
+        { name: 'Demo given', value: demoStats.verified || 0 },
+        { name: 'Free trials given', value: demoStats.trials || 0 },
+        { name: 'Trials active', value: demoStats.trialsLive || 0 },
+        { name: 'Paid / purchases', value: demoStats.purchases || 0 },
+      ],
       tenantsByPlan: toChartArray(planMap),
       tenantsByType: toChartArray(typeMap),
       tenantsBySignup: toChartArray(signupMap),
@@ -1612,9 +1902,20 @@ async function buildEmployerAnalytics() {
         openJobs: t.openJobs,
         placements: t.placements,
       })),
+      mrrByPlan: mrrByPlan.map((r) => ({ name: r.planName, value: r.mrr, tenantCount: r.tenantCount })),
+      // Aggregate “features used” across tenants (jobs/apps/interviews…) for trial insight
+      featureUsage: [
+        { name: 'Jobs', value: totals.jobs || totals.openJobs || 0 },
+        { name: 'Candidates', value: totals.candidates || 0 },
+        { name: 'Applications', value: totals.applications || 0 },
+        { name: 'Interviews', value: totals.interviews || 0 },
+        { name: 'Placements', value: totals.placements || 0 },
+        { name: 'Open tasks', value: totals.tasksOpen || 0 },
+      ].filter((r) => r.value > 0),
     },
     tables: {
       rankedTenants: rankedTenants.slice(0, 20),
+      atRiskTenants,
       recentTenantActivity: rankedTenants.slice(0, 12).map((t) => ({
         tenant: t.name,
         tenantDbName: t.tenantDbName,
@@ -1629,6 +1930,7 @@ async function buildEmployerAnalytics() {
         tasksOpen: t.tasksOpen,
         plan: t.plan,
         organizationType: t.organizationType,
+        health: t.health,
       })),
       recentJobs,
       recentPlacements,
@@ -1638,6 +1940,11 @@ async function buildEmployerAnalytics() {
       crmLeadStats: leadStats,
       crmCompanyStats: companyStats,
       demoStats,
+    },
+    meta: {
+      concentration,
+      mrrByPlan,
+      healthFormula: 'openJobs25+apps7d25+interviews20+placements20+engagement10',
     },
     insights,
   };

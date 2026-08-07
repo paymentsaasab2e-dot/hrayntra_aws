@@ -261,6 +261,7 @@ export async function gateLoginOrIssueTokens({
   refreshPayload,
   deviceMeta,
   identity = {},
+  forceTakeover = false,
 }) {
   if (!isEnabled()) {
     const accessToken = signToken(tokenPayload);
@@ -281,15 +282,22 @@ export async function gateLoginOrIssueTokens({
 
   const active = await findActiveSessionForUser(userId, identityPayload);
   if (active) {
-    if (isSameClientRelogin(active, deviceMeta)) {
+    const shouldForce =
+      forceTakeover === true ||
+      deviceMeta?.forceSessionTakeover === true ||
+      deviceMeta?.forceTakeover === true;
+
+    if (shouldForce || isSameClientRelogin(active, deviceMeta)) {
       await expireSession(active, 'REPLACED');
       await prisma.user.update({
         where: { id: userId },
         data: { refreshToken: null },
       });
-      await audit(userId, 'SAME_CLIENT_RELOGIN', deviceMeta, {
+      await audit(userId, shouldForce ? 'FORCED_SESSION_TAKEOVER' : 'SAME_CLIENT_RELOGIN', deviceMeta, {
         releasedSessionId: active.sessionId,
-        reason: 'auto_release_after_local_logout_or_timeout',
+        reason: shouldForce
+          ? 'force_takeover_from_login'
+          : 'auto_release_after_local_logout_or_timeout',
       });
     } else {
       await audit(userId, 'DUPLICATE_LOGIN_ATTEMPT', deviceMeta, { activeSessionId: active.sessionId });
