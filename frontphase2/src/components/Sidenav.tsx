@@ -1169,9 +1169,32 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     mounted &&
     isOrgModuleEnabled('command_center') &&
     (canViewDashboard || canViewJobs || canViewCandidates || canViewInterviews || canViewPlacements || showAll);
-  const isRecruitmentRouteActive = ['/job', '/candidate', '/interviews', '/placement', '/placements', '/recruitment'].some(
-    (route) => pathname === route || (pathname || '').startsWith(`${route}/`)
-  );
+  const canViewPipeline =
+    mounted &&
+    isOrgModuleEnabled('pipeline') &&
+    (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Pipeline));
+  const canViewMatches =
+    mounted &&
+    isOrgModuleEnabled('matches') &&
+    (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Matches));
+  const canViewRecruitmentNav =
+    canViewJobs ||
+    canViewCandidates ||
+    canViewInterviews ||
+    canViewPlacements ||
+    canViewRecruitmentDashboard ||
+    canViewPipeline ||
+    canViewMatches;
+  const isRecruitmentRouteActive = [
+    '/job',
+    '/candidate',
+    '/interviews',
+    '/placement',
+    '/placements',
+    '/recruitment',
+    '/pipeline',
+    '/matches',
+  ].some((route) => pathname === route || (pathname || '').startsWith(`${route}/`));
 
   useEffect(() => {
     const query = navSearch.trim();
@@ -1567,9 +1590,8 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             />
           )}
 
-          {/* Recruitment — hover flyout (same pattern as CRM) */}
-          {mounted &&
-            (canViewJobs || canViewCandidates || canViewInterviews || canViewPlacements || canViewRecruitmentDashboard) && (
+          {/* Recruitment — hover flyout (Jobs, Candidates, Pipeline, Matches, …) */}
+          {mounted && canViewRecruitmentNav && (
             <NavGroupFlyout
               icon={Briefcase}
               label="Recruitment"
@@ -1584,6 +1606,12 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                 ...(canViewCandidates
                   ? [{ icon: UserRound, label: 'Candidates', href: '/candidate', accent: 'violet' as const }]
                   : []),
+                ...(canViewPipeline
+                  ? [{ icon: GitBranch, label: 'Pipeline', href: '/pipeline', accent: 'indigo' as const }]
+                  : []),
+                ...(canViewMatches
+                  ? [{ icon: Zap, label: 'Matches', href: '/matches', accent: 'orange' as const }]
+                  : []),
                 ...(canViewInterviews
                   ? [{ icon: Calendar, label: 'Interviews', href: '/interviews', accent: 'cyan' as const }]
                   : []),
@@ -1591,23 +1619,10 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                   ? [{ icon: Award, label: 'Placements', href: '/placement', accent: 'emerald' as const }]
                   : []),
                 ...(canViewRecruitmentDashboard
-                  ? [{ icon: LayoutDashboard, label: 'Command Center', href: '/recruitment', accent: 'indigo' as const }]
+                  ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/recruitment', accent: 'indigo' as const }]
                   : []),
               ]}
             />
-          )}
-          
-          {/* Pipeline */}
-          {(mounted && isOrgModuleEnabled('pipeline') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Pipeline))) && (
-            <>
-              <SectionLabel label="Recruitment Hub" collapsed={isCollapsed} />
-              <NavItem icon={GitBranch} label="Pipeline" href="/pipeline" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
-            </>
-          )}
-          
-          {/* Matches */}
-          {(mounted && isOrgModuleEnabled('matches') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Matches))) && (
-            <NavItem icon={Zap} label="Matches" href="/matches" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="orange" />
           )}
 
           <Divider />

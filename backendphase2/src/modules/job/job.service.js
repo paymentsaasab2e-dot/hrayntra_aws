@@ -324,6 +324,15 @@ function applyVisibilityToPortalSyncPayload(jobPortalData, resolvedVisibility, r
   const show = (field) => isPortalSyncFieldVisible(resolvedVisibility, resolvedShowClient, field);
   const out = { ...jobPortalData };
 
+  // Hide employer identity completely on the portal mirror — Phase 1 joins client by id.
+  if (!show('client')) {
+    out.clientId = null;
+    out.showClientNamePublicly = false;
+    if (out.publicFieldVisibility && typeof out.publicFieldVisibility === 'object') {
+      out.publicFieldVisibility = { ...out.publicFieldVisibility, client: false };
+    }
+  }
+
   if (!show('location')) {
     out.location = null;
     out.city = null;
@@ -480,12 +489,6 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     }
   }
 
-  const resolvedShowClient =
-    payload.showClientNamePublicly !== undefined
-      ? payload.showClientNamePublicly !== false
-      : job.showClientNamePublicly === false
-        ? false
-        : true;
   const resolvedVisibility = normalizePublicFieldVisibility(
     payload.publicFieldVisibility && typeof payload.publicFieldVisibility === 'object'
       ? payload.publicFieldVisibility
@@ -494,6 +497,12 @@ async function syncJobToJobPortalDb(job, payload = {}) {
       ? job.publicFieldVisibility
       : null,
   );
+  const resolvedShowClient =
+    payload.showClientNamePublicly !== undefined
+      ? payload.showClientNamePublicly !== false
+      : job.showClientNamePublicly === false || resolvedVisibility?.client === false
+        ? false
+        : true;
 
   const jobPortalData = applyVisibilityToPortalSyncPayload(
     {

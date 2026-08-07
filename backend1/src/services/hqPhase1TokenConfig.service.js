@@ -1,13 +1,18 @@
 /**
- * Loads HQ-managed Phase 1 token packs / spend costs via backendphase2 internal API.
- * Falls back to local tokenCatalog.js defaults when Phase 2 is unreachable.
+ * Loads HQ-managed Phase 1 token packs / spend costs / free earn rewards via
+ * backendphase2 internal API. Falls back to local tokenCatalog.js defaults
+ * when Phase 2 is unreachable.
  */
 const {
   PURCHASE_PACKS,
   SERVICE_CATALOG,
   SERVICE_COSTS,
+  EARN_REWARDS,
+  EARN_TASK_CATALOG,
   getServiceCost: getDefaultServiceCost,
   getPurchasePack: getDefaultPurchasePack,
+  getEarnReward: getDefaultEarnReward,
+  getBaseEarnKey,
 } = require('../constants/tokenCatalog');
 const {
   buildPhase2InternalUrl,
@@ -24,6 +29,10 @@ function defaultPacks() {
 
 function defaultCosts() {
   return { ...SERVICE_COSTS };
+}
+
+function defaultEarnRewards() {
+  return { ...EARN_REWARDS };
 }
 
 async function fetchHqCatalog() {
@@ -73,12 +82,25 @@ async function loadConfig({ bypassCache = false } = {}) {
       }
     }
 
-    cache = { packs, serviceCosts };
+    const earnRewards = { ...defaultEarnRewards() };
+    if (data.earnRewards && typeof data.earnRewards === 'object') {
+      for (const [key, value] of Object.entries(data.earnRewards)) {
+        earnRewards[key] = Math.max(0, Math.floor(Number(value) || 0));
+      }
+    } else if (Array.isArray(data.earns)) {
+      for (const row of data.earns) {
+        const id = String(row?.id || '').trim();
+        if (!id) continue;
+        earnRewards[id] = Math.max(0, Math.floor(Number(row.tokens) || 0));
+      }
+    }
+
+    cache = { packs, serviceCosts, earnRewards };
     cacheAt = now;
     return cache;
   } catch (err) {
     console.warn('[hqPhase1TokenConfig] Phase 2 catalog unavailable, using defaults:', err?.message || err);
-    return cache || { packs: defaultPacks(), serviceCosts: defaultCosts() };
+    return cache || { packs: defaultPacks(), serviceCosts: defaultCosts(), earnRewards: defaultEarnRewards() };
   }
 }
 
@@ -112,10 +134,55 @@ async function getMergedServiceCatalog() {
   }));
 }
 
+async function getEarnRewardAsync(earnKey) {
+  const base = getBaseEarnKey(earnKey);
+  const config = await loadConfig({ bypassCache: true });
+  if (config.earnRewards?.[earnKey] != null) {
+    return Math.max(0, Math.floor(Number(config.earnRewards[earnKey]) || 0));
+  }
+  if (config.earnRewards?.[base] != null) {
+    return Math.max(0, Math.floor(Number(config.earnRewards[base]) || 0));
+  }
+  return getDefaultEarnReward(earnKey);
+}
+
+/**
+ * Cycle 1 = full HQ/base reward; cycle 2 = 40%; cycle 3+ = 20% (minimum 1).
+ */
+async function getRepeatEarnAmountAsync(earnKey, cycleIndex = 1) {
+  const baseKey = getBaseEarnKey(earnKey);
+  const base = await getEarnRewardAsync(baseKey);
+  if (base == null || base <= 0) return null;
+  const cycle = Math.max(1, Number(cycleIndex) || 1);
+  if (cycle <= 1) return base;
+  if (cycle === 2) return Math.max(1, Math.floor(base * 0.4));
+  return Math.max(1, Math.floor(base * 0.2));
+}
+
+async function getMergedEarnTasks() {
+  const config = await loadConfig({ bypassCache: true });
+  return EARN_TASK_CATALOG.map((task) => {
+    const tokens =
+      config.earnRewards?.[task.id] != null
+        ? Math.max(0, Math.floor(Number(config.earnRewards[task.id]) || 0))
+        : task.tokens;
+    return { ...task, tokens };
+  }).sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+async function getWelcomeAmountAsync() {
+  const amount = await getEarnRewardAsync('welcome');
+  return amount != null && amount > 0 ? amount : EARN_REWARDS.welcome;
+}
+
 module.exports = {
   listPurchasePacks,
   getPurchasePackAsync,
   getServiceCostAsync,
   getMergedServiceCatalog,
+  getEarnRewardAsync,
+  getRepeatEarnAmountAsync,
+  getMergedEarnTasks,
+  getWelcomeAmountAsync,
   loadConfig,
 };

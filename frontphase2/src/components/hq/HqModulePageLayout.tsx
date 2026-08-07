@@ -46,7 +46,7 @@ type HqModulePageLayoutProps = {
 /**
  * HQ page chrome mirrored from Phase 2 `Ph2ModulePageLayout`:
  * frosted header → content column → SummaryCards → table card.
- * Height is `100dvh` (HQ has no tenant top bar).
+ * Height fills the HQ main surface (shell already locks to 100dvh).
  */
 export function HqModulePageLayout({
   title,
@@ -58,11 +58,7 @@ export function HqModulePageLayout({
   locked = true,
 }: HqModulePageLayoutProps) {
   return (
-    <div
-      className={`ph2-page-shell flex w-full flex-col overflow-hidden text-slate-900 ${
-        locked ? 'h-[100dvh]' : 'min-h-[100dvh]'
-      }`}
-    >
+    <div className="ph2-page-shell flex h-full max-h-full w-full flex-col overflow-hidden text-slate-900">
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
           <div className={PH2_PAGE_HEADER_BRAND_CLASS}>
@@ -80,10 +76,14 @@ export function HqModulePageLayout({
         </header>
         <div
           className={`flex min-h-0 flex-1 flex-col px-3 py-4 sm:px-5 sm:py-6 lg:px-6 ${
-            locked ? 'overflow-hidden' : 'overflow-y-auto'
+            locked ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar'
           }`}
         >
-          <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col">
+          <div
+            className={`mx-auto flex w-full max-w-[1600px] flex-col ${
+              locked ? 'min-h-0 flex-1' : 'pb-8'
+            }`}
+          >
             {children}
           </div>
         </div>

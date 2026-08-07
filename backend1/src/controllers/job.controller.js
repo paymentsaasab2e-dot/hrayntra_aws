@@ -15,7 +15,7 @@ const cache = {
   lastFetched: 0,
   TTL: 300000, // 5 minutes
   /** Bump when job list payload shape changes so old cache entries cannot hide new fields (e.g. screening questions). */
-  version: 7,
+  version: 8,
 };
 
 function invalidateJobsListCache() {
@@ -31,8 +31,9 @@ function listingImageUrlFromJob(job) {
   return /^https?:\/\//i.test(t) ? t : null;
 }
 
-/** Job-specific image wins; else CRM client logo (Lead→Client or Client drawer), then legacy Company.logoUrl */
+/** Job-specific image wins; else CRM client logo — never when client is hidden from public. */
 function jobListingThumbnail(job) {
+  if (!shouldShowClientNamePublicly(job)) return null;
   const custom = listingImageUrlFromJob(job);
   if (custom) return custom;
   if (typeof job.client?.logo === 'string' && job.client.logo.trim()) return job.client.logo.trim();
@@ -591,7 +592,7 @@ async function seedSampleJobs(req, res) {
 }
 
 /**
- * Recommend jobs based on search query (for autocomplete)
+ * Recommend jobs based on search query (for autocomplete) — database jobs only.
  * GET /api/jobs/recommend?q=...
  */
 async function recommendJobs(req, res) {
@@ -602,64 +603,44 @@ async function recommendJobs(req, res) {
     }
 
     const startedAt = Date.now();
-    const { generateGoalRecommendations } = require('../lms/services/ai.lms.service');
-    
-    // Fetch DB jobs and AI recommendations in parallel
-    const [jobs, aiSuggestions] = await Promise.all([
-      prisma.job.findMany({
-        where: {
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { skills: { hasSome: [q] } },
-            { industry: { contains: q, mode: 'insensitive' } },
-          ],
-        },
-        include: {
-          company: { select: { id: true, name: true, logoUrl: true } },
-          client: { select: { companyName: true, logo: true } },
-        },
-        take: 4,
-        orderBy: { postedAt: 'desc' },
-      }),
-      generateGoalRecommendations(q)
-    ]);
+    const query = String(q).trim();
+
+    const jobs = await prisma.job.findMany({
+      where: {
+        OR: [
+          { title: { contains: query, mode: 'insensitive' } },
+          { skills: { hasSome: [query] } },
+          { industry: { contains: query, mode: 'insensitive' } },
+          { jobCategory: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      include: {
+        company: { select: { id: true, name: true, logoUrl: true } },
+        client: { select: { companyName: true, logo: true } },
+      },
+      take: 12,
+      orderBy: { postedAt: 'desc' },
+    });
 
     console.log(
-      `📦 Hybrid Search result: jobs=${jobs.length} | ai=${aiSuggestions.length} | elapsedMs=${Date.now() - startedAt}`
+      `📦 Job recommend (DB only): q="${query}" | jobs=${jobs.length} | elapsedMs=${Date.now() - startedAt}`
     );
 
-    // Format DB results
-    const dbFormatted = jobs.map(job => ({
+    const dbFormatted = jobs.map((job) => ({
       id: job.id,
       title: job.title,
       company: shouldShowClientNamePublicly(job)
-        ? job.company?.name || job.client?.companyName || 'Hiring Partner'
+        ? job.company?.name || job.client?.companyName || null
         : null,
       location: job.location,
       type: job.type || job.employmentType || 'Full-time',
       logo: jobListingThumbnail(job) || '',
-      matchScore: Math.floor(Math.random() * 10) + 88,
+      isAiSuggestion: false,
     }));
-
-    // Format AI results (avoiding duplicates)
-    const dbTitles = new Set(dbFormatted.map(j => j.title.toLowerCase()));
-    const aiFormatted = aiSuggestions
-      .filter(title => !dbTitles.has(title.toLowerCase()))
-      .slice(0, 3)
-      .map((title, i) => ({
-        id: `ai-suggest-${i}`,
-        title: title,
-        company: 'AI Predicted Role',
-        location: 'Global / Remote',
-        type: 'Suggested',
-        logo: '',
-        matchScore: 99,
-        isAiSuggestion: true
-      }));
 
     res.json({
       success: true,
-      data: [...dbFormatted, ...aiFormatted]
+      data: dbFormatted,
     });
   } catch (error) {
     console.error('Error recommending jobs:', error);
@@ -671,7 +652,7 @@ async function recommendJobs(req, res) {
 }
 
 /**
- * Recommend locations (cities/countries) based on search query
+ * Recommend locations from jobs in the database only (no AI / static hubs).
  * GET /api/jobs/location-recommend?q=...
  */
 async function recommendLocations(req, res) {
@@ -681,61 +662,46 @@ async function recommendLocations(req, res) {
       return res.json({ success: true, data: [] });
     }
 
-    const globalHubs = [
-      'New York, USA', 'London, UK', 'San Francisco, USA', 'Berlin, Germany', 
-      'Singapore', 'Bangalore, India', 'Remote', 'Austin, USA', 
-      'Toronto, Canada', 'Sydney, Australia', 'Dubai, UAE', 'Tokyo, Japan',
-      'Paris, France', 'Mumbai, India', 'Delhi, India', 'Pune, India'
-    ];
-
-    const filteredHubs = globalHubs
-      .filter(h => h.toLowerCase().includes(q.toLowerCase()));
-
-    // CALL OPENAI for infinite global suggestions
-    let aiSuggestions = [];
-    try {
-      const { generateLocationRecommendations } = require('../lms/services/ai.lms.service');
-      aiSuggestions = await generateLocationRecommendations(q);
-    } catch (e) {
-      console.warn('AI Location Recs failed, skipping OpenAI stage.', e.message);
-    }
-
-    // Also check if we have specific locations in the jobs database
-    const dbLocations = await prisma.job.findMany({
+    const query = String(q).trim();
+    const dbJobs = await prisma.job.findMany({
       where: {
-        location: { contains: q, mode: 'insensitive' }
+        OR: [
+          { location: { contains: query, mode: 'insensitive' } },
+          { city: { contains: query, mode: 'insensitive' } },
+          { state: { contains: query, mode: 'insensitive' } },
+          { country: { contains: query, mode: 'insensitive' } },
+        ],
       },
-      select: { location: true },
-      distinct: ['location'],
-      take: 8
+      select: { location: true, city: true, state: true, country: true },
+      take: 80,
+      orderBy: { postedAt: 'desc' },
     });
 
-    // Combine all sources
-    const allRaw = [
-      ...dbLocations.map(l => l.location),
-      ...aiSuggestions,
-      ...filteredHubs,
-    ];
-
-    // Deduplicate and format
     const seen = new Set();
     const final = [];
-
-    allRaw.forEach(loc => {
-      const normalized = loc.toLowerCase().trim();
-      if (!seen.has(normalized) && final.length < 15) {
+    for (const row of dbJobs) {
+      const labels = [
+        row.location,
+        [row.city, row.state, row.country].filter(Boolean).join(', '),
+        row.city,
+        row.country,
+      ]
+        .map((v) => String(v || '').trim())
+        .filter(Boolean);
+      for (const loc of labels) {
+        const normalized = loc.toLowerCase();
+        if (seen.has(normalized)) continue;
+        if (!normalized.includes(query.toLowerCase())) continue;
         seen.add(normalized);
-        final.push({
-          name: loc,
-          isAi: aiSuggestions.includes(loc),
-          isDb: dbLocations.some(db => db.location === loc)
-        });
+        final.push({ name: loc, isAi: false, isDb: true });
+        if (final.length >= 12) break;
       }
-    });
+      if (final.length >= 12) break;
+    }
 
     res.json({
       success: true,
-      data: final
+      data: final,
     });
   } catch (error) {
     console.error('Error recommending locations:', error);
@@ -908,14 +874,17 @@ async function getPersonalizedJobs(req, res) {
 
       const thumb = jobListingThumbnail(job);
       const portalBase = formatPortalJob(job, { thumbnail: thumb });
+      const showClient = shouldShowClientNamePublicly(job);
       return {
         ...portalBase,
         jobId: job.id,
-        jobTitle: job.title,
-        companyLogo: thumb || '',
-        logo: thumb || '',
+        jobTitle: portalBase.title || job.title,
+        // Never re-attach client logo / company after formatPortalJob redacts them.
+        companyLogo: showClient ? thumb || portalBase.companyLogo || '' : null,
+        logo: showClient ? thumb || portalBase.companyLogo || '' : null,
+        company: showClient ? portalBase.company : null,
         requiredSkills: Array.isArray(job.requirements) ? job.requirements : portalBase.skills,
-        experienceRequired: job.experienceRequired ?? job.experienceLevel ?? null,
+        experienceRequired: portalBase.experienceLevel ?? null,
         assignedRecruiter: null,
         matchScore: Math.min(100, Math.round(job.rawScore)), // The actual blend
         normalizedScore: normalizedScore, // Relative rank

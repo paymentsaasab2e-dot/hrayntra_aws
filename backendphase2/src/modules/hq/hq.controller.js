@@ -110,6 +110,15 @@ export const hqController = {
     }
   },
 
+  async savePhase1TokenEarns(req, res) {
+    try {
+      const result = await hqService.savePhase1TokenEarns(req.body, req.user);
+      sendResponse(res, 200, 'Phase 1 free earn rewards saved', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async setTenantPause(req, res) {
     try {
       const result = await hqService.setTenantPause(req.body, req.user);

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { useClientPageFieldVisibility } from '../../hooks/useClientPageFieldVisibility';
@@ -99,6 +100,7 @@ import {
   UserPlus,
   FileText,
   Upload,
+  Camera,
   Trash2,
   Globe,
   MapPin,
@@ -192,7 +194,6 @@ import { requestConfirm, requestError, requestSuccess, requestWarning } from '..
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { ClientAiChatDrawer } from '../clients/ClientAiChatDrawer';
 import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
-import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import {
   alertDrawerAnalysis,
   analyzeClientDrawer,
@@ -947,6 +948,10 @@ export function ClientDetailsDrawer({
   const clientAiGate = useAiCoinGate('ai.client_details');
   const isHqOverrideMode = Boolean(createClientOverride || updateClientOverride);
   usePageDrawerLifecycle(drawerIsOpen);
+  const [clientPanelPortalReady, setClientPanelPortalReady] = useState(false);
+  useEffect(() => {
+    setClientPanelPortalReady(true);
+  }, []);
   const {
     panelRef: clientDrawerPanelRef,
     requestClose: requestClientDrawerClose,
@@ -1072,10 +1077,38 @@ export function ClientDetailsDrawer({
     DEFAULT_CLIENT_OVERVIEW_SECTIONS,
   );
   const isAddMode = propIsAddMode;
+  type AddClientTab = 'details' | 'agreements' | 'kyc';
+  const ADD_CLIENT_TABS: Array<{
+    id: AddClientTab;
+    label: string;
+    subtitle: string;
+    icon: typeof Building2;
+  }> = [
+    {
+      id: 'details',
+      label: 'Client Information',
+      subtitle: 'Company profile, contacts, and qualification',
+      icon: Building2,
+    },
+    {
+      id: 'agreements',
+      label: 'Agreements & Terms',
+      subtitle: 'Contract terms and agreement documents',
+      icon: FileText,
+    },
+    {
+      id: 'kyc',
+      label: 'KYC Form',
+      subtitle: 'Identity verification and compliance documents',
+      icon: Shield,
+    },
+  ];
+  const [addClientTab, setAddClientTab] = useState<AddClientTab>('details');
 
   useEffect(() => {
     if (!client && !isAddMode) return;
     setOverviewOpen(DEFAULT_CLIENT_OVERVIEW_SECTIONS);
+    if (isAddMode) setAddClientTab('details');
   }, [client?.id, isAddMode]);
 
   const [overviewEditMode, setOverviewEditMode] = useState(isAddMode);
@@ -1343,6 +1376,9 @@ export function ClientDetailsDrawer({
         agreementsTerms: clientAiHasAgreementData(enriched) || prev.agreementsTerms,
         kycForm: clientAiHasKycData(enriched) || prev.kycForm,
       }));
+      if (clientAiHasKycData(enriched)) setAddClientTab('kyc');
+      else if (clientAiHasAgreementData(enriched)) setAddClientTab('agreements');
+      else setAddClientTab('details');
     },
     [overviewEditForm, applyGeneratedClientToForm, patchOverviewWithAutoTimezone],
   );
@@ -2202,7 +2238,9 @@ export function ClientDetailsDrawer({
       await apiUpdateClient(client.id, { logo: logoUrl });
       syncClientLogoLocally(logoUrl);
       setLogoRemoved(false);
+      onClientUpdated?.({ id: client.id, logo: logoUrl });
       onClientCreated?.();
+      toast.success('Client image updated');
     } catch (error: any) {
       console.error('Failed to upload client logo:', error);
       void requestError(error.message || 'Failed to upload client logo');
@@ -3691,6 +3729,7 @@ export function ClientDetailsDrawer({
       setOverviewEditMode(true);
       // Set active tab to overview
       setActiveTab('overview');
+      setAddClientTab('details');
     } else {
       // Normal view mode should not inherit edit mode from a prior add flow
       setOverviewEditMode(false);
@@ -3768,8 +3807,16 @@ export function ClientDetailsDrawer({
     return null;
   }
 
-  return (
-    <>
+  const headerLogoSrc = getClientLogoSrc(
+    logoRemoved
+      ? ''
+      : pendingClientLogoPreview ||
+          fullClientData?.logo ||
+          client?.logo ||
+          '',
+  );
+
+  const drawerTree = (
     <AnimatePresence mode="wait">
       {(client || isAddMode) && (
         <>
@@ -3779,29 +3826,76 @@ export function ClientDetailsDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => void requestClientDrawerClose()}
-            className={`fixed inset-0 ${stackClassName} bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto`}
+            className={`fixed inset-0 ${stackClassName} bg-slate-900/45 backdrop-blur-[2px] pointer-events-auto`}
+            data-drawer-skip-dirty="true"
           />
-          <motion.div
-            key="panel"
-            ref={clientDrawerPanelRef}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            onClick={(e) => e.stopPropagation()}
-            className={`fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl ${stackClassName} pointer-events-auto border-l border-slate-200 flex flex-col`}
+          <div
+            className={`pointer-events-none fixed inset-0 ${stackClassName} flex items-center justify-center p-4 sm:p-6`}
           >
+            <motion.div
+              key="panel"
+              ref={clientDrawerPanelRef}
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="client-detail-modal-title"
+              className="pointer-events-auto relative flex h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5"
+            >
             {/* Sticky Header */}
             <div className="shrink-0 bg-white border-b border-slate-200">
               <div className="p-5 flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0 flex items-center gap-3">
                   {!isAddMode && (
-                  <div className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0 bg-white">
-                      <ImageWithFallback src={fullClientData?.logo || client?.logo} alt={client?.name || ''} className="w-full h-full object-cover" />
-                  </div>
+                  <>
+                    <input
+                      ref={clientLogoInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleClientLogoFileChange}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => clientLogoInputRef.current?.click()}
+                      disabled={uploadingClientLogo || isHqOverrideMode}
+                      title={
+                        isHqOverrideMode
+                          ? 'Client image'
+                          : headerLogoSrc
+                            ? 'Change client image'
+                            : 'Upload client image'
+                      }
+                      className="group relative w-12 h-12 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0 bg-slate-50 disabled:cursor-default"
+                    >
+                      {headerLogoSrc ? (
+                        <ImageWithFallback
+                          src={headerLogoSrc}
+                          alt={client?.name || ''}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-slate-300">
+                          <Building2 size={22} />
+                        </span>
+                      )}
+                      {!isHqOverrideMode ? (
+                        <span className="absolute inset-0 flex items-center justify-center bg-slate-900/45 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                          {uploadingClientLogo ? (
+                            <span className="text-[10px] font-semibold text-white">…</span>
+                          ) : (
+                            <Camera size={16} className="text-white" />
+                          )}
+                        </span>
+                      ) : null}
+                    </button>
+                  </>
                   )}
                   <div className="min-w-0">
-                    <h2 className="text-lg font-bold text-slate-900 truncate">
+                    <h2 id="client-detail-modal-title" className="text-lg font-bold text-slate-900 truncate">
                       {isAddMode ? 'Add New Client' : fullClientData?.name || client?.name}
                     </h2>
                   </div>
@@ -3995,14 +4089,51 @@ export function ClientDetailsDrawer({
                       </button>
                     </div>
 
+                    <div className="rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
+                        {ADD_CLIENT_TABS.map((tab) => {
+                          const Icon = tab.icon;
+                          const active = addClientTab === tab.id;
+                          return (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setAddClientTab(tab.id)}
+                              className={`flex items-start gap-3 rounded-xl px-3 py-3 text-left transition-all ${
+                                active
+                                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                                  : 'text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              <span
+                                className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                                  active ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'
+                                }`}
+                              >
+                                <Icon size={16} />
+                              </span>
+                              <span className="min-w-0">
+                                <span className={`block text-sm font-semibold ${active ? 'text-white' : 'text-slate-900'}`}>
+                                  {tab.label}
+                                </span>
+                                <span className={`mt-0.5 block text-[11px] leading-snug ${active ? 'text-blue-50/90' : 'text-slate-500'}`}>
+                                  {tab.subtitle}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {addClientTab === 'details' ? (
                     <DrawerSectionCard
                       title="Client Information"
                       subtitle="Company profile, contacts, and qualification"
                       icon={Building2}
                       accent="blue"
-                      collapsible
-                      open={overviewOpen.leadInformation}
-                      onOpenChange={() => toggleOverviewSection('leadInformation')}
+                      collapsible={false}
+                      open
                     >
                               {/* Company Logo uploader — kept on Add Client even though Add Lead doesn't have one,
                                   so the client gets a logo immediately during onboarding. */}
@@ -4440,15 +4571,16 @@ export function ClientDetailsDrawer({
                                 )}
                               </div>
                     </DrawerSectionCard>
+                    ) : null}
 
+                    {addClientTab === 'agreements' ? (
                     <DrawerSectionCard
                       title="Agreements & Terms"
                       subtitle="Contract terms and agreement documents"
                       icon={FileText}
                       accent="indigo"
-                      collapsible
-                      open={overviewOpen.agreementsTerms}
-                      onOpenChange={() => toggleOverviewSection('agreementsTerms')}
+                      collapsible={false}
+                      open
                     >
                               <AgreementTermsSection
                                 values={overviewEditForm}
@@ -4477,15 +4609,16 @@ export function ClientDetailsDrawer({
                                 }
                               />
                     </DrawerSectionCard>
+                    ) : null}
 
+                    {addClientTab === 'kyc' ? (
                     <DrawerSectionCard
                       title="KYC Form"
                       subtitle="Identity verification and compliance documents"
                       icon={Shield}
                       accent="emerald"
-                      collapsible
-                      open={overviewOpen.kycForm}
-                      onOpenChange={() => toggleOverviewSection('kycForm')}
+                      collapsible={false}
+                      open
                     >
                               <KycDocumentsField
                                 pendingFiles={pendingKycFiles}
@@ -4515,6 +4648,46 @@ export function ClientDetailsDrawer({
                                 }
                               />
                     </DrawerSectionCard>
+                    ) : null}
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const idx = ADD_CLIENT_TABS.findIndex((t) => t.id === addClientTab);
+                          if (idx > 0) setAddClientTab(ADD_CLIENT_TABS[idx - 1]!.id);
+                        }}
+                        disabled={addClientTab === 'details'}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <ChevronRight size={16} className="rotate-180" />
+                        Back
+                      </button>
+                      {addClientTab !== 'kyc' ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const idx = ADD_CLIENT_TABS.findIndex((t) => t.id === addClientTab);
+                            if (idx >= 0 && idx < ADD_CLIENT_TABS.length - 1) {
+                              setAddClientTab(ADD_CLIENT_TABS[idx + 1]!.id);
+                            }
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                        >
+                          Next
+                          <ChevronRight size={16} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void saveOverviewEdit()}
+                          disabled={isCreateClientDisabled || uploadingAgreements || uploadingKyc}
+                          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Create Client
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : showSendMessageForm ? (
                   <div className="space-y-5">
@@ -4875,15 +5048,6 @@ export function ClientDetailsDrawer({
                     <div className="space-y-5">
                       {!overviewEditMode ? (
                         <>
-                          {client?.id ? (
-                            <>
-                              <EntityWorkspaceAlertsPanel
-                                entityType="CLIENT"
-                                entityId={client.id}
-                                entityLabel={fullClientData?.name || client?.name || 'Client'}
-                              />
-                            </>
-                          ) : null}
                           <DrawerSectionCard
                             title="Client Information"
                             subtitle="Company profile, contacts, and qualification"
@@ -5066,6 +5230,53 @@ export function ClientDetailsDrawer({
                             open={overviewOpen.leadInformation}
                             onOpenChange={() => toggleOverviewSection('leadInformation')}
                           >
+                            <div className="space-y-4">
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                  Client Image
+                                </label>
+                                <div className="flex items-center gap-4">
+                                  <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
+                                    {clientLogoPreview ? (
+                                      <ImageWithFallback
+                                        src={getClientLogoSrc(clientLogoPreview)}
+                                        alt="Client logo preview"
+                                        className="w-full h-full object-cover block"
+                                      />
+                                    ) : (
+                                      <Building2 size={24} className="text-slate-300" />
+                                    )}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => clientLogoInputRef.current?.click()}
+                                      disabled={uploadingClientLogo || isHqOverrideMode}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+                                    >
+                                      <Upload size={16} />
+                                      {uploadingClientLogo
+                                        ? 'Uploading…'
+                                        : clientLogoPreview
+                                          ? 'Replace Image'
+                                          : 'Upload Image'}
+                                    </button>
+                                    {clientLogoPreview && !isHqOverrideMode ? (
+                                      <button
+                                        type="button"
+                                        onClick={markClientLogoRemoved}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                                      >
+                                        <Trash2 size={16} />
+                                        Remove
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                <p className="mt-2 text-xs text-slate-500">
+                                  PNG, JPG, or SVG. Recommended size 256×256 or larger.
+                                </p>
+                              </div>
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
@@ -5455,6 +5666,7 @@ export function ClientDetailsDrawer({
                                   </div>
                                 )}
                               </div>
+                            </div>
                             </div>
                           </DrawerSectionCard>
 
@@ -6542,8 +6754,11 @@ export function ClientDetailsDrawer({
                                   </td>
                                   <td className="px-4 py-3">
                                     <div className="flex flex-wrap gap-1">
-                                      {(job.pipelineStages ?? []).slice(0, 3).map((s) => (
-                                        <span key={s.stage} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium">
+                                      {(job.pipelineStages ?? []).slice(0, 3).map((s, stageIndex) => (
+                                        <span
+                                          key={`${job.id || job.title}-${s.stage}-${stageIndex}`}
+                                          className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium"
+                                        >
                                           {s.stage}: {s.count}
                                         </span>
                                       ))}
@@ -7289,9 +7504,17 @@ export function ClientDetailsDrawer({
 
             </div>
           </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>
+  );
+
+  return (
+    <>
+      {drawerIsOpen && clientPanelPortalReady && typeof document !== 'undefined'
+        ? createPortal(drawerTree, document.body)
+        : drawerTree}
     {isAddMode ? (
       <ClientAiChatDrawer
         isOpen={clientAiChatOpen}

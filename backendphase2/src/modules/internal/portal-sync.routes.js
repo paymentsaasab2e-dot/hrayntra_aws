@@ -124,6 +124,8 @@ router.get('/phase1-token-catalog', portalSyncSecretMiddleware, async (req, res)
         packs: overview.packs,
         services: overview.services,
         serviceCosts: overview.serviceCosts,
+        earns: overview.earns,
+        earnRewards: overview.earnRewards,
         updatedAt: overview.updatedAt,
       },
     });

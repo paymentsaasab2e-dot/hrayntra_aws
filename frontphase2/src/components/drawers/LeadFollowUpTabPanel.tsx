@@ -19,8 +19,7 @@ import {
   type BackendActivity,
 } from '../../lib/api';
 import { requestError, requestWarning } from '../../lib/appDialog';
-
-const FOLLOW_UP_SCHEDULE_LABEL = '__followUpSchedule';
+import { FOLLOW_UP_SCHEDULE_LABEL } from '../../lib/leadInternalOtherDetails';
 
 type FollowUpHistoryItem = {
   id: string;

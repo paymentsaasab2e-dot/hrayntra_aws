@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { X, Mail, Phone, MapPin, Linkedin, Edit, Trash2 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
@@ -51,23 +52,15 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
     <AnimatePresence>
       {isOpen && (
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 z-[90] bg-slate-900/40"
-          />
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
+          <DetailsModalShell
+            onBackdropClick={onClose}
+            size="lg"
+            zIndexClass="z-[100]"
+            dialogTitleId="contact-detail-modal-title"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <h2 className="text-lg font-semibold text-gray-900">Contact Details</h2>
+              <h2 id="contact-detail-modal-title" className="text-lg font-semibold text-gray-900">Contact Details</h2>
               <button
                 onClick={onClose}
                 className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
@@ -310,7 +303,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
                 Delete
               </button>
             </div>
-          </motion.aside>
+          </DetailsModalShell>
         </>
       )}
     </AnimatePresence>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { CalendarPlus, Edit2, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { InterviewAction } from './ActionsDropdown';
@@ -64,19 +65,11 @@ export function InterviewDrawer({
     <AnimatePresence>
       {isOpen && interview ? (
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 z-[90] bg-slate-900/40"
-          />
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
+          <DetailsModalShell
+            onBackdropClick={onClose}
+            size="lg"
+            zIndexClass="z-[100]"
+            dialogTitleId="interview-detail-modal-title"
           >
             <div className="border-b border-[#E5E7EB] px-6 py-5">
               <div className="flex items-start justify-between gap-4">
@@ -89,7 +82,7 @@ export function InterviewDrawer({
                       .join('')}
                   </div>
                   <div>
-                    <div className="text-lg font-semibold text-[#111827]">{interview.candidate.name}</div>
+                    <div id="interview-detail-modal-title" className="text-lg font-semibold text-[#111827]">{interview.candidate.name}</div>
                     <div className="text-sm text-[#6B7280]">{interview.candidate.email}</div>
                     <div className="mt-1 text-sm text-[#6B7280]">
                       {interview.job.title} • {interview.job.client}
@@ -274,7 +267,7 @@ export function InterviewDrawer({
                 />
               ) : null}
             </div>
-          </motion.aside>
+          </DetailsModalShell>
         </>
       ) : null}
     </AnimatePresence>

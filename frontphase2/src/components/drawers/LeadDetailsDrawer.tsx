@@ -17,7 +17,6 @@ import {
 } from '../LeadFollowUpScheduler';
 import { formatFollowUpDisplay } from '../../utils/formatLeadDateTime';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
-import { exportLeadAsPdf } from '../../utils/exportLeadPdf';
 import { NAME_SALUTATION_OPTIONS, formatDirectorDisplay } from '../../constants/salutations';
 import { MultiContactFields } from '../ui/MultiContactFields';
 import {
@@ -34,7 +33,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Edit2,
-  MoreVertical,
   Building2,
   User,
   Mail,
@@ -163,6 +161,7 @@ import {
   readLeadOccasionFromOtherDetails,
   type LeadOccasionFormValues,
 } from '../../lib/leadOccasionDetails';
+import { isInternalLeadOtherDetailLabel, withPreservedInternalOtherDetails } from '../../lib/leadInternalOtherDetails';
 import { LeadOccasionFields } from '../forms/LeadOccasionFields';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
@@ -1012,8 +1011,6 @@ export function LeadDetailsDrawer({
   onConvert,
   onMarkLost,
   onAssignLead,
-  onDeleteLead,
-  onDuplicateLead,
   onOpenExistingLead,
 }: LeadDetailsDrawerProps) {
   usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
@@ -1628,7 +1625,6 @@ export function LeadDetailsDrawer({
     };
   } | null>(null);
 
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const DEFAULT_LEAD_OVERVIEW_SECTIONS: Record<string, boolean> = {
     company: false,
     contact: false,
@@ -1872,7 +1868,6 @@ export function LeadDetailsDrawer({
   const [markLostForm, setMarkLostForm] = useState<MarkLostFormData>({ lostReason: '', notes: '' });
   const [lostReasonDropdownOpen, setLostReasonDropdownOpen] = useState(false);
   const [showDuplicateNotification, setShowDuplicateNotification] = useState(false);
-  const [showDeleteLeadForm, setShowDeleteLeadForm] = useState(false);
   const [showMergeLeadsForm, setShowMergeLeadsForm] = useState(false);
   const MERGE_FIELDS = ['company', 'phone', 'email', 'notes', 'leadOwner'] as const;
   const [mergeLeadsForm, setMergeLeadsForm] = useState<{
@@ -1887,81 +1882,6 @@ export function LeadDetailsDrawer({
 
   const [notesTagFilter, setNotesTagFilter] = useState<LeadNoteTag | 'All'>('All');
   const [pinnedNoteIds, setPinnedNoteIds] = useState<Set<string>>(new Set());
-
-  // ── 3-dot menu actions ─────────────────────────────────────────────
-  const handleExportLead = () => {
-    if (!lead) {
-      toast.error('No lead selected to export');
-      return;
-    }
-    try {
-      exportLeadAsPdf(lead);
-      toast.success('Opening Print dialog – choose “Save as PDF” to export.');
-    } catch (err: any) {
-      console.error('Failed to export lead:', err);
-      toast.error(err?.message || 'Failed to export lead');
-    }
-  };
-
-  /**
-   * Duplicate the current lead by re-posting its core fields as a new
-   * record. Tagged in the company name so users can tell the copy apart.
-   */
-  const handleDuplicateLead = async () => {
-    if (!lead) return;
-    try {
-      const payload: CreateLeadData = {
-        companyName: `${lead.companyName || 'Lead'} (Copy)`,
-        type: lead.type,
-        source: lead.source,
-        contactPerson: lead.contactPerson,
-        directorName: lead.directorName,
-        directorSalutation: lead.directorSalutation,
-        email: lead.email,
-        phone: lead.phone,
-        status: 'New',
-        priority: lead.priority,
-        interestedNeeds: lead.interestedNeeds,
-        servicesNeeded: lead.servicesNeeded,
-        notes: lead.notes,
-        expectedBusinessValue: lead.expectedBusinessValue,
-        industry: lead.industry,
-        sector: lead.sector,
-        companySize: lead.companySize,
-        teamName: lead.teamName,
-        website: lead.website,
-        linkedIn: lead.linkedIn,
-        location: lead.location,
-        designation: lead.designation,
-        country: lead.country,
-        city: lead.city,
-        campaignName: lead.campaignName,
-        campaignLink: lead.campaignLink,
-        referralName: lead.referralName,
-        sourceWebsiteUrl: lead.sourceWebsiteUrl,
-        sourceLinkedInUrl: lead.sourceLinkedInUrl,
-        sourceEmail: lead.sourceEmail,
-        otherDetails: lead.otherDetails,
-        assignedToId: lead.assignedToId,
-        assignedToIds: Array.isArray(lead.assignedToIds) && lead.assignedToIds.length > 0
-          ? lead.assignedToIds
-          : undefined,
-      } as CreateLeadData;
-
-      const response = await apiCreateLead(payload);
-      const newLead = response?.data;
-      toast.success(`Duplicated as “${newLead?.companyName || payload.companyName}”`);
-      if (newLead) {
-        onDuplicateLead?.(newLead);
-      }
-      // Refresh the parent list so the copy shows up immediately.
-      onUpdateLead?.();
-      setMoreMenuOpen(false);
-    } catch (err: any) {
-      console.error('Failed to duplicate lead:', err);
-      toast.error(err?.message || 'Failed to duplicate lead');
-    }
-  };
 
   // Fetch activities when lead changes or activities tab is opened
   useEffect(() => {
@@ -2276,7 +2196,8 @@ export function LeadDetailsDrawer({
               .filter(
                 (item) =>
                   !isTeamMemberDetailLabel(item.label) &&
-                  !isLeadOccasionDetailLabel(item.label),
+                  !isLeadOccasionDetailLabel(item.label) &&
+                  !isInternalLeadOtherDetailLabel(item.label),
               )
               .map((item) => ({
                 label: String(item.label || '').trim(),
@@ -2481,17 +2402,20 @@ export function LeadDetailsDrawer({
         ...teamMemberPayloadFromForm(
           primaryTeamMemberFromList(overviewEditForm.teamMembers),
         ),
-        otherDetails: mergeOccasionIntoOtherDetails(
-          mergeTeamMemberIntoOtherDetails(
-            overviewEditForm.dynamicOtherDetails
-              .map((item) => ({
-                label: String(item.label || '').trim(),
-                value: String(item.value || '').trim(),
-              }))
-              .filter((item) => item.label && item.value),
-            overviewEditForm.teamMembers,
+        otherDetails: withPreservedInternalOtherDetails(
+          mergeOccasionIntoOtherDetails(
+            mergeTeamMemberIntoOtherDetails(
+              overviewEditForm.dynamicOtherDetails
+                .map((item) => ({
+                  label: String(item.label || '').trim(),
+                  value: String(item.value || '').trim(),
+                }))
+                .filter((item) => item.label && item.value),
+              overviewEditForm.teamMembers,
+            ),
+            overviewEditForm.occasions || emptyLeadOccasionForm(),
           ),
-          overviewEditForm.occasions || emptyLeadOccasionForm(),
+          lead?.otherDetails,
         ),
         status: String(overviewEditForm.status || 'New').trim() || 'New',
         priority: overviewEditForm.priority,
@@ -3026,49 +2950,6 @@ export function LeadDetailsDrawer({
               ) : (
                 <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
               )}
-              {!addLeadMode ? (
-              <div className="relative">
-                <button
-                  onClick={() => setMoreMenuOpen((v) => !v)}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                  title="More actions"
-                >
-                  <MoreVertical size={18} />
-                </button>
-                {moreMenuOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      onClick={() => setMoreMenuOpen(false)}
-                      aria-hidden
-                    />
-                    <div className="absolute right-0 top-full mt-1 w-48 py-2 bg-white rounded-xl border border-slate-200 shadow-lg z-20">
-                      <button
-                        type="button"
-                        onClick={() => { setMoreMenuOpen(false); handleExportLead(); }}
-                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        Export PDF
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setMoreMenuOpen(false); void handleDuplicateLead(); }}
-                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        Duplicate
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setMoreMenuOpen(false); setShowDeleteLeadForm(true); }}
-                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-              ) : null}
             </div>
           </div>
 
@@ -3173,46 +3054,7 @@ export function LeadDetailsDrawer({
           <div className="relative flex min-h-0 flex-1 flex-col">
             <div className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 via-[#f8fafc] to-blue-50/30">
             <div className="px-6 py-5">
-              {showDeleteLeadForm ? (
-                <div className="space-y-5">
-                  <div className="flex items-center gap-3 mb-4">
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteLeadForm(false)}
-                      className="p-2 -ml-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-                      title="Back"
-                    >
-                      <ChevronRight size={20} className="rotate-180" />
-                    </button>
-                    <h2 className="text-lg font-bold text-slate-900">Delete Lead</h2>
-                  </div>
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                    <p className="text-sm font-medium text-slate-800 mb-1">Are you sure you want to delete this lead?</p>
-                    <p className="text-sm text-slate-500">This action cannot be undone.</p>
-                  </div>
-                  <div className="flex justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteLeadForm(false)}
-                      className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (lead) onDeleteLead?.(lead.id);
-                        setShowDeleteLeadForm(false);
-                        onClose();
-                      }}
-                      className="px-4 py-2.5 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 shadow-sm transition-colors flex items-center gap-2"
-                    >
-                      <Trash2 size={16} />
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ) : showMergeLeadsForm ? (
+              {showMergeLeadsForm ? (
                 <div className="space-y-5">
                   <div className="flex items-center gap-3 mb-4">
                     <button
@@ -4465,17 +4307,21 @@ export function LeadDetailsDrawer({
                           placeholder="e.g. Potential annual business of ₹15,00,000"
                         />
                       </div>
-                      {Array.isArray(addLeadForm.otherDetails) && addLeadForm.otherDetails.length ? (
+                      {(() => {
+                        const publicOtherDetails = Array.isArray(addLeadForm.otherDetails)
+                          ? addLeadForm.otherDetails.filter(
+                              (item) =>
+                                !isTeamMemberDetailLabel(item.label) &&
+                                !isLeadOccasionDetailLabel(item.label) &&
+                                !isInternalLeadOtherDetailLabel(item.label),
+                            )
+                          : [];
+                        if (!publicOtherDetails.length) return null;
+                        return (
                         <div>
                           <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
                           <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-3">
-                            {addLeadForm.otherDetails
-                              .filter(
-                                (item) =>
-                                  !isTeamMemberDetailLabel(item.label) &&
-                                  !isLeadOccasionDetailLabel(item.label),
-                              )
-                              .map((item, index) => (
+                            {publicOtherDetails.map((item, index) => (
                               <div key={`${item.label}-${index}`} className="text-sm">
                                 <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
                                 <span className="text-slate-600">{item.value}</span>
@@ -4483,7 +4329,8 @@ export function LeadDetailsDrawer({
                             ))}
                           </div>
                         </div>
-                      ) : null}
+                        );
+                      })()}
                     </div>
                   </AddLeadSectionCard>
                   ) : null}
@@ -5061,17 +4908,21 @@ export function LeadDetailsDrawer({
                             <div className="space-y-4">
                               <OverviewField label="Services Needed" icon={Layers} iconClassName="text-rose-500" value={lead?.interestedNeeds ?? ''} />
                               <OverviewField label="Expected Business Value" icon={IndianRupee} iconClassName="text-rose-500" value={lead?.notes ?? ''} multiline />
-                              {Array.isArray(lead?.otherDetails) && lead.otherDetails.length ? (
+                              {(() => {
+                                const publicOtherDetails = Array.isArray(lead?.otherDetails)
+                                  ? lead.otherDetails.filter(
+                                      (item) =>
+                                        !isTeamMemberDetailLabel(item.label) &&
+                                        !isLeadOccasionDetailLabel(item.label) &&
+                                        !isInternalLeadOtherDetailLabel(item.label),
+                                    )
+                                  : [];
+                                if (!publicOtherDetails.length) return null;
+                                return (
                                 <div>
                                   <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
                                   <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-3">
-                                    {lead.otherDetails
-                                      .filter(
-                                        (item) =>
-                                          !isTeamMemberDetailLabel(item.label) &&
-                                          !isLeadOccasionDetailLabel(item.label),
-                                      )
-                                      .map((item, index) => (
+                                    {publicOtherDetails.map((item, index) => (
                                       <div key={`${item.label}-${index}`} className="text-sm">
                                         <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
                                         <span className="text-slate-600">{item.value}</span>
@@ -5079,7 +4930,8 @@ export function LeadDetailsDrawer({
                                     ))}
                                   </div>
                                 </div>
-                              ) : null}
+                                );
+                              })()}
                             </div>
                           </AddLeadSectionCard>
 

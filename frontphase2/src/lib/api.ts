@@ -209,7 +209,17 @@ export interface ApiResponse<T> {
 export function getAccessToken() {
   if (typeof window === 'undefined') return null;
   try {
-    return localStorage.getItem('accessToken');
+    const fromStorage = localStorage.getItem('accessToken');
+    if (fromStorage) return fromStorage;
+
+    // Middleware auth uses the cookie; recover if localStorage was cleared but cookie remains.
+    const match = document.cookie.match(/(?:^|;\s*)accessToken=([^;]*)/);
+    const fromCookie = match?.[1] ? decodeURIComponent(match[1]) : null;
+    if (fromCookie) {
+      localStorage.setItem('accessToken', fromCookie);
+      return fromCookie;
+    }
+    return null;
   } catch (error) {
     console.error('Error accessing localStorage:', error);
     return null;
@@ -265,10 +275,13 @@ function isPublicUnauthenticatedPath(pathname?: string) {
   return (
     path === '/login' ||
     path.startsWith('/login/') ||
+    path.startsWith('/forgot-password') ||
+    path.startsWith('/reset-password') ||
     path.startsWith('/lead-form/') ||
     path.startsWith('/apply/') ||
     path.startsWith('/client-review/') ||
-    path.startsWith('/hq/login')
+    path === '/hq/login' ||
+    path.startsWith('/hq/login/')
   );
 }
 
@@ -3127,11 +3140,24 @@ export type HqPhase1TokenService = {
   isCustomCost?: boolean;
 };
 
+export type HqPhase1EarnTask = {
+  id: string;
+  name: string;
+  description: string;
+  tokens: number;
+  category: string;
+  order?: number;
+  defaultTokens?: number;
+  isCustomTokens?: boolean;
+};
+
 export async function apiHqGetPhase1TokenConfig() {
   return apiFetch<{
     packs: HqPhase1TokenPack[];
     services: HqPhase1TokenService[];
     serviceCosts: Record<string, number>;
+    earns?: HqPhase1EarnTask[];
+    earnRewards?: Record<string, number>;
     updatedAt?: string | null;
   }>('/hq/phase1-tokens', { auth: true });
 }
@@ -3154,6 +3180,22 @@ export async function apiHqSavePhase1TokenCosts(body: {
     changed?: Array<{ id: string; name?: string; previous?: number; cost?: number }>;
     updatedAt?: string;
   }>('/hq/phase1-tokens/costs', {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqSavePhase1TokenEarns(body: {
+  earns?: Array<{ id: string; tokens: number }>;
+  rewards?: Record<string, number>;
+}) {
+  return apiFetch<{
+    earns: HqPhase1EarnTask[];
+    earnRewards: Record<string, number>;
+    changed?: Array<{ id: string; name?: string; previous?: number; tokens?: number }>;
+    updatedAt?: string;
+  }>('/hq/phase1-tokens/earns', {
     method: 'PUT',
     auth: true,
     body,

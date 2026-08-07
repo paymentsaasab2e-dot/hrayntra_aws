@@ -51,6 +51,7 @@ router.put('/ai-coin-packs', authMiddleware, hqController.saveAiCoinPacks);
 router.get('/phase1-tokens', authMiddleware, hqController.getPhase1TokenConfig);
 router.put('/phase1-tokens/packs', authMiddleware, hqController.savePhase1TokenPacks);
 router.put('/phase1-tokens/costs', authMiddleware, hqController.savePhase1TokenCosts);
+router.put('/phase1-tokens/earns', authMiddleware, hqController.savePhase1TokenEarns);
 
 router.get('/packages/public', hqController.listPublicPackages);
 router.get('/packages', authMiddleware, hqController.listPackages);
