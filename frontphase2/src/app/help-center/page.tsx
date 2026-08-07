@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { 
+import {
   BookOpen,
   CircleHelp,
   Clock3,
@@ -9,8 +9,9 @@ import {
   ShieldCheck,
   Sparkles,
   LifeBuoy,
-  ArrowRight
+  ArrowRight,
 } from 'lucide-react';
+import { HelpTicketForm } from '../../components/help/HelpTicketForm';
 
 export const metadata = {
   title: 'Help Center',
@@ -20,19 +21,23 @@ export const metadata = {
 const faqs = [
   {
     question: 'How do I find a candidate quickly?',
-    answer: 'Use the global search in the top bar to search candidates, clients, jobs, leads, and contacts from anywhere in the app.',
+    answer:
+      'Use the global search in the top bar to search candidates, clients, jobs, leads, and contacts from anywhere in the app.',
   },
   {
     question: 'Why do some menu items disappear?',
-    answer: 'Sidebar items are permission-based. If your role does not have access, the menu item stays hidden automatically.',
+    answer:
+      'Sidebar items are permission-based. If your role does not have access, the menu item stays hidden automatically.',
   },
   {
     question: 'How do I open the settings pages?',
-    answer: 'Open Settings from the sidebar, then use the left settings menu to switch between the available sections.',
+    answer:
+      'Open Settings from the sidebar, then use the left settings menu to switch between the available sections.',
   },
   {
     question: 'Can I get help from support?',
-    answer: 'Yes. Use the contact card below to reach the support team by email or start a live chat request.',
+    answer:
+      'Yes. Raise a support ticket on this page, or email the support team. Tickets are reviewed by HQ.',
   },
 ];
 
@@ -57,15 +62,16 @@ export default function HelpCenterPage() {
               Answers, guidance, and support in one place.
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-200">
-              Use this page to learn the platform, understand permissions, and contact support when you need a hand.
+              Use this page to learn the platform, understand permissions, and raise a support ticket when you need a
+              hand.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <a
-                href="mailto:support@hryantra.com"
+                href="#raise-ticket"
                 className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg shadow-black/10 transition-transform hover:-translate-y-0.5"
               >
-                <Mail className="h-4 w-4" />
-                Email support
+                <MessageCircle className="h-4 w-4" />
+                Raise a ticket
               </a>
               <a
                 href="#faq"
@@ -73,6 +79,13 @@ export default function HelpCenterPage() {
               >
                 <CircleHelp className="h-4 w-4" />
                 Jump to FAQ
+              </a>
+              <a
+                href="mailto:support@hryantra.com"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/8 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/12"
+              >
+                <Mail className="h-4 w-4" />
+                Email support
               </a>
             </div>
           </div>
@@ -90,6 +103,10 @@ export default function HelpCenterPage() {
               <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
             </div>
           ))}
+        </div>
+
+        <div id="raise-ticket" className="mt-10">
+          <HelpTicketForm />
         </div>
 
         <div id="faq" className="mt-10 grid gap-8 lg:grid-cols-[1.4fr_0.9fr]">

@@ -27,6 +27,8 @@ export const socialController = {
         linkedinTargets,
         twitterTargets,
         showClientNamePublicly,
+        linkedinImageUrl,
+        imageUrl,
       } = req.body;
 
       if (!jobId || !title || !applyUrl) {
@@ -45,6 +47,8 @@ export const socialController = {
         facebookPostText,
         linkedinTargets: Array.isArray(linkedinTargets) ? linkedinTargets : [],
         twitterTargets: Array.isArray(twitterTargets) ? twitterTargets : [],
+        linkedinImageUrl: linkedinImageUrl || imageUrl || '',
+        imageUrl: linkedinImageUrl || imageUrl || '',
       };
 
       const result = await socialService.publishJob(req.user.id, jobId, platforms, postData);

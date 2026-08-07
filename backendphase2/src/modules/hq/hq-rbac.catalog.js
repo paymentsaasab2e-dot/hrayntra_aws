@@ -92,6 +92,16 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'Delete HQ companies',
   },
   {
+    permissionName: 'hq_tickets_read',
+    module: 'Employers · Tickets',
+    description: 'View support tickets raised by tenants',
+  },
+  {
+    permissionName: 'hq_tickets_write',
+    module: 'Employers · Tickets',
+    description: 'Update support ticket status and notes',
+  },
+  {
     permissionName: 'hq_tenants_read',
     module: 'Employers · Tenants',
     description: 'View tenants',
@@ -259,6 +269,7 @@ export const HQ_NAV_PERMISSION_MAP = {
   subscriptions: ['hq_subscriptions_read'],
   employerDashboard: ['hq_employers_dashboard_read', 'hq_dashboard_read', 'hq_analytics_read'],
   company: ['hq_companies_read'],
+  tickets: ['hq_tickets_read'],
   tenants: ['hq_tenants_read'],
   plans: ['hq_billing_read'],
   crmDashboard: ['hq_crm_dashboard_read', 'hq_leads_read', 'hq_dashboard_read'],

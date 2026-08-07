@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, isTransientMongoConnectivityError } from '../../config/prisma.js';
 import { sendLeadFollowUpEmail } from '../../emails/email.service.js';
 import { sendClientFollowUpReminderEmail } from '../../services/emailService.js';
 import { dispatchScheduledAlert } from './alert-dispatch.service.js';
@@ -747,7 +747,7 @@ export async function runAlertScheduler() {
 
   const started = Date.now();
   try {
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
       processLeadFollowUps(),
       processClientFollowUps(),
       processClientScheduledMeetingReminders(),
@@ -760,9 +760,30 @@ export async function runAlertScheduler() {
       processInterviewTodayReminders(),
       processScheduledWorkspaceBriefs(),
     ]);
-    console.log(`[alert-scheduler] completed in ${Date.now() - started}ms`);
+    const mongoSkips = results.filter(
+      (r) => r.status === 'rejected' && isTransientMongoConnectivityError(r.reason)
+    );
+    const otherFails = results.filter(
+      (r) => r.status === 'rejected' && !isTransientMongoConnectivityError(r.reason)
+    );
+    if (mongoSkips.length) {
+      console.warn(
+        `[alert-scheduler] ${mongoSkips.length} task(s) skipped (Mongo unreachable) in ${Date.now() - started}ms`
+      );
+    } else if (otherFails.length) {
+      console.warn(
+        `[alert-scheduler] ${otherFails.length} task(s) failed:`,
+        otherFails[0].reason?.message || otherFails[0].reason
+      );
+    } else {
+      console.log(`[alert-scheduler] completed in ${Date.now() - started}ms`);
+    }
   } catch (error) {
-    console.warn('[alert-scheduler] run failed:', error?.message || error);
+    if (isTransientMongoConnectivityError(error)) {
+      console.warn('[alert-scheduler] skipped (Mongo unreachable)');
+    } else {
+      console.warn('[alert-scheduler] run failed:', error?.message || error);
+    }
   } finally {
     schedulerRunning = false;
   }

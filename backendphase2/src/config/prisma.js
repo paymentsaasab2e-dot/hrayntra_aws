@@ -1,12 +1,55 @@
 import { AsyncLocalStorage } from 'async_hooks';
+import dns from 'node:dns';
 import { PrismaClient } from '@prisma/client';
 import { env } from './env.js';
 import logger from '../utils/logger.js';
+
+// Prefer IPv4 when resolving Atlas hosts (Windows/ISP often fail intermittently on AAAA).
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Older Node — ignore
+}
 
 const tenantContext = new AsyncLocalStorage();
 const clientsByUrl = new Map();
 const clientsWithLogging = new WeakSet();
 const clientsWithWriteAudit = new WeakSet();
+
+/**
+ * Harden MongoDB Atlas URLs for flaky networks:
+ * sensible selection / connect timeouts when not already set.
+ * (Do not add driver-only options like `family` — Prisma rejects them.)
+ */
+export function normalizeMongoDatabaseUrl(rawUrl) {
+  const value = String(rawUrl || '').trim();
+  if (!value) return value;
+  if (!/^mongodb(\+srv)?:\/\//i.test(value)) return value;
+  try {
+    const parsed = new URL(value);
+    if (!parsed.searchParams.has('serverSelectionTimeoutMS')) {
+      parsed.searchParams.set('serverSelectionTimeoutMS', '20000');
+    }
+    if (!parsed.searchParams.has('connectTimeoutMS')) {
+      parsed.searchParams.set('connectTimeoutMS', '20000');
+    }
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+}
+
+/** True when the error is a transient Atlas / DNS / selection timeout. */
+export function isTransientMongoConnectivityError(error) {
+  const message = String(error?.message || error || '');
+  return (
+    /Server selection timeout/i.test(message) ||
+    /No available servers/i.test(message) ||
+    /No such host is known/i.test(message) ||
+    /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN/i.test(message) ||
+    /ReplicaSetNoPrimary/i.test(message)
+  );
+}
 
 function isTenantPrismaWriteLogEnabled() {
   const v = process.env.TENANT_WRITE_LOG;
@@ -152,7 +195,7 @@ function withQueryLogging(client) {
 function createClientForUrl(url) {
   const client = new PrismaClient({
     datasources: {
-      db: { url },
+      db: { url: normalizeMongoDatabaseUrl(url) },
     },
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
@@ -168,22 +211,23 @@ function getClientForUrl(url, { forceRecreate = false } = {}) {
   if (!url) {
     throw new Error('Database URL is required');
   }
-  if (forceRecreate && clientsByUrl.has(url)) {
-    const stale = clientsByUrl.get(url);
-    clientsByUrl.delete(url);
+  const normalizedUrl = normalizeMongoDatabaseUrl(url);
+  if (forceRecreate && clientsByUrl.has(normalizedUrl)) {
+    const stale = clientsByUrl.get(normalizedUrl);
+    clientsByUrl.delete(normalizedUrl);
     stale?.$disconnect?.().catch(() => {});
   }
-  let client = clientsByUrl.get(url);
+  let client = clientsByUrl.get(normalizedUrl);
   if (isStalePrismaClient(client)) {
     if (client) {
-      clientsByUrl.delete(url);
+      clientsByUrl.delete(normalizedUrl);
       client.$disconnect?.().catch(() => {});
     }
-    client = createClientForUrl(url);
-    clientsByUrl.set(url, client);
+    client = createClientForUrl(normalizedUrl);
+    clientsByUrl.set(normalizedUrl, client);
   } else if (!client) {
-    clientsByUrl.set(url, createClientForUrl(url));
-    client = clientsByUrl.get(url);
+    clientsByUrl.set(normalizedUrl, createClientForUrl(normalizedUrl));
+    client = clientsByUrl.get(normalizedUrl);
   }
   return client;
 }
@@ -195,12 +239,12 @@ function buildTenantDatabaseUrl(tenantDbName) {
   const baseUrl = env.HEADQUARTERS_DATABASE_URL || env.DATABASE_URL;
   if (!baseUrl) return '';
 
-  const parsed = new URL(baseUrl);
+  const parsed = new URL(normalizeMongoDatabaseUrl(baseUrl));
   parsed.pathname = `/${normalized}`;
   return parsed.toString();
 }
 
-const defaultDbUrl = env.DATABASE_URL;
+const defaultDbUrl = normalizeMongoDatabaseUrl(env.DATABASE_URL);
 if (!defaultDbUrl) {
   throw new Error('DATABASE_URL is not set in environment');
 }

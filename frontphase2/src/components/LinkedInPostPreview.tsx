@@ -14,6 +14,8 @@ interface LinkedInPostPreviewProps {
   location?: string;
   /** When set, renders this text instead of auto-generating from fields. */
   postText?: string;
+  /** Optional image shown under the post text in the preview. */
+  imageUrl?: string | null;
 }
 
 export function LinkedInPostPreview({
@@ -25,6 +27,7 @@ export function LinkedInPostPreview({
   applyUrl,
   location,
   postText: postTextOverride,
+  imageUrl,
 }: LinkedInPostPreviewProps) {
   const postText =
     postTextOverride?.trim() ||
@@ -68,6 +71,17 @@ export function LinkedInPostPreview({
           {linkifyPostText(postText)}
         </div>
       </div>
+
+      {imageUrl ? (
+        <div className="border-t border-slate-100 bg-slate-50">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imageUrl}
+            alt="LinkedIn post attachment"
+            className="max-h-72 w-full object-cover"
+          />
+        </div>
+      ) : null}
 
       {/* LinkedIn-style footer */}
       <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50 flex items-center gap-4 text-xs text-slate-500">

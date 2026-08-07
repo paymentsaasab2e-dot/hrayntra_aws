@@ -1,5 +1,10 @@
 import crypto from 'crypto';
-import { prisma, getActiveTenantDbName, runWithTenantContext } from '../../config/prisma.js';
+import {
+  prisma,
+  getActiveTenantDbName,
+  runWithTenantContext,
+  isTransientMongoConnectivityError,
+} from '../../config/prisma.js';
 import { env, normalizePublicUrl, isLoopbackPublicUrl } from '../../config/env.js';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
 import { hashToken } from '../../utils/tokenHash.js';
@@ -792,7 +797,11 @@ export async function runInactivityCleanup() {
     return { expired: stale.length };
   } catch (err) {
     // Transient DB outage — retry on the next scheduled tick.
-    console.warn('[session] runInactivityCleanup failed:', err?.message || err);
+    if (isTransientMongoConnectivityError(err)) {
+      console.warn('[session] runInactivityCleanup skipped (Mongo unreachable)');
+    } else {
+      console.warn('[session] runInactivityCleanup failed:', err?.message || err);
+    }
     return { expired: 0, error: true };
   }
 }
@@ -813,7 +822,11 @@ export async function expireStaleTransfers() {
     }
     return { expired: pending.length };
   } catch (err) {
-    console.warn('[session] expireStaleTransfers failed:', err?.message || err);
+    if (isTransientMongoConnectivityError(err)) {
+      console.warn('[session] expireStaleTransfers skipped (Mongo unreachable)');
+    } else {
+      console.warn('[session] expireStaleTransfers failed:', err?.message || err);
+    }
     return { expired: 0, error: true };
   }
 }

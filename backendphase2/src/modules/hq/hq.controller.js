@@ -249,6 +249,28 @@ export const hqController = {
     }
   },
 
+  async listSupportTickets(req, res) {
+    try {
+      const result = await hqService.listSupportTickets(req.user, {
+        status: req.query?.status,
+        priority: req.query?.priority,
+        tenantDbName: req.query?.tenantDbName,
+      });
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateSupportTicket(req, res) {
+    try {
+      const result = await hqService.updateSupportTicket(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Ticket updated', { ticket: result });
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listCompanies(req, res) {
     try {
       const result = await hqService.listCompanies(req.user);
