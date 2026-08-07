@@ -11,6 +11,11 @@ const {
   buildCandidateFeatures,
   buildJobFeatures,
 } = require('./feature-extraction.service');
+const { resolvePublicCompanyName } = require('../utils/formatPortalJob.util');
+
+function publicCompanyLabel(job, fallback = '') {
+  return resolvePublicCompanyName(job, fallback) || fallback;
+}
 
 function applyEnvOpenAiModel(client) {
   if (!client?.chat?.completions?.create) return client;
@@ -860,7 +865,7 @@ OUTPUT STRICT JSON ONLY:
             candidateSummary: candidateSummaryText,
             job: {
               title: job.title,
-              company: job.company?.name || job.client?.companyName || 'Unknown Company',
+              company: publicCompanyLabel(job, ''),
               description: job.description || '',
               overview: job.overview || job.aboutRole || '',
               responsibilities: job.responsibilities || '',
@@ -924,7 +929,7 @@ async function generateExplanationWithOpenAI(candidateSummaryText, job, scoringR
             candidateSummary: candidateSummaryText,
             job: {
               title: job.title,
-              company: job.company?.name || job.client?.companyName || 'Unknown Company',
+              company: publicCompanyLabel(job, ''),
               description: job.description,
             },
             matchedSkills: scoringResult.matchedSkills,
@@ -1196,7 +1201,7 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
     return {
       jobId: rawJob.id,
       title: rawJob.title,
-      company: rawJob.company?.name || rawJob.client?.companyName || 'Unknown Company',
+      company: publicCompanyLabel(rawJob, ''),
       location: rawJob.location,
       workMode: rawJob.workMode || rawJob.jobLocationType || null,
       deterministicScore: deterministic.deterministicScore,

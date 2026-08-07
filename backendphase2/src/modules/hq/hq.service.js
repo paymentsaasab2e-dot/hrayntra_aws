@@ -658,6 +658,12 @@ export const hqService = {
     return hqPhase1TokensService.saveServiceCosts(data, reqUser);
   },
 
+  async savePhase1TokenEarns(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqPhase1TokensService } = await import('./hq-phase1-tokens.service.js');
+    return hqPhase1TokensService.saveEarnRewards(data, reqUser);
+  },
+
   async setTenantPause(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     const email = String(data?.email || '').trim().toLowerCase();

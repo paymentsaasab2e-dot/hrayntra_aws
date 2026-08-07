@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
+import { AnimatePresence, motion } from 'motion/react';
+import { DetailsModalShell } from './DetailsModalShell';
 import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
@@ -26,7 +28,6 @@ import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { DrawerSectionCard, DRAWER_FORM_SCROLL_BG } from './drawerFormUi';
 import { extractAuditMeta } from '../../utils/auditMeta';
-import { AnimatePresence, motion } from 'motion/react';
 import { requestSuccess } from '../../lib/appDialog';
 import {
   ArrowRightCircle,
@@ -4481,23 +4482,13 @@ export function CandidateProfileDrawer({
           />
           {isDirectEditLaunch ? (
             <>
-              <motion.div
-                className={`fixed inset-0 ${layer.editBackdrop} bg-slate-950/40`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={cancelOverviewEdit}
-              />
-
-              <motion.aside
-                dir="ltr"
-                className={`fixed inset-y-0 right-0 ${layer.editPanel} flex h-full w-full max-w-4xl flex-col border-l border-slate-200`}
-                initial={{ x: '100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '100%' }}
-                transition={{ type: 'tween', duration: 0.28 }}
+              <DetailsModalShell
+                onBackdropClick={cancelOverviewEdit}
+                size="md"
+                zIndexClass="z-[110]"
+                dialogTitleId="candidate-edit-modal-title"
               >
-                <div className="flex h-full w-full flex-col bg-slate-50 shadow-2xl">
+                <div className="flex h-full w-full flex-col bg-slate-50">
                   <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
                     <div className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
                       <div className="flex min-w-0 gap-4">
@@ -4553,28 +4544,18 @@ export function CandidateProfileDrawer({
                     )}
                   </div>
                 </div>
-              </motion.aside>
+              </DetailsModalShell>
             </>
           ) : (
           <>
-              <motion.div
-                className={`fixed inset-0 ${layer.backdrop} bg-slate-950/35`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => void requestCandidateDrawerClose()}
-              />
-
-              <motion.aside
-                ref={candidateDrawerPanelRef}
-                dir="ltr"
-                className={`fixed inset-y-0 right-0 ${layer.panel} flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200`}
-                initial={{ x: '100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '100%' }}
-                transition={{ type: 'tween', duration: 0.28 }}
+              <DetailsModalShell
+                panelRef={candidateDrawerPanelRef}
+                onBackdropClick={() => void requestCandidateDrawerClose()}
+                size="lg"
+                zIndexClass="z-[100]"
+                dialogTitleId="candidate-detail-modal-title"
               >
-                <div className="flex h-full w-full flex-col bg-slate-50 shadow-2xl">
+                <div className="flex h-full w-full flex-col bg-slate-50">
               <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
                 <div className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
                   <div className="flex min-w-0 gap-4">
@@ -5179,7 +5160,7 @@ export function CandidateProfileDrawer({
                 )}
               </div>
                 </div>
-              </motion.aside>
+              </DetailsModalShell>
           </>
           )}
           {cvEditor.modals}

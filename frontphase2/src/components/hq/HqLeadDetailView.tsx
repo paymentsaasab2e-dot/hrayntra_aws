@@ -51,6 +51,7 @@ import {
   toDatetimeLocalValue,
   type HqLeadStage,
 } from '@/app/hq/leads/hqLeadsData';
+import { isInternalLeadOtherDetailLabel } from '@/lib/leadInternalOtherDetails';
 
 const PIPELINE_STAGES: { id: HqLeadStage; label: string }[] = [
   { id: 'new', label: 'New' },
@@ -560,15 +561,21 @@ export function HqLeadDetailView({
               </SectionCard>
 
               {/* Other / Notes */}
-              {(lead.otherDetails && lead.otherDetails.length > 0) || lead.notes || lead.initialNotes ? (
+              {(() => {
+                const publicOtherDetails = (lead.otherDetails || []).filter(
+                  (d) => !isInternalLeadOtherDetailLabel(d.label),
+                );
+                if (!publicOtherDetails.length && !lead.notes && !lead.initialNotes) return null;
+                return (
                 <SectionCard title="Other Details" icon={FileText}>
                   {lead.notes ? <InfoRow label="Notes" value={lead.notes} /> : null}
                   {lead.initialNotes && lead.initialNotes !== lead.notes ? <InfoRow label="Initial Notes" value={lead.initialNotes} /> : null}
-                  {(lead.otherDetails || []).map((d, i) => (
+                  {publicOtherDetails.map((d, i) => (
                     <InfoRow key={i} label={d.label} value={d.value} />
                   ))}
                 </SectionCard>
-              ) : null}
+                );
+              })()}
             </div>
           </div>
 

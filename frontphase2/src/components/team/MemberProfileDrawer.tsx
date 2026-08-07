@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Edit, UserMinus, UserPlus, Mail, Phone, MapPin, Key, Lock, Unlock, Clock, History, Trash2, Eye, EyeOff, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { toast } from 'sonner';
 import {
   getTeamMemberById,
@@ -254,23 +255,11 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
         <AnimatePresence>
         {isOpen && (
           <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={onClose}
-              className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[60]"
-            />
-
-            {/* Drawer */}
-            <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              onClick={(e) => e.stopPropagation()}
-              className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-[70] flex flex-col"
+            <DetailsModalShell
+              onBackdropClick={onClose}
+              size="lg"
+              zIndexClass="z-[70]"
+              dialogTitleId="member-profile-modal-title"
             >
               {loading ? (
                 <div className="flex-1 flex items-center justify-center">
@@ -740,7 +729,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                   )}
                 </>
               )}
-            </motion.div>
+            </DetailsModalShell>
           </>
         )}
         </AnimatePresence>

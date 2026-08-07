@@ -60,6 +60,82 @@ export const PHASE1_DEFAULT_SERVICES = [
   { id: 'lms.courses.unlock-certified', name: 'Certified Course Unlock', description: 'Typical cost to unlock a certified LMS course', cost: 50, category: 'Courses' },
 ];
 
+/** Free onboarding / profile earn tasks — mirror backend1 tokenCatalog EARN_TASK_CATALOG */
+export const PHASE1_DEFAULT_EARN_TASKS = [
+  {
+    id: 'welcome',
+    name: 'First login bonus',
+    description: 'Automatic when candidates open the dashboard after signup',
+    tokens: 20,
+    category: 'Onboarding',
+    order: 1,
+  },
+  {
+    id: 'earn.cv_upload',
+    name: 'Upload your CV',
+    description: 'Upload a resume once (also credited if CV was added during signup)',
+    tokens: 20,
+    category: 'Onboarding',
+    order: 2,
+  },
+  {
+    id: 'earn.profile.basicInformation',
+    name: 'Complete basic details',
+    description: 'Fill personal profile basics',
+    tokens: 10,
+    category: 'Profile',
+    order: 3,
+  },
+  {
+    id: 'earn.profile.summary',
+    name: 'Add professional summary',
+    description: 'Write your profile summary',
+    tokens: 5,
+    category: 'Profile',
+    order: 4,
+  },
+  {
+    id: 'earn.profile.education',
+    name: 'Add education',
+    description: 'Complete education section',
+    tokens: 10,
+    category: 'Profile',
+    order: 5,
+  },
+  {
+    id: 'earn.profile.skills',
+    name: 'Add skills',
+    description: 'Complete skills section',
+    tokens: 10,
+    category: 'Profile',
+    order: 6,
+  },
+  {
+    id: 'earn.profile.languages',
+    name: 'Add languages',
+    description: 'Complete languages section',
+    tokens: 5,
+    category: 'Profile',
+    order: 7,
+  },
+  {
+    id: 'earn.profile.projects',
+    name: 'Add a project',
+    description: 'Complete projects section',
+    tokens: 5,
+    category: 'Profile',
+    order: 8,
+  },
+  {
+    id: 'earn.profile.careerPreferences',
+    name: 'Set career preferences',
+    description: 'Complete career preferences',
+    tokens: 5,
+    category: 'Profile',
+    order: 9,
+  },
+];
+
 let cachedClient = null;
 let configCache = null;
 let configCacheAt = 0;
@@ -127,6 +203,7 @@ function defaultConfig() {
   return {
     packs: PHASE1_DEFAULT_PACKS.map((p, i) => normalizePhase1Pack(p, { index: i })),
     serviceCosts: Object.fromEntries(PHASE1_DEFAULT_SERVICES.map((s) => [s.id, s.cost])),
+    earnRewards: Object.fromEntries(PHASE1_DEFAULT_EARN_TASKS.map((t) => [t.id, t.tokens])),
   };
 }
 
@@ -166,9 +243,24 @@ async function loadConfig({ bypassCache = false } = {}) {
       serviceCosts[key] = Math.max(0, Math.floor(Number(value) || 0));
     }
 
+    const earnRewards = {};
+    const rawEarns = doc.earnRewards && typeof doc.earnRewards === 'object' ? doc.earnRewards : {};
+    for (const task of PHASE1_DEFAULT_EARN_TASKS) {
+      const v = rawEarns[task.id];
+      earnRewards[task.id] =
+        v === undefined || v === null
+          ? task.tokens
+          : Math.max(0, Math.floor(Number(v) || 0));
+    }
+    for (const [key, value] of Object.entries(rawEarns)) {
+      if (earnRewards[key] !== undefined) continue;
+      earnRewards[key] = Math.max(0, Math.floor(Number(value) || 0));
+    }
+
     configCache = {
       packs: packs.length ? packs.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) : defaultConfig().packs,
       serviceCosts,
+      earnRewards,
       updatedAt: doc.updatedAt || null,
     };
     configCacheAt = now;
@@ -194,6 +286,21 @@ function mergeServices(serviceCosts) {
   });
 }
 
+function mergeEarnTasks(earnRewards) {
+  return PHASE1_DEFAULT_EARN_TASKS.map((t) => {
+    const tokens =
+      earnRewards[t.id] === undefined || earnRewards[t.id] === null
+        ? t.tokens
+        : Math.max(0, Math.floor(Number(earnRewards[t.id]) || 0));
+    return {
+      ...t,
+      tokens,
+      defaultTokens: t.tokens,
+      isCustomTokens: earnRewards[t.id] !== undefined && Number(earnRewards[t.id]) !== t.tokens,
+    };
+  }).sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
 export const hqPhase1TokensService = {
   async getOverview({ includeInactive = true } = {}) {
     const config = await loadConfig({ bypassCache: true });
@@ -204,6 +311,8 @@ export const hqPhase1TokensService = {
       packs: packs.map((p) => ({ ...p })),
       services: mergeServices(config.serviceCosts),
       serviceCosts: { ...config.serviceCosts },
+      earns: mergeEarnTasks(config.earnRewards || {}),
+      earnRewards: { ...(config.earnRewards || {}) },
       updatedAt: config.updatedAt || null,
     };
   },
@@ -262,6 +371,7 @@ export const hqPhase1TokensService = {
         $set: {
           packs: cleaned,
           serviceCosts: current.serviceCosts,
+          earnRewards: current.earnRewards || defaultConfig().earnRewards,
           updatedAt,
           updatedBy: reqUser?.email || reqUser?.id || null,
         },
@@ -270,7 +380,12 @@ export const hqPhase1TokensService = {
       { upsert: true }
     );
 
-    configCache = { packs: cleaned, serviceCosts: current.serviceCosts, updatedAt };
+    configCache = {
+      packs: cleaned,
+      serviceCosts: current.serviceCosts,
+      earnRewards: current.earnRewards || defaultConfig().earnRewards,
+      updatedAt,
+    };
     configCacheAt = Date.now();
     return { packs: cleaned.map((p) => ({ ...p })), updatedAt: updatedAt.toISOString() };
   },
@@ -307,12 +422,14 @@ export const hqPhase1TokensService = {
 
     const collection = await getCollection();
     const updatedAt = new Date();
+    const earnRewards = current.earnRewards || defaultConfig().earnRewards;
     await collection.updateOne(
       { _id: GLOBAL_ID },
       {
         $set: {
           packs: current.packs,
           serviceCosts: nextCosts,
+          earnRewards,
           updatedAt,
           updatedBy: reqUser?.email || reqUser?.id || null,
         },
@@ -321,12 +438,75 @@ export const hqPhase1TokensService = {
       { upsert: true }
     );
 
-    configCache = { packs: current.packs, serviceCosts: nextCosts, updatedAt };
+    configCache = { packs: current.packs, serviceCosts: nextCosts, earnRewards, updatedAt };
     configCacheAt = Date.now();
 
     return {
       services: mergeServices(nextCosts),
       serviceCosts: nextCosts,
+      changed,
+      updatedAt: updatedAt.toISOString(),
+    };
+  },
+
+  async saveEarnRewards(input, reqUser) {
+    const incoming = Array.isArray(input?.earns)
+      ? input.earns
+      : input?.rewards && typeof input.rewards === 'object'
+        ? Object.entries(input.rewards).map(([id, tokens]) => ({ id, tokens }))
+        : null;
+    if (!incoming) throw new Error('Provide earns: [{ id, tokens }] or rewards: { earnId: tokens }');
+
+    const current = await loadConfig({ bypassCache: true });
+    const nextRewards = { ...(current.earnRewards || defaultConfig().earnRewards) };
+    const changed = [];
+
+    for (const row of incoming) {
+      const id = String(row?.id || row?.earnKey || '').trim();
+      if (!id) throw new Error('earn id is required');
+      const known = PHASE1_DEFAULT_EARN_TASKS.find((t) => t.id === id);
+      if (!known && nextRewards[id] === undefined) {
+        throw new Error(`Unknown Phase 1 earn task: ${id}`);
+      }
+      if (row.tokens === undefined || row.tokens === null || row.tokens === '') {
+        throw new Error(`tokens is required for ${id}`);
+      }
+      const tokens = Math.max(0, Math.floor(Number(row.tokens) || 0));
+      const prev = nextRewards[id] ?? known?.tokens ?? 0;
+      nextRewards[id] = tokens;
+      if (prev !== tokens) {
+        changed.push({ id, name: known?.name || id, previous: prev, tokens });
+      }
+    }
+
+    const collection = await getCollection();
+    const updatedAt = new Date();
+    await collection.updateOne(
+      { _id: GLOBAL_ID },
+      {
+        $set: {
+          packs: current.packs,
+          serviceCosts: current.serviceCosts,
+          earnRewards: nextRewards,
+          updatedAt,
+          updatedBy: reqUser?.email || reqUser?.id || null,
+        },
+        $setOnInsert: { createdAt: new Date() },
+      },
+      { upsert: true }
+    );
+
+    configCache = {
+      packs: current.packs,
+      serviceCosts: current.serviceCosts,
+      earnRewards: nextRewards,
+      updatedAt,
+    };
+    configCacheAt = Date.now();
+
+    return {
+      earns: mergeEarnTasks(nextRewards),
+      earnRewards: nextRewards,
       changed,
       updatedAt: updatedAt.toISOString(),
     };

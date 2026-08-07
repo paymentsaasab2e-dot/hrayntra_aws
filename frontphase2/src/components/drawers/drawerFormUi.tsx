@@ -12,7 +12,7 @@ export const DRAWER_FORM_CONTENT_CLASS =
   `flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`;
 
 export const DRAWER_FORM_PANEL_CLASS =
-  'fixed right-0 top-0 z-[70] flex h-full w-3/4 max-w-6xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl pointer-events-auto';
+  'pointer-events-auto relative flex h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5';
 
 export const DRAWER_FORM_HEADER_CLASS =
   'flex shrink-0 items-start justify-between gap-3 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white px-6 py-5';

@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { AnimatePresence, motion } from 'motion/react';
+import { DetailsModalShell } from './DetailsModalShell';
 import Link from 'next/link';
 import { Download, Eye, FileText, Undo2, X } from 'lucide-react';
 import { apiGetPlacement } from '../../lib/api';
@@ -131,23 +132,16 @@ export function PlacementDetailsDrawer({
     <AnimatePresence>
       {isOpen ? (
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[90] bg-slate-900/40"
-            onClick={() => void requestPlacementDrawerClose()}
-          />
-          <motion.aside
-            ref={placementDrawerPanelRef}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-full max-w-4xl flex-col border-l border-[#E5E7EB] bg-[#F8F9FB] shadow-2xl"
+          <DetailsModalShell
+            panelRef={placementDrawerPanelRef}
+            onBackdropClick={() => void requestPlacementDrawerClose()}
+            size="md"
+            zIndexClass="z-[100]"
+            panelClassName="bg-[#F8F9FB]"
+            dialogTitleId="placement-detail-modal-title"
           >
             <div className="flex shrink-0 items-center justify-between border-b border-[#E5E7EB] bg-white px-6 py-4">
-              <h2 className="text-lg font-semibold text-[#111827]">Placement Details</h2>
+              <h2 id="placement-detail-modal-title" className="text-lg font-semibold text-[#111827]">Placement Details</h2>
               <button
                 type="button"
                 onClick={() => void requestPlacementDrawerClose()}
@@ -454,7 +448,7 @@ export function PlacementDetailsDrawer({
                 </div>
               ) : null}
             </div>
-          </motion.aside>
+          </DetailsModalShell>
         </>
       ) : null}
     </AnimatePresence>

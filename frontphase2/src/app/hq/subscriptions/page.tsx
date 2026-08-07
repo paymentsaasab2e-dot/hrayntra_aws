@@ -279,9 +279,11 @@ export default function HqEmployeeSubscriptionsPage() {
                   <p className="font-semibold text-slate-800">How HQ manages this</p>
                   <p className="mt-1.5 leading-relaxed">
                     Use <strong>Coin packs</strong> to create purchase plans with points, and{' '}
-                    <strong>Spend points</strong> to set how many points each LMS / AI feature costs.
-                    Candidates see and buy those packs at{' '}
-                    <span className="font-mono text-sky-700">/subscriptions</span> on Phase 1.
+                    <strong>Spend points</strong> → <strong>Premium</strong> for feature costs or{' '}
+                    <strong>Free</strong> for onboarding earn rewards.
+                    Candidates see and buy packs at{' '}
+                    <span className="font-mono text-sky-700">/subscriptions</span> on Phase 1, and receive Free
+                    tokens when they complete onboarding steps.
                   </p>
                 </div>
               </>

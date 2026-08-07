@@ -5,6 +5,7 @@ const {
   scoreCandidateAgainstJob,
   resolveCandidateResumeText,
 } = require('./job-matching-pipeline-phase1.service');
+const { resolvePublicCompanyName } = require('../utils/formatPortalJob.util');
 
 const MATCH_THRESHOLD = Number(process.env.JOB_MATCH_ALERT_THRESHOLD || 80);
 const MAX_CANDIDATES = Math.min(
@@ -36,12 +37,10 @@ function candidateDisplayName(candidate) {
 }
 
 function jobCompanyName(job) {
-  return (
-    job?.client?.companyName ||
-    job?.company?.name ||
-    job?.hiringManager ||
-    'Hiring company'
-  );
+  const publicName = resolvePublicCompanyName(job, '');
+  if (publicName) return publicName;
+  // Client hidden from public — never leak the real company in candidate alerts.
+  return 'a hiring company';
 }
 
 async function isJobOpenForAlerts(jobId, job) {

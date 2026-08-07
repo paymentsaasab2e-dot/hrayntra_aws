@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { DetailsModalShell } from './DetailsModalShell';
 import {
   X,
   Plus,
@@ -3543,23 +3544,12 @@ export function CreateJobDrawer({
     <AnimatePresence mode="wait">
       {isOpen && (
         <>
-          <motion.div
-            key="backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => void requestCreateJobClose()}
-            className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
-          />
-          <motion.div
-            key="panel"
-            ref={createJobPanelRef}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            onClick={(e) => e.stopPropagation()}
-            className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+          <DetailsModalShell
+            panelRef={createJobPanelRef}
+            onBackdropClick={() => void requestCreateJobClose()}
+            size="lg"
+            zIndexClass="z-50"
+            dialogTitleId="create-job-modal-title"
           >
             {/* Sticky Header */}
             <div className={`${DRAWER_FORM_HEADER_CLASS} shrink-0`}>
@@ -3568,7 +3558,7 @@ export function CreateJobDrawer({
                   <Briefcase size={20} />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
+                  <h2 id="create-job-modal-title" className="text-lg font-bold tracking-tight text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
                   <p className="mt-0.5 text-xs text-slate-500">
                     {isEditMode
                       ? 'Update job details, description, and publishing options.'
@@ -4853,23 +4843,20 @@ export function CreateJobDrawer({
                 </div>
               ) : null}
             </div>
-          </motion.div>
+          </DetailsModalShell>
 
           <AnimatePresence>
             {showAiPromptBox && (
-              <motion.div
-                key="ai-panel"
-                initial={{ x: '100%', opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: '100%', opacity: 0 }}
-                transition={{ type: 'spring', damping: 26, stiffness: 210 }}
-                onClick={(e) => e.stopPropagation()}
-                className="fixed right-0 top-0 z-[70] h-full w-3/4 max-w-6xl border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)] pointer-events-auto flex flex-col "
+              <DetailsModalShell
+                onBackdropClick={() => setShowAiPromptBox(false)}
+                size="lg"
+                zIndexClass="z-[70]"
+                dialogTitleId="create-job-ai-modal-title"
               >
                 <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-5">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">AI Drawer</p>
-                    <h3 className="mt-1 text-base font-bold text-slate-900">Generate Job Description</h3>
+                    <h3 id="create-job-ai-modal-title" className="mt-1 text-base font-bold text-slate-900">Generate Job Description</h3>
                     <p className="mt-1 text-sm text-slate-500">
                       Use a custom prompt and generate the description with AI.
                     </p>
@@ -5172,7 +5159,7 @@ export function CreateJobDrawer({
                     </div>
                   </div>
                 </div>
-              </motion.div>
+              </DetailsModalShell>
             )}
           </AnimatePresence>
         </>

@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { confirmDiscardUnsavedChanges, useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { motion, AnimatePresence } from 'motion/react';
+import { DetailsModalShell } from './DetailsModalShell';
 import {
   X,
   Pencil,
@@ -1214,22 +1215,12 @@ export function TaskDetailsDrawer({
 
   return (
     <AnimatePresence>
-      <motion.div
-        key="backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={handleClose}
-        className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
-      />
-      <motion.div
-        key="panel"
-        ref={taskDrawerPanelRef}
-        initial={{ x: '100%' }}
-        animate={{ x: 0 }}
-        exit={{ x: '100%' }}
-        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+      <DetailsModalShell
+        panelRef={taskDrawerPanelRef}
+        onBackdropClick={handleClose}
+        size="lg"
+        zIndexClass="z-50"
+        dialogTitleId="task-detail-modal-title"
       >
         {/* Header */}
         <div className="shrink-0 border-b border-slate-200 p-5 flex items-center justify-between gap-3">
@@ -1237,7 +1228,7 @@ export function TaskDetailsDrawer({
             {mode === 'detail' && task ? (
               <>
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">TASK DETAILS</p>
-                <h2 className="text-lg font-bold text-slate-900 mt-0.5 truncate">{task.title}</h2>
+                <h2 id="task-detail-modal-title" className="text-lg font-bold text-slate-900 mt-0.5 truncate">{task.title}</h2>
                 <div className="flex flex-wrap items-center gap-2 mt-2">
                   <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${PRIORITY_STYLES[task.priority]}`}>{task.priority}</span>
                   <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${STATUS_STYLES[task.status]}`}>{task.status}</span>
@@ -2127,7 +2118,7 @@ export function TaskDetailsDrawer({
             </>
           )}
         </AnimatePresence>
-      </motion.div>
+      </DetailsModalShell>
 
       <CreateJobDrawer
         isOpen={createJobDrawerOpen}

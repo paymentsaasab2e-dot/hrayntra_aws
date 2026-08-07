@@ -34,12 +34,20 @@ async function getBalance(candidateId) {
   return {
     tokenBalance: candidate.tokenBalance ?? 0,
     freeTokensGrantedAt: candidate.freeTokensGrantedAt,
-    welcomeAmount: WELCOME_TOKEN_AMOUNT,
+    welcomeAmount: await (async () => {
+      try {
+        const { getWelcomeAmountAsync } = require('./hqPhase1TokenConfig.service');
+        return await getWelcomeAmountAsync();
+      } catch {
+        return WELCOME_TOKEN_AMOUNT;
+      }
+    })(),
   };
 }
 
 /**
- * Idempotent: grants WELCOME_TOKEN_AMOUNT once when the candidate first hits dashboard.
+ * Idempotent: grants welcome tokens once when the candidate first hits dashboard.
+ * Amount is HQ-configurable (Free · First login bonus).
  */
 async function grantWelcomeTokensIfNeeded(candidateId) {
   const candidate = await prisma.candidate.findUnique({
@@ -63,8 +71,23 @@ async function grantWelcomeTokensIfNeeded(candidateId) {
     };
   }
 
+  let welcomeAmount = WELCOME_TOKEN_AMOUNT;
+  try {
+    const { getWelcomeAmountAsync } = require('./hqPhase1TokenConfig.service');
+    welcomeAmount = await getWelcomeAmountAsync();
+  } catch {
+    /* defaults */
+  }
+  if (!welcomeAmount || welcomeAmount <= 0) {
+    return {
+      granted: false,
+      tokenBalance: candidate.tokenBalance ?? 0,
+      amount: 0,
+    };
+  }
+
   const now = new Date();
-  const newBalance = (candidate.tokenBalance ?? 0) + WELCOME_TOKEN_AMOUNT;
+  const newBalance = (candidate.tokenBalance ?? 0) + welcomeAmount;
 
   await prisma.candidate.update({
     where: { id: candidateId },
@@ -79,9 +102,9 @@ async function grantWelcomeTokensIfNeeded(candidateId) {
       data: {
         candidateId,
         type: 'GRANT',
-        amount: WELCOME_TOKEN_AMOUNT,
+        amount: welcomeAmount,
         balanceAfter: newBalance,
-        description: `Welcome bonus: ${WELCOME_TOKEN_AMOUNT} free tokens`,
+        description: `Welcome bonus: ${welcomeAmount} free tokens`,
         service: 'welcome',
       },
     });
@@ -93,11 +116,11 @@ async function grantWelcomeTokensIfNeeded(candidateId) {
     const { createCandidateNotification } = require('./notification.service');
     void createCandidateNotification(candidateId, {
       type: 'system',
-      title: `+${WELCOME_TOKEN_AMOUNT} tokens earned`,
+      title: `+${welcomeAmount} tokens earned`,
       description: 'Welcome bonus credited for joining the dashboard.',
       actionButton: 'View balance',
       actionPath: '/subscriptions',
-      metadata: { kind: 'token_earn', channel: 'activity', earnKey: 'welcome', amount: WELCOME_TOKEN_AMOUNT },
+      metadata: { kind: 'token_earn', channel: 'activity', earnKey: 'welcome', amount: welcomeAmount },
     });
   } catch {
     /* non-fatal */
@@ -107,7 +130,7 @@ async function grantWelcomeTokensIfNeeded(candidateId) {
     granted: true,
     tokenBalance: newBalance,
     freeTokensGrantedAt: now,
-    amount: WELCOME_TOKEN_AMOUNT,
+    amount: welcomeAmount,
   };
 }
 
@@ -399,16 +422,20 @@ async function getCatalog() {
   const {
     listPurchasePacks,
     getMergedServiceCatalog,
+    getMergedEarnTasks,
+    getWelcomeAmountAsync,
   } = require('./hqPhase1TokenConfig.service');
-  const [packs, services] = await Promise.all([
+  const [packs, services, earnTasks, welcomeAmount] = await Promise.all([
     listPurchasePacks(),
     getMergedServiceCatalog(),
+    getMergedEarnTasks(),
+    getWelcomeAmountAsync(),
   ]);
   return {
     services,
     packs,
-    earnTasks: EARN_TASK_CATALOG,
-    welcomeAmount: WELCOME_TOKEN_AMOUNT,
+    earnTasks,
+    welcomeAmount,
   };
 }
 
@@ -597,10 +624,18 @@ async function getEarnLifecycle(candidateId) {
   await reopenProfileEarnsIfNeeded(candidateId, incompleteKeys);
 
   const claimed = new Set(await listClaimedEarnKeys(candidateId));
-  const tasks = [...EARN_TASK_CATALOG].sort((a, b) => (a.order || 0) - (b.order || 0));
+  let tasks = [...EARN_TASK_CATALOG].sort((a, b) => (a.order || 0) - (b.order || 0));
+  try {
+    const { getMergedEarnTasks } = require('./hqPhase1TokenConfig.service');
+    tasks = await getMergedEarnTasks();
+  } catch {
+    /* defaults */
+  }
   const sectionKeyByEarn = Object.fromEntries(
     Object.entries(PROFILE_SECTION_EARN_MAP).map(([section, earn]) => [earn, section])
   );
+
+  const { getRepeatEarnAmountAsync } = require('./hqPhase1TokenConfig.service');
 
   const result = [];
   for (const task of tasks) {
@@ -623,7 +658,12 @@ async function getEarnLifecycle(candidateId) {
     const nextCycle = cycleState.canGrant
       ? cycleState.cycleIndex
       : Math.max(2, cycleState.paidCount + 1);
-    const nextTokens = getRepeatEarnAmount(task.id, pending ? nextCycle : 1) || task.tokens;
+    let nextTokens = task.tokens;
+    try {
+      nextTokens = (await getRepeatEarnAmountAsync(task.id, pending ? nextCycle : 1)) || task.tokens;
+    } catch {
+      nextTokens = getRepeatEarnAmount(task.id, pending ? nextCycle : 1) || task.tokens;
+    }
 
     result.push({
       ...task,
@@ -645,8 +685,17 @@ async function getEarnLifecycle(candidateId) {
  */
 async function earnOnce(candidateId, earnKey, description, options = {}) {
   const baseKey = getBaseEarnKey(earnKey);
-  const amount =
+  let amount =
     options.amount != null ? Number(options.amount) : getEarnReward(earnKey);
+  if (options.amount == null) {
+    try {
+      const { getEarnRewardAsync } = require('./hqPhase1TokenConfig.service');
+      const hqAmount = await getEarnRewardAsync(earnKey);
+      if (hqAmount != null) amount = hqAmount;
+    } catch {
+      /* keep catalog default */
+    }
+  }
   const ledgerService = options.ledgerService || earnKey;
 
   if (amount == null || amount <= 0) {
@@ -739,7 +788,13 @@ async function grantProfileSectionEarns(candidateId, completedSectionKeys = []) 
       if (!cycleState.canGrant) continue;
 
       const cycleIndex = cycleState.cycleIndex;
-      const amount = getRepeatEarnAmount(earnKey, cycleIndex);
+      let amount = getRepeatEarnAmount(earnKey, cycleIndex);
+      try {
+        const { getRepeatEarnAmountAsync } = require('./hqPhase1TokenConfig.service');
+        amount = await getRepeatEarnAmountAsync(earnKey, cycleIndex);
+      } catch {
+        /* catalog default */
+      }
       if (amount == null || amount <= 0) continue;
 
       const ledgerService = ledgerServiceForCycle(earnKey, cycleIndex);
