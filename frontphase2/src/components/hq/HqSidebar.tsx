@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   Server,
   Target,
+  Ticket,
   UserRound,
   Users,
   UsersRound,
@@ -47,6 +48,7 @@ export type HqNavId =
   | 'reports'
   | 'billing'
   | 'company'
+  | 'tickets'
   | 'portal'
   | 'events';
 
@@ -122,6 +124,14 @@ export const HQ_NAV_ITEMS: {
     href: '/hq/company',
     icon: Building,
     accent: 'indigo',
+    group: 'employers',
+  },
+  {
+    id: 'tickets',
+    label: 'Tickets',
+    href: '/hq/tickets',
+    icon: Ticket,
+    accent: 'rose',
     group: 'employers',
   },
   {
@@ -229,6 +239,7 @@ function isNavActive(
   if (item.id === 'team') return pathname === '/hq/team' || pathname.startsWith('/hq/team/');
   if (item.id === 'reports') return pathname === '/hq/reports' || pathname.startsWith('/hq/reports/');
   if (item.id === 'company') return pathname === '/hq/company' || pathname.startsWith('/hq/company/');
+  if (item.id === 'tickets') return pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/');
   if (item.id === 'candidates') {
     return pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/');
   }
@@ -265,6 +276,7 @@ function isEmployeesSectionActive(pathname: string, tab: string | null, view: st
 
 function isEmployersSectionActive(pathname: string, tab: string | null, view: string | null) {
   if (pathname === '/hq/company' || pathname.startsWith('/hq/company/')) return true;
+  if (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) return true;
   if (pathname !== '/hq') return false;
   if (tab === 'tenants' || tab === 'plans') return true;
   if (tab && tab !== 'dashboard') return false;

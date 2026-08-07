@@ -167,7 +167,7 @@ export const linkedinController = {
         return sendError(res, 401, 'Authentication required');
       }
 
-      const { jobTitle, company, description, applyUrl, location } = req.body;
+      const { jobTitle, company, description, applyUrl, location, imageUrl, linkedinImageUrl, postText } = req.body;
 
       if (!jobTitle || !company || !applyUrl) {
         return sendError(res, 400, 'Job title, company, and apply URL are required');
@@ -179,6 +179,9 @@ export const linkedinController = {
         description,
         applyUrl,
         location,
+        postText,
+        imageUrl: linkedinImageUrl || imageUrl || '',
+        linkedinImageUrl: linkedinImageUrl || imageUrl || '',
       });
 
       // Log successful job post to terminal

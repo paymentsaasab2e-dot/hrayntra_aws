@@ -1792,6 +1792,83 @@ export async function apiHqListCompanies() {
   }>('/hq/companies', { auth: true });
 }
 
+export type HqSupportTicketPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type HqSupportTicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+export type HqSupportTicketCategory = 'general' | 'billing' | 'technical' | 'account' | 'feature';
+
+export type HqSupportTicket = {
+  id: string;
+  subject: string;
+  description: string;
+  priority: HqSupportTicketPriority;
+  status: HqSupportTicketStatus;
+  category: HqSupportTicketCategory;
+  tenantDbName: string;
+  organizationName: string;
+  raisedByUserId: string;
+  raisedByName: string;
+  raisedByEmail: string;
+  hqNotes: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type HqSupportTicketStats = {
+  total: number;
+  open: number;
+  inProgress: number;
+  resolved: number;
+  closed: number;
+  highPriority: number;
+};
+
+export async function apiHqListTickets(params?: {
+  status?: string;
+  priority?: string;
+  tenantDbName?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  if (params?.priority) query.set('priority', params.priority);
+  if (params?.tenantDbName) query.set('tenantDbName', params.tenantDbName);
+  const qs = query.toString();
+  return apiFetch<{ tickets: HqSupportTicket[]; stats: HqSupportTicketStats }>(
+    `/hq/tickets${qs ? `?${qs}` : ''}`,
+    { auth: true },
+  );
+}
+
+export async function apiHqUpdateTicket(
+  ticketId: string,
+  body: { status?: HqSupportTicketStatus; priority?: HqSupportTicketPriority; hqNotes?: string },
+) {
+  return apiFetch<{ ticket: HqSupportTicket }>(`/hq/tickets/${encodeURIComponent(ticketId)}`, {
+    method: 'PATCH',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiCreateSupportTicket(body: {
+  subject: string;
+  description: string;
+  priority?: HqSupportTicketPriority;
+  category?: HqSupportTicketCategory;
+  organizationName?: string;
+}) {
+  return apiFetch<{ ticket: HqSupportTicket }>('/support/tickets', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiListMySupportTickets() {
+  return apiFetch<{ tickets: HqSupportTicket[]; stats: HqSupportTicketStats }>('/support/tickets', {
+    auth: true,
+  });
+}
+
 export async function apiHqCreateCompany(
   body:
     | CreateClientData
@@ -8536,6 +8613,8 @@ export interface SocialPublishData {
   facebookPostText?: string;
   linkedinTargets?: string[];
   twitterTargets?: string[];
+  /** Public image URL attached to the LinkedIn share (JPG/PNG/GIF). */
+  linkedinImageUrl?: string;
 }
 
 export const apiPublishSocialJob = async (data: SocialPublishData) => {

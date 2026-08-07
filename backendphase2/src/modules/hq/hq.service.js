@@ -17,6 +17,7 @@ import { hqDemosService } from './hq-demos.service.js';
 import { hqPackagesService } from './hq-packages.service.js';
 import { hqAnalyticsService } from './hq-analytics.service.js';
 import { hqCoursesService } from './hq-courses.service.js';
+import { hqTicketsService } from './hq-tickets.service.js';
 
 async function resolvePlanInput(raw, billingCycle, planStartDate) {
   const plan = await hqPackagesService.resolvePlanInput(raw, billingCycle, planStartDate);
@@ -746,6 +747,16 @@ export const hqService = {
   async deleteDemoRequest(id, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqDemosService.deleteDemoRequest(id);
+  },
+
+  async listSupportTickets(reqUser, filters = {}) {
+    assertPlatformProvisioner(reqUser);
+    return hqTicketsService.listTickets(filters);
+  },
+
+  async updateSupportTicket(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTicketsService.updateTicket(id, data, reqUser);
   },
 
   async listCompanies(reqUser) {

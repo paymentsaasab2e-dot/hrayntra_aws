@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { encryption } from '../../utils/encryption.js';
+import { env } from '../../config/env.js';
 
 function ensureLinkedInModel() {
   if (!prisma.linkedInToken) {
@@ -75,7 +76,7 @@ function flattenAccountsFromTokens(tokens) {
         id: `org:${page.id}`,
         key: `org:${page.id}`,
         type: 'page',
-        name: page.name || `Company Page`,
+        name: page.name || 'Company Page',
         parentAccountId: token.id,
         organizationId: String(page.id),
         picture: null,
@@ -85,6 +86,98 @@ function flattenAccountsFromTokens(tokens) {
     }
   }
   return accounts;
+}
+
+async function fetchImageBuffer(imageUrl) {
+  let url = String(imageUrl || '').trim();
+  if (!url) return null;
+
+  // Resolve relative /uploads or /api paths against the API host when needed.
+  if (url.startsWith('/')) {
+    const base = String(env.BACKEND_PUBLIC_URL || env.FRONTEND_URL || '').replace(/\/$/, '');
+    if (base) url = `${base}${url}`;
+  }
+
+  const response = await fetch(url, {
+    headers: { Accept: 'image/*,*/*' },
+  });
+  if (!response.ok) {
+    throw new Error(`Could not download LinkedIn image (${response.status})`);
+  }
+
+  const contentType = String(response.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+  if (!contentType.startsWith('image/')) {
+    throw new Error('LinkedIn image URL must point to an image file');
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (!buffer.length) throw new Error('LinkedIn image file is empty');
+  if (buffer.length > 8 * 1024 * 1024) throw new Error('LinkedIn image must be 8MB or smaller');
+
+  return { buffer, contentType };
+}
+
+/**
+ * Register + upload an image to LinkedIn Assets API, return digitalmediaAsset URN.
+ */
+async function uploadLinkedInImageAsset(accessToken, ownerUrn, imageUrl) {
+  const image = await fetchImageBuffer(imageUrl);
+  if (!image) return null;
+
+  const registerResponse = await fetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-Restli-Protocol-Version': '2.0.0',
+    },
+    body: JSON.stringify({
+      registerUploadRequest: {
+        recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+        owner: ownerUrn,
+        serviceRelationships: [
+          {
+            relationshipType: 'OWNER',
+            identifier: 'urn:li:userGeneratedContent',
+          },
+        ],
+      },
+    }),
+  });
+
+  if (!registerResponse.ok) {
+    const errorText = await registerResponse.text();
+    console.error('LinkedIn registerUpload failed:', errorText);
+    throw new Error(`LinkedIn image register failed: ${registerResponse.status}`);
+  }
+
+  const registerData = await registerResponse.json();
+  const assetUrn = registerData?.value?.asset;
+  const uploadUrl =
+    registerData?.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']
+      ?.uploadUrl;
+
+  if (!assetUrn || !uploadUrl) {
+    throw new Error('LinkedIn did not return an image upload URL');
+  }
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': image.contentType || 'application/octet-stream',
+    },
+    body: image.buffer,
+  });
+
+  if (!uploadResponse.ok) {
+    const errorText = await uploadResponse.text();
+    console.error('LinkedIn image binary upload failed:', errorText);
+    throw new Error(`LinkedIn image upload failed: ${uploadResponse.status}`);
+  }
+
+  return assetUrn;
 }
 
 export const linkedinService = {
@@ -237,14 +330,39 @@ export const linkedinService = {
       shareText = shareText.replaceAll('[link-on-save]', applyUrl);
     }
 
+    const imageUrl = String(jobData.imageUrl || jobData.linkedinImageUrl || '').trim();
+    let assetUrn = null;
+    if (imageUrl) {
+      try {
+        assetUrn = await uploadLinkedInImageAsset(tokenRecord.accessToken, authorUrn, imageUrl);
+      } catch (imageError) {
+        console.error('LinkedIn image attach failed, posting text-only:', imageError?.message || imageError);
+        // Fall back to text-only so the job still publishes.
+        assetUrn = null;
+      }
+    }
+
+    const shareContent = {
+      shareCommentary: { text: shareText },
+      shareMediaCategory: assetUrn ? 'IMAGE' : 'NONE',
+    };
+
+    if (assetUrn) {
+      shareContent.media = [
+        {
+          status: 'READY',
+          description: { text: String(jobData.jobTitle || 'Job opening').slice(0, 200) },
+          media: assetUrn,
+          title: { text: String(jobData.jobTitle || 'We\'re hiring').slice(0, 200) },
+        },
+      ];
+    }
+
     const ugcPostPayload = {
       author: authorUrn,
       lifecycleState: 'PUBLISHED',
       specificContent: {
-        'com.linkedin.ugc.ShareContent': {
-          shareCommentary: { text: shareText },
-          shareMediaCategory: 'NONE',
-        },
+        'com.linkedin.ugc.ShareContent': shareContent,
       },
       visibility: {
         'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',

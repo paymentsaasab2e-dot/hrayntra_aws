@@ -737,6 +737,7 @@ type CreateJobOauthDraft = {
   formData: Record<string, unknown>;
   linkedInPostText: string;
   linkedInPostTextTouched: boolean;
+  linkedInImageUrl?: string;
   twitterPostTextTouched: boolean;
   selectedLinkedInTargets: string[];
   selectedTwitterTargets: string[];
@@ -915,6 +916,9 @@ export function CreateJobDrawer({
   });
   const [linkedInPostText, setLinkedInPostText] = useState('');
   const [linkedInPostTextTouched, setLinkedInPostTextTouched] = useState(false);
+  const [linkedInImageUrl, setLinkedInImageUrl] = useState('');
+  const [uploadingLinkedInImage, setUploadingLinkedInImage] = useState(false);
+  const linkedInImageUploadFeedback = useDocumentUploadFeedback(uploadingLinkedInImage);
   const [twitterPostTextTouched, setTwitterPostTextTouched] = useState(false);
   const [applicationApplyUrl, setApplicationApplyUrl] = useState('');
   const [applicationApplyUrlLoading, setApplicationApplyUrlLoading] = useState(false);
@@ -1072,6 +1076,7 @@ export function CreateJobDrawer({
       }));
       setLinkedInPostText(String(draft.linkedInPostText || ''));
       setLinkedInPostTextTouched(Boolean(draft.linkedInPostTextTouched));
+      setLinkedInImageUrl(String(draft.linkedInImageUrl || ''));
       setTwitterPostTextTouched(Boolean(draft.twitterPostTextTouched));
       setSelectedLinkedInTargets(
         Array.isArray(draft.selectedLinkedInTargets) ? draft.selectedLinkedInTargets : [],
@@ -1209,6 +1214,8 @@ export function CreateJobDrawer({
       });
       setLinkedInPostText('');
       setLinkedInPostTextTouched(false);
+      setLinkedInImageUrl('');
+      setUploadingLinkedInImage(false);
       setTwitterPostTextTouched(false);
       setApplicationApplyUrl('');
       setApplicationApplyUrlLoading(false);
@@ -1430,6 +1437,7 @@ export function CreateJobDrawer({
         formData: { ...formData },
         linkedInPostText,
         linkedInPostTextTouched,
+        linkedInImageUrl,
         twitterPostTextTouched,
         selectedLinkedInTargets,
         selectedTwitterTargets,
@@ -2958,6 +2966,7 @@ export function CreateJobDrawer({
         formData: { ...formData },
         linkedInPostText,
         linkedInPostTextTouched,
+        linkedInImageUrl,
         twitterPostTextTouched,
         selectedLinkedInTargets,
         selectedTwitterTargets,
@@ -3286,6 +3295,7 @@ export function CreateJobDrawer({
             facebookPostText: resolvedFacebookPostText,
             linkedinTargets: selectedLinkedInTargets,
             twitterTargets: selectedTwitterTargets,
+            linkedinImageUrl: linkedInImageUrl.trim() || undefined,
           });
 
           if (platformsToPublish.linkedin && (result as any).data?.linkedin?.success) {
@@ -3351,6 +3361,51 @@ export function CreateJobDrawer({
 
   const removeSkill = (index: number) => {
     setFormData(prev => ({ ...prev, skills: prev.skills.filter((_, i) => i !== index) }));
+  };
+
+  const handleLinkedInImageFileChange = async (
+    source: React.ChangeEvent<HTMLInputElement> | File,
+  ) => {
+    const file = source instanceof File ? source : source.target.files?.[0];
+    if (!(source instanceof File) && source.target) source.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      void requestWarning('Please choose an image file (PNG, JPG, GIF, or WebP)');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      void requestWarning('LinkedIn image must be 8MB or smaller.');
+      return;
+    }
+
+    const target =
+      isEditMode && jobId
+        ? ({ entity: 'job' as const, id: jobId })
+        : formData.companyId
+          ? ({ entity: 'client' as const, id: formData.companyId })
+          : null;
+
+    if (!target) {
+      void requestWarning(
+        'Select a company in Job Details first so the LinkedIn image can be uploaded.',
+      );
+      return;
+    }
+
+    try {
+      setUploadingLinkedInImage(true);
+      const res = await filesApiUpload(target.entity, target.id, file, 'LINKEDIN_POST_IMAGE');
+      const url = res.data?.fileUrl;
+      if (!url) throw new Error('Upload succeeded but no file URL was returned.');
+      setLinkedInImageUrl(url);
+      linkedInImageUploadFeedback.markSuccess(file.name);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      linkedInImageUploadFeedback.markError(message);
+      void requestError(message);
+    } finally {
+      setUploadingLinkedInImage(false);
+    }
   };
 
   const handleApplicationLogoFileChange = async (
@@ -4248,7 +4303,61 @@ export function CreateJobDrawer({
                                       : undefined
                                   }
                                   postText={linkedInPostText}
+                                  imageUrl={linkedInImageUrl || null}
                                 />
+                              </div>
+
+                              {/* LinkedIn post image */}
+                              <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">
+                                  Post image (optional)
+                                </label>
+                                <p className="mb-2 text-xs text-slate-500">
+                                  Attach a JPG, PNG, or GIF. It will be published with the LinkedIn post when you save.
+                                </p>
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <DocumentUploadButton
+                                    variant="secondary"
+                                    label="Upload image"
+                                    uploadingLabel="Uploading"
+                                    accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                                    isUploading={uploadingLinkedInImage}
+                                    uploadSuccess={linkedInImageUploadFeedback.uploadSuccess}
+                                    uploadPercent={linkedInImageUploadFeedback.uploadPercent}
+                                    onFilesSelected={async (files) => {
+                                      const file = files[0];
+                                      if (file) await handleLinkedInImageFileChange(file);
+                                    }}
+                                  />
+                                  {formData.applicationLogoUrl && !linkedInImageUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setLinkedInImageUrl(formData.applicationLogoUrl)}
+                                      className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                    >
+                                      Use application logo
+                                    </button>
+                                  ) : null}
+                                  {linkedInImageUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setLinkedInImageUrl('')}
+                                      className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                    >
+                                      Remove image
+                                    </button>
+                                  ) : null}
+                                </div>
+                                {linkedInImageUrl ? (
+                                  <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={linkedInImageUrl}
+                                      alt="LinkedIn post"
+                                      className="max-h-48 w-full object-contain"
+                                    />
+                                  </div>
+                                ) : null}
                               </div>
 
                               {/* Editable Post Text */}
@@ -4263,7 +4372,7 @@ export function CreateJobDrawer({
                                   value={linkedInPostText}
                                   onChange={(e) => {
                                     setLinkedInPostTextTouched(true);
-                                    const text = e.target.value.substring(0, 700);
+                                    const text = e.target.value.substring(0, LINKEDIN_POST_MAX_LENGTH);
                                     setLinkedInPostText(text);
                                   }}
                                   rows={6}

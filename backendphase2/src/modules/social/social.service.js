@@ -35,6 +35,8 @@ export const socialService = {
             applyUrl: jobData.applyUrl,
             location: jobData.location,
             postText: jobData.linkedinPostText,
+            imageUrl: jobData.linkedinImageUrl || jobData.imageUrl || '',
+            linkedinImageUrl: jobData.linkedinImageUrl || jobData.imageUrl || '',
           },
           targets
         );

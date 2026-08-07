@@ -78,6 +78,9 @@ router.post('/leads/:id/convert-to-company', authMiddleware, hqController.conver
 router.get('/demos', authMiddleware, hqController.listDemoRequests);
 router.delete('/demos/:id', authMiddleware, hqController.deleteDemoRequest);
 
+router.get('/tickets', authMiddleware, hqController.listSupportTickets);
+router.patch('/tickets/:id', authMiddleware, hqController.updateSupportTicket);
+
 router.get('/companies', authMiddleware, hqController.listCompanies);
 router.post('/companies', authMiddleware, hqController.createCompany);
 router.put('/companies/:id', authMiddleware, hqController.updateCompany);
