@@ -1,7 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiGetMe, BackendUser } from '../lib/api';
+import { apiGetMe, apiRefreshToken, BackendUser, getAccessToken } from '../lib/api';
+
+function isAuthRequiredError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /Authentication required|Please log in|No refresh token/i.test(message);
+}
 
 export function useUser() {
   const [user, setUser] = useState<BackendUser | null>(null);
@@ -10,32 +15,70 @@ export function useUser() {
   const fetchUser = useCallback(async () => {
     try {
       setLoading(true);
+
+      let token = getAccessToken();
+      const refreshToken =
+        typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
+
+      // Global hosts (intelligence, sidenav) mount on login/public pages too —
+      // never hit /users/me without credentials (avoids console auth errors).
+      if (!token && refreshToken) {
+        try {
+          await apiRefreshToken();
+          token = getAccessToken();
+        } catch {
+          token = null;
+        }
+      }
+
+      if (!token) {
+        setUser(null);
+        return;
+      }
+
       const response = await apiGetMe();
       if (response.success) {
         setUser(response.data);
-        // Sync with localStorage
         const stored = localStorage.getItem('currentUser');
         if (stored) {
-          const parsed = JSON.parse(stored);
-          localStorage.setItem('currentUser', JSON.stringify({ ...parsed, ...response.data }));
+          try {
+            const parsed = JSON.parse(stored);
+            localStorage.setItem('currentUser', JSON.stringify({ ...parsed, ...response.data }));
+          } catch {
+            localStorage.setItem('currentUser', JSON.stringify(response.data));
+          }
+        } else {
+          localStorage.setItem('currentUser', JSON.stringify(response.data));
         }
       }
     } catch (error) {
-      console.error('Failed to fetch user:', error);
+      if (!isAuthRequiredError(error)) {
+        console.error('Failed to fetch user:', error);
+      }
+      setUser(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    // Initial load from localStorage for speed
-    const stored = localStorage.getItem('currentUser');
-    if (stored) {
-      setUser(JSON.parse(stored));
+    const token = getAccessToken();
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('currentUser') : null;
+
+    // Hydrate from cache only when a session token still exists.
+    if (token && stored) {
+      try {
+        setUser(JSON.parse(stored));
+        setLoading(false);
+      } catch {
+        /* ignore corrupt cache */
+      }
+    } else if (!token) {
+      setUser(null);
       setLoading(false);
     }
-    
-    fetchUser();
+
+    void fetchUser();
   }, [fetchUser]);
 
   return { user, loading, refreshUser: fetchUser };

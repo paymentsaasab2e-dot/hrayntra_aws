@@ -209,7 +209,17 @@ export interface ApiResponse<T> {
 export function getAccessToken() {
   if (typeof window === 'undefined') return null;
   try {
-    return localStorage.getItem('accessToken');
+    const fromStorage = localStorage.getItem('accessToken');
+    if (fromStorage) return fromStorage;
+
+    // Middleware auth uses the cookie; recover if localStorage was cleared but cookie remains.
+    const match = document.cookie.match(/(?:^|;\s*)accessToken=([^;]*)/);
+    const fromCookie = match?.[1] ? decodeURIComponent(match[1]) : null;
+    if (fromCookie) {
+      localStorage.setItem('accessToken', fromCookie);
+      return fromCookie;
+    }
+    return null;
   } catch (error) {
     console.error('Error accessing localStorage:', error);
     return null;
@@ -265,10 +275,13 @@ function isPublicUnauthenticatedPath(pathname?: string) {
   return (
     path === '/login' ||
     path.startsWith('/login/') ||
+    path.startsWith('/forgot-password') ||
+    path.startsWith('/reset-password') ||
     path.startsWith('/lead-form/') ||
     path.startsWith('/apply/') ||
     path.startsWith('/client-review/') ||
-    path.startsWith('/hq/login')
+    path === '/hq/login' ||
+    path.startsWith('/hq/login/')
   );
 }
 
