@@ -344,6 +344,7 @@ function HQSetupPage() {
         enabledModules: provisionData.enabledModules,
         billingCycle: provisionData.billingCycle,
         planStartDate: provisionData.planStartDate || undefined,
+        planEndDate: provisionData.planEndDate || undefined,
         companyId:
           provisionData.source === 'company' && provisionData.companyId
             ? provisionData.companyId
@@ -352,6 +353,7 @@ function HQSetupPage() {
           name: provisionData.planName,
           billingCycle: provisionData.billingCycle,
           planStartDate: provisionData.planStartDate || undefined,
+          planEndDate: provisionData.planEndDate || undefined,
           ...(provisionData.customPrice ? { price: provisionData.customPrice } : {}),
           ...(maxUsers ? { maxUsers } : {}),
           ...(maxJobs ? { maxJobs } : {}),

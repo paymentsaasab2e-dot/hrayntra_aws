@@ -1319,13 +1319,24 @@ export async function apiHqProvisionTenant(body: {
   organizationType?: 'agency' | 'standalone';
   billingCycle?: 'monthly' | 'annual';
   planStartDate?: string;
+  planEndDate?: string;
   /** Phase 2 workspace line: CRM or Recruitment */
   productLine?: 'crm' | 'recruitment';
   /** Enabled Phase 2 sidebar module ids for this tenant */
   enabledModules?: string[];
   /** Optional HQ company id (Lead → Client → Company funnel) */
   companyId?: string;
-  plan?: { id?: string; name?: string; billingCycle?: 'monthly' | 'annual'; planStartDate?: string };
+  plan?: {
+    id?: string;
+    name?: string;
+    billingCycle?: 'monthly' | 'annual';
+    planStartDate?: string;
+    planEndDate?: string;
+    price?: string;
+    maxUsers?: number | null;
+    maxJobs?: number | null;
+    coins?: number;
+  };
 }) {
   return apiFetch<{
     tenantDbName?: string;

@@ -5,6 +5,7 @@ import {
   Building2,
   Hash,
   Lock,
+  Mail,
   User,
   X,
 } from 'lucide-react';
@@ -36,6 +37,7 @@ export type ProvisionTenantFormData = {
   planName: TenantPlanName;
   billingCycle: TenantBillingCycle;
   planStartDate: string;
+  planEndDate: string;
   maxUsers: string;
   maxJobs: string;
   customPrice: string;
@@ -55,9 +57,23 @@ const PLAN_PRESETS: Record<TenantPlanName, { price: string; yearlyPrice: string;
   Custom: { price: '', yearlyPrice: '', maxUsers: '', maxJobs: '', coins: '' },
 };
 
+export function defaultPlanEndDate(
+  planStartDate: string,
+  billingCycle: TenantBillingCycle = 'monthly',
+): string {
+  const start = String(planStartDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return '';
+  const days = billingCycle === 'annual' ? 365 : 30;
+  const d = new Date(`${start}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export function emptyProvisionTenantForm(
   overrides?: Partial<ProvisionTenantFormData>,
 ): ProvisionTenantFormData {
+  const planStartDate = new Date().toISOString().slice(0, 10);
+  const billingCycle: TenantBillingCycle = overrides?.billingCycle || 'monthly';
   return {
     name: '',
     email: '',
@@ -69,13 +85,20 @@ export function emptyProvisionTenantForm(
     source: 'manual',
     companyId: '',
     planName: 'Starter',
-    billingCycle: 'monthly',
-    planStartDate: new Date().toISOString().slice(0, 10),
+    billingCycle,
+    planStartDate,
+    planEndDate: defaultPlanEndDate(planStartDate, billingCycle),
     maxUsers: '5',
     maxJobs: '25',
     customPrice: '149',
     coins: '100',
     ...overrides,
+    planEndDate:
+      overrides?.planEndDate ||
+      defaultPlanEndDate(
+        overrides?.planStartDate || planStartDate,
+        overrides?.billingCycle || billingCycle,
+      ),
   };
 }
 
@@ -496,7 +519,12 @@ export function ProvisionTenantFormFields({
               type="button"
               onClick={() => {
                 const preset = PLAN_PRESETS[data.planName];
-                onChange({ ...data, billingCycle: 'monthly', customPrice: preset.price || data.customPrice });
+                onChange({
+                  ...data,
+                  billingCycle: 'monthly',
+                  customPrice: preset.price || data.customPrice,
+                  planEndDate: defaultPlanEndDate(data.planStartDate, 'monthly'),
+                });
               }}
               className={`rounded-xl border px-3 py-2.5 text-left transition ${
                 data.billingCycle === 'monthly'
@@ -511,7 +539,12 @@ export function ProvisionTenantFormFields({
               type="button"
               onClick={() => {
                 const preset = PLAN_PRESETS[data.planName];
-                onChange({ ...data, billingCycle: 'annual', customPrice: preset.yearlyPrice || data.customPrice });
+                onChange({
+                  ...data,
+                  billingCycle: 'annual',
+                  customPrice: preset.yearlyPrice || data.customPrice,
+                  planEndDate: defaultPlanEndDate(data.planStartDate, 'annual'),
+                });
               }}
               className={`rounded-xl border px-3 py-2.5 text-left transition ${
                 data.billingCycle === 'annual'
@@ -577,17 +610,38 @@ export function ProvisionTenantFormFields({
           </div>
         </div>
 
-        {/* Plan start date */}
-        <div>
-          <label className="ml-1 mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
-            Plan start date
-          </label>
-          <input
-            type="date"
-            value={data.planStartDate}
-            onChange={(e) => onChange({ ...data, planStartDate: e.target.value })}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
-          />
+        {/* Plan start / end dates */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="ml-1 mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+              Plan start date
+            </label>
+            <input
+              type="date"
+              value={data.planStartDate}
+              onChange={(e) => {
+                const planStartDate = e.target.value;
+                onChange({
+                  ...data,
+                  planStartDate,
+                  planEndDate: defaultPlanEndDate(planStartDate, data.billingCycle),
+                });
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+            />
+          </div>
+          <div>
+            <label className="ml-1 mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+              Plan end date
+            </label>
+            <input
+              type="date"
+              value={data.planEndDate}
+              min={data.planStartDate || undefined}
+              onChange={(e) => onChange({ ...data, planEndDate: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+            />
+          </div>
         </div>
 
         <p className="text-[11px] text-slate-500">
@@ -597,9 +651,16 @@ export function ProvisionTenantFormFields({
               {data.maxUsers ? ` · ${data.maxUsers} users` : ' · Unlimited users'}
               {data.maxJobs ? ` · ${data.maxJobs} jobs` : ' · Unlimited jobs'}
               {data.coins ? ` · ${data.coins} coins` : ''}
+              {data.planStartDate ? ` · ${data.planStartDate}` : ''}
+              {data.planEndDate ? ` → ${data.planEndDate}` : ''}
             </>
           ) : (
-            <>Custom pricing · ${data.customPrice || '—'}/mo · {data.billingCycle}{data.coins ? ` · ${data.coins} coins` : ''}</>
+            <>
+              Custom pricing · ${data.customPrice || '—'}/mo · {data.billingCycle}
+              {data.coins ? ` · ${data.coins} coins` : ''}
+              {data.planStartDate ? ` · ${data.planStartDate}` : ''}
+              {data.planEndDate ? ` → ${data.planEndDate}` : ''}
+            </>
           )}
         </p>
       </div>

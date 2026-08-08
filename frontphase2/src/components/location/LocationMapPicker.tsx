@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, MapPin } from 'lucide-react';
+import { Loader2, MapPin, Navigation } from 'lucide-react';
 import type { LocationSelection } from '../LocationAutocomplete';
 import { apiReverseGeocode } from '../../lib/location-api';
 
@@ -13,11 +13,17 @@ export interface LocationMapPickerProps {
   className?: string;
   /** Change when surrounding layout changes (e.g. tab switch) so the map recalculates size. */
   layoutKey?: string | number;
+  /**
+   * When no lat/lng is set, center the map on the browser geolocation
+   * and use it as the default pin (reverse-geocoded once into the form).
+   */
+  useDeviceLocationAsDefault?: boolean;
 }
 
 const DEFAULT_CENTER = { lat: 20.5937, lng: 78.9629 };
 const DEFAULT_ZOOM = 5;
 const SELECTED_ZOOM = 14;
+const DEVICE_LOCATION_ZOOM = 13;
 
 function toSelection(resolved: {
   location: string;
@@ -49,6 +55,7 @@ export function LocationMapPicker({
   disabled,
   className = '',
   layoutKey,
+  useDeviceLocationAsDefault = true,
 }: LocationMapPickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import('leaflet').Map | null>(null);
@@ -59,6 +66,7 @@ export function LocationMapPicker({
   const onSelectRef = useRef(onSelect);
   const disabledRef = useRef(disabled);
   const handleMapClickRef = useRef<(lat: number, lng: number) => Promise<void>>(async () => {});
+  const didApplyDeviceLocationRef = useRef(false);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -70,6 +78,8 @@ export function LocationMapPicker({
 
   const [ready, setReady] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const [locatingDevice, setLocatingDevice] = useState(false);
+  const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
 
   const hasCoords =
@@ -117,6 +127,34 @@ export function LocationMapPicker({
     }
   };
 
+  // Request browser geolocation when no lat/lng is set yet.
+  useEffect(() => {
+    if (!useDeviceLocationAsDefault || hasCoords || disabled) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+
+    let cancelled = false;
+    setLocatingDevice(true);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (cancelled) return;
+        setDeviceLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+        setLocatingDevice(false);
+      },
+      () => {
+        if (!cancelled) setLocatingDevice(false);
+      },
+      { enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60 * 1000 },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [useDeviceLocationAsDefault, hasCoords, disabled]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -144,8 +182,12 @@ export function LocationMapPicker({
 
         const initialCenter = hasCoords
           ? { lat: latitude as number, lng: longitude as number }
-          : DEFAULT_CENTER;
-        const initialZoom = hasCoords ? SELECTED_ZOOM : DEFAULT_ZOOM;
+          : deviceLocation ?? DEFAULT_CENTER;
+        const initialZoom = hasCoords
+          ? SELECTED_ZOOM
+          : deviceLocation
+            ? DEVICE_LOCATION_ZOOM
+            : DEFAULT_ZOOM;
 
         const map = L.map(containerRef.current, {
           center: initialCenter,
@@ -217,6 +259,7 @@ export function LocationMapPicker({
     }
   }, [disabled, ready]);
 
+  // Apply selected coords, or fall back to device location as the default preview.
   useEffect(() => {
     const map = mapRef.current;
     const L = leafletRef.current;
@@ -230,11 +273,71 @@ export function LocationMapPicker({
         markerRef.current = L.marker(latLng).addTo(map);
       }
       map.setView(latLng, Math.max(map.getZoom(), SELECTED_ZOOM), { animate: true });
-    } else if (markerRef.current) {
+      return;
+    }
+
+    if (deviceLocation && useDeviceLocationAsDefault) {
+      if (markerRef.current) {
+        markerRef.current.setLatLng(deviceLocation);
+      } else {
+        markerRef.current = L.marker(deviceLocation).addTo(map);
+      }
+      map.setView(deviceLocation, Math.max(map.getZoom(), DEVICE_LOCATION_ZOOM), { animate: true });
+
+      // Reverse-geocode once so Add Lead gets the user's location as the default selection.
+      if (!didApplyDeviceLocationRef.current && !disabled) {
+        didApplyDeviceLocationRef.current = true;
+        void handleMapClickRef.current(deviceLocation.lat, deviceLocation.lng);
+      }
+      return;
+    }
+
+    if (markerRef.current) {
       markerRef.current.remove();
       markerRef.current = null;
     }
-  }, [latitude, longitude, hasCoords, ready]);
+  }, [
+    latitude,
+    longitude,
+    hasCoords,
+    ready,
+    deviceLocation,
+    useDeviceLocationAsDefault,
+    disabled,
+  ]);
+
+  const statusLabel = (() => {
+    if (resolving) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+          <Loader2 size={12} className="animate-spin" />
+          Resolving address…
+        </span>
+      );
+    }
+    if (locatingDevice && !hasCoords) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+          <Loader2 size={12} className="animate-spin" />
+          Detecting your location…
+        </span>
+      );
+    }
+    if (!hasCoords && deviceLocation) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600">
+          <Navigation size={12} />
+          Your current location
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+        <MapPin size={12} />
+        Click map to pick location
+      </span>
+    );
+  })();
 
   return (
     <div className={`space-y-2 ${className}`}>
@@ -242,17 +345,7 @@ export function LocationMapPicker({
         <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
           Map preview
         </p>
-        {resolving ? (
-          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-            <Loader2 size={12} className="animate-spin" />
-            Resolving address…
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-            <MapPin size={12} />
-            Click map to pick location
-          </span>
-        )}
+        {statusLabel}
       </div>
 
       <div

@@ -166,10 +166,11 @@ export function resolvePackageLimits(pkg, billingCycle = 'monthly') {
   };
 }
 
-export function toAssignablePlan(pkg, billingCycle = 'monthly', planStartDate) {
+export function toAssignablePlan(pkg, billingCycle = 'monthly', planStartDate, planEndDate) {
   if (!pkg) return null;
   const limits = resolvePackageLimits(pkg, billingCycle);
   const start = parsePlanStartDate(planStartDate) || todayPlanStartDate();
+  const explicitEnd = parsePlanStartDate(planEndDate);
   const coins =
     pkg?.coins === undefined || pkg?.coins === null
       ? undefined
@@ -181,7 +182,7 @@ export function toAssignablePlan(pkg, billingCycle = 'monthly', planStartDate) {
     maxUsers: limits.maxUsers,
     maxJobs: limits.maxJobs,
     planStartDate: start,
-    planEndDate: computePlanEndDate(start, limits.billingCycle),
+    planEndDate: explicitEnd || computePlanEndDate(start, limits.billingCycle),
     ...(coins !== undefined ? { coins } : {}),
     ...(pkg?.price ? { price: String(pkg.price) } : {}),
   };
