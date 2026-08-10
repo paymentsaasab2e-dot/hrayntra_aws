@@ -158,6 +158,7 @@ export const hqPackagesService = {
     );
     const startDate =
       planStartDate ?? (typeof raw === 'object' ? raw?.planStartDate : undefined);
+    const endDate = typeof raw === 'object' ? raw?.planEndDate : undefined;
 
     if (typeof raw === 'string') {
       const s = raw.trim();
@@ -170,7 +171,7 @@ export const hqPackagesService = {
           p.name.toLowerCase() === s.toLowerCase() ||
           p.name.toLowerCase() === key
       );
-      return found ? toAssignablePlan(found, cycle, startDate) : null;
+      return found ? toAssignablePlan(found, cycle, startDate, endDate) : null;
     }
 
     const id = String(raw.id || '').trim();
@@ -183,7 +184,7 @@ export const hqPackagesService = {
           (name && p.name.toLowerCase() === name.toLowerCase()) ||
           (key && (p.slug === key || p.name.toLowerCase() === key))
       ) || null;
-    return found ? toAssignablePlan(found, cycle, startDate) : null;
+    return found ? toAssignablePlan(found, cycle, startDate, endDate) : null;
   },
 
   async createPackage(data) {

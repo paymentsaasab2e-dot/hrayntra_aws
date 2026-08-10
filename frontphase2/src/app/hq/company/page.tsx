@@ -194,6 +194,8 @@ export default function HqCompanyPage() {
     }
     setProvisionLoading(true);
     try {
+      const maxUsers = provisionData.maxUsers ? Number(provisionData.maxUsers) : null;
+      const maxJobs = provisionData.maxJobs ? Number(provisionData.maxJobs) : null;
       const res = await apiHqProvisionTenant({
         name: provisionData.name.trim(),
         email: provisionData.email.trim().toLowerCase(),
@@ -202,13 +204,26 @@ export default function HqCompanyPage() {
         organizationType: provisionData.organizationType,
         productLine: provisionData.productLine,
         enabledModules: provisionData.enabledModules,
+        billingCycle: provisionData.billingCycle,
+        planStartDate: provisionData.planStartDate || undefined,
+        planEndDate: provisionData.planEndDate || undefined,
         companyId:
           provisionData.source === 'company' && provisionData.companyId
             ? provisionData.companyId
             : undefined,
+        plan: {
+          name: provisionData.planName,
+          billingCycle: provisionData.billingCycle,
+          planStartDate: provisionData.planStartDate || undefined,
+          planEndDate: provisionData.planEndDate || undefined,
+          ...(provisionData.customPrice ? { price: provisionData.customPrice } : {}),
+          ...(maxUsers ? { maxUsers } : {}),
+          ...(maxJobs ? { maxJobs } : {}),
+          ...(provisionData.coins ? { coins: Number(provisionData.coins) || 0 } : {}),
+        },
       });
       toast.success(
-        `Tenant created${res.data?.tenantDbName ? `: ${res.data.tenantDbName}` : ''}. Assign a plan on Tenants / Billing when ready.`,
+        `Tenant created${res.data?.tenantDbName ? `: ${res.data.tenantDbName}` : ''}.`,
       );
       setCreateTenantOpen(false);
       setProvisionData(emptyProvisionTenantForm());

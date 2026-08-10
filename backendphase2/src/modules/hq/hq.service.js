@@ -19,17 +19,27 @@ import { hqAnalyticsService } from './hq-analytics.service.js';
 import { hqCoursesService } from './hq-courses.service.js';
 import { hqTicketsService } from './hq-tickets.service.js';
 
-async function resolvePlanInput(raw, billingCycle, planStartDate) {
-  const plan = await hqPackagesService.resolvePlanInput(raw, billingCycle, planStartDate);
+async function resolvePlanInput(raw, billingCycle, planStartDate, planEndDate) {
+  const plan = await hqPackagesService.resolvePlanInput(
+    typeof raw === 'object' && raw && planEndDate && !raw.planEndDate
+      ? { ...raw, planEndDate }
+      : raw,
+    billingCycle,
+    planStartDate,
+  );
   if (!plan) {
     if (raw) {
       const label = typeof raw === 'string' ? raw : raw?.name || raw?.id || 'plan';
       throw new Error(`Unknown subscription package: ${label}`);
     }
-    return hqPackagesService.resolvePlanInput('Starter', billingCycle || 'monthly', planStartDate);
+    return hqPackagesService.resolvePlanInput(
+      planEndDate ? { name: 'Starter', planEndDate } : 'Starter',
+      billingCycle || 'monthly',
+      planStartDate,
+    );
   }
 
-  // Merge HQ form overrides (coins, custom limits, price) onto the package plan.
+  // Merge HQ form overrides (coins, custom limits, price, end date) onto the package plan.
   if (raw && typeof raw === 'object') {
     if (raw.coins !== undefined && raw.coins !== null && raw.coins !== '') {
       plan.coins = Math.max(0, Number(raw.coins) || 0);
@@ -53,6 +63,12 @@ async function resolvePlanInput(raw, billingCycle, planStartDate) {
             ? Number(raw.maxJobs)
             : plan.maxJobs;
     }
+    if (raw.planEndDate) {
+      plan.planEndDate = String(raw.planEndDate).trim().slice(0, 10);
+    }
+  }
+  if (planEndDate) {
+    plan.planEndDate = String(planEndDate).trim().slice(0, 10);
   }
   return plan;
 }
@@ -348,7 +364,8 @@ export const hqService = {
     const subscriptionPlan = await resolvePlanInput(
       data?.plan ?? data?.subscriptionPlan ?? 'Starter',
       data?.billingCycle ?? data?.plan?.billingCycle ?? data?.subscriptionPlan?.billingCycle,
-      data?.planStartDate ?? data?.plan?.planStartDate
+      data?.planStartDate ?? data?.plan?.planStartDate,
+      data?.planEndDate ?? data?.plan?.planEndDate
     );
     if (!name || !email || !loginId || !password) {
       throw new Error('name, email, loginId, and password are required');
