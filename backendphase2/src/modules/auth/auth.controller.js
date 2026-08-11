@@ -35,6 +35,9 @@ export const authController = {
       if (error.statusCode === 423) {
         return sendError(res, 423, error.message, error);
       }
+      if (error.statusCode === 403 || error.code === 'TRIAL_EXPIRED') {
+        return sendError(res, 403, error.message || 'Trial has ended', error);
+      }
       const message =
         error?.message === 'Invalid credentials'
           ? 'Invalid email or password'

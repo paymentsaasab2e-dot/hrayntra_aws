@@ -13,7 +13,9 @@ import {
   endTenantActivitySession,
   syncTenantCrmSnapshot,
   TENANT_BEHAVIOR_SYNC_EVENT,
+  TENANT_INTEREST_SYNC_EVENT,
   trackTenantPathEntity,
+  syncTenantInterestsFromBehaviour,
 } from '@/lib/tenant-behavior-engine';
 
 const HEARTBEAT_MS = 15_000;
@@ -170,7 +172,12 @@ export function TenantBehaviorTrackerHost() {
     };
 
     const onBehavior = () => flush();
+    const onInterest = () => {
+      if (tenantDbName && userId) syncTenantInterestsFromBehaviour(tenantDbName, userId);
+      flush();
+    };
     window.addEventListener(TENANT_BEHAVIOR_SYNC_EVENT, onBehavior as EventListener);
+    window.addEventListener(TENANT_INTEREST_SYNC_EVENT, onInterest as EventListener);
     flush();
 
     const interval = window.setInterval(flush, onBehavePage ? 12_000 : 25_000);
@@ -179,6 +186,7 @@ export function TenantBehaviorTrackerHost() {
       if (timer) window.clearTimeout(timer);
       window.clearInterval(interval);
       window.removeEventListener(TENANT_BEHAVIOR_SYNC_EVENT, onBehavior as EventListener);
+      window.removeEventListener(TENANT_INTEREST_SYNC_EVENT, onInterest as EventListener);
     };
   }, [loading, userId, tenantDbName, userName, pathname]);
 

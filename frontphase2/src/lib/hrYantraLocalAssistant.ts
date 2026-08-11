@@ -1534,7 +1534,7 @@ function answerTenantBrainFallback(prompt: string, snap: TenantSnapshot): string
   }
 
   // Default: answer every leftover question with live pulse + next actions
-  return [
+    return [
     `I answered from **your live tenant data** for: “${prompt.trim()}”.`,
     '',
     buildPulse(snap),
@@ -1542,7 +1542,7 @@ function answerTenantBrainFallback(prompt: string, snap: TenantSnapshot): string
     buildNextActions(snap),
     '',
     '_Tip: name a person/company to search, or ask about leads, jobs, candidates, interviews, tasks._',
-  ].join('\n');
+    ].join('\n');
 }
 
 function detectIntent(prompt: string, history: HrYantraChatMessage[] = []): ScoredIntent[] {

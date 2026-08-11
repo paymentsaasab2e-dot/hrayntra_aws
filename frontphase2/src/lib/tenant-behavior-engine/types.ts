@@ -231,6 +231,98 @@ export type TenantActivityRollup = {
   crmSnapshot?: TenantCrmSnapshot;
 };
 
+/* ── Alert timing (ported from Phase 1) ── */
+
+export type TenantHourBucket = {
+  hour: number;
+  label: string;
+  sessions: number;
+  totalDurationMs: number;
+};
+
+export type TenantWeekdayBucket = {
+  weekday: number;
+  label: string;
+  sessions: number;
+  totalDurationMs: number;
+};
+
+export type TenantAlertTiming = {
+  bestHours: number[];
+  bestHourLabels: string[];
+  bestWeekdays: string[];
+  bestWindowLabel: string;
+  avoidHours: number[];
+  confidence: 'low' | 'medium' | 'high';
+  reason: string;
+  sampleSessions: number;
+  avgDurationMs: number;
+  medianDurationMs: number;
+};
+
+export type TenantSessionEngagement = {
+  sessionCount: number;
+  activeCount: number;
+  totalDurationMs: number;
+  avgDurationMs: number;
+  medianDurationMs: number;
+  uniqueDevices: number;
+  byHour: TenantHourBucket[];
+  byWeekday: TenantWeekdayBucket[];
+  alertTiming: TenantAlertTiming;
+};
+
+/* ── Interest affinity (ported from Phase 1) ── */
+
+export type TenantInterestTopic = {
+  key: string;
+  label: string;
+  /** 0–100 interest strength */
+  score: number;
+  updatedAt: string;
+};
+
+export type TenantInterestProfile = {
+  userId: string;
+  tenantDbName: string;
+  topics: Record<string, TenantInterestTopic>;
+  updatedAt: string;
+};
+
+export type TenantPersonalizedRec = {
+  id: string;
+  interestKey: string;
+  interestScore: number;
+  title: string;
+  text: string;
+  actionUrl: string;
+  priority: number;
+};
+
+/* ── User-facing behaviour suggestions (ported from Phase 1) ── */
+
+export type TenantBehaviourSuggestion = {
+  triggerId: string;
+  slotId: string;
+  kind:
+    | 'leads'
+    | 'candidates'
+    | 'jobs'
+    | 'pipeline'
+    | 'interviews'
+    | 'ai'
+    | 'reports'
+    | 'team'
+    | 'placements'
+    | 'settings';
+  title: string;
+  text: string;
+  actionUrl: string;
+  priority: number;
+};
+
+/* ── Payload ── */
+
 export type TenantBehaviorPayload = {
   userId: string;
   tenantDbName: string;
@@ -240,6 +332,10 @@ export type TenantBehaviorPayload = {
   rollupToday: TenantActivityRollup | null;
   rollup7d: TenantActivityRollup | null;
   triggers: TenantBehaviourTrigger[];
+  sessionEngagement?: TenantSessionEngagement | null;
+  interestTopics?: TenantInterestTopic[];
+  personalizedRecs?: TenantPersonalizedRec[];
+  suggestions?: TenantBehaviourSuggestion[];
 };
 
 export type TenantModuleMatrixRow = {

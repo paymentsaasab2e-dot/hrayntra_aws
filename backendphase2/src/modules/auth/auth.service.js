@@ -4,7 +4,10 @@ import { generateOtp, hashOtp, compareOtp } from '../../utils/otp.js';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
 import { sendOtpEmail, sendWelcomeEmail } from '../../emails/email.service.js';
 import { headquartersAuthService } from './headquarters-auth.service.js';
-import { seedOrgRecruitmentFromOrganizationType } from '../setting/recruitmentMode.service.js';
+import {
+  getSubscriptionPlan,
+  seedOrgRecruitmentFromOrganizationType,
+} from '../setting/recruitmentMode.service.js';
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions, syncDefaultRolePresets, syncMissingRolePresetPermissions } from '../role/permission-sync.service.js';
 import { revokeAllSessionsForUser, sessionService } from '../session/session.service.js';
@@ -15,6 +18,88 @@ const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
 function resolveActiveTenantDbName() {
   const tenantDbName = String(getActiveTenantDbName() || '').trim();
   return tenantDbName || '';
+}
+
+function todayIsoDateUtc() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Block login when HQ/tenant subscription is an expired trial. */
+async function assertTrialNotExpired(email) {
+  let plan = null;
+  try {
+    plan = await getSubscriptionPlan();
+  } catch {
+    /* ignore local plan read failures */
+  }
+
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (normalizedEmail) {
+    try {
+      const hqUser = await headquartersAuthService.findWorkspaceUserByEmail(normalizedEmail);
+      if (hqUser?.subscriptionPlan?.isTrial) {
+        plan = hqUser.subscriptionPlan;
+      } else if (!plan?.isTrial && hqUser?.subscriptionPlan) {
+        plan = hqUser.subscriptionPlan;
+      }
+    } catch {
+      /* ignore HQ lookup failures */
+    }
+  }
+
+  if (!plan?.isTrial) return;
+
+  const end = String(plan.planEndDate || '').trim().slice(0, 10);
+  if (!end) return;
+  if (end < todayIsoDateUtc()) {
+    const err = new Error('Trial has ended. Request a demo or contact HQ to continue.');
+    err.statusCode = 403;
+    err.code = 'TRIAL_EXPIRED';
+    throw err;
+  }
+}
+
+function isTryFreeLoginId(loginId) {
+  return String(loginId || '')
+    .trim()
+    .toLowerCase()
+    .endsWith('@trial');
+}
+
+/** HQ-granted try-free users keep the emailed password as their final password. */
+async function resolveRequirePasswordReset(credential, userEmail) {
+  if (!credential) return false;
+
+  let isTryFree = isTryFreeLoginId(credential.loginId);
+  if (!isTryFree) {
+    const normalizedEmail = String(userEmail || '')
+      .trim()
+      .toLowerCase();
+    if (normalizedEmail) {
+      try {
+        const hqUser = await headquartersAuthService.findWorkspaceUserByEmail(normalizedEmail);
+        isTryFree = hqUser?.signupSource === 'hq_grant_trial';
+      } catch {
+        /* ignore HQ lookup failures */
+      }
+    }
+  }
+
+  if (isTryFree) {
+    if (credential.tempPasswordFlag) {
+      try {
+        await prisma.userCredential.update({
+          where: { id: credential.id },
+          data: { tempPasswordFlag: false },
+        });
+      } catch {
+        /* ignore self-heal failures */
+      }
+    }
+    return false;
+  }
+
+  return credential.tempPasswordFlag || false;
 }
 
 /** If login hit the default DB, re-run inside the tenant DB once we know the user. */
@@ -671,6 +756,8 @@ export const authService = {
         },
       });
 
+      await assertTrialNotExpired(user.email);
+
       // Fetch user's role and permissions
       const userWithRole = await prisma.user.findUnique({
         where: { id: user.id },
@@ -750,7 +837,7 @@ export const authService = {
           roleColor: userWithRole.systemRole?.color,
         },
         permissions,
-        requirePasswordReset: credential.tempPasswordFlag || false,
+        requirePasswordReset: await resolveRequirePasswordReset(credential, user.email),
         tenantDbName: tenantDbName || undefined,
       };
     } else {
@@ -846,6 +933,8 @@ export const authService = {
         data: { lastLogin: new Date() },
       });
 
+      await assertTrialNotExpired(user.email);
+
       // Build JWT payload with permissions
       const permissions = user.systemRole
         ? user.systemRole.rolePermissions.map((rp) => rp.permission.permissionName)
@@ -911,7 +1000,7 @@ export const authService = {
         accessToken,
         refreshToken,
         permissions,
-        requirePasswordReset: credential.tempPasswordFlag || false,
+        requirePasswordReset: await resolveRequirePasswordReset(credential, user.email),
         tenantDbName: tenantDbName || undefined,
       };
     } else {
@@ -929,6 +1018,8 @@ export const authService = {
         where: { id: user.id },
         data: { lastLogin: new Date() },
       });
+
+      await assertTrialNotExpired(user.email);
 
       const tenantDbName = resolveActiveTenantDbName();
       const tokenResult = await sessionService.gateLoginOrIssueTokens({

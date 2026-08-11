@@ -117,9 +117,15 @@ function toDemoRow(doc) {
     trialProvisioned: Boolean(doc.trialProvisioned),
     trialTenantDbName: doc.trialTenantDbName || '',
     trialLoginId: doc.trialLoginId || '',
+    trialDays: Number(doc.trialDays) || null,
     trialStartsAt,
     trialEndsAt,
     trialLoginUrl: doc.trialLoginUrl || '',
+    credentialsSentAt: doc.credentialsSentAt
+      ? doc.credentialsSentAt instanceof Date
+        ? doc.credentialsSentAt.toISOString()
+        : String(doc.credentialsSentAt)
+      : null,
     status,
     emailVerifiedAt:
       doc.emailVerifiedAt instanceof Date

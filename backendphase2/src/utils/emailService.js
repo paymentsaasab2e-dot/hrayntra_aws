@@ -19,11 +19,40 @@ export async function sendCredentialInvite({
   roleName,
   inviteToken,
   tenantDbName,
+  loginBaseUrl,
+  trialDays,
+  trialEndsAt,
 }) {
   const base = env.FRONTEND_URL;
   const tenantQ = tenantQuerySuffix(tenantDbName);
-  const loginLink = `${base}/login?token=${inviteToken}${tenantQ}`;
+  const defaultLoginLink = `${base}/login?token=${inviteToken}${tenantQ}`;
+  const loginLink =
+    loginBaseUrl && String(loginBaseUrl).trim()
+      ? String(loginBaseUrl).trim()
+      : defaultLoginLink;
   const resetPasswordLink = `${base}/reset-password${tenantQ ? `?${tenantQ.slice(1)}` : ''}`;
+  const isTryFreeInvite = Boolean(trialDays || trialEndsAt);
+  const passwordLabel = isTryFreeInvite ? 'Password' : 'Temporary Password';
+  const trialNote = isTryFreeInvite
+    ? `<p style="font-size: 14px; color: #0f766e; margin: 0 0 16px 0;">
+          Your try-free access lasts <strong>${trialDays || '—'} day(s)</strong>
+          ${trialEndsAt ? ` and ends on <strong>${trialEndsAt}</strong>` : ''}.
+          Sign in at the Try it free page using the credentials below. This password is your final login password.
+        </p>`
+    : '';
+  const resetPasswordBlock = isTryFreeInvite
+    ? `<p style="font-size: 14px; color: #6b7280; margin-top: 24px;">
+        You can change your password later from your account settings if you wish.
+      </p>`
+    : `<p style="font-size: 13px; color: #374151; margin: 0 0 20px 0;">
+        Reset Password URL: <a href="${resetPasswordLink}" style="color: #2563eb; text-decoration: none;">${resetPasswordLink}</a>
+      </p>
+      <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
+        <p style="margin: 0; font-size: 14px; color: #92400e;">
+          <strong>Important:</strong> You will be required to set a new password on your first login.
+          Please keep this temporary password secure until you change it.
+        </p>
+      </div>`;
 
   const html = `
 <!DOCTYPE html>
@@ -45,32 +74,24 @@ export async function sendCredentialInvite({
       Your account has been created with the role of <strong>${roleName}</strong>. 
       Please use the credentials below to log in:
     </p>
+    ${trialNote}
     
     <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
       <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;"><strong>Login ID:</strong></p>
       <p style="margin: 0 0 20px 0; font-size: 16px; font-family: monospace; color: #111827; background: white; padding: 10px; border-radius: 4px;">${loginId}</p>
       
-      <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;"><strong>Temporary Password:</strong></p>
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;"><strong>${passwordLabel}:</strong></p>
       <p style="margin: 0; font-size: 16px; font-family: monospace; color: #111827; background: white; padding: 10px; border-radius: 4px;">${tempPassword}</p>
     </div>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">Login to HRYANTRA</a>
+      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">Open Try it free / Login</a>
     </div>
     
     <p style="font-size: 13px; color: #374151; margin: 0 0 6px 0;">
-      Direct Login URL: <a href="${loginLink}" style="color: #2563eb; text-decoration: none;">${loginLink}</a>
+      Login URL: <a href="${loginLink}" style="color: #2563eb; text-decoration: none;">${loginLink}</a>
     </p>
-    <p style="font-size: 13px; color: #374151; margin: 0 0 20px 0;">
-      Reset Password URL: <a href="${resetPasswordLink}" style="color: #2563eb; text-decoration: none;">${resetPasswordLink}</a>
-    </p>
-    
-    <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
-      <p style="margin: 0; font-size: 14px; color: #92400e;">
-        <strong>⚠️ Important:</strong> You will be required to set a new password on your first login. 
-        Please keep this temporary password secure until you change it.
-      </p>
-    </div>
+    ${resetPasswordBlock}
     
     <p style="font-size: 14px; color: #6b7280; margin-top: 30px;">
       If you have any questions, please contact your administrator.
@@ -93,7 +114,9 @@ export async function sendCredentialInvite({
     const result = await resend.emails.send({
       from: getEmailFromForTrigger('team.invite_email'),
       to: email,
-      subject: `Welcome to HRYANTRA - Your Login Credentials`,
+      subject: trialDays
+        ? `Your ${trialDays}-day HRYANTRA try-free access`
+        : `Welcome to HRYANTRA - Your Login Credentials`,
       html,
     });
 

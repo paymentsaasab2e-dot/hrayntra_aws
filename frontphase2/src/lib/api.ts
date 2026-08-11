@@ -149,6 +149,15 @@ export function formatAuthErrorMessage(
   }
 
   if (
+    status === 403 ||
+    lowered.includes('trial_expired') ||
+    lowered.includes('trial has ended') ||
+    lowered.includes('trial expired')
+  ) {
+    return raw || 'Your try-free trial has ended. Request a demo or contact HQ to continue.';
+  }
+
+  if (
     status === 502 ||
     status === 503 ||
     status === 504 ||
@@ -1489,9 +1498,11 @@ export type HqDemoRequestApiRow = {
   trialProvisioned?: boolean;
   trialTenantDbName?: string;
   trialLoginId?: string;
+  trialDays?: number | null;
   trialStartsAt?: string | null;
   trialEndsAt?: string | null;
   trialLoginUrl?: string;
+  credentialsSentAt?: string | null;
   status: 'PENDING' | 'VERIFIED' | 'EXPIRED';
   emailVerifiedAt: string | null;
   createdAt: string | null;
@@ -1608,6 +1619,28 @@ export async function apiHqDeleteDemoRequest(demoId: string) {
     id: string;
     storage: HqLeadStorageInfo;
   }>(`/hq/demos/${encodeURIComponent(demoId)}`, { method: 'DELETE', auth: true });
+}
+
+export async function apiHqGrantDemoTrial(
+  demoId: string,
+  body: { trialDays?: number; note?: string } = {}
+) {
+  return apiFetch<{
+    alreadyProvisioned?: boolean;
+    tenantDbName?: string;
+    loginId?: string;
+    loginUrl?: string;
+    trialEndsAt?: string | null;
+    trialStartsAt?: string | null;
+    trialDays?: number;
+    credentialEmailSent?: boolean;
+    credentialEmailError?: string | null;
+    message?: string;
+  }>(`/hq/demos/${encodeURIComponent(demoId)}/grant-trial`, {
+    method: 'POST',
+    auth: true,
+    body,
+  });
 }
 
 export async function apiHqCreateLead(

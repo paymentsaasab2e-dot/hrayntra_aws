@@ -78,6 +78,7 @@ router.post('/leads/:id/convert-to-company', authMiddleware, hqController.conver
 
 router.get('/demos', authMiddleware, hqController.listDemoRequests);
 router.delete('/demos/:id', authMiddleware, hqController.deleteDemoRequest);
+router.post('/demos/:id/grant-trial', authMiddleware, hqController.grantDemoTrial);
 
 router.get('/tickets', authMiddleware, hqController.listSupportTickets);
 router.patch('/tickets/:id', authMiddleware, hqController.updateSupportTicket);

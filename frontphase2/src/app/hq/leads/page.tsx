@@ -10,6 +10,7 @@ import {
   CalendarClock,
   CheckCircle,
   Download,
+  KeyRound,
   MoreVertical,
   Phone,
   Plus,
@@ -29,6 +30,8 @@ import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '@/compo
 import { TableBrandAvatar } from '@/components/ui/TableBrandAvatar';
 import {
   BOOK_A_DEMO_TAG_CLASS,
+  formatDemoTryFreeAccessLabel,
+  getDemoTryFreeAccessStatus,
   HQ_DEMO_STATUS_LABELS,
   HQ_DEMO_STATUS_STYLES,
   HQ_LEAD_STAGE_LABELS,
@@ -44,6 +47,7 @@ import {
   apiHqCreateLead,
   apiHqDeleteDemoRequest,
   apiHqDeleteLead,
+  apiHqGrantDemoTrial,
   apiHqListDemoRequests,
   apiHqListLeads,
   apiHqUpdateLead,
@@ -219,6 +223,10 @@ export default function HqLeadsPage() {
   const [demos, setDemos] = useState<HqDemoRequestRow[]>([]);
   const [demoStats, setDemoStats] = useState<HqDemoStats>(EMPTY_DEMO_STATS);
   const [demosLoading, setDemosLoading] = useState(false);
+  const [grantDemo, setGrantDemo] = useState<HqDemoRequestRow | null>(null);
+  const [grantTrialDays, setGrantTrialDays] = useState(5);
+  const [grantNote, setGrantNote] = useState('');
+  const [grantSubmitting, setGrantSubmitting] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
   const [search, setSearch] = useState('');
@@ -442,6 +450,43 @@ export default function HqLeadsPage() {
     await loadDemos();
   };
 
+  const openGrantTrialModal = (demo: HqDemoRequestRow) => {
+    setGrantDemo(demo);
+    setGrantTrialDays(Number(demo.trialDays) > 0 ? Number(demo.trialDays) : 5);
+    setGrantNote('');
+  };
+
+  const handleGrantTrial = async () => {
+    if (!grantDemo) return;
+    const days = Math.max(1, Math.min(365, Number(grantTrialDays) || 5));
+    setGrantSubmitting(true);
+    try {
+      const result = await apiHqGrantDemoTrial(grantDemo.id, {
+        trialDays: days,
+        note: grantNote.trim() || undefined,
+      });
+      const data = result.data;
+      if (data?.credentialEmailSent === false && data?.credentialEmailError) {
+        toast.warning(data.message || 'Access granted, but credential email failed.');
+      } else if (data?.alreadyProvisioned) {
+        toast.success(data.message || 'Trial dates refreshed for existing tenant.');
+      } else {
+        toast.success(
+          data?.credentialEmailSent
+            ? `Try-free access granted (${days} days). Credentials emailed.`
+            : `Try-free access granted (${days} days).`
+        );
+      }
+      setGrantDemo(null);
+      await loadDemos();
+      await loadLeads();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to grant try-free access');
+    } finally {
+      setGrantSubmitting(false);
+    }
+  };
+
   const exportCsv = () => {
     const rows = isDemosTab ? filteredDemos : filteredLeads;
     if (rows.length === 0) {
@@ -450,9 +495,17 @@ export default function HqLeadsPage() {
     }
     let csv: string;
     if (isDemosTab) {
-      const header = ['Name', 'Email', 'Company', 'Kind', 'Status', 'Submitted'];
+      const header = ['Name', 'Email', 'Company', 'Kind', 'Status', 'Try-free', 'Submitted'];
       const body = filteredDemos.map((d) =>
-        [d.fullName, d.email, d.organizationName, d.requestKind, d.status, d.submittedAt]
+        [
+          d.fullName,
+          d.email,
+          d.organizationName,
+          d.requestKind,
+          d.status,
+          formatDemoTryFreeAccessLabel(d),
+          d.submittedAt,
+        ]
           .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`)
           .join(','),
       );
@@ -759,13 +812,14 @@ export default function HqLeadsPage() {
                       </button>
                     </div>
                   )}
-                  <table className="w-full min-w-[760px] text-left" aria-label="Landing signups">
+                  <table className="w-full min-w-[860px] text-left" aria-label="Landing signups">
                     <thead className="sticky top-0 z-10">
                       <tr>
                         <th>Contact</th>
                         <th>Company</th>
                         <th>Kind</th>
                         <th>Status</th>
+                        <th>Try-free</th>
                         <th>Submitted</th>
                         <th className="text-right">Actions</th>
                       </tr>
@@ -773,18 +827,21 @@ export default function HqLeadsPage() {
                     <tbody className="divide-y divide-slate-100/80">
                       {demosLoading ? (
                         <tr>
-                          <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">
+                          <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
                             Loading landing signups…
                           </td>
                         </tr>
                       ) : filteredDemos.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">
+                          <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
                             No landing signups found.
                           </td>
                         </tr>
                       ) : (
-                        filteredDemos.map((demo) => (
+                        filteredDemos.map((demo) => {
+                          const accessStatus = getDemoTryFreeAccessStatus(demo);
+                          const canGrant = demo.status === 'VERIFIED';
+                          return (
                           <tr
                             key={demo.id}
                             className="even:bg-slate-50/35 hover:bg-indigo-50/45 transition-colors"
@@ -809,21 +866,51 @@ export default function HqLeadsPage() {
                                 </span>
                               </div>
                             </td>
+                            <td className="px-3 sm:px-4 py-2">
+                              <span
+                                className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide ring-1 ${
+                                  accessStatus === 'active'
+                                    ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                                    : accessStatus === 'expired'
+                                      ? 'bg-rose-50 text-rose-700 ring-rose-200'
+                                      : 'bg-slate-100 text-slate-600 ring-slate-200'
+                                }`}
+                              >
+                                {formatDemoTryFreeAccessLabel(demo)}
+                              </span>
+                              {demo.trialLoginId ? (
+                                <div className="mt-1 text-[10px] text-slate-400">{demo.trialLoginId}</div>
+                              ) : null}
+                            </td>
                             <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
                               {demo.submittedAt}
                             </td>
                             <td className="px-3 sm:px-4 py-2 text-right">
-                              <button
-                                type="button"
-                                onClick={() => void handleDeleteDemo(demo.id)}
-                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
-                                aria-label={`Delete ${demo.fullName}`}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                              <div className="inline-flex items-center gap-1">
+                                {canGrant ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openGrantTrialModal(demo)}
+                                    className="rounded-lg p-1.5 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-700"
+                                    aria-label={`Grant try-free access to ${demo.fullName}`}
+                                    title="Grant try-free access"
+                                  >
+                                    <KeyRound className="h-4 w-4" />
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteDemo(demo.id)}
+                                  className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                                  aria-label={`Delete ${demo.fullName}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
-                        ))
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -932,6 +1019,40 @@ export default function HqLeadsPage() {
                             </td>
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex items-center justify-end gap-1">
+                                {lead.employerDemoRequestId ? (
+                                  <button
+                                    type="button"
+                                    title="Grant try-free access"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openGrantTrialModal({
+                                        id: lead.employerDemoRequestId as string,
+                                        fullName: lead.contactPerson || lead.name || 'Lead',
+                                        email: lead.email || '',
+                                        organizationName: lead.company || '—',
+                                        countryCode: '',
+                                        dialCode: '',
+                                        phoneNumber: lead.phone || '',
+                                        companySize: '—',
+                                        outcome: '',
+                                        requestKind: 'demo',
+                                        trialProvisioned: false,
+                                        trialTenantDbName: '',
+                                        trialLoginId: '',
+                                        trialStartsAt: null,
+                                        trialEndsAt: null,
+                                        trialLoginUrl: '',
+                                        status: 'VERIFIED',
+                                        emailVerifiedAt: null,
+                                        createdAt: null,
+                                        submittedAt: '',
+                                      });
+                                    }}
+                                    className="rounded-lg p-1.5 text-emerald-600 transition hover:bg-emerald-50"
+                                  >
+                                    <KeyRound className="h-4 w-4" />
+                                  </button>
+                                ) : null}
                                 {lead.stage !== 'converted' && lead.stage !== 'lost' ? (
                                   <button
                                     type="button"
@@ -982,6 +1103,64 @@ export default function HqLeadsPage() {
           </div>
         </main>
         )}
+
+        {grantDemo ? (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="grant-try-free-title"
+              className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-slate-200"
+            >
+              <h2 id="grant-try-free-title" className="text-lg font-bold text-slate-900">
+                Grant try-free access
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Email credentials to <span className="font-medium text-slate-700">{grantDemo.email || grantDemo.fullName}</span>{' '}
+                for the try-free login page. The password you email is their final login password — they will not be forced to reset it on first sign-in.
+              </p>
+              <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Trial days
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={grantTrialDays}
+                  onChange={(e) => setGrantTrialDays(Number(e.target.value) || 5)}
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </label>
+              <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Note (optional)
+                <textarea
+                  value={grantNote}
+                  onChange={(e) => setGrantNote(e.target.value)}
+                  rows={3}
+                  placeholder="Internal note for this grant"
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </label>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={grantSubmitting}
+                  onClick={() => setGrantDemo(null)}
+                  className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={grantSubmitting}
+                  onClick={() => void handleGrantTrial()}
+                  className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {grantSubmitting ? 'Granting…' : 'Grant & email credentials'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </HqCrmEmbed>
   );
