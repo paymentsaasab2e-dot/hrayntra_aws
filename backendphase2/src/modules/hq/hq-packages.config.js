@@ -125,22 +125,24 @@ export function computePlanEndDate(startDateIso, billingCycle = 'monthly') {
 
 export const TRIAL_PACKAGE_DAYS = 5;
 
-export function computeTrialEndDate(startDateIso) {
+export function computeTrialEndDate(startDateIso, trialDays = TRIAL_PACKAGE_DAYS) {
   const start = parsePlanStartDate(startDateIso) || todayPlanStartDate();
+  const days = Math.max(1, Math.min(365, Number(trialDays) || TRIAL_PACKAGE_DAYS));
   const d = new Date(`${start}T12:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + TRIAL_PACKAGE_DAYS);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
-export function toTrialAssignablePlan(pkg, planStartDate) {
+export function toTrialAssignablePlan(pkg, planStartDate, trialDays = TRIAL_PACKAGE_DAYS) {
+  const days = Math.max(1, Math.min(365, Number(trialDays) || TRIAL_PACKAGE_DAYS));
   const base = toAssignablePlan(pkg, 'monthly', planStartDate);
   if (!base) return null;
   return {
     ...base,
     name: `${base.name} Trial`,
-    planEndDate: computeTrialEndDate(base.planStartDate),
+    planEndDate: computeTrialEndDate(base.planStartDate, days),
     isTrial: true,
-    trialDays: TRIAL_PACKAGE_DAYS,
+    trialDays: days,
   };
 }
 

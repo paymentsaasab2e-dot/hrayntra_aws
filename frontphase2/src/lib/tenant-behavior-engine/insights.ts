@@ -145,6 +145,7 @@ export function buildTenantBehaviourInsights(
   const clientsVisits = rollup.pageVisitsByCategory.clients || 0;
   const interviewsVisits = rollup.pageVisitsByCategory.interviews || 0;
   const pipelineVisits = rollup.pageVisitsByCategory.pipeline || 0;
+  const placementsVisits = rollup.pageVisitsByCategory.placements || 0;
   const reportsVisits = rollup.pageVisitsByCategory.reports || 0;
   const aiVisits = rollup.pageVisitsByCategory.ai || 0;
   const jobsActions = rollup.actionsByCategory?.jobs || 0;
@@ -316,6 +317,10 @@ export function buildTenantBehaviourTriggers(input: {
   const top = topModules[0];
   const jobsVisits = rollup.pageVisitsByCategory.jobs || 0;
   const leadsVisits = rollup.pageVisitsByCategory.leads || 0;
+  const candidatesVisits = rollup.pageVisitsByCategory.candidates || 0;
+  const clientsVisits = rollup.pageVisitsByCategory.clients || 0;
+  const interviewsVisits = rollup.pageVisitsByCategory.interviews || 0;
+  const placementsVisits = rollup.pageVisitsByCategory.placements || 0;
   const aiVisits = rollup.pageVisitsByCategory.ai || 0;
   const reportsVisits = rollup.pageVisitsByCategory.reports || 0;
   const focusedEntity = topEntities[0];
@@ -457,6 +462,48 @@ export function buildTenantBehaviourTriggers(input: {
       recommendedAction: 'Nudge user toward actionable modules (candidates, interviews, placements).',
       priority: 65,
       comboSignals: ['reports_heavy'],
+    });
+  }
+
+  if (interviewsVisits >= 5 && placementsVisits <= 1 && rollup.actions >= 3) {
+    out.push({
+      id: 'tenant_placement_gap',
+      flag: 'ops_assist',
+      audience: 'both',
+      title: 'Interviews without placement follow-through',
+      reason: 'Active in interviews but placements module is barely used — offers may be stalling.',
+      evidence: [`${interviewsVisits} interview visits`, `${placementsVisits} placement visits`, `${rollup.actions} actions`],
+      recommendedAction: 'Move completed interviews to offer/placement stage.',
+      priority: 83,
+      comboSignals: ['interviews_heavy', 'placements_low'],
+    });
+  }
+
+  if (rollup.entityViews >= 15 && rollup.apiMutations >= 5 && rollup.workflowScore < 30) {
+    out.push({
+      id: 'tenant_onboarding_struggle',
+      flag: 'ops_assist',
+      audience: 'tenant_admin',
+      title: 'High activity but low workflow progression',
+      reason: 'Many record views and API calls but funnel progression score is low — possible onboarding or setup gap.',
+      evidence: [`${rollup.entityViews} views`, `${rollup.apiMutations} mutations`, `workflow ${rollup.workflowScore}/100`],
+      recommendedAction: 'Review team setup, module enablement, and recruitment funnel training.',
+      priority: 81,
+      comboSignals: ['high_mutations', 'low_workflow', 'entity_views_high'],
+    });
+  }
+
+  if (leadsVisits >= 4 && clientsVisits >= 2 && jobsVisits >= 4 && candidatesVisits >= 3 && rollup.workflowScore >= 50) {
+    out.push({
+      id: 'tenant_full_funnel_active',
+      flag: 'high_intent',
+      audience: 'tenant_admin',
+      title: 'Full recruitment funnel active',
+      reason: 'User touches leads, clients, jobs, and candidates with strong workflow score.',
+      evidence: [`Leads ${leadsVisits}`, `Clients ${clientsVisits}`, `Jobs ${jobsVisits}`, `Candidates ${candidatesVisits}`, `workflow ${rollup.workflowScore}/100`],
+      recommendedAction: 'Tenant is operating well — consider upsell on advanced AI or automation modules.',
+      priority: 68,
+      comboSignals: ['full_funnel', 'workflow_forward'],
     });
   }
 

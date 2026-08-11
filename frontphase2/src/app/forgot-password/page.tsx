@@ -3,7 +3,13 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, User } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { AuthMarketingShell } from '@/components/auth/AuthMarketingShell';
+import {
+  authInputClassName,
+  authInputWithIconClassName,
+  authPrimaryButtonStyle,
+} from '@/components/auth/authMarketingTheme';
 import {
   apiForgotPassword,
   apiResetPasswordWithOtp,
@@ -26,6 +32,7 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const [loginHref, setLoginHref] = useState('/login');
 
   useEffect(() => {
@@ -57,6 +64,7 @@ export default function ForgotPasswordPage() {
 
     try {
       setLoading(true);
+      setLoadingMessage('Sending verification code...');
       const res = await apiForgotPassword(resetIdentifier);
       const emailHint = res.data?.email;
       if (emailHint) {
@@ -64,13 +72,14 @@ export default function ForgotPasswordPage() {
       }
       setMessage(
         res.message ||
-          'If the account exists, a verification code has been sent to the registered email.'
+          'If the account exists, a verification code has been sent to the registered email.',
       );
       setStep('reset');
     } catch (err: unknown) {
       setError(formatAuthErrorMessage(err as { message?: string }, 'Failed to send verification code.'));
     } finally {
       setLoading(false);
+      setLoadingMessage('');
     }
   };
 
@@ -96,6 +105,7 @@ export default function ForgotPasswordPage() {
 
     try {
       setLoading(true);
+      setLoadingMessage('Resetting password...');
       const resetKey = resolvedEmail || resetIdentifier;
       await apiResetPasswordWithOtp(resetKey, otp.trim(), nextPassword);
       setMessage('Password reset successfully. Redirecting to login...');
@@ -106,165 +116,159 @@ export default function ForgotPasswordPage() {
       setError(formatAuthErrorMessage(err as { message?: string }, 'Failed to reset password.'));
     } finally {
       setLoading(false);
+      setLoadingMessage('');
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
-          <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-            <h1 className="text-xl font-bold text-slate-900 text-center">
-              {step === 'request' ? 'Reset password' : 'Set new password'}
-            </h1>
-            <p className="text-sm text-slate-500 text-center mt-1">
-              {step === 'request'
-                ? 'Enter your user ID to receive a verification code'
-                : resolvedEmail
-                  ? `Enter the code sent to ${resolvedEmail}`
-                  : 'Enter the verification code from your email'}
-            </p>
+    <AuthMarketingShell
+      tall={step === 'reset'}
+      title={step === 'request' ? 'Reset password' : 'Set new password'}
+      subtitle={
+        step === 'request'
+          ? 'Enter your user ID to receive a verification code'
+          : resolvedEmail
+            ? `Enter the code sent to ${resolvedEmail}`
+            : 'Enter the verification code from your email'
+      }
+      loading={loading}
+      loadingMessage={loadingMessage}
+      footer={
+        <Link
+          href={loginHref}
+          className="inline-flex items-center gap-1.5 font-semibold text-slate-900 underline-offset-2 hover:underline"
+        >
+          <ArrowLeft size={14} />
+          Back to log in
+        </Link>
+      }
+    >
+      {error && (
+        <div className="mb-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {error}
+        </div>
+      )}
+      {message && (
+        <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+          {message}
+        </div>
+      )}
+
+      {step === 'request' ? (
+        <form onSubmit={handleRequestOtp} className="space-y-3.5">
+          <div>
+            <label htmlFor="forgot-user-id" className="mb-1.5 block text-[13px] font-medium text-slate-600">
+              User ID
+            </label>
+            <input
+              id="forgot-user-id"
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="Enter your user ID or email"
+              autoComplete="username"
+              className={authInputClassName}
+            />
           </div>
-
-          <div className="p-6">
-            {error && (
-              <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-            {message && (
-              <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-sm text-emerald-700">
-                {message}
-              </div>
-            )}
-
-            {step === 'request' ? (
-              <form onSubmit={handleRequestOtp} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    User ID
-                  </label>
-                  <div className="relative">
-                    <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      value={identifier}
-                      onChange={(e) => setIdentifier(e.target.value)}
-                      placeholder="Enter your user ID"
-                      autoComplete="username"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                >
-                  <KeyRound size={16} /> {loading ? 'Sending code...' : 'Send verification code'}
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleResetPassword} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Verification code
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="6-digit code"
-                    maxLength={6}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 tracking-widest text-center font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    New password
-                  </label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Minimum 8 characters"
-                      autoComplete="new-password"
-                      className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-slate-400 hover:text-slate-600"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Confirm password
-                  </label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Re-enter password"
-                      autoComplete="new-password"
-                      className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-slate-400 hover:text-slate-600"
-                      aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                >
-                  <KeyRound size={16} /> {loading ? 'Resetting...' : 'Reset password'}
-                </button>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => {
-                    setStep('request');
-                    setOtp('');
-                    setNewPassword('');
-                    setConfirmPassword('');
-                    setError('');
-                    setMessage('');
-                  }}
-                  className="w-full text-sm text-slate-600 hover:text-slate-800"
-                >
-                  Resend code
-                </button>
-              </form>
-            )}
-
-            <div className="mt-5 pt-4 border-t border-slate-100 text-center">
-              <Link
-                href={loginHref}
-                className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-0.5 w-full rounded-full px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_10px_24px_-12px_rgba(232,119,14,0.85)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+            style={authPrimaryButtonStyle}
+          >
+            {loading ? 'Sending code…' : 'Send verification code'}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={handleResetPassword} className="space-y-3.5">
+          <div>
+            <label htmlFor="forgot-otp" className="mb-1.5 block text-[13px] font-medium text-slate-600">
+              Verification code
+            </label>
+            <input
+              id="forgot-otp"
+              type="text"
+              inputMode="numeric"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="6-digit code"
+              maxLength={6}
+              className={`${authInputClassName} text-center font-mono tracking-widest`}
+            />
+          </div>
+          <div>
+            <label htmlFor="forgot-new-password" className="mb-1.5 block text-[13px] font-medium text-slate-600">
+              New password
+            </label>
+            <div className="relative">
+              <input
+                id="forgot-new-password"
+                type={showPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Minimum 8 characters"
+                autoComplete="new-password"
+                className={authInputWithIconClassName}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:text-slate-700"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                <ArrowLeft size={14} />
-                Back to log in
-              </Link>
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+          <div>
+            <label htmlFor="forgot-confirm-password" className="mb-1.5 block text-[13px] font-medium text-slate-600">
+              Confirm password
+            </label>
+            <div className="relative">
+              <input
+                id="forgot-confirm-password"
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter password"
+                autoComplete="new-password"
+                className={authInputWithIconClassName}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((v) => !v)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:text-slate-700"
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+              >
+                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-0.5 w-full rounded-full px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_10px_24px_-12px_rgba(232,119,14,0.85)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+            style={authPrimaryButtonStyle}
+          >
+            {loading ? 'Resetting…' : 'Reset password'}
+          </button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => {
+              setStep('request');
+              setOtp('');
+              setNewPassword('');
+              setConfirmPassword('');
+              setError('');
+              setMessage('');
+            }}
+            className="w-full text-[13px] font-medium text-slate-500 transition hover:text-slate-800"
+          >
+            Resend code
+          </button>
+        </form>
+      )}
+    </AuthMarketingShell>
   );
 }

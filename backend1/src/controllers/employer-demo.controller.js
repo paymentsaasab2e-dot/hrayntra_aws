@@ -469,23 +469,9 @@ async function verifyDemoRequestOtp(req, res) {
 
     const isTrial = String(verified.requestKind || '').toLowerCase() === 'trial';
     const isPurchase = String(verified.requestKind || '').toLowerCase() === 'purchase';
-    let trialProvision = null;
-    if (isTrial) {
-      trialProvision = await syncEmployerTrialToPhase2(verified);
-      if (!trialProvision) {
-        return res.status(502).json({
-          success: false,
-          message: 'Email verified, but we could not start your trial workspace. Please contact support.',
-        });
-      }
-      await persistEmployerDemoProvision(verified.id, {
-        tenantDbName: trialProvision.tenantDbName,
-        loginId: trialProvision.loginId,
-        loginUrl: trialProvision.loginUrl,
-        planStartDate: trialProvision.subscriptionPlan?.planStartDate || trialProvision.trialStartsAt,
-        planEndDate: trialProvision.trialEndsAt || trialProvision.subscriptionPlan?.planEndDate,
-      });
-    } else if (isPurchase) {
+    // Public landing no longer auto-provisions trials — HQ grants try-free access.
+    // Treat legacy `trial` OTP submits as demo leads so HQ can grant credentials.
+    if (isPurchase) {
       const purchaseMeta = parsePurchaseOutcome(verified.outcome);
       return res.json({
         success: true,
@@ -499,29 +485,20 @@ async function verifyDemoRequestOtp(req, res) {
           billingCycle: purchaseMeta?.billingCycle || 'monthly',
         },
       });
-    } else {
-      await syncEmployerDemoToHq(verified);
     }
+
+    await syncEmployerDemoToHq(verified);
 
     return res.json({
       success: true,
       message: isTrial
-        ? 'Email verified. Your 5-day trial workspace is ready.'
+        ? 'Email verified. HQ will review and grant try-free access when approved.'
         : 'Email verified. Your demo request has been submitted.',
       data: {
         requestId: verified.id,
         email: verified.email,
-        requestKind: verified.requestKind || 'demo',
-        ...(isTrial && trialProvision
-          ? {
-              loginUrl: trialProvision.loginUrl,
-              loginId: trialProvision.loginId,
-              trialEndsAt: trialProvision.trialEndsAt,
-              tenantDbName: trialProvision.tenantDbName,
-              credentialEmailSent: trialProvision.credentialEmailSent,
-              ...(trialProvision.devPassword ? { devPassword: trialProvision.devPassword } : {}),
-            }
-          : {}),
+        requestKind: isTrial ? 'demo' : verified.requestKind || 'demo',
+        awaitingHqGrant: true,
       },
     });
   } catch (error) {

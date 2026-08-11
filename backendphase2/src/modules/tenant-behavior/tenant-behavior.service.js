@@ -65,6 +65,10 @@ function normalizePayload(body, user) {
     rollupToday: body?.rollupToday ?? null,
     rollup7d: body?.rollup7d ?? null,
     triggers: Array.isArray(body?.triggers) ? body.triggers : [],
+    sessionEngagement: body?.sessionEngagement ?? null,
+    interestTopics: Array.isArray(body?.interestTopics) ? body.interestTopics : [],
+    personalizedRecs: Array.isArray(body?.personalizedRecs) ? body.personalizedRecs : [],
+    suggestions: Array.isArray(body?.suggestions) ? body.suggestions : [],
   };
 
   return { userId, userName, payload, capturedAt };
@@ -439,5 +443,35 @@ export async function buildTenantLiveDashboard() {
     crmContext,
     intelligenceSummary,
     ...aggregated,
+  };
+}
+
+/**
+ * Single API response — all tenant behaviour data for every user.
+ * Mirrors Phase 1 GET /api/hq-behavior aggregated view.
+ */
+export async function buildAllTenantBehaviorData() {
+  const [snapshots, crmContext, liveDashboard] = await Promise.all([
+    listTenantBehaviorSnapshots({ limit: 200 }),
+    getTenantCrmContext(),
+    buildTenantLiveDashboard(),
+  ]);
+
+  const users = snapshots.map((snap) => ({
+    userId: snap.userId,
+    userName: snap.userName || snap.payload?.userName,
+    capturedAt: snap.capturedAt,
+    payload: snap.payload || {},
+  }));
+
+  return {
+    serverTime: new Date().toISOString(),
+    tenantDbName: getActiveTenantDbName() || null,
+    userCount: users.length,
+    crmContext,
+    intelligenceSummary: liveDashboard.intelligenceSummary || [],
+    tenantHealthScore: liveDashboard.tenantHealthScore || 0,
+    users,
+    liveDashboard,
   };
 }

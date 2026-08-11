@@ -187,14 +187,40 @@ export type HqDemoRequestRow = {
   trialProvisioned: boolean;
   trialTenantDbName: string;
   trialLoginId: string;
+  trialDays?: number | null;
   trialStartsAt: string | null;
   trialEndsAt: string | null;
   trialLoginUrl: string;
+  credentialsSentAt?: string | null;
   status: HqDemoRequestStatus;
   emailVerifiedAt: string | null;
   createdAt: string | null;
   submittedAt: string;
 };
+
+export type HqTryFreeAccessStatus = 'not_granted' | 'active' | 'expired';
+
+export function getDemoTryFreeAccessStatus(demo: {
+  trialProvisioned?: boolean;
+  trialEndsAt?: string | null;
+}): HqTryFreeAccessStatus {
+  if (!demo.trialProvisioned) return 'not_granted';
+  const end = String(demo.trialEndsAt || '').trim().slice(0, 10);
+  if (!end) return 'active';
+  const today = new Date().toISOString().slice(0, 10);
+  return end < today ? 'expired' : 'active';
+}
+
+export function formatDemoTryFreeAccessLabel(demo: {
+  trialProvisioned?: boolean;
+  trialEndsAt?: string | null;
+}): string {
+  const status = getDemoTryFreeAccessStatus(demo);
+  if (status === 'not_granted') return 'Not granted';
+  if (status === 'expired') return 'Expired';
+  const end = String(demo.trialEndsAt || '').trim().slice(0, 10);
+  return end ? `Active until ${end}` : 'Active';
+}
 
 export const HQ_DEMO_STATUS_STYLES: Record<HqDemoRequestStatus, string> = {
   VERIFIED: 'bg-emerald-50 text-emerald-700 ring-emerald-200',

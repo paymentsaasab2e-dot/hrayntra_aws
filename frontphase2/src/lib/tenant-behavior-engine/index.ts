@@ -4,5 +4,8 @@ export * from './path-entities';
 export * from './api-classifier';
 export * from './store';
 export * from './insights';
+export * from './alert-timing';
+export * from './interest-affinity';
+export * from './behaviour-suggestions';
 export * from './sync';
 export * from './track';

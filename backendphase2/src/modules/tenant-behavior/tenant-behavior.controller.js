@@ -78,4 +78,13 @@ export const tenantBehaviorController = {
       return handleError(res, error, '[getCrmContext]');
     }
   },
+
+  async getAllBehavior(req, res) {
+    try {
+      const data = await tenantBehaviorService.buildAllTenantBehaviorData();
+      return sendResponse(res, 200, 'OK', data);
+    } catch (error) {
+      return handleError(res, error, '[getAllBehavior]');
+    }
+  },
 };
