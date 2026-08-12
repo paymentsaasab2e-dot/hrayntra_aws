@@ -64,6 +64,8 @@ function normalizePayload(body, user) {
     activityStateUpdatedAt: body?.activityStateUpdatedAt || undefined,
     rollupToday: body?.rollupToday ?? null,
     rollup7d: body?.rollup7d ?? null,
+    rollupMonth: body?.rollupMonth ?? null,
+    rollupYear: body?.rollupYear ?? null,
     triggers: Array.isArray(body?.triggers) ? body.triggers : [],
     sessionEngagement: body?.sessionEngagement ?? null,
     interestTopics: Array.isArray(body?.interestTopics) ? body.interestTopics : [],
@@ -231,22 +233,52 @@ function buildIntelligenceSummary({ crmContext, weekMetrics, onlineCount, topTri
   return lines;
 }
 
-function aggregateSnapshots(snapshots) {
+function pickRollupForRange(payload, range) {
+  const today = payload?.rollupToday || null;
+  const week = payload?.rollup7d || null;
+  const month = payload?.rollupMonth || null;
+  const year = payload?.rollupYear || null;
+  if (range === 'today') return today || {};
+  if (range === 'month') return month || week || {};
+  if (range === 'year') return year || month || week || {};
+  return week || {};
+}
+
+function rangeWindowDays(range) {
+  if (range === 'today') return 1;
+  if (range === 'month') return 30;
+  if (range === 'year') return 365;
+  return 7;
+}
+
+function aggregateSnapshots(snapshots, range = 'week') {
+  const normalizedRange = ['today', 'week', 'month', 'year'].includes(range) ? range : 'week';
+  const windowDays = rangeWindowDays(normalizedRange);
+  const fromTs = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+
   const moduleMap = new Map();
   const triggerMap = new Map();
   const actionBreakdown = {};
   const funnelProgress = {};
   const liveFeed = [];
+  let totalVisits = 0;
+  let totalActiveMs = 0;
+  let totalActions = 0;
+  let totalApiMutations = 0;
+  let totalEntityViews = 0;
+  let totalSearches = 0;
+  let totalLogins = 0;
+  let totalSessions = 0;
+  let totalVisitsToday = 0;
+  let totalActionsToday = 0;
+  let totalActiveMsToday = 0;
   let totalVisits7d = 0;
   let totalActiveMs7d = 0;
   let totalActions7d = 0;
   let totalApiMutations7d = 0;
   let totalEntityViews7d = 0;
   let totalSearches7d = 0;
-  let totalVisitsToday = 0;
-  let totalActionsToday = 0;
-  let totalActiveMsToday = 0;
-  let activeUsers7d = 0;
+  let activeUsersInRange = 0;
   let workflowSum = 0;
   let workflowCount = 0;
   let triggerCountSum = 0;
@@ -254,8 +286,17 @@ function aggregateSnapshots(snapshots) {
 
   const users = snapshots.map((snap) => {
     const payload = snap.payload || {};
+    const rollup = pickRollupForRange(payload, normalizedRange);
     const rollup7d = payload.rollup7d || {};
     const rollupToday = payload.rollupToday || {};
+    const visits = Number(rollup.visits || 0);
+    const activeMs = Number(rollup.activeMs || 0);
+    const actions = Number(rollup.actions || 0);
+    const apiMutations = Number(rollup.apiMutations || 0);
+    const entityViews = Number(rollup.entityViews || 0);
+    const searches = Number(rollup.searches || 0);
+    const logins = Number(rollup.logins || 0);
+    const sessionCount = Number(rollup.sessionCount || 0);
     const visits7d = Number(rollup7d.visits || 0);
     const activeMs7d = Number(rollup7d.activeMs || 0);
     const actions7d = Number(rollup7d.actions || 0);
@@ -265,13 +306,21 @@ function aggregateSnapshots(snapshots) {
     const visitsToday = Number(rollupToday.visits || 0);
     const actionsToday = Number(rollupToday.actions || 0);
     const activeMsToday = Number(rollupToday.activeMs || 0);
-    const workflowScore = Number(rollup7d.workflowScore || 0);
+    const workflowScore = Number(rollup.workflowScore || rollup7d.workflowScore || 0);
     const triggers = Array.isArray(payload.triggers) ? payload.triggers : [];
     const topTrigger = triggers[0];
     const lastActive = payload.activityStateUpdatedAt || snap.capturedAt;
     const online = isOnline(lastActive, nowMs);
 
-    if (visits7d > 0 || activeMs7d > 0) activeUsers7d += 1;
+    if (visits > 0 || activeMs > 0) activeUsersInRange += 1;
+    totalVisits += visits;
+    totalActiveMs += activeMs;
+    totalActions += actions;
+    totalApiMutations += apiMutations;
+    totalEntityViews += entityViews;
+    totalSearches += searches;
+    totalLogins += logins;
+    totalSessions += sessionCount;
     totalVisits7d += visits7d;
     totalActiveMs7d += activeMs7d;
     totalActions7d += actions7d;
@@ -288,20 +337,23 @@ function aggregateSnapshots(snapshots) {
       workflowCount += 1;
     }
 
-    mergeRollupMaps(actionBreakdown, rollup7d.actionBreakdown || {});
-    mergeRollupMaps(funnelProgress, rollup7d.funnelProgress || rollup7d.pageVisitsByCategory || {});
+    mergeRollupMaps(actionBreakdown, rollup.actionBreakdown || rollup7d.actionBreakdown || {});
+    mergeRollupMaps(
+      funnelProgress,
+      rollup.funnelProgress || rollup.pageVisitsByCategory || rollup7d.funnelProgress || rollup7d.pageVisitsByCategory || {},
+    );
 
     for (const cat of PHASE2_MODULES) {
-      const visits = Number(rollup7d.pageVisitsByCategory?.[cat] || 0);
-      const activeMs = Number(rollup7d.activeMsByCategory?.[cat] || 0);
-      const actions = Number(rollup7d.actionsByCategory?.[cat] || 0);
-      const entityViews = Number(rollup7d.topEntities?.filter?.((e) => e.category === cat)?.length || 0);
-      if (!visits && !activeMs && !actions) continue;
+      const catVisits = Number(rollup.pageVisitsByCategory?.[cat] || 0);
+      const catActiveMs = Number(rollup.activeMsByCategory?.[cat] || 0);
+      const catActions = Number(rollup.actionsByCategory?.[cat] || 0);
+      const catEntityViews = Number(rollup.topEntities?.filter?.((e) => e.category === cat)?.length || 0);
+      if (!catVisits && !catActiveMs && !catActions) continue;
       const prev = moduleMap.get(cat) || { visits: 0, activeMs: 0, actions: 0, entityViews: 0 };
-      prev.visits += visits;
-      prev.activeMs += activeMs;
-      prev.actions += actions;
-      prev.entityViews += entityViews;
+      prev.visits += catVisits;
+      prev.activeMs += catActiveMs;
+      prev.actions += catActions;
+      prev.entityViews += catEntityViews;
       moduleMap.set(cat, prev);
     }
 
@@ -313,7 +365,16 @@ function aggregateSnapshots(snapshots) {
       }
     }
 
-    for (const ev of [...(rollupToday.recentEvents || []), ...(rollup7d.recentEvents || [])].slice(0, 15)) {
+    const eventPools = [
+      ...(rollup.recentEvents || []),
+      ...(rollupToday.recentEvents || []),
+      ...(rollup7d.recentEvents || []),
+      ...(payload.rollupMonth?.recentEvents || []),
+      ...(payload.rollupYear?.recentEvents || []),
+    ];
+    for (const ev of eventPools.slice(0, 40)) {
+      const at = Date.parse(ev?.at || 0);
+      if (!Number.isFinite(at) || at < fromTs) continue;
       liveFeed.push({
         ...ev,
         userId: snap.userId,
@@ -337,8 +398,8 @@ function aggregateSnapshots(snapshots) {
       actionsToday,
       triggerCount: triggers.length,
       topTrigger,
-      currentPath: rollup7d.recentEvents?.[0]?.path,
-      currentModule: rollup7d.recentEvents?.[0]?.category,
+      currentPath: rollup.recentEvents?.[0]?.path || rollup7d.recentEvents?.[0]?.path,
+      currentModule: rollup.recentEvents?.[0]?.category || rollup7d.recentEvents?.[0]?.category,
     };
   });
 
@@ -365,8 +426,8 @@ function aggregateSnapshots(snapshots) {
   const topTriggers = [...triggerMap.values()].sort((a, b) => (b.priority || 0) - (a.priority || 0)).slice(0, 15);
   const onlineUsers = users.filter((u) => u.online);
   const avgWorkflow = workflowCount > 0 ? Math.round(workflowSum / workflowCount) : 0;
-  const activeRatio = snapshots.length > 0 ? activeUsers7d / snapshots.length : 0;
-  const actionRatio = totalVisits7d > 0 ? totalActions7d / totalVisits7d : 0;
+  const activeRatio = snapshots.length > 0 ? activeUsersInRange / snapshots.length : 0;
+  const actionRatio = totalVisits > 0 ? totalActions / totalVisits : 0;
   const triggerPressure = snapshots.length > 0 ? triggerCountSum / snapshots.length : 0;
 
   const weekMetrics = {
@@ -385,18 +446,35 @@ function aggregateSnapshots(snapshots) {
     activeMs: totalActiveMsToday,
   };
 
+  const periodMetrics = {
+    range: normalizedRange,
+    windowDays,
+    visits: totalVisits,
+    actions: totalActions,
+    apiMutations: totalApiMutations,
+    entityViews: totalEntityViews,
+    searches: totalSearches,
+    activeMs: totalActiveMs,
+    logins: totalLogins,
+    sessions: totalSessions,
+    activeUsers: activeUsersInRange,
+    avgWorkflow,
+  };
+
   return {
+    range: normalizedRange,
     userCount: snapshots.length,
-    activeUsers7d,
+    activeUsers7d: activeUsersInRange,
     onlineCount: onlineUsers.length,
-    totalVisits7d,
-    totalActiveMs7d,
-    totalActions7d,
-    totalApiMutations7d,
-    totalEntityViews7d,
-    totalSearches7d,
+    totalVisits7d: totalVisits,
+    totalActiveMs7d: totalActiveMs,
+    totalActions7d: totalActions,
+    totalApiMutations7d: totalApiMutations,
+    totalEntityViews7d: totalEntityViews,
+    totalSearches7d: totalSearches,
     weekMetrics,
     todayMetrics,
+    periodMetrics,
     tenantHealthScore: computeTenantHealthScore({ activeRatio, actionRatio, avgWorkflow, triggerPressure }),
     topTriggers,
     users: users.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0) || b.visits7d - a.visits7d),
@@ -409,26 +487,26 @@ function aggregateSnapshots(snapshots) {
     moduleMatrix,
     funnelSteps,
     actionBreakdown,
-    liveFeed: liveFeed.slice(0, 60),
+    liveFeed: liveFeed.slice(0, 80),
     onlineUsers,
   };
 }
 
-export async function buildTenantBehaviorAggregate() {
+export async function buildTenantBehaviorAggregate(range = 'week') {
   const snapshots = await listTenantBehaviorSnapshots({ limit: 200 });
-  return aggregateSnapshots(snapshots);
+  return aggregateSnapshots(snapshots, range);
 }
 
 /** Full live tenant intelligence — CRM context + behaviour + feed. */
-export async function buildTenantLiveDashboard() {
+export async function buildTenantLiveDashboard(range = 'week') {
   const [snapshots, crmContext] = await Promise.all([
     listTenantBehaviorSnapshots({ limit: 200 }),
     getTenantCrmContext(),
   ]);
-  const aggregated = aggregateSnapshots(snapshots);
+  const aggregated = aggregateSnapshots(snapshots, range);
   const intelligenceSummary = buildIntelligenceSummary({
     crmContext,
-    weekMetrics: aggregated.weekMetrics,
+    weekMetrics: aggregated.periodMetrics || aggregated.weekMetrics,
     onlineCount: aggregated.onlineCount,
     topTriggers: aggregated.topTriggers,
     funnelProgress: aggregated.funnelSteps.reduce((acc, s) => {

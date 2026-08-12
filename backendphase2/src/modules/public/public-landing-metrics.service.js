@@ -3,7 +3,7 @@
  * Never returns PII, tenant IDs, record IDs, or private CRM fields.
  */
 import { prisma, runWithTenantContext } from '../../config/prisma.js';
-import { headquartersAuthService } from '../../services/headquartersAuth.service.js';
+import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 
 function notSoftDeletedWhere() {
   return { OR: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { isSet: false } }] };

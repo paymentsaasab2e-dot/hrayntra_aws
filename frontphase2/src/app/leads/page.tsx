@@ -23,7 +23,10 @@ import {
   Link2,
   Copy,
   ExternalLink,
+  Sparkles,
+  Lock,
 } from 'lucide-react';
+import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
 import {
   buildLeadSearchHaystack,
   buildLeadsListApiParams,
@@ -497,6 +500,7 @@ export default function RecruitmentAgencyDashboard() {
   const canUpdateLead = hasPermission('leads_update');
   const canDeleteLead = hasPermission('leads_delete');
   const canConvertLead = hasPermission('leads_update');
+  const leadAiGate = useAiCoinGate('ai.lead_chat');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -504,6 +508,8 @@ export default function RecruitmentAgencyDashboard() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
+  const [addLeadWithAi, setAddLeadWithAi] = useState(false);
+  const [createLeadMode, setCreateLeadMode] = useState<'ai' | 'manual'>('manual');
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [publicLeadFormLink, setPublicLeadFormLink] = useState('');
   const [publicLeadFormTenant, setPublicLeadFormTenant] = useState('');
@@ -1969,14 +1975,67 @@ export default function RecruitmentAgencyDashboard() {
               </button>
             )}
             {canCreateLead && (
-              <button
-                type="button"
-                onClick={() => setAddLeadDrawerOpen(true)}
-                className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
+              <div
+                role="group"
+                aria-label="Create lead"
+                className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
               >
-                <Plus size={16} className="text-white" strokeWidth={2.5} />
-                <span>Add Lead</span>
-              </button>
+                <button
+                  type="button"
+                  aria-pressed={createLeadMode === 'ai'}
+                  onClick={() => {
+                    if (leadAiGate.locked) {
+                      leadAiGate.confirmAndUnlock();
+                      return;
+                    }
+                    setCreateLeadMode('ai');
+                    setAddLeadWithAi(true);
+                    setAddLeadDrawerOpen(true);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                    leadAiGate.locked
+                      ? 'text-amber-800 hover:bg-amber-50'
+                      : createLeadMode === 'ai'
+                        ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
+                        : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
+                  }`}
+                  title={
+                    leadAiGate.locked
+                      ? `Locked — needs ${leadAiGate.cost} coins (you have ${leadAiGate.coins})`
+                      : `Create a lead with AI (${leadAiGate.cost} coins per chat message)`
+                  }
+                >
+                  {leadAiGate.locked ? (
+                    <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
+                  ) : (
+                    <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
+                  )}
+                  <span>Create with AI</span>
+                  <AiCoinLockBadge featureId="ai.lead_chat" />
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={createLeadMode === 'manual'}
+                  onClick={() => {
+                    setCreateLeadMode('manual');
+                    setAddLeadWithAi(false);
+                    setAddLeadDrawerOpen(true);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                    createLeadMode === 'manual'
+                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
+                  }`}
+                  title="Create a lead manually"
+                >
+                  <Plus
+                    size={14}
+                    className={createLeadMode === 'manual' ? 'text-white' : 'text-indigo-500'}
+                    strokeWidth={2.5}
+                  />
+                  <span>Create Manually</span>
+                </button>
+              </div>
             )}
           </div>
         </header>
@@ -2607,11 +2666,13 @@ export default function RecruitmentAgencyDashboard() {
           <LeadDetailsDrawer
             lead={selectedLead ?? null}
             addLeadMode={addLeadDrawerOpen}
+            initialOpenAiChat={addLeadWithAi}
             initialMode={selectedLeadDrawerMode}
             onClose={() => {
               setSelectedLeadId(null);
               setSelectedLeadDrawerMode('view');
               setAddLeadDrawerOpen(false);
+              setAddLeadWithAi(false);
               if (searchParams.get('leadId')) {
                 const sp = new URLSearchParams(searchParams.toString());
                 sp.delete('leadId');
@@ -2622,6 +2683,7 @@ export default function RecruitmentAgencyDashboard() {
             }}
             onOpenExistingLead={(leadId) => {
               setAddLeadDrawerOpen(false);
+              setAddLeadWithAi(false);
               setSelectedLeadDrawerMode('view');
               setSelectedLeadId(leadId);
             }}
@@ -2636,6 +2698,7 @@ export default function RecruitmentAgencyDashboard() {
                 setStatusFilter('All');
                 setSearchQuery('');
                 setAddLeadDrawerOpen(false);
+                setAddLeadWithAi(false);
                 toast.success('Lead created successfully');
               } catch (err: any) {
                 console.error('Failed to add lead:', err);

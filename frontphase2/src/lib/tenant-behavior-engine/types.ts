@@ -200,7 +200,7 @@ export type TenantActivityRollup = {
   userId: string;
   tenantDbName: string;
   userName?: string;
-  range: 'today' | 'week' | 'month' | 'all';
+  range: 'today' | 'week' | 'month' | 'year' | 'all';
   fromDate: string;
   toDate: string;
   logins: number;
@@ -331,6 +331,8 @@ export type TenantBehaviorPayload = {
   activityStateUpdatedAt?: string;
   rollupToday: TenantActivityRollup | null;
   rollup7d: TenantActivityRollup | null;
+  rollupMonth?: TenantActivityRollup | null;
+  rollupYear?: TenantActivityRollup | null;
   triggers: TenantBehaviourTrigger[];
   sessionEngagement?: TenantSessionEngagement | null;
   interestTopics?: TenantInterestTopic[];

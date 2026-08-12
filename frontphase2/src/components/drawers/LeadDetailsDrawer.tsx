@@ -622,6 +622,8 @@ interface LeadDetailsDrawerProps {
   lead: Lead | null;
   /** When true, drawer opens in "Add Lead" mode (no lead selected) */
   addLeadMode?: boolean;
+  /** When true with addLeadMode, open the Create with AI chat panel on mount */
+  initialOpenAiChat?: boolean;
   /** Controls whether the drawer should immediately open in edit mode */
   initialMode?: 'view' | 'edit';
   onClose: () => void;
@@ -706,6 +708,7 @@ function LeadDetailsPanelShell({
   children,
   dialogTitleId = 'lead-details-modal-title',
   size = 'md',
+  sidePanel = null,
 }: {
   mode: 'modal' | 'drawer';
   panelRef: React.RefObject<HTMLDivElement | null>;
@@ -714,12 +717,14 @@ function LeadDetailsPanelShell({
   children: React.ReactNode;
   dialogTitleId?: string;
   size?: 'md' | 'lg';
+  sidePanel?: React.ReactNode;
 }) {
   if (mode === 'modal') {
     const modalMaxWidth = size === 'lg' ? 'max-w-6xl' : 'max-w-4xl';
     const modalHeight = size === 'lg' ? 'h-[min(92vh,920px)]' : 'h-[min(90vh,880px)]';
     return (
-      <div className="pointer-events-none fixed inset-0 z-[501] flex items-center justify-center p-4 sm:p-6">
+      <div className="pointer-events-none fixed inset-0 z-[501] flex flex-col items-center justify-center gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-6 lg:flex-row lg:overflow-hidden">
+        {sidePanel}
         <motion.div
           key={size === 'lg' ? 'lead-detail-modal' : 'add-lead-modal'}
           ref={panelRef}
@@ -1002,6 +1007,7 @@ const LeadStatusDropdown = ({
 export function LeadDetailsDrawer({
   lead,
   addLeadMode = false,
+  initialOpenAiChat = false,
   initialMode = 'view',
   onClose,
   onAddLead,
@@ -1018,7 +1024,8 @@ export function LeadDetailsDrawer({
   const isHqOverrideMode = Boolean(updateLeadOverride);
   const isPublicIntakeMode = Boolean(createLeadOverride) && !isHqOverrideMode;
   const drawerIsOpen = Boolean(lead) || addLeadMode;
-  const leadAiGate = useAiCoinGate('ai.lead_details');
+  // Same feature as /leads "Create with AI" toggle + AI chat send (keeps coin badge consistent).
+  const leadAiGate = useAiCoinGate('ai.lead_chat');
   /** HQ-only: CRM vs Recruitment product line (never shown on tenant Phase 2). */
   const [hqProductLine, setHqProductLine] = useState<'crm' | 'recruitment'>('crm');
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'chat' | 'followup' | 'add'>(
@@ -1642,6 +1649,16 @@ export function LeadDetailsDrawer({
       setAddLeadWizardStep(isHqOverrideMode ? 'workspace' : 'company');
     }
   }, [lead?.id, addLeadMode, isHqOverrideMode]);
+
+  useEffect(() => {
+    if (!addLeadMode || isPublicIntakeMode) {
+      setLeadAiChatOpen(false);
+      return;
+    }
+    if (initialOpenAiChat) {
+      setLeadAiChatOpen(true);
+    }
+  }, [addLeadMode, initialOpenAiChat, isPublicIntakeMode]);
   const [overviewEditMode, setOverviewEditMode] = useState(false);
   const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
   const [savingOverviewEdit, setSavingOverviewEdit] = useState(false);
@@ -2814,12 +2831,8 @@ export function LeadDetailsDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={leadAiChatOpen ? undefined : () => void requestLeadDrawerClose()}
-            className={`fixed inset-0 z-[500] ${
-              addLeadMode && leadAiChatOpen
-                ? 'pointer-events-none bg-slate-900/10'
-                : 'pointer-events-auto bg-slate-900/45 backdrop-blur-[2px]'
-            }`}
+            onClick={() => void requestLeadDrawerClose()}
+            className="fixed inset-0 z-[500] pointer-events-auto bg-slate-900/45 backdrop-blur-[2px]"
             data-drawer-skip-dirty="true"
           />
           <LeadDetailsPanelShell
@@ -2829,6 +2842,24 @@ export function LeadDetailsDrawer({
             panelRef={leadDrawerPanelRef}
             drawerWidth={addLeadDrawerWidth}
             onBeginResize={beginAddLeadDrawerResize}
+            sidePanel={
+              addLeadMode && leadAiChatOpen ? (
+                <LeadAiChatDrawer
+                  docked
+                  isOpen={leadAiChatOpen}
+                  onClose={() => setLeadAiChatOpen(false)}
+                  form={addLeadForm}
+                  onApplyGenerated={handleApplyLeadAiGenerated}
+                  onExpandSections={() =>
+                    setAddLeadSectionsOpen({ company: true, contact: true, leadDetails: true })
+                  }
+                  chatHistory={leadAiChatHistory}
+                  onChatHistoryChange={setLeadAiChatHistory}
+                  onCreateLead={() => void handleSubmitAddLead()}
+                  createDisabled={isCreateLeadDisabled || uploadingAgreements || uploadingKyc}
+                />
+              ) : null
+            }
           >
           <div className="relative flex h-full min-h-0 flex-col">
           {/* Header */}
@@ -2937,12 +2968,12 @@ export function LeadDetailsDrawer({
                       title={
                         leadAiGate.locked
                           ? `Locked — needs ${leadAiGate.cost} coins`
-                          : `Open AI assistant (${leadAiGate.cost}+ coins per action)`
+                          : `Open AI assistant (${leadAiGate.cost} coins per chat message)`
                       }
                     >
                       {leadAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} />}
                       Create with AI
-                      <AiCoinLockBadge featureId="ai.lead_details" />
+                      <AiCoinLockBadge featureId="ai.lead_chat" />
                     </button>
                   ) : null}
                   <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
@@ -3976,6 +4007,7 @@ export function LeadDetailsDrawer({
                           latitude={addLeadForm.latitude ?? null}
                           longitude={addLeadForm.longitude ?? null}
                           showDetectedHint={false}
+                          deviceLocationMode="country-preview"
                           countryError={addLeadErrors.country}
                           stateError={addLeadErrors.state}
                           onLocationChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
@@ -6346,22 +6378,6 @@ export function LeadDetailsDrawer({
           </div>
           </div>
           </LeadDetailsPanelShell>
-
-        {addLeadMode ? (
-          <LeadAiChatDrawer
-            isOpen={leadAiChatOpen}
-            onClose={() => setLeadAiChatOpen(false)}
-            form={addLeadForm}
-            onApplyGenerated={handleApplyLeadAiGenerated}
-            onExpandSections={() =>
-              setAddLeadSectionsOpen({ company: true, contact: true, leadDetails: true })
-            }
-            chatHistory={leadAiChatHistory}
-            onChatHistoryChange={setLeadAiChatHistory}
-            onCreateLead={() => void handleSubmitAddLead()}
-            createDisabled={isCreateLeadDisabled || uploadingAgreements || uploadingKyc}
-          />
-        ) : null}
 
         {/* Duplicate lead notification — shown before create when duplicate-check matches */}
         <AnimatePresence>

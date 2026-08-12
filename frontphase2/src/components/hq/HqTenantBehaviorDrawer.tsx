@@ -100,13 +100,38 @@ function Metric({
   );
 }
 
+type TimelineRange = 'today' | 'week' | 'month' | 'year';
+
+const TIMELINE_RANGES: Array<{ id: TimelineRange; label: string }> = [
+  { id: 'today', label: 'Today' },
+  { id: 'week', label: 'This week' },
+  { id: 'month', label: 'Month' },
+  { id: 'year', label: 'Year' },
+];
+
+function rangeSuffix(range: TimelineRange) {
+  if (range === 'today') return 'today';
+  if (range === 'month') return '30d';
+  if (range === 'year') return 'year';
+  return '7d';
+}
+
+function rangeTitle(range: TimelineRange) {
+  return TIMELINE_RANGES.find((r) => r.id === range)?.label || 'This week';
+}
+
 function OverviewTab({
   analysis,
   eng,
+  range,
 }: {
   analysis: HqTenantBehaviorAnalysis;
   eng: HqTenantBehaviorAnalysis['engagement'];
+  range: TimelineRange;
 }) {
+  const suffix = rangeSuffix(range);
+  const feed = analysis.liveFeed || [];
+
   return (
     <div className="space-y-5">
       {analysis.dataSource === 'none' ? (
@@ -119,7 +144,7 @@ function OverviewTab({
         <div className="rounded-xl border border-sky-100 bg-sky-50/50 px-4 py-3 text-sm text-slate-700">
           <p className="mb-2 flex items-center gap-2 font-semibold text-sky-900">
             <TrendingUp className="h-4 w-4" />
-            HQ analysis
+            HQ analysis · {rangeTitle(range)}
           </p>
           <ul className="space-y-1">
             {analysis.intelligenceSummary.map((line) => (
@@ -134,33 +159,75 @@ function OverviewTab({
 
       <div>
         <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-          Platform engagement (tenant-wide)
+          Platform engagement · {rangeTitle(range)}
         </h4>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           <Metric label="Health score" value={`${analysis.tenantHealthScore}/100`} icon={TrendingUp} />
-          <Metric label="Logins (7d)" value={eng?.totalLogins7d ?? 0} icon={LogIn} />
-          <Metric label="Logouts (7d)" value={eng?.totalLogouts7d ?? 0} icon={LogOut} />
-          <Metric label="Sessions (7d)" value={eng?.totalSessions7d ?? 0} icon={Activity} />
+          <Metric label={`Logins (${suffix})`} value={eng?.totalLogins7d ?? 0} icon={LogIn} />
+          <Metric label={`Logouts (${suffix})`} value={eng?.totalLogouts7d ?? 0} icon={LogOut} />
+          <Metric label={`Sessions (${suffix})`} value={eng?.totalSessions7d ?? 0} icon={Activity} />
           <Metric
             label="Time on platform"
             value={formatDuration(eng?.totalActiveMs7d ?? 0)}
-            hint={`Today: ${formatDuration(eng?.totalActiveMsToday ?? 0)}`}
+            hint={
+              range === 'today'
+                ? undefined
+                : `Today: ${formatDuration(eng?.totalActiveMsToday ?? 0)}`
+            }
             icon={Clock3}
           />
           <Metric
-            label="Active users (7d)"
+            label={`Active users (${suffix})`}
             value={eng?.activeUsers7d ?? 0}
             hint={`${eng?.onlineNow ?? 0} online now`}
             icon={Radio}
           />
           <Metric label="Last activity" value={formatWhen(eng?.lastActivityAt)} icon={Zap} />
           <Metric
-            label="CRM actions (7d)"
+            label={`CRM actions (${suffix})`}
             value={eng?.totalActions7d ?? 0}
             hint={`${eng?.totalApiMutations7d ?? 0} API mutations`}
             icon={GitBranch}
           />
         </div>
+      </div>
+
+      <div>
+        <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+          Activity timeline · {rangeTitle(range)}
+        </h4>
+        {feed.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+            No activity events in this timeline yet.
+          </p>
+        ) : (
+          <ol className="relative space-y-0 border-l border-slate-200 pl-4">
+            {feed.slice(0, 24).map((ev, idx) => (
+              <li key={`${ev.at}-${idx}`} className="relative pb-4 last:pb-0">
+                <span className="absolute -left-[1.3rem] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-sky-500 shadow-sm" />
+                <div className="rounded-lg border border-slate-100 bg-white px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <span className="font-semibold tabular-nums text-slate-500">
+                      {new Date(ev.at).toLocaleString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                    <span className="font-medium capitalize text-slate-800">
+                      {ev.type.replace(/_/g, ' ')}
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                      {MODULE_LABELS[ev.category] || ev.category}
+                    </span>
+                  </div>
+                  {ev.path ? <p className="mt-1 truncate text-[11px] text-slate-400">{ev.path}</p> : null}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
 
       {analysis.crmContext ? (
@@ -327,22 +394,13 @@ function LiveTab({ analysis }: { analysis: HqTenantBehaviorAnalysis }) {
   );
 }
 
-export function HqTenantBehaviorDrawer({
-  tenant,
-  onClose,
-}: {
-  tenant: HqTenantRow;
-  onClose: () => void;
-}) {
+/** Embeddable behaviour analytics (for tenant detail modal Analytics tab). */
+export function HqTenantBehaviorAnalyticsPanel({ tenant }: { tenant: HqTenantRow }) {
   const [analysis, setAnalysis] = useState<HqTenantBehaviorAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<DrawerTab>('overview');
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const [range, setRange] = useState<TimelineRange>('week');
 
   const load = useCallback(async () => {
     if (!tenant.tenantDbName) {
@@ -353,7 +411,7 @@ export function HqTenantBehaviorDrawer({
     setLoading(true);
     setError(null);
     try {
-      const res = await apiHqGetTenantBehavior(tenant.tenantDbName);
+      const res = await apiHqGetTenantBehavior(tenant.tenantDbName, range);
       setAnalysis(res.data || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load tenant behaviour');
@@ -361,22 +419,18 @@ export function HqTenantBehaviorDrawer({
     } finally {
       setLoading(false);
     }
-  }, [tenant.tenantDbName]);
+  }, [tenant.tenantDbName, range]);
 
   useEffect(() => {
     setTab('overview');
+    setRange('week');
+  }, [tenant.id]);
+
+  useEffect(() => {
     void load();
     const timer = window.setInterval(() => void load(), 12_000);
     return () => window.clearInterval(timer);
-  }, [load, tenant.id]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [load]);
 
   const eng = analysis?.engagement;
   const dataSourceLabel =
@@ -386,95 +440,169 @@ export function HqTenantBehaviorDrawer({
         ? 'Session fallback — full engine data pending'
         : 'No behaviour data yet';
 
+  return (
+    <div className="flex min-h-0 flex-col gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+            <Brain className="h-3.5 w-3.5 text-sky-600" />
+            Tenant behaviour analytics
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {dataSourceLabel} · aggregated, not per-user
+            {tenant.tenantDbName ? (
+              <>
+                {' '}
+                · <span className="font-mono text-slate-700">{tenant.tenantDbName}</span>
+              </>
+            ) : null}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700 ring-1 ring-emerald-100">
+            <Radio className="h-2.5 w-2.5" />
+            Live
+          </span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            title="Refresh"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Timeline</p>
+        <div
+          role="tablist"
+          aria-label="Analytics timeline"
+          className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1"
+        >
+          {TIMELINE_RANGES.map((r) => {
+            const active = range === r.id;
+            return (
+              <button
+                key={r.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setRange(r.id)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  active
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                }`}
+              >
+                {r.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex gap-1 overflow-x-auto border-b border-slate-100 pb-0">
+        {DRAWER_TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition ${
+              tab === id
+                ? 'border-sky-600 text-sky-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="min-h-[280px]">
+        {loading && !analysis ? (
+          <div className="flex justify-center py-16">
+            <Loader2 className="h-8 w-8 animate-spin text-sky-500" />
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+        ) : analysis ? (
+          <>
+            {tab === 'overview' ? <OverviewTab analysis={analysis} eng={eng} range={range} /> : null}
+            {tab === 'modules' ? <ModulesTab analysis={analysis} /> : null}
+            {tab === 'funnel' ? <FunnelTab analysis={analysis} /> : null}
+            {tab === 'triggers' ? <TriggersTab analysis={analysis} /> : null}
+            {tab === 'live' ? <LiveTab analysis={analysis} /> : null}
+          </>
+        ) : (
+          <p className="text-sm text-slate-600">No behaviour data available for this tenant.</p>
+        )}
+      </div>
+
+      {analysis?.capturedAt ? (
+        <p className="text-[10px] text-slate-400">
+          Showing {rangeTitle(range).toLowerCase()} · Last synced{' '}
+          {new Date(analysis.capturedAt).toLocaleString()}
+          {eng?.lastActivityAt ? ` · Last tenant activity ${formatWhen(eng.lastActivityAt)}` : ''}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function HqTenantBehaviorDrawer({
+  tenant,
+  onClose,
+}: {
+  tenant: HqTenantRow;
+  onClose: () => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   if (!mounted) return null;
 
   const drawer = (
     <div className="fixed inset-0 z-[120] flex">
       <button type="button" className="absolute inset-0 bg-slate-900/45" onClick={onClose} aria-label="Close drawer" />
       <aside className="relative ml-auto flex h-full w-full max-w-3xl flex-col bg-[#f8fafc] shadow-2xl">
-        <header className="shrink-0 border-b border-slate-200 bg-white px-5 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-                <Brain className="h-3.5 w-3.5 text-sky-600" />
-                Tenant behaviour analytics
-              </p>
-              <h2 className="mt-1 truncate text-xl font-semibold text-slate-900">{tenant.name}</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                {tenant.email} · <span className="font-mono text-slate-800">{tenant.tenantDbName}</span>
-              </p>
-              <p className="mt-1 text-xs text-slate-500">{dataSourceLabel} · aggregated, not per-user</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="hidden items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700 ring-1 ring-emerald-100 sm:inline-flex">
-                <Radio className="h-2.5 w-2.5" />
-                Live
-              </span>
-              <button
-                type="button"
-                onClick={() => void load()}
-                disabled={loading}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                title="Refresh"
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+              <Brain className="h-3.5 w-3.5 text-sky-600" />
+              Tenant behaviour analytics
+            </p>
+            <h2 className="mt-1 truncate text-xl font-semibold text-slate-900">{tenant.name}</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {tenant.email} · <span className="font-mono text-slate-800">{tenant.tenantDbName}</span>
+            </p>
           </div>
-
-          <div className="mt-4 flex gap-1 overflow-x-auto border-b border-slate-100 pb-0">
-            {DRAWER_TABS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setTab(id)}
-                className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition ${
-                  tab === id
-                    ? 'border-sky-600 text-sky-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </header>
-
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-          {loading && !analysis ? (
-            <div className="flex justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-sky-500" />
-            </div>
-          ) : error ? (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
-          ) : analysis ? (
-            <>
-              {tab === 'overview' ? <OverviewTab analysis={analysis} eng={eng} /> : null}
-              {tab === 'modules' ? <ModulesTab analysis={analysis} /> : null}
-              {tab === 'funnel' ? <FunnelTab analysis={analysis} /> : null}
-              {tab === 'triggers' ? <TriggersTab analysis={analysis} /> : null}
-              {tab === 'live' ? <LiveTab analysis={analysis} /> : null}
-            </>
-          ) : (
-            <p className="text-sm text-slate-600">No behaviour data available for this tenant.</p>
-          )}
+          <HqTenantBehaviorAnalyticsPanel tenant={tenant} />
         </div>
-
-        {analysis?.capturedAt ? (
-          <footer className="shrink-0 border-t border-slate-200 bg-white px-5 py-2 text-[10px] text-slate-400">
-            Last synced {new Date(analysis.capturedAt).toLocaleString()}
-            {eng?.lastActivityAt ? ` · Last tenant activity ${formatWhen(eng.lastActivityAt)}` : ''}
-          </footer>
-        ) : null}
       </aside>
     </div>
   );
@@ -482,5 +610,5 @@ export function HqTenantBehaviorDrawer({
   return createPortal(drawer, document.body);
 }
 
-/** @deprecated use HqTenantBehaviorDrawer */
-export const HqTenantBehaviorPanel = HqTenantBehaviorDrawer;
+/** @deprecated use HqTenantBehaviorAnalyticsPanel */
+export const HqTenantBehaviorPanel = HqTenantBehaviorAnalyticsPanel;

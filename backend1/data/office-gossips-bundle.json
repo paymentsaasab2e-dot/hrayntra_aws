@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-11T12:41:24.729Z",
+  "updatedAt": "2026-08-12T10:12:24.926Z",
   "communities": [
     {
       "id": "c_job_seekers",
@@ -329,9 +329,153 @@
       "allowPeopleToFollow": true,
       "followAnonymously": true,
       "realName": "R. A. Lamkhade"
+    },
+    "demo_ref_ananya": {
+      "userId": "demo_ref_ananya",
+      "createdAt": "2026-08-03T07:20:48.454Z",
+      "updatedAt": "2026-08-03T07:20:48.454Z",
+      "isAnonymous": true,
+      "username": "ananya_s",
+      "showInCompanyConnections": true,
+      "availableForReferenceCheck": true,
+      "referenceFeeTokens": 6,
+      "completedReferenceChecks": 2,
+      "allowPeopleToFollow": true,
+      "followAnonymously": true
+    },
+    "demo_ref_vikram": {
+      "userId": "demo_ref_vikram",
+      "createdAt": "2026-08-03T07:20:48.454Z",
+      "updatedAt": "2026-08-03T07:20:48.454Z",
+      "isAnonymous": true,
+      "username": "vikram_p",
+      "showInCompanyConnections": true,
+      "availableForReferenceCheck": true,
+      "referenceFeeTokens": 10,
+      "completedReferenceChecks": 5,
+      "allowPeopleToFollow": true,
+      "followAnonymously": true
+    },
+    "demo_ref_meera": {
+      "userId": "demo_ref_meera",
+      "createdAt": "2026-08-03T07:20:48.454Z",
+      "updatedAt": "2026-08-03T07:20:48.454Z",
+      "isAnonymous": true,
+      "username": "meera_k",
+      "showInCompanyConnections": true,
+      "availableForReferenceCheck": true,
+      "referenceFeeTokens": 8,
+      "completedReferenceChecks": 1,
+      "allowPeopleToFollow": true,
+      "followAnonymously": true
+    },
+    "demo_ref_arjun": {
+      "userId": "demo_ref_arjun",
+      "createdAt": "2026-08-03T07:20:48.454Z",
+      "updatedAt": "2026-08-03T07:20:48.454Z",
+      "isAnonymous": true,
+      "username": "arjun_dev",
+      "showInCompanyConnections": true,
+      "availableForReferenceCheck": true,
+      "referenceFeeTokens": 5,
+      "completedReferenceChecks": 0,
+      "allowPeopleToFollow": true,
+      "followAnonymously": true
+    },
+    "demo_ref_priya": {
+      "userId": "demo_ref_priya",
+      "createdAt": "2026-08-03T07:20:48.454Z",
+      "updatedAt": "2026-08-03T07:20:48.454Z",
+      "isAnonymous": true,
+      "username": "priya_pm",
+      "showInCompanyConnections": true,
+      "availableForReferenceCheck": true,
+      "referenceFeeTokens": 12,
+      "completedReferenceChecks": 8,
+      "allowPeopleToFollow": true,
+      "followAnonymously": true
+    },
+    "4fc4a5db2a5627e31c7d5239": {
+      "userId": "4fc4a5db2a5627e31c7d5239",
+      "createdAt": "2026-07-30T06:00:26.749Z",
+      "updatedAt": "2026-07-30T06:00:26.749Z",
+      "isAnonymous": true,
+      "username": "keen_owl83",
+      "showInCompanyConnections": true,
+      "availableForReferenceCheck": true,
+      "referenceFeeTokens": 5,
+      "completedReferenceChecks": 0,
+      "allowPeopleToFollow": true,
+      "followAnonymously": true
     }
   },
   "referenceChecks": [
+    {
+      "id": "ref_msaa8iuh_folnwd",
+      "companyPageId": "co_msaa3jzo_h6ulp5",
+      "companyName": "Himgh",
+      "requesterId": "4fc4a5db2a5627e31c7d5239",
+      "requesterRealName": "bold_wave23",
+      "requesterName": "@bold_wave23",
+      "requesterAnonymous": true,
+      "refereeId": "b1c869d84e75048c5c61c5e3",
+      "refereeRealName": "swift_oak64",
+      "refereeName": "@swift_oak64",
+      "refereeAnonymous": true,
+      "enquiryRole": "employee",
+      "questions": [
+        "What is day-to-day culture like at Himgh?",
+        "How transparent is leadership communication at Himgh?",
+        "Would you recommend Himgh to a friend looking for work?"
+      ],
+      "answers": [
+        {
+          "question": "What is day-to-day culture like at Himgh?",
+          "answer": "good"
+        },
+        {
+          "question": "How transparent is leadership communication at Himgh?",
+          "answer": "yes"
+        },
+        {
+          "question": "Would you recommend Himgh to a friend looking for work?",
+          "answer": "yes"
+        }
+      ],
+      "feeTokens": 10,
+      "escrowHeld": false,
+      "status": "completed",
+      "messages": [
+        {
+          "id": "rm_msaa8iuh_3ng182",
+          "senderId": "4fc4a5db2a5627e31c7d5239",
+          "text": "Reference enquiry (employee) for Himgh:\n1. What is day-to-day culture like at Himgh?\n2. How transparent is leadership communication at Himgh?\n3. Would you recommend Himgh to a friend looking for work?",
+          "createdAt": "2026-08-01T11:22:51.113Z"
+        },
+        {
+          "id": "rm_msaa8qth_b1tkxz",
+          "senderId": "b1c869d84e75048c5c61c5e3",
+          "text": "Accepted — I’ll answer your questions (staying anonymous). You’ll be paid after they rate my answers.",
+          "createdAt": "2026-08-01T11:23:01.445Z"
+        },
+        {
+          "id": "rm_msaa98qa_goe87i",
+          "senderId": "b1c869d84e75048c5c61c5e3",
+          "text": "Answers submitted:\n\nQ1: What is day-to-day culture like at Himgh?\nA: good\n\nQ2: How transparent is leadership communication at Himgh?\nA: yes\n\nQ3: Would you recommend Himgh to a friend looking for work?\nA: yes\n\n(Waiting for your feedback before tokens are credited.)",
+          "createdAt": "2026-08-01T11:23:24.657Z"
+        },
+        {
+          "id": "rm_msaa9ta6_pb95ix",
+          "senderId": "4fc4a5db2a5627e31c7d5239",
+          "text": "Feedback: Top notch. 9 tokens credited to the reference provider.",
+          "createdAt": "2026-08-01T11:23:51.294Z"
+        }
+      ],
+      "createdAt": "2026-08-01T11:22:51.113Z",
+      "updatedAt": "2026-08-01T11:23:51.294Z",
+      "rating": "top_notch",
+      "payoutTokens": 9
+    },
     {
       "id": "ref_ms73qmmj_nauikh",
       "companyPageId": "co_aitikit",
@@ -385,7 +529,63 @@
         "createdAt": "2026-08-01T07:19:07.979Z"
       }
     ],
-    "peopleFollows": [],
-    "dms": []
+    "peopleFollows": [
+      {
+        "id": "pf_msaaaj1g_gg71zw",
+        "fromUserId": "4fc4a5db2a5627e31c7d5239",
+        "fromRealName": "bold_wave23",
+        "fromName": "@bold_wave23",
+        "toUserId": "b1c869d84e75048c5c61c5e3",
+        "toName": "@swift_oak64",
+        "anonymous": true,
+        "status": "accepted",
+        "createdAt": "2026-08-01T11:24:24.676Z",
+        "updatedAt": "2026-08-01T11:44:50.084Z"
+      }
+    ],
+    "dms": [
+      {
+        "id": "dm_msaaahwp_crfk22",
+        "companyPageId": "co_msaa3jzo_h6ulp5",
+        "companyName": "Himgh",
+        "fromUserId": "4fc4a5db2a5627e31c7d5239",
+        "fromName": "@bold_wave23",
+        "fromRealName": "bold_wave23",
+        "fromAnonymous": true,
+        "toUserId": "b1c869d84e75048c5c61c5e3",
+        "toName": "@swift_oak64",
+        "toRealName": "swift_oak64",
+        "toAnonymous": true,
+        "status": "active",
+        "messages": [
+          {
+            "id": "dmm_msaaahwp_qwyb35",
+            "senderId": "4fc4a5db2a5627e31c7d5239",
+            "text": "Hi — I'd like to connect via message (anonymous request).",
+            "createdAt": "2026-08-01T11:24:23.209Z"
+          },
+          {
+            "id": "dmm_msab0lla_tbl5cg",
+            "senderId": "b1c869d84e75048c5c61c5e3",
+            "text": "Accepted — we can chat now (I’ll stay anonymous).",
+            "createdAt": "2026-08-01T11:44:41.038Z"
+          },
+          {
+            "id": "dmm_msab1fmh_69kdmd",
+            "senderId": "4fc4a5db2a5627e31c7d5239",
+            "text": "hi",
+            "createdAt": "2026-08-01T11:45:19.961Z"
+          },
+          {
+            "id": "dmm_msab1inl_4l2jit",
+            "senderId": "b1c869d84e75048c5c61c5e3",
+            "text": "heelo",
+            "createdAt": "2026-08-01T11:45:23.889Z"
+          }
+        ],
+        "createdAt": "2026-08-01T11:24:23.209Z",
+        "updatedAt": "2026-08-01T11:45:23.889Z"
+      }
+    ]
   }
 }

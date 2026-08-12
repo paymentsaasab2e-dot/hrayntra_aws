@@ -143,6 +143,26 @@ export function HqAiPlansPanel({
         </div>
       </div>
 
+      <div className="rounded-xl border border-violet-200 bg-violet-50/80 px-4 py-3 text-sm text-violet-950">
+        <p className="font-semibold">Leads → Create with AI</p>
+        <p className="mt-1 text-violet-900/80">
+          Control costs for <span className="font-mono text-xs">ai.lead_chat</span> (each chat message) and{' '}
+          <span className="font-mono text-xs">ai.lead_details</span> (paste/autofill). The Create with AI
+          button on <span className="font-semibold">/leads</span> shows a lock when the tenant balance is
+          below the chat cost; coins are deducted when the AI API runs.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-violet-200 bg-violet-50/80 px-4 py-3 text-sm text-violet-950">
+        <p className="font-semibold">Clients → Create with AI</p>
+        <p className="mt-1 text-violet-900/80">
+          Control costs for <span className="font-mono text-xs">ai.client_chat</span> (each chat message) and{' '}
+          <span className="font-mono text-xs">ai.client_details</span> (paste/autofill). The Create with AI
+          toggle on <span className="font-semibold">/client</span> shows a lock when the tenant balance is
+          below the chat cost; coins are deducted when the AI API runs.
+        </p>
+      </div>
+
       {dirty ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           You have <strong>{editedCount}</strong> unsaved change{editedCount === 1 ? '' : 's'}. Click{' '}

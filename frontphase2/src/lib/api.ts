@@ -2606,6 +2606,7 @@ export type HqTenantBehaviorAnalysis = {
   planName?: string;
   capturedAt: string;
   dataSource: 'behavior_engine' | 'sessions_fallback' | 'none';
+  range?: 'today' | 'week' | 'month' | 'year';
   engagement: {
     trackedUsers: number;
     teamMembersTotal: number;
@@ -2624,6 +2625,20 @@ export type HqTenantBehaviorAnalysis = {
     avgTimePerUser7d: number;
     lastActivityAt: string | null;
     firstActivityAt: string | null;
+  };
+  periodMetrics?: {
+    range: 'today' | 'week' | 'month' | 'year';
+    windowDays: number;
+    visits: number;
+    actions: number;
+    apiMutations: number;
+    entityViews: number;
+    searches: number;
+    activeMs: number;
+    logins: number;
+    sessions: number;
+    activeUsers: number;
+    avgWorkflow: number;
   };
   tenantHealthScore: number;
   weekMetrics: {
@@ -2673,9 +2688,13 @@ export type HqTenantBehaviorAnalysis = {
   }>;
 };
 
-export async function apiHqGetTenantBehavior(tenantDbName: string) {
+export async function apiHqGetTenantBehavior(
+  tenantDbName: string,
+  range: 'today' | 'week' | 'month' | 'year' = 'week',
+) {
+  const q = new URLSearchParams({ range });
   return apiFetch<HqTenantBehaviorAnalysis>(
-    `/hq/tenants/${encodeURIComponent(tenantDbName)}/behavior`,
+    `/hq/tenants/${encodeURIComponent(tenantDbName)}/behavior?${q.toString()}`,
     { auth: true },
   );
 }
