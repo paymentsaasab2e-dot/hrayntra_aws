@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Globe2, MapPin, Search } from 'lucide-react';
 import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
 import { CscLocationFields } from './CscLocationFields';
-import { LocationMapPicker } from './LocationMapPicker';
+import { LocationMapPicker, type DeviceLocationMode } from './LocationMapPicker';
 
 export type LeadLocationInputMode = 'search' | 'picker';
 
@@ -24,10 +24,13 @@ export interface LeadLocationFieldsProps {
   showDetectedHint?: boolean;
   /** Initial tab when the field mounts. */
   defaultMode?: LeadLocationInputMode;
+  /** Map geolocation behavior — use `country-preview` on Add Lead to avoid form autofill. */
+  deviceLocationMode?: DeviceLocationMode;
 }
 
 export function LeadLocationFields({
   defaultMode = 'search',
+  deviceLocationMode,
   ...props
 }: LeadLocationFieldsProps) {
   const [mode, setMode] = useState<LeadLocationInputMode>(defaultMode);
@@ -138,6 +141,7 @@ export function LeadLocationFields({
           onSelect={props.onSelect}
           disabled={props.disabled}
           layoutKey={mode}
+          deviceLocationMode={deviceLocationMode}
         />
       ) : null}
     </div>

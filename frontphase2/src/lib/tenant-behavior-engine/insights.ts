@@ -525,6 +525,10 @@ export function buildTenantActivityRollup(
     const d = new Date();
     d.setDate(d.getDate() - 29);
     fromDate = localDateKey(d);
+  } else if (range === 'year') {
+    const d = new Date();
+    d.setDate(d.getDate() - 364);
+    fromDate = localDateKey(d);
   } else if (range === 'all') {
     const keys = Object.keys(state.days).sort();
     fromDate = keys[0] || today;

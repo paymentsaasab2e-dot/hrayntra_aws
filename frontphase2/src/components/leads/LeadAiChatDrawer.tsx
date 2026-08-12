@@ -26,6 +26,8 @@ type Props = {
   onChatHistoryChange: (history: LeadAiChatMessage[]) => void;
   onCreateLead?: () => void;
   createDisabled?: boolean;
+  /** When true, sits beside Add Lead modal instead of a separate left floating panel. */
+  docked?: boolean;
 };
 
 export function LeadAiChatDrawer({
@@ -38,6 +40,7 @@ export function LeadAiChatDrawer({
   onChatHistoryChange,
   onCreateLead,
   createDisabled = false,
+  docked = false,
 }: Props) {
   const pasteGate = useAiCoinGate('ai.lead_details');
   const chatGate = useAiCoinGate('ai.lead_chat');
@@ -187,11 +190,15 @@ export function LeadAiChatDrawer({
       {isOpen ? (
         <motion.aside
           key="lead-ai-chat-panel"
-          initial={{ x: '-100%', opacity: 0.9 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: '-100%', opacity: 0.9 }}
+          initial={docked ? { opacity: 0, x: -16 } : { x: '-100%', opacity: 0.9 }}
+          animate={docked ? { opacity: 1, x: 0 } : { x: 0, opacity: 1 }}
+          exit={docked ? { opacity: 0, x: -16 } : { x: '-100%', opacity: 0.9 }}
           transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-          className="fixed inset-y-4 left-4 z-[56] flex w-[min(100%,28rem)] flex-col overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] ring-1 ring-slate-900/5"
+          className={
+            docked
+              ? 'pointer-events-auto relative flex h-[min(70vh,520px)] w-full max-w-4xl shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-2xl ring-1 ring-slate-900/5 lg:h-[min(90vh,880px)] lg:w-[min(100%,22rem)] lg:max-w-none'
+              : 'fixed inset-y-4 left-4 z-[56] flex w-[min(100%,28rem)] flex-col overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] ring-1 ring-slate-900/5'
+          }
           onClick={(e) => e.stopPropagation()}
         >
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/50 px-5 py-4">

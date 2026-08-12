@@ -5,6 +5,8 @@ import { Loader2, MapPin, Navigation } from 'lucide-react';
 import type { LocationSelection } from '../LocationAutocomplete';
 import { apiReverseGeocode } from '../../lib/location-api';
 
+export type DeviceLocationMode = 'off' | 'country-preview' | 'autofill';
+
 export interface LocationMapPickerProps {
   latitude: number | null;
   longitude: number | null;
@@ -14,16 +16,36 @@ export interface LocationMapPickerProps {
   /** Change when surrounding layout changes (e.g. tab switch) so the map recalculates size. */
   layoutKey?: string | number;
   /**
-   * When no lat/lng is set, center the map on the browser geolocation
-   * and use it as the default pin (reverse-geocoded once into the form).
+   * @deprecated Prefer `deviceLocationMode`.
+   * When true (default), reverse-geocodes device location into the form.
    */
   useDeviceLocationAsDefault?: boolean;
+  /**
+   * - `off`: no browser geolocation
+   * - `country-preview`: center map on user's country only (no form autofill)
+   * - `autofill`: pin + reverse-geocode into form (legacy default)
+   */
+  deviceLocationMode?: DeviceLocationMode;
 }
 
 const DEFAULT_CENTER = { lat: 20.5937, lng: 78.9629 };
 const DEFAULT_ZOOM = 5;
 const SELECTED_ZOOM = 14;
 const DEVICE_LOCATION_ZOOM = 13;
+const COUNTRY_PREVIEW_ZOOM = 5;
+
+/** English-friendly basemap — avoids OSM default tiles mixing Latin, Arabic, Tifinagh, etc. */
+const MAP_TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+const MAP_TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+function resolveDeviceLocationMode(
+  mode: DeviceLocationMode | undefined,
+  useDeviceLocationAsDefault: boolean,
+): DeviceLocationMode {
+  if (mode) return mode;
+  return useDeviceLocationAsDefault ? 'autofill' : 'off';
+}
 
 function toSelection(resolved: {
   location: string;
@@ -56,7 +78,10 @@ export function LocationMapPicker({
   className = '',
   layoutKey,
   useDeviceLocationAsDefault = true,
+  deviceLocationMode,
 }: LocationMapPickerProps) {
+  const resolvedDeviceMode = resolveDeviceLocationMode(deviceLocationMode, useDeviceLocationAsDefault);
+  const useGeolocation = resolvedDeviceMode !== 'off';
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import('leaflet').Map | null>(null);
   const markerRef = useRef<import('leaflet').Marker | null>(null);
@@ -80,6 +105,7 @@ export function LocationMapPicker({
   const [resolving, setResolving] = useState(false);
   const [locatingDevice, setLocatingDevice] = useState(false);
   const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [previewCountry, setPreviewCountry] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
 
   const hasCoords =
@@ -127,9 +153,9 @@ export function LocationMapPicker({
     }
   };
 
-  // Request browser geolocation when no lat/lng is set yet.
+  // Request browser geolocation when preview/autofill is enabled and no coords yet.
   useEffect(() => {
-    if (!useDeviceLocationAsDefault || hasCoords || disabled) return;
+    if (!useGeolocation || hasCoords || disabled) return;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     let cancelled = false;
@@ -153,7 +179,7 @@ export function LocationMapPicker({
     return () => {
       cancelled = true;
     };
-  }, [useDeviceLocationAsDefault, hasCoords, disabled]);
+  }, [useGeolocation, hasCoords, disabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,10 +208,12 @@ export function LocationMapPicker({
 
         const initialCenter = hasCoords
           ? { lat: latitude as number, lng: longitude as number }
-          : deviceLocation ?? DEFAULT_CENTER;
+          : resolvedDeviceMode === 'autofill' && deviceLocation
+            ? deviceLocation
+            : DEFAULT_CENTER;
         const initialZoom = hasCoords
           ? SELECTED_ZOOM
-          : deviceLocation
+          : resolvedDeviceMode === 'autofill' && deviceLocation
             ? DEVICE_LOCATION_ZOOM
             : DEFAULT_ZOOM;
 
@@ -198,10 +226,10 @@ export function LocationMapPicker({
           touchZoom: !disabled,
         });
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-          maxZoom: 19,
+        L.tileLayer(MAP_TILE_URL, {
+          attribution: MAP_TILE_ATTRIBUTION,
+          subdomains: 'abcd',
+          maxZoom: 20,
         }).addTo(map);
 
         if (hasCoords) {
@@ -259,7 +287,7 @@ export function LocationMapPicker({
     }
   }, [disabled, ready]);
 
-  // Apply selected coords, or fall back to device location as the default preview.
+  // Apply selected coords, country-only preview, or device autofill.
   useEffect(() => {
     const map = mapRef.current;
     const L = leafletRef.current;
@@ -276,7 +304,51 @@ export function LocationMapPicker({
       return;
     }
 
-    if (deviceLocation && useDeviceLocationAsDefault) {
+    if (deviceLocation && resolvedDeviceMode === 'country-preview') {
+      if (markerRef.current) {
+        markerRef.current.remove();
+        markerRef.current = null;
+      }
+      map.setView(deviceLocation, COUNTRY_PREVIEW_ZOOM, { animate: true });
+
+      if (!didApplyDeviceLocationRef.current && !disabled) {
+        didApplyDeviceLocationRef.current = true;
+        reverseAbortRef.current?.abort();
+        const controller = new AbortController();
+        reverseAbortRef.current = controller;
+        const generation = ++reverseGenerationRef.current;
+        setResolving(true);
+        void apiReverseGeocode(deviceLocation.lat, deviceLocation.lng, { signal: controller.signal })
+          .then((resolved) => {
+            if (generation !== reverseGenerationRef.current) return;
+            const countryLabel = String(resolved.country || '').trim();
+            if (countryLabel) setPreviewCountry(countryLabel);
+            if (
+              typeof resolved.latitude === 'number' &&
+              typeof resolved.longitude === 'number' &&
+              Number.isFinite(resolved.latitude) &&
+              Number.isFinite(resolved.longitude)
+            ) {
+              map.setView(
+                { lat: resolved.latitude, lng: resolved.longitude },
+                COUNTRY_PREVIEW_ZOOM,
+                { animate: true },
+              );
+            }
+          })
+          .catch(() => {
+            /* keep coarse device center */
+          })
+          .finally(() => {
+            if (generation === reverseGenerationRef.current) {
+              setResolving(false);
+            }
+          });
+      }
+      return;
+    }
+
+    if (deviceLocation && resolvedDeviceMode === 'autofill') {
       if (markerRef.current) {
         markerRef.current.setLatLng(deviceLocation);
       } else {
@@ -284,7 +356,6 @@ export function LocationMapPicker({
       }
       map.setView(deviceLocation, Math.max(map.getZoom(), DEVICE_LOCATION_ZOOM), { animate: true });
 
-      // Reverse-geocode once so Add Lead gets the user's location as the default selection.
       if (!didApplyDeviceLocationRef.current && !disabled) {
         didApplyDeviceLocationRef.current = true;
         void handleMapClickRef.current(deviceLocation.lat, deviceLocation.lng);
@@ -302,7 +373,7 @@ export function LocationMapPicker({
     hasCoords,
     ready,
     deviceLocation,
-    useDeviceLocationAsDefault,
+    resolvedDeviceMode,
     disabled,
   ]);
 
@@ -319,11 +390,21 @@ export function LocationMapPicker({
       return (
         <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
           <Loader2 size={12} className="animate-spin" />
-          Detecting your location…
+          {resolvedDeviceMode === 'country-preview'
+            ? 'Centering map on your country…'
+            : 'Detecting your location…'}
         </span>
       );
     }
-    if (!hasCoords && deviceLocation) {
+    if (!hasCoords && deviceLocation && resolvedDeviceMode === 'country-preview') {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] text-sky-700">
+          <Navigation size={12} />
+          {previewCountry ? `Showing ${previewCountry}` : 'Centered on your country'}
+        </span>
+      );
+    }
+    if (!hasCoords && deviceLocation && resolvedDeviceMode === 'autofill') {
       return (
         <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600">
           <Navigation size={12} />

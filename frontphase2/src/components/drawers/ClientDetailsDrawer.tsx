@@ -14,6 +14,15 @@ import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
+import { LeadOccasionFields } from '../forms/LeadOccasionFields';
+import {
+  buildLeadOccasionContactOptions,
+  emptyLeadOccasionForm,
+  isLeadOccasionDetailLabel,
+  mergeOccasionIntoOtherDetails,
+  readLeadOccasionFromOtherDetails,
+  type LeadOccasionFormValues,
+} from '../../lib/leadOccasionDetails';
 import {
   isTeamMemberDetailLabel,
   mergeTeamMemberIntoOtherDetails,
@@ -41,6 +50,8 @@ import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
 import { type LocationSelection } from '../LocationAutocomplete';
 import { CscLocationFields } from '../location/CscLocationFields';
+import { LeadLocationFields } from '../location/LeadLocationFields';
+import { AddLeadFieldLabel } from './drawerFormUi';
 import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsField';
 import { AgreementDocumentUpload } from '../documents/AgreementDocumentUpload';
 import { AgreementTermsSection } from '../agreements/AgreementTermsSection';
@@ -138,6 +149,8 @@ import {
   Plus,
   Bell,
   MessageSquare,
+  Megaphone,
+  Gift,
 } from 'lucide-react';
 import type { Client, ClientStage, ClientHealthStatus, ClientContact, ClientJob, JobStatus, ClientPipelineCandidate, PipelineStageName, ClientPlacement, PlacementStatus, ClientInvoice, InvoiceStatus, ClientActivityItem, ActivityFilterType, ClientNote, NoteTag, ClientFile, ClientFileType } from '@/app/client/types';
 import { EntityAuditSummary } from '../table/TableAuditCell';
@@ -394,7 +407,12 @@ function filterImportedDynamicOtherDetails(
 ): Array<{ label: string; value: string }> {
   if (!Array.isArray(details)) return [];
   return details
-    .filter((item) => !isTeamMemberDetailLabel(item?.label) && !isDirectorDetailLabel(item?.label))
+    .filter(
+      (item) =>
+        !isTeamMemberDetailLabel(item?.label) &&
+        !isDirectorDetailLabel(item?.label) &&
+        !isLeadOccasionDetailLabel(item?.label),
+    )
     .map((item) => ({
       label: String(item.label ?? '').trim(),
       value: String(item.value ?? ''),
@@ -558,6 +576,18 @@ type ClientOverviewForm = {
   /** Custom / Excel-imported rows only (team-member rows are stripped and rebuilt on save). */
   dynamicOtherDetails: Array<{ label: string; value: string }>;
   postServiceKycForm: PostServiceKycFormValues;
+  emailNotAvailable?: boolean;
+  phoneNotAvailable?: boolean;
+  /** Same event rows as Add Lead → Other (stored in otherDetails). */
+  occasions: LeadOccasionFormValues;
+};
+
+const DEFAULT_ADD_CLIENT_SECTIONS = {
+  company: true,
+  location: true,
+  contacts: true,
+  qualification: true,
+  other: true,
 };
 
 const CLIENT_TEAM_MEMBER_TAG = 'TEAM_MEMBER';
@@ -899,6 +929,8 @@ const FILE_TYPE_BADGE_STYLES: Record<ClientFileType, string> = {
 interface ClientDetailsDrawerProps {
   client: Client | null;
   isAddMode?: boolean;
+  /** When true and in add mode, opens the docked AI assistant on mount (from Clients page toggle). */
+  initialOpenAiChat?: boolean;
   initialMode?: 'view' | 'edit';
   onClose: () => void;
   onAddJob?: (clientId: string) => void;
@@ -932,6 +964,7 @@ interface ClientDetailsDrawerProps {
 export function ClientDetailsDrawer({
   client,
   isAddMode: propIsAddMode = false,
+  initialOpenAiChat = false,
   initialMode = 'view',
   onClose,
   onAddJob,
@@ -945,7 +978,7 @@ export function ClientDetailsDrawer({
   stackClassName = 'z-50',
 }: ClientDetailsDrawerProps) {
   const drawerIsOpen = Boolean(client) || propIsAddMode;
-  const clientAiGate = useAiCoinGate('ai.client_details');
+  const clientAiGate = useAiCoinGate('ai.client_chat');
   const isHqOverrideMode = Boolean(createClientOverride || updateClientOverride);
   usePageDrawerLifecycle(drawerIsOpen);
   const [clientPanelPortalReady, setClientPanelPortalReady] = useState(false);
@@ -1065,6 +1098,7 @@ export function ClientDetailsDrawer({
 
   const DEFAULT_CLIENT_OVERVIEW_SECTIONS: Record<string, boolean> = {
     leadInformation: true,
+    other: true,
     agreementsTerms: false,
     kycForm: false,
     companySnapshot: false,
@@ -1104,6 +1138,10 @@ export function ClientDetailsDrawer({
     },
   ];
   const [addClientTab, setAddClientTab] = useState<AddClientTab>('details');
+  const [addClientSectionsOpen, setAddClientSectionsOpen] = useState(DEFAULT_ADD_CLIENT_SECTIONS);
+  const toggleAddClientSection = (key: keyof typeof DEFAULT_ADD_CLIENT_SECTIONS) => {
+    setAddClientSectionsOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   useEffect(() => {
     if (!client && !isAddMode) return;
@@ -1161,6 +1199,9 @@ export function ClientDetailsDrawer({
     teamMembers: normalizeTeamMemberList(),
     dynamicOtherDetails: [],
     postServiceKycForm: emptyPostServiceKycForm(),
+    emailNotAvailable: false,
+    phoneNotAvailable: false,
+    occasions: emptyLeadOccasionForm(),
   });
   const [clientLeadStatusCatalog, setClientLeadStatusCatalog] = useState<string[]>([...DEFAULT_CLIENT_STATUS_LABELS]);
   const [showAddClientLeadStatusInput, setShowAddClientLeadStatusInput] = useState(false);
@@ -1208,9 +1249,11 @@ export function ClientDetailsDrawer({
     const missing: ClientAiRequiredField[] = [];
     if (!form.companyName?.trim()) missing.push('companyName');
     if (!form.directorName?.trim()) missing.push('directorName');
-    const email = primaryContactValue(normalizeContactList(form.contactEmails, form.contactEmail));
+    const email = form.emailNotAvailable
+      ? ''
+      : primaryContactValue(normalizeContactList(form.contactEmails, form.contactEmail));
     if (!email) {
-      missing.push('email');
+      if (!form.emailNotAvailable) missing.push('email');
     } else if (!validateClientAiEmail(email).valid) {
       missing.push('email');
     }
@@ -1370,9 +1413,17 @@ export function ClientDetailsDrawer({
         enriched as NonNullable<Awaited<ReturnType<typeof apiGenerateClientDetails>>['data']>,
       );
       patchOverviewWithAutoTimezone(nextFormState, { forceTimezone: true });
+      setAddClientSectionsOpen({
+        company: true,
+        location: true,
+        contacts: true,
+        qualification: true,
+        other: true,
+      });
       setOverviewOpen((prev) => ({
         ...prev,
         leadInformation: true,
+        other: true,
         agreementsTerms: clientAiHasAgreementData(enriched) || prev.agreementsTerms,
         kycForm: clientAiHasKycData(enriched) || prev.kycForm,
       }));
@@ -2447,6 +2498,9 @@ export function ClientDetailsDrawer({
       dynamicOtherDetails: filterImportedDynamicOtherDetails(
         (fetchedClient as BackendClient | undefined)?.otherDetails ?? client.otherDetails ?? null,
       ),
+      occasions: readLeadOccasionFromOtherDetails(
+        (fetchedClient as BackendClient | undefined)?.otherDetails ?? client.otherDetails ?? null,
+      ),
     });
     resetClientLogoDraft();
     setPendingAgreementsFile(null);
@@ -2553,15 +2607,18 @@ export function ClientDetailsDrawer({
           ...teamMemberPayloadFromForm(
             primaryTeamMemberFromList(overviewEditForm.teamMembers),
           ),
-          otherDetails: mergeDirectorIntoOtherDetails(
-            mergeTeamMemberIntoOtherDetails(
-              curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
-              overviewEditForm.teamMembers,
+          otherDetails: mergeOccasionIntoOtherDetails(
+            mergeDirectorIntoOtherDetails(
+              mergeTeamMemberIntoOtherDetails(
+                curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
+                overviewEditForm.teamMembers,
+              ),
+              {
+                directorSalutation: overviewEditForm.directorSalutation,
+                directorName: overviewEditForm.directorName,
+              },
             ),
-            {
-              directorSalutation: overviewEditForm.directorSalutation,
-              directorName: overviewEditForm.directorName,
-            },
+            overviewEditForm.occasions || emptyLeadOccasionForm(),
           ),
           email: contactChannels.email,
           phone: contactChannels.phone,
@@ -2802,15 +2859,18 @@ export function ClientDetailsDrawer({
             primaryTeamMemberFromList(overviewEditForm.teamMembers),
           ),
         );
-        updateData.otherDetails = mergeDirectorIntoOtherDetails(
-          mergeTeamMemberIntoOtherDetails(
-            curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
-            overviewEditForm.teamMembers,
+        updateData.otherDetails = mergeOccasionIntoOtherDetails(
+          mergeDirectorIntoOtherDetails(
+            mergeTeamMemberIntoOtherDetails(
+              curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
+              overviewEditForm.teamMembers,
+            ),
+            {
+              directorSalutation: overviewEditForm.directorSalutation,
+              directorName: overviewEditForm.directorName,
+            },
           ),
-          {
-            directorSalutation: overviewEditForm.directorSalutation,
-            directorName: overviewEditForm.directorName,
-          },
+          overviewEditForm.occasions || emptyLeadOccasionForm(),
         );
 
         // Agreements & Terms — upload the new file (if any) before patching the client so the
@@ -3718,9 +3778,18 @@ export function ClientDetailsDrawer({
         ...syncClientTeamMembers(),
         postServiceKycForm: emptyPostServiceKycForm(),
         dynamicOtherDetails: [],
+        emailNotAvailable: false,
+        phoneNotAvailable: false,
+        occasions: emptyLeadOccasionForm(),
       }));
       resetClientLogoDraft();
-      resetClientAiAssistant();
+      setAddClientSectionsOpen(DEFAULT_ADD_CLIENT_SECTIONS);
+      if (initialOpenAiChat) {
+        setClientAiChatHistory([]);
+        setClientAiChatOpen(true);
+      } else {
+        resetClientAiAssistant();
+      }
       setPendingAgreementsFile(null);
       setPendingKycFiles([]);
       setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
@@ -3734,8 +3803,9 @@ export function ClientDetailsDrawer({
       // Normal view mode should not inherit edit mode from a prior add flow
       setOverviewEditMode(false);
       resetClientLogoDraft();
+      resetClientAiAssistant();
     }
-  }, [isAddMode, client?.id]);
+  }, [isAddMode, client?.id, initialOpenAiChat, resetClientAiAssistant]);
 
   useEffect(() => {
     if (isAddMode || !client?.id) return;
@@ -3826,12 +3896,38 @@ export function ClientDetailsDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => void requestClientDrawerClose()}
-            className={`fixed inset-0 ${stackClassName} bg-slate-900/45 backdrop-blur-[2px] pointer-events-auto`}
+            className={`fixed inset-0 ${isAddMode && clientAiChatOpen ? 'z-[500]' : stackClassName} bg-slate-900/45 backdrop-blur-[2px] pointer-events-auto`}
             data-drawer-skip-dirty="true"
           />
           <div
-            className={`pointer-events-none fixed inset-0 ${stackClassName} flex items-center justify-center p-4 sm:p-6`}
+            className={
+              isAddMode && clientAiChatOpen
+                ? 'pointer-events-none fixed inset-0 z-[501] flex flex-row items-center justify-center gap-3 overflow-x-auto overflow-y-hidden p-3 sm:gap-4 sm:p-6'
+                : `pointer-events-none fixed inset-0 ${stackClassName} flex flex-col items-center justify-center gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-6`
+            }
           >
+            {isAddMode && clientAiChatOpen ? (
+              <ClientAiChatDrawer
+                docked
+                isOpen={clientAiChatOpen}
+                onClose={() => setClientAiChatOpen(false)}
+                form={overviewEditForm as unknown as Record<string, unknown>}
+                onApplyGenerated={handleApplyClientAiGenerated}
+                onExpandSections={() => {
+                  setAddClientSectionsOpen({
+                    company: true,
+                    location: true,
+                    contacts: true,
+                    qualification: true,
+                    other: true,
+                  });
+                }}
+                chatHistory={clientAiChatHistory}
+                onChatHistoryChange={setClientAiChatHistory}
+                onCreateClient={() => void saveOverviewEdit()}
+                createDisabled={isCreateClientDisabled || uploadingAgreements || uploadingKyc}
+              />
+            ) : null}
             <motion.div
               key="panel"
               ref={clientDrawerPanelRef}
@@ -3843,7 +3939,9 @@ export function ClientDetailsDrawer({
               role="dialog"
               aria-modal="true"
               aria-labelledby="client-detail-modal-title"
-              className="pointer-events-auto relative flex h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5"
+              className={`pointer-events-auto relative flex h-[min(92vh,920px)] w-full ${
+                isAddMode && clientAiChatOpen ? 'max-w-4xl' : 'max-w-6xl'
+              } flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5`}
             >
             {/* Sticky Header */}
             <div className="shrink-0 bg-white border-b border-slate-200">
@@ -3910,22 +4008,26 @@ export function ClientDetailsDrawer({
                             clientAiGate.confirmAndUnlock();
                             return;
                           }
-                          setClientAiChatOpen(true);
+                          setClientAiChatOpen((open) => !open);
                         }}
                         className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${
                           clientAiGate.locked
                             ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                            : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                            : clientAiChatOpen
+                              ? 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100'
+                              : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
                         }`}
                         title={
                           clientAiGate.locked
                             ? `Locked — needs ${clientAiGate.cost} coins`
-                            : `Open AI assistant (${clientAiGate.cost}+ coins per action)`
+                            : clientAiChatOpen
+                              ? 'Hide AI assistant'
+                              : `Open AI assistant beside the form (${clientAiGate.cost} coins per chat message)`
                         }
                       >
                         {clientAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} />}
                         Create with AI
-                        <AiCoinLockBadge featureId="ai.client_details" />
+                        <AiCoinLockBadge featureId="ai.client_chat" />
                       </button>
                       <button
                         type="button"
@@ -4058,37 +4160,6 @@ export function ClientDetailsDrawer({
               <div className="p-5">
                 {isAddMode ? (
                   <div className="space-y-5">
-                    <div className="flex flex-col gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/90 to-indigo-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">Create faster with AI</p>
-                        <p className="mt-0.5 text-xs text-slate-600">
-                          Chat or paste notes — the form fills as you go. Close the assistant anytime; your conversation continues.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (clientAiGate.locked) {
-                            clientAiGate.confirmAndUnlock();
-                            return;
-                          }
-                          setClientAiChatOpen(true);
-                        }}
-                        className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors ${
-                          clientAiGate.locked ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
-                        }`}
-                        title={
-                          clientAiGate.locked
-                            ? `Locked — needs ${clientAiGate.cost} coins`
-                            : `Open AI assistant (${clientAiGate.cost}+ coins per action)`
-                        }
-                      >
-                        {clientAiGate.locked ? <Lock size={16} /> : <Sparkles size={16} />}
-                        {clientAiChatOpen ? 'Continue AI chat' : 'Open AI assistant'}
-                        <AiCoinLockBadge featureId="ai.client_details" />
-                      </button>
-                    </div>
-
                     <div className="rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
                       <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
                         {ADD_CLIENT_TABS.map((tab) => {
@@ -4127,13 +4198,15 @@ export function ClientDetailsDrawer({
                     </div>
 
                     {addClientTab === 'details' ? (
+                    <div className="space-y-5">
                     <DrawerSectionCard
-                      title="Client Information"
-                      subtitle="Company profile, contacts, and qualification"
+                      title="Company Details"
+                      subtitle="Organization name, logo, and online presence"
                       icon={Building2}
                       accent="blue"
-                      collapsible={false}
-                      open
+                      collapsible
+                      open={addClientSectionsOpen.company}
+                      onOpenChange={() => toggleAddClientSection('company')}
                     >
                               {/* Company Logo uploader — kept on Add Client even though Add Lead doesn't have one,
                                   so the client gets a logo immediately during onboarding. */}
@@ -4244,83 +4317,155 @@ export function ClientDetailsDrawer({
                                     ))}
                                   </div>
                                 </div>
-                                <div className="sm:col-span-2">
-                                  <DirectorContactFields
-                                    directorSalutation={overviewEditForm.directorSalutation}
-                                    contactPerson={overviewEditForm.directorName}
-                                    emails={overviewEditForm.contactEmails}
-                                    phones={overviewEditForm.contactPhones}
-                                    email={overviewEditForm.contactEmail}
-                                    phone={overviewEditForm.contactPhone}
-                                    countryCode={overviewEditForm.countryCode}
-                                    countryName={overviewEditForm.country}
-                                    onDirectorSalutationChange={(value) =>
-                                      setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
-                                    }
-                                    onContactPersonChange={(value) =>
-                                      setOverviewEditForm((p) => ({ ...p, directorName: value }))
-                                    }
-                                    onEmailsChange={(contactEmails, primaryEmail) => {
-                                      setOverviewEditForm((p) => ({ ...p, contactEmails, contactEmail: primaryEmail }));
-                                    }}
-                                    onPhonesChange={(contactPhones, primaryPhone) => {
-                                      setOverviewEditForm((p) => ({ ...p, contactPhones, contactPhone: primaryPhone }));
-                                    }}
-                                  />
-                                </div>
-                                <div className="sm:col-span-2">
-                                  <TeamMemberOptionalFields
-                                    requireTeamName={false}
-                                    countryCode={overviewEditForm.countryCode}
-                                    countryName={overviewEditForm.country}
-                                    members={overviewEditForm.teamMembers}
-                                    onChange={(teamMembers) =>
-                                      setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))
-                                    }
-                                  />
-                                </div>
-                                <CscLocationFields
-                                  location={overviewEditForm.location ?? ''}
-                                  city={overviewEditForm.city}
-                                  state={overviewEditForm.state}
-                                  country={overviewEditForm.country}
-                                  countryCode={overviewEditForm.countryCode}
-                                  latitude={overviewEditForm.latitude}
-                                  longitude={overviewEditForm.longitude}
-                                  showDetectedHint={false}
-                                  onLocationChange={(next) =>
-                                    setOverviewEditForm((p) => ({ ...p, location: next }))
-                                  }
-                                  onSelect={(s: LocationSelection) => {
-                                    timezoneManuallyEditedRef.current = false;
-                                    setOverviewEditForm((p) => mergeClientLocationSelection(p, s));
-                                  }}
-                                />
-                                <div>
-                                  <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                    <Clock size={12} className="text-slate-400" />
-                                    Timezone
-                                  </label>
-                                  <ClientTimezoneSelect
-                                    value={overviewEditForm.timezone}
-                                    onManualChange={() => {
-                                      timezoneManuallyEditedRef.current = true;
-                                    }}
-                                    onChange={(timezone) =>
-                                      setOverviewEditForm((p) => ({ ...p, timezone }))
-                                    }
-                                    placeholder="Select timezone…"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                                  <IndustryMultiSelect
-                                    value={overviewEditForm.industry ?? ''}
-                                    onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
-                                    companyName={overviewEditForm.companyName}
-                                    placeholder="Type an industry (e.g. technology, healthcare)"
-                                  />
-                                </div>
+                              </div>
+                    </DrawerSectionCard>
+
+                    <DrawerSectionCard
+                      title="Location & Industry"
+                      subtitle="Where the company operates"
+                      icon={MapPin}
+                      accent="emerald"
+                      collapsible
+                      open={addClientSectionsOpen.location}
+                      onOpenChange={() => toggleAddClientSection('location')}
+                    >
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                          <LeadLocationFields
+                            location={overviewEditForm.location ?? ''}
+                            city={overviewEditForm.city}
+                            state={overviewEditForm.state}
+                            country={overviewEditForm.country}
+                            countryCode={overviewEditForm.countryCode}
+                            latitude={overviewEditForm.latitude}
+                            longitude={overviewEditForm.longitude}
+                            showDetectedHint={false}
+                            deviceLocationMode="country-preview"
+                            onLocationChange={(next) =>
+                              setOverviewEditForm((p) => ({ ...p, location: next }))
+                            }
+                            onSelect={(s: LocationSelection) => {
+                              timezoneManuallyEditedRef.current = false;
+                              setOverviewEditForm((p) => mergeClientLocationSelection(p, s));
+                            }}
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <AddLeadFieldLabel label="Industry" icon={Briefcase} iconClassName="text-emerald-500" />
+                          <IndustryMultiSelect
+                            value={overviewEditForm.industry ?? ''}
+                            onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
+                            companyName={overviewEditForm.companyName}
+                            placeholder="Type an industry (e.g. technology, healthcare)"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            Select one or more industries. Press Enter to add a custom industry.
+                          </p>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                            <Clock size={12} className="text-slate-400" />
+                            Timezone
+                          </label>
+                          <ClientTimezoneSelect
+                            value={overviewEditForm.timezone}
+                            onManualChange={() => {
+                              timezoneManuallyEditedRef.current = true;
+                            }}
+                            onChange={(timezone) =>
+                              setOverviewEditForm((p) => ({ ...p, timezone }))
+                            }
+                            placeholder="Select timezone…"
+                          />
+                        </div>
+                      </div>
+                    </DrawerSectionCard>
+
+                    <DrawerSectionCard
+                      title="Contacts"
+                      subtitle="Director and team member details"
+                      icon={Users}
+                      accent="violet"
+                      collapsible
+                      open={addClientSectionsOpen.contacts}
+                      onOpenChange={() => toggleAddClientSection('contacts')}
+                    >
+                      <div className="space-y-4">
+                        <div className="rounded-xl border border-violet-100/80 bg-violet-50/30 p-3">
+                          <DirectorContactFields
+                            directorSalutation={overviewEditForm.directorSalutation}
+                            contactPerson={overviewEditForm.directorName}
+                            emails={overviewEditForm.contactEmails}
+                            phones={overviewEditForm.contactPhones}
+                            email={overviewEditForm.contactEmail}
+                            phone={overviewEditForm.contactPhone}
+                            countryCode={overviewEditForm.countryCode}
+                            countryName={overviewEditForm.country}
+                            allowNotAvailable
+                            emailNotAvailable={Boolean(overviewEditForm.emailNotAvailable)}
+                            phoneNotAvailable={Boolean(overviewEditForm.phoneNotAvailable)}
+                            onEmailNotAvailableChange={(emailNotAvailable) => {
+                              setOverviewEditForm((p) => ({
+                                ...p,
+                                emailNotAvailable,
+                                ...(emailNotAvailable ? { contactEmails: [''], contactEmail: '' } : {}),
+                              }));
+                            }}
+                            onPhoneNotAvailableChange={(phoneNotAvailable) => {
+                              setOverviewEditForm((p) => ({
+                                ...p,
+                                phoneNotAvailable,
+                                ...(phoneNotAvailable ? { contactPhones: [''], contactPhone: '' } : {}),
+                              }));
+                            }}
+                            onDirectorSalutationChange={(value) =>
+                              setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
+                            }
+                            onContactPersonChange={(value) =>
+                              setOverviewEditForm((p) => ({ ...p, directorName: value }))
+                            }
+                            onEmailsChange={(contactEmails, primaryEmail) => {
+                              setOverviewEditForm((p) => ({
+                                ...p,
+                                contactEmails,
+                                contactEmail: primaryEmail,
+                                emailNotAvailable: primaryEmail.trim() ? false : p.emailNotAvailable,
+                              }));
+                            }}
+                            onPhonesChange={(contactPhones, primaryPhone) => {
+                              setOverviewEditForm((p) => ({
+                                ...p,
+                                contactPhones,
+                                contactPhone: primaryPhone,
+                                phoneNotAvailable: primaryPhone.trim() ? false : p.phoneNotAvailable,
+                              }));
+                            }}
+                          />
+                        </div>
+                        <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3">
+                          <TeamMemberOptionalFields
+                            requireTeamName={false}
+                            countryCode={overviewEditForm.countryCode}
+                            countryName={overviewEditForm.country}
+                            members={overviewEditForm.teamMembers}
+                            onChange={(teamMembers) =>
+                              setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))
+                            }
+                          />
+                        </div>
+                      </div>
+                    </DrawerSectionCard>
+
+                    <DrawerSectionCard
+                      title="Qualification & Services"
+                      subtitle="Status, assignment, and business details"
+                      icon={Megaphone}
+                      accent="amber"
+                      collapsible
+                      open={addClientSectionsOpen.qualification}
+                      onOpenChange={() => toggleAddClientSection('qualification')}
+                    >
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                 {clientFieldVisibility.status ? (
                                   <div>
                                     <div className="mb-1 flex items-center justify-between gap-3">
@@ -4480,7 +4625,6 @@ export function ClientDetailsDrawer({
                                     />
                                   </div>
                                 ) : null}
-                              </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Services Needed</label>
                                 <ServicesNeededSelect
@@ -4570,7 +4714,32 @@ export function ClientDetailsDrawer({
                                   </div>
                                 )}
                               </div>
+                              </div>
                     </DrawerSectionCard>
+
+                    <DrawerSectionCard
+                      title="Other"
+                      subtitle="Add events with name, date, reminder, and email"
+                      icon={Gift}
+                      accent="indigo"
+                      collapsible
+                      open={addClientSectionsOpen.other}
+                      onOpenChange={() => toggleAddClientSection('other')}
+                    >
+                      <LeadOccasionFields
+                        value={overviewEditForm.occasions || emptyLeadOccasionForm()}
+                        contacts={buildLeadOccasionContactOptions({
+                          directorName: overviewEditForm.directorName,
+                          directorEmail: overviewEditForm.contactEmail,
+                          directorEmails: overviewEditForm.contactEmails,
+                          teamMembers: overviewEditForm.teamMembers,
+                        })}
+                        onChange={(occasions) =>
+                          setOverviewEditForm((p) => ({ ...p, occasions }))
+                        }
+                      />
+                    </DrawerSectionCard>
+                    </div>
                     ) : null}
 
                     {addClientTab === 'agreements' ? (
@@ -5160,6 +5329,50 @@ export function ClientDetailsDrawer({
                             </div>
                           </DrawerSectionCard>
 
+                          {(() => {
+                            const occasions = readLeadOccasionFromOtherDetails(
+                              fullClientData?.otherDetails || client?.otherDetails,
+                            );
+                            const events = occasions.events || [];
+                            if (events.length === 0) return null;
+                            return (
+                              <DrawerSectionCard
+                                title="Other"
+                                subtitle="Events with name, date, reminder, and email"
+                                icon={Gift}
+                                accent="indigo"
+                                collapsible
+                                open={overviewOpen.other !== false}
+                                onOpenChange={() => toggleOverviewSection('other')}
+                              >
+                                <div className="space-y-2">
+                                  {events.map((event, index) => (
+                                    <div
+                                      key={event.id || `client-event-view-${index}`}
+                                      className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
+                                    >
+                                      <p className="font-semibold text-slate-900">
+                                        {event.eventName?.trim() || `Event ${index + 1}`}
+                                      </p>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        {[
+                                          event.date?.trim(),
+                                          event.reminder?.trim() && event.reminder !== 'No reminder'
+                                            ? event.reminder
+                                            : null,
+                                          event.name?.trim(),
+                                          event.email?.trim(),
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' · ') || 'No details'}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </DrawerSectionCard>
+                            );
+                          })()}
+
                           <DrawerSectionCard
                             title="Agreements & Terms"
                             subtitle="Contract terms and agreement documents"
@@ -5666,8 +5879,31 @@ export function ClientDetailsDrawer({
                                   </div>
                                 )}
                               </div>
+                              </div>
                             </div>
-                            </div>
+                          </DrawerSectionCard>
+
+                          <DrawerSectionCard
+                            title="Other"
+                            subtitle="Add events with name, date, reminder, and email"
+                            icon={Gift}
+                            accent="indigo"
+                            collapsible
+                            open={overviewOpen.other !== false}
+                            onOpenChange={() => toggleOverviewSection('other')}
+                          >
+                            <LeadOccasionFields
+                              value={overviewEditForm.occasions || emptyLeadOccasionForm()}
+                              contacts={buildLeadOccasionContactOptions({
+                                directorName: overviewEditForm.directorName,
+                                directorEmail: overviewEditForm.contactEmail,
+                                directorEmails: overviewEditForm.contactEmails,
+                                teamMembers: overviewEditForm.teamMembers,
+                              })}
+                              onChange={(occasions) =>
+                                setOverviewEditForm((p) => ({ ...p, occasions }))
+                              }
+                            />
                           </DrawerSectionCard>
 
                           <DrawerSectionCard
@@ -7515,21 +7751,6 @@ export function ClientDetailsDrawer({
       {drawerIsOpen && clientPanelPortalReady && typeof document !== 'undefined'
         ? createPortal(drawerTree, document.body)
         : drawerTree}
-    {isAddMode ? (
-      <ClientAiChatDrawer
-        isOpen={clientAiChatOpen}
-        onClose={() => setClientAiChatOpen(false)}
-        form={overviewEditForm as unknown as Record<string, unknown>}
-        onApplyGenerated={handleApplyClientAiGenerated}
-        onExpandSections={() => {
-          /* Sections open in handleApplyClientAiGenerated based on extracted data */
-        }}
-        chatHistory={clientAiChatHistory}
-        onChatHistoryChange={setClientAiChatHistory}
-        onCreateClient={() => void saveOverviewEdit()}
-        createDisabled={isCreateClientDisabled || uploadingAgreements || uploadingKyc}
-      />
-    ) : null}
     <CreateJobDrawer
       isOpen={createJobDrawerOpen}
       onClose={() => {

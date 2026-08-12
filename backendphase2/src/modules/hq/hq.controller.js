@@ -496,13 +496,15 @@ export const hqController = {
     try {
       const tenantDbName = String(req.params.tenantDbName || req.query.tenantDbName || '').trim();
       if (!tenantDbName) return sendError(res, 400, 'tenantDbName is required');
+      const rangeRaw = String(req.query.range || 'week').trim().toLowerCase();
+      const range = ['today', 'week', 'month', 'year'].includes(rangeRaw) ? rangeRaw : 'week';
 
       const tenants = await hqService.listTenants(req.user);
       const tenant = (tenants?.tenants || []).find(
         (t) => String(t.tenantDbName || '').trim() === tenantDbName,
       );
 
-      const result = await hqService.getTenantBehavior(req.user, tenantDbName, tenant || {});
+      const result = await hqService.getTenantBehavior(req.user, tenantDbName, tenant || {}, range);
       sendResponse(res, 200, 'OK', result);
     } catch (error) {
       if (error?.code === 'VALIDATION') return sendError(res, 400, error.message);

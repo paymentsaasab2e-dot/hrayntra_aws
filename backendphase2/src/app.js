@@ -76,6 +76,7 @@ import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
 import notificationRoutes from './modules/notification/notification.routes.js';
 import preScreenAssessmentRoutes from './modules/pre-screen-assessment/assessment.routes.js';
+import publicLandingRoutes from './modules/public/public.routes.js';
 
 const app = express();
 
@@ -220,6 +221,7 @@ app.use('/api/v1/internal', portalSyncRoutes);
 app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
 app.use('/api/v1/public/uploads', publicUploadsRoutes);
 app.use('/api/v1/resume-preview', resumePreviewRoutes);
+app.use('/api/v1/public', publicLandingRoutes);
 app.use('/api/v1/auth', authRoutes);
 // HQ routes include a public pricing endpoint and must be mounted before
 // router-level auth middlewares mounted on generic /api/v1 routers.

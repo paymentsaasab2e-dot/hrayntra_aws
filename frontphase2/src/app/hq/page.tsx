@@ -11,6 +11,8 @@ import {
   Hash,
   RefreshCcw,
   Plus,
+  Eye,
+  Trash2,
 } from 'lucide-react';
 import {
   buildApiUrl,
@@ -25,19 +27,30 @@ import {
   type HqAnalyticsPayload,
 } from '../../lib/api';
 import { HqPackagesPanel } from '../../components/hq/HqPackagesPanel';
-import { HqTenantBehaviorDrawer } from '../../components/hq/HqTenantBehaviorDrawer';
-import { EditTenantModulesModal } from '../../components/hq/EditTenantModulesModal';
+import {
+  DeleteTenantConfirmModal,
+  type DeleteTenantTarget,
+} from '../../components/hq/DeleteTenantConfirmModal';
+import { HqTenantDetailDrawer } from '../../components/hq/HqTenantDetailDrawer';
 import {
   CreateTenantModal,
   emptyProvisionTenantForm,
   type ProvisionTenantFormData,
 } from '../../components/hq/CreateTenantModal';
-import { getPackageOptionLabel, getPlanLabel, formatBillingCycleLabel, type BillingCycle } from '../../components/hq/hqPackagePresentation';
+import {
+  getPackageOptionLabel,
+  getPlanLabel,
+  formatBillingCycleLabel,
+  subscriptionPackagesWithPricing,
+  findPackageForPlan,
+  getPackagePresentation,
+  getDisplayedPrice,
+  type BillingCycle,
+} from '../../components/hq/hqPackagePresentation';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import type { HqNavTab } from '../../components/hq/HqSidebar';
 import { HQ_NAV_ITEMS } from '../../components/hq/HqSidebar';
 import {
-  HQ_SELECT_CLASS,
   HqAlert,
   HqFieldText,
   HqPageContainer,
@@ -56,10 +69,6 @@ import {
 import { HqPhase1CommandDashboard } from '../../components/hq/analytics/HqPhase1CommandDashboard';
 import { HqPhase2CommandDashboard } from '../../components/hq/analytics/HqPhase2CommandDashboard';
 import { HqAnalyticsLoadingSkeleton } from '../../components/hq/analytics/HqAnalyticsLoadingSkeleton';
-import {
-  AssignCoinsModal,
-  TenantCoinsCell,
-} from '../../components/hq/HqAiCoinsPanel';
 
 interface HqStats {
   total: number;
@@ -173,6 +182,20 @@ function tenantPlanId(tenant: HqTenantRow, packages: HqSubscriptionPackage[]) {
   return match?.id || '';
 }
 
+function formatTenantPrice(tenant: HqTenantRow, packages: HqSubscriptionPackage[]) {
+  const pkg =
+    findPackageForPlan(tenant.subscriptionPlan, packages) ||
+    packages.find((p) => p.id === tenantPlanId(tenant, packages));
+  if (!pkg) return null;
+  const cycle = tenantBillingCycle(tenant);
+  const { amount, periodLabel } = getDisplayedPrice(getPackagePresentation(pkg), cycle);
+  const raw = String(amount || '').trim();
+  if (!raw || raw === '—') return null;
+  const withDollar = raw.startsWith('$') ? raw : `$${raw}`;
+  const shortPeriod = cycle === 'annual' ? '/mo yr' : '/mo';
+  return { price: withDollar, period: shortPeriod, periodLabel };
+}
+
 export default function HQSetupPageWrapper() {
   return (
     <Suspense
@@ -239,7 +262,7 @@ function HQSetupPage() {
       setTenants(d?.tenants || []);
       setStats(d?.stats || { total: 0, agency: 0, standalone: 0, planCounts: {} });
       const opts = d?.planOptions && d.planOptions.length > 0 ? d.planOptions : FALLBACK_PLAN_OPTIONS;
-      setPlanOptions(opts);
+      setPlanOptions(subscriptionPackagesWithPricing(opts));
     } catch (err: any) {
       // Tenants list requires a super admin session in the main app — fail soft.
       setTenantsError(err?.message || 'Sign in as super admin in the main app first to load tenants.');
@@ -448,12 +471,6 @@ function HQSetupPage() {
 
   const handleDeleteTenant = async (email: string, dbName: string) => {
     if (!email) return;
-    // Use a native confirm so this stays consistent with existing destructive
-    // flows in the HQ shell (it has no toast/modal infra of its own).
-    const proceed = window.confirm(
-      `Delete tenant ${email}?\n\nThis will:\n  • Remove the HQ workspace user record\n  • Drop the tenant database "${dbName || '(unknown)'}"\n  • Clear the directory mapping\n\nThis action cannot be undone.`
-    );
-    if (!proceed) return;
 
     setPendingDeleteEmail(email);
     setStatus({ type: 'idle', message: '' });
@@ -805,28 +822,50 @@ function TenantsPanel({
 }) {
   const landingPurchases = tenantStats?.landingPurchases ?? tenants.filter((t) => t.signupSource === 'landing_purchase').length;
   const landingTrials = tenantStats?.landingTrials ?? tenants.filter((t) => t.signupSource === 'landing_trial').length;
-  const [coinsTenant, setCoinsTenant] = useState<HqTenantRow | null>(null);
-  const [behaviorTenant, setBehaviorTenant] = useState<HqTenantRow | null>(null);
-  const [modulesTenant, setModulesTenant] = useState<HqTenantRow | null>(null);
+  const [detailTenant, setDetailTenant] = useState<HqTenantRow | null>(null);
+  const [deleteTenant, setDeleteTenant] = useState<DeleteTenantTarget | null>(null);
 
-  const toggleBehavior = (tenant: HqTenantRow) => {
-    if (!tenant.tenantDbName) return;
-    setBehaviorTenant(tenant);
+  const openDetail = (tenant: HqTenantRow) => {
+    setDetailTenant(tenant);
   };
+
+  // Keep detail drawer in sync after list refresh (plan/coins/tabs/pause).
+  const detailEmail = detailTenant?.email;
+  useEffect(() => {
+    if (!detailEmail) return;
+    const next = tenants.find((t) => t.email === detailEmail);
+    if (next) setDetailTenant(next);
+  }, [tenants, detailEmail]);
 
   return (
     <HqPanel className="!p-0 overflow-hidden">
-      <AssignCoinsModal
-        open={Boolean(coinsTenant)}
-        tenant={coinsTenant}
-        onClose={() => setCoinsTenant(null)}
+      <HqTenantDetailDrawer
+        open={Boolean(detailTenant)}
+        tenant={detailTenant}
+        planOptions={planOptions}
+        pendingPlanEmail={pendingPlanEmail}
+        pendingPauseEmail={pendingPauseEmail}
+        onClose={() => setDetailTenant(null)}
         onSaved={onCoinsUpdated}
+        onAssignPlan={onAssignPlan}
+        onSetTenantPause={onSetTenantPause}
       />
-      <EditTenantModulesModal
-        open={Boolean(modulesTenant)}
-        tenant={modulesTenant}
-        onClose={() => setModulesTenant(null)}
-        onSaved={onCoinsUpdated}
+      <DeleteTenantConfirmModal
+        open={Boolean(deleteTenant)}
+        tenant={deleteTenant}
+        deleting={Boolean(deleteTenant && pendingDeleteEmail === deleteTenant.email)}
+        onClose={() => {
+          if (pendingDeleteEmail) return;
+          setDeleteTenant(null);
+        }}
+        onConfirm={() => {
+          if (!deleteTenant) return;
+          void (async () => {
+            await onDeleteTenant(deleteTenant.email, deleteTenant.dbName);
+            setDeleteTenant(null);
+            if (detailTenant?.email === deleteTenant.email) setDetailTenant(null);
+          })();
+        }}
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/80 px-5 py-4">
         <HqPanelTitle
@@ -858,6 +897,7 @@ function TenantsPanel({
                 <th>Product</th>
                 <th>DB</th>
                 <th>Plan</th>
+                <th>Price</th>
                 <th>AI coins</th>
                 <th>Limits</th>
                 <th>Billing</th>
@@ -871,9 +911,9 @@ function TenantsPanel({
               {tenants.map((t) => (
                 <tr
                   key={t.id}
-                  className={`border-b border-slate-100 last:border-b-0 transition-colors hover:bg-slate-50/60 ${t.tenantDbName ? 'cursor-pointer' : ''}`}
-                  onClick={() => t.tenantDbName && toggleBehavior(t)}
-                  title={t.tenantDbName ? 'Open behaviour analytics drawer' : undefined}
+                  className="border-b border-slate-100 last:border-b-0 transition-colors hover:bg-slate-50/60 cursor-pointer"
+                  onClick={() => openDetail(t)}
+                  title="Open tenant details"
                 >
                   <td className="py-3 pr-3">
                     <p className="font-semibold text-slate-900">{t.name}</p>
@@ -914,65 +954,43 @@ function TenantsPanel({
                         )}
                       </div>
                     ) : (
-                      <div className="space-y-0.5">
-                        <span className="text-xs text-slate-400">—</span>
-                        {Array.isArray(t.enabledModules) && t.enabledModules.length > 0 ? (
-                          <p className="text-[10px] text-slate-500">{t.enabledModules.length} tabs</p>
-                        ) : (
-                          <p className="text-[10px] text-slate-400">Use Tabs to configure</p>
-                        )}
-                      </div>
+                      <span className="text-xs text-slate-400">—</span>
                     )}
                   </td>
                   <td className="py-3 pr-3 font-mono text-xs text-slate-500">{t.tenantDbName || '—'}</td>
-                  <td className="py-3 pr-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="space-y-1">
-                      <select
-                        value={tenantPlanId(t, planOptions)}
-                        onChange={(e) => onAssignPlan(t.email, e.target.value, tenantBillingCycle(t))}
-                        disabled={pendingPlanEmail === t.email || t.isLandingSignupOnly}
-                        className={HQ_SELECT_CLASS}
-                      >
-                        <option value="">—</option>
-                        {planOptions.map((opt) => (
-                          <option key={opt.id} value={opt.id}>
-                            {getPackageOptionLabel(opt)}
-                          </option>
-                        ))}
-                      </select>
-                      {t.subscriptionPlan?.upgradedAt ? (
-                        <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
-                          {t.subscriptionPlan?.upgradedBy === 'hq' ? 'HQ updated' : 'Self-upgraded'}
-                        </span>
-                      ) : null}
-                      {t.subscriptionPlan?.upgradedFrom ? (
-                        <p className="text-[10px] text-slate-500">
-                          from {t.subscriptionPlan.upgradedFrom}
-                          {t.subscriptionPlan.upgradedAt
-                            ? ` · ${formatDateDMY(String(t.subscriptionPlan.upgradedAt).slice(0, 10))}`
-                            : ''}
-                        </p>
-                      ) : null}
-                    </div>
+                  <td className="py-3 pr-3 text-xs font-medium text-slate-700">
+                    {getPlanLabel(t.subscriptionPlan, planOptions) || '—'}
                   </td>
-                  <td className="py-3 pr-3" onClick={(e) => e.stopPropagation()}>
-                    <TenantCoinsCell tenant={t} onEdit={setCoinsTenant} />
+                  <td className="py-3 pr-3">
+                    {(() => {
+                      const priced = formatTenantPrice(t, planOptions);
+                      if (!priced) {
+                        return <span className="text-xs text-slate-400">—</span>;
+                      }
+                      return (
+                        <div className="leading-tight">
+                          <p className="text-sm font-semibold text-emerald-700">{priced.price}</p>
+                          <p className="text-[10px] text-slate-500">{priced.period}</p>
+                        </div>
+                      );
+                    })()}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        Number(t.subscriptionPlan?.coins ?? 0) > 0
+                          ? 'bg-amber-50 text-amber-800'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {Number(t.subscriptionPlan?.coins ?? 0)}
+                    </span>
                   </td>
                   <td className="py-3 pr-3 text-xs font-medium text-slate-600">{formatPlanLimits(t.subscriptionPlan)}</td>
-                  <td className="py-3 pr-3" onClick={(e) => e.stopPropagation()}>
-                    <select
-                      value={tenantBillingCycle(t)}
-                      onChange={(e) => {
-                        const planId = tenantPlanId(t, planOptions);
-                        if (!planId) return;
-                        onAssignPlan(t.email, planId, e.target.value as BillingCycle);
-                      }}
-                      disabled={pendingPlanEmail === t.email || !tenantPlanId(t, planOptions) || t.isLandingSignupOnly}
-                      className={HQ_SELECT_CLASS}
-                    >
-                      <option value="monthly">Monthly</option>
-                      <option value="annual">Annual</option>
-                    </select>
+                  <td className="py-3 pr-3 text-xs text-slate-600">
+                    {tenantPlanId(t, planOptions)
+                      ? formatBillingCycleLabel(tenantBillingCycle(t))
+                      : '—'}
                   </td>
                   <td className="py-3 pr-3 text-xs text-slate-600">
                     {formatDateDMY(t.subscriptionPlan?.planStartDate) || '—'}
@@ -992,59 +1010,33 @@ function TenantsPanel({
                     )}
                   </td>
                   <td className="py-3 pl-3 text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {t.tenantDbName ? (
+                    <div className="inline-flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openDetail(t)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100"
+                        title="View details"
+                        aria-label={`View ${t.name || t.email}`}
+                      >
+                        <Eye size={15} strokeWidth={2.25} />
+                      </button>
+                      {t.isLandingSignupOnly ? null : (
                         <button
                           type="button"
-                          onClick={() => toggleBehavior(t)}
-                          className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-700 transition hover:bg-sky-100"
+                          onClick={() =>
+                            setDeleteTenant({
+                              email: t.email,
+                              dbName: t.tenantDbName,
+                              name: t.name,
+                            })
+                          }
+                          disabled={pendingDeleteEmail === t.email}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                          title="Delete tenant"
+                          aria-label={`Delete ${t.name || t.email}`}
                         >
-                          Analytics
+                          <Trash2 size={15} strokeWidth={2.25} />
                         </button>
-                      ) : null}
-                      {t.isLandingSignupOnly ? (
-                        <span className="text-[10px] text-slate-400">View only</span>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setModulesTenant(t)}
-                            className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700 transition hover:bg-indigo-100"
-                            title="Enable or disable Phase 2 sidenav tabs for this tenant"
-                          >
-                            Tabs
-                          </button>
-                          {isTenantPaused(t) ? (
-                            <button
-                              type="button"
-                              onClick={() => onSetTenantPause(t.email, false)}
-                              disabled={pendingPauseEmail === t.email}
-                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
-                              title="Resume tenant operations in Phase 2"
-                            >
-                              {pendingPauseEmail === t.email ? '…' : 'Continue'}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => onSetTenantPause(t.email, true)}
-                              disabled={pendingPauseEmail === t.email}
-                              className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
-                              title="Pause tenant — users see a blocking notice in Phase 2"
-                            >
-                              {pendingPauseEmail === t.email ? '…' : 'Pause'}
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => onDeleteTenant(t.email, t.tenantDbName)}
-                            disabled={pendingDeleteEmail === t.email}
-                            className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
-                            title="Permanently delete this tenant and drop its database"
-                          >
-                            {pendingDeleteEmail === t.email ? 'Deleting…' : 'Delete'}
-                          </button>
-                        </>
                       )}
                     </div>
                   </td>
@@ -1054,9 +1046,6 @@ function TenantsPanel({
           </table>
         </div>
       )}
-      {behaviorTenant?.tenantDbName ? (
-        <HqTenantBehaviorDrawer tenant={behaviorTenant} onClose={() => setBehaviorTenant(null)} />
-      ) : null}
     </HqPanel>
   );
 }

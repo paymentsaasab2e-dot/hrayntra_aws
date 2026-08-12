@@ -16,7 +16,7 @@ function classNameOf(el: Element): string {
 }
 
 function isFloatingAssistant(el: HTMLElement): boolean {
-  if (el.dataset.floatingBot === 'true') return true;
+  if (el.dataset.floatingBot === 'true' || el.dataset.hryantraBrain === 'true') return true;
   const cls = classNameOf(el);
   if (cls.includes('z-[9998]') || cls.includes('z-[9999]')) return true;
   if (el.closest('[data-floating-bot="true"]')) return true;

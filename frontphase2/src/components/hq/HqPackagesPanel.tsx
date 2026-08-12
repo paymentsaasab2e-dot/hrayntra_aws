@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Pencil, Plus, RefreshCcw, Star, Trash2, Users, Briefcase, X, Coins } from 'lucide-react';
 import {
   apiHqCreatePackage,
@@ -365,8 +366,14 @@ export function HqPackagesPanel({
   onRefresh?: () => void;
   refreshing?: boolean;
 }) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const plansTabParam = searchParams.get('plansTab');
+  const initialSubTab: 'subscription' | 'ai' | 'packs' =
+    plansTabParam === 'ai' || plansTabParam === 'packs' ? plansTabParam : 'subscription';
   const [localPackages, setLocalPackages] = useState(packages);
-  const [subTab, setSubTab] = useState<'subscription' | 'ai' | 'packs'>('subscription');
+  const [subTab, setSubTab] = useState<'subscription' | 'ai' | 'packs'>(initialSubTab);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -379,6 +386,25 @@ export function HqPackagesPanel({
   useEffect(() => {
     setLocalPackages(packages);
   }, [packages]);
+
+  useEffect(() => {
+    const next =
+      plansTabParam === 'ai' || plansTabParam === 'packs' ? plansTabParam : 'subscription';
+    setSubTab(next);
+  }, [plansTabParam]);
+
+  const selectSubTab = (next: 'subscription' | 'ai' | 'packs') => {
+    setSubTab(next);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', 'plans');
+    if (next === 'subscription') {
+      params.delete('plansTab');
+    } else {
+      params.set('plansTab', next);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
 
   const loadPackages = useCallback(async () => {
     const res = await apiHqListPackages();
@@ -458,7 +484,7 @@ export function HqPackagesPanel({
       <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
         <button
           type="button"
-          onClick={() => setSubTab('subscription')}
+          onClick={() => selectSubTab('subscription')}
           className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
             subTab === 'subscription'
               ? 'bg-sky-600 text-white shadow-sm'
@@ -469,7 +495,7 @@ export function HqPackagesPanel({
         </button>
         <button
           type="button"
-          onClick={() => setSubTab('ai')}
+          onClick={() => selectSubTab('ai')}
           className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition ${
             subTab === 'ai' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
           }`}
@@ -479,7 +505,7 @@ export function HqPackagesPanel({
         </button>
         <button
           type="button"
-          onClick={() => setSubTab('packs')}
+          onClick={() => selectSubTab('packs')}
           className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition ${
             subTab === 'packs' ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
           }`}

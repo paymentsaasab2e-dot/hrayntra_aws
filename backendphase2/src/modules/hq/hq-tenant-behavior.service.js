@@ -80,8 +80,9 @@ function anonymizeFeed(feed = []) {
 
 /**
  * HQ view: aggregated tenant behaviour — no individual team member breakdown.
+ * @param {{ tenantDbName: string, tenantMeta?: object, range?: 'today'|'week'|'month'|'year' }} args
  */
-export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {} }) {
+export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {}, range = 'week' }) {
   const dbName = String(tenantDbName || '').trim();
   if (!dbName) {
     const err = new Error('tenantDbName is required');
@@ -89,22 +90,32 @@ export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {
     throw err;
   }
 
+  const normalizedRange = ['today', 'week', 'month', 'year'].includes(range) ? range : 'week';
+  const windowDays = normalizedRange === 'today' ? 1 : normalizedRange === 'month' ? 30 : normalizedRange === 'year' ? 365 : 7;
+
   return runWithTenantContext(dbName, async () => {
     const snapshots = await listTenantBehaviorSnapshots({ limit: 200 });
     const hasBehavior = snapshots.length > 0;
-    const live = hasBehavior ? await buildTenantLiveDashboard() : null;
+    const live = hasBehavior ? await buildTenantLiveDashboard(normalizedRange) : null;
     const sessionFallback = !hasBehavior ? await sessionEngagementFallback() : null;
 
-    let totalLogins7d = 0;
-    let totalSessions7d = 0;
+    let totalLogins = 0;
+    let totalSessions = 0;
     let lastActivityAt = null;
     let firstActivityAt = null;
 
     for (const snap of snapshots) {
       const payload = snap.payload || {};
-      const rollup = payload.rollup7d || {};
-      totalLogins7d += Number(rollup.logins || 0);
-      totalSessions7d += Number(rollup.sessionCount || 0);
+      const rollup =
+        normalizedRange === 'today'
+          ? payload.rollupToday
+          : normalizedRange === 'month'
+            ? payload.rollupMonth || payload.rollup7d
+            : normalizedRange === 'year'
+              ? payload.rollupYear || payload.rollupMonth || payload.rollup7d
+              : payload.rollup7d;
+      totalLogins += Number(rollup?.logins || 0);
+      totalSessions += Number(rollup?.sessionCount || 0);
       const candidates = [payload.activityStateUpdatedAt, snap.capturedAt, payload.capturedAt].filter(Boolean);
       for (const iso of candidates) {
         const ts = Date.parse(iso);
@@ -114,7 +125,7 @@ export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {
       }
     }
 
-    const totalLogouts7d = countEventType(snapshots, 'session_end', 7);
+    const totalLogouts = countEventType(snapshots, 'session_end', windowDays);
 
     if (sessionFallback && !lastActivityAt) {
       lastActivityAt = sessionFallback.lastActivityAt;
@@ -122,8 +133,22 @@ export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {
     }
 
     const trackedUsers = snapshots.length;
-    const activeUsers7d = live?.activeUsers7d ?? 0;
+    const activeUsers = live?.periodMetrics?.activeUsers ?? live?.activeUsers7d ?? 0;
     const onlineNow = live?.onlineCount ?? sessionFallback?.activeSessions ?? 0;
+    const period = live?.periodMetrics || {
+      range: normalizedRange,
+      windowDays,
+      visits: 0,
+      actions: 0,
+      apiMutations: 0,
+      entityViews: 0,
+      searches: 0,
+      activeMs: 0,
+      logins: 0,
+      sessions: 0,
+      activeUsers: 0,
+      avgWorkflow: 0,
+    };
 
     return {
       tenantDbName: dbName,
@@ -133,28 +158,30 @@ export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {
       planName: tenantMeta.subscriptionPlan?.name || 'Unassigned',
       capturedAt: new Date().toISOString(),
       dataSource: hasBehavior ? 'behavior_engine' : sessionFallback ? 'sessions_fallback' : 'none',
+      range: normalizedRange,
 
       engagement: {
         trackedUsers,
         teamMembersTotal: live?.crmContext?.teamMembers ?? sessionFallback?.activeUsers ?? 0,
-        activeUsers7d,
+        activeUsers7d: activeUsers,
         onlineNow,
-        totalLogins7d: totalLogins7d || sessionFallback?.totalLogins7d || 0,
-        totalLogouts7d,
-        totalSessions7d,
-        totalActiveMs7d: live?.totalActiveMs7d ?? 0,
+        totalLogins7d: totalLogins || (normalizedRange === 'week' ? sessionFallback?.totalLogins7d || 0 : 0),
+        totalLogouts7d: totalLogouts,
+        totalSessions7d: totalSessions,
+        totalActiveMs7d: period.activeMs || live?.totalActiveMs7d || 0,
         totalActiveMsToday: live?.todayMetrics?.activeMs ?? 0,
-        totalVisits7d: live?.totalVisits7d ?? 0,
-        totalActions7d: live?.totalActions7d ?? 0,
-        totalApiMutations7d: live?.totalApiMutations7d ?? 0,
-        totalEntityViews7d: live?.totalEntityViews7d ?? 0,
-        totalSearches7d: live?.totalSearches7d ?? 0,
+        totalVisits7d: period.visits || live?.totalVisits7d || 0,
+        totalActions7d: period.actions || live?.totalActions7d || 0,
+        totalApiMutations7d: period.apiMutations || live?.totalApiMutations7d || 0,
+        totalEntityViews7d: period.entityViews || live?.totalEntityViews7d || 0,
+        totalSearches7d: period.searches || live?.totalSearches7d || 0,
         avgTimePerUser7d:
-          activeUsers7d > 0 ? Math.round((live?.totalActiveMs7d ?? 0) / activeUsers7d) : 0,
+          activeUsers > 0 ? Math.round((period.activeMs || live?.totalActiveMs7d || 0) / activeUsers) : 0,
         lastActivityAt,
         firstActivityAt,
       },
 
+      periodMetrics: period,
       tenantHealthScore: live?.tenantHealthScore ?? 0,
       weekMetrics: live?.weekMetrics ?? {
         visits: 0,

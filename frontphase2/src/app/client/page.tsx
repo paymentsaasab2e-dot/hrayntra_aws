@@ -18,7 +18,10 @@ import {
   FolderOpen,
   Inbox,
   XCircle,
+  Sparkles,
+  Lock,
 } from 'lucide-react';
+import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
 import { downloadCsv } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
@@ -358,6 +361,9 @@ export default function App() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedClientDrawerMode, setSelectedClientDrawerMode] = useState<'view' | 'edit'>('view');
   const [showAddClientDrawer, setShowAddClientDrawer] = useState(false);
+  const [addClientWithAi, setAddClientWithAi] = useState(false);
+  const [createClientMode, setCreateClientMode] = useState<'ai' | 'manual'>('manual');
+  const clientAiGate = useAiCoinGate('ai.client_chat');
   const [showCreateJobDrawer, setShowCreateJobDrawer] = useState(false);
   const [clientIdForJob, setClientIdForJob] = useState<string | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
@@ -1120,17 +1126,69 @@ export default function App() {
               <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
               <span>Import</span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedClientId(null);
-                setShowAddClientDrawer(true);
-              }}
-              className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
+            <div
+              role="group"
+              aria-label="Create client"
+              className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
             >
-              <Plus size={16} className="text-white" strokeWidth={2.5} />
-              <span>Add Client</span>
-            </button>
+              <button
+                type="button"
+                aria-pressed={createClientMode === 'ai'}
+                onClick={() => {
+                  if (clientAiGate.locked) {
+                    clientAiGate.confirmAndUnlock();
+                    return;
+                  }
+                  setCreateClientMode('ai');
+                  setAddClientWithAi(true);
+                  setSelectedClientId(null);
+                  setShowAddClientDrawer(true);
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                  clientAiGate.locked
+                    ? 'text-amber-800 hover:bg-amber-50'
+                    : createClientMode === 'ai'
+                      ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
+                      : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
+                }`}
+                title={
+                  clientAiGate.locked
+                    ? `Locked — needs ${clientAiGate.cost} coins (you have ${clientAiGate.coins})`
+                    : `Create a client with AI (${clientAiGate.cost} coins per chat message)`
+                }
+              >
+                {clientAiGate.locked ? (
+                  <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
+                ) : (
+                  <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
+                )}
+                <span>Create with AI</span>
+                <AiCoinLockBadge featureId="ai.client_chat" />
+              </button>
+              <button
+                type="button"
+                aria-pressed={createClientMode === 'manual'}
+                onClick={() => {
+                  setCreateClientMode('manual');
+                  setAddClientWithAi(false);
+                  setSelectedClientId(null);
+                  setShowAddClientDrawer(true);
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                  createClientMode === 'manual'
+                    ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                    : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
+                }`}
+                title="Create a client manually"
+              >
+                <Plus
+                  size={14}
+                  className={createClientMode === 'manual' ? 'text-white' : 'text-indigo-500'}
+                  strokeWidth={2.5}
+                />
+                <span>Create Manually</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1168,6 +1226,8 @@ export default function App() {
               <EmptyState
                 onImportClick={() => setShowImportDrawer(true)}
                 onCreateClick={() => {
+                  setCreateClientMode('manual');
+                  setAddClientWithAi(false);
                   setSelectedClientId(null);
                   setShowAddClientDrawer(true);
                 }}
@@ -1393,11 +1453,13 @@ export default function App() {
         <ClientDetailsDrawer
           client={selectedClient}
           isAddMode={showAddClientDrawer}
+          initialOpenAiChat={addClientWithAi}
           initialMode={selectedClientDrawerMode}
           onClose={() => {
             setSelectedClientId(null);
             setSelectedClientDrawerMode('view');
             setShowAddClientDrawer(false);
+            setAddClientWithAi(false);
             if (searchParams.get('clientId')) {
               const sp = new URLSearchParams(searchParams.toString());
               sp.delete('clientId');
@@ -1415,6 +1477,7 @@ export default function App() {
           }}
           onClientCreated={() => {
             setShowAddClientDrawer(false);
+            setAddClientWithAi(false);
             setSelectedClientId(null);
             setActiveTab('all');
             setSelectedClients([]);

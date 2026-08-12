@@ -19,6 +19,8 @@ export function buildTenantBehaviorPayload(
 
   const rollupToday = buildTenantActivityRollup(state, 'today');
   const rollup7d = buildTenantActivityRollup(state, 'week');
+  const rollupMonth = buildTenantActivityRollup(state, 'month');
+  const rollupYear = buildTenantActivityRollup(state, 'year');
   const triggers = rollup7d?.triggers || rollupToday?.triggers || [];
 
   const sessionEngagement = buildTenantSessionEngagement(state.sessions || []);
@@ -39,6 +41,8 @@ export function buildTenantBehaviorPayload(
     activityStateUpdatedAt: state.updatedAt,
     rollupToday,
     rollup7d,
+    rollupMonth,
+    rollupYear,
     triggers,
     sessionEngagement,
     interestTopics,

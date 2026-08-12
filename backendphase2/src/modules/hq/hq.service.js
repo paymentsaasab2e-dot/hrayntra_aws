@@ -897,10 +897,10 @@ export const hqService = {
     return getCandidateBehaviorAnalysis(candidateId);
   },
 
-  async getTenantBehavior(reqUser, tenantDbName, tenantMeta = {}) {
+  async getTenantBehavior(reqUser, tenantDbName, tenantMeta = {}, range = 'week') {
     assertPlatformProvisioner(reqUser);
     const { getHqTenantBehaviorAnalysis } = await import('./hq-tenant-behavior.service.js');
-    return getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta });
+    return getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta, range });
   },
 
   async getAnalytics(reqUser) {

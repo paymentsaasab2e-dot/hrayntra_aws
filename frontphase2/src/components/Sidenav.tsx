@@ -842,9 +842,10 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [hqModulesTick, setHqModulesTick] = useState(0);
   const [orgPlanName, setOrgPlanName] = useState<string>('');
   const [orgPlanUsage, setOrgPlanUsage] = useState<ReturnType<typeof getCachedOrgPlanUsage>>(null);
-  const [orgSubscriptionPlan, setOrgSubscriptionPlan] = useState(
-    () => (typeof window !== 'undefined' ? getCachedOrgSubscriptionPlan() : null)
-  );
+  // Always null on first render (SSR + hydration) — cache is applied in useEffect to avoid hydration mismatch.
+  const [orgSubscriptionPlan, setOrgSubscriptionPlan] = useState<ReturnType<
+    typeof getCachedOrgSubscriptionPlan
+  >>(null);
   const [recruitmentMode, setRecruitmentMode] = useState<'agency' | 'standalone'>('agency');
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -1704,14 +1705,15 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
         {/* Footer */}
         <div className="shrink-0 px-3 pb-3 pt-2 border-t border-white/5">
-          {/* Plan / Trial banner — once a plan is assigned (via HQ/settings) the
-              "Free Trial" banner is replaced with the active plan name. */}
+          {/* Plan / Trial banner — read from client cache only after mount to avoid hydration mismatch. */}
           {!isCollapsed ? (
-            orgSubscriptionPlan?.isTrial ? (
+            !mounted ? (
+              <div className="mb-3 h-[88px] rounded-lg bg-white/5 border border-white/10 animate-pulse" aria-hidden />
+            ) : orgSubscriptionPlan?.isTrial ? (
               <div className="mb-3 rounded-lg p-2.5 bg-emerald-400/8 border border-emerald-400/15">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                    {isTrialExpired(orgSubscriptionPlan) ? 'Trial ended' : '5-day trial'}
+                    {isTrialExpired(orgSubscriptionPlan) ? 'Trial ended' : 'Trial'}
                   </span>
                   <span className="text-[10px] text-emerald-400/70">
                     {isTrialExpired(orgSubscriptionPlan)
@@ -1765,7 +1767,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               <div className="mb-3 rounded-lg p-2.5 bg-emerald-400/8 border border-emerald-400/15">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Free Trial</span>
-                  <span className="text-[10px] text-emerald-400/70">30 days left</span>
+                  <span className="text-[10px] text-emerald-400/70">Upgrade available</span>
                 </div>
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                   <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 w-[70%] rounded-full" />

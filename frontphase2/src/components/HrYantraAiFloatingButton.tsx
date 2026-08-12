@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2, Send, Sparkles, X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { usePageDrawerOpen } from '../hooks/usePageDrawerOpen';
 import {
   askHrYantraLocalAssistant,
@@ -74,8 +74,17 @@ export function HrYantraAiFloatingButton() {
     originX: number;
     originY: number;
   } | null>(null);
+  const posRef = useRef({ x: 0, y: 0 });
   const hasDraggedRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const clampPosition = useCallback(
+    (x: number, y: number) => ({
+      x: clamp(x, MARGIN, window.innerWidth - SIZE - MARGIN),
+      y: clamp(y, MARGIN, window.innerHeight - SIZE - MARGIN),
+    }),
+    [],
+  );
 
   const hidden =
     !pathname ||
@@ -90,10 +99,12 @@ export function HrYantraAiFloatingButton() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
-          setPos({
+          const next = {
             x: clamp(parsed.x, MARGIN, window.innerWidth - SIZE - MARGIN),
             y: clamp(parsed.y, MARGIN, window.innerHeight - SIZE - MARGIN),
-          });
+          };
+          posRef.current = next;
+          setPos(next);
           setMounted(true);
           return;
         }
@@ -101,9 +112,29 @@ export function HrYantraAiFloatingButton() {
     } catch {
       /* ignore */
     }
-    setPos(defaultPosition());
+    const next = defaultPosition();
+    posRef.current = next;
+    setPos(next);
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted || typeof window === 'undefined') return;
+    const onResize = () => {
+      setPos((current) => {
+        const next = clampPosition(current.x, current.y);
+        posRef.current = next;
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [mounted, clampPosition]);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -124,6 +155,7 @@ export function HrYantraAiFloatingButton() {
       const centerX = current.x + SIZE / 2;
       if (centerX <= window.innerWidth / 2) return current;
       const next = { x: MARGIN, y: current.y };
+      posRef.current = next;
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       } catch {
@@ -132,6 +164,55 @@ export function HrYantraAiFloatingButton() {
       return next;
     });
   }, [pageDrawerOpen]);
+
+  const onBrainPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    hasDraggedRef.current = false;
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      originX: posRef.current.x,
+      originY: posRef.current.y,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onBrainPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - drag.startClientX;
+    const dy = e.clientY - drag.startClientY;
+    if (!hasDraggedRef.current && Math.hypot(dx, dy) > TAP_MAX_MOVE_PX) {
+      hasDraggedRef.current = true;
+      setDragging(true);
+    }
+    if (!hasDraggedRef.current) return;
+    e.preventDefault();
+    const next = clampPosition(drag.originX + dx, drag.originY + dy);
+    posRef.current = next;
+    setPos(next);
+  };
+
+  const onBrainPointerEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    dragRef.current = null;
+    setDragging(false);
+    if (hasDraggedRef.current) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(posRef.current));
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    setDrawerOpen(true);
+  };
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
@@ -167,7 +248,7 @@ export function HrYantraAiFloatingButton() {
     }
   };
 
-  if (!mounted || hidden) return null;
+  if (!mounted || hidden || pageDrawerOpen) return null;
 
   return (
     <>
@@ -302,52 +383,23 @@ export function HrYantraAiFloatingButton() {
 
       <motion.button
         type="button"
-        aria-label="Open HRYantra AI"
-        className={`fixed z-[9999] box-border touch-none select-none rounded-full border-2 border-[#2098C8] bg-white p-0.5 shadow-lg ring-2 ring-[#2098C8]/25 transition-colors duration-200 hover:border-[#F08818] hover:ring-[#F08818]/30 focus:outline-none ${
+        aria-label="Open HRYANTRA Brain"
+        data-hryantra-brain="true"
+        onPointerDown={onBrainPointerDown}
+        onPointerMove={onBrainPointerMove}
+        onPointerUp={onBrainPointerEnd}
+        onPointerCancel={onBrainPointerEnd}
+        animate={{ left: pos.x, top: pos.y }}
+        transition={
+          dragging
+            ? { duration: 0 }
+            : { left: { type: 'spring', stiffness: 110, damping: 16 }, top: { type: 'spring', stiffness: 110, damping: 16 } }
+        }
+        className={`fixed z-[10000] box-border touch-none select-none rounded-full border-2 border-[#2098C8] bg-white p-0.5 shadow-lg ring-2 ring-[#2098C8]/25 transition-colors duration-200 hover:border-[#F08818] hover:ring-[#F08818]/30 focus:outline-none ${
           dragging ? 'cursor-grabbing' : 'cursor-grab'
         }`}
-        style={{ left: pos.x, top: pos.y, width: SIZE, height: SIZE }}
-        onPointerDown={(e) => {
-          if (e.button !== 0) return;
-          hasDraggedRef.current = false;
-          dragRef.current = {
-            pointerId: e.pointerId,
-            startClientX: e.clientX,
-            startClientY: e.clientY,
-            originX: pos.x,
-            originY: pos.y,
-          };
-          (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-          setDragging(true);
-        }}
-        onPointerMove={(e) => {
-          const drag = dragRef.current;
-          if (!drag || drag.pointerId !== e.pointerId) return;
-          const dx = e.clientX - drag.startClientX;
-          const dy = e.clientY - drag.startClientY;
-          if (Math.hypot(dx, dy) > TAP_MAX_MOVE_PX) hasDraggedRef.current = true;
-          const next = {
-            x: clamp(drag.originX + dx, MARGIN, window.innerWidth - SIZE - MARGIN),
-            y: clamp(drag.originY + dy, MARGIN, window.innerHeight - SIZE - MARGIN),
-          };
-          setPos(next);
-        }}
-        onPointerUp={(e) => {
-          const drag = dragRef.current;
-          if (!drag || drag.pointerId !== e.pointerId) return;
-          dragRef.current = null;
-          setDragging(false);
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(pos));
-          } catch {
-            /* ignore */
-          }
-          if (!hasDraggedRef.current) setDrawerOpen(true);
-        }}
-        onPointerCancel={() => {
-          dragRef.current = null;
-          setDragging(false);
-        }}
+        style={{ width: SIZE, height: SIZE }}
+        title="Drag to move · tap to open HRYANTRA Brain"
       >
         <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#E8F6FC] to-white">
           <HqBrandLogo className="h-[34px] w-[34px] object-contain" alt="" variant="mark" />

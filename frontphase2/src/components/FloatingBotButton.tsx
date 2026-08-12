@@ -291,7 +291,7 @@ export function FloatingBotButton() {
     dragRef.current = null;
   };
 
-  if (!mounted || !pageConfig) return null;
+  if (!mounted || !pageConfig || pageDrawerOpen) return null;
 
   return (
     <>
