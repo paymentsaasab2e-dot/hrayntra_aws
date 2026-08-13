@@ -262,7 +262,9 @@ export function HqTenantDetailDrawer({
               role="dialog"
               aria-modal="true"
               aria-labelledby="tenant-detail-title"
-              className="pointer-events-auto relative flex h-[min(92vh,900px)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5"
+              className={`pointer-events-auto relative flex h-[min(92vh,940px)] w-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5 ${
+                activeTab === 'analytics' ? 'max-w-6xl' : 'max-w-4xl'
+              }`}
             >
               <div className="shrink-0 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white px-5 py-4 sm:px-6">
                 <div className="flex items-start justify-between gap-3">
