@@ -81,7 +81,7 @@ export function useRecDashboard() {
 }
 
 export const recCard =
-  'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_rgba(15,23,42,0.04)]';
+  'rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]';
 
 export function formatInr(value: number | null | undefined) {
   if (value == null || !Number.isFinite(Number(value))) return '—';

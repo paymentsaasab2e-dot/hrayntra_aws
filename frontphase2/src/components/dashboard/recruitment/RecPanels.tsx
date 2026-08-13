@@ -35,58 +35,50 @@ const MODULES = [
   {
     href: '/job',
     label: 'Jobs',
-    description: 'Open roles, requisitions, and hiring needs.',
     icon: Briefcase,
-    accent: 'text-amber-700 bg-amber-50 border-amber-200',
+    accent: 'text-amber-700 hover:bg-amber-50',
   },
   {
     href: '/candidate',
     label: 'Candidates',
-    description: 'Talent profiles and applicant progress.',
     icon: UserRound,
-    accent: 'text-violet-600 bg-violet-50 border-violet-200',
+    accent: 'text-violet-700 hover:bg-violet-50',
   },
   {
     href: '/interviews',
     label: 'Interviews',
-    description: 'Schedule rounds and review outcomes.',
     icon: Calendar,
-    accent: 'text-cyan-600 bg-cyan-50 border-cyan-200',
+    accent: 'text-sky-700 hover:bg-sky-50',
   },
   {
     href: '/placement',
     label: 'Placements',
-    description: 'Offers, joinings, and closed placements.',
     icon: Award,
-    accent: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+    accent: 'text-emerald-700 hover:bg-emerald-50',
   },
 ] as const;
 
 export function RecModuleShortcuts() {
   return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {MODULES.map(({ href, label, description, icon: Icon, accent }) => (
+    <nav
+      aria-label="Recruitment modules"
+      className={`${recCard} flex flex-wrap items-center gap-1 px-2 py-1.5`}
+    >
+      <span className="hidden px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:inline">
+        Go to
+      </span>
+      {MODULES.map(({ href, label, icon: Icon, accent }) => (
         <Link
           key={href}
           href={href}
-          className={`group flex items-start gap-3 rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow-md ${accent}`}
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-semibold text-slate-700 transition ${accent}`}
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-inherit bg-white">
-            <Icon size={18} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-900">{label}</h3>
-              <ChevronRight
-                size={14}
-                className="text-slate-400 transition-transform group-hover:translate-x-0.5"
-              />
-            </div>
-            <p className="mt-0.5 text-xs text-slate-500">{description}</p>
-          </div>
+          <Icon size={15} className="opacity-80" />
+          {label}
+          <ChevronRight size={12} className="text-slate-300" />
         </Link>
       ))}
-    </section>
+    </nav>
   );
 }
 
@@ -95,74 +87,95 @@ export function RecSchedulePanel({ overview, loading }: Props) {
   const timeline = overview?.activityTimeline || [];
 
   if (loading && !overview) {
-    return <div className="h-72 animate-pulse rounded-2xl bg-white" />;
+    return (
+      <>
+        <div className="h-[320px] animate-pulse rounded-2xl bg-white" />
+        <div className="h-[320px] animate-pulse rounded-2xl bg-white" />
+      </>
+    );
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      <section className={`${recCard} p-5`}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-900">Upcoming Interviews</h2>
-          <Link href="/interviews" className="text-xs font-semibold text-amber-700 hover:underline">
-            Open calendar →
+    <>
+      <section className={`${recCard} flex h-[320px] flex-col p-4`}>
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-900">Upcoming Interviews</h2>
+          <Link
+            href="/interviews"
+            className="text-[11px] font-semibold text-amber-700 hover:underline"
+          >
+            Calendar →
           </Link>
         </div>
-        <ul className="space-y-2">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {items.length ? (
-            items.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-800">{item.title}</p>
-                  <p className="mt-0.5 text-[11px] text-slate-500">
-                    {formatWhen(item.at)}
-                    {item.round ? ` · ${item.round}` : ''}
-                    {item.assignee ? ` · ${item.assignee}` : ''}
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">
-                  {item.status || 'SCHEDULED'}
-                </span>
-              </li>
-            ))
+            <ul className="space-y-2">
+              {items.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-start justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold text-slate-800">{item.title}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                      {formatWhen(item.at)}
+                      {item.round ? ` · ${item.round}` : ''}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                    {item.status || 'SCHEDULED'}
+                  </span>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <li className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-              No interviews in the next 7 days.
-            </li>
+            <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 px-4 text-center">
+              <Calendar className="mb-2 text-slate-300" size={22} />
+              <p className="text-[13px] text-slate-500">No interviews in the next 7 days</p>
+            </div>
           )}
-        </ul>
+        </div>
       </section>
 
-      <section className={`${recCard} p-5`}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-900">Recent Activity</h2>
-          <span className="text-[11px] text-slate-400">{timeline.length} events</span>
+      <section className={`${recCard} flex h-[320px] flex-col p-4`}>
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-900">Recent Activity</h2>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+            {timeline.length}
+          </span>
         </div>
-        <ul className="space-y-2">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {timeline.length ? (
-            timeline.slice(0, 10).map((item) => (
-              <li key={item.id} className="flex gap-3 border-b border-slate-50 pb-2 last:border-0">
-                <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-800">{item.label}</p>
-                  <p className="truncate text-[11px] text-slate-500">
-                    {item.detail || item.entityType || ''}
-                    {item.performer ? ` · ${item.performer}` : ''}
-                  </p>
-                  <p className="text-[10px] text-slate-400">{relativeTime(item.at)}</p>
-                </div>
-              </li>
-            ))
+            <ul className="space-y-0">
+              {timeline.slice(0, 12).map((item) => (
+                <li
+                  key={item.id}
+                  className="flex gap-2.5 border-b border-slate-50 py-2.5 last:border-0"
+                >
+                  <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="truncate text-[13px] font-medium text-slate-800">{item.label}</p>
+                      <span className="shrink-0 text-[10px] text-slate-400">
+                        {relativeTime(item.at)}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                      {item.detail || item.entityType || ''}
+                      {item.performer ? ` · ${item.performer}` : ''}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <li className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-              No recent recruitment activity.
-            </li>
+            <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-200 px-4 text-center text-[13px] text-slate-500">
+              No recent recruitment activity
+            </div>
           )}
-        </ul>
+        </div>
       </section>
-    </div>
+    </>
   );
 }
 
@@ -260,7 +273,7 @@ export function RecAlertsPanel({ overview, loading }: Props) {
   const alerts = overview?.alerts || [];
 
   if (loading && !overview) {
-    return <div className="h-72 animate-pulse rounded-2xl bg-white" />;
+    return <div className="h-[320px] animate-pulse rounded-2xl bg-white" />;
   }
 
   const iconFor = (severity?: string) => {
@@ -271,47 +284,49 @@ export function RecAlertsPanel({ overview, loading }: Props) {
   };
 
   const toneFor = (severity?: string) => {
-    if (severity === 'high') return 'bg-rose-50 text-rose-600 border-rose-100';
-    if (severity === 'medium') return 'bg-amber-50 text-amber-700 border-amber-100';
-    return 'bg-sky-50 text-sky-700 border-sky-100';
+    if (severity === 'high') return 'bg-rose-50 text-rose-700 border-rose-100';
+    if (severity === 'medium') return 'bg-amber-50 text-amber-800 border-amber-100';
+    return 'bg-sky-50 text-sky-800 border-sky-100';
   };
 
   return (
-    <section className={`${recCard} sticky top-4 p-5`}>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold text-slate-900">Hiring Alerts</h2>
+    <section className={`${recCard} flex h-[320px] flex-col p-4`}>
+      <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-900">Hiring Alerts</h2>
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
           {alerts.length}
         </span>
       </div>
-      <ul className="space-y-2">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {alerts.length ? (
-          alerts.map((alert) => {
-            const Icon = iconFor(alert.severity);
-            return (
-              <li key={alert.id}>
-                <Link
-                  href={alert.href || '/recruitment'}
-                  className={`flex gap-2.5 rounded-xl border px-3 py-2.5 transition hover:shadow-sm ${toneFor(alert.severity)}`}
-                >
-                  <Icon size={16} className="mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold leading-snug">{alert.text}</p>
-                    {alert.action ? (
-                      <p className="mt-0.5 text-[11px] font-medium opacity-80">{alert.action} →</p>
-                    ) : null}
-                  </div>
-                </Link>
-              </li>
-            );
-          })
+          <ul className="space-y-2">
+            {alerts.map((alert) => {
+              const Icon = iconFor(alert.severity);
+              return (
+                <li key={alert.id}>
+                  <Link
+                    href={alert.href || '/recruitment'}
+                    className={`flex gap-2.5 rounded-xl border px-3 py-2.5 transition hover:shadow-sm ${toneFor(alert.severity)}`}
+                  >
+                    <Icon size={15} className="mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold leading-snug">{alert.text}</p>
+                      {alert.action ? (
+                        <p className="mt-0.5 text-[11px] font-medium opacity-80">{alert.action} →</p>
+                      ) : null}
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
         ) : (
-          <li className="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
-            <CheckCircle2 className="mx-auto mb-2 text-emerald-500" size={22} />
-            No hiring alerts right now.
-          </li>
+          <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 px-4 text-center">
+            <CheckCircle2 className="mb-2 text-emerald-500" size={22} />
+            <p className="text-[13px] text-slate-500">No hiring alerts right now</p>
+          </div>
         )}
-      </ul>
+      </div>
     </section>
   );
 }

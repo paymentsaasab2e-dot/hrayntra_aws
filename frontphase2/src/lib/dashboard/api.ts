@@ -184,6 +184,16 @@ export type CrmOverview = {
   countries?: ChartSlice[];
   clientGrowth?: Array<{ label: string; value: number }>;
   leadSpark?: Array<{ label: string; value: number }>;
+  entityCompare?: {
+    leads?: {
+      days: string[];
+      lines: Array<{ id: string; name: string; values: number[]; total?: number }>;
+    };
+    clients?: {
+      days: string[];
+      lines: Array<{ id: string; name: string; values: number[]; total?: number }>;
+    };
+  };
   aiTokens?: { total: number; used: number; remaining: number; usagePct: number };
   leadsTable?: Array<{
     id: string;

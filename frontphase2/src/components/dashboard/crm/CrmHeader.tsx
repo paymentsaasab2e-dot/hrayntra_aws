@@ -74,7 +74,9 @@ export function CrmHeader({ overview, onRefresh }: Props) {
           <h1 className="text-[22px] font-bold tracking-tight text-slate-900">
             HRYANTRA CRM Dashboard
           </h1>
-          <p className="mt-0.5 text-sm text-slate-500">Live Business Overview · Leads & Clients</p>
+          <p className="mt-0.5 text-sm text-slate-500">
+            Actionable insights · pipeline mix · records & team
+          </p>
         </div>
 
         <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
@@ -193,7 +195,10 @@ export function CrmHeader({ overview, onRefresh }: Props) {
             {customizeOpen ? (
               <div className="absolute right-0 z-40 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
                 <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Show / Hide widgets
+                  Legacy widget toggles
+                </p>
+                <p className="px-2 pb-2 text-[10px] text-slate-400">
+                  Use category tabs below the insight row to navigate sections.
                 </p>
                 {CRM_SECTIONS.map((s) => (
                   <label

@@ -102,11 +102,7 @@ export function HqSvgKpiCard({ item }: { item: HqSvgKpiItem }) {
               {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
               {Math.abs(Number(item.growth)).toFixed(1)}%
             </span>
-          ) : (
-            <span className="inline-flex items-center rounded-full bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 ring-1 ring-slate-100">
-              Live
-            </span>
-          )}
+          ) : null}
         </div>
         <div className="flex items-center gap-1.5">
           <p className="text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-400">{item.label}</p>

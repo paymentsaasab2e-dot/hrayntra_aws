@@ -11,13 +11,36 @@ export type CrmSectionId =
   | 'team'
   | 'alerts';
 
+/** Legacy customize panel — maps to category tabs where possible. */
 export const CRM_SECTIONS: Array<{ id: CrmSectionId; label: string }> = [
-  { id: 'kpis', label: 'KPI Cards' },
-  { id: 'charts', label: 'Pie Charts' },
-  { id: 'tables', label: 'Leads & Clients Tables' },
-  { id: 'followups', label: 'Follow-ups' },
-  { id: 'team', label: 'Team Performance' },
-  { id: 'alerts', label: 'Alerts' },
+  { id: 'followups', label: 'Insights & follow-ups' },
+  { id: 'charts', label: 'Pipeline & records' },
+  { id: 'team', label: 'Team & outreach' },
+  { id: 'alerts', label: 'Alerts sidebar' },
+];
+
+export type CrmCategoryTabId = 'insights' | 'portfolio' | 'team';
+
+export const CRM_CATEGORY_TABS: Array<{
+  id: CrmCategoryTabId;
+  label: string;
+  blurb: string;
+}> = [
+  {
+    id: 'insights',
+    label: 'Insights & actions',
+    blurb: 'Today’s work, trends & follow-up visuals — then alerts',
+  },
+  {
+    id: 'portfolio',
+    label: 'Pipeline & records',
+    blurb: 'Find a record up top · lead then client intelligence · compact mix charts',
+  },
+  {
+    id: 'team',
+    label: 'Team & outreach',
+    blurb: 'Team stats, recruiter performance & communication touchpoints',
+  },
 ];
 
 type CrmDashboardContextValue = {
@@ -81,18 +104,68 @@ export function useCrmDashboard() {
 export const crmCard =
   'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_rgba(15,23,42,0.04)]';
 
-export function formatInr(value: number | null | undefined) {
+/** HQ-style glass card — matches platform analytics dashboards */
+export const dashCard =
+  'rounded-2xl border border-white/80 bg-white/90 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.14)] backdrop-blur-xl';
+
+/** Tenant org default currency (ISO 4217), falls back to USD. */
+export function getCrmCurrency(): string {
+  if (typeof window === 'undefined') return 'USD';
+  try {
+    const v = localStorage.getItem('orgDefaultCurrency');
+    return v && v.length === 3 ? v.toUpperCase() : 'USD';
+  } catch {
+    return 'USD';
+  }
+}
+
+/** Locale-aware money for CRM dashboard (uses org default currency). */
+export function formatMoney(
+  value: number | null | undefined,
+  currency?: string,
+  options: { maximumFractionDigits?: number } = {},
+) {
   if (value == null || !Number.isFinite(Number(value))) return '—';
   const n = Number(value);
-  if (n >= 10_000_000) return `₹${(n / 10_000_000).toFixed(2)}Cr`;
-  if (n >= 100_000) return `₹${(n / 100_000).toFixed(2)}L`;
-  if (n >= 1000) return `₹${(n / 1000).toFixed(1)}k`;
-  return `₹${n.toLocaleString('en-IN')}`;
+  const code = (currency || getCrmCurrency()).toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: code,
+      maximumFractionDigits: options.maximumFractionDigits ?? (Math.abs(n) >= 1000 ? 0 : 2),
+    }).format(n);
+  } catch {
+    return `${code} ${n.toLocaleString()}`;
+  }
+}
+
+/** Compact money for dense stat tiles (e.g. $12.4k, €1.2M). */
+export function formatMoneyCompact(value: number | null | undefined, currency?: string) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const n = Number(value);
+  const code = (currency || getCrmCurrency()).toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: code,
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(n);
+  } catch {
+    if (Math.abs(n) >= 1_000_000) return `${code} ${(n / 1_000_000).toFixed(1)}M`;
+    if (Math.abs(n) >= 1000) return `${code} ${(n / 1000).toFixed(1)}k`;
+    return `${code} ${n.toFixed(0)}`;
+  }
+}
+
+/** @deprecated Prefer formatMoney — kept so older CRM call sites keep working. */
+export function formatInr(value: number | null | undefined) {
+  return formatMoney(value);
 }
 
 export function formatNum(value: number | null | undefined) {
   if (value == null || !Number.isFinite(Number(value))) return '—';
-  return Number(value).toLocaleString('en-IN');
+  return Number(value).toLocaleString(undefined);
 }
 
 export function relativeTime(iso?: string | null) {

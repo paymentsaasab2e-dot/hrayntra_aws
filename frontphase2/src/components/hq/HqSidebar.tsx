@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   BarChart3,
@@ -15,7 +15,10 @@ import {
   Globe,
   GraduationCap,
   LayoutDashboard,
+  Loader2,
+  LogOut,
   Server,
+  Settings,
   Target,
   Ticket,
   UserRound,
@@ -27,7 +30,11 @@ import {
   canAccessHqNav,
   HQ_PERMISSIONS_STORAGE_KEY,
   readHqPermissionIds,
+  writeHqPermissionIds,
 } from '@/lib/hqNavPermissions';
+import { apiLogout } from '@/lib/api';
+import { HQ_DISPLAY_CURRENCY_KEY } from '@/lib/hqCurrency';
+import { HQ_FX_CACHE_KEY } from '@/lib/hqFxRates';
 
 export type HqNavTab = 'dashboard' | 'tenants' | 'plans' | 'bootstrap';
 
@@ -48,9 +55,11 @@ export type HqNavId =
   | 'reports'
   | 'billing'
   | 'company'
-  | 'tickets'
+  | 'employeeTickets'
+  | 'employerTickets'
   | 'portal'
-  | 'events';
+  | 'events'
+  | 'settings';
 
 export const HQ_NAV_ITEMS: {
   id: HqNavId;
@@ -109,6 +118,14 @@ export const HQ_NAV_ITEMS: {
     accent: 'amber',
     group: 'employees',
   },
+  {
+    id: 'employeeTickets',
+    label: 'Tickets',
+    href: '/hq/tickets?audience=employee',
+    icon: Ticket,
+    accent: 'rose',
+    group: 'employees',
+  },
   // Employers = Phase 2
   {
     id: 'employerDashboard',
@@ -127,14 +144,6 @@ export const HQ_NAV_ITEMS: {
     group: 'employers',
   },
   {
-    id: 'tickets',
-    label: 'Tickets',
-    href: '/hq/tickets',
-    icon: Ticket,
-    accent: 'rose',
-    group: 'employers',
-  },
-  {
     id: 'tenants',
     label: 'Tenants',
     href: '/hq?tab=tenants',
@@ -148,6 +157,14 @@ export const HQ_NAV_ITEMS: {
     href: '/hq?tab=plans',
     icon: CreditCard,
     accent: 'amber',
+    group: 'employers',
+  },
+  {
+    id: 'employerTickets',
+    label: 'Tickets',
+    href: '/hq/tickets?audience=employer',
+    icon: Ticket,
+    accent: 'rose',
     group: 'employers',
   },
   // CRM dropdown — Dashboard, Leads, Clients
@@ -170,6 +187,14 @@ export const HQ_NAV_ITEMS: {
     href: '/hq?tab=plans',
     icon: CreditCard,
     accent: 'amber',
+    group: 'ops',
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    href: '/hq/settings',
+    icon: Settings,
+    accent: 'slate',
     group: 'ops',
   },
 ];
@@ -229,6 +254,7 @@ function isNavActive(
   pathname: string,
   tab: string | null,
   view: string | null,
+  audience: string | null,
   item: (typeof HQ_NAV_ITEMS)[number],
 ) {
   if (item.id === 'leads') return pathname === '/hq/leads' || pathname.startsWith('/hq/leads/');
@@ -238,8 +264,18 @@ function isNavActive(
   }
   if (item.id === 'team') return pathname === '/hq/team' || pathname.startsWith('/hq/team/');
   if (item.id === 'reports') return pathname === '/hq/reports' || pathname.startsWith('/hq/reports/');
+  if (item.id === 'settings') return pathname === '/hq/settings' || pathname.startsWith('/hq/settings/');
   if (item.id === 'company') return pathname === '/hq/company' || pathname.startsWith('/hq/company/');
-  if (item.id === 'tickets') return pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/');
+  if (item.id === 'employeeTickets') {
+    return (
+      (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) && audience !== 'employer'
+    );
+  }
+  if (item.id === 'employerTickets') {
+    return (
+      (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) && audience === 'employer'
+    );
+  }
   if (item.id === 'candidates') {
     return pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/');
   }
@@ -263,20 +299,35 @@ function isNavActive(
   return tab === item.id;
 }
 
-function isEmployeesSectionActive(pathname: string, tab: string | null, view: string | null) {
+function isEmployeesSectionActive(
+  pathname: string,
+  tab: string | null,
+  view: string | null,
+  audience: string | null,
+) {
   if (pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/')) return true;
   if (pathname === '/hq/courses' || pathname.startsWith('/hq/courses/')) return true;
   if (pathname === '/hq/portal' || pathname.startsWith('/hq/portal/')) return true;
   if (pathname === '/hq/events' || pathname.startsWith('/hq/events/')) return true;
   if (pathname === '/hq/subscriptions' || pathname.startsWith('/hq/subscriptions/')) return true;
+  if (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) {
+    return audience !== 'employer';
+  }
   if (pathname !== '/hq') return false;
   if (tab && tab !== 'dashboard') return false;
   return view !== 'employer' && view !== 'platform';
 }
 
-function isEmployersSectionActive(pathname: string, tab: string | null, view: string | null) {
+function isEmployersSectionActive(
+  pathname: string,
+  tab: string | null,
+  view: string | null,
+  audience: string | null,
+) {
   if (pathname === '/hq/company' || pathname.startsWith('/hq/company/')) return true;
-  if (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) return true;
+  if (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) {
+    return audience === 'employer';
+  }
   if (pathname !== '/hq') return false;
   if (tab === 'tenants' || tab === 'plans') return true;
   if (tab && tab !== 'dashboard') return false;
@@ -406,10 +457,13 @@ function CollapsibleNavGroup({
 
 export function HqSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
   const view = searchParams.get('view');
+  const audience = searchParams.get('audience');
   const [permissionIds, setPermissionIds] = useState<string[] | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     setPermissionIds(readHqPermissionIds());
@@ -429,8 +483,8 @@ export function HqSidebar() {
   const crmItems = visibleItems.filter((item) => item.group === 'crm');
   const opsItems = visibleItems.filter((item) => item.group === 'ops');
 
-  const employeesActive = isEmployeesSectionActive(pathname, tab, view);
-  const employersActive = isEmployersSectionActive(pathname, tab, view);
+  const employeesActive = isEmployeesSectionActive(pathname, tab, view, audience);
+  const employersActive = isEmployersSectionActive(pathname, tab, view, audience);
   const crmActive = isCrmSectionActive(pathname);
   const [employeesOpen, setEmployeesOpen] = useState(employeesActive);
   const [employersOpen, setEmployersOpen] = useState(employersActive);
@@ -447,6 +501,25 @@ export function HqSidebar() {
   useEffect(() => {
     if (crmActive) setCrmOpen(true);
   }, [crmActive]);
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await apiLogout();
+      writeHqPermissionIds(null);
+      try {
+        localStorage.removeItem(HQ_DISPLAY_CURRENCY_KEY);
+        localStorage.removeItem(HQ_FX_CACHE_KEY);
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      router.replace('/hq/login');
+      router.refresh();
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <aside
@@ -490,7 +563,7 @@ export function HqSidebar() {
           >
             {employeeItems.map((item) => (
               <li key={item.id}>
-                <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
+                <HqNavItem item={item} active={isNavActive(pathname, tab, view, audience, item)} nested />
               </li>
             ))}
           </CollapsibleNavGroup>
@@ -507,7 +580,7 @@ export function HqSidebar() {
           >
             {employerItems.map((item) => (
               <li key={item.id}>
-                <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
+                <HqNavItem item={item} active={isNavActive(pathname, tab, view, audience, item)} nested />
               </li>
             ))}
           </CollapsibleNavGroup>
@@ -517,7 +590,7 @@ export function HqSidebar() {
           <ul className="mb-4 flex flex-col">
             {platformItems.map((item) => (
               <li key={item.id}>
-                <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} />
+                <HqNavItem item={item} active={isNavActive(pathname, tab, view, audience, item)} />
               </li>
             ))}
           </ul>
@@ -539,7 +612,7 @@ export function HqSidebar() {
           >
             {crmItems.map((item) => (
               <li key={item.id}>
-                <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} nested />
+                <HqNavItem item={item} active={isNavActive(pathname, tab, view, audience, item)} nested />
               </li>
             ))}
           </CollapsibleNavGroup>
@@ -549,7 +622,7 @@ export function HqSidebar() {
           <ul className="mt-2 flex flex-col">
             {opsItems.map((item) => (
               <li key={item.id}>
-                <HqNavItem item={item} active={isNavActive(pathname, tab, view, item)} />
+                <HqNavItem item={item} active={isNavActive(pathname, tab, view, audience, item)} />
               </li>
             ))}
           </ul>
@@ -557,6 +630,19 @@ export function HqSidebar() {
       </nav>
 
       <div className="shrink-0 space-y-2 border-t border-white/[0.06] p-3">
+        <button
+          type="button"
+          onClick={() => void handleLogout()}
+          disabled={loggingOut}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] font-semibold text-[#c4d0db] transition hover:border-rose-400/30 hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-60"
+        >
+          {loggingOut ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <LogOut className="h-4 w-4" strokeWidth={1.8} />
+          )}
+          {loggingOut ? 'Signing out…' : 'Logout'}
+        </button>
         <div className="space-y-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 text-[10px] font-semibold uppercase tracking-wider text-[#6b7f90]">
           <div className="flex items-center gap-2">
             <Server className="h-3 w-3" />

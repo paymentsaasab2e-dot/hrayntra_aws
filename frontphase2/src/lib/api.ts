@@ -1849,6 +1849,63 @@ export async function apiHqUpdateTicket(
   });
 }
 
+/** Phase 1 Help-page tickets (candidate portal `/help` → `/api/hq-tickets`). */
+export type HqHelpTicketStatus = 'open' | 'in_progress' | 'closed';
+
+export type HqHelpTicket = {
+  id: string;
+  createdAt: string;
+  name: string;
+  email: string;
+  category: string;
+  subject: string;
+  description: string;
+  problemId?: string | null;
+  userId?: string | null;
+  status: HqHelpTicketStatus;
+  source?: string;
+};
+
+export type HqHelpTicketStats = {
+  total: number;
+  open: number;
+  inProgress: number;
+  closed: number;
+};
+
+export async function apiHqListHelpTickets(params?: {
+  status?: HqHelpTicketStatus | '';
+  email?: string;
+  id?: string;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  if (params?.email) query.set('email', params.email);
+  if (params?.id) query.set('id', params.id);
+  if (params?.limit) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return apiFetch<{
+    tickets: HqHelpTicket[];
+    stats: HqHelpTicketStats;
+    openCount?: number;
+    count?: number;
+    note?: string | null;
+    source?: string;
+  }>(`/hq/help-tickets${qs ? `?${qs}` : ''}`, { auth: true });
+}
+
+export async function apiHqUpdateHelpTicket(ticketId: string, status: HqHelpTicketStatus) {
+  return apiFetch<{ ticket: HqHelpTicket }>(
+    `/hq/help-tickets/${encodeURIComponent(ticketId)}`,
+    {
+      method: 'PATCH',
+      body: { status },
+      auth: true,
+    },
+  );
+}
+
 export async function apiCreateSupportTicket(body: {
   subject: string;
   description: string;
@@ -2691,17 +2748,46 @@ export type HqEmployeeAnalytics = {
     avgActiveMsPerUser7d: number;
     /** Visits on premium / LMS / AI CV / interview prep surfaces (7d). */
     premiumVisits7d?: number;
+    /** Tokens spent on premium catalog services (7d). */
+    premiumTokensSpent7d?: number;
     /** Visits on community / Office Gossip / chat / reference-check surfaces (7d). */
     communityVisits7d?: number;
     pageVisitsByCategory: HqAnalyticsChartPoint[];
-    /** Premium-services-wise usage (most → least). */
-    premiumServicesUsage?: HqAnalyticsChartPoint[];
-    /** Most popular features / trigger titles. */
-    popularFeatures?: HqAnalyticsChartPoint[];
+    /** Premium-services-wise usage (most → least) — named catalog spends when available. */
+    premiumServicesUsage?: Array<HqAnalyticsChartPoint & { tokens?: number; kind?: string }>;
+    /** Most popular features: premium spends + earn + free surfaces. */
+    popularFeatures?: Array<HqAnalyticsChartPoint & { kind?: string }>;
+    tokenUsage?: {
+      available?: boolean;
+      premiumSpendEvents?: number;
+      premiumTokensSpent?: number;
+      earnEvents?: number;
+    } | null;
     /** First-open entry points (e.g. landed on Services before/at first meaningful open). */
     entryPoints?: HqAnalyticsChartPoint[];
     /** Office Gossip, chat, reference-check style behaviour. */
     communityBehavior?: HqAnalyticsChartPoint[];
+    /** Product rollup from Office Gossips bundle (users + reference-check statuses). */
+    officeGossip?: {
+      available?: boolean;
+      updatedAt?: string | null;
+      usersOnOfficeGossip?: number;
+      identities?: number;
+      communities?: number;
+      companyPages?: number;
+      posts?: number;
+      comments?: number;
+      openForReference?: number;
+      referenceChecks?: number;
+      referenceByStatus?: Record<string, number>;
+      referenceChecksSummary?: {
+        total?: number;
+        initiated?: number;
+        responded?: number;
+        completed?: number;
+        rejected?: number;
+      };
+    } | null;
     /** Top interest topics among candidates (affinity engine). */
     topInterests?: Array<HqAnalyticsChartPoint & { key?: string; avgScore?: number; scoreSum?: number }>;
     /** Trending topics (interests + roles + companies). */

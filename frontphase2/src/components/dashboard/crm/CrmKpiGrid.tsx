@@ -4,15 +4,14 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertTriangle,
-  Building2,
-  Coins,
+  Clock3,
   Percent,
-  Users,
-  UserRound,
+  Sparkles,
 } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
-import { crmCard, formatNum, useCrmDashboard } from './crmShared';
+import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
+import { dashCard, formatNum, useCrmDashboard } from './crmShared';
 import { buildKpiDrillDown } from './crmDrillDown';
 
 type KpiDef = {
@@ -21,71 +20,65 @@ type KpiDef = {
   href: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   tone: string;
-  format?: 'number' | 'percent' | 'tokens';
+  format?: 'number' | 'percent';
+  info: string;
   subtitle?: (overview: CrmOverview | null) => string;
+  resolveValue?: (overview: CrmOverview | null) => number | null | undefined;
 };
 
-const KPI_DEFS: KpiDef[] = [
-  {
-    key: 'totalLeads',
-    label: 'Total Leads',
-    href: '/leads',
-    icon: Building2,
-    tone: 'bg-blue-50 text-blue-600',
-    subtitle: (o) => `${formatNum(o?.kpis?.newLeads)} new · ${formatNum(o?.kpis?.convertedLeads)} converted`,
-  },
-  {
-    key: 'totalClients',
-    label: 'Total Clients',
-    href: '/client',
-    icon: Users,
-    tone: 'bg-indigo-50 text-indigo-600',
-    subtitle: (o) => `${formatNum(o?.kpis?.activeClients)} active · ${formatNum(o?.kpis?.inactiveClients)} inactive`,
-  },
-  {
-    key: 'teamMembers',
-    label: 'Team Members',
-    href: '/team',
-    icon: UserRound,
-    tone: 'bg-violet-50 text-violet-600',
-    subtitle: () => 'Active CRM users',
-  },
-  {
-    key: 'alerts',
-    label: 'Alerts',
-    href: '/dashboard',
-    icon: AlertTriangle,
-    tone: 'bg-rose-50 text-rose-600',
-    subtitle: (o) => `${formatNum(o?.kpis?.overdueFollowups)} overdue follow-ups`,
-  },
+/** Actionable insights only — totals for leads/clients live in pipeline pies. */
+const INSIGHT_KPI_DEFS: KpiDef[] = [
   {
     key: 'conversionRate',
-    label: 'Conversion Rate',
+    label: 'Conversion rate',
     href: '/leads?status=Converted',
     icon: Percent,
     tone: 'bg-emerald-50 text-emerald-600',
     format: 'percent',
-    subtitle: (o) => `${formatNum(o?.kpis?.convertedLeads)} of ${formatNum(o?.kpis?.totalLeads)} leads`,
+    info: 'Overall % of leads converted in the selected period (all stages → converted). Differs from Insights “Qualified → win”, which only measures the qualified subset.',
+    subtitle: (o) =>
+      `${formatNum(o?.kpis?.convertedLeads)} converted of ${formatNum(o?.kpis?.totalLeads)} leads`,
   },
   {
-    key: 'aiTokens',
-    label: 'AI Tokens',
-    href: '/dashboard#crm-brain',
-    icon: Coins,
-    tone: 'bg-amber-50 text-amber-600',
-    format: 'tokens',
+    key: 'overdueFollowups',
+    label: 'Overdue follow-ups',
+    href: '/dashboard',
+    icon: Clock3,
+    tone: 'bg-rose-50 text-rose-600',
+    info: 'Leads whose next follow-up date is in the past. Open Insights → Follow-up dashboard for Today / Tomorrow / Overdue / Completed breakdown.',
+    subtitle: (o) => {
+      const today = formatNum(o?.followups?.today);
+      const tomorrow = formatNum(o?.followups?.tomorrow);
+      return `${today} due today · ${tomorrow} tomorrow`;
+    },
+  },
+  {
+    key: 'alerts',
+    label: 'Active alerts',
+    href: '/dashboard',
+    icon: AlertTriangle,
+    tone: 'bg-amber-50 text-amber-700',
+    info: 'Open CRM risk alerts for your scope. High-priority items should be reviewed first in the Alerts panel.',
+    subtitle: (o) => {
+      const high = (o?.alerts || []).filter((a) => a.severity === 'high').length;
+      return high > 0 ? `${high} high priority` : 'Review CRM risks';
+    },
+  },
+  {
+    key: 'newLeads',
+    label: 'New leads',
+    href: '/leads',
+    icon: Sparkles,
+    tone: 'bg-blue-50 text-blue-600',
+    info: 'New leads in the selected date filter (period total). Today’s pulse shows today’s intake only.',
     subtitle: (o) =>
-      `${formatNum(o?.aiTokens?.remaining ?? o?.kpis?.aiTokensRemaining)} remaining of ${formatNum(o?.aiTokens?.total ?? o?.kpis?.aiTokensTotal)}`,
+      `${formatNum(o?.kpis?.convertedLeads)} converted in period · ${formatNum(o?.kpis?.activeClients)} active clients`,
   },
 ];
 
-function fmt(value: number | null | undefined, format?: KpiDef['format'], overview?: CrmOverview | null) {
+function fmt(value: number | null | undefined, format?: KpiDef['format']) {
   if (value == null) return '—';
   if (format === 'percent') return `${value}%`;
-  if (format === 'tokens') {
-    const total = overview?.aiTokens?.total ?? overview?.kpis?.aiTokensTotal ?? 10000;
-    return `${formatNum(value)} / ${formatNum(total as number)}`;
-  }
   return formatNum(value);
 }
 
@@ -98,8 +91,8 @@ export function CrmKpiGrid({ overview, loading }: Props) {
 
   if (loading && !overview) {
     return (
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, i) => (
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="h-32 animate-pulse rounded-2xl bg-white" />
         ))}
       </div>
@@ -107,10 +100,10 @@ export function CrmKpiGrid({ overview, loading }: Props) {
   }
 
   return (
-    <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-      {KPI_DEFS.map((def, idx) => {
+    <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {INSIGHT_KPI_DEFS.map((def, idx) => {
         const Icon = def.icon;
-        const value = k[def.key];
+        const value = def.resolveValue ? def.resolveValue(overview) : k[def.key];
         return (
           <motion.button
             key={def.key}
@@ -122,14 +115,15 @@ export function CrmKpiGrid({ overview, loading }: Props) {
             onClick={() =>
               openDrillDown(buildKpiDrillDown(overview, def.key, def.label, def.href))
             }
-            className={`${crmCard} group p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md`}
+            className={`${dashCard} group relative overflow-hidden p-4 text-left transition hover:shadow-[0_18px_48px_-24px_rgba(15,23,42,0.2)]`}
           >
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-indigo-500/60 via-blue-400/40 to-teal-400/40 opacity-80" />
             <div className="flex items-start justify-between gap-2">
               <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${def.tone}`}>
                 <Icon size={18} />
               </span>
               <div className="h-9 w-20 opacity-80">
-                {spark.length ? (
+                {spark.length && def.key === 'newLeads' ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={spark}>
                       <Area
@@ -145,9 +139,12 @@ export function CrmKpiGrid({ overview, loading }: Props) {
                 ) : null}
               </div>
             </div>
-            <p className="mt-3 text-[11px] font-medium text-slate-500">{def.label}</p>
+            <div className="mt-3 flex items-center gap-1">
+              <p className="text-[11px] font-medium text-slate-500">{def.label}</p>
+              <HqInfoTip text={def.info} />
+            </div>
             <p className="text-2xl font-bold tracking-tight text-slate-900">
-              {fmt(value as number, def.format, overview)}
+              {fmt(value as number, def.format)}
             </p>
             <p className="mt-1 truncate text-[10px] text-slate-400">
               {def.subtitle?.(overview) || 'Click for details'}

@@ -18,6 +18,7 @@ import { hqPackagesService } from './hq-packages.service.js';
 import { hqAnalyticsService } from './hq-analytics.service.js';
 import { hqCoursesService } from './hq-courses.service.js';
 import { hqTicketsService } from './hq-tickets.service.js';
+import { hqHelpTicketsService } from './hq-help-tickets.service.js';
 
 async function resolvePlanInput(raw, billingCycle, planStartDate) {
   const plan = await hqPackagesService.resolvePlanInput(raw, billingCycle, planStartDate);
@@ -757,6 +758,17 @@ export const hqService = {
   async updateSupportTicket(id, data, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqTicketsService.updateTicket(id, data, reqUser);
+  },
+
+  /** Phase 1 Help-page tickets (candidate portal /help → /api/hq-tickets). */
+  async listHelpTickets(reqUser, filters = {}) {
+    assertPlatformProvisioner(reqUser);
+    return hqHelpTicketsService.listTickets(filters);
+  },
+
+  async updateHelpTicket(id, status, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqHelpTicketsService.updateTicketStatus(id, status);
   },
 
   async listCompanies(reqUser) {

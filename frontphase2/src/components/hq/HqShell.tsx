@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
+import { HqCurrencyProvider } from './HqCurrencyProvider';
 import { HqSidebar, HQ_SIDEBAR_W } from './HqSidebar';
 
 function HqSidebarFallback() {
@@ -18,11 +19,13 @@ function HqSidebarFallback() {
  */
 export function HqShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-slate-50 text-slate-900">
-      <Suspense fallback={<HqSidebarFallback />}>
-        <HqSidebar />
-      </Suspense>
-      <div className="ph2-main-surface min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>
-    </div>
+    <HqCurrencyProvider>
+      <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-slate-50 text-slate-900">
+        <Suspense fallback={<HqSidebarFallback />}>
+          <HqSidebar />
+        </Suspense>
+        <div className="ph2-main-surface min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>
+      </div>
+    </HqCurrencyProvider>
   );
 }

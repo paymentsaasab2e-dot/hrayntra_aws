@@ -6,7 +6,11 @@ import {
   Bell,
   CheckCircle2,
   Info,
+  Mail,
+  MessageCircle,
   Phone,
+  PhoneCall,
+  Users,
 } from 'lucide-react';
 import {
   Area,
@@ -22,11 +26,11 @@ import {
   YAxis,
 } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
-import { crmCard, formatInr, formatNum, relativeTime, useCrmDashboard } from './crmShared';
+import { crmCard, dashCard, formatInr, formatNum, relativeTime, useCrmDashboard } from './crmShared';
 
 const COLORS = ['#3B82F6', '#6366F1', '#10B981', '#F59E0B', '#EC4899', '#06B6D4', '#8B5CF6', '#94A3B8'];
 
-type Props = { overview: CrmOverview | null; loading?: boolean };
+type Props = { overview: CrmOverview | null; loading?: boolean; compact?: boolean };
 
 export function CrmAnalyticsRow({ overview }: Props) {
   const { openDrillDown } = useCrmDashboard();
@@ -177,21 +181,27 @@ export function CrmAnalyticsRow({ overview }: Props) {
   );
 }
 
-export function CrmFollowupActivity({ overview }: Props) {
+export function CrmFollowupActivity({ overview, compact = false }: Props) {
   const { openDrillDown } = useCrmDashboard();
   const fu = overview?.followups;
   const activities = overview?.activityTimeline || [];
 
   return (
-    <div className="grid gap-4 xl:grid-cols-12">
-      <section className={`${crmCard} p-5 xl:col-span-6`}>
-        <h2 className="mb-3 text-sm font-bold text-slate-900">Follow-up Dashboard</h2>
-        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div className={`grid gap-4 ${compact ? 'lg:grid-cols-1' : 'lg:grid-cols-2'}`}>
+      <section className={`${dashCard} relative overflow-hidden rounded-[1.5rem] p-5`}>
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-400 to-lime-400" />
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h2 className="text-[15px] font-bold tracking-tight text-slate-900">Follow-up dashboard</h2>
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold text-slate-500">
+            Today&apos;s queue
+          </span>
+        </div>
+        <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           {[
-            { label: "Today's", value: fu?.today, tone: 'bg-blue-50 text-blue-700' },
-            { label: 'Tomorrow', value: fu?.tomorrow, tone: 'bg-indigo-50 text-indigo-700' },
-            { label: 'Overdue', value: fu?.overdue, tone: 'bg-rose-50 text-rose-700' },
-            { label: 'Completed', value: fu?.completed, tone: 'bg-emerald-50 text-emerald-700' },
+            { label: "Today's", value: fu?.today, tone: 'bg-[#EEF2FF] text-indigo-800', bar: 'bg-indigo-500' },
+            { label: 'Tomorrow', value: fu?.tomorrow, tone: 'bg-violet-50 text-violet-800', bar: 'bg-violet-500' },
+            { label: 'Overdue', value: fu?.overdue, tone: 'bg-rose-50 text-rose-800', bar: 'bg-rose-500' },
+            { label: 'Completed', value: fu?.completed, tone: 'bg-lime-50 text-lime-800', bar: 'bg-lime-500' },
           ].map((c) => (
             <button
               key={c.label}
@@ -210,15 +220,20 @@ export function CrmFollowupActivity({ overview }: Props) {
                   })),
                 })
               }
-              className={`rounded-xl px-3 py-3 text-left ${c.tone}`}
+              className={`rounded-2xl px-3 py-3.5 text-left shadow-[0_8px_24px_-18px_rgba(15,23,42,0.25)] transition hover:-translate-y-0.5 ${c.tone}`}
             >
-              <p className="text-xl font-bold">{formatNum(c.value)}</p>
-              <p className="text-[11px] opacity-80">{c.label}</p>
+              <p className="text-[1.35rem] font-bold tabular-nums tracking-tight">{formatNum(c.value)}</p>
+              <p className="mt-0.5 text-[11px] font-semibold opacity-80">{c.label}</p>
+              <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-white/60">
+                <div className={`h-full w-2/3 rounded-full ${c.bar}`} />
+              </div>
             </button>
           ))}
         </div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Upcoming Follow-ups</p>
-        <ul className="max-h-56 space-y-2 overflow-y-auto">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+          Upcoming follow-ups
+        </p>
+        <ul className={`space-y-1.5 overflow-y-auto pr-1 ${compact ? 'max-h-44' : 'max-h-56'}`}>
           {(fu?.upcoming || []).length ? (
             fu!.upcoming.map((item) => (
               <li key={item.id}>
@@ -240,9 +255,11 @@ export function CrmFollowupActivity({ overview }: Props) {
                       ],
                     })
                   }
-                  className="flex w-full items-start gap-2 rounded-xl border border-slate-100 px-3 py-2 text-left hover:bg-slate-50"
+                  className="flex w-full items-start gap-2.5 rounded-xl border border-slate-100/80 bg-slate-50/40 px-3 py-2.5 text-left transition hover:border-blue-200/60 hover:bg-white"
                 >
-                  <Phone size={14} className="mt-1 text-blue-500" />
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 ring-1 ring-blue-100">
+                    <Phone size={13} className="text-blue-600" />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-slate-800">{item.company}</span>
                     <span className="block text-[11px] text-slate-500">
@@ -258,43 +275,49 @@ export function CrmFollowupActivity({ overview }: Props) {
         </ul>
       </section>
 
-      <section className={`${crmCard} p-5 xl:col-span-6`}>
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">Recent Activities</h2>
-            <p className="text-[11px] text-slate-500">Team activity by your access level</p>
+      {!compact ? (
+        <section className={`${dashCard} relative overflow-hidden p-4 sm:p-5`}>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-emerald-500/60 via-teal-400/40 to-blue-400/40" />
+          <div className="mb-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <span className="h-4 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-teal-400" />
+              Recent activities
+            </h2>
+            <p className="mt-0.5 text-[11px] text-slate-500">Team activity by your access level</p>
           </div>
-        </div>
-        <ul className="max-h-[22rem] space-y-2 overflow-y-auto">
-          {activities.length ? (
-            activities.map((a) => (
-              <li key={a.id}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    openDrillDown({
-                      title: a.label,
-                      rows: [{ detail: a.detail, by: a.performer, at: a.at }],
-                    })
-                  }
-                  className="flex w-full items-start gap-2 rounded-xl px-1 py-1.5 text-left hover:bg-slate-50"
-                >
-                  <CheckCircle2 size={14} className="mt-0.5 text-emerald-500" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-slate-800">{a.label}</span>
-                    <span className="text-[10px] text-slate-400">
-                      {relativeTime(a.at)}
-                      {a.performer ? ` · ${a.performer}` : ''}
+          <ul className="max-h-[22rem] space-y-1.5 overflow-y-auto pr-1">
+            {activities.length ? (
+              activities.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openDrillDown({
+                        title: a.label,
+                        rows: [{ detail: a.detail, by: a.performer, at: a.at }],
+                      })
+                    }
+                    className="flex w-full items-start gap-2.5 rounded-xl px-1 py-1.5 text-left transition hover:bg-slate-50"
+                  >
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 ring-1 ring-emerald-100">
+                      <CheckCircle2 size={13} className="text-emerald-600" />
                     </span>
-                  </span>
-                </button>
-              </li>
-            ))
-          ) : (
-            <li className="text-sm text-slate-400">No recent CRM activity</li>
-          )}
-        </ul>
-      </section>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-800">{a.label}</span>
+                      <span className="text-[10px] text-slate-400">
+                        {relativeTime(a.at)}
+                        {a.performer ? ` · ${a.performer}` : ''}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))
+            ) : (
+              <li className="text-sm text-slate-400">No recent CRM activity</li>
+            )}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -303,51 +326,82 @@ export function CrmCommunication({ overview }: Props) {
   const { openDrillDown } = useCrmDashboard();
   const c = overview?.communication;
   const cards = [
-    { key: 'calls', label: 'Calls', data: c?.calls },
-    { key: 'meetings', label: 'Meetings', data: c?.meetings },
-    { key: 'emails', label: 'Emails', data: c?.emails },
-    { key: 'whatsapp', label: 'WhatsApp', data: c?.whatsapp },
+    { key: 'calls', label: 'Calls', icon: PhoneCall, data: c?.calls, tone: 'text-blue-600 bg-blue-50 ring-blue-100' },
+    { key: 'meetings', label: 'Meetings', icon: Users, data: c?.meetings, tone: 'text-indigo-600 bg-indigo-50 ring-indigo-100' },
+    { key: 'emails', label: 'Emails', icon: Mail, data: c?.emails, tone: 'text-violet-600 bg-violet-50 ring-violet-100' },
+    { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle, data: c?.whatsapp, tone: 'text-emerald-600 bg-emerald-50 ring-emerald-100' },
   ];
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {cards.map((card) => (
-        <button
-          key={card.key}
-          type="button"
-          onClick={() =>
-            openDrillDown({
-              title: card.label,
-              href: '/Task&Activites',
-              rows: [
-                {
-                  completed: card.data?.completed,
-                  pending: card.data?.pending,
-                  cancelled: card.data?.cancelled,
-                  successRate: `${card.data?.successRate ?? 0}%`,
-                },
-              ],
-            })
-          }
-          className={`${crmCard} p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md`}
-        >
-          <p className="text-sm font-bold text-slate-900">{card.label}</p>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-            <div>
-              <p className="text-lg font-bold text-emerald-600">{formatNum(card.data?.completed)}</p>
-              <p className="text-slate-400">Done</p>
-            </div>
-            <div>
-              <p className="text-lg font-bold text-amber-600">{formatNum(card.data?.pending)}</p>
-              <p className="text-slate-400">Pending</p>
-            </div>
-            <div>
-              <p className="text-lg font-bold text-slate-700">{card.data?.successRate ?? 0}%</p>
-              <p className="text-slate-400">Success</p>
-            </div>
-          </div>
-        </button>
-      ))}
+    <section className={`${dashCard} relative overflow-hidden p-4 sm:p-5`}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-blue-500/60 via-indigo-400/40 to-emerald-400/40" />
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <span className="h-4 w-1 rounded-full bg-gradient-to-b from-blue-500 to-emerald-400" />
+          Outreach touchpoints
+        </h2>
+        <p className="text-[11px] text-slate-400">Calls, meetings, email & WhatsApp</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => {
+          const Icon = card.icon;
+          const done = Number(card.data?.completed || 0);
+          const pending = Number(card.data?.pending || 0);
+          const total = done + pending || 1;
+          const donePct = Math.round((done / total) * 100);
+
+          return (
+            <button
+              key={card.key}
+              type="button"
+              onClick={() =>
+                openDrillDown({
+                  title: card.label,
+                  href: '/Task&Activites',
+                  rows: [
+                    {
+                      completed: card.data?.completed,
+                      pending: card.data?.pending,
+                      cancelled: card.data?.cancelled,
+                      successRate: `${card.data?.successRate ?? 0}%`,
+                    },
+                  ],
+                })
+              }
+              className="group rounded-xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/50 p-4 text-left transition hover:border-blue-200/60 hover:shadow-[0_8px_24px_-12px_rgba(37,99,235,0.15)]"
+            >
+              <div className="flex items-center gap-2.5">
+                <span className={`flex h-9 w-9 items-center justify-center rounded-xl ring-1 ${card.tone}`}>
+                  <Icon size={16} />
+                </span>
+                <p className="text-sm font-semibold text-slate-900">{card.label}</p>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-1 border-t border-slate-100 pt-3 text-center">
+                <div>
+                  <p className="text-lg font-bold tabular-nums text-emerald-600">{formatNum(done)}</p>
+                  <p className="text-[10px] text-slate-400">Done</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold tabular-nums text-amber-600">{formatNum(pending)}</p>
+                  <p className="text-[10px] text-slate-400">Pending</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold tabular-nums text-slate-800">
+                    {card.data?.successRate ?? 0}%
+                  </p>
+                  <p className="text-[10px] text-slate-400">Success</p>
+                </div>
+              </div>
+              <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all"
+                  style={{ width: `${donePct}%` }}
+                />
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -628,10 +682,16 @@ export function CrmAlertsPanel({ overview }: Props) {
   const alerts = overview?.alerts || [];
 
   return (
-    <aside className={`${crmCard} flex h-full min-h-[280px] flex-col p-5`}>
-      <div className="mb-3 flex items-center gap-2">
-        <Bell size={16} className="text-blue-600" />
-        <h2 className="text-sm font-bold text-slate-900">Alerts</h2>
+    <aside className={`${dashCard} relative flex h-full min-h-[280px] flex-col overflow-hidden rounded-[1.5rem] p-4 sm:p-5`}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-rose-500 via-amber-400 to-orange-400" />
+      <div className="mb-3 flex items-center gap-2.5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-50 ring-1 ring-rose-100">
+          <Bell size={15} className="text-rose-600" />
+        </span>
+        <div>
+          <h2 className="text-[15px] font-bold tracking-tight text-slate-900">Risk alerts</h2>
+          <p className="text-[10px] font-medium text-slate-400">Warnings only · next steps are separate</p>
+        </div>
         {alerts.length ? (
           <span className="rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">
             {alerts.length}

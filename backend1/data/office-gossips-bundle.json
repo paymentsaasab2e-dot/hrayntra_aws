@@ -1,29 +1,7 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-06T12:23:45.635Z",
+  "updatedAt": "2026-08-07T11:09:15.524Z",
   "communities": [
-    {
-      "id": "c_job_seekers",
-      "name": "Job Seekers Hub",
-      "description": "Share tips, openings, and interview wins with fellow candidates.",
-      "visibility": "public",
-      "ownerId": "system",
-      "ownerName": "Office Gossips",
-      "memberIds": [],
-      "createdAt": "2026-07-25T09:41:20.229Z"
-    },
-    {
-      "id": "c_interview_prep",
-      "name": "Interview Prep Circle",
-      "description": "Practice questions, voice answers, and peer feedback.",
-      "visibility": "public",
-      "ownerId": "system",
-      "ownerName": "Office Gossips",
-      "memberIds": [
-        "9d5194355ec270f0b4a474a8"
-      ],
-      "createdAt": "2026-07-27T09:41:20.229Z"
-    },
     {
       "id": "c_watercooler",
       "name": "Watercooler",
@@ -45,6 +23,28 @@
       "ownerName": "Office Gossips",
       "memberIds": [],
       "createdAt": "2026-07-28T09:41:20.229Z"
+    },
+    {
+      "id": "c_interview_prep",
+      "name": "Interview Prep Circle",
+      "description": "Practice questions, voice answers, and peer feedback.",
+      "visibility": "public",
+      "ownerId": "system",
+      "ownerName": "Office Gossips",
+      "memberIds": [
+        "9d5194355ec270f0b4a474a8"
+      ],
+      "createdAt": "2026-07-27T09:41:20.229Z"
+    },
+    {
+      "id": "c_job_seekers",
+      "name": "Job Seekers Hub",
+      "description": "Share tips, openings, and interview wins with fellow candidates.",
+      "visibility": "public",
+      "ownerId": "system",
+      "ownerName": "Office Gossips",
+      "memberIds": [],
+      "createdAt": "2026-07-25T09:41:20.229Z"
     }
   ],
   "companyPages": [
@@ -264,20 +264,12 @@
   ],
   "comments": [
     {
-      "id": "cm_1",
-      "postId": "p_seed_06",
-      "authorId": "system",
-      "authorName": "Dev M.",
-      "text": "Yes please share the checklist!",
-      "createdAt": "2026-07-30T06:11:20.229Z"
-    },
-    {
-      "id": "cm_2",
-      "postId": "p_seed_01",
-      "authorId": "system",
-      "authorName": "Kabir T.",
-      "text": "Same energy every Thursday. Stay strong.",
-      "createdAt": "2026-07-30T09:23:20.229Z"
+      "id": "cm_msa1dfh1_xyhh9s",
+      "postId": "p_ms9z4l15_kmbbdw",
+      "authorId": "9d5194355ec270f0b4a474a8",
+      "authorName": "demo 1",
+      "text": "hi",
+      "createdAt": "2026-08-01T07:14:43.477Z"
     },
     {
       "id": "cm_3",
@@ -288,6 +280,14 @@
       "createdAt": "2026-07-30T09:29:20.229Z"
     },
     {
+      "id": "cm_2",
+      "postId": "p_seed_01",
+      "authorId": "system",
+      "authorName": "Kabir T.",
+      "text": "Same energy every Thursday. Stay strong.",
+      "createdAt": "2026-07-30T09:23:20.229Z"
+    },
+    {
       "id": "cm_4",
       "postId": "p_seed_05",
       "authorId": "system",
@@ -296,28 +296,15 @@
       "createdAt": "2026-07-30T07:11:20.229Z"
     },
     {
-      "id": "cm_msa1dfh1_xyhh9s",
-      "postId": "p_ms9z4l15_kmbbdw",
-      "authorId": "9d5194355ec270f0b4a474a8",
-      "authorName": "demo 1",
-      "text": "hi",
-      "createdAt": "2026-08-01T07:14:43.477Z"
+      "id": "cm_1",
+      "postId": "p_seed_06",
+      "authorId": "system",
+      "authorName": "Dev M.",
+      "text": "Yes please share the checklist!",
+      "createdAt": "2026-07-30T06:11:20.229Z"
     }
   ],
   "identities": {
-    "b1c869d84e75048c5c61c5e3": {
-      "userId": "b1c869d84e75048c5c61c5e3",
-      "createdAt": "2026-07-30T06:00:26.749Z",
-      "updatedAt": "2026-07-30T06:00:26.749Z",
-      "isAnonymous": true,
-      "username": "keen_owl83",
-      "showInCompanyConnections": true,
-      "availableForReferenceCheck": true,
-      "referenceFeeTokens": 5,
-      "completedReferenceChecks": 0,
-      "allowPeopleToFollow": true,
-      "followAnonymously": true
-    },
     "9d5194355ec270f0b4a474a8": {
       "userId": "9d5194355ec270f0b4a474a8",
       "createdAt": "2026-07-30T09:41:25.865Z",

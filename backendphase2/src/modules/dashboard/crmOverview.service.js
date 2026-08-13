@@ -31,6 +31,53 @@ function countByStatus(groups, keys) {
   }, 0);
 }
 
+function dayKeyList(days = 14) {
+  const out = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+/** Daily + cumulative engagement for top records (real task/activity timestamps). */
+function buildEntityCompare(entities, events, days = 14) {
+  const keys = dayKeyList(days);
+  const byId = new Map((entities || []).map((e) => [String(e.id), new Map()]));
+  for (const ev of events || []) {
+    const id = String(ev.entityId || '');
+    if (!id || !byId.has(id)) continue;
+    const d = new Date(ev.at || 0);
+    if (!Number.isFinite(d.getTime())) continue;
+    const key = d.toISOString().slice(0, 10);
+    const bucket = byId.get(id);
+    bucket.set(key, (bucket.get(key) || 0) + 1);
+  }
+  const lines = (entities || [])
+    .map((e) => {
+      const bucket = byId.get(String(e.id)) || new Map();
+      const daily = keys.map((k) => bucket.get(k) || 0);
+      let run = 0;
+      const cumulative = daily.map((v) => {
+        run += v;
+        return run;
+      });
+      return {
+        id: String(e.id),
+        name: String(e.name || 'Record').slice(0, 28),
+        values: cumulative,
+        total: run,
+      };
+    })
+    .filter((l) => l.total > 0);
+  return {
+    days: keys.map((k) => k.slice(5)),
+    lines,
+  };
+}
+
 function sparkFromDaily(rows, days = 7) {
   const map = new Map();
   for (const row of rows || []) {
@@ -65,6 +112,7 @@ export async function getCrmOverview(req) {
   const { start: startTomorrow, end: endTomorrow } = dayBounds(tomorrow);
   const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const daysAgo7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const daysAgo14 = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const daysAgo30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const daysAgo60 = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
@@ -969,6 +1017,106 @@ export async function getCrmOverview(req) {
     }
   }
 
+  const topLeadEntities = [...(leadRows || [])]
+    .map((l) => ({
+      id: String(l.id),
+      name: l.companyName || l.contactName || l.directorName || 'Lead',
+      score: Number(leadTouchMap.get(String(l.id))?.total || 0) * 10 + parseMoney(l.expectedBusinessValue) / 1000,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+  const topClientEntities = [...(clientRows || [])]
+    .map((c) => ({
+      id: String(c.id),
+      name: c.companyName || 'Client',
+      score:
+        parseMoney(c.expectedBusinessValue) / 1000 +
+        (c.lastActivity ? new Date(c.lastActivity).getTime() / 1e12 : 0),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+  const topLeadIds = topLeadEntities.map((e) => e.id).filter(Boolean);
+  const topClientIds = topClientEntities.map((e) => e.id).filter(Boolean);
+
+  const [topLeadActs, topClientActs, topLeadDoneTasks, topClientDoneTasks] = await Promise.all([
+    topLeadIds.length
+      ? prisma.activity
+          .findMany({
+            where: {
+              entityType: 'LEAD',
+              entityId: { in: topLeadIds },
+              createdAt: { gte: daysAgo14 },
+            },
+            select: { entityId: true, createdAt: true },
+            take: 3000,
+          })
+          .catch(() => [])
+      : [],
+    topClientIds.length
+      ? prisma.activity
+          .findMany({
+            where: {
+              createdAt: { gte: daysAgo14 },
+              OR: [
+                { entityType: 'CLIENT', entityId: { in: topClientIds } },
+                { clientId: { in: topClientIds } },
+              ],
+            },
+            select: { entityId: true, clientId: true, createdAt: true },
+            take: 3000,
+          })
+          .catch(() => [])
+      : [],
+    topLeadIds.length
+      ? prisma.task
+          .findMany({
+            where: {
+              linkedEntityId: { in: topLeadIds },
+              status: 'DONE',
+              updatedAt: { gte: daysAgo14 },
+            },
+            select: { linkedEntityId: true, updatedAt: true, dueDate: true },
+            take: 3000,
+          })
+          .catch(() => [])
+      : [],
+    topClientIds.length
+      ? prisma.task
+          .findMany({
+            where: {
+              linkedEntityId: { in: topClientIds },
+              status: 'DONE',
+              updatedAt: { gte: daysAgo14 },
+            },
+            select: { linkedEntityId: true, updatedAt: true, dueDate: true },
+            take: 3000,
+          })
+          .catch(() => [])
+      : [],
+  ]);
+
+  const leadCompareEvents = [
+    ...(topLeadActs || []).map((a) => ({ entityId: a.entityId, at: a.createdAt })),
+    ...(topLeadDoneTasks || []).map((t) => ({
+      entityId: t.linkedEntityId,
+      at: t.updatedAt || t.dueDate,
+    })),
+  ];
+  const clientCompareEvents = [
+    ...(topClientActs || []).map((a) => ({
+      entityId: a.clientId || a.entityId,
+      at: a.createdAt,
+    })),
+    ...(topClientDoneTasks || []).map((t) => ({
+      entityId: t.linkedEntityId,
+      at: t.updatedAt || t.dueDate,
+    })),
+  ];
+  const entityCompare = {
+    leads: buildEntityCompare(topLeadEntities, leadCompareEvents, 14),
+    clients: buildEntityCompare(topClientEntities, clientCompareEvents, 14),
+  };
+
   const aiTokens = {
     total: 10000,
     used: Math.min(
@@ -1054,6 +1202,7 @@ export async function getCrmOverview(req) {
     countries,
     clientGrowth,
     leadSpark,
+    entityCompare,
     aiTokens,
     leadsTable: (leadRows || []).map((l) => {
       const touches = leadTouchMap.get(String(l.id)) || emptyTouchBucket();

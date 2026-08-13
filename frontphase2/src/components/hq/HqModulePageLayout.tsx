@@ -47,6 +47,10 @@ type HqModulePageLayoutProps = {
  * HQ page chrome mirrored from Phase 2 `Ph2ModulePageLayout`:
  * frosted header → content column → SummaryCards → table card.
  * Height is `100dvh` (HQ has no tenant top bar).
+ *
+ * `locked` (default): viewport-fixed list pages — only an inner table panel scrolls.
+ * `locked={false}`: dashboards — the main content column scrolls (parent CSS also
+ * locks `.ph2-main-surface:has(.ph2-page-shell)` to overflow:hidden).
  */
 export function HqModulePageLayout({
   title,
@@ -59,8 +63,8 @@ export function HqModulePageLayout({
 }: HqModulePageLayoutProps) {
   return (
     <div
-      className={`ph2-page-shell flex w-full flex-col overflow-hidden text-slate-900 ${
-        locked ? 'h-[100dvh]' : 'min-h-[100dvh]'
+      className={`ph2-page-shell flex h-full min-h-0 w-full flex-col overflow-hidden text-slate-900 ${
+        locked ? '' : 'ph2-page-shell--scroll'
       }`}
     >
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -76,14 +80,22 @@ export function HqModulePageLayout({
               ) : null}
             </div>
           </div>
-          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          {actions ? (
+            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>
+          ) : null}
         </header>
         <div
-          className={`flex min-h-0 flex-1 flex-col px-3 py-4 sm:px-5 sm:py-6 lg:px-6 ${
-            locked ? 'overflow-hidden' : 'overflow-y-auto'
+          className={`min-h-0 flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-6 ${
+            locked ? 'flex flex-col overflow-hidden' : 'overflow-y-auto overscroll-y-contain'
           }`}
         >
-          <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col">
+          <div
+            className={
+              locked
+                ? 'mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col'
+                : 'mx-auto w-full max-w-[1600px] pb-10'
+            }
+          >
             {children}
           </div>
         </div>

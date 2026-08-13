@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Area,
@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock3,
+  ExternalLink,
   Globe2,
   LogIn,
   MapPin,
@@ -30,16 +31,25 @@ import {
   MousePointerClick,
   Radio,
   RefreshCcw,
+  Search,
+  Ticket,
   Trophy,
   Upload,
   UserPlus,
   Users,
   Zap,
 } from 'lucide-react';
+import Link from 'next/link';
 import type { HqEmployeeAnalytics } from '@/lib/api';
+import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';
 import { HQ_SVG_ASSETS, HqSvgKpiCard } from './HqSvgKpiCard';
 import { HqInfoTip } from './HqPhase2DashboardParts';
 import { HqDashCategoryTabs } from './HqDashCategoryTabs';
+
+const HQ_DASH_BTN_PRIMARY =
+  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50';
+const HQ_DASH_BTN_SECONDARY =
+  'inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)] transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50';
 
 const INDIGO = '#6366F1';
 const PURPLE = '#8B5CF6';
@@ -50,8 +60,50 @@ const BLUE = '#3B82F6';
 const GOLD = '#EAB308';
 const SOURCE_COLORS = ['#6366F1', '#8B5CF6', '#14B8A6', '#F97316', '#3B82F6', '#64748B'];
 const INTERVIEW_COLORS = ['#F59E0B', '#6366F1', '#22C55E', '#94A3B8', '#EF4444'];
-const FUNNEL_COLORS = ['#6366F1', '#8B5CF6', '#A855F7', '#F97316', '#FBBF24', '#22C55E'];
+/** Distinct hues — avoid adjacent indigo/violet twins that read as the same shade */
+const FUNNEL_COLORS = ['#3B82F6', '#14B8A6', '#EF4444', '#F97316', '#FBBF24', '#22C55E'];
 const CATEGORY_COLORS = ['#6366F1', '#8B5CF6', '#14B8A6', '#F97316', '#94A3B8'];
+
+/** Behaviour flags that matter for CRM follow-up / sales. */
+const CRM_IMPORTANT_SIGNAL_RE =
+  /sales[_\s-]?follow[_\s-]?up|high[_\s-]?intent|premium|did not purchase|no[_\s-]?purchase|company research|keyword|ats gap|shallow premium/i;
+
+const TIMELINE_OPTIONS = [
+  { id: '1h', label: '1 hour', days: 0, hours: 1 },
+  { id: '1d', label: 'Day', days: 1, hours: 0 },
+  { id: '7d', label: 'Week', days: 7, hours: 0 },
+  { id: '30d', label: 'Month', days: 30, hours: 0 },
+  { id: '90d', label: '3 months', days: 90, hours: 0 },
+  { id: '365d', label: 'Year', days: 365, hours: 0 },
+] as const;
+
+type TimelineId = (typeof TIMELINE_OPTIONS)[number]['id'];
+
+function timelineCutoffMs(id: TimelineId, now = Date.now()) {
+  const opt = TIMELINE_OPTIONS.find((t) => t.id === id) || TIMELINE_OPTIONS[2];
+  const ms = (opt.days || 0) * 86400000 + (opt.hours || 0) * 3600000;
+  return now - Math.max(ms, 60 * 60 * 1000);
+}
+
+function sliceDailySeries(
+  rows: Array<{ name: string; value: number }>,
+  timeline: TimelineId,
+) {
+  if (!rows.length) return rows;
+  if (timeline === '1h' || timeline === '1d') return rows.slice(-1);
+  if (timeline === '7d') return rows.slice(-7);
+  if (timeline === '30d') return rows.slice(-30);
+  if (timeline === '90d') return rows.slice(-90);
+  return rows;
+}
+
+function isImportantCrmSignal(name: string) {
+  return CRM_IMPORTANT_SIGNAL_RE.test(String(name || ''));
+}
+
+function signalDisplayName(name: string) {
+  return String(name || '').replace(/_/g, ' ');
+}
 
 type Props = {
   data: HqEmployeeAnalytics | null;
@@ -104,14 +156,46 @@ function seriesToSpark(rows: { value: number }[]) {
 }
 
 function formatDurationMs(ms: number | null | undefined) {
-  if (ms == null || !Number.isFinite(Number(ms)) || Number(ms) <= 0) return '—';
-  const totalSec = Math.round(Number(ms) / 1000);
+  if (ms == null || !Number.isFinite(Number(ms)) || Number(ms) < 0) return '—';
+  const totalSec = Math.floor(Number(ms) / 1000);
   if (totalSec < 60) return `${totalSec}s`;
   const mins = Math.floor(totalSec / 60);
-  if (mins < 60) return `${mins}m`;
+  const secs = totalSec % 60;
+  if (mins < 60) return `${mins}m ${String(secs).padStart(2, '0')}s`;
   const hours = Math.floor(mins / 60);
   const rem = mins % 60;
-  return rem ? `${hours}h ${rem}m` : `${hours}h`;
+  return `${hours}h ${String(rem).padStart(2, '0')}m`;
+}
+
+/** Tick every second so open-session durations advance without reload. */
+function useLiveNowMs(enabled = true, intervalMs = 1000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!enabled) return;
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [enabled, intervalMs]);
+  return now;
+}
+
+function liveSessionDurationMs(
+  row: {
+    loginAt?: string | null;
+    logoutAt?: string | null;
+    durationMs?: number;
+    status?: string;
+    isActive?: boolean;
+  },
+  nowMs: number,
+) {
+  const open = row.status === 'online' || (Boolean(row.isActive) && !row.logoutAt);
+  if (open && row.loginAt) {
+    const loginMs = new Date(row.loginAt).getTime();
+    if (Number.isFinite(loginMs) && loginMs <= nowMs) {
+      return Math.max(0, nowMs - loginMs);
+    }
+  }
+  return typeof row.durationMs === 'number' && row.durationMs > 0 ? row.durationMs : null;
 }
 
 function formatClock(isoStr: string | null | undefined) {
@@ -330,8 +414,13 @@ const EMPLOYEE_CATEGORY_TABS = [
   {
     id: 'engagement',
     label: 'Engagement & sessions',
+    blurb: 'Login sessions, duration, devices, and geo locations',
+  },
+  {
+    id: 'live',
+    label: 'Live tracking',
     blurb:
-      'Premium services, entry points, interests, Office Gossip / chat, sessions & geo',
+      'Behaviour engine — premium usage, features, entry points, Office Gossip, interests, page mix & live feed',
   },
 ] as const;
 
@@ -351,6 +440,13 @@ export function HqPhase1CommandDashboard({
   const [appRange, setAppRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
   const [candRange, setCandRange] = useState<'Daily' | 'Monthly'>('Monthly');
   const [category, setCategory] = useState<(typeof EMPLOYEE_CATEGORY_TABS)[number]['id']>('growth');
+  const [timeline, setTimeline] = useState<TimelineId>('7d');
+  const [feedSearch, setFeedSearch] = useState('');
+  const [feedSuggestOpen, setFeedSuggestOpen] = useState(false);
+  const [feedCategory, setFeedCategory] = useState('all');
+  const [feedRegion, setFeedRegion] = useState('all');
+  const [feedSort, setFeedSort] = useState<'latest' | 'oldest' | 'visits' | 'active'>('latest');
+  const feedSearchWrapRef = useRef<HTMLDivElement>(null);
 
   const totalCandidates = num(k?.totalCandidates);
   const newCandidates = num(k?.new30d ?? k?.new7d);
@@ -375,11 +471,19 @@ export function HqPhase1CommandDashboard({
   const jobsMonth = num(k?.jobsPosted30d);
 
   const candidatesMonthly = useMemo(() => mapPoints(c?.candidatesOverTime), [c]);
-  const candidatesDaily = useMemo(() => mapPoints(c?.candidatesDaily), [c]);
+  const candidatesDailyRaw = useMemo(() => mapPoints(c?.candidatesDaily), [c]);
+  const candidatesDaily = useMemo(
+    () => sliceDailySeries(candidatesDailyRaw, timeline),
+    [candidatesDailyRaw, timeline],
+  );
   const candidatesOverTime = candRange === 'Daily' ? candidatesDaily : candidatesMonthly;
 
   const applicationsMonthly = useMemo(() => mapPoints(c?.applicationsOverTime), [c]);
-  const applicationsDaily = useMemo(() => mapPoints(c?.applicationsDaily), [c]);
+  const applicationsDailyRaw = useMemo(() => mapPoints(c?.applicationsDaily), [c]);
+  const applicationsDaily = useMemo(
+    () => sliceDailySeries(applicationsDailyRaw, timeline),
+    [applicationsDailyRaw, timeline],
+  );
   const applicationsWeekly = useMemo(() => {
     if (!applicationsDaily.length) return [];
     const chunks: { name: string; value: number }[] = [];
@@ -399,7 +503,10 @@ export function HqPhase1CommandDashboard({
     return applicationsMonthly;
   }, [appRange, applicationsDaily, applicationsWeekly, applicationsMonthly]);
 
-  const loginsDaily = useMemo(() => mapPoints(c?.loginsDaily), [c]);
+  const loginsDaily = useMemo(
+    () => sliceDailySeries(mapPoints(c?.loginsDaily), timeline),
+    [c, timeline],
+  );
   const candGrowth = growthPct(sumLast(candidatesDaily, 7), sumPrior(candidatesDaily, 7));
   const newGrowth = growthPct(new1d, Math.max(new7d - new1d, 0));
   const appGrowth = growthPct(sumLast(applicationsDaily, 7), sumPrior(applicationsDaily, 7));
@@ -476,13 +583,35 @@ export function HqPhase1CommandDashboard({
   const loginsByCity = useMemo(() => mapPoints(c?.loginsByCity).slice(0, 6), [c]);
   const loginsByDevice = useMemo(() => withPct(mapPoints(c?.loginsByDevice)), [c]);
   const recentSessions = t?.recentSessions || [];
+  const timelineCutoff = useMemo(() => timelineCutoffMs(timeline), [timeline]);
+  const filteredSessions = useMemo(() => {
+    return recentSessions.filter((row) => {
+      const ms = row.loginAt ? new Date(row.loginAt).getTime() : NaN;
+      return Number.isFinite(ms) && ms >= timelineCutoff;
+    });
+  }, [recentSessions, timelineCutoff]);
   const loginsToday = num(k?.loginsToday);
   const logins7d = num(k?.logins7d);
   const activeSessions = Math.max(
     num(k?.activeSessions),
     hasLiveTracker ? num(liveTracking?.onlineNow) : 0,
   );
-  const avgSessionMs = k?.avgSessionDurationMs ?? liveTracking?.avgActiveMsPerUser7d ?? null;
+  const hasOpenSessions = recentSessions.some(
+    (r) => r.status === 'online' || (Boolean(r.isActive) && !r.logoutAt),
+  );
+  const nowMs = useLiveNowMs(
+    category === 'engagement' || category === 'live' || hasOpenSessions,
+  );
+  const avgSessionMs = useMemo(() => {
+    const open = filteredSessions.filter(
+      (r) => r.status === 'online' || (Boolean(r.isActive) && !r.logoutAt),
+    );
+    if (open.length) {
+      const sum = open.reduce((acc, row) => acc + (liveSessionDurationMs(row, nowMs) || 0), 0);
+      return Math.round(sum / open.length);
+    }
+    return k?.avgSessionDurationMs ?? liveTracking?.avgActiveMsPerUser7d ?? null;
+  }, [filteredSessions, nowMs, k?.avgSessionDurationMs, liveTracking?.avgActiveMsPerUser7d]);
   const liveVisits7d = num(k?.liveVisits7d ?? liveTracking?.totalVisits7d);
   const liveApplies7d = num(k?.liveApplies7d ?? liveTracking?.totalApplies7d);
   const liveJobClicks7d = num(k?.liveJobClicks7d ?? liveTracking?.totalJobClicks7d);
@@ -493,50 +622,233 @@ export function HqPhase1CommandDashboard({
     [liveTracking],
   );
   const liveTriggers = useMemo(
-    () => mapPoints(liveTracking?.topTriggers).slice(0, 5),
+    () => mapPoints(liveTracking?.topTriggers).slice(0, 8),
     [liveTracking],
   );
   const liveFeed = liveTracking?.liveFeed || [];
 
-  /** Most → least used candidate features (popularFeatures / page mix / KPI fallback). */
-  const featureUsageRanked = useMemo(() => {
-    const fromPopular = mapPoints(liveTracking?.popularFeatures).map((d) => ({
-      name: String(d.name),
-      value: d.value,
-    }));
-    const fromPages = mapPoints(liveTracking?.pageVisitsByCategory).map((d) => ({
-      name: String(d.name),
-      value: d.value,
-    }));
-    const fromTriggers = mapPoints(liveTracking?.topTriggers).map((d) => ({
-      name: String(d.name).replace(/_/g, ' '),
-      value: d.value,
-    }));
+  const feedCategoryOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of liveFeed) {
+      if (row.topFirstOpen) set.add(String(row.topFirstOpen));
+      if (row.topInterest) set.add(`Interest · ${row.topInterest}`);
+    }
+    return ['all', ...[...set].sort()];
+  }, [liveFeed]);
 
-    let rows = fromPopular.length
-      ? fromPopular
-      : fromPages.length
-        ? fromPages
-        : fromTriggers;
+  const feedRegionOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of recentSessions) {
+      if (row.country && row.country !== '—') set.add(String(row.country));
+      if (row.state && row.state !== '—') set.add(String(row.state));
+    }
+    return ['all', ...[...set].sort()];
+  }, [recentSessions]);
+
+  const sessionUserRegion = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of recentSessions) {
+      const id = String(row.candidateId || '');
+      if (!id) continue;
+      const region = [row.city, row.state, row.country].filter((p) => p && p !== '—').join(', ');
+      if (region) map.set(id, region);
+    }
+    return map;
+  }, [recentSessions]);
+
+  const candidateNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of recentSessions) {
+      const id = String(row.candidateId || '');
+      if (!id) continue;
+      if (row.candidate) map.set(id, String(row.candidate));
+    }
+    return map;
+  }, [recentSessions]);
+
+  const liveScopeActive = Boolean(
+    feedSearch.trim() || feedCategory !== 'all' || feedRegion !== 'all',
+  );
+
+  const liveSearchSuggestions = useMemo(() => {
+    const q = feedSearch.trim().toLowerCase();
+    if (!q) return [] as Array<{ id: string; label: string; sub?: string; apply: string }>;
+    const seen = new Set<string>();
+    const out: Array<{ id: string; label: string; sub?: string; apply: string }> = [];
+    const push = (id: string, label: string, sub: string | undefined, apply: string) => {
+      const key = `${label}|${apply}`.toLowerCase();
+      if (seen.has(key)) return;
+      const hay = `${label} ${sub || ''} ${apply}`.toLowerCase();
+      if (!hay.includes(q)) return;
+      seen.add(key);
+      out.push({ id, label, sub, apply });
+    };
+    for (const row of liveFeed) {
+      const uid = String(row.userId || '');
+      const name = candidateNameById.get(uid);
+      const region = sessionUserRegion.get(uid);
+      if (name) push(`name-${uid}`, name, region || uid, name);
+      if (uid) push(`user-${uid}`, uid, name || row.topInterest || 'User id', uid);
+      if (row.topInterest) {
+        push(`int-${row.topInterest}`, String(row.topInterest), 'Interest', String(row.topInterest));
+      }
+      if (row.topFirstOpen) {
+        push(
+          `land-${row.topFirstOpen}`,
+          String(row.topFirstOpen),
+          'Landing',
+          String(row.topFirstOpen),
+        );
+      }
+      if (row.topTrigger) {
+        push(`trig-${row.topTrigger}`, String(row.topTrigger), 'Signal', String(row.topTrigger));
+      }
+    }
+    for (const [id, name] of candidateNameById) {
+      push(`sess-${id}`, name, id, name);
+    }
+    return out.slice(0, 10);
+  }, [feedSearch, liveFeed, candidateNameById, sessionUserRegion]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!feedSearchWrapRef.current?.contains(e.target as Node)) {
+        setFeedSuggestOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const filteredLiveFeed = useMemo(() => {
+    const q = feedSearch.trim().toLowerCase();
+    let rows = liveFeed.filter((row) => {
+      const at = row.activityStateUpdatedAt || row.capturedAt;
+      const ms = at ? new Date(at).getTime() : NaN;
+      if (Number.isFinite(ms) && ms < timelineCutoff) return false;
+
+      if (feedCategory !== 'all') {
+        const landing = String(row.topFirstOpen || '');
+        const interest = row.topInterest ? `Interest · ${row.topInterest}` : '';
+        if (landing !== feedCategory && interest !== feedCategory) return false;
+      }
+
+      if (feedRegion !== 'all') {
+        const region = sessionUserRegion.get(String(row.userId)) || '';
+        if (!region.toLowerCase().includes(feedRegion.toLowerCase())) return false;
+      }
+
+      if (q) {
+        const name = candidateNameById.get(String(row.userId)) || '';
+        const hay = [
+          row.userId,
+          name,
+          row.topTrigger,
+          row.topInterest,
+          row.topFirstOpen,
+          sessionUserRegion.get(String(row.userId)),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    rows = [...rows].sort((a, b) => {
+      if (feedSort === 'visits') return (b.visits7d || 0) - (a.visits7d || 0);
+      if (feedSort === 'active') return (b.activeMs7d || 0) - (a.activeMs7d || 0);
+      const am = new Date(a.activityStateUpdatedAt || a.capturedAt || 0).getTime();
+      const bm = new Date(b.activityStateUpdatedAt || b.capturedAt || 0).getTime();
+      return feedSort === 'oldest' ? am - bm : bm - am;
+    });
+    return rows;
+  }, [
+    liveFeed,
+    timelineCutoff,
+    feedCategory,
+    feedRegion,
+    feedSearch,
+    feedSort,
+    sessionUserRegion,
+    candidateNameById,
+  ]);
+
+  /** When searching/filtering a candidate, pulse stats follow the matched users. */
+  const scopedLivePulse = useMemo(() => {
+    if (!liveScopeActive) return null;
+    const rows = filteredLiveFeed;
+    return {
+      trackedUsers: rows.length,
+      onlineNow: rows.filter((r) => {
+        const at = r.activityStateUpdatedAt || r.capturedAt;
+        const ms = at ? new Date(at).getTime() : NaN;
+        return Number.isFinite(ms) && Date.now() - ms <= 2 * 60 * 1000;
+      }).length,
+      visits: rows.reduce((s, r) => s + (Number(r.visits7d) || 0), 0),
+      jobClicks: rows.reduce((s, r) => s + (Number(r.jobCardClicks7d) || 0), 0),
+      applies: rows.reduce((s, r) => s + (Number(r.applies7d) || 0), 0),
+      activeMs: rows.reduce((s, r) => s + (Number(r.activeMs7d) || 0), 0),
+    };
+  }, [liveScopeActive, filteredLiveFeed]);
+
+  const displayTrackedUsers = scopedLivePulse ? scopedLivePulse.trackedUsers : liveTrackedUsers;
+  const displayOnline = scopedLivePulse ? scopedLivePulse.onlineNow : activeSessions;
+  const displayVisits = scopedLivePulse ? scopedLivePulse.visits : liveVisits7d;
+  const displayJobClicks = scopedLivePulse ? scopedLivePulse.jobClicks : liveJobClicks7d;
+  const displayApplies = scopedLivePulse ? scopedLivePulse.applies : liveApplies7d;
+  const displayActiveMs = scopedLivePulse ? scopedLivePulse.activeMs : liveActiveMs7d;
+
+  const timelineLabel =
+    TIMELINE_OPTIONS.find((t) => t.id === timeline)?.label || 'Week';
+
+  const clearLiveFilters = () => {
+    setFeedSearch('');
+    setFeedCategory('all');
+    setFeedRegion('all');
+    setFeedSort('latest');
+    setFeedSuggestOpen(false);
+  };
+
+  /** Most → least used portal features (paid / free) — never HQ insight alerts. */
+  const featureUsageRanked = useMemo(() => {
+    const isInsightNoise = (name: string) =>
+      /visited services but did not purchase|did not purchase|without applying|hesitat|incomplete profile|short visits on premium|hq[_ ]/i.test(
+        name,
+      );
+
+    const fromPopular = mapPoints(liveTracking?.popularFeatures)
+      .filter((d) => !isInsightNoise(String(d.name)))
+      .map((d) => ({
+        name: String(d.name),
+        value: d.value,
+      }));
+    const fromPages = mapPoints(liveTracking?.pageVisitsByCategory)
+      .filter((d) => !/other portal|^\s*other\s*$/i.test(String(d.name)))
+      .map((d) => ({
+        name: String(d.name),
+        value: d.value,
+      }));
+
+    let rows = fromPopular.length ? fromPopular : fromPages;
     if (!rows.length) {
       rows = [
-        { name: 'Applications', value: applications },
-        { name: 'Job clicks (7d)', value: liveJobClicks7d },
-        { name: 'Visits (7d)', value: liveVisits7d },
-        { name: 'AI matches', value: aiMatches },
-        { name: 'CV analyses', value: num(k?.cvAnalyses) },
-        { name: 'LMS enrollments', value: num(k?.lmsEnrollments) },
-        { name: 'Saved jobs', value: num(k?.savedJobs) },
-        { name: 'Interview requests', value: interviewReqs },
-        { name: 'Resumes uploaded', value: totalResumes },
+        { name: 'Free · AI job matching', value: aiMatches },
+        { name: 'Free · My applications', value: applications },
+        { name: 'Free · Explore jobs clicks', value: liveJobClicks7d },
+        { name: 'Paid · AI CV analyses', value: num(k?.cvAnalyses) },
+        { name: 'Free / paid · LMS enrollments', value: num(k?.lmsEnrollments) },
+        { name: 'Free · Saved jobs', value: num(k?.savedJobs) },
+        { name: 'Free · Interview requests', value: interviewReqs },
+        { name: 'Free · Resumes uploaded', value: totalResumes },
       ];
     }
-    return rankUsageRows(rows);
+    return rankUsageRows(rows.filter((r) => r.value > 0 && !isInsightNoise(r.name)));
   }, [
     liveTracking,
     applications,
     liveJobClicks7d,
-    liveVisits7d,
     aiMatches,
     k,
     interviewReqs,
@@ -544,9 +856,13 @@ export function HqPhase1CommandDashboard({
   ]);
 
   const premiumServicesRanked = useMemo(() => {
-    const rows = mapPoints(liveTracking?.premiumServicesUsage).map((d) => ({
+    const rows = (liveTracking?.premiumServicesUsage || []).map((d) => ({
       name: String(d.name),
       value: d.value,
+      hint:
+        (d as { tokens?: number }).tokens != null && Number((d as { tokens?: number }).tokens) > 0
+          ? `${fmt(Number((d as { tokens?: number }).tokens))} tokens`
+          : undefined,
     }));
     if (rows.length) return rankUsageRows(rows);
     const fallback = mapPoints(liveTracking?.pageVisitsByCategory)
@@ -567,6 +883,22 @@ export function HqPhase1CommandDashboard({
   }, [liveTracking]);
 
   const communityRanked = useMemo(() => {
+    const og = liveTracking?.officeGossip;
+    if (og?.available || (og && (og.usersOnOfficeGossip || og.referenceChecks))) {
+      const summary = og.referenceChecksSummary || {};
+      return rankUsageRows(
+        [
+          { name: 'Users on Office Gossip', value: Number(og.usersOnOfficeGossip) || 0 },
+          { name: 'Ref checks initiated', value: Number(summary.initiated) || 0 },
+          { name: 'Ref checks responded', value: Number(summary.responded) || 0 },
+          { name: 'Ref checks completed', value: Number(summary.completed) || 0 },
+          { name: 'Ref checks rejected', value: Number(summary.rejected) || 0 },
+          { name: 'Open for reference', value: Number(og.openForReference) || 0 },
+          { name: 'Communities', value: Number(og.communities) || 0 },
+          { name: 'Posts', value: Number(og.posts) || 0 },
+        ].filter((r) => r.value > 0),
+      );
+    }
     const rows = mapPoints(liveTracking?.communityBehavior).map((d) => ({
       name: String(d.name),
       value: d.value,
@@ -580,14 +912,21 @@ export function HqPhase1CommandDashboard({
   }, [liveTracking]);
 
   const topInterestsRanked = useMemo(() => {
-    const rows = (liveTracking?.topInterests || []).map((d) => ({
-      name: String(d.name),
-      value: Number(d.scoreSum ?? d.value) || 0,
-      hint:
-        d.avgScore != null
-          ? `${fmt(Number(d.value))} users · avg ${Math.round(Number(d.avgScore))}`
-          : undefined,
-    }));
+    const rows = (liveTracking?.topInterests || []).map((d) => {
+      const users = Number((d as { users?: number }).users ?? 0) || 0;
+      const scoreSum = Number(d.scoreSum ?? d.value) || 0;
+      const avg = d.avgScore != null ? Math.round(Number(d.avgScore)) : null;
+      return {
+        name: String(d.name),
+        value: scoreSum,
+        hint:
+          avg != null
+            ? `${fmt(users || Number(d.value) || 0)} users · avg ${avg}`
+            : users
+              ? `${fmt(users)} users`
+              : undefined,
+      };
+    });
     if (rows.length) return rankUsageRows(rows);
     return rankUsageRows(
       mapPoints(liveTracking?.trendingTopics)
@@ -720,42 +1059,50 @@ export function HqPhase1CommandDashboard({
   const maxFunnel = Math.max(...funnel.map((f) => f.value), 1);
 
   return (
-    <div className="hq-dash-page min-h-full text-slate-900">
-      <div className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 xl:px-8">
-        <header className="hq-dash-card mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-white/80 bg-white/75 px-4 py-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:px-6">
-          <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/80">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                Live
-              </span>
-            </div>
-            <h1 className="hq-display text-[1.75rem] font-bold tracking-tight text-slate-900 sm:text-[2rem]">
-              Employees dashboard
-            </h1>
-            <p className="mt-1.5 text-sm font-medium text-slate-500">
-              Talent platform overview · portal analytics
-            </p>
-            <p className="mt-1 text-[11px] text-slate-400">
+    <HqModulePageLayout
+      title="Employees dashboard"
+      subtitle="Talent platform overview · portal analytics"
+      icon={<Users className="h-5 w-5" />}
+      locked={false}
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/hq/candidates" prefetch={false} className={HQ_DASH_BTN_SECONDARY}>
+            <Users className="h-4 w-4 text-emerald-600" />
+            Candidates
+          </Link>
+          <Link href="/hq/tickets?audience=employee" prefetch={false} className={HQ_DASH_BTN_SECONDARY}>
+            <Ticket className="h-4 w-4 text-violet-600" />
+            Tickets
+          </Link>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className={HQ_DASH_BTN_PRIMARY}
+          >
+            <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      }
+    >
+      <div className="hq-dash-page text-slate-900">
+        {/* Heading graphics strip — no action buttons (those live in the top bar) */}
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/90">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+              Live
+            </span>
+            <p className="text-[11px] text-slate-400">
               Updated {updatedLabel}
               {hasLiveTracker
                 ? ` · tracker ${liveTrackedUsers} users · ${activeSessions} online`
                 : ' · portal DB + sessions'}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={onRefresh}
-              disabled={loading}
-              className="inline-flex h-10 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50"
-            >
-              <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-          </div>
-        </header>
+        </div>
 
         {insights.length > 0 ? (
           <div className="mb-5 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -776,133 +1123,6 @@ export function HqPhase1CommandDashboard({
           </div>
         ) : null}
 
-        {/* Live portal behaviour tracker */}
-        <div className="mb-5 grid grid-cols-12 gap-4">
-          <Card className="col-span-12 xl:col-span-8">
-            <SectionTitle
-              title="Live tracking"
-              info="Realtime behaviour from the portal — online users, visits, job clicks, applies, and active time."
-              right={
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
-                  <Radio className="h-3 w-3" />
-                  {hasLiveTracker ? 'Behaviour engine' : 'Sessions fallback'}
-                </span>
-              }
-            />
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-              {[
-                {
-                  label: 'Online now',
-                  value: fmt(activeSessions),
-                  icon: Radio,
-                  color: TEAL,
-                },
-                {
-                  label: 'Tracked users',
-                  value: fmt(liveTrackedUsers),
-                  icon: Users,
-                  color: INDIGO,
-                },
-                {
-                  label: 'Visits 7d',
-                  value: fmt(liveVisits7d),
-                  icon: Globe2,
-                  color: BLUE,
-                },
-                {
-                  label: 'Job clicks 7d',
-                  value: fmt(liveJobClicks7d),
-                  icon: MousePointerClick,
-                  color: ORANGE,
-                },
-                {
-                  label: 'Applies 7d',
-                  value: fmt(liveApplies7d),
-                  icon: ClipboardList,
-                  color: PURPLE,
-                },
-                {
-                  label: 'Active time 7d',
-                  value: formatDurationMs(liveActiveMs7d || null),
-                  icon: Zap,
-                  color: GREEN,
-                },
-              ].map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div
-                    key={item.label}
-                    className="rounded-xl border border-white/70 bg-gradient-to-br from-white to-slate-50/90 p-3 shadow-[0_8px_20px_-14px_rgba(15,23,42,0.2)] ring-1 ring-slate-100/80"
-                  >
-                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                      <Icon className="h-3 w-3 shrink-0" style={{ color: item.color }} />
-                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    </div>
-                    <p className="mt-1.5 text-lg font-bold tabular-nums text-slate-900">{item.value}</p>
-                  </div>
-                );
-              })}
-            </div>
-            {!hasLiveTracker ? (
-              <p className="mt-3 text-[11px] text-slate-400">
-                Waiting for live behaviour heartbeats. Open the job portal while logged in so
-                `/api/hq-behavior` starts receiving payloads.
-              </p>
-            ) : null}
-          </Card>
-
-          <Card className="col-span-12 md:col-span-6 xl:col-span-2">
-            <SectionTitle title="Page mix (7d)" info="Share of portal page visits by area in the last 7 days." />
-            {livePageVisits.length ? (
-              <ul className="space-y-2">
-                {livePageVisits.map((row) => (
-                  <li key={row.name} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate capitalize text-slate-600">{row.name.replace(/_/g, ' ')}</span>
-                    <span className="font-bold tabular-nums text-slate-900">{row.value}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyChart label="No page visits yet" />
-            )}
-          </Card>
-
-          <Card className="col-span-12 md:col-span-6 xl:col-span-2">
-            <SectionTitle title="Live feed" info="Latest behaviour events and trigger flags from tracked users." />
-            {liveFeed.length ? (
-              <ul className="max-h-[180px] space-y-2 overflow-y-auto">
-                {liveFeed.slice(0, 6).map((row) => (
-                  <li
-                    key={`${row.userId}-${row.capturedAt}`}
-                    className="rounded-lg border border-slate-100 bg-slate-50/70 px-2.5 py-2 text-[11px]"
-                  >
-                    <p className="font-semibold text-slate-800">
-                      {formatDurationMs(row.activeMs7d)} · {row.visits7d} visits
-                    </p>
-                    <p className="mt-0.5 truncate text-slate-500">
-                      {row.topTrigger || `${row.applies7d} applies · ${row.jobCardClicks7d} clicks`}
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-slate-400">
-                      {formatClock(row.activityStateUpdatedAt || row.capturedAt)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            ) : liveTriggers.length ? (
-              <ul className="space-y-2">
-                {liveTriggers.map((row) => (
-                  <li key={row.name} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate text-slate-600">{row.name.replace(/_/g, ' ')}</span>
-                    <span className="font-bold tabular-nums text-slate-900">{row.value}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyChart label="No live events yet" />
-            )}
-          </Card>
-        </div>
-
         {/* KPI pulse — 4 hero cards only (rest live under category tabs) */}
         <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {kpis.map((item) => (
@@ -913,10 +1133,40 @@ export function HqPhase1CommandDashboard({
           ))}
         </div>
 
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200/80 bg-slate-50/90 p-1">
+            <span className="px-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Timeline
+            </span>
+            {TIMELINE_OPTIONS.map((opt) => {
+              const on = timeline === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setTimeline(opt.id)}
+                  className={`rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                    on
+                      ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-teal-500 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-white hover:text-slate-800'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-slate-400">
+            Filters sessions, live feed & daily charts · selected{' '}
+            <strong className="text-slate-600">{timelineLabel}</strong>
+          </p>
+        </div>
+
         <HqDashCategoryTabs
           tabs={[...EMPLOYEE_CATEGORY_TABS]}
           value={category}
           onChange={(id) => setCategory(id as typeof category)}
+          instanceId="employees"
         />
 
         {category === 'growth' ? (
@@ -1440,9 +1690,9 @@ export function HqPhase1CommandDashboard({
                   })}
                 </div>
                 <div className="h-[180px] sm:col-span-7">
-                  {mapPoints(c?.loginsDaily).length ? (
+                  {loginsDaily.length ? (
                     <ResponsiveContainer width="100%" height={180}>
-                      <AreaChart data={mapPoints(c?.loginsDaily)} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <AreaChart data={loginsDaily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                         <defs>
                           <linearGradient id="loginFill" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor={TEAL} stopOpacity={0.28} />
@@ -1543,198 +1793,6 @@ export function HqPhase1CommandDashboard({
               )}
             </Card>
 
-            {/* Behaviour engine — premium, entry points, interests */}
-            <Card className="col-span-12 !p-4 lg:col-span-5">
-              <SectionTitle
-                title="Premium services usage"
-                info="How often premium / paid portal services are opened."
-                right={
-                  <span className="rounded-lg border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                    7d · most → least
-                  </span>
-                }
-              />
-              <p className="mb-3 text-[10px] text-slate-400">
-                Services / subscriptions, AI CV, interview prep, courses & LMS
-                {liveTracking?.premiumVisits7d
-                  ? ` · ${fmt(liveTracking.premiumVisits7d)} premium-surface visits`
-                  : ''}
-              </p>
-              <RankedUsageList
-                rows={premiumServicesRanked}
-                emptyLabel="No premium service visits yet"
-                valueSuffix="visits"
-              />
-            </Card>
-
-            <Card className="col-span-12 !p-4 lg:col-span-4">
-              <SectionTitle
-                title="Popular features"
-                info="Most-used portal features from live tracking and history."
-                right={
-                  <span className="rounded-lg border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                    Most → least
-                  </span>
-                }
-              />
-              <p className="mb-3 text-[10px] text-slate-400">
-                {liveTriggers.length || livePageVisits.length || featureUsageRanked.length
-                  ? 'Behaviour triggers + page mix from the live tracker'
-                  : 'From portal KPIs until tracker events fill in'}
-              </p>
-              <RankedUsageList
-                rows={featureUsageRanked}
-                emptyLabel="No feature usage signals yet"
-              />
-            </Card>
-
-            <Card className="col-span-12 !p-4 lg:col-span-3">
-              <SectionTitle title="Highlights" info="Key engagement highlights from live tracking." />
-              <div className="space-y-3">
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80">
-                    Top premium
-                  </p>
-                  {premiumMost ? (
-                    <>
-                      <p className="mt-1 truncate text-sm font-bold text-slate-900">{premiumMost.name}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-500">
-                        <strong className="text-emerald-700">{fmt(premiumMost.value)}</strong> visits
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-2 text-xs text-slate-400">No premium data yet</p>
-                  )}
-                </div>
-                <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700/80">
-                    Most used feature
-                  </p>
-                  {featureMost ? (
-                    <>
-                      <p className="mt-1 truncate text-sm font-bold text-slate-900">{featureMost.name}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-500">
-                        <strong className="text-indigo-700">{fmt(featureMost.value)}</strong> events
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-2 text-xs text-slate-400">No data yet</p>
-                  )}
-                </div>
-                <div className="rounded-xl border border-amber-100 bg-amber-50/40 px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700/80">
-                    Least used
-                  </p>
-                  {featureLeast && featureUsageRanked.length > 1 ? (
-                    <>
-                      <p className="mt-1 truncate text-sm font-bold text-slate-900">{featureLeast.name}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-500">
-                        <strong className="text-amber-800">{fmt(featureLeast.value)}</strong> events
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-2 text-xs text-slate-400">Need 2+ features</p>
-                  )}
-                </div>
-              </div>
-            </Card>
-
-            <Card className="col-span-12 !p-4 lg:col-span-4">
-              <SectionTitle
-                title="Entry points"
-                info="First pages users open when they start a session."
-                right={
-                  <span className="rounded-lg border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                    First open
-                  </span>
-                }
-              />
-              <p className="mb-3 text-[10px] text-slate-400">
-                Where candidates land first (e.g. Services → login) — from behaviour first-open
-              </p>
-              <RankedUsageList
-                rows={entryPointsRanked}
-                emptyLabel="No first-open entry data yet"
-                valueSuffix="days"
-              />
-            </Card>
-
-            <Card className="col-span-12 !p-4 lg:col-span-4">
-              <SectionTitle title="Community & chat" info="Office Gossips and chat engagement signals." />
-              <p className="mb-3 text-[10px] text-slate-400">
-                Office Gossip, chat, reference check
-                {liveTracking?.communityVisits7d
-                  ? ` · ${fmt(liveTracking.communityVisits7d)} community visits`
-                  : ''}
-              </p>
-              <RankedUsageList
-                rows={communityRanked}
-                emptyLabel="No community / gossip / chat signals yet"
-              />
-            </Card>
-
-            <Card className="col-span-12 !p-4 lg:col-span-4">
-              <SectionTitle title="Top interests" info="Multi-interest scores from portal behaviour." />
-              <p className="mb-3 text-[10px] text-slate-400">
-                Affinity engine topics among candidates (score strength)
-              </p>
-              <RankedUsageList
-                rows={topInterestsRanked}
-                emptyLabel="No interest topics yet — needs OG / behaviour heartbeats"
-              />
-            </Card>
-
-            <Card className="col-span-12 !p-4 lg:col-span-6">
-              <SectionTitle
-                title="Trending topics"
-                info="Rising interest topics from portal behaviour."
-                right={
-                  <span className="rounded-lg border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                    Interests · roles · companies
-                  </span>
-                }
-              />
-              <p className="mb-3 text-[10px] text-slate-400">
-                What candidates are leaning into across the portal
-              </p>
-              <RankedUsageList
-                rows={trendingTopicsRanked}
-                emptyLabel="No trending topics yet"
-              />
-            </Card>
-
-            <Card className="col-span-12 !p-4 lg:col-span-6">
-              <SectionTitle title="Page mix (7d)" info="Share of portal page visits by area in the last 7 days." />
-              <p className="mb-3 text-[10px] text-slate-400">Full category attention mix</p>
-              {livePageVisits.length ? (
-                <div className="space-y-2">
-                  {livePageVisits.map((p, i) => {
-                    const max = Math.max(...livePageVisits.map((x) => x.value), 1);
-                    const pct = Math.round((p.value / max) * 1000) / 10;
-                    return (
-                      <div key={p.name}>
-                        <div className="mb-1 flex justify-between text-[12px]">
-                          <span className="truncate text-slate-600">{p.name}</span>
-                          <span className="font-semibold text-slate-800">{fmt(p.value)}</span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${Math.max(6, pct)}%`,
-                              background: FUNNEL_COLORS[i % FUNNEL_COLORS.length],
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyChart label="No page visits yet" />
-              )}
-            </Card>
-
             {/* Row 2 — Recent Sessions (wide) + State/Region */}
             <Card className="col-span-12 flex min-h-[260px] flex-col overflow-hidden !p-0 lg:col-span-9">
               <div className="border-b border-slate-100 px-4 py-2.5">
@@ -1747,7 +1805,7 @@ export function HqPhase1CommandDashboard({
                 </p>
               </div>
               <div className="max-h-[320px] flex-1 overflow-auto">
-                {recentSessions.length ? (
+                {filteredSessions.length ? (
                   <table className="w-full min-w-[560px] text-left text-sm">
                     <thead className="sticky top-0 z-[1]">
                       <tr className="border-b border-slate-100 bg-slate-50/95 text-[10px] uppercase tracking-wider text-slate-400 backdrop-blur">
@@ -1760,7 +1818,7 @@ export function HqPhase1CommandDashboard({
                       </tr>
                     </thead>
                     <tbody>
-                      {recentSessions.slice(0, 10).map((row, idx) => (
+                      {filteredSessions.slice(0, 10).map((row, idx) => (
                         <tr
                           key={`${row.candidateId}-${row.loginAt}-${idx}`}
                           className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
@@ -1780,7 +1838,10 @@ export function HqPhase1CommandDashboard({
                           <td className="px-3 py-2.5 text-[11px] text-slate-600">{formatClock(row.loginAt)}</td>
                           <td className="px-3 py-2.5 text-[11px] text-slate-600">{formatClock(row.logoutAt)}</td>
                           <td className="px-3 py-2.5 text-[11px] font-semibold text-slate-800">
-                            {row.durationMs > 0 ? formatDurationMs(row.durationMs) : '—'}
+                            {(() => {
+                              const liveMs = liveSessionDurationMs(row, nowMs);
+                              return liveMs != null && liveMs > 0 ? formatDurationMs(liveMs) : '—';
+                            })()}
                           </td>
                           <td className="px-3 py-2.5 text-[11px] text-slate-600">
                             <div className="font-medium capitalize">{row.deviceType}</div>
@@ -1797,7 +1858,7 @@ export function HqPhase1CommandDashboard({
                   </table>
                 ) : (
                   <div className="px-5 py-10">
-                    <EmptyChart label="No session rows yet — log in on the portal to populate" />
+                    <EmptyChart label={`No sessions in this ${timelineLabel.toLowerCase()} window`} />
                   </div>
                 )}
               </div>
@@ -1840,6 +1901,539 @@ export function HqPhase1CommandDashboard({
         </section>
         ) : null}
 
+        {category === 'live' ? (
+        <section className="mb-2">
+          <div className="mb-4 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-sm sm:p-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Search candidate / user
+              </p>
+              {liveScopeActive || feedSort !== 'latest' ? (
+                <button
+                  type="button"
+                  onClick={clearLiveFilters}
+                  className="text-[11px] font-semibold text-blue-700 hover:text-blue-900"
+                >
+                  Clear filters
+                </button>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+              <div className="relative min-w-0 flex-1" ref={feedSearchWrapRef}>
+                <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={feedSearch}
+                  onChange={(e) => {
+                    setFeedSearch(e.target.value);
+                    setFeedSuggestOpen(true);
+                  }}
+                  onFocus={() => setFeedSuggestOpen(true)}
+                  placeholder="Search by name, user id, interest, or landing…"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none ring-blue-200 placeholder:text-slate-400 focus:bg-white focus:ring-2"
+                  autoComplete="off"
+                />
+                {feedSuggestOpen && feedSearch.trim() && liveSearchSuggestions.length ? (
+                  <ul className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-200/80">
+                    {liveSearchSuggestions.map((s) => (
+                      <li key={s.id}>
+                        <button
+                          type="button"
+                          className="flex w-full flex-col gap-0.5 px-3 py-2 text-left hover:bg-blue-50"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setFeedSearch(s.apply);
+                            setFeedSuggestOpen(false);
+                          }}
+                        >
+                          <span className="truncate text-[13px] font-semibold text-slate-800">
+                            {s.label}
+                          </span>
+                          {s.sub ? (
+                            <span className="truncate text-[10px] text-slate-500">{s.sub}</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : feedSuggestOpen && feedSearch.trim() ? (
+                  <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] text-slate-400 shadow-lg">
+                    No matching candidates
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  value={feedCategory}
+                  onChange={(e) => setFeedCategory(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] font-semibold text-slate-700"
+                >
+                  {feedCategoryOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt === 'all' ? 'All categories' : opt}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={feedRegion}
+                  onChange={(e) => setFeedRegion(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] font-semibold text-slate-700"
+                >
+                  {feedRegionOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt === 'all' ? 'All regions' : opt}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={feedSort}
+                  onChange={(e) =>
+                    setFeedSort(e.target.value as 'latest' | 'oldest' | 'visits' | 'active')
+                  }
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] font-semibold text-slate-700"
+                >
+                  <option value="latest">Latest users</option>
+                  <option value="oldest">Oldest users</option>
+                  <option value="visits">Most visits</option>
+                  <option value="active">Most active time</option>
+                </select>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">
+              {liveScopeActive ? (
+                <>
+                  Showing stats for{' '}
+                  <strong className="text-slate-700">{filteredLiveFeed.length}</strong> matched
+                  candidate{filteredLiveFeed.length === 1 ? '' : 's'} · timeline {timelineLabel}
+                </>
+              ) : (
+                <>
+                  Platform-wide live tracking · {fmt(liveTrackedUsers)} users · timeline{' '}
+                  {timelineLabel}
+                </>
+              )}
+            </p>
+          </div>
+
+          <div className="mb-4 grid grid-cols-12 gap-4">
+            <Card className="col-span-12 xl:col-span-9">
+              <SectionTitle
+                title="Live pulse"
+                info="Realtime behaviour from the portal — online users, visits, job clicks, applies, and active time. Search or filter above to scope these numbers to a candidate."
+                right={
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
+                    <Radio className="h-3 w-3" />
+                    {liveScopeActive
+                      ? 'Filtered'
+                      : hasLiveTracker
+                        ? 'Behaviour engine'
+                        : 'Sessions fallback'}
+                  </span>
+                }
+              />
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+                {[
+                  { label: 'Online now', value: fmt(displayOnline), icon: Radio, color: TEAL },
+                  { label: 'Tracked users', value: fmt(displayTrackedUsers), icon: Users, color: INDIGO },
+                  { label: 'Visits 7d', value: fmt(displayVisits), icon: Globe2, color: BLUE },
+                  { label: 'Job clicks 7d', value: fmt(displayJobClicks), icon: MousePointerClick, color: ORANGE },
+                  { label: 'Applies 7d', value: fmt(displayApplies), icon: ClipboardList, color: PURPLE },
+                  {
+                    label: 'Active time 7d',
+                    value: formatDurationMs(displayActiveMs || null),
+                    icon: Zap,
+                    color: GREEN,
+                  },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div
+                      key={item.label}
+                      className="rounded-xl border border-white/70 bg-gradient-to-br from-white to-slate-50/90 p-3 shadow-[0_8px_20px_-14px_rgba(15,23,42,0.2)] ring-1 ring-slate-100/80"
+                    >
+                      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        <Icon className="h-3 w-3 shrink-0" style={{ color: item.color }} />
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      </div>
+                      <p className="mt-1.5 text-lg font-bold tabular-nums text-slate-900">{item.value}</p>
+                    </div>
+                  );
+                })}
+              </div>
+              {!hasLiveTracker ? (
+                <p className="mt-3 text-[11px] text-slate-400">
+                  Waiting for live behaviour heartbeats. Open the job portal while logged in so
+                  `/api/hq-behavior` starts receiving payloads.
+                </p>
+              ) : null}
+            </Card>
+
+            <Card className="col-span-12 xl:col-span-3">
+              <SectionTitle
+                title="Behaviour signals"
+                info="Important CRM-ready signals from the behavioural engine — sales follow-up, high intent, premium gaps."
+                right={
+                  <Link
+                    href="/hq/crm-dashboard"
+                    className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 hover:bg-rose-100"
+                  >
+                    CRM
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                }
+              />
+              {liveTriggers.length ? (
+                <ul className="space-y-2">
+                  {liveTriggers.map((row) => {
+                    const important = isImportantCrmSignal(row.name);
+                    return (
+                      <li
+                        key={row.name}
+                        className={`rounded-xl px-2.5 py-2 text-xs ${
+                          important
+                            ? 'border border-rose-200/90 bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 shadow-sm ring-1 ring-rose-100'
+                            : 'border border-slate-100 bg-slate-50/70'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            {important ? (
+                              <span className="mb-1 inline-flex items-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                Important · CRM
+                              </span>
+                            ) : null}
+                            <p
+                              className={`truncate font-semibold capitalize ${
+                                important ? 'text-rose-900' : 'text-slate-700'
+                              }`}
+                            >
+                              {signalDisplayName(row.name)}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 tabular-nums font-bold ${
+                              important ? 'text-rose-700' : 'text-slate-900'
+                            }`}
+                          >
+                            {fmt(row.value)}
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <EmptyChart label="No signals yet" />
+              )}
+            </Card>
+          </div>
+
+          <div className="mb-4 grid grid-cols-12 gap-4">
+            <Card className="col-span-12 !p-4 lg:col-span-5">
+              <SectionTitle
+                title="Premium services usage"
+                info="Named premium services from Subscriptions (AI CV Edit, ATS Check, course unlocks…) that users spend tokens on."
+                right={
+                  <span className="rounded-lg border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                    7d · token spends
+                  </span>
+                }
+              />
+              <p className="mb-3 text-[10px] text-slate-400">
+                Premium catalog spends (AI CV, interview, courses, LMS…)
+                {liveTracking?.premiumTokensSpent7d
+                  ? ` · ${fmt(liveTracking.premiumTokensSpent7d)} tokens`
+                  : liveTracking?.premiumVisits7d
+                    ? ` · ${fmt(liveTracking.premiumVisits7d)} spends`
+                    : ''}
+              </p>
+              <RankedUsageList
+                rows={premiumServicesRanked}
+                emptyLabel="No premium token spends yet"
+                valueSuffix="spends"
+              />
+            </Card>
+
+            <Card className="col-span-12 !p-4 lg:col-span-4">
+              <SectionTitle
+                title="Popular features"
+                info="Portal features HQ can act on — Paid (token spends / premium tools) and Free (jobs, profile, earn, gossip)."
+                right={
+                  <span className="rounded-lg border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                    Paid · free
+                  </span>
+                }
+              />
+              <p className="mb-3 text-[10px] text-slate-400">
+                Labels match the job portal (AI CV Edit, Explore jobs, Profile completion…)
+              </p>
+              <RankedUsageList
+                rows={featureUsageRanked}
+                emptyLabel="No feature usage signals yet"
+              />
+            </Card>
+
+            <Card className="col-span-12 !p-4 lg:col-span-3">
+              <SectionTitle title="Highlights" info="Key behaviour highlights from live tracking." />
+              <div className="space-y-3">
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80">
+                    Top premium
+                  </p>
+                  {premiumMost ? (
+                    <>
+                      <p className="mt-1 truncate text-sm font-bold text-slate-900">{premiumMost.name}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        <strong className="text-emerald-700">{fmt(premiumMost.value)}</strong>{' '}
+                        {liveTracking?.tokenUsage?.available ? 'spends' : 'visits'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">No premium data yet</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700/80">
+                    Most used feature
+                  </p>
+                  {featureMost ? (
+                    <>
+                      <p className="mt-1 truncate text-sm font-bold text-slate-900">{featureMost.name}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        <strong className="text-indigo-700">{fmt(featureMost.value)}</strong> events
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">No data yet</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-amber-100 bg-amber-50/40 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700/80">
+                    Least used
+                  </p>
+                  {featureLeast && featureUsageRanked.length > 1 ? (
+                    <>
+                      <p className="mt-1 truncate text-sm font-bold text-slate-900">{featureLeast.name}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        <strong className="text-amber-800">{fmt(featureLeast.value)}</strong> events
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">Need 2+ features</p>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            <Card className="col-span-12 !p-4 lg:col-span-4">
+              <SectionTitle
+                title="Entry points"
+                info="Landing / services pages where candidates first open after arriving (UTM / campaign sources come later)."
+                right={
+                  <span className="rounded-lg border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                    First landing
+                  </span>
+                }
+              />
+              <p className="mb-3 text-[10px] text-slate-400">
+                Portal landings — Services / Premium, Explore jobs, Candidate home, Profile…
+              </p>
+              <RankedUsageList
+                rows={entryPointsRanked}
+                emptyLabel="No first-open landing data yet"
+                valueSuffix="opens"
+              />
+            </Card>
+
+            <Card className="col-span-12 !p-4 lg:col-span-4">
+              <SectionTitle
+                title="Community & chat"
+                info="Office Gossip users and reference-check pipeline (initiated → responded → completed)."
+              />
+              <p className="mb-3 text-[10px] text-slate-400">
+                Office Gossip · reference check
+                {liveTracking?.officeGossip?.usersOnOfficeGossip
+                  ? ` · ${fmt(liveTracking.officeGossip.usersOnOfficeGossip)} users`
+                  : liveTracking?.communityVisits7d
+                    ? ` · ${fmt(liveTracking.communityVisits7d)} community visits`
+                    : ''}
+              </p>
+              {liveTracking?.officeGossip?.referenceChecksSummary ? (
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                  {[
+                    {
+                      label: 'Users',
+                      value: liveTracking.officeGossip.usersOnOfficeGossip,
+                      color: TEAL,
+                    },
+                    {
+                      label: 'Initiated',
+                      value: liveTracking.officeGossip.referenceChecksSummary.initiated,
+                      color: INDIGO,
+                    },
+                    {
+                      label: 'Responded',
+                      value: liveTracking.officeGossip.referenceChecksSummary.responded,
+                      color: PURPLE,
+                    },
+                    {
+                      label: 'Completed',
+                      value: liveTracking.officeGossip.referenceChecksSummary.completed,
+                      color: GREEN,
+                    },
+                  ].map((m) => (
+                    <div
+                      key={m.label}
+                      className="rounded-xl border border-slate-100 bg-slate-50/80 px-2.5 py-2"
+                    >
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+                        {m.label}
+                      </p>
+                      <p className="mt-0.5 text-lg font-bold tabular-nums" style={{ color: m.color }}>
+                        {fmt(Number(m.value) || 0)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <RankedUsageList
+                rows={communityRanked}
+                emptyLabel="No Office Gossip / reference-check data yet"
+              />
+            </Card>
+
+            <Card className="col-span-12 !p-4 lg:col-span-4">
+              <SectionTitle title="Page mix (7d)" info="Full category attention mix from the behaviour tracker." />
+              <p className="mb-3 text-[10px] text-slate-400">Portal surface visits ranked</p>
+              {livePageVisits.length ? (
+                <div className="space-y-2">
+                  {livePageVisits.map((p, i) => {
+                    const max = Math.max(...livePageVisits.map((x) => x.value), 1);
+                    const pct = Math.round((p.value / max) * 1000) / 10;
+                    return (
+                      <div key={p.name}>
+                        <div className="mb-1 flex justify-between text-[12px]">
+                          <span className="truncate text-slate-600">{p.name}</span>
+                          <span className="font-semibold text-slate-800">{fmt(p.value)}</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${Math.max(6, pct)}%`,
+                              background: FUNNEL_COLORS[i % FUNNEL_COLORS.length],
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyChart label="No page visits yet" />
+              )}
+            </Card>
+          </div>
+
+          <div className="mb-4 grid grid-cols-12 gap-4">
+            <Card className="col-span-12 lg:col-span-4">
+              <SectionTitle
+                title="Interest aggregate"
+                info="Average interest strength across all tracked users (affinity + attention)."
+              />
+              <RankedUsageList
+                rows={topInterestsRanked}
+                emptyLabel="No interest topics yet — needs behaviour heartbeats"
+              />
+            </Card>
+
+            <Card className="col-span-12 lg:col-span-4">
+              <SectionTitle
+                title="Trending topics"
+                info="Interests, roles, and companies rising across tracked candidates."
+              />
+              <RankedUsageList
+                rows={trendingTopicsRanked}
+                emptyLabel="No trending topics yet"
+              />
+            </Card>
+
+            <Card className="col-span-12 lg:col-span-4">
+              <SectionTitle
+                title="Live feed"
+                info="Matched candidates from the search bar above — pulse stats update with this list."
+                right={
+                  <span className="rounded-lg border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                    {filteredLiveFeed.length}/{liveFeed.length}
+                  </span>
+                }
+              />
+              {filteredLiveFeed.length ? (
+                <ul className="max-h-[320px] space-y-2 overflow-y-auto">
+                  {filteredLiveFeed.slice(0, 24).map((row) => {
+                    const name = candidateNameById.get(String(row.userId));
+                    return (
+                      <li
+                        key={`${row.userId}-${row.capturedAt}`}
+                        className="rounded-lg border border-slate-100 bg-slate-50/70 px-2.5 py-2 text-[11px]"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-semibold text-slate-800">
+                            {name || formatDurationMs(row.activeMs7d)}
+                            {name ? (
+                              <span className="ml-1.5 font-normal text-slate-500">
+                                · {row.visits7d} visits
+                              </span>
+                            ) : (
+                              <span> · {row.visits7d} visits</span>
+                            )}
+                          </p>
+                          <span className="shrink-0 text-[10px] text-slate-400">
+                            {formatClock(row.activityStateUpdatedAt || row.capturedAt)}
+                          </span>
+                        </div>
+                        {name ? (
+                          <p className="mt-0.5 text-[10px] text-slate-500">
+                            {formatDurationMs(row.activeMs7d)} active · {row.applies7d} applies ·{' '}
+                            {row.jobCardClicks7d} clicks
+                          </p>
+                        ) : null}
+                        <p className="mt-0.5 truncate text-slate-500">
+                          {row.topInterest
+                            ? `Interest · ${row.topInterest}`
+                            : row.topTrigger ||
+                              `${row.applies7d} applies · ${row.jobCardClicks7d} clicks`}
+                        </p>
+                        {row.topFirstOpen ? (
+                          <p className="mt-0.5 text-[10px] text-slate-400">
+                            Landed · {row.topFirstOpen}
+                          </p>
+                        ) : null}
+                        {sessionUserRegion.get(String(row.userId)) ? (
+                          <p className="mt-0.5 text-[10px] text-slate-400">
+                            Region · {sessionUserRegion.get(String(row.userId))}
+                          </p>
+                        ) : null}
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
+                          {row.userId}
+                        </p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <EmptyChart
+                  label={
+                    liveScopeActive
+                      ? 'No candidates match this search'
+                      : 'No live feed rows yet'
+                  }
+                />
+              )}
+            </Card>
+          </div>
+        </section>
+        ) : null}
+
         {/* FOOTER */}
         <div className="hq-dash-card flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/80 bg-white/75 px-5 py-3.5 text-xs text-slate-500 shadow-[0_18px_48px_-24px_rgba(15,23,42,0.14)] backdrop-blur-xl">
           <div className="flex items-center gap-2">
@@ -1847,15 +2441,6 @@ export function HqPhase1CommandDashboard({
               Last updated: <strong className="text-slate-700">{updatedLabel}</strong>
               {apps30d > 0 ? <span className="ml-2 text-slate-400">· {fmt(apps30d)} apps in 30d</span> : null}
             </span>
-            <button
-              type="button"
-              onClick={onRefresh}
-              disabled={loading}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50"
-              title="Refresh"
-            >
-              <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
           </div>
           <div className="inline-flex items-center gap-1.5">
             <span className={`h-1.5 w-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
@@ -1865,6 +2450,6 @@ export function HqPhase1CommandDashboard({
           </div>
         </div>
       </div>
-    </div>
+    </HqModulePageLayout>
   );
 }

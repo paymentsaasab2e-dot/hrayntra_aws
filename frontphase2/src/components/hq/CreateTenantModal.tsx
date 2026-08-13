@@ -5,6 +5,7 @@ import {
   Building2,
   Hash,
   Lock,
+  Mail,
   User,
   X,
 } from 'lucide-react';

@@ -20,10 +20,12 @@ import {
   RefreshCcw,
   Search,
   Sparkles,
+  Ticket,
   Users,
   UserCheck,
   Zap,
 } from 'lucide-react';
+import Link from 'next/link';
 import { HqBrandLogo } from '../HqBrandLogo';
 
 /** Info tip — indigo “i”; tooltip portals to body so it never clips under cards. */
@@ -303,13 +305,22 @@ export function HqPhase2PageHeader({
   loading,
   onRefresh,
   actions,
+  ticketsHref = '/hq/tickets?audience=employer',
+  ticketsLabel = 'Tickets',
 }: {
   updatedLabel?: string;
   loading?: boolean;
   onRefresh?: () => void;
-  /** Quick actions rendered beside Refresh */
+  /** Quick actions rendered above the pill action bar */
   actions?: React.ReactNode;
+  ticketsHref?: string;
+  ticketsLabel?: string;
 }) {
+  const dashBtnSecondary =
+    'inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)] transition hover:border-slate-300 hover:bg-slate-50';
+  const dashBtnPrimary =
+    'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50';
+
   return (
     <header className="hq-dash-card mb-5 flex flex-col gap-4 rounded-2xl border border-white/80 bg-white/75 px-4 py-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:px-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0 flex-1">
@@ -317,7 +328,7 @@ export function HqPhase2PageHeader({
           <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/80">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-            Live Phase 2
+            Live
           </span>
         </div>
         <h1 className="hq-display text-[1.75rem] font-bold tracking-tight text-slate-900 sm:text-[2rem]">
@@ -330,17 +341,18 @@ export function HqPhase2PageHeader({
           <p className="mt-1 text-[11px] text-slate-400">Last updated: {updatedLabel}</p>
         ) : null}
       </div>
-      <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+      <div className="flex w-full flex-col items-stretch gap-3 sm:w-auto sm:items-end">
         {actions}
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={loading}
-          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50 sm:w-auto sm:self-end"
-        >
-          <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <Link href={ticketsHref} prefetch={false} className={dashBtnSecondary}>
+            <Ticket className="h-4 w-4 text-violet-600" />
+            {ticketsLabel}
+          </Link>
+          <button type="button" onClick={onRefresh} disabled={loading} className={dashBtnPrimary}>
+            <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -458,22 +470,34 @@ export function HqPhase2SystemHealth({
       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         {rows.map((s) => {
           const Icon = s.icon;
+          const isLiveValue = /^live$/i.test(String(s.value || '').trim());
           return (
             <div
               key={s.label}
               className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${
                 s.warn
-                  ? 'border-amber-200/80 bg-amber-50/90 text-amber-800'
-                  : 'border-slate-200/80 bg-white/90 text-slate-700'
+                  ? 'border-amber-200/80 bg-amber-50/90 text-amber-900'
+                  : 'border-emerald-200/80 bg-emerald-50/70 text-slate-800'
               }`}
               title={`${s.label}: ${s.value}`}
             >
               <Icon
-                className={`h-3 w-3 shrink-0 ${s.warn ? 'text-amber-600' : 'text-slate-400'}`}
+                className={`h-3 w-3 shrink-0 ${s.warn ? 'text-amber-600' : 'text-emerald-600'}`}
                 strokeWidth={2.25}
               />
-              <span className="text-[10px] font-medium text-slate-500">{s.label}</span>
-              <span className="text-[11px] font-bold">{s.value}</span>
+              <span className={`text-[10px] font-medium ${s.warn ? 'text-amber-700/80' : 'text-emerald-800/70'}`}>
+                {s.label}
+              </span>
+              {isLiveValue && !s.warn ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                  <span className="h-1 w-1 animate-pulse rounded-full bg-emerald-200" />
+                  Live
+                </span>
+              ) : (
+                <span className={`text-[11px] font-bold ${s.warn ? 'text-amber-900' : 'text-emerald-900'}`}>
+                  {s.value}
+                </span>
+              )}
               {s.warn ? (
                 <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" strokeWidth={2.25} />
               ) : (

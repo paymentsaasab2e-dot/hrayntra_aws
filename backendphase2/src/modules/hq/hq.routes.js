@@ -81,6 +81,10 @@ router.delete('/demos/:id', authMiddleware, hqController.deleteDemoRequest);
 router.get('/tickets', authMiddleware, hqController.listSupportTickets);
 router.patch('/tickets/:id', authMiddleware, hqController.updateSupportTicket);
 
+router.get('/help-tickets', authMiddleware, hqController.listHelpTickets);
+router.patch('/help-tickets/:id', authMiddleware, hqController.updateHelpTicket);
+router.patch('/help-tickets', authMiddleware, hqController.updateHelpTicket);
+
 router.get('/companies', authMiddleware, hqController.listCompanies);
 router.post('/companies', authMiddleware, hqController.createCompany);
 router.put('/companies/:id', authMiddleware, hqController.updateCompany);
