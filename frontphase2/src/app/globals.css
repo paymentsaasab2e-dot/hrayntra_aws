@@ -273,6 +273,25 @@
   }
 
   /**
+   * Dashboard-style HQ pages (`locked={false}` → `.ph2-page-shell--scroll`):
+   * keep the surface viewport-locked, but the shell fills height so its
+   * inner column can overflow-y scroll (list pages stay table-only scroll).
+   */
+  .ph2-main-surface:has(.ph2-page-shell--scroll),
+  .hq-theme .ph2-main-surface:has(.ph2-page-shell--scroll) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .ph2-page-shell--scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+  }
+
+  /**
    * Default white stat/list cards: slight blue rim so panels feel tinted site-wide.
    * Skips elements that already use ph2-card (duplicate shadows avoided via ring opacity).
    */

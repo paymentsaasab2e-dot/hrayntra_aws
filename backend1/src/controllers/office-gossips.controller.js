@@ -4,9 +4,9 @@ const {
   getHqSummary,
 } = require('../services/office-gossips.service');
 
-function getBundle(_req, res) {
+async function getBundle(_req, res) {
   try {
-    const bundle = getSnapshot();
+    const bundle = await getSnapshot();
     return res.json({
       ok: true,
       data: {
@@ -26,10 +26,10 @@ function getBundle(_req, res) {
   }
 }
 
-function postBundle(req, res) {
+async function postBundle(req, res) {
   try {
     const body = req.body || {};
-    const merged = mergeClientPush({
+    const merged = await mergeClientPush({
       communities: body.communities,
       companyPages: body.companyPages,
       posts: body.posts,
@@ -38,6 +38,10 @@ function postBundle(req, res) {
       identity: body.identity,
       referenceChecks: body.referenceChecks,
       social: body.social,
+      userId: body.userId,
+      feedEvents: body.feedEvents,
+      feedEventsByUser: body.feedEventsByUser,
+      personalMetaByUser: body.personalMetaByUser,
     });
     return res.json({
       ok: true,
@@ -58,9 +62,10 @@ function postBundle(req, res) {
   }
 }
 
-function hqSummary(_req, res) {
+async function hqSummary(_req, res) {
   try {
-    return res.json({ ok: true, data: getHqSummary() });
+    const data = await getHqSummary();
+    return res.json({ ok: true, data });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message || 'Failed' });
   }

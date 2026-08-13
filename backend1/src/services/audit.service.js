@@ -133,8 +133,13 @@ async function writeAuditEvent(input) {
     console.warn('[audit] Prisma write skipped:', err.message);
   }
 
+  // Prefer Mongo as source of truth — only write JSON when DB write failed.
+  if (prismaRow) {
+    return { ok: true, event: toPublic(prismaRow) };
+  }
+
   const fileEvent = {
-    id: prismaRow?.id || uid('aud'),
+    id: uid('aud'),
     ...data,
     capturedAt: data.capturedAt.toISOString(),
     createdAt: new Date().toISOString(),
@@ -146,12 +151,10 @@ async function writeAuditEvent(input) {
     writeFileEvents(events);
   } catch (err) {
     console.warn('[audit] File write failed:', err.message);
-    if (!prismaRow) {
-      return { ok: false, error: err.message };
-    }
+    return { ok: false, error: err.message };
   }
 
-  return { ok: true, event: toPublic(prismaRow || fileEvent) };
+  return { ok: true, event: toPublic(fileEvent) };
 }
 
 /** Fire-and-forget helper for controllers. */

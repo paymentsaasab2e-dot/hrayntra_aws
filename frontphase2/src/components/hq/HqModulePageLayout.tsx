@@ -47,6 +47,10 @@ type HqModulePageLayoutProps = {
  * HQ page chrome mirrored from Phase 2 `Ph2ModulePageLayout`:
  * frosted header → content column → SummaryCards → table card.
  * Height fills the HQ main surface (shell already locks to 100dvh).
+ *
+ * `locked` (default): viewport-fixed list pages — only an inner table panel scrolls.
+ * `locked={false}`: dashboards — the main content column scrolls (parent CSS also
+ * locks `.ph2-main-surface:has(.ph2-page-shell--scroll)` to overflow:hidden).
  */
 export function HqModulePageLayout({
   title,
@@ -58,7 +62,11 @@ export function HqModulePageLayout({
   locked = true,
 }: HqModulePageLayoutProps) {
   return (
-    <div className="ph2-page-shell flex h-full max-h-full w-full flex-col overflow-hidden text-slate-900">
+    <div
+      className={`ph2-page-shell flex h-full max-h-full min-h-0 w-full flex-col overflow-hidden text-slate-900 ${
+        locked ? '' : 'ph2-page-shell--scroll'
+      }`}
+    >
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
           <div className={PH2_PAGE_HEADER_BRAND_CLASS}>
@@ -72,16 +80,18 @@ export function HqModulePageLayout({
               ) : null}
             </div>
           </div>
-          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          {actions ? (
+            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>
+          ) : null}
         </header>
         <div
           className={`flex min-h-0 flex-1 flex-col px-3 py-4 sm:px-5 sm:py-6 lg:px-6 ${
-            locked ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar'
+            locked ? 'overflow-hidden' : 'overflow-y-auto overscroll-y-contain custom-scrollbar'
           }`}
         >
           <div
             className={`mx-auto flex w-full max-w-[1600px] flex-col ${
-              locked ? 'min-h-0 flex-1' : 'pb-8'
+              locked ? 'min-h-0 flex-1' : 'pb-10'
             }`}
           >
             {children}

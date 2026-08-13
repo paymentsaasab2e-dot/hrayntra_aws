@@ -52,6 +52,7 @@ import {
   type HqLeadStage,
 } from '@/app/hq/leads/hqLeadsData';
 import { isInternalLeadOtherDetailLabel } from '@/lib/leadInternalOtherDetails';
+import { useHqMoney } from '@/components/hq/HqCurrencyProvider';
 
 const PIPELINE_STAGES: { id: HqLeadStage; label: string }[] = [
   { id: 'new', label: 'New' },
@@ -100,11 +101,6 @@ function fmtTimestamp(value?: string | null) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleString(undefined, { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
-
-function fmtDealValue(value?: number | string | null) {
-  if (value == null || String(value).trim() === '' || Number.isNaN(Number(value))) return '—';
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(value));
 }
 
 function isPending(fu: HqLeadFollowUp) {
@@ -214,6 +210,7 @@ export function HqLeadDetailView({
   onDelete: () => void;
   onLeadUpdated: (lead: HqLeadApiRow) => void;
 }) {
+  const { formatMoneyFull } = useHqMoney();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>('follow-up');
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -543,7 +540,17 @@ export function HqLeadDetailView({
               <SectionCard title="Business Opportunity" subtitle="Services and expected value" icon={Briefcase}>
                 <dl>
                   <InfoRow label="Expected Users" value={lead.users} />
-                  <InfoRow label="Est. Deal Value" value={fmtDealValue(lead.estimatedDealValue)} green />
+                  <InfoRow
+                    label="Est. Deal Value"
+                    value={
+                      lead.estimatedDealValue == null ||
+                      String(lead.estimatedDealValue).trim() === '' ||
+                      Number.isNaN(Number(lead.estimatedDealValue))
+                        ? '—'
+                        : formatMoneyFull(Number(lead.estimatedDealValue))
+                    }
+                    green
+                  />
                   <InfoRow label="Expected Business Value" value={lead.expectedBusinessValue} />
                   <InfoRow label="Services Needed" value={lead.servicesNeeded} />
                   <InfoRow label="Interested Needs" value={lead.interestedNeeds} />

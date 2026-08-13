@@ -177,7 +177,7 @@ function RecruitmentDashboardInner() {
   const show = (id: string) => !hiddenSections.has(id);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <RecHeader overview={overview} onRefresh={() => void load()} />
 
       {show('modules') ? <RecModuleShortcuts /> : null}
@@ -188,15 +188,16 @@ function RecruitmentDashboardInner() {
         <RecChartsAndTables overview={overview} loading={loading} />
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-12">
-        <div className="space-y-5 xl:col-span-9">
-          {show('schedule') ? <RecSchedulePanel overview={overview} loading={loading} /> : null}
-          {show('team') ? <RecTeamLeaderboard overview={overview} loading={loading} /> : null}
-        </div>
-        <div className="xl:col-span-3">
+      {(show('schedule') || show('alerts')) ? (
+        <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {show('schedule') ? (
+            <RecSchedulePanel overview={overview} loading={loading} />
+          ) : null}
           {show('alerts') ? <RecAlertsPanel overview={overview} loading={loading} /> : null}
         </div>
-      </div>
+      ) : null}
+
+      {show('team') ? <RecTeamLeaderboard overview={overview} loading={loading} /> : null}
 
       {overview?.generatedAt ? (
         <p className="pb-2 text-center text-[11px] text-slate-400">

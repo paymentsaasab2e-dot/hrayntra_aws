@@ -1775,3 +1775,55 @@ model SystemAuditLog {
   @@map("system_audit_logs")
 }
 
+// ============================================================
+// OFFICE GOSSIPS — platform catalog + reference checks (Mongo)
+// Personalized identity / feed / chat extras live on UserOfficeGossipProfile
+// ============================================================
+
+/// Platform-wide OG entities (communities, posts, ref checks, DMs, follows).
+model OfficeGossipEntity {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  /// Client business id (stable upsert key with kind).
+  entityId    String
+  /// community | company_page | post | comment | reference_check | dm | company_follow | people_follow
+  kind        String
+  payload     Json
+  ownerUserId String?
+  status      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([kind, entityId])
+  @@index([kind])
+  @@index([ownerUserId])
+  @@index([status])
+  @@index([updatedAt])
+  @@map("office_gossip_entities")
+}
+
+/// Per-user OG layer linked to candidate userId (like behaviour profile).
+model UserOfficeGossipProfile {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @unique
+  /// Gossip identity (anon flag, username, ref-check fees, etc.)
+  identity     Json?
+  /// Personalised feed / chat events for this user
+  feedEvents   Json?
+  /// Extra personal prefs / local-only style meta
+  personalMeta Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([updatedAt])
+  @@map("user_office_gossip_profiles")
+}
+
+model OfficeGossipMeta {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  key       String   @unique
+  value     Json?
+  updatedAt DateTime @updatedAt
+
+  @@map("office_gossip_meta")
+}
+

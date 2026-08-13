@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BarChart3, Loader2, RefreshCw } from 'lucide-react';
 import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';
+import { useHqMoney } from '@/components/hq/HqCurrencyProvider';
 import { HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import {
   apiHqListCompanies,
@@ -17,6 +18,7 @@ import {
 import { HQ_LEAD_STAGE_LABELS, type HqLeadStage } from '@/app/hq/leads/hqLeadsData';
 
 export default function HqReportsPage() {
+  const { formatMoney } = useHqMoney();
   const [leads, setLeads] = useState<HqLeadApiRow[]>([]);
   const [companies, setCompanies] = useState<HqCompanyApiRow[]>([]);
   const [teamTotal, setTeamTotal] = useState(0);
@@ -104,7 +106,7 @@ export default function HqReportsPage() {
           <HqStatCard label="Converted" value={report.converted} active />
           <HqStatCard label="Lost" value={report.lost} />
           <HqStatCard label="Conversion" value={`${report.conversionRate}%`} />
-          <HqStatCard label="Open pipeline" value={report.pipeline.toLocaleString()} />
+          <HqStatCard label="Open pipeline" value={formatMoney(report.pipeline)} />
           <HqStatCard label="Clients / Team" value={`${companies.length} / ${teamTotal}`} />
         </section>
 

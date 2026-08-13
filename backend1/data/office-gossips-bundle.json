@@ -21,7 +21,9 @@
       "visibility": "public",
       "ownerId": "system",
       "ownerName": "Office Gossips",
-      "memberIds": [],
+      "memberIds": [
+        "9d5194355ec270f0b4a474a8"
+      ],
       "createdAt": "2026-07-31T07:20:48.449Z"
     },
     {
@@ -278,6 +280,14 @@
       "createdAt": "2026-08-03T07:02:48.450Z"
     },
     {
+      "id": "cm_msa1dfh1_xyhh9s",
+      "postId": "p_ms9z4l15_kmbbdw",
+      "authorId": "9d5194355ec270f0b4a474a8",
+      "authorName": "demo 1",
+      "text": "hi",
+      "createdAt": "2026-08-01T07:14:43.477Z"
+    },
+    {
       "id": "cm_3",
       "postId": "p_seed_01",
       "authorId": "system",
@@ -292,30 +302,9 @@
       "authorName": "Aman R.",
       "text": "Decline and protect your weekend.",
       "createdAt": "2026-08-03T04:50:48.450Z"
-    },
-    {
-      "id": "cm_msa1dfh1_xyhh9s",
-      "postId": "p_ms9z4l15_kmbbdw",
-      "authorId": "9d5194355ec270f0b4a474a8",
-      "authorName": "demo 1",
-      "text": "hi",
-      "createdAt": "2026-08-01T07:14:43.477Z"
     }
   ],
   "identities": {
-    "b1c869d84e75048c5c61c5e3": {
-      "userId": "b1c869d84e75048c5c61c5e3",
-      "createdAt": "2026-07-30T06:00:26.749Z",
-      "updatedAt": "2026-07-30T06:00:26.749Z",
-      "isAnonymous": true,
-      "username": "keen_owl83",
-      "showInCompanyConnections": true,
-      "availableForReferenceCheck": true,
-      "referenceFeeTokens": 5,
-      "completedReferenceChecks": 0,
-      "allowPeopleToFollow": true,
-      "followAnonymously": true
-    },
     "9d5194355ec270f0b4a474a8": {
       "userId": "9d5194355ec270f0b4a474a8",
       "createdAt": "2026-07-30T09:41:25.865Z",

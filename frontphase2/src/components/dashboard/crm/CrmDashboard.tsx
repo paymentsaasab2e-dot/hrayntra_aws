@@ -10,16 +10,21 @@ import {
   type CrmOverview,
 } from '@/lib/dashboard/api';
 import { useDashboardLayoutStore } from '@/lib/dashboard/DashboardLayoutProvider';
+import { HqDashCategoryTabs } from '@/components/hq/analytics/HqDashCategoryTabs';
 import {
+  CRM_CATEGORY_TABS,
   CrmDashboardProvider,
+  type CrmCategoryTabId,
   useCrmDashboard,
 } from './crmShared';
 import { CrmHeader } from './CrmHeader';
 import { CrmKpiGrid } from './CrmKpiGrid';
 import { CrmChartsAndTables } from './CrmChartsAndTables';
+import { CrmDecisionInsights } from './CrmDecisionInsights';
+import { CrmStatsBar } from './CrmStatsBar';
+import { buildCrmTeamStatsWithInfo } from './crmInsights';
 import {
-  CrmAlertsPanel,
-  CrmFollowupActivity,
+  CrmCommunication,
   CrmTeamLeaderboard,
 } from './CrmPanels';
 
@@ -145,18 +150,20 @@ function CrmDrillDownModal() {
 }
 
 function CrmDashboardInner() {
-  const { filters, refreshKey, hiddenSections } = useCrmDashboard();
+  const { filters, refreshKey } = useCrmDashboard();
   const [overview, setOverview] = useState<CrmOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [category, setCategory] = useState<CrmCategoryTabId>('insights');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiCrmDashboardOverview(filters);
       setOverview(data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       setOverview(null);
-      toast.error(error?.message || 'Failed to load CRM dashboard');
+      const message = error instanceof Error ? error.message : 'Failed to load CRM dashboard';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -175,29 +182,59 @@ function CrmDashboardInner() {
     return () => window.clearInterval(id);
   }, [filters]);
 
-  const show = (id: string) => !hiddenSections.has(id);
-
   return (
     <div className="space-y-5">
       <CrmHeader overview={overview} onRefresh={() => void load()} />
 
-      {show('kpis') ? <CrmKpiGrid overview={overview} loading={loading} /> : null}
+      <CrmKpiGrid overview={overview} loading={loading} />
 
-      {show('charts') || show('tables') ? (
-        <CrmChartsAndTables overview={overview} loading={loading} />
+      <HqDashCategoryTabs
+        instanceId="crm-tenant"
+        tabs={CRM_CATEGORY_TABS}
+        value={category}
+        onChange={(id) => setCategory(id as CrmCategoryTabId)}
+      />
+
+      {category === 'insights' ? (
+        <CrmDecisionInsights overview={overview} loading={loading} />
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-12">
-        <div className="space-y-5 xl:col-span-9">
-          {show('followups') ? (
-            <CrmFollowupActivity overview={overview} loading={loading} />
-          ) : null}
-          {show('team') ? <CrmTeamLeaderboard overview={overview} loading={loading} /> : null}
+      {category === 'portfolio' ? (
+        <CrmChartsAndTables overview={overview} loading={loading} mode="portfolio" />
+      ) : null}
+
+      {category === 'team' ? (
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-12">
+            <div className="xl:col-span-8">
+              <CrmStatsBar
+                title="Team overview"
+                subtitle="Performance, ownership & workload"
+                metrics={buildCrmTeamStatsWithInfo(overview)}
+                overview={overview}
+                limit={4}
+                columns={2}
+                accent="blue"
+                size="lg"
+              />
+            </div>
+            <div className="xl:col-span-4">
+              <CrmStatsBar
+                title="Workload & revenue"
+                subtitle="Activity & pipeline load"
+                metrics={buildCrmTeamStatsWithInfo(overview).slice(4)}
+                overview={overview}
+                limit={4}
+                columns={2}
+                accent="violet"
+                size="sm"
+              />
+            </div>
+          </div>
+          <CrmCommunication overview={overview} loading={loading} />
+          <CrmTeamLeaderboard overview={overview} loading={loading} />
         </div>
-        <div className="xl:col-span-3">
-          {show('alerts') ? <CrmAlertsPanel overview={overview} loading={loading} /> : null}
-        </div>
-      </div>
+      ) : null}
 
       {overview?.generatedAt ? (
         <p className="pb-2 text-center text-[11px] text-slate-400">
@@ -235,8 +272,8 @@ function CrmDashboardWithLayout() {
     return (
       <div className="space-y-4">
         <div className="h-24 animate-pulse rounded-2xl bg-white" />
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
-          {Array.from({ length: 12 }).map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-28 animate-pulse rounded-2xl bg-white" />
           ))}
         </div>

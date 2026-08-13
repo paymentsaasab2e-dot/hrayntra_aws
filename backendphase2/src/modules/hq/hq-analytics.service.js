@@ -36,6 +36,246 @@ function phase1FrontendBase() {
     .replace(/\/+$/, '');
 }
 
+function phase1ApiBase() {
+  return String(env.JOB_PORTAL_API_URL || process.env.JOB_PORTAL_API_URL || 'http://localhost:5000')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+function phase1InternalAdminKey() {
+  return String(
+    process.env.SYSTEM_AUDIT_ADMIN_KEY ||
+      process.env.INTERVIEW_ADMIN_KEY ||
+      process.env.INTERNAL_API_KEY ||
+      '',
+  ).trim();
+}
+
+/** Premium page spend services (Subscriptions → Premium) — ids match backend1 tokenCatalog. */
+const PREMIUM_SERVICE_NAMES = {
+  'lms.resume.ai-improve': 'AI CV Edit',
+  'cveditor.ai-improve': 'AI CV Editor Improve',
+  'lms.resume.ats-check': 'ATS Check',
+  'lms.resume.generate-summary': 'Generate Summary',
+  'lms.resume.tailor-summary': 'Tailor Summary for Job',
+  'lms.resume.analyze': 'Resume Analyze',
+  'lms.quizzes.generate': 'Generate Quizzes',
+  'lms.interview.generate-set': 'Generate Interview Set',
+  'lms.interview.ai-feedback': 'Interview AI Feedback',
+  'lms.interview.mock-session-start': 'Mock Interview Session',
+  'lms.interview.unlock-request': 'Unlock Be Interviewed',
+  'lms.interview.unlock-interviewer': 'Unlock Become Interviewer',
+  'lms.notes.ai-action': 'Notes AI Action',
+  'lms.career-path.recommend-goal': 'Career Goal Recommend',
+  'lms.courses.unlock-premium': 'Premium Course Unlock',
+  'lms.courses.unlock-certified': 'Certified Course Unlock',
+  'office.reference-check': 'Reference Check',
+};
+
+/** Earn tab tasks (Subscriptions → Earn). */
+const EARN_TASK_NAMES = {
+  welcome: 'First login bonus',
+  'earn.cv_upload': 'Upload your CV',
+  'earn.profile.basicInformation': 'Complete basic details',
+  'earn.profile.summary': 'Add professional summary',
+  'earn.profile.education': 'Add education',
+  'earn.profile.skills': 'Add skills',
+  'earn.profile.languages': 'Add languages',
+  'earn.profile.projects': 'Add a project',
+  'earn.profile.careerPreferences': 'Set career preferences',
+};
+
+const FREE_PORTAL_FEATURE_CATEGORIES = new Set([
+  'jobs',
+  'applications',
+  'profile',
+  'dashboard',
+  'community',
+  'other',
+]);
+
+function premiumServiceDisplayName(serviceId) {
+  const id = String(serviceId || '').trim();
+  if (!id) return 'Unknown service';
+  if (PREMIUM_SERVICE_NAMES[id]) return PREMIUM_SERVICE_NAMES[id];
+  if (id.startsWith('office.reference-check')) return 'Reference Check';
+  if (id.startsWith('lms.courses.unlock')) return id.includes('certified') ? 'Certified Course Unlock' : 'Premium Course Unlock';
+  return id.replace(/^lms\./, '').replace(/[._]/g, ' ');
+}
+
+function earnTaskDisplayName(serviceId) {
+  const raw = String(serviceId || '').trim();
+  if (!raw || raw.endsWith('.open')) return null;
+  const base = raw.replace(/\.r\d+$/, '');
+  if (EARN_TASK_NAMES[base]) return EARN_TASK_NAMES[base];
+  if (base.startsWith('earn.') || base === 'welcome') {
+    return base.replace(/^earn\./, '').replace(/[._]/g, ' ');
+  }
+  return null;
+}
+
+function isPremiumSpendService(serviceId) {
+  const id = String(serviceId || '').trim();
+  if (!id) return false;
+  if (PREMIUM_SERVICE_NAMES[id]) return true;
+  if (id.startsWith('lms.') || id.startsWith('cveditor.') || id.startsWith('office.reference-check')) {
+    return true;
+  }
+  return false;
+}
+
+/** Token ledger rollup from jobportal Mongo — spends (premium) + earns (free triggers). */
+async function fetchPhase1TokenUsageAggregate() {
+  try {
+    const db = await getPortalMongoDb();
+    if (!db) return null;
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const col = db.collection('token_transactions');
+
+    const [spendRows, earnRows] = await Promise.all([
+      col
+        .aggregate([
+          { $match: { type: 'SPEND', createdAt: { $gte: since } } },
+          {
+            $group: {
+              _id: '$service',
+              count: { $sum: 1 },
+              tokens: { $sum: { $abs: '$amount' } },
+            },
+          },
+          { $sort: { count: -1 } },
+          { $limit: 30 },
+        ])
+        .toArray(),
+      col
+        .aggregate([
+          {
+            $match: {
+              type: 'GRANT',
+              createdAt: { $gte: since },
+              service: { $type: 'string', $ne: '' },
+            },
+          },
+          {
+            $group: {
+              _id: '$service',
+              count: { $sum: 1 },
+              tokens: { $sum: { $abs: '$amount' } },
+            },
+          },
+          { $sort: { count: -1 } },
+          { $limit: 40 },
+        ])
+        .toArray(),
+    ]);
+
+    const premiumSpendMap = {};
+    const premiumTokenMap = {};
+    let premiumSpendEvents = 0;
+    let premiumTokensSpent = 0;
+    for (const row of spendRows || []) {
+      const serviceId = String(row?._id || '').trim();
+      if (!serviceId || !isPremiumSpendService(serviceId)) continue;
+      const name = premiumServiceDisplayName(serviceId);
+      const count = Number(row.count) || 0;
+      const tokens = Number(row.tokens) || 0;
+      premiumSpendMap[name] = (premiumSpendMap[name] || 0) + count;
+      premiumTokenMap[name] = (premiumTokenMap[name] || 0) + tokens;
+      premiumSpendEvents += count;
+      premiumTokensSpent += tokens;
+    }
+
+    const earnMap = {};
+    let earnEvents = 0;
+    for (const row of earnRows || []) {
+      const serviceId = String(row?._id || '').trim();
+      const name = earnTaskDisplayName(serviceId);
+      if (!name) continue;
+      const count = Number(row.count) || 0;
+      earnMap[name] = (earnMap[name] || 0) + count;
+      earnEvents += count;
+    }
+
+    const premiumServicesUsage = Object.entries(premiumSpendMap)
+      .map(([name, value]) => ({
+        name,
+        value,
+        tokens: premiumTokenMap[name] || 0,
+        kind: 'premium',
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 12);
+
+    const earnFeatures = Object.entries(earnMap)
+      .map(([name, value]) => ({
+        name,
+        value,
+        kind: 'earn',
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    return {
+      available: true,
+      premiumSpendEvents,
+      premiumTokensSpent,
+      premiumServicesUsage,
+      earnFeatures,
+      earnEvents,
+      capturedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.warn('[hq-analytics] Token usage aggregate failed:', error?.message || error);
+    return null;
+  }
+}
+
+/** Office Gossip + reference-check product rollup from backend1 (not behaviour JSON). */
+async function fetchOfficeGossipsHqSummary() {
+  try {
+    const url = `${phase1ApiBase()}/api/office-gossips/hq/summary`;
+    const headers = { Accept: 'application/json' };
+    const key = phase1InternalAdminKey();
+    if (key) headers['x-internal-admin-key'] = key;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(url, {
+      headers,
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const data = json?.data;
+    if (!data || typeof data !== 'object') return null;
+    return {
+      available: true,
+      updatedAt: data.updatedAt || null,
+      usersOnOfficeGossip: Number(data.usersOnOfficeGossip) || 0,
+      identities: Number(data.identities) || 0,
+      communities: Number(data.communities) || 0,
+      companyPages: Number(data.companyPages) || 0,
+      posts: Number(data.posts) || 0,
+      comments: Number(data.comments) || 0,
+      openForReference: Number(data.openForReference) || 0,
+      referenceChecks: Number(data.referenceChecks) || 0,
+      referenceByStatus:
+        data.referenceByStatus && typeof data.referenceByStatus === 'object'
+          ? data.referenceByStatus
+          : {},
+      referenceChecksSummary: {
+        total: Number(data.referenceChecksSummary?.total ?? data.referenceChecks) || 0,
+        initiated: Number(data.referenceChecksSummary?.initiated) || 0,
+        responded: Number(data.referenceChecksSummary?.responded) || 0,
+        completed: Number(data.referenceChecksSummary?.completed) || 0,
+        rejected: Number(data.referenceChecksSummary?.rejected) || 0,
+      },
+    };
+  } catch (error) {
+    console.warn('[hq-analytics] Office Gossips HQ summary fetch failed:', error?.message || error);
+    return null;
+  }
+}
+
 /** Categories treated as premium / paid-prep product surfaces. */
 const PREMIUM_FEATURE_CATEGORIES = new Set([
   'premium',
@@ -50,23 +290,97 @@ const PREMIUM_FEATURE_CATEGORIES = new Set([
 const COMMUNITY_FEATURE_CATEGORIES = new Set(['community']);
 
 const CATEGORY_DISPLAY = {
-  jobs: 'Jobs',
-  lms: 'LMS',
-  courses: 'Courses',
-  premium: 'Premium services',
-  community: 'Office Gossip / Chat / Ref check',
-  profile: 'Profile',
-  applications: 'Applications',
+  jobs: 'Explore jobs',
+  lms: 'Learning Hub',
+  courses: 'LMS courses',
+  premium: 'Services / Premium page',
+  community: 'Office Gossip',
+  profile: 'Profile completion',
+  applications: 'My applications',
   interview_prep: 'Interview prep',
-  ai_cv: 'AI CV',
-  events: 'Events',
-  dashboard: 'Dashboard',
-  other: 'Other',
+  ai_cv: 'AI CV / Resume builder',
+  events: 'LMS events',
+  dashboard: 'Candidate home',
+  other: 'Other portal pages',
+};
+
+/** First-open / landing labels — portal surfaces users arrive on (UTM sources later). */
+const ENTRY_POINT_DISPLAY = {
+  jobs: 'Explore jobs landing',
+  lms: 'Learning Hub landing',
+  courses: 'LMS courses landing',
+  premium: 'Services / Premium landing',
+  community: 'Office Gossip landing',
+  profile: 'Profile landing',
+  applications: 'Applications landing',
+  interview_prep: 'Interview prep landing',
+  ai_cv: 'AI CV landing',
+  events: 'LMS events landing',
+  dashboard: 'Candidate home landing',
+  other: 'Other landing page',
+};
+
+/** Popular-features surface labels — paid vs free, match portal naming. */
+const FEATURE_SURFACE_LABELS = {
+  jobs: { name: 'Explore jobs', kind: 'free' },
+  applications: { name: 'My applications', kind: 'free' },
+  profile: { name: 'Profile completion', kind: 'free' },
+  dashboard: { name: 'Candidate home', kind: 'free' },
+  community: { name: 'Office Gossip', kind: 'free' },
+  courses: { name: 'LMS courses', kind: 'mixed' },
+  lms: { name: 'Learning Hub', kind: 'mixed' },
+  interview_prep: { name: 'Interview prep', kind: 'paid' },
+  ai_cv: { name: 'AI CV / Resume builder', kind: 'paid' },
+  premium: { name: 'Services / Premium page', kind: 'paid' },
+  events: { name: 'LMS events', kind: 'mixed' },
 };
 
 function categoryDisplayName(cat) {
   const key = String(cat || '').trim();
   return CATEGORY_DISPLAY[key] || key.replace(/_/g, ' ') || 'Unknown';
+}
+
+function entryPointDisplayName(cat) {
+  const key = String(cat || '').trim();
+  return ENTRY_POINT_DISPLAY[key] || categoryDisplayName(key);
+}
+
+function featureSurfaceLabel(catOrName) {
+  const key = String(catOrName || '').trim();
+  if (FEATURE_SURFACE_LABELS[key]) return FEATURE_SURFACE_LABELS[key];
+  // Already a display name from CATEGORY_DISPLAY — reverse lookup
+  for (const [cat, meta] of Object.entries(FEATURE_SURFACE_LABELS)) {
+    if (meta.name === key || CATEGORY_DISPLAY[cat] === key) return meta;
+  }
+  return null;
+}
+
+/** HQ insight trigger titles — reserved for a separate alerts page, not Popular features. */
+function isHqInsightFeatureLabel(name) {
+  const t = String(name || '').toLowerCase();
+  if (!t) return true;
+  return (
+    /visited services but did not purchase/.test(t) ||
+    /did not purchase/.test(t) ||
+    /without applying/.test(t) ||
+    /hesitat/.test(t) ||
+    /incomplete profile/.test(t) ||
+    /short visits on premium/.test(t) ||
+    /losing after interview/.test(t) ||
+    /rejections? with/.test(t) ||
+    /rejections? despite/.test(t) ||
+    /premium curiosity/.test(t) ||
+    /learning path can convert/.test(t) ||
+    /low market fit/.test(t) ||
+    /profile looks ready/.test(t) ||
+    /job hunting with/.test(t) ||
+    /polishing cv/.test(t) ||
+    /strong interest in/.test(t) ||
+    /repeated interest in/.test(t) ||
+    /role focus on/.test(t) ||
+    /researching .+ without/.test(t) ||
+    /^hq[_\s]/.test(t)
+  );
 }
 
 function isCommunityBehaviorSignal(text) {
@@ -130,7 +444,9 @@ async function fetchPhase1LiveBehaviorAggregate() {
       totalLogins7d += Number(rollup.logins) || 0;
       totalSessions7d += Number(rollup.sessionCount) || 0;
 
-      for (const [cat, count] of Object.entries(rollup.pageVisitsByCategory || {})) {
+      const pageCats = rollup.pageVisitsByCategory || {};
+      const syntheticInterestAdds = new Set();
+      for (const [cat, count] of Object.entries(pageCats)) {
         const n = Number(count) || 0;
         if (n <= 0) continue;
         bump(pageVisitMap, cat, n);
@@ -141,6 +457,22 @@ async function fetchPhase1LiveBehaviorAggregate() {
         if (COMMUNITY_FEATURE_CATEGORIES.has(cat)) {
           bump(communityVisitMap, cat, n);
           communityVisits7d += n;
+        }
+        // Feed Top interests from attention mix (jobs / courses / posts)
+        if (cat === 'jobs' || cat === 'applications') {
+          syntheticInterestAdds.add('job_search');
+          interestScoreSum.job_search = (interestScoreSum.job_search || 0) + Math.min(40, n * 2);
+          interestLabel.job_search = interestLabel.job_search || 'Job search';
+        }
+        if (cat === 'courses' || cat === 'lms') {
+          syntheticInterestAdds.add('learning');
+          interestScoreSum.learning = (interestScoreSum.learning || 0) + Math.min(40, n * 2);
+          interestLabel.learning = interestLabel.learning || 'Learning & courses';
+        }
+        if (cat === 'community') {
+          syntheticInterestAdds.add('watercooler');
+          interestScoreSum.watercooler = (interestScoreSum.watercooler || 0) + Math.min(30, n * 2);
+          interestLabel.watercooler = interestLabel.watercooler || 'Workplace chat / posts';
         }
       }
 
@@ -164,12 +496,19 @@ async function fetchPhase1LiveBehaviorAggregate() {
         }
       }
 
+      const interestKeysFromUser = new Set();
       for (const topic of Array.isArray(user.interests) ? user.interests : []) {
         const key = String(topic?.key || '').trim();
         if (!key) continue;
+        interestKeysFromUser.add(key);
         interestUserCount[key] = (interestUserCount[key] || 0) + 1;
         interestScoreSum[key] = (interestScoreSum[key] || 0) + (Number(topic?.score) || 0);
         interestLabel[key] = String(topic?.label || key).trim() || key;
+      }
+      for (const key of syntheticInterestAdds) {
+        if (!interestKeysFromUser.has(key)) {
+          interestUserCount[key] = (interestUserCount[key] || 0) + 1;
+        }
       }
 
       for (const role of Array.isArray(rollup.topRoles) ? rollup.topRoles : []) {
@@ -224,9 +563,29 @@ async function fetchPhase1LiveBehaviorAggregate() {
     }));
     const entryPoints = toChartArray(entryPointMap, { limit: 8 }).map((row) => ({
       ...row,
-      name: categoryDisplayName(row.name),
+      name: entryPointDisplayName(row.name),
       category: row.name,
     }));
+
+    // Popular = portal surfaces only (paid / free / mixed) — never HQ insight trigger titles
+    const popularFromPages = toChartArray(pageVisitMap, { limit: 14 })
+      .filter((row) => String(row.name) !== 'other')
+      .map((row) => {
+        const meta = featureSurfaceLabel(row.name) || {
+          name: categoryDisplayName(row.name),
+          kind: PREMIUM_FEATURE_CATEGORIES.has(String(row.name)) ? 'paid' : 'free',
+        };
+        const tag =
+          meta.kind === 'paid' ? 'Paid' : meta.kind === 'mixed' ? 'Free / paid' : 'Free';
+        return {
+          name: `${tag} · ${meta.name}`,
+          value: row.value,
+          kind: meta.kind,
+          category: row.name,
+        };
+      });
+
+    const popularFeatures = popularFromPages.slice(0, 10);
 
     const topInterests = Object.keys(interestUserCount)
       .map((key) => {
@@ -237,13 +596,15 @@ async function fetchPhase1LiveBehaviorAggregate() {
         return {
           name: interestLabel[key] || key,
           key,
-          value: usersWithInterest,
+          /** Platform aggregate score (sum); HQ ranks by this. */
+          value: Math.round(scoreSum * 10) / 10,
           avgScore,
           scoreSum: Math.round(scoreSum * 10) / 10,
+          users: usersWithInterest,
         };
       })
-      .sort((a, b) => b.scoreSum - a.scoreSum || b.value - a.value)
-      .slice(0, 8);
+      .sort((a, b) => b.scoreSum - a.scoreSum || b.users - a.users)
+      .slice(0, 10);
 
     const trendingTopics = [
       ...topInterests.map((t) => ({
@@ -251,23 +612,17 @@ async function fetchPhase1LiveBehaviorAggregate() {
         value: Math.round(t.scoreSum) || t.value,
         kind: 'interest',
       })),
-      ...toChartArray(roleTopicMap, { limit: 5 }).map((r) => ({
+      ...toChartArray(roleTopicMap, { limit: 6 }).map((r) => ({
         ...r,
         kind: 'role',
       })),
-      ...toChartArray(companyTopicMap, { limit: 5 }).map((r) => ({
+      ...toChartArray(companyTopicMap, { limit: 6 }).map((r) => ({
         ...r,
         kind: 'company',
       })),
     ]
       .sort((a, b) => b.value - a.value)
-      .slice(0, 10);
-
-    const popularFeatures = (
-      Object.keys(triggerTitleMap).length
-        ? toChartArray(triggerTitleMap, { limit: 8 })
-        : pageVisitsLabeled
-    ).slice(0, 8);
+      .slice(0, 12);
 
     return {
       available: true,
@@ -450,9 +805,28 @@ async function countModel(client, model, where = {}) {
   return client[model].count({ where });
 }
 
+/** Phase-2 schema CandidateStatus — portal Mongo often has null/missing status. */
+const CANDIDATE_STATUS_ENUM = ['NEW', 'ACTIVE', 'PLACED', 'INACTIVE', 'BLACKLISTED'];
+
 async function groupByModel(client, model, args) {
   if (!client?.[model]?.groupBy) return [];
   return client[model].groupBy(args);
+}
+
+/**
+ * groupBy on enum fields crashes Prisma Mongo when any row has null/missing value.
+ * Restrict to known enum members so nulls are excluded from the aggregation.
+ */
+async function groupByEnumField(client, model, field, enumValues, where = {}) {
+  if (!client?.[model]?.groupBy || !enumValues?.length) return [];
+  const rows = await client[model].groupBy({
+    by: [field],
+    where: {
+      AND: [where || {}, { [field]: { in: enumValues } }],
+    },
+    _count: { _all: true },
+  });
+  return (rows || []).filter((row) => row?.[field] != null);
 }
 
 function buildTimeSeries(dates, months = 6) {
@@ -694,7 +1068,8 @@ async function buildEmployeeAnalytics() {
             firstName: true,
             lastName: true,
             email: true,
-            status: true,
+            // Avoid selecting required enum `status` — portal rows often have null and Prisma can throw
+            recruiterStatus: true,
             source: true,
             stage: true,
             location: true,
@@ -754,13 +1129,7 @@ async function buildEmployeeAnalytics() {
     ),
     safe(
       'portal.candidate.groupBy.status',
-      () =>
-        groupByModel(portal, 'candidate', {
-          by: ['status'],
-          // status is a required enum — Prisma Mongo rejects `{ not: null }`
-          where: softWhere,
-          _count: { _all: true },
-        }),
+      () => groupByEnumField(portal, 'candidate', 'status', CANDIDATE_STATUS_ENUM, softWhere),
       [],
     ),
     safe(
@@ -833,7 +1202,8 @@ async function buildEmployeeAnalytics() {
   for (const row of sourceGroups || []) bump(sourceMap, row.source || 'Unknown', row._count?._all || 0);
 
   for (const c of candidatesSample || []) {
-    if (!statusGroups?.length) bump(statusMap, c.status || 'Unknown');
+    const sampleStatus = c.status || c.recruiterStatus || c.stage || 'Unknown';
+    if (!statusGroups?.length) bump(statusMap, sampleStatus);
     if (!sourceGroups?.length) bump(sourceMap, c.source || 'Unknown');
     bump(locationMap, c.city || c.location || c.country || 'Unknown');
     const years = c.experienceYears ?? c.experience;
@@ -934,7 +1304,7 @@ async function buildEmployeeAnalytics() {
     id: c.id,
     name: fullName(c.firstName, c.lastName),
     email: c.email || '',
-    status: String(c.status || '—'),
+    status: String(c.status || c.recruiterStatus || c.stage || '—'),
     source: c.source || '—',
     location: c.city || c.location || c.country || '—',
     stage: c.stage || '',
@@ -1117,8 +1487,150 @@ async function buildEmployeeAnalytics() {
     };
   });
 
-  const liveTracking = await fetchPhase1LiveBehaviorAggregate();
   const sessionOnline = uniqueActiveCandidates.size || activeSessions;
+  const [liveTrackingRaw, officeGossip, tokenUsage] = await Promise.all([
+    fetchPhase1LiveBehaviorAggregate(),
+    fetchOfficeGossipsHqSummary(),
+    fetchPhase1TokenUsageAggregate(),
+  ]);
+
+  function withOfficeGossip(base) {
+    if (!base) return null;
+    const next = { ...base, officeGossip: officeGossip || null };
+    if (officeGossip) {
+      next.communityBehavior = [
+        {
+          name: 'Users on Office Gossip',
+          value: Number(officeGossip.usersOnOfficeGossip) || 0,
+        },
+        {
+          name: 'Ref checks initiated',
+          value: Number(officeGossip.referenceChecksSummary?.initiated) || 0,
+        },
+        {
+          name: 'Ref checks responded',
+          value: Number(officeGossip.referenceChecksSummary?.responded) || 0,
+        },
+        {
+          name: 'Ref checks completed',
+          value: Number(officeGossip.referenceChecksSummary?.completed) || 0,
+        },
+        {
+          name: 'Open for reference',
+          value: Number(officeGossip.openForReference) || 0,
+        },
+      ].filter((r) => r.value > 0);
+    }
+    return next;
+  }
+
+  function withTokenUsage(base) {
+    if (!base) return null;
+    const next = { ...base, tokenUsage: tokenUsage || null };
+
+    const sanitizePopular = (rows) =>
+      (rows || [])
+        .filter((row) => row && !isHqInsightFeatureLabel(row.name))
+        .map((row) => ({
+          name: String(row.name),
+          value: row.value,
+          kind: row.kind,
+          tokens: row.tokens,
+        }));
+
+    if (!tokenUsage?.available) {
+      next.popularFeatures = sanitizePopular(base.popularFeatures);
+      return next;
+    }
+
+    if (tokenUsage.premiumServicesUsage?.length) {
+      next.premiumServicesUsage = tokenUsage.premiumServicesUsage.map((row) => ({
+        name: row.name,
+        value: row.value,
+        tokens: row.tokens,
+        kind: 'premium',
+      }));
+      next.premiumVisits7d = tokenUsage.premiumSpendEvents || next.premiumVisits7d;
+      next.premiumTokensSpent7d = tokenUsage.premiumTokensSpent || 0;
+    }
+
+    const premiumRows = (tokenUsage.premiumServicesUsage || []).map((row) => ({
+      name: `Paid · ${row.name}`,
+      value: row.value,
+      kind: 'premium',
+    }));
+    const earnRows = (tokenUsage.earnFeatures || []).map((row) => ({
+      name: `Free · ${row.name}`,
+      value: row.value,
+      kind: 'earn',
+    }));
+    const freeRows = (base.pageVisitsByCategory || [])
+      .filter((row) => {
+        const cat = String(row.category || '').toLowerCase();
+        if (!cat || cat === 'other') return false;
+        return Boolean(FEATURE_SURFACE_LABELS[cat] || FREE_PORTAL_FEATURE_CATEGORIES.has(cat));
+      })
+      .map((row) => {
+        const cat = String(row.category || '').toLowerCase();
+        const meta = featureSurfaceLabel(cat) || {
+          name: String(row.name),
+          kind: 'free',
+        };
+        const tag =
+          meta.kind === 'paid' ? 'Paid' : meta.kind === 'mixed' ? 'Free / paid' : 'Free';
+        return {
+          name: `${tag} · ${meta.name}`,
+          value: row.value,
+          kind: meta.kind,
+        };
+      });
+    const surfaceRows = sanitizePopular(base.popularFeatures);
+
+    const mergedPopular = [...premiumRows, ...earnRows, ...freeRows, ...surfaceRows];
+    const byName = new Map();
+    for (const row of mergedPopular) {
+      if (isHqInsightFeatureLabel(row.name)) continue;
+      const key = String(row.name);
+      const prev = byName.get(key);
+      if (!prev || row.value > prev.value) byName.set(key, row);
+    }
+    next.popularFeatures = [...byName.values()]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 12);
+
+    return next;
+  }
+
+  let liveTracking = withTokenUsage(withOfficeGossip(liveTrackingRaw));
+  if (!liveTracking && officeGossip) {
+    liveTracking = withTokenUsage(
+      withOfficeGossip({
+        available: true,
+        source: 'office_gossips_bundle',
+        trackedUsers: 0,
+        onlineNow: sessionOnline,
+        totalActiveMs7d: 0,
+        totalVisits7d: 0,
+        totalApplies7d: 0,
+        totalJobClicks7d: 0,
+        totalLogins7d: 0,
+        totalSessions7d: 0,
+        avgActiveMsPerUser7d: 0,
+        premiumVisits7d: 0,
+        communityVisits7d: 0,
+        pageVisitsByCategory: [],
+        premiumServicesUsage: [],
+        popularFeatures: [],
+        entryPoints: [],
+        topInterests: [],
+        trendingTopics: [],
+        topTriggers: [],
+        liveFeed: [],
+        capturedAt: officeGossip.updatedAt || new Date().toISOString(),
+        communityBehavior: [],
+      }),
+    );
+  }
   const onlineNow = liveTracking?.available
     ? Math.max(Number(liveTracking.onlineNow) || 0, sessionOnline)
     : sessionOnline;

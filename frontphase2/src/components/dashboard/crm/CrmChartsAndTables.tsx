@@ -1,41 +1,55 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import Link from 'next/link';
+import React from 'react';
+import { motion } from 'framer-motion';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
-import { crmCard, formatInr, formatNum, relativeTime, useCrmDashboard } from './crmShared';
-import {
-  buildClientSliceDrillDown,
-  buildLeadSliceDrillDown,
-  mapClientDrillRows,
-  mapLeadDrillRows,
-} from './crmDrillDown';
+import { dashCard, formatNum, useCrmDashboard } from './crmShared';
+import { buildClientSliceDrillDown, buildLeadSliceDrillDown } from './crmDrillDown';
+import { CrmPipelineIntelligence } from './CrmPipelineIntelligence';
+import { CrmRecordScopePicker } from './CrmRecordScopePicker';
 
-const COLORS = ['#2563EB', '#059669', '#D97706', '#7C3AED', '#E11D48', '#0891B2', '#4F46E5', '#64748B'];
+const COLORS = ['#6366F1', '#84CC16', '#8B5CF6', '#0EA5E9', '#F43F5E', '#F59E0B'];
+const FUNNEL_BAR_COLORS = ['#6366F1', '#84CC16', '#8B5CF6', '#0EA5E9', '#F43F5E', '#F59E0B'];
 
-function formatDateTime(iso?: string | null) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '—';
-  return d.toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+const FUNNEL_STAGE_ORDER = [
+  'new',
+  'contacted',
+  'qualified',
+  'proposal',
+  'negotiation',
+  'converted',
+  'won',
+  'lost',
+  'inactive',
+];
+
+function sortFunnelStages(data: Array<{ name: string; value: number }>) {
+  const rank = (name: string) => {
+    const key = name.trim().toLowerCase();
+    const idx = FUNNEL_STAGE_ORDER.findIndex((s) => key.includes(s));
+    return idx === -1 ? 99 : idx;
+  };
+  return [...data].sort((a, b) => rank(a.name) - rank(b.name || '') || b.value - a.value);
 }
 
-type Props = { overview: CrmOverview | null; loading?: boolean };
+type Props = {
+  overview: CrmOverview | null;
+  loading?: boolean;
+  /** charts | tables | all | portfolio (breakdown + record scope) */
+  mode?: 'charts' | 'tables' | 'all' | 'portfolio';
+};
 
-function PieBlock({
+export function PieBlock({
   title,
   subtitle,
   data,
   center,
   centerLabel = 'Total',
   onSliceClick,
+  nested = false,
+  compact = false,
+  stack = false,
 }: {
   title: string;
   subtitle?: string;
@@ -43,18 +57,32 @@ function PieBlock({
   center?: string;
   centerLabel?: string;
   onSliceClick?: (sliceName: string) => void;
+  nested?: boolean;
+  compact?: boolean;
+  stack?: boolean;
 }) {
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const chartSize = compact ? 112 : 148;
+  const inner = compact ? 34 : 46;
+  const outer = compact ? 52 : 68;
 
   return (
     <div
-      className={`${crmCard} group relative overflow-hidden p-5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(15,23,42,0.08)]`}
+      className={
+        nested
+          ? 'p-1'
+          : `${dashCard} group relative flex h-full ${compact ? 'min-h-[220px]' : 'min-h-[300px]'} flex-col overflow-hidden rounded-[1.75rem] ${compact ? 'p-4' : 'p-5'} shadow-[0_18px_48px_-28px_rgba(15,23,42,0.28)] transition duration-200 hover:shadow-[0_22px_52px_-24px_rgba(15,23,42,0.32)]`
+      }
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500/80 via-indigo-400/60 to-emerald-400/50 opacity-80" />
+      {!nested ? (
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-400 to-lime-400 opacity-90" />
+      ) : null}
 
-      <div className="mb-4 flex items-start justify-between gap-2">
+      <div className={`${compact ? 'mb-2' : 'mb-4'} flex items-start justify-between gap-2`}>
         <div>
-          <h3 className="text-[13px] font-semibold tracking-tight text-slate-900">{title}</h3>
+          <h3 className={`${compact ? 'text-[12px]' : 'text-[13px]'} font-bold tracking-tight text-slate-900`}>
+            {title}
+          </h3>
           {subtitle ? <p className="mt-0.5 text-[11px] text-slate-400">{subtitle}</p> : null}
         </div>
         <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-100">
@@ -62,8 +90,15 @@ function PieBlock({
         </span>
       </div>
 
-      <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center">
-        <div className="relative h-[148px] w-[148px] shrink-0">
+      <div
+        className={`flex w-full items-stretch gap-3 ${
+          stack ? 'flex-col items-center' : 'flex-col sm:flex-row sm:items-center'
+        }`}
+      >
+        <div
+          className={`relative shrink-0 ${stack ? 'mx-auto' : 'mx-auto sm:mx-0'}`}
+          style={{ width: chartSize, height: chartSize }}
+        >
           {data.length ? (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -71,8 +106,8 @@ function PieBlock({
                   data={data}
                   dataKey="value"
                   nameKey="name"
-                  innerRadius={46}
-                  outerRadius={68}
+                  innerRadius={inner}
+                  outerRadius={outer}
                   paddingAngle={3}
                   cornerRadius={4}
                   stroke="#fff"
@@ -113,15 +148,17 @@ function PieBlock({
           )}
           {center ? (
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <p className="text-2xl font-bold tracking-tight text-slate-900">{center}</p>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+              <p className={`${compact ? 'text-lg' : 'text-2xl'} font-bold tracking-tight text-slate-900`}>
+                {center}
+              </p>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
                 {centerLabel}
               </p>
             </div>
           ) : null}
         </div>
 
-        <ul className="min-w-0 flex-1 space-y-2.5">
+        <ul className={`min-w-0 space-y-2.5 ${stack ? 'w-full max-w-sm' : 'flex-1'}`}>
           {data.length ? (
             data.map((d, i) => {
               const pct = (d.value / total) * 100;
@@ -167,273 +204,147 @@ function PieBlock({
   );
 }
 
-function formatMeetingsBreakdown(row: Record<string, unknown>) {
-  const breakdown = (row.meetingsBreakdown || {}) as {
-    calls?: number;
-    meetings?: number;
-    emails?: number;
-    whatsapp?: number;
-    followups?: number;
-  };
-  const parts = [
-    breakdown.calls ? `${breakdown.calls} call${breakdown.calls === 1 ? '' : 's'}` : null,
-    breakdown.meetings ? `${breakdown.meetings} meet` : null,
-    breakdown.emails ? `${breakdown.emails} email` : null,
-    breakdown.whatsapp ? `${breakdown.whatsapp} WA` : null,
-    breakdown.followups ? `${breakdown.followups} follow-up` : null,
-  ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : null;
-}
-
-function LeadsClientsTable({ overview }: { overview: CrmOverview | null }) {
-  const { openDrillDown } = useCrmDashboard();
-  const [mode, setMode] = useState<'leads' | 'clients'>('leads');
-  const [q, setQ] = useState('');
-
-  const rows = useMemo(() => {
-    const source =
-      mode === 'leads'
-        ? ((overview?.leadsTable || []) as Array<Record<string, unknown>>)
-        : ((overview?.clientsTable || []) as Array<Record<string, unknown>>);
-    const needle = q.trim().toLowerCase();
-    if (!needle) return source;
-    return source.filter((r) =>
-      [
-        r.name,
-        r.contact,
-        r.email,
-        r.status,
-        r.industry,
-        r.assignee,
-        r.location,
-        r.totalMeetings,
-      ]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(needle)),
-    );
-  }, [overview?.leadsTable, overview?.clientsTable, mode, q]);
-
-  const totalCount =
-    mode === 'leads'
-      ? overview?.leadsTable?.length || 0
-      : overview?.clientsTable?.length || 0;
-  const href = mode === 'leads' ? '/leads' : '/client';
-  const leadColSpan = 6;
-  const clientColSpan = 7;
+export function LeadStageFunnelBlock({
+  data,
+  totalLeads,
+  nested = false,
+  onStageClick,
+  compact = false,
+}: {
+  data: Array<{ name: string; value: number }>;
+  totalLeads: number;
+  nested?: boolean;
+  onStageClick?: (stageName: string) => void;
+  compact?: boolean;
+}) {
+  const stages = sortFunnelStages(data.filter((d) => d.value > 0));
+  const total = totalLeads || stages.reduce((s, d) => s + d.value, 0) || 1;
+  const firstStage = stages[0]?.value || 0;
+  const lastStage = stages[stages.length - 1]?.value || 0;
+  const endToEndPct =
+    firstStage > 0 ? Math.round((lastStage / firstStage) * 1000) / 10 : null;
 
   return (
-    <section className={`${crmCard} overflow-hidden`}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">
-              {mode === 'leads' ? 'All Leads' : 'All Clients'}
-            </h3>
-            <p className="text-[11px] text-slate-500">
-              {rows.length} of {totalCount} records
+    <div
+      className={
+        nested
+          ? `flex h-full ${compact ? 'min-h-[220px]' : 'min-h-[300px]'} flex-col p-1`
+          : `${dashCard} relative flex h-full ${compact ? 'min-h-[220px] rounded-[1.75rem] p-4' : 'min-h-[300px] rounded-[1.75rem] p-5'} flex-col overflow-hidden shadow-[0_18px_48px_-28px_rgba(15,23,42,0.28)]`
+      }
+    >
+      {!nested ? (
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-400 to-lime-400 opacity-90" />
+      ) : null}
+      <div className="mb-3 flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+        <div>
+          <h3 className="text-[13px] font-semibold tracking-tight text-slate-900">
+            Lead pipeline funnel
+          </h3>
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            Stage conversion · click a step to drill down
+          </p>
+        </div>
+        <div className="rounded-xl bg-slate-50 px-3 py-2 text-right ring-1 ring-slate-100">
+          <p className="text-lg font-bold tabular-nums leading-none text-slate-900">
+            {formatNum(total)}
+          </p>
+          <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+            In pipeline
+          </p>
+          {endToEndPct != null && stages.length > 1 ? (
+            <p className="mt-1 text-[10px] font-medium text-indigo-600">
+              {endToEndPct}% reach final stage
             </p>
-          </div>
-          <div
-            className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1"
-            role="tablist"
-            aria-label="Leads or Clients"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'leads'}
-              onClick={() => {
-                setMode('leads');
-                setQ('');
-              }}
-              className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
-                mode === 'leads'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Leads
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'clients'}
-              onClick={() => {
-                setMode('clients');
-                setQ('');
-              }}
-              className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
-                mode === 'clients'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Clients
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={mode === 'leads' ? 'Filter leads…' : 'Filter clients…'}
-            className="h-9 w-44 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20"
-          />
-          <Link href={href} className="text-xs font-semibold text-blue-600 hover:underline">
-            View all →
-          </Link>
+          ) : null}
         </div>
       </div>
-      <div className="max-h-[28rem] overflow-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-400">
-            <tr>
-              <th className="px-4 py-2.5 font-semibold">Name</th>
-              <th className="px-3 py-2.5 font-semibold">Status</th>
-              {mode === 'clients' ? <th className="px-3 py-2.5 font-semibold">Industry</th> : null}
-              <th className="px-3 py-2.5 font-semibold">Assignee</th>
-              {mode === 'leads' ? (
-                <th className="px-3 py-2.5 font-semibold">Total meetings</th>
-              ) : (
-                <th className="px-3 py-2.5 font-semibold">Value</th>
-              )}
-              <th className="px-3 py-2.5 font-semibold">Last Activity</th>
-              <th className="px-3 py-2.5 font-semibold">Next Follow-up</th>
-              {mode === 'clients' ? (
-                <th className="px-4 py-2.5 font-semibold">Location</th>
-              ) : null}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length ? (
-              rows.map((row) => {
-                const meetingsBreakdown = formatMeetingsBreakdown(row);
-                const totalMeetings = Number(row.totalMeetings || 0);
-                return (
-                  <tr
-                    key={`${mode}-${String(row.id)}`}
-                    className="cursor-pointer border-t border-slate-100 hover:bg-blue-50/40"
-                    onClick={() =>
-                      openDrillDown({
-                        title: String(row.name || 'Record'),
-                        href: String(row.href || href),
-                        rows:
-                          mode === 'leads'
-                            ? mapLeadDrillRows([
-                                row as unknown as NonNullable<CrmOverview['leadsTable']>[number],
-                              ])
-                            : mapClientDrillRows([
-                                row as unknown as NonNullable<CrmOverview['clientsTable']>[number],
-                              ]),
-                      })
-                    }
+
+      {stages.length ? (
+        <div className="relative flex flex-1 flex-col justify-center gap-1 py-1">
+          {stages.map((stage, i) => {
+            const pctTotal = Math.round((stage.value / total) * 1000) / 10;
+            const prev = i > 0 ? stages[i - 1].value : null;
+            const stepPct =
+              prev && prev > 0 ? Math.round((stage.value / prev) * 1000) / 10 : null;
+            const taperBase = 100 - i * Math.min(13, 42 / Math.max(stages.length - 1, 1));
+            const widthPct = Math.max(38, taperBase * 0.92);
+
+            return (
+              <div key={stage.name} className="relative flex items-center gap-2.5 py-0.5">
+                <div className="w-[92px] shrink-0 text-right">
+                  <p className="text-[10px] font-semibold leading-tight text-slate-700">
+                    {stage.name}
+                  </p>
+                  {stepPct != null ? (
+                    <p className="mt-0.5 text-[9px] font-semibold text-indigo-600">
+                      {stepPct}% ← prior
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-[9px] text-slate-400">Entry</p>
+                  )}
+                </div>
+
+                <div className="flex min-w-0 flex-1 justify-center">
+                  <motion.button
+                    type="button"
+                    initial={{ scaleX: 0.55, opacity: 0 }}
+                    animate={{ scaleX: 1, opacity: 1 }}
+                    transition={{ delay: i * 0.05, duration: 0.35, ease: 'easeOut' }}
+                    onClick={() => onStageClick?.(stage.name)}
+                    className="group relative flex h-9 min-w-[4.5rem] items-center justify-center rounded-md text-[11px] font-bold tabular-nums text-white shadow-[0_10px_20px_-12px_rgba(15,23,42,0.55)] transition hover:brightness-105"
+                    style={{
+                      width: `${widthPct}%`,
+                      background: FUNNEL_BAR_COLORS[i % FUNNEL_BAR_COLORS.length],
+                      clipPath: 'polygon(6% 0%, 94% 0%, 100% 100%, 0% 100%)',
+                      transformOrigin: 'center',
+                    }}
+                    title={`${stage.name}: ${stage.value} (${pctTotal}% of pipeline)`}
                   >
-                    <td className="px-4 py-2.5 font-semibold text-slate-800">
-                      {String(row.name || '—')}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
-                        {String(row.status || '—')}
-                      </span>
-                    </td>
-                    {mode === 'clients' ? (
-                      <td className="px-3 py-2.5 text-slate-600">{String(row.industry || '—')}</td>
-                    ) : null}
-                    <td className="px-3 py-2.5 text-slate-600">{String(row.assignee || '—')}</td>
-                    {mode === 'leads' ? (
-                      <td className="px-3 py-2.5 text-slate-700">
-                        <span className="block text-sm font-semibold tabular-nums text-slate-900">
-                          {totalMeetings}
-                        </span>
-                        {meetingsBreakdown ? (
-                          <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                            {meetingsBreakdown}
-                          </span>
-                        ) : (
-                          <span className="mt-0.5 block text-[10px] text-slate-400">
-                            Completed only
-                          </span>
-                        )}
-                      </td>
-                    ) : (
-                      <td className="px-3 py-2.5 font-medium text-slate-800">
-                        {formatInr(Number(row.value || 0))}
-                      </td>
-                    )}
-                    <td className="px-3 py-2.5 text-slate-600">
-                      <span className="block text-[12px]">
-                        {formatDateTime(row.lastActivity ? String(row.lastActivity) : null)}
-                      </span>
-                      {row.lastActivity ? (
-                        <span
-                          className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            (() => {
-                              const days = Math.round(
-                                (Date.now() - new Date(String(row.lastActivity)).getTime()) /
-                                  (24 * 60 * 60 * 1000),
-                              );
-                              if (days <= 7) return 'bg-emerald-50 text-emerald-700';
-                              if (days <= 30) return 'bg-amber-50 text-amber-700';
-                              return 'bg-rose-50 text-rose-700';
-                            })()
-                          }`}
-                        >
-                          {relativeTime(String(row.lastActivity))}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600">
-                      {row.nextFollowUp ? (
-                        (() => {
-                          const nextAt = new Date(String(row.nextFollowUp));
-                          const isOverdue =
-                            Number.isFinite(nextAt.getTime()) && nextAt.getTime() < Date.now();
-                          return (
-                            <div className="flex flex-col items-start gap-1">
-                              <span className="text-[12px]">
-                                {formatDateTime(String(row.nextFollowUp))}
-                              </span>
-                              {isOverdue ? (
-                                <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-100">
-                                  Overdue
-                                </span>
-                              ) : (
-                                <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-100">
-                                  Upcoming
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    {mode === 'clients' ? (
-                      <td className="px-4 py-2.5 text-slate-500">{String(row.location || '—')}</td>
-                    ) : null}
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td
-                  colSpan={mode === 'leads' ? leadColSpan : clientColSpan}
-                  className="px-4 py-10 text-center text-slate-400"
-                >
-                  No {mode} found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+                    <span className="relative z-[1] drop-shadow-sm">{formatNum(stage.value)}</span>
+                  </motion.button>
+                </div>
+
+                <div className="w-11 shrink-0 text-right">
+                  <span className="text-[11px] font-bold tabular-nums text-slate-800">
+                    {pctTotal}%
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="flex flex-1 items-center justify-center py-8 text-sm text-slate-400">
+          No lead stage data yet
+        </p>
+      )}
+
+      {stages.length > 1 ? (
+        <div className="mt-2 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+          {stages.slice(0, 4).map((s, i) => (
+            <span
+              key={s.name}
+              className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-100"
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ background: FUNNEL_BAR_COLORS[i % FUNNEL_BAR_COLORS.length] }}
+              />
+              {s.name}: {s.value}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-export function CrmChartsAndTables({ overview, loading }: Props) {
+export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
   const { openDrillDown } = useCrmDashboard();
+  const isPortfolio = mode === 'portfolio';
+  const showCharts = isPortfolio || mode === 'charts' || mode === 'all';
+  const showScope = isPortfolio || mode === 'tables' || mode === 'all';
+
   const leadPie =
     overview?.leadStagePie?.length
       ? overview.leadStagePie
@@ -454,46 +365,114 @@ export function CrmChartsAndTables({ overview, loading }: Props) {
   if (loading && !overview) {
     return (
       <div className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-72 animate-pulse rounded-2xl bg-white" />
-          ))}
-        </div>
-        <div className="h-80 animate-pulse rounded-2xl bg-white" />
+        <div className="h-24 animate-pulse rounded-2xl bg-white/80" />
+        <div className="h-56 animate-pulse rounded-2xl bg-white/80" />
+        {showCharts ? (
+          <div className="grid gap-4 lg:grid-cols-12">
+            <div className="h-56 animate-pulse rounded-2xl bg-white/80 lg:col-span-5" />
+            <div className="h-56 animate-pulse rounded-2xl bg-white/80 lg:col-span-3" />
+            <div className="h-56 animate-pulse rounded-2xl bg-white/80 lg:col-span-4" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const chartsBlock = showCharts ? (
+    <div className="grid gap-3 lg:grid-cols-12 lg:items-stretch">
+      <div className="lg:col-span-5">
+        <LeadStageFunnelBlock
+          nested={false}
+          compact={isPortfolio}
+          data={leadPie}
+          totalLeads={Number(overview?.kpis?.totalLeads || 0)}
+          onStageClick={(name) => openDrillDown(buildLeadSliceDrillDown(overview, name, 'status'))}
+        />
+      </div>
+      <div className="lg:col-span-3">
+        <PieBlock
+          nested={false}
+          compact={isPortfolio}
+          title="Client health"
+          subtitle="Active vs inactive mix"
+          data={clientPie}
+          center={formatNum(overview?.kpis?.totalClients)}
+          centerLabel="Clients"
+          onSliceClick={(name) => openDrillDown(buildClientSliceDrillDown(overview, name))}
+        />
+      </div>
+      <div className="lg:col-span-4">
+        <PieBlock
+          nested={false}
+          compact={isPortfolio}
+          title="Lead sources"
+          subtitle="Acquisition mix"
+          data={sourcePie}
+          center={formatNum(sourcePie.reduce((s, d) => s + Number(d.value || 0), 0))}
+          centerLabel="Tagged"
+          onSliceClick={(name) => openDrillDown(buildLeadSliceDrillDown(overview, name, 'source'))}
+        />
+      </div>
+    </div>
+  ) : null;
+
+  if (isPortfolio) {
+    return (
+      <div className="space-y-5">
+        <CrmRecordScopePicker overview={overview} />
+        <CrmPipelineIntelligence
+          overview={overview}
+          leadCharts={
+            <div className="grid gap-3 lg:grid-cols-12 lg:items-stretch">
+              <div className="lg:col-span-7">
+                <LeadStageFunnelBlock
+                  nested={false}
+                  compact
+                  data={leadPie}
+                  totalLeads={Number(overview?.kpis?.totalLeads || 0)}
+                  onStageClick={(name) =>
+                    openDrillDown(buildLeadSliceDrillDown(overview, name, 'status'))
+                  }
+                />
+              </div>
+              <div className="lg:col-span-5">
+                <PieBlock
+                  nested={false}
+                  compact
+                  title="Lead sources"
+                  subtitle="Acquisition mix"
+                  data={sourcePie}
+                  center={formatNum(sourcePie.reduce((s, d) => s + Number(d.value || 0), 0))}
+                  centerLabel="Tagged"
+                  onSliceClick={(name) =>
+                    openDrillDown(buildLeadSliceDrillDown(overview, name, 'source'))
+                  }
+                />
+              </div>
+            </div>
+          }
+          clientCharts={
+            <PieBlock
+              nested={false}
+              compact
+              stack
+              title="Client health"
+              subtitle="Active vs inactive mix"
+              data={clientPie}
+              center={formatNum(overview?.kpis?.totalClients)}
+              centerLabel="Clients"
+              onSliceClick={(name) => openDrillDown(buildClientSliceDrillDown(overview, name))}
+            />
+          }
+        />
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-3">
-        <PieBlock
-          title="Lead Stages"
-          subtitle="Click a stage to view matching leads"
-          data={leadPie}
-          center={formatNum(overview?.kpis?.totalLeads)}
-          centerLabel="Leads"
-          onSliceClick={(name) => openDrillDown(buildLeadSliceDrillDown(overview, name, 'status'))}
-        />
-        <PieBlock
-          title="Client Status"
-          subtitle="Click a status to view matching clients"
-          data={clientPie}
-          center={formatNum(overview?.kpis?.totalClients)}
-          centerLabel="Clients"
-          onSliceClick={(name) => openDrillDown(buildClientSliceDrillDown(overview, name))}
-        />
-        <PieBlock
-          title="Lead Sources"
-          subtitle="Click a source to view matching leads"
-          data={sourcePie}
-          center={formatNum(sourcePie.reduce((s, d) => s + Number(d.value || 0), 0))}
-          centerLabel="Sources"
-          onSliceClick={(name) => openDrillDown(buildLeadSliceDrillDown(overview, name, 'source'))}
-        />
-      </div>
-
-      <LeadsClientsTable overview={overview} />
+      {chartsBlock}
+      {showScope ? <CrmRecordScopePicker overview={overview} /> : null}
     </div>
   );
 }

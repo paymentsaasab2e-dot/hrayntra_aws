@@ -510,7 +510,7 @@ function HQSetupPage() {
 
   if (isPhase1EmployeeDashboard) {
     return (
-      <main className="ph2-main-surface min-h-full overflow-y-auto">
+      <main className="ph2-main-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {analyticsLoading && !analytics ? (
           <div className="p-6 sm:p-8">
             <HqAnalyticsLoadingSkeleton />
@@ -534,7 +534,7 @@ function HQSetupPage() {
 
   if (isPhase2EmployerDashboard) {
     return (
-      <main className="ph2-main-surface min-h-full overflow-y-auto">
+      <main className="ph2-main-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {analyticsLoading && !analytics ? (
           <div className="p-6 sm:p-8">
             <HqAnalyticsLoadingSkeleton />
