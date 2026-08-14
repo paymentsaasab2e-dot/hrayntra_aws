@@ -2686,6 +2686,8 @@ export type HqTenantBehaviorAnalysis = {
   range?: 'today' | 'week' | 'month' | 'year';
   engagement: {
     trackedUsers: number;
+    usersCreated?: number;
+    usersLoaded?: number;
     teamMembersTotal: number;
     activeUsers7d: number;
     onlineNow: number;
@@ -2772,6 +2774,19 @@ export async function apiHqGetTenantBehavior(
   const q = new URLSearchParams({ range });
   return apiFetch<HqTenantBehaviorAnalysis>(
     `/hq/tenants/${encodeURIComponent(tenantDbName)}/behavior?${q.toString()}`,
+    { auth: true },
+  );
+}
+
+/** Stats + entity ids (no duplicated names). Tenant-wide and per-user. Not wired into HQ UI yet. */
+export async function apiHqGetTenantBehaviorEngine(
+  tenantDbName: string,
+  opts?: { range?: 'today' | 'week' | 'month' | 'year'; userId?: string },
+) {
+  const q = new URLSearchParams({ range: opts?.range || 'week' });
+  if (opts?.userId) q.set('userId', opts.userId);
+  return apiFetch<unknown>(
+    `/hq/tenants/${encodeURIComponent(tenantDbName)}/behavior-engine?${q.toString()}`,
     { auth: true },
   );
 }
@@ -4002,6 +4017,12 @@ export async function apiLogout() {
     syncAuthCookie('accessToken', null);
     syncAuthCookie('refreshToken', null);
     syncTenantDbName(null);
+    try {
+      const { clearAllEmployerPageCaches } = await import('./employerPageCache');
+      clearAllEmployerPageCaches();
+    } catch {
+      /* ignore */
+    }
   }
 }
 

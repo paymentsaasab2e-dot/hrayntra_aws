@@ -19,13 +19,18 @@ export const CRM_SECTIONS: Array<{ id: CrmSectionId; label: string }> = [
   { id: 'alerts', label: 'Alerts sidebar' },
 ];
 
-export type CrmCategoryTabId = 'insights' | 'portfolio' | 'team';
+export type CrmCategoryTabId = 'mine' | 'insights' | 'portfolio' | 'team' | 'people';
 
 export const CRM_CATEGORY_TABS: Array<{
   id: CrmCategoryTabId;
   label: string;
   blurb: string;
 }> = [
+  {
+    id: 'mine',
+    label: 'My work',
+    blurb: 'Your assigned records, tasks & approvals — separate from team stats',
+  },
   {
     id: 'insights',
     label: 'Insights & actions',
@@ -34,12 +39,17 @@ export const CRM_CATEGORY_TABS: Array<{
   {
     id: 'portfolio',
     label: 'Pipeline & records',
-    blurb: 'Find a record up top · lead then client intelligence · compact mix charts',
+    blurb: 'Lead or client stats · search a record for health, timeline & outreach',
   },
   {
     id: 'team',
     label: 'Team & outreach',
-    blurb: 'Team stats, recruiter performance & communication touchpoints',
+    blurb: 'Team stats, recruiter performance & outreach activity',
+  },
+  {
+    id: 'people',
+    label: 'Hours & scores',
+    blurb: 'Each person’s hours, utilization and scores vs the standard week (unlock with coins)',
   },
 ];
 

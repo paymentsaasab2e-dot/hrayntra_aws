@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Loader2, Send, Ticket } from 'lucide-react';
+import { Loader2, Ticket } from 'lucide-react';
+import { BrandPngIcon } from '@/components/coins/BrandPngIcon';
 import {
   apiCreateSupportTicket,
   apiListMySupportTickets,
@@ -164,7 +165,7 @@ export function HelpTicketForm() {
             disabled={submitting}
             className="inline-flex items-center gap-2 rounded-xl bg-[#0F2A44] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#163a5c] disabled:opacity-60"
           >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <BrandPngIcon name="send" className="h-4 w-4" />}
             {submitting ? 'Submitting…' : 'Submit ticket'}
           </button>
         </div>

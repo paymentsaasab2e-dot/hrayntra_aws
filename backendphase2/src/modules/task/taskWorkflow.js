@@ -75,8 +75,8 @@ export async function notifyTaskAwaitingApproval({ task, actorUserId, approverUs
     category: 'TASK',
     title: 'Task ready for your approval',
     description: `${actorName} submitted "${task.title}" for your approval.`,
-    actionLabel: 'Review task',
-    actionPath: `/Task&Activites?taskId=${encodeURIComponent(task.id)}`,
+    actionLabel: 'Review approval',
+    actionPath: `/request/approval?tab=task-completion`,
     entityType: 'TASK',
     entityId: task.id,
     metadata: {

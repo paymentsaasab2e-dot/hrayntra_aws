@@ -4,6 +4,7 @@ import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
 import { HqInfoTip } from './HqPhase2DashboardParts';
+import { CrmFigureText } from '@/components/dashboard/crm/crmStatNumber';
 
 export type HqSvgKpiItem = {
   label: string;
@@ -17,11 +18,6 @@ export type HqSvgKpiItem = {
   /** Short sentence for the (i) tip */
   info?: string;
 };
-
-function AnimatedValue({ value }: { value: string | number }) {
-  if (typeof value === 'string') return <>{value}</>;
-  return <>{value.toLocaleString()}</>;
-}
 
 function LiveSpark({
   data,
@@ -100,7 +96,7 @@ export function HqSvgKpiCard({ item }: { item: HqSvgKpiItem }) {
               }`}
             >
               {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-              {Math.abs(Number(item.growth)).toFixed(1)}%
+              <CrmFigureText value={`${Math.abs(Number(item.growth)).toFixed(1)}%`} />
             </span>
           ) : null}
         </div>
@@ -108,8 +104,8 @@ export function HqSvgKpiCard({ item }: { item: HqSvgKpiItem }) {
           <p className="text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-400">{item.label}</p>
           {item.info ? <HqInfoTip text={item.info} /> : null}
         </div>
-        <p className="hq-display mt-1.5 text-[1.35rem] font-bold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.45rem]">
-          <AnimatedValue value={item.value} />
+        <p className="mt-1.5 text-[1.35rem] font-bold leading-none tracking-tight text-slate-900 sm:text-[1.45rem]">
+          <CrmFigureText value={typeof item.value === 'number' ? item.value.toLocaleString() : item.value} />
         </p>
         <p className="mt-1.5 text-[10px] font-medium text-slate-400">
           {item.compareLabel || (hasGrowth ? 'vs prior 7d' : 'Portal')}

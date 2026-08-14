@@ -6,7 +6,9 @@ import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { buildKpiDrillDown } from './crmDrillDown';
 import { buildCrmPipelineStats, type CrmComboMetric } from './crmInsights';
 import { CrmClientCompareTimeline, CrmLeadCompareTimeline } from './CrmCompareTimeline';
-import { useCrmDashboard } from './crmShared';
+import { formatMoney, formatMoneyCompact, formatNum, useCrmDashboard } from './crmShared';
+import type { CrmPipelineSection } from './CrmRecordScopePicker';
+import { CrmStatNumber, sparkDelta } from './crmStatNumber';
 
 type GaugeTone = 'lime' | 'indigo' | 'violet' | 'rose' | 'amber';
 
@@ -26,7 +28,14 @@ function toneFromMetric(metric: CrmComboMetric): GaugeTone {
   return 'lime';
 }
 
-/** Syntho-style segmented semi-circle — one stat per card */
+function daysSince(iso?: string | null) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  return Math.round((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+/** Smooth gradient semi-circle — one stat per card */
 function SynthoStatCard({
   display,
   pct,
@@ -34,6 +43,8 @@ function SynthoStatCard({
   sub,
   info,
   tone = 'lime',
+  deltaPct,
+  invertDelta,
   onClick,
 }: {
   display: string;
@@ -42,20 +53,16 @@ function SynthoStatCard({
   sub?: string;
   info?: string;
   tone?: GaugeTone;
+  deltaPct?: number | null;
+  invertDelta?: boolean;
   onClick?: () => void;
 }) {
-  const ticks = 38;
+  const gid = React.useId().replace(/:/g, '');
   const fillPct = Math.min(100, Math.max(0, pct));
-  const filled = Math.round((fillPct / 100) * ticks);
   const [c0, c1, c2] = TONE_TICKS[tone];
-
-  const tickColor = (i: number) => {
-    if (i >= filled) return '#E8EDF3';
-    const t = filled <= 1 ? 1 : i / (filled - 1);
-    if (t < 0.45) return c0;
-    if (t < 0.8) return c1;
-    return c2;
-  };
+  const r = 78;
+  const trackLen = Math.PI * r;
+  const fillLen = (fillPct / 100) * trackLen;
 
   return (
     <div
@@ -70,56 +77,57 @@ function SynthoStatCard({
       }}
       className="group relative flex h-full cursor-pointer flex-col items-center overflow-visible rounded-[1.75rem] border border-white/80 bg-white px-4 pb-4 pt-5 text-center shadow-[0_18px_48px_-28px_rgba(15,23,42,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_52px_-24px_rgba(15,23,42,0.32)]"
     >
+      {info ? (
+        <span
+          className="absolute right-3 top-3 z-20"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <HqInfoTip text={info} />
+        </span>
+      ) : null}
       <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-indigo-400/10 blur-2xl" />
       <div className="relative w-full max-w-[220px]">
-        <svg viewBox="0 0 240 128" className="h-auto w-full" aria-hidden>
-          {Array.from({ length: ticks }).map((_, i) => {
-            const angle = 180 - (i / Math.max(ticks - 1, 1)) * 180;
-            const rad = (angle * Math.PI) / 180;
-            const cx = 120;
-            const cy = 118;
-            const r = 82;
-            const x = cx + r * Math.cos(rad);
-            const y = cy - r * Math.sin(rad);
-            const rotate = 90 - angle;
-            const active = i < filled;
-            return (
-              <rect
-                key={i}
-                x={x - 2.2}
-                y={y - 9}
-                width={4.4}
-                height={active ? 18 : 14}
-                rx={2.2}
-                fill={tickColor(i)}
-                transform={`rotate(${rotate} ${x} ${y})`}
-                opacity={active ? 1 : 0.9}
-              />
-            );
-          })}
+        <svg viewBox="0 0 220 118" className="h-auto w-full" aria-hidden>
+          <defs>
+            <linearGradient id={`g-${gid}`} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={c0} />
+              <stop offset="48%" stopColor={c1} />
+              <stop offset="100%" stopColor={c2} />
+            </linearGradient>
+            <filter id={`glow-${gid}`} x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="2.2" result="b" />
+              <feMerge>
+                <feMergeNode in="b" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          <path
+            d="M 32 104 A 78 78 0 0 1 188 104"
+            fill="none"
+            stroke="#EEF2F6"
+            strokeWidth="16"
+            strokeLinecap="round"
+          />
+          {fillPct > 0 ? (
+            <path
+              d="M 32 104 A 78 78 0 0 1 188 104"
+              fill="none"
+              stroke={`url(#g-${gid})`}
+              strokeWidth="16"
+              strokeLinecap="round"
+              strokeDasharray={`${fillLen} ${trackLen}`}
+              filter={`url(#glow-${gid})`}
+            />
+          ) : null}
         </svg>
-        <div className="absolute inset-x-0 bottom-1 flex flex-col items-center">
-          <p className="text-[1.85rem] font-bold leading-none tracking-tight tabular-nums text-slate-900">
-            {display}
-          </p>
-          <p className="mt-1.5 flex items-center justify-center gap-1 text-[12px] font-semibold text-slate-500">
-            <span>{label}</span>
-            {info ? (
-              <span
-                className="relative z-20"
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => e.stopPropagation()}
-              >
-                <HqInfoTip text={info} />
-              </span>
-            ) : null}
-          </p>
+        <div className="absolute inset-x-0 bottom-0 flex flex-col items-center px-2">
+          <CrmStatNumber value={display} label={label} size="lg" variant="gauge" deltaPct={deltaPct} invertDelta={invertDelta} />
         </div>
       </div>
       {sub ? (
-        <p className="mt-3 line-clamp-2 max-w-[220px] text-[11px] font-medium leading-snug text-slate-400">
-          {sub}
-        </p>
+        <p className="mt-3 line-clamp-2 max-w-[220px] text-[12px] leading-snug text-slate-500">{sub}</p>
       ) : null}
     </div>
   );
@@ -149,11 +157,57 @@ type GaugeItem = {
 
 type Props = {
   overview: CrmOverview | null;
+  section?: CrmPipelineSection;
   leadCharts?: React.ReactNode;
   clientCharts?: React.ReactNode;
 };
 
-export function CrmPipelineIntelligence({ overview, leadCharts, clientCharts }: Props) {
+const PULSE_GLASS: Record<string, string> = {
+  indigo: 'from-indigo-500/90 via-indigo-600/85 to-violet-700/90',
+  rose: 'from-rose-500/90 via-rose-600/85 to-orange-600/80',
+  sky: 'from-sky-500/90 via-cyan-600/85 to-indigo-600/80',
+  emerald: 'from-emerald-500/90 via-teal-600/85 to-lime-600/75',
+};
+
+function MiniPulse({
+  label,
+  value,
+  unit,
+  hint,
+  tone,
+  deltaPct,
+  spark,
+  invertDelta,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  hint: string;
+  tone: keyof typeof PULSE_GLASS;
+  deltaPct?: number | null;
+  spark?: number[];
+  invertDelta?: boolean;
+}) {
+  return (
+    <div
+      className={`relative flex min-h-[108px] flex-col justify-between overflow-hidden rounded-[1.25rem] border border-white/25 bg-gradient-to-br p-3.5 text-white backdrop-blur-xl ${PULSE_GLASS[tone]}`}
+    >
+      <div className="pointer-events-none absolute -right-6 -top-8 h-20 w-20 rounded-full bg-white/20 blur-2xl" />
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-white/75">{label}</p>
+      <CrmStatNumber
+        value={value}
+        label={unit}
+        light
+        size="md"
+        deltaPct={deltaPct}
+        invertDelta={invertDelta}
+      />
+      <p className="text-[10px] font-medium text-white/80">{hint}</p>
+    </div>
+  );
+}
+
+export function CrmPipelineIntelligence({ overview, section = 'leads', leadCharts, clientCharts }: Props) {
   const { openDrillDown } = useCrmDashboard();
   const metrics = useMemo(() => buildCrmPipelineStats(overview), [overview]);
   const byKey = (key: string) => metrics.find((m) => m.key === key);
@@ -216,96 +270,193 @@ export function CrmPipelineIntelligence({ overview, leadCharts, clientCharts }: 
     },
   );
 
+  const clients = overview?.clientsTable || [];
+  const unassignedClients = clients.filter(
+    (c) => !c.assignee || /unassigned/i.test(String(c.assignee)),
+  ).length;
+  const recentClients = clients.filter((c) => {
+    const d = daysSince(c.lastActivity);
+    return d != null && d <= 14;
+  }).length;
+  const recencyPct = totalClients > 0 ? Math.round((recentClients / totalClients) * 100) : 0;
+  const ownedClientPct =
+    totalClients > 0 ? Math.round(((totalClients - unassignedClients) / totalClients) * 100) : 100;
+  const clientBook = clients.reduce((s, c) => s + Number(c.value || 0), 0);
+  const hotClients = Number(overview?.todaySummary?.hotClients || overview?.kpis?.hotClients || 0);
+  const prospectClients = Number(overview?.kpis?.prospectClients || 0);
+  const onHoldClients = Number(overview?.kpis?.onHoldClients || 0);
+
   const clientGauges: GaugeItem[] = [];
-  const active = byKey('clientHealth');
-  const atRisk = byKey('clientsAtRisk');
-  if (totalClients > 0 && active && active.value !== '—') {
+  if (totalClients > 0) {
     clientGauges.push({
-      key: active.key,
-      display: active.value,
-      pct: Math.min(100, Math.max(0, active.pct ?? 0)),
-      label: active.label,
-      sub: active.sub,
-      info: active.info,
-      tone: toneFromMetric(active),
-      href: active.href || '/client',
+      key: 'clientRecency',
+      display: `${recencyPct}%`,
+      pct: recencyPct,
+      label: 'Touched 14d',
+      sub: `${recentClients} of ${totalClients} accounts active recently`,
+      info: 'Share of clients with a logged touch in the last 14 days — recency, not status label.',
+      tone: recencyPct >= 60 ? 'lime' : recencyPct >= 30 ? 'amber' : 'rose',
+      href: '/client',
+    });
+    clientGauges.push({
+      key: 'clientCoverage',
+      display: String(unassignedClients),
+      pct: ownedClientPct,
+      label: 'Unassigned',
+      sub:
+        unassignedClients > 0
+          ? `${ownedClientPct}% owned · need an owner`
+          : `All ${totalClients} accounts have an owner`,
+      info: 'Client accounts without an assignee.',
+      tone: unassignedClients > 0 ? 'rose' : 'lime',
+      href: '/client',
     });
   }
-  if (totalClients > 0 && atRisk) {
-    clientGauges.push({
-      key: atRisk.key,
-      display: atRisk.value,
-      pct: Math.min(100, Math.max(0, atRisk.pct ?? 0)),
-      label: atRisk.label,
-      sub: atRisk.sub,
-      info: atRisk.info,
-      tone: toneFromMetric(atRisk),
-      href: atRisk.href || '/client',
-    });
-  }
+
+  const today = overview?.todaySummary;
+  const converted = stageCountFromOverview(overview, /convert|won/i);
+  const pipelineValue = Number(overview?.businessSummary?.potentialBusinessValue || 0);
+  const meetingsToday = Number(today?.meetingsScheduled || 0);
+  const showLeads = section === 'leads';
 
   return (
     <div className="space-y-6">
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-[15px] font-bold tracking-tight text-slate-900">Lead intelligence</h2>
-          <p className="text-[11px] font-medium text-slate-400">
-            Engagement, ownership & follow-up · proposal / negotiation only when present
-          </p>
-        </div>
-        {leadGauges.length ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {leadGauges.map((g) => (
-              <SynthoStatCard
-                key={g.key}
-                display={g.display}
-                pct={g.pct}
-                label={g.label}
-                sub={g.sub}
-                info={g.info}
-                tone={g.tone}
-                onClick={() => open(g.key, g.label, g.href)}
-              />
-            ))}
+      {showLeads ? (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-[15px] font-bold tracking-tight text-slate-900">Lead intelligence</h2>
+            <p className="text-[11px] font-medium text-slate-400">
+              Today’s pulse · engagement · funnel & sources
+            </p>
           </div>
-        ) : (
-          <p className="rounded-[1.5rem] border border-dashed border-slate-200 bg-white/70 px-4 py-8 text-center text-sm text-slate-400">
-            No lead stage or conversion signals in this period yet
-          </p>
-        )}
-        {leadCharts}
-        <CrmLeadCompareTimeline overview={overview} />
-      </section>
-
-      <section className="space-y-3 border-t border-slate-200/80 pt-6">
-        <div>
-          <h2 className="text-[15px] font-bold tracking-tight text-slate-900">Client intelligence</h2>
-          <p className="text-[11px] font-medium text-slate-400">
-            Active share, risk, and health mix
-          </p>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-12 lg:items-stretch">
-          {clientGauges.map((g) => (
-            <div key={g.key} className="lg:col-span-3">
-              <SynthoStatCard
-                display={g.display}
-                pct={g.pct}
-                label={g.label}
-                sub={g.sub}
-                info={g.info}
-                tone={g.tone}
-                onClick={() => open(g.key, g.label, g.href)}
-              />
-            </div>
-          ))}
-          {clientCharts ? (
-            <div className={clientGauges.length >= 2 ? 'lg:col-span-6' : 'lg:col-span-12'}>
-              {clientCharts}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MiniPulse
+              label="In pipeline"
+              value={formatNum(totalLeads)}
+              unit="leads"
+              hint="Open lead records"
+              tone="indigo"
+              deltaPct={sparkDelta(overview?.leadSpark)}
+            />
+            <MiniPulse
+              label="New today"
+              value={formatNum(today?.newLeads)}
+              unit="today"
+              hint="Intake today"
+              tone="sky"
+              deltaPct={sparkDelta(overview?.leadSpark)}
+            />
+            <MiniPulse
+              label="Meetings today"
+              value={formatNum(meetingsToday)}
+              unit="meetings"
+              hint="On the calendar"
+              tone="emerald"
+            />
+            <MiniPulse
+              label={converted > 0 ? 'Converted' : pipelineValue ? 'Pipeline value' : 'Follow-ups due'}
+              value={
+                converted > 0
+                  ? formatNum(converted)
+                  : pipelineValue
+                    ? formatMoneyCompact(pipelineValue)
+                    : formatNum(today?.followupsPending)
+              }
+              unit={converted > 0 ? 'won' : pipelineValue ? 'value' : 'due'}
+              hint={
+                converted > 0
+                  ? 'Won this period'
+                  : pipelineValue
+                    ? 'Potential business'
+                    : 'Today’s queue'
+              }
+              tone="rose"
+              invertDelta={!converted && !pipelineValue}
+            />
+          </div>
+          {leadGauges.length ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {leadGauges.map((g) => (
+                <SynthoStatCard
+                  key={g.key}
+                  display={g.display}
+                  pct={g.pct}
+                  label={g.label}
+                  sub={g.sub}
+                  info={g.info}
+                  tone={g.tone}
+                  deltaPct={
+                    g.key === 'newToContact' || g.key === 'engaged' ? sparkDelta(overview?.leadSpark) : null
+                  }
+                  onClick={() => open(g.key, g.label, g.href)}
+                />
+              ))}
             </div>
           ) : null}
-        </div>
-        <CrmClientCompareTimeline overview={overview} />
-      </section>
+          {leadCharts}
+          <CrmLeadCompareTimeline overview={overview} />
+        </section>
+      ) : (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-[15px] font-bold tracking-tight text-slate-900">Client intelligence</h2>
+            <p className="text-[11px] font-medium text-slate-400">
+              Portfolio pulse · health mix · engagement growth
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MiniPulse
+              label="Hot accounts"
+              value={formatNum(hotClients)}
+              unit="hot"
+              hint="Priority clients"
+              tone="rose"
+            />
+            <MiniPulse
+              label="Prospects"
+              value={formatNum(prospectClients)}
+              unit="prospects"
+              hint="Not yet active"
+              tone="indigo"
+            />
+            <MiniPulse
+              label="On hold"
+              value={formatNum(onHoldClients)}
+              unit="paused"
+              hint="Paused accounts"
+              tone="sky"
+            />
+            <MiniPulse
+              label="Book value"
+              value={clientBook ? formatMoneyCompact(clientBook) : formatMoney(0)}
+              unit="book"
+              hint={`${formatNum(totalClients)} accounts`}
+              tone="emerald"
+            />
+          </div>
+          <div className="grid gap-3 lg:grid-cols-12 lg:items-stretch">
+            {clientGauges.map((g) => (
+              <div key={g.key} className="lg:col-span-3">
+                <SynthoStatCard
+                  display={g.display}
+                  pct={g.pct}
+                  label={g.label}
+                  sub={g.sub}
+                  info={g.info}
+                  tone={g.tone}
+                  onClick={() => open(g.key, g.label, g.href)}
+                />
+              </div>
+            ))}
+            {clientCharts ? (
+              <div className={clientGauges.length >= 2 ? 'lg:col-span-6' : 'lg:col-span-12'}>
+                {clientCharts}
+              </div>
+            ) : null}
+          </div>
+          <CrmClientCompareTimeline overview={overview} />
+        </section>
+      )}
     </div>
   );
 }

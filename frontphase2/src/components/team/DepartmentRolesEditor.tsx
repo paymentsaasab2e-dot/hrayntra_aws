@@ -407,6 +407,9 @@ function DepartmentRoleFieldsPanel({
             onChange={(e) => onUpdate({ rank: Math.max(1, Number(e.target.value) || 1) })}
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
           />
+          <p className="text-[10px] leading-snug text-slate-400">
+            Unique per department. Rank 1 = full dashboard stats + My work (approvals on by default). Rank 2+ = own records unless Complete dashboard stats. Tick My work: approvals on a role that has Approvals / tasks.
+          </p>
         </div>
 
         <div className="space-y-1">

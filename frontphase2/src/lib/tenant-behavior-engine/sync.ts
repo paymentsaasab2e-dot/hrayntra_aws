@@ -4,7 +4,11 @@ import { buildTenantBehaviourSuggestions } from './behaviour-suggestions';
 import { buildTenantActivityRollup } from './insights';
 import { buildTenantInterestSnapshot } from './interest-affinity';
 import { getTenantActivityState } from './store';
-import type { TenantBehaviorLiveDashboard, TenantBehaviorPayload } from './types';
+import type {
+  TenantBehaviorEngineReport,
+  TenantBehaviorLiveDashboard,
+  TenantBehaviorPayload,
+} from './types';
 
 export const TENANT_BEHAVIOR_LIVE_UPDATED_EVENT = 'saasa:tenant-behavior-live-updated';
 
@@ -36,7 +40,6 @@ export function buildTenantBehaviorPayload(
   return {
     userId,
     tenantDbName,
-    userName: state.userName || userName,
     capturedAt: new Date().toISOString(),
     activityStateUpdatedAt: state.updatedAt,
     rollupToday,
@@ -125,4 +128,16 @@ export async function fetchMyTenantBehavior() {
     auth: true,
   });
   return res.data?.payload || null;
+}
+
+export async function fetchTenantBehaviorEngine(opts?: {
+  range?: 'today' | 'week' | 'month' | 'year';
+  userId?: string;
+}): Promise<TenantBehaviorEngineReport | null> {
+  const q = new URLSearchParams({ range: opts?.range || 'week' });
+  if (opts?.userId) q.set('userId', opts.userId);
+  const res = await apiFetch<TenantBehaviorEngineReport>(`/tenant-behavior/engine?${q.toString()}`, {
+    auth: true,
+  });
+  return res.data || null;
 }

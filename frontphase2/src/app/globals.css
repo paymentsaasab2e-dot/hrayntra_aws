@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Tenant + HQ dashboards: Jakarta letters/signs, Inter digits */
+.dash-ui {
+  font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.011em;
+}
+.dash-ui h1,
+.dash-ui h2,
+.dash-ui h3 {
+  font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+}
+.dash-ui .tabular-nums {
+  font-family: var(--font-crm-num), Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
 /* ─── Phase 2 theme tokens & shared surfaces ───────────────────────────────
    Most UI uses Tailwind `rem` utilities — they follow --ph2-root-font-pct on html.
    Headings below use :where() so any `text-*` class on the same tag still wins.
@@ -103,29 +117,28 @@
 
 @layer components {
   /**
-   * HQ console theme — Manrope body + Space Grotesk display
-   * (see app/hq/layout.tsx). Shared surfaces + modern tables apply under .hq-theme.
+   * HQ console theme — Plus Jakarta Sans (CRM/Rec dashboard text) + charcoal / orange.
    */
   .hq-theme {
     --hq-bg-0: #eef2f7;
     --hq-bg-1: #f7f9fc;
     --hq-surface: #ffffff;
-    --hq-surface-muted: #f1f5f9;
-    --hq-border: rgba(15, 23, 42, 0.08);
-    --hq-border-strong: rgba(15, 23, 42, 0.12);
-    --hq-ink: #0f172a;
+    --hq-surface-muted: #f8fafc;
+    --hq-border: rgba(51, 65, 85, 0.1);
+    --hq-border-strong: rgba(51, 65, 85, 0.16);
+    --hq-ink: #334155;
     --hq-muted: #64748b;
-    --hq-accent: #0f766e;
-    --hq-accent-soft: rgba(15, 118, 110, 0.1);
-    --hq-row-hover: rgba(15, 118, 110, 0.04);
+    --hq-accent: #f97316;
+    --hq-accent-soft: rgba(249, 115, 22, 0.1);
+    --hq-row-hover: rgba(51, 65, 85, 0.05);
     --hq-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.04);
     --hq-shadow-md: 0 2px 4px rgba(15, 23, 42, 0.04), 0 16px 40px rgba(15, 23, 42, 0.06);
     --hq-radius: 1rem;
     --hq-radius-sm: 0.75rem;
 
-    font-family: var(--font-hq-sans), "Manrope", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
     color: var(--hq-ink);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.011em;
   }
 
   .hq-theme input,
@@ -144,14 +157,18 @@
 
   .hq-theme .hq-display,
   .hq-theme h1 {
-    font-family: var(--font-hq-display), "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-    letter-spacing: -0.03em;
+    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.02em;
   }
 
   .hq-theme h2,
   .hq-theme h3 {
-    font-family: var(--font-hq-display), "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-    letter-spacing: -0.02em;
+    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.015em;
+  }
+
+  .hq-theme .tabular-nums {
+    font-family: var(--font-crm-num), Inter, ui-sans-serif, system-ui, sans-serif;
   }
 
   /** Modern HQ data tables — applies to every table under HQ */
@@ -311,6 +328,42 @@
       radial-gradient(ellipse 90% 55% at 8% -8%, rgba(99, 102, 241, 0.1), transparent 55%),
       radial-gradient(ellipse 70% 45% at 96% 0%, rgba(20, 184, 166, 0.07), transparent 50%),
       radial-gradient(ellipse 50% 35% at 50% 100%, rgba(59, 130, 246, 0.05), transparent 60%);
+    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.011em;
+  }
+
+  .hq-theme .hq-dash-page,
+  .hq-theme .dash-ui,
+  .hq-theme .dash-ui p,
+  .hq-theme .dash-ui span,
+  .hq-theme .dash-ui a,
+  .hq-theme .dash-ui button,
+  .hq-theme .dash-ui label,
+  .hq-theme .dash-ui td,
+  .hq-theme .dash-ui th,
+  .hq-theme .hq-dash-page p,
+  .hq-theme .hq-dash-page span,
+  .hq-theme .hq-dash-page a,
+  .hq-theme .hq-dash-page button,
+  .hq-theme .hq-dash-page label,
+  .hq-theme .hq-dash-page td,
+  .hq-theme .hq-dash-page th {
+    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .hq-theme .hq-dash-page h1,
+  .hq-theme .hq-dash-page h2,
+  .hq-theme .hq-dash-page h3,
+  .hq-theme .dash-ui h1,
+  .hq-theme .dash-ui h2,
+  .hq-theme .dash-ui h3 {
+    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  .hq-theme .hq-dash-page .tabular-nums,
+  .hq-theme .dash-ui .tabular-nums {
+    font-family: var(--font-crm-num), Inter, ui-sans-serif, system-ui, sans-serif;
   }
 
   .hq-theme .hq-dash-card {

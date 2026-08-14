@@ -547,6 +547,22 @@ export const hqController = {
     }
   },
 
+  async getTenantBehaviorEngine(req, res) {
+    try {
+      const tenantDbName = String(req.params.tenantDbName || req.query.tenantDbName || '').trim();
+      if (!tenantDbName) return sendError(res, 400, 'tenantDbName is required');
+      const rangeRaw = String(req.query.range || 'week').trim().toLowerCase();
+      const range = ['today', 'week', 'month', 'year'].includes(rangeRaw) ? rangeRaw : 'week';
+      const userId = String(req.query.userId || '').trim() || undefined;
+
+      const result = await hqService.getTenantBehaviorEngine(req.user, tenantDbName, { range, userId });
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      if (error?.code === 'VALIDATION') return sendError(res, 400, error.message);
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async getAnalytics(req, res) {
     try {
       const result = await hqService.getAnalytics(req.user);

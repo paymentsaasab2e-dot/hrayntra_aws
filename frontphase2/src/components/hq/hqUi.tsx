@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Loader2 } from 'lucide-react';
+import { CrmFigureText } from '@/components/dashboard/crm/crmStatNumber';
 import {
   HQ_PRIMARY_BUTTON_CLASS,
   HQ_SECONDARY_BUTTON_CLASS,
@@ -69,10 +70,12 @@ export function HqStatCard({
     >
       <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label}</p>
       <div className="mt-1.5 flex items-end justify-between gap-2">
-        <p className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[1.65rem]">{value}</p>
+        <p className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[1.65rem]">
+          <CrmFigureText value={value} />
+        </p>
         {delta ? (
           <span className="mb-0.5 inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-200/80">
-            {delta}
+            <CrmFigureText value={delta} />
           </span>
         ) : null}
       </div>

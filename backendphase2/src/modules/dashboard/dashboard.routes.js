@@ -10,6 +10,7 @@ const dashboardRead = requireAnyPermission(['view_dashboard', 'reports_read']);
 router.use(authMiddleware, attachUserPermissions);
 
 router.get('/catalog', dashboardRead, dashboardController.getCatalog);
+router.get('/access', dashboardRead, dashboardController.getAccess);
 router.get('/overview', dashboardRead, dashboardController.getOverview);
 router.get('/crm-overview', dashboardRead, dashboardController.getCrmOverview);
 router.get('/recruitment-overview', dashboardRead, dashboardController.getRecruitmentOverview);

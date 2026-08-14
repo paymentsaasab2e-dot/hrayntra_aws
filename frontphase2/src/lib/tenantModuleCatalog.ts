@@ -110,9 +110,11 @@ export const ROUTE_HQ_MODULE_MAP: Array<{ prefix: string; moduleId: string }> = 
   { prefix: '/team', moduleId: 'team' },
   { prefix: '/request/approval', moduleId: 'approvals' },
   { prefix: '/request', moduleId: 'requests' },
+  { prefix: '/subscription', moduleId: 'settings' },
   { prefix: '/setting', moduleId: 'settings' },
   { prefix: '/administration', moduleId: 'settings' },
   { prefix: '/thebehave', moduleId: 'settings' },
+  { prefix: '/tenant-behave', moduleId: 'settings' },
 ];
 
 export function getHqModuleIdForPath(pathname: string | null | undefined): string | null {

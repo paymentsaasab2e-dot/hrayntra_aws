@@ -413,3 +413,106 @@ export type TenantBehaviorLiveDashboard = {
 };
 
 export type TenantBehaviorAggregate = TenantBehaviorLiveDashboard;
+
+export type TenantEngineIdList = {
+  count: number;
+  ids: string[];
+  truncated?: boolean;
+};
+
+export type TenantEngineBucket = {
+  assigned: number;
+  open: number;
+  done: number;
+  unassigned?: number;
+  ids: {
+    assigned: TenantEngineIdList;
+    open: TenantEngineIdList;
+    done: TenantEngineIdList;
+  };
+};
+
+export type TenantEngineUserRow = {
+  userId: string;
+  activity: {
+    userId: string;
+    lastActive?: string | null;
+    capturedAt?: string | null;
+    visits: number;
+    activeMs: number;
+    actions: number;
+    apiMutations: number;
+    entityViews: number;
+    entityClicks: number;
+    searches: number;
+    logins: number;
+    sessions: number;
+    daysActive: number;
+    workflowScore: number;
+    topFirstOpen?: string | null;
+    pageVisitsByCategory: Record<string, number>;
+    activeMsByCategory: Record<string, number>;
+    actionsByCategory: Record<string, number>;
+    actionBreakdown: Record<string, number>;
+    openedEntityIds: Array<{
+      entityType?: string;
+      entityId: string;
+      category?: string;
+      views: number;
+      clicks: number;
+      actions: number;
+    }>;
+    triggerFlags: string[];
+    interestKeys: Array<{ key: string; score: number }>;
+  };
+  workload: {
+    tasks: {
+      assigned: number;
+      open: number;
+      done: number;
+      overdue: number;
+      ids: { open: TenantEngineIdList; done: TenantEngineIdList; overdue: TenantEngineIdList };
+      linkedEntityIds: Record<string, TenantEngineIdList>;
+    };
+    leads: TenantEngineBucket;
+    jobs: TenantEngineBucket;
+    candidates: TenantEngineBucket;
+    clients: TenantEngineBucket;
+    interviews: TenantEngineBucket;
+    placements: TenantEngineBucket;
+  };
+};
+
+export type TenantBehaviorEngineReport = {
+  engine: string;
+  serverTime: string;
+  tenantDbName: string | null;
+  range: 'today' | 'week' | 'month' | 'year';
+  storageNote?: string;
+  tenantWide: {
+    activity: {
+      visits: number;
+      activeMs: number;
+      actions: number;
+      apiMutations: number;
+      entityViews: number;
+      entityClicks: number;
+      searches: number;
+      logins: number;
+      sessions: number;
+      trackedUsers: number;
+      activeUsers: number;
+    };
+    workload: {
+      tasks: { total: number; assigned: number; open: number; done: number; overdue: number };
+      leads: { total: number; assigned: number; unassigned: number; open: number; done: number; unassignedIds: TenantEngineIdList };
+      jobs: { total: number; assigned: number; unassigned: number; open: number; done: number; unassignedIds: TenantEngineIdList };
+      candidates: { total: number; assigned: number; unassigned: number; open: number; done: number; unassignedIds: TenantEngineIdList };
+      clients: { total: number; assigned: number; unassigned: number; open: number; done: number; unassignedIds: TenantEngineIdList };
+      interviews: { total: number; assigned: number; unassigned: number; open: number; done: number; unassignedIds: TenantEngineIdList };
+      placements: { total: number; assigned: number; unassigned: number; open: number; done: number; unassignedIds: TenantEngineIdList };
+    };
+  };
+  userCount: number;
+  users: TenantEngineUserRow[];
+};

@@ -49,7 +49,7 @@ const STAGE_WEIGHT: Record<HqLeadStage, number> = {
 
 /** Match Employees / Employers dash header actions */
 const HQ_DASH_BTN_PRIMARY =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50';
+  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:brightness-110 disabled:opacity-50';
 const HQ_DASH_BTN_SECONDARY =
   'inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)] transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50';
 
@@ -588,6 +588,7 @@ export default function HqCrmDashboardPage() {
         </div>
       }
     >
+      <div className="dash-ui hq-dash-page">
       {error ? (
         <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
@@ -1222,6 +1223,7 @@ export default function HqCrmDashboardPage() {
           </Panel>
         </section>
       ) : null}
+      </div>
     </HqModulePageLayout>
   );
 }

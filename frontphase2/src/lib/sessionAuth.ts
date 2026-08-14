@@ -8,6 +8,7 @@ import {
   syncOrgRecruitmentSummaryFromApi,
   syncTenantDbName,
 } from './api';
+import { clearAllEmployerPageCaches } from './employerPageCache';
 
 export type ActiveSessionView = {
   sessionId?: string;
@@ -55,6 +56,7 @@ export function persistAuthTokens(data: {
 
 export function clearAuthStorage() {
   if (typeof window === 'undefined') return;
+  clearAllEmployerPageCaches();
   [
     'accessToken',
     'refreshToken',

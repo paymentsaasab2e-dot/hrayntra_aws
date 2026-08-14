@@ -117,6 +117,26 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'view_activity_log', module: 'System', description: 'View company activity feed' },
   { permissionName: 'recycle_bin_manage', module: 'System', description: 'Restore or purge recycle bin items' },
   { permissionName: 'view_dashboard', module: 'System', description: 'View main dashboard' },
+  {
+    permissionName: 'dash_full_scope',
+    module: 'System',
+    description:
+      'Complete dashboard stats: see all records on allowed CRM/Recruitment tabs. Rank 1 and Super Admin already have this. Tick for a Rank 2+ deputy.',
+  },
+  {
+    permissionName: 'dash_mine_approvals',
+    module: 'System',
+    description:
+      'My work: include the approvals bucket (team requests, task completion, lead conversion, cross-dept). Super Admin and Rank 1 have this on by default. Tick for other roles that have Approvals / request / task permissions.',
+  },
+  { permissionName: 'dash_crm_insights', module: 'CRM Dashboard', description: 'CRM dashboard tab: Insights & actions' },
+  { permissionName: 'dash_crm_pipeline', module: 'CRM Dashboard', description: 'CRM dashboard tab: Pipeline & records' },
+  { permissionName: 'dash_crm_team', module: 'CRM Dashboard', description: 'CRM dashboard tab: Team & outreach' },
+  { permissionName: 'dash_crm_people', module: 'CRM Dashboard', description: 'CRM dashboard tab: People intel' },
+  { permissionName: 'dash_rec_insights', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Insights & actions' },
+  { permissionName: 'dash_rec_pipeline', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Pipeline & records' },
+  { permissionName: 'dash_rec_team', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Team & performance' },
+  { permissionName: 'dash_rec_people', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: People intel' },
 ];
 
 export const DEFAULT_PERMISSION_NAMES = DEFAULT_PERMISSIONS.map((p) => p.permissionName);
@@ -140,6 +160,8 @@ export const RBAC_MODULE_ORDER = [
   'Team',
   'Request',
   'System',
+  'CRM Dashboard',
+  'Recruitment Dashboard',
 ];
 
 export const DEFAULT_SYSTEM_ROLES = [
@@ -156,7 +178,9 @@ export const DEFAULT_SYSTEM_ROLES = [
 
 /** Default permission sets for seeded non–Super Admin roles (by role name). */
 export const DEFAULT_ROLE_PERMISSION_PRESETS = {
-  Admin: DEFAULT_PERMISSION_NAMES.filter((n) => n !== 'view_team_activity'),
+  Admin: DEFAULT_PERMISSION_NAMES.filter(
+    (n) => n !== 'view_team_activity' && n !== 'dash_full_scope',
+  ),
   'Senior Recruiter': [
     'leads_read', 'leads_create', 'leads_update',
     'clients_read', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff',
@@ -173,6 +197,8 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'calendar_read', 'calendar_manage',
     'reports_read',
     'view_dashboard',
+    'dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team', 'dash_crm_people',
+    'dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team', 'dash_rec_people',
     'view_activity_log',
     'requests_read',
     'requests_create',
@@ -185,6 +211,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'placements_read', 'contacts_read', 'tasks_read', 'tasks_create', 'tasks_update',
     'pipeline_read', 'pipeline_manage', 'matches_read', 'matches_manage',
     'inbox_read', 'calendar_read', 'view_dashboard',
+    'dash_rec_insights', 'dash_rec_pipeline',
     'requests_read', 'requests_create', 'requests_update', 'requests_delete',
   ],
   'Account Manager': [
@@ -194,6 +221,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'contacts_read', 'contacts_create', 'contacts_update',
     'agreements_read', 'agreements_manage',
     'reports_read', 'view_dashboard',
+    'dash_crm_insights', 'dash_crm_pipeline',
     'requests_read', 'requests_create', 'requests_update', 'requests_delete',
   ],
   Finance: [
@@ -204,8 +232,11 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'view_team', 'add_team_member', 'edit_team_member', 'manage_targets', 'view_team_activity',
     'leads_read', 'clients_read', 'jobs_read',
     'reports_read', 'view_dashboard', 'view_all_candidates', 'view_all_jobs', 'view_all_clients', 'view_all_leads',
+    'dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team', 'dash_crm_people',
+    'dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team', 'dash_rec_people',
     'clients_handoff',
     'requests_read', 'requests_create', 'requests_update', 'requests_delete', 'view_all_requests',
+    'dash_mine_approvals',
   ],
   'Line Manager': [
     'requests_create',
@@ -215,6 +246,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'view_all_requests',
     'view_dashboard',
     'view_team',
+    'dash_mine_approvals',
   ],
   Viewer: [
     'leads_read', 'clients_read', 'jobs_read', 'candidates_read', 'view_assigned_candidates',

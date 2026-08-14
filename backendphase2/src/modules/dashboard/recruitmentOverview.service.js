@@ -23,12 +23,77 @@ function dayBounds(base = new Date()) {
   return { start, end };
 }
 
+/** Timeline filter → createdAt window. `all` = no createdAt clamp. */
+function resolveRangeBounds(q = {}) {
+  const raw = String(q.dateRange || 'last_30_days').trim().toLowerCase();
+  const now = new Date();
+  let start;
+  let end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+
+  if (q.startDate && q.endDate) {
+    start = new Date(q.startDate);
+    end = new Date(q.endDate);
+    if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime())) {
+      return { start, end, key: 'custom' };
+    }
+  }
+
+  if (raw === 'all') return { start: null, end: null, key: 'all' };
+
+  if (raw === 'today') {
+    start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+  } else if (raw === 'yesterday') {
+    start = new Date(now);
+    start.setDate(start.getDate() - 1);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(start);
+    end.setHours(23, 59, 59, 999);
+  } else if (raw === 'last_7_days' || raw === 'week' || raw === 'this_week') {
+    start = new Date(now);
+    start.setDate(start.getDate() - 6);
+    start.setHours(0, 0, 0, 0);
+  } else if (raw === 'month' || raw === 'this_month') {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else if (raw === 'quarter' || raw === 'this_quarter') {
+    start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+  } else if (raw === 'year' || raw === 'this_year') {
+    start = new Date(now.getFullYear(), 0, 1);
+  } else {
+    start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    start.setHours(0, 0, 0, 0);
+  }
+
+  return { start, end, key: raw };
+}
+
 function countByStatus(groups, keys) {
-  const set = new Set((keys || []).map((k) => String(k).toLowerCase()));
+  const set = new Set((keys || []).map((k) => String(k).toLowerCase().replace(/[\s_]+/g, '')));
   return (groups || []).reduce((sum, g) => {
-    if (!set.has(String(g.status || '').toLowerCase())) return sum;
-    return sum + Number(g._count?._all || g._count || 0);
+    const st = String(g.status || '').toLowerCase().replace(/[\s_]+/g, '');
+    if (!set.has(st)) return sum;
+    const n = Number(g._count?._all ?? g._count ?? 0);
+    return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
+}
+
+function prettyLabel(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+function bucketSource(raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  if (!t || t === 'unknown' || t === 'null') return 'Manual upload';
+  if (/hryantra|hrayntra|hrynat|internal|ats|system/.test(t)) return 'Hryantra';
+  if (/naukri|linkedin|indeed|monster|shine|portal|job.?board|foundit|iimjobs/.test(t)) return 'Job portal';
+  if (/refer/.test(t)) return 'Referral';
+  if (/upload|import|csv|excel|manual/.test(t)) return 'Manual upload';
+  return prettyLabel(raw) || 'Other';
 }
 
 function sparkFromDaily(rows, days = 7) {
@@ -50,6 +115,31 @@ function sparkFromDaily(rows, days = 7) {
   return out;
 }
 
+function sparkBySource(rows, days = 14) {
+  const keys = ['Job portal', 'Hryantra', 'Referral', 'Manual upload', 'Other'];
+  const byDay = new Map();
+  for (const row of rows || []) {
+    const d = new Date(row.createdAt || 0);
+    if (!Number.isFinite(d.getTime())) continue;
+    const day = d.toISOString().slice(0, 10);
+    const bucket = bucketSource(row.source);
+    const slot = keys.includes(bucket) ? bucket : 'Other';
+    const rec = byDay.get(day) || Object.fromEntries(keys.map((k) => [k, 0]));
+    rec[slot] = (rec[slot] || 0) + 1;
+    byDay.set(day, rec);
+  }
+  const out = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const rec = byDay.get(key) || Object.fromEntries(keys.map((k) => [k, 0]));
+    out.push({ label: key.slice(5), ...rec });
+  }
+  return out;
+}
+
 /**
  * Recruitment Command Center overview: Jobs + Candidates + Interviews + Placements.
  */
@@ -62,7 +152,14 @@ export async function getRecruitmentOverview(req) {
   const { start: startOfToday, end: endOfToday } = dayBounds(now);
   const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const daysAgo7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const daysAgo30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const range = resolveRangeBounds(q);
+  const sparkStart = range.start || daysAgo7;
+  const sparkDays =
+    range.key === 'today' || range.key === 'yesterday'
+      ? 2
+      : range.key === 'last_7_days' || range.key === 'week' || range.key === 'this_week'
+        ? 7
+        : 14;
 
   const jobBase = {
     isDeleted: { not: true },
@@ -250,9 +347,15 @@ export async function getRecruitmentOverview(req) {
       .catch(() => ({ _sum: {} })),
     prisma.job
       .findMany({
-        where: { ...jobBase, createdAt: { gte: daysAgo7 } },
+        where: {
+          ...jobBase,
+          createdAt: {
+            gte: sparkStart,
+            ...(range.end ? { lte: range.end } : {}),
+          },
+        },
         select: { createdAt: true },
-        take: 500,
+        take: 800,
       })
       .catch(() => []),
     prisma.user
@@ -385,34 +488,49 @@ export async function getRecruitmentOverview(req) {
       .catch(() => []),
   ]);
 
+  const [clientIdGroups, recentCandidatesCreated] = await Promise.all([
+    prisma.job.groupBy({ by: ['clientId'], where: jobBase, _count: { _all: true } }).catch(() => []),
+    prisma.candidate
+      .findMany({
+        where: {
+          ...candidateBase,
+          createdAt: { gte: sparkStart, ...(range.end ? { lte: range.end } : {}) },
+        },
+        select: { createdAt: true, source: true },
+        take: 800,
+      })
+      .catch(() => []),
+  ]);
+
   const jobStatusPie = (jobStatusGroups || [])
-    .map((g) => ({ name: String(g.status || 'Other'), value: Number(g._count?._all || 0) }))
+    .map((g) => ({ name: prettyLabel(g.status) || 'Other', value: Number(g._count?._all || 0) }))
     .filter((x) => x.value > 0)
     .sort((a, b) => b.value - a.value);
 
   const candidateStatusPie = (candidateStatusGroups || [])
-    .map((g) => ({ name: String(g.status || 'Other'), value: Number(g._count?._all || 0) }))
+    .map((g) => ({ name: prettyLabel(g.status) || 'Other', value: Number(g._count?._all || 0) }))
     .filter((x) => x.value > 0)
     .sort((a, b) => b.value - a.value);
 
   const interviewStatusPie = (interviewStatusGroups || [])
-    .map((g) => ({ name: String(g.status || 'Other'), value: Number(g._count?._all || 0) }))
+    .map((g) => ({ name: prettyLabel(g.status) || 'Other', value: Number(g._count?._all || 0) }))
     .filter((x) => x.value > 0)
     .sort((a, b) => b.value - a.value);
 
   const placementStatusPie = (placementStatusGroups || [])
-    .map((g) => ({ name: String(g.status || 'Other'), value: Number(g._count?._all || 0) }))
+    .map((g) => ({ name: prettyLabel(g.status) || 'Other', value: Number(g._count?._all || 0) }))
     .filter((x) => x.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  const candidateSources = (candidateSourceGroups || [])
-    .map((g) => ({
-      name: String(g.source || 'Unknown').trim() || 'Unknown',
-      value: Number(g._count?._all || 0),
-    }))
+  const sourceBuckets = new Map();
+  for (const g of candidateSourceGroups || []) {
+    const name = bucketSource(g.source);
+    sourceBuckets.set(name, (sourceBuckets.get(name) || 0) + Number(g._count?._all || 0));
+  }
+  const candidateSources = Array.from(sourceBuckets.entries())
+    .map(([name, value]) => ({ name, value }))
     .filter((x) => x.value > 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 8);
+    .sort((a, b) => b.value - a.value);
 
   const departments = (jobsByDepartment || [])
     .map((g) => ({
@@ -423,12 +541,32 @@ export async function getRecruitmentOverview(req) {
     .sort((a, b) => b.value - a.value)
     .slice(0, 8);
 
+  const clientIds = [...new Set((clientIdGroups || []).map((g) => g.clientId).filter(Boolean))];
+  const clientDocs = clientIds.length
+    ? await prisma.client
+        .findMany({
+          where: { id: { in: clientIds } },
+          select: { id: true, companyName: true },
+          take: 60,
+        })
+        .catch(() => [])
+    : [];
+  const clientName = new Map((clientDocs || []).map((c) => [String(c.id), c.companyName]));
+  const jobsByClient = (clientIdGroups || [])
+    .map((g) => ({
+      name: g.clientId ? clientName.get(String(g.clientId)) || 'Client' : 'No client',
+      value: Number(g._count?._all || 0),
+    }))
+    .filter((x) => x.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+
   const pipeline = [
-    { stage: 'Applied', count: countByStatus(candidateStatusGroups, ['NEW']) || newCandidates, href: '/candidate' },
-    { stage: 'Active', count: countByStatus(candidateStatusGroups, ['ACTIVE']) || activeCandidates, href: '/candidate' },
-    { stage: 'Interview', count: interviewsUpcoming + interviewsToday, href: '/interviews' },
-    { stage: 'Offer', count: offersSent, href: '/placement' },
-    { stage: 'Joined', count: joinedPlacements || placedCandidates, href: '/placement' },
+    { stage: 'Applied', count: Math.max(countByStatus(candidateStatusGroups, ['NEW']), Number(newCandidates || 0)), href: '/candidate' },
+    { stage: 'Active', count: Math.max(countByStatus(candidateStatusGroups, ['ACTIVE']), Number(activeCandidates || 0)), href: '/candidate' },
+    { stage: 'Interview', count: Math.max(interviewsUpcoming + interviewsToday, (interviewRows || []).length), href: '/interviews' },
+    { stage: 'Offer', count: Math.max(offersSent, Number(pendingPlacements || 0)), href: '/placement' },
+    { stage: 'Joined', count: Math.max(joinedPlacements, Number(placedCandidates || 0)), href: '/placement' },
     { stage: 'Inactive', count: inactiveCandidates, href: '/candidate' },
   ];
 
@@ -603,7 +741,8 @@ export async function getRecruitmentOverview(req) {
     })),
   ];
 
-  const jobSpark = sparkFromDaily(recentJobsCreated, 7);
+  const jobSpark = sparkFromDaily(recentJobsCreated, sparkDays);
+  const sourceSpark = sparkBySource(recentCandidatesCreated, sparkDays);
 
   const kpis = {
     hiringHealth: health,
@@ -661,7 +800,9 @@ export async function getRecruitmentOverview(req) {
     placementStatusPie,
     candidateSources,
     jobsByDepartment: departments,
+    jobsByClient,
     jobSpark,
+    sourceSpark,
     jobsTable: (jobRows || []).map((j) => ({
       id: j.id,
       title: j.title || 'Untitled Job',
@@ -694,6 +835,7 @@ export async function getRecruitmentOverview(req) {
       company: c.currentCompany || '',
       experience: c.experienceYears ?? c.experience ?? null,
       assignee: formatPersonName(c.assignedTo) || c.assignedTo?.email || 'Unassigned',
+      createdAt: c.createdAt,
       updatedAt: c.updatedAt || c.createdAt,
       href: '/candidate',
     })),
@@ -741,7 +883,9 @@ export async function getRecruitmentOverview(req) {
     filtersApplied: {
       assignedTo: assignedTo || null,
       search: search || null,
-      dateRange: String(q.dateRange || 'last_30_days'),
+      dateRange: range.key || String(q.dateRange || 'last_30_days'),
+      start: range.start ? range.start.toISOString() : null,
+      end: range.end ? range.end.toISOString() : null,
     },
     generatedAt: new Date().toISOString(),
   };
