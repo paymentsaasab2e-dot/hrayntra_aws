@@ -87,6 +87,26 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'view_activity_log', module: 'System', description: 'View company activity feed' },
   { permissionName: 'recycle_bin_manage', module: 'System', description: 'Restore or purge recycle bin items' },
   { permissionName: 'view_dashboard', module: 'System', description: 'View main dashboard' },
+  {
+    permissionName: 'dash_full_scope',
+    module: 'System',
+    description:
+      'Complete dashboard stats: see all records on allowed CRM/Recruitment tabs. Rank 1 and Super Admin already have this. Tick for a Rank 2+ deputy.',
+  },
+  {
+    permissionName: 'dash_mine_approvals',
+    module: 'System',
+    description:
+      'My work: include the approvals bucket (team requests, task completion, lead conversion, cross-dept). Super Admin and Rank 1 have this on by default. Tick for other roles that have Approvals / request / task permissions.',
+  },
+  { permissionName: 'dash_crm_insights', module: 'CRM Dashboard', description: 'CRM dashboard tab: Insights & actions' },
+  { permissionName: 'dash_crm_pipeline', module: 'CRM Dashboard', description: 'CRM dashboard tab: Pipeline & records' },
+  { permissionName: 'dash_crm_team', module: 'CRM Dashboard', description: 'CRM dashboard tab: Team & outreach' },
+  { permissionName: 'dash_crm_people', module: 'CRM Dashboard', description: 'CRM dashboard tab: Hours & scores' },
+  { permissionName: 'dash_rec_insights', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Insights & actions' },
+  { permissionName: 'dash_rec_pipeline', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Pipeline & records' },
+  { permissionName: 'dash_rec_team', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Team & performance' },
+  { permissionName: 'dash_rec_people', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Hours & scores' },
 ];
 
 export const RBAC_MODULE_ORDER = [
@@ -108,6 +128,8 @@ export const RBAC_MODULE_ORDER = [
   'Team',
   'Request',
   'System',
+  'CRM Dashboard',
+  'Recruitment Dashboard',
 ] as const;
 
 export const RBAC_CATALOG_TOTAL = RBAC_PERMISSION_SEED.length;

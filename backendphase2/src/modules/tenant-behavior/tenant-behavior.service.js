@@ -1,4 +1,5 @@
 import { prisma, getActiveTenantDbName } from '../../config/prisma.js';
+import { slimTenantBehaviorPayload } from './slim-payload.js';
 
 const PHASE2_MODULES = [
   'dashboard', 'leads', 'clients', 'jobs', 'candidates', 'pipeline', 'matches',
@@ -56,10 +57,9 @@ function normalizePayload(body, user) {
     throw err;
   }
 
-  const payload = {
+  const payload = slimTenantBehaviorPayload({
     userId,
     tenantDbName: String(body?.tenantDbName || getActiveTenantDbName() || '').trim() || undefined,
-    userName,
     capturedAt: capturedAt.toISOString(),
     activityStateUpdatedAt: body?.activityStateUpdatedAt || undefined,
     rollupToday: body?.rollupToday ?? null,
@@ -71,7 +71,7 @@ function normalizePayload(body, user) {
     interestTopics: Array.isArray(body?.interestTopics) ? body.interestTopics : [],
     personalizedRecs: Array.isArray(body?.personalizedRecs) ? body.personalizedRecs : [],
     suggestions: Array.isArray(body?.suggestions) ? body.suggestions : [],
-  };
+  });
 
   return { userId, userName, payload, capturedAt };
 }

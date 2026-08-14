@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Loader2, Send, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
+import { BrandPngIcon } from '@/components/coins/BrandPngIcon';
 import { apiBrainAsk } from '@/lib/api';
 import { cardClass } from './dashboardUi';
 
@@ -127,7 +128,7 @@ export function DashboardBrainChat() {
           className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#3B82F6] text-white hover:bg-[#2563EB] disabled:opacity-50"
           aria-label="Send"
         >
-          {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <BrandPngIcon name="send" className="h-4 w-4" />}
         </button>
       </form>
     </section>

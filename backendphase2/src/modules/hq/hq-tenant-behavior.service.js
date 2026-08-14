@@ -3,6 +3,7 @@ import {
   buildTenantLiveDashboard,
   listTenantBehaviorSnapshots,
 } from '../tenant-behavior/tenant-behavior.service.js';
+import { buildEmployerBehaviorEngineReport } from '../tenant-behavior/tenant-behavior-engine.service.js';
 
 function countEventType(snapshots, type, rangeDays = 7) {
   const fromTs = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
@@ -96,8 +97,12 @@ export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {
   return runWithTenantContext(dbName, async () => {
     const snapshots = await listTenantBehaviorSnapshots({ limit: 200 });
     const hasBehavior = snapshots.length > 0;
-    const live = hasBehavior ? await buildTenantLiveDashboard(normalizedRange) : null;
-    const sessionFallback = !hasBehavior ? await sessionEngagementFallback() : null;
+    const [live, sessionFallback, usersCreated, usersLoaded] = await Promise.all([
+      hasBehavior ? buildTenantLiveDashboard(normalizedRange) : Promise.resolve(null),
+      hasBehavior ? Promise.resolve(null) : sessionEngagementFallback(),
+      prisma.user.count().catch(() => 0),
+      prisma.user.count({ where: { isActive: true } }).catch(() => 0),
+    ]);
 
     let totalLogins = 0;
     let totalSessions = 0;
@@ -162,7 +167,9 @@ export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {
 
       engagement: {
         trackedUsers,
-        teamMembersTotal: live?.crmContext?.teamMembers ?? sessionFallback?.activeUsers ?? 0,
+        usersCreated,
+        usersLoaded,
+        teamMembersTotal: live?.crmContext?.teamMembers ?? usersLoaded ?? sessionFallback?.activeUsers ?? 0,
         activeUsers7d: activeUsers,
         onlineNow,
         totalLogins7d: totalLogins || (normalizedRange === 'week' ? sessionFallback?.totalLogins7d || 0 : 0),
@@ -203,6 +210,27 @@ export async function getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta = {
       ),
       insights: mergeInsights(snapshots),
       liveFeed: anonymizeFeed(live?.liveFeed),
+    };
+  });
+}
+
+/**
+ * Separate HQ API for the employers behavioural engine.
+ * Tenant-wide + per-user stats and entity ids (no duplicated names).
+ */
+export async function getHqTenantBehaviorEngine({ tenantDbName, range = 'week', userId } = {}) {
+  const dbName = String(tenantDbName || '').trim();
+  if (!dbName) {
+    const err = new Error('tenantDbName is required');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
+  return runWithTenantContext(dbName, async () => {
+    const report = await buildEmployerBehaviorEngineReport({ range, userId });
+    return {
+      ...report,
+      tenantDbName: dbName,
     };
   });
 }

@@ -132,6 +132,14 @@ import type {
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import {
+  isJobsListCacheFresh,
+  readJobsListCache,
+  readJobsMetricsCache,
+  writeJobsListCache,
+  writeJobsMetricsCache,
+  invalidateEmployerJobsCache,
+} from '../../lib/employerPageCache';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
@@ -150,8 +158,6 @@ export const dynamic = 'force-dynamic';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 10;
-const JOBS_PAGE_CACHE_KEY = 'jobs:page-cache:v1';
-const JOBS_METRICS_CACHE_KEY = 'jobs:metrics-cache:v1';
 
 type JobsApiPayload = {
   jobs: BackendJob[];
@@ -1088,23 +1094,8 @@ export default function JobsPage() {
   const [currentPage, setCurrentPage] = useState(DEFAULT_PAGE);
   const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_PAGE_SIZE);
   const [jobs, setJobs] = useState<Job[]>(() => {
-    try {
-      if (typeof window === 'undefined') return [];
-      const raw = window.sessionStorage.getItem(JOBS_PAGE_CACHE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (
-        parsed &&
-        parsed.page === DEFAULT_PAGE &&
-        parsed.pageSize === DEFAULT_PAGE_SIZE &&
-        Array.isArray(parsed.jobs)
-      ) {
-        return parsed.jobs as Job[];
-      }
-      return [];
-    } catch {
-      return [];
-    }
+    const cached = readJobsListCache(DEFAULT_PAGE, DEFAULT_PAGE_SIZE);
+    return Array.isArray(cached?.data?.jobs) ? (cached.data.jobs as Job[]) : [];
   });
   const [loading, setLoading] = useState(() => jobs.length === 0);
   const [error, setError] = useState<string | null>(null);
@@ -1129,23 +1120,8 @@ export default function JobsPage() {
     remark: '',
   });
   const [totalEntries, setTotalEntries] = useState(() => {
-    try {
-      if (typeof window === 'undefined') return 0;
-      const raw = window.sessionStorage.getItem(JOBS_PAGE_CACHE_KEY);
-      if (!raw) return 0;
-      const parsed = JSON.parse(raw);
-      if (
-        parsed &&
-        parsed.page === DEFAULT_PAGE &&
-        parsed.pageSize === DEFAULT_PAGE_SIZE &&
-        typeof parsed.totalEntries === 'number'
-      ) {
-        return parsed.totalEntries as number;
-      }
-      return 0;
-    } catch {
-      return 0;
-    }
+    const cached = readJobsListCache(DEFAULT_PAGE, DEFAULT_PAGE_SIZE);
+    return typeof cached?.data?.totalEntries === 'number' ? cached.data.totalEntries : 0;
   });
   const hasVisibleJobsRef = useRef(jobs.length > 0);
   const cloneDrawerTimerRef = useRef<number | null>(null);
@@ -1468,20 +1444,12 @@ export default function JobsPage() {
         const total = parsed.total || mapped.length;
         setTotalEntries(total);
         if (!hasActiveFilters) {
-          try {
-            window.sessionStorage.setItem(
-              JOBS_PAGE_CACHE_KEY,
-              JSON.stringify({
-                page: currentPage,
-                pageSize,
-                totalEntries: total,
-                jobs: mapped,
-                cachedAt: Date.now(),
-              })
-            );
-          } catch {
-            // ignore storage errors
-          }
+          writeJobsListCache({
+            page: currentPage,
+            pageSize,
+            totalEntries: total,
+            jobs: mapped,
+          });
         }
       } catch (err: any) {
         if (!silent) {
@@ -1495,18 +1463,24 @@ export default function JobsPage() {
         if (!silent) setLoading(false);
       }
 
-      if (silent) return;
+      if (silent) {
+        try {
+          const response = await apiGetJobMetrics({});
+          const metrics = (response as any).data?.data || (response as any).data || response;
+          setJobMetrics(metrics);
+          writeJobsMetricsCache(metrics as Record<string, unknown>);
+        } catch {
+          /* keep cached metrics */
+        }
+        return;
+      }
 
       try {
         setLoadingMetrics(true);
         const response = await apiGetJobMetrics({});
         const metrics = (response as any).data?.data || (response as any).data || response;
         setJobMetrics(metrics);
-        try {
-          window.sessionStorage.setItem(JOBS_METRICS_CACHE_KEY, JSON.stringify(metrics));
-        } catch {
-          // ignore storage errors
-        }
+        writeJobsMetricsCache(metrics as Record<string, unknown>);
       } catch (err: any) {
         console.error('Failed to load job metrics:', err);
         setJobMetrics({
@@ -1525,13 +1499,16 @@ export default function JobsPage() {
   );
 
   useEffect(() => {
-    void loadJobsPageData({ silent: false });
+    const cached = readJobsListCache(currentPage, pageSize);
+    void loadJobsPageData({ silent: Boolean(cached?.data?.jobs?.length) });
   }, [loadJobsPageData]);
 
   // Reusable auto-refresh: polls while visible, refreshes on focus and on
   // `jobportal:jobs-changed`. Same pattern is now reused on candidates / leads /
   // clients / interviews / dashboard so they stay in sync without manual reload.
-  usePageAutoRefresh(loadJobsPageData);
+  usePageAutoRefresh(loadJobsPageData, {
+    shouldSkip: () => isJobsListCacheFresh(readJobsListCache(currentPage, pageSize)),
+  });
   const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
     'JOB',
     jobs.map((job) => job.id),
@@ -1543,31 +1520,25 @@ export default function JobsPage() {
   const [editJobDrawerOpen, setEditJobDrawerOpen] = useState(false);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(() => {
-    try {
-      if (typeof window === 'undefined') return null;
-      const raw = window.sessionStorage.getItem(JOBS_METRICS_CACHE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (
-        parsed &&
-        typeof parsed.activeJobs === 'number' &&
-        typeof parsed.newJobsThisWeek === 'number' &&
-        typeof parsed.nearSla === 'number' &&
-        typeof parsed.closedThisMonth === 'number'
-      ) {
-        return {
-          activeJobs: parsed.activeJobs,
-          newJobsThisWeek: parsed.newJobsThisWeek,
-          appliedCandidates: typeof parsed.appliedCandidates === 'number' ? parsed.appliedCandidates : 0,
-          noCandidates: typeof parsed.noCandidates === 'number' ? parsed.noCandidates : 0,
-          nearSla: parsed.nearSla,
-          closedThisMonth: parsed.closedThisMonth,
-        } as JobMetrics;
-      }
-      return null;
-    } catch {
-      return null;
+    const cached = readJobsMetricsCache();
+    const parsed = cached?.data;
+    if (
+      parsed &&
+      typeof parsed.activeJobs === 'number' &&
+      typeof parsed.newJobsThisWeek === 'number' &&
+      typeof parsed.nearSla === 'number' &&
+      typeof parsed.closedThisMonth === 'number'
+    ) {
+      return {
+        activeJobs: parsed.activeJobs,
+        newJobsThisWeek: parsed.newJobsThisWeek,
+        appliedCandidates: typeof parsed.appliedCandidates === 'number' ? parsed.appliedCandidates : 0,
+        noCandidates: typeof parsed.noCandidates === 'number' ? parsed.noCandidates : 0,
+        nearSla: parsed.nearSla,
+        closedThisMonth: parsed.closedThisMonth,
+      } as JobMetrics;
     }
+    return null;
   });
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
@@ -1584,6 +1555,7 @@ export default function JobsPage() {
     try {
       setDeletingJobId(jobId);
       await apiDeleteJob(jobId);
+      invalidateEmployerJobsCache();
       
       // Remove from local state
       setJobs(prev => prev.filter(j => j.id !== jobId));

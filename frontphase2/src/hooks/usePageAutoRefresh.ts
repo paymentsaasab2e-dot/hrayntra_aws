@@ -9,6 +9,8 @@ interface AutoRefreshOptions {
   events?: string[];
   /** Disable the entire effect (e.g. before the page is allowed to load). */
   disabled?: boolean;
+  /** Skip interval / focus refresh when session cache is still fresh. Mutations still refresh. */
+  shouldSkip?: () => boolean;
 }
 
 const DEFAULT_INTERVAL_MS = 45_000;
@@ -30,9 +32,11 @@ export function usePageAutoRefresh(
   load: (opts: { silent: boolean }) => void | Promise<unknown>,
   options: AutoRefreshOptions = {}
 ) {
-  const { intervalMs = DEFAULT_INTERVAL_MS, events = DEFAULT_EVENTS, disabled = false } = options;
+  const { intervalMs = DEFAULT_INTERVAL_MS, events = DEFAULT_EVENTS, disabled = false, shouldSkip } = options;
   const loadRef = useRef(load);
   loadRef.current = load;
+  const skipRef = useRef(shouldSkip);
+  skipRef.current = shouldSkip;
 
   useEffect(() => {
     if (disabled) return;
@@ -40,10 +44,13 @@ export function usePageAutoRefresh(
 
     const tick = () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (skipRef.current?.()) return;
       void loadRef.current({ silent: true });
     };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void loadRef.current({ silent: true });
+      if (document.visibilityState !== 'visible') return;
+      if (skipRef.current?.()) return;
+      void loadRef.current({ silent: true });
     };
     const onCustomEvent = () => {
       void loadRef.current({ silent: true });

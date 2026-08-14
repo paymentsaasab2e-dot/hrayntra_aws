@@ -23,10 +23,8 @@ import {
   type HqEmployerAnalytics,
   type HqEmployerTenantRow,
   type HqTenantBehaviorAnalysis,
-  type HqTenantRow,
 } from '@/lib/api';
 import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';
-import { HqTenantBehaviorDrawer } from '@/components/hq/HqTenantBehaviorDrawer';
 import { useHqMoney } from '@/components/hq/HqCurrencyProvider';
 import { HQ_SVG_ASSETS, HqSvgKpiCard } from './HqSvgKpiCard';
 import { HqDashCategoryTabs } from './HqDashCategoryTabs';
@@ -41,7 +39,7 @@ import {
 } from './HqPhase2DashboardParts';
 
 const HQ_DASH_BTN_PRIMARY =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50';
+  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:brightness-110 disabled:opacity-50';
 const HQ_DASH_BTN_SECONDARY =
   'inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)] transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50';
 
@@ -94,45 +92,55 @@ function formatActiveMs(ms: number) {
   return `${totalSec}s`;
 }
 
-function toBehaviorDrawerTenant(row: HqEmployerTenantRow): HqTenantRow {
-  return {
-    id: row.tenantDbName || row.email || row.name,
-    name: row.name || row.tenantDbName || 'Tenant',
-    email: row.email || '',
-    loginId: row.email || row.tenantDbName || '',
-    organizationType: row.organizationType === 'agency' ? 'agency' : 'standalone',
-    signupSource: row.signupSource,
-    subscriptionPlan: null,
-    tenantDbName: row.tenantDbName,
-    tenantProvisioningMode: '',
-    status: row.status,
-    createdAt: null,
-    updatedAt: null,
-  };
-}
-
 type LiveRange = 'today' | 'week' | 'month';
 
 function behaviorMetricsForRange(analysis: HqTenantBehaviorAnalysis | undefined, range: LiveRange) {
-  if (!analysis) return { visits: 0, actions: 0, activeMs: 0, onlineNow: 0, health: 0, lastAt: null as string | null };
+  const empty = {
+    visits: 0,
+    actions: 0,
+    activeMs: 0,
+    onlineNow: 0,
+    health: 0,
+    lastAt: null as string | null,
+    trackedUsers: 0,
+    usersCreated: 0,
+    usersLoaded: 0,
+    teamMembers: 0,
+    sessions: 0,
+    logins: 0,
+    searches: 0,
+  };
+  if (!analysis) return empty;
+  const eng = analysis.engagement;
+  const period = analysis.periodMetrics;
+  const people = {
+    trackedUsers: num(eng?.trackedUsers),
+    usersCreated: num(eng?.usersCreated),
+    usersLoaded: num(eng?.usersLoaded ?? eng?.teamMembersTotal),
+    teamMembers: num(eng?.teamMembersTotal),
+    onlineNow: num(eng?.onlineNow),
+    health: num(analysis.tenantHealthScore),
+    lastAt: eng?.lastActivityAt || null,
+  };
   if (range === 'today') {
     return {
-      visits: num(analysis.todayMetrics?.visits),
-      actions: num(analysis.todayMetrics?.actions),
-      activeMs: num(analysis.todayMetrics?.activeMs),
-      onlineNow: num(analysis.engagement?.onlineNow),
-      health: num(analysis.tenantHealthScore),
-      lastAt: analysis.engagement?.lastActivityAt || null,
+      ...people,
+      visits: num(analysis.todayMetrics?.visits ?? period?.visits),
+      actions: num(analysis.todayMetrics?.actions ?? period?.actions),
+      activeMs: num(analysis.todayMetrics?.activeMs ?? period?.activeMs),
+      sessions: num(period?.sessions),
+      logins: num(period?.logins),
+      searches: num(period?.searches),
     };
   }
-  // week + month both use 7d rollups from the behaviour engine (30d rollup not stored yet)
   return {
-    visits: num(analysis.weekMetrics?.visits ?? analysis.engagement?.totalVisits7d),
-    actions: num(analysis.weekMetrics?.actions ?? analysis.engagement?.totalActions7d),
-    activeMs: num(analysis.weekMetrics?.activeMs ?? analysis.engagement?.totalActiveMs7d),
-    onlineNow: num(analysis.engagement?.onlineNow),
-    health: num(analysis.tenantHealthScore),
-    lastAt: analysis.engagement?.lastActivityAt || null,
+    ...people,
+    visits: num(analysis.weekMetrics?.visits ?? eng?.totalVisits7d ?? period?.visits),
+    actions: num(analysis.weekMetrics?.actions ?? eng?.totalActions7d ?? period?.actions),
+    activeMs: num(analysis.weekMetrics?.activeMs ?? eng?.totalActiveMs7d ?? period?.activeMs),
+    sessions: num(eng?.totalSessions7d ?? period?.sessions),
+    logins: num(eng?.totalLogins7d ?? period?.logins),
+    searches: num(eng?.totalSearches7d ?? period?.searches),
   };
 }
 
@@ -194,7 +202,7 @@ const EMPLOYER_CATEGORY_TABS = [
   {
     id: 'live',
     label: 'Live tracking',
-    blurb: 'Tenant behaviour tracking — search employers, filter today / week / month, open a tenant for full detail',
+    blurb: 'Platform utilization from the tenant behaviour engine — all employers, or search one tenant for counts only',
   },
 ] as const;
 
@@ -232,7 +240,6 @@ export function HqPhase2CommandDashboard({
   const [liveRange, setLiveRange] = useState<LiveRange>('today');
   const [behaviorByTenant, setBehaviorByTenant] = useState<Record<string, HqTenantBehaviorAnalysis>>({});
   const [behaviorLoading, setBehaviorLoading] = useState(false);
-  const [behaviorTenant, setBehaviorTenant] = useState<HqTenantRow | null>(null);
   const liveSearchWrapRef = useRef<HTMLDivElement>(null);
   const behaviorFetchGen = useRef(0);
 
@@ -269,11 +276,10 @@ export function HqPhase2CommandDashboard({
     };
     for (const row of allTenants) {
       const key = tenantKey(row);
-      if (row.name) push(`n-${key}`, row.name, row.tenantDbName || row.email, row.name);
+      if (row.name) push(`n-${key}`, row.name, row.tenantDbName || row.plan || undefined, row.name);
       if (row.tenantDbName) {
         push(`db-${key}`, row.tenantDbName, row.name || 'Tenant db', row.tenantDbName);
       }
-      if (row.email) push(`e-${key}`, row.email, row.name || 'Email', row.email);
       if (row.plan) push(`p-${row.plan}`, String(row.plan), 'Plan', String(row.plan));
       if (row.organizationType) {
         push(
@@ -421,14 +427,14 @@ export function HqPhase2CommandDashboard({
     () =>
       filteredLiveTenants
         .filter((r) => Boolean(r.tenantDbName))
-        .slice(0, 20)
+        .slice(0, 40)
         .map((r) => r.tenantDbName)
         .join('|'),
     [filteredLiveTenants],
   );
 
   const liveTenantSlice = useMemo(
-    () => filteredLiveTenants.filter((r) => Boolean(r.tenantDbName)).slice(0, 20),
+    () => filteredLiveTenants.filter((r) => Boolean(r.tenantDbName)).slice(0, 40),
     [filteredLiveTenants, liveTenantDbKey],
   );
 
@@ -454,7 +460,7 @@ export function HqPhase2CommandDashboard({
         const batch = keys.slice(i, i + concurrency);
         const results = await Promise.allSettled(
           batch.map(async (db) => {
-            const res = await apiHqGetTenantBehavior(db);
+            const res = await apiHqGetTenantBehavior(db, liveRange);
             return { db, data: res.data };
           }),
         );
@@ -479,7 +485,7 @@ export function HqPhase2CommandDashboard({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [category, liveTenantDbKey]);
+  }, [category, liveTenantDbKey, liveRange]);
 
   const liveBehaviorRows = useMemo(() => {
     return liveTenantSlice.map((row) => {
@@ -498,11 +504,23 @@ export function HqPhase2CommandDashboard({
     let healthSum = 0;
     let healthN = 0;
     let withData = 0;
+    let trackedUsers = 0;
+    let usersCreated = 0;
+    let usersLoaded = 0;
+    let sessions = 0;
+    let logins = 0;
+    let searches = 0;
     for (const item of liveBehaviorRows) {
       online += item.metrics.onlineNow;
       visits += item.metrics.visits;
       actions += item.metrics.actions;
       activeMs += item.metrics.activeMs;
+      trackedUsers += item.metrics.trackedUsers;
+      usersCreated += item.metrics.usersCreated;
+      usersLoaded += item.metrics.usersLoaded;
+      sessions += item.metrics.sessions;
+      logins += item.metrics.logins;
+      searches += item.metrics.searches;
       if (item.analysis) {
         withData += 1;
         healthSum += item.metrics.health;
@@ -515,10 +533,36 @@ export function HqPhase2CommandDashboard({
       visits,
       actions,
       activeMs,
+      trackedUsers,
+      usersCreated,
+      usersLoaded,
+      sessions,
+      logins,
+      searches,
       avgHealth: healthN ? Math.round(healthSum / healthN) : 0,
       withData,
     };
   }, [liveBehaviorRows]);
+
+  const liveModuleUtil = useMemo(() => {
+    const map = new Map<string, { label: string; visits: number; actions: number; activeMs: number }>();
+    for (const item of liveBehaviorRows) {
+      for (const m of item.analysis?.moduleMatrix || []) {
+        const key = String(m.category || m.label || 'other');
+        const prev = map.get(key) || { label: m.label || key, visits: 0, actions: 0, activeMs: 0 };
+        prev.visits += num(m.visits);
+        prev.actions += num(m.actions);
+        prev.activeMs += num(m.activeMs);
+        map.set(key, prev);
+      }
+    }
+    return [...map.values()]
+      .sort((a, b) => b.visits + b.actions - (a.visits + a.actions))
+      .slice(0, 8);
+  }, [liveBehaviorRows]);
+
+  const liveSearchScoped = Boolean(liveSearch.trim());
+  const liveSingleTenant = liveSearchScoped && liveBehaviorRows.length === 1 ? liveBehaviorRows[0] : null;
 
   const clientFeatureUsage = useMemo(() => {
     if (!scopedTenants) return mapPoints(c?.featureUsage);
@@ -1464,10 +1508,10 @@ export function HqPhase2CommandDashboard({
         </div>
       }
     >
-      <div className="hq-dash-page text-slate-900">
+      <div className="hq-dash-page dash-ui text-slate-900">
         {/* Status strip only — nav actions stay in the sticky top bar */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
+          <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-slate-900 to-blue-900" />
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/90">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
             Live
@@ -2341,7 +2385,7 @@ export function HqPhase2CommandDashboard({
             <Card className="col-span-12 overflow-hidden !p-0">
               <div className="border-b border-slate-100 px-4 py-2.5">
                 <div className="flex items-center gap-1.5">
-                  <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
+                  <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-slate-900 to-blue-900" />
                   <h3 className="text-sm font-semibold text-[#111827]">
                     {scopeLabel ? 'Recent Activity · scoped' : 'Recent Activity'}
                   </h3>
@@ -2413,7 +2457,7 @@ export function HqPhase2CommandDashboard({
                     setLiveSuggestOpen(true);
                   }}
                   onFocus={() => setLiveSuggestOpen(true)}
-                  placeholder="Search tenant by company, db name, email, or plan…"
+                  placeholder="Search employer by company, db, or plan…"
                   className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none ring-blue-200 placeholder:text-slate-400 focus:bg-white focus:ring-2"
                   autoComplete="off"
                 />
@@ -2473,38 +2517,38 @@ export function HqPhase2CommandDashboard({
               </div>
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
-              Behaviour from tenant CRM tracking ·{' '}
-              <strong className="text-slate-700">{liveBehaviorPulse.tenants}</strong> tenants shown ·{' '}
-              {liveRange === 'today' ? 'today' : liveRange === 'week' ? 'last 7 days' : 'last 7 days (month window uses week rollup)'}
+              {liveSingleTenant
+                ? `Tenant utilization · ${liveSingleTenant.row.name || liveSingleTenant.row.tenantDbName} · `
+                : liveSearchScoped
+                  ? `Searched employers · ${liveBehaviorPulse.tenants} match · `
+                  : 'All employers · '}
+              {liveRange === 'today' ? 'today' : liveRange === 'week' ? 'last 7 days' : 'last 30 days (engine month rollup)'}
               {liveBehaviorPulse.withData ? ` · ${liveBehaviorPulse.withData} with engine data` : ''}
+              {' · '}
+              counts only — no team names or ranks
             </p>
           </div>
 
           <div className="mb-4 grid grid-cols-12 gap-4">
-            <Card className="col-span-12 xl:col-span-4">
+            <Card className="col-span-12 xl:col-span-5">
               <Title
-                title="Behaviour pulse"
-                info="Aggregated from the same tenant behaviour engine used when you open a tenant — online users, visits, actions, and active time for the selected range."
+                title={liveSingleTenant ? 'Tenant utilization' : 'Platform utilization'}
+                info="Same tenant behaviour engine as employer portals. HQ sees totals only: users created, loaded, tracked, visits, and actions. Team ranks and names stay on the tenant side."
               />
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {[
+                  { label: 'Users created', value: fmt(liveBehaviorPulse.usersCreated), color: INDIGO },
+                  { label: 'Users loaded', value: fmt(liveBehaviorPulse.usersLoaded), color: BLUE },
+                  { label: 'Tracked in engine', value: fmt(liveBehaviorPulse.trackedUsers), color: PURPLE },
                   { label: 'Online now', value: fmt(liveBehaviorPulse.online), color: SUCCESS },
-                  { label: 'Visits', value: fmt(liveBehaviorPulse.visits), color: BLUE },
-                  { label: 'Actions', value: fmt(liveBehaviorPulse.actions), color: INDIGO },
+                  { label: 'Visits', value: fmt(liveBehaviorPulse.visits), color: TEAL },
+                  { label: 'Actions', value: fmt(liveBehaviorPulse.actions), color: ORANGE },
+                  { label: 'Sessions', value: fmt(liveBehaviorPulse.sessions), color: '#64748B' },
+                  { label: 'Logins', value: fmt(liveBehaviorPulse.logins), color: INDIGO },
                   {
                     label: 'Active time',
                     value: formatActiveMs(liveBehaviorPulse.activeMs),
                     color: TEAL,
-                  },
-                  {
-                    label: 'Avg health',
-                    value: liveBehaviorPulse.avgHealth ? `${liveBehaviorPulse.avgHealth}` : '—',
-                    color: ORANGE,
-                  },
-                  {
-                    label: 'Open jobs',
-                    value: fmt(liveBehaviorRows.reduce((s, r) => s + num(r.row.openJobs), 0)),
-                    color: PURPLE,
                   },
                 ].map((item) => (
                   <div
@@ -2517,73 +2561,103 @@ export function HqPhase2CommandDashboard({
                     <p className="mt-1.5 text-lg font-bold tabular-nums" style={{ color: item.color }}>
                       {item.value}
                     </p>
-        </div>
+                  </div>
                 ))}
               </div>
             </Card>
 
-            <Card className="col-span-12 xl:col-span-8">
+            <Card className="col-span-12 xl:col-span-7">
               <Title
-                title="Tenant behaviour"
-                info="Same behavioural tracking shown when opening a tenant. Click a row for full overview, modules, funnel, triggers, and live feed."
+                title={liveSingleTenant ? 'Module use · this tenant' : 'Module use · all employers'}
+                info="Visits and actions by CRM module. Aggregated numbers only — no people."
+              />
+              {liveModuleUtil.length ? (
+                <ul className="space-y-2.5">
+                  {liveModuleUtil.map((mod) => {
+                    const max = Math.max(...liveModuleUtil.map((m) => m.visits + m.actions), 1);
+                    const share = Math.round(((mod.visits + mod.actions) / max) * 100);
+                    return (
+                      <li key={mod.label}>
+                        <div className="mb-1 flex items-baseline justify-between gap-2">
+                          <p className="truncate text-[12px] font-semibold text-slate-800">{mod.label}</p>
+                          <p className="shrink-0 text-[11px] tabular-nums text-slate-500">
+                            {fmt(mod.visits)} visits · {fmt(mod.actions)} actions
+                          </p>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-slate-800 to-blue-800"
+                            style={{ width: `${share}%` }}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="py-8 text-center text-sm text-slate-400">
+                  No module utilization in this range yet
+                </p>
+              )}
+            </Card>
+
+            <Card className="col-span-12">
+              <Title
+                title={liveSearchScoped ? 'Matching employers' : 'Employers'}
+                info="Per-tenant counts from the behaviour engine. User ranks and names are private on the tenant portal."
               />
               {liveBehaviorRows.length ? (
                 <ul className="max-h-[420px] divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-100">
                   {liveBehaviorRows.map(({ row, analysis, metrics }) => {
-                    const trigger = analysis?.topTriggers?.[0];
                     const online = metrics.onlineNow > 0;
                     return (
-                      <li key={tenantKey(row)}>
-                        <button
-                          type="button"
-                          onClick={() => setBehaviorTenant(toBehaviorDrawerTenant(row))}
-                          className="flex w-full flex-col gap-1.5 px-3 py-3 text-left transition hover:bg-indigo-50/60 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className={`h-2 w-2 shrink-0 rounded-full ${
-                                  online ? 'bg-emerald-500' : 'bg-slate-300'
-                                }`}
-                              />
-                              <p className="truncate text-sm font-semibold text-slate-900">
-                                {row.name || row.tenantDbName}
-                              </p>
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
-                                {row.plan || '—'}
-                              </span>
-                              {metrics.health ? (
-                                <span className="text-[10px] font-semibold text-indigo-600">
-                                  Health {metrics.health}
-                                </span>
-                              ) : null}
-      </div>
-                            <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
-                              {row.tenantDbName || row.email}
+                      <li
+                        key={tenantKey(row)}
+                        className="flex flex-col gap-1.5 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`h-2 w-2 shrink-0 rounded-full ${
+                                online ? 'bg-emerald-500' : 'bg-slate-300'
+                              }`}
+                            />
+                            <p className="truncate text-sm font-semibold text-slate-900">
+                              {row.name || row.tenantDbName}
                             </p>
-                            {trigger ? (
-                              <p className="mt-1 truncate text-[11px] text-amber-700">
-                                Signal: {trigger.title}
-                              </p>
-                            ) : analysis?.dataSource === 'none' ? (
-                              <p className="mt-1 text-[11px] text-slate-400">No behaviour snapshots yet</p>
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                              {row.plan || '—'}
+                            </span>
+                            {metrics.health ? (
+                              <span className="text-[10px] font-semibold text-indigo-600">
+                                Health {metrics.health}
+                              </span>
                             ) : null}
-    </div>
-                          <div className="flex shrink-0 flex-wrap gap-3 text-[11px] sm:justify-end">
-                            <span className="tabular-nums text-slate-600">
-                              <strong className="text-slate-900">{fmt(metrics.visits)}</strong> visits
-                            </span>
-                            <span className="tabular-nums text-slate-600">
-                              <strong className="text-slate-900">{fmt(metrics.actions)}</strong> actions
-                            </span>
-                            <span className="tabular-nums text-slate-600">
-                              <strong className="text-slate-900">{formatActiveMs(metrics.activeMs)}</strong>
-                            </span>
-                            <span className="tabular-nums text-slate-600">
-                              <strong className="text-slate-900">{fmt(metrics.onlineNow)}</strong> online
-                            </span>
                           </div>
-                        </button>
+                          {analysis?.dataSource === 'none' ? (
+                            <p className="mt-1 text-[11px] text-slate-400">No behaviour snapshots yet</p>
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-3 text-[11px] sm:justify-end">
+                          <span className="tabular-nums text-slate-600">
+                            <strong className="text-slate-900">{fmt(metrics.usersCreated)}</strong> created
+                          </span>
+                          <span className="tabular-nums text-slate-600">
+                            <strong className="text-slate-900">{fmt(metrics.usersLoaded)}</strong> loaded
+                          </span>
+                          <span className="tabular-nums text-slate-600">
+                            <strong className="text-slate-900">{fmt(metrics.trackedUsers)}</strong> tracked
+                          </span>
+                          <span className="tabular-nums text-slate-600">
+                            <strong className="text-slate-900">{fmt(metrics.visits)}</strong> visits
+                          </span>
+                          <span className="tabular-nums text-slate-600">
+                            <strong className="text-slate-900">{fmt(metrics.actions)}</strong> actions
+                          </span>
+                          <span className="tabular-nums text-slate-600">
+                            <strong className="text-slate-900">{fmt(metrics.onlineNow)}</strong> online
+                          </span>
+                        </div>
                       </li>
                     );
                   })}
@@ -2600,10 +2674,6 @@ export function HqPhase2CommandDashboard({
 
         <HqPhase2Footer updatedLabel={isLive ? `Live · ${updatedLabel}` : updatedLabel} />
       </div>
-
-      {behaviorTenant?.tenantDbName ? (
-        <HqTenantBehaviorDrawer tenant={behaviorTenant} onClose={() => setBehaviorTenant(null)} />
-      ) : null}
     </HqModulePageLayout>
   );
 }

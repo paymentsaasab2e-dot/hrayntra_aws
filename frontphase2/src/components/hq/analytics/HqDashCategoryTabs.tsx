@@ -62,9 +62,9 @@ export function HqDashCategoryTabs({
         {pill.ready ? (
           <motion.div
             layoutId={layoutKey}
-            className="pointer-events-none absolute z-0 rounded-xl shadow-[0_10px_24px_-12px_rgba(30,64,175,0.55)]"
+            className="pointer-events-none absolute z-0 rounded-xl shadow-[0_12px_28px_-14px_rgba(15,23,42,0.55)]"
             style={{
-              backgroundImage: 'linear-gradient(115deg, #2563EB 0%, #1E3A8A 52%, #059669 100%)',
+              backgroundImage: 'linear-gradient(115deg, #0F172A 0%, #1E293B 42%, #1E3A8A 100%)',
             }}
             initial={false}
             animate={{

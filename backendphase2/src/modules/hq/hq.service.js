@@ -915,6 +915,12 @@ export const hqService = {
     return getHqTenantBehaviorAnalysis({ tenantDbName, tenantMeta, range });
   },
 
+  async getTenantBehaviorEngine(reqUser, tenantDbName, { range = 'week', userId } = {}) {
+    assertPlatformProvisioner(reqUser);
+    const { getHqTenantBehaviorEngine } = await import('./hq-tenant-behavior.service.js');
+    return getHqTenantBehaviorEngine({ tenantDbName, range, userId });
+  },
+
   async getAnalytics(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqAnalyticsService.getAnalytics();

@@ -158,7 +158,7 @@ export function buildCrmComboMetrics(overview: CrmOverview | null | undefined): 
       key: 'engagement',
       label: 'Engagement coverage',
       value: `${engagementPct}% touched`,
-      sub: `${noTouch} leads with zero touchpoints`,
+      sub: `${noTouch} leads with no calls or meetings yet`,
       pct: engagementPct,
       tone: engagementPct >= 60 ? 'emerald' : engagementPct >= 35 ? 'amber' : 'rose',
       href: '/leads',
@@ -348,7 +348,7 @@ export function buildCrmTeamStats(
     },
     {
       key: 'activityLoad',
-      label: 'Touchpoint volume',
+      label: 'Outreach activity',
       value: String(totalCalls + totalMeetings),
       sub: `${totalCalls} calls · ${totalMeetings} meetings`,
       pct: Math.min(100, (totalCalls + totalMeetings) * 3),
@@ -467,7 +467,7 @@ export function buildCrmPipelineStats(
       key: 'engagement',
       label: 'Engaged leads',
       value: `${engagementPct}%`,
-      sub: `${noTouch} with zero touchpoints`,
+      sub: `${noTouch} with no calls or meetings yet`,
       pct: engagementPct,
       tone: engagementPct >= 60 ? 'emerald' : engagementPct >= 35 ? 'amber' : 'rose',
       href: '/leads',
@@ -586,7 +586,7 @@ const TEAM_INFO: Record<string, string> = {
   topCloser: 'Rep with the highest number of lead conversions in the selected period.',
   outreachRate: 'Completed outreach (calls, meetings, emails) vs still pending.',
   leadCoverage: 'Share of leads with an assigned owner — unassigned leads need attention.',
-  activityLoad: 'Total calls and meetings logged by the team.',
+  activityLoad: 'Calls and meetings logged by the team in this period.',
   teamLoad: 'Average number of leads assigned per team member.',
   revenuePerRep: 'Business value generated per rep from converted clients.',
 };
@@ -634,7 +634,7 @@ export function buildCrmInsightCategories(overview: CrmOverview | null | undefin
           ? 'How many qualified leads converted to won — measures closing effectiveness. Differs from the KPI conversion rate, which is overall funnel %.'
           : m.key === 'newToContact'
             ? 'Share of new leads that reached Contacted. Low % means first response is slow.'
-            : 'Leads with at least one logged touchpoint (call, meeting, email). Zero-touch leads need outreach.',
+            : 'Leads with at least one logged call, meeting or email. People with none still need outreach.',
     }));
 
   leads.push({

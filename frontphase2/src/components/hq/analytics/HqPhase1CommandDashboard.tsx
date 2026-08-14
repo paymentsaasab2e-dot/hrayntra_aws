@@ -47,7 +47,7 @@ import { HqInfoTip } from './HqPhase2DashboardParts';
 import { HqDashCategoryTabs } from './HqDashCategoryTabs';
 
 const HQ_DASH_BTN_PRIMARY =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50';
+  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:brightness-110 disabled:opacity-50';
 const HQ_DASH_BTN_SECONDARY =
   'inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)] transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50';
 
@@ -287,7 +287,7 @@ function SectionTitle({
   return (
     <div className="relative z-10 mb-4 flex items-center justify-between gap-3 overflow-visible">
       <div className="flex min-w-0 items-center gap-2.5">
-        <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
+        <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-slate-900 to-blue-900" />
         <h3 className="truncate text-[13px] font-semibold tracking-tight text-slate-800">{title}</h3>
         {info ? <HqInfoTip text={info} /> : null}
       </div>
@@ -821,15 +821,15 @@ export function HqPhase1CommandDashboard({
     const fromPopular = mapPoints(liveTracking?.popularFeatures)
       .filter((d) => !isInsightNoise(String(d.name)))
       .map((d) => ({
-        name: String(d.name),
-        value: d.value,
-      }));
+      name: String(d.name),
+      value: d.value,
+    }));
     const fromPages = mapPoints(liveTracking?.pageVisitsByCategory)
       .filter((d) => !/other portal|^\s*other\s*$/i.test(String(d.name)))
       .map((d) => ({
-        name: String(d.name),
-        value: d.value,
-      }));
+      name: String(d.name),
+      value: d.value,
+    }));
 
     let rows = fromPopular.length ? fromPopular : fromPages;
     if (!rows.length) {
@@ -917,14 +917,14 @@ export function HqPhase1CommandDashboard({
       const scoreSum = Number(d.scoreSum ?? d.value) || 0;
       const avg = d.avgScore != null ? Math.round(Number(d.avgScore)) : null;
       return {
-        name: String(d.name),
+      name: String(d.name),
         value: scoreSum,
-        hint:
+      hint:
           avg != null
             ? `${fmt(users || Number(d.value) || 0)} users · avg ${avg}`
             : users
               ? `${fmt(users)} users`
-              : undefined,
+          : undefined,
       };
     });
     if (rows.length) return rankUsageRows(rows);
@@ -1065,7 +1065,7 @@ export function HqPhase1CommandDashboard({
       icon={<Users className="h-5 w-5" />}
       locked={false}
       actions={
-        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <Link href="/hq/candidates" prefetch={false} className={HQ_DASH_BTN_SECONDARY}>
             <Users className="h-4 w-4 text-emerald-600" />
             Candidates
@@ -1074,23 +1074,23 @@ export function HqPhase1CommandDashboard({
             <Ticket className="h-4 w-4 text-violet-600" />
             Tickets
           </Link>
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading}
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
             className={HQ_DASH_BTN_PRIMARY}
-          >
-            <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
+            >
+              <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
       }
     >
-      <div className="hq-dash-page text-slate-900">
+      <div className="hq-dash-page dash-ui text-slate-900">
         {/* Heading graphics strip — no action buttons (those live in the top bar) */}
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
+            <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-slate-900 to-blue-900" />
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/90">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
               Live
@@ -1147,7 +1147,7 @@ export function HqPhase1CommandDashboard({
                   onClick={() => setTimeline(opt.id)}
                   className={`rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition ${
                     on
-                      ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-teal-500 text-white shadow-sm'
+                      ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 text-white shadow-sm'
                       : 'text-slate-500 hover:bg-white hover:text-slate-800'
                   }`}
                 >
@@ -1797,7 +1797,7 @@ export function HqPhase1CommandDashboard({
             <Card className="col-span-12 flex min-h-[260px] flex-col overflow-hidden !p-0 lg:col-span-9">
               <div className="border-b border-slate-100 px-4 py-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
+                  <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-slate-900 to-blue-900" />
                   <h3 className="text-sm font-semibold text-slate-800">Recent Sessions</h3>
                 </div>
                 <p className="mt-0.5 pl-3 text-[11px] text-slate-400">
@@ -2144,7 +2144,7 @@ export function HqPhase1CommandDashboard({
                   ? ` · ${fmt(liveTracking.premiumTokensSpent7d)} tokens`
                   : liveTracking?.premiumVisits7d
                     ? ` · ${fmt(liveTracking.premiumVisits7d)} spends`
-                    : ''}
+                  : ''}
               </p>
               <RankedUsageList
                 rows={premiumServicesRanked}
@@ -2254,8 +2254,8 @@ export function HqPhase1CommandDashboard({
                 {liveTracking?.officeGossip?.usersOnOfficeGossip
                   ? ` · ${fmt(liveTracking.officeGossip.usersOnOfficeGossip)} users`
                   : liveTracking?.communityVisits7d
-                    ? ` · ${fmt(liveTracking.communityVisits7d)} community visits`
-                    : ''}
+                  ? ` · ${fmt(liveTracking.communityVisits7d)} community visits`
+                  : ''}
               </p>
               {liveTracking?.officeGossip?.referenceChecksSummary ? (
                 <div className="mb-3 grid grid-cols-2 gap-2">
@@ -2332,7 +2332,7 @@ export function HqPhase1CommandDashboard({
                 <EmptyChart label="No page visits yet" />
               )}
             </Card>
-          </div>
+                </div>
 
           <div className="mb-4 grid grid-cols-12 gap-4">
             <Card className="col-span-12 lg:col-span-4">
@@ -2389,8 +2389,8 @@ export function HqPhase1CommandDashboard({
                           </p>
                           <span className="shrink-0 text-[10px] text-slate-400">
                             {formatClock(row.activityStateUpdatedAt || row.capturedAt)}
-                          </span>
-                        </div>
+                        </span>
+                      </div>
                         {name ? (
                           <p className="mt-0.5 text-[10px] text-slate-500">
                             {formatDurationMs(row.activeMs7d)} active · {row.applies7d} applies ·{' '}

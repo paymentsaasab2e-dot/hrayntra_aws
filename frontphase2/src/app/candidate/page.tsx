@@ -115,6 +115,12 @@ import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import {
+  isCandidatesListCacheFresh,
+  readCandidatesListCache,
+  writeCandidatesListCache,
+  invalidateEmployerCandidatesCache,
+} from '../../lib/employerPageCache';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import {
@@ -338,14 +344,6 @@ function CandidatesPageContent() {
   const [pendingBulkRetryFile, setPendingBulkRetryFile] = useState<File | null>(null);
   const [failedBulkResumeCount, setFailedBulkResumeCount] = useState(0);
   const [recycleBinModuleOpen, setRecycleBinModuleOpen] = useState(false);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [exportCandidates, setExportCandidates] = useState<Candidate[]>([]);
-  const [exportCandidatesLoading, setExportCandidatesLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [tableLoading, setTableLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasLoadedCandidatesOnceRef = useRef(false);
   const [listTab, setListTab] = useState<CandidateListTab>(() =>
     searchParams.get('tab') === 'mine' ? 'mine' : 'all',
   );
@@ -353,6 +351,28 @@ function CandidatesPageContent() {
     search: searchParams.get('search') || '',
     status: searchParams.get('status') || '',
   });
+  const [candidates, setCandidates] = useState<Candidate[]>(() => {
+    const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
+    const cached = readCandidatesListCache(tab, 1, 10, searchParams.get('search') || '');
+    return Array.isArray(cached?.data?.candidates) ? (cached.data.candidates as Candidate[]) : [];
+  });
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportCandidates, setExportCandidates] = useState<Candidate[]>([]);
+  const [exportCandidatesLoading, setExportCandidatesLoading] = useState(false);
+  const [loading, setLoading] = useState(() => {
+    const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
+    const cached = readCandidatesListCache(tab, 1, 10, searchParams.get('search') || '');
+    return !cached?.data?.candidates?.length;
+  });
+  const [tableLoading, setTableLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasLoadedCandidatesOnceRef = useRef(
+    (() => {
+      const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
+      const cached = readCandidatesListCache(tab, 1, 10, searchParams.get('search') || '');
+      return Boolean(cached?.data?.candidates?.length);
+    })(),
+  );
   const [columnFilters, setColumnFilters] = useState<CandidateTableColumnFilters>(() =>
     readColumnFiltersFromSearchParams(searchParams),
   );
@@ -433,7 +453,11 @@ function CandidatesPageContent() {
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
-  const [totalEntries, setTotalEntries] = useState(0);
+  const [totalEntries, setTotalEntries] = useState(() => {
+    const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
+    const cached = readCandidatesListCache(tab, 1, 10, searchParams.get('search') || '');
+    return typeof cached?.data?.totalEntries === 'number' ? cached.data.totalEntries : 0;
+  });
   const [inlineStageOptionsByJobId, setInlineStageOptionsByJobId] = useState<
     Record<string, Array<{ id: string; name: string }>>
   >({});
@@ -684,6 +708,14 @@ function CandidatesPageContent() {
       } else {
         setTotalEntries(mapped.length);
       }
+      writeCandidatesListCache({
+        tab: activeListTab,
+        page: activePage,
+        pageSize,
+        search: filters.search || '',
+        totalEntries: pagination?.total || mapped.length,
+        candidates: mapped,
+      });
     } catch (err: any) {
       if (requestId !== loadCandidatesRequestIdRef.current) return;
       const message = err?.message || 'Failed to load candidates.';
@@ -730,7 +762,8 @@ function CandidatesPageContent() {
   }, []);
 
   useEffect(() => {
-    loadCandidates();
+    const cached = readCandidatesListCache(listTab, currentPage, pageSize, filters.search || '');
+    void loadCandidates({ silent: Boolean(cached?.data?.candidates?.length) });
   }, [loadCandidates]);
 
   // Reusable auto-refresh: polls while visible, refreshes on tab focus and on
@@ -742,6 +775,10 @@ function CandidatesPageContent() {
   usePageAutoRefresh(candidatesAutoLoad, {
     events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
     intervalMs: listTab === 'all' ? 20_000 : 45_000,
+    shouldSkip: () =>
+      isCandidatesListCacheFresh(
+        readCandidatesListCache(listTab, currentPage, pageSize, filters.search || ''),
+      ),
   });
 
   useEffect(() => {
@@ -1498,6 +1535,7 @@ function CandidatesPageContent() {
       try {
         setDeletingCandidateId(candidate.id);
         await apiDeleteCandidate(candidate.id);
+        invalidateEmployerCandidatesCache();
         setCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
         toast.success('Candidate moved to Recycle Bin');
         setSelectedIds((prev) => prev.filter((id) => id !== candidate.id));
@@ -1890,6 +1928,7 @@ function CandidatesPageContent() {
                     }
                     try {
                       await Promise.all(ids.map((candidateId) => apiDeleteCandidate(candidateId)));
+                      invalidateEmployerCandidatesCache();
                       toast.success(
                             `${ids.length} candidate${ids.length === 1 ? '' : 's'} moved to Recycle Bin`,
                       );

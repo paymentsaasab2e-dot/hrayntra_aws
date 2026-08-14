@@ -105,7 +105,7 @@ async function notifyCrossDeptEvent(userId, alertId, { title, description, reque
     title,
     description,
     actionLabel: 'Review request',
-    actionPath: `/request/cross-dept-approval?requestId=${encodeURIComponent(requestId)}`,
+    actionPath: `/request/approval?tab=cross-dept&requestId=${encodeURIComponent(requestId)}`,
     entityType: 'CROSS_DEPT_REQUEST',
     entityId: requestId,
   });

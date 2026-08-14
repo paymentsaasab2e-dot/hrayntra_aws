@@ -148,7 +148,8 @@ export function TenantBehaviorTrackerHost() {
     };
 
     void syncCrm();
-    const onBehave = (pathname || '').startsWith('/thebehave');
+    const onBehave =
+      (pathname || '').startsWith('/thebehave') || (pathname || '').startsWith('/tenant-behave');
     const timer = window.setInterval(syncCrm, onBehave ? 45_000 : CRM_SYNC_MS);
     return () => {
       cancelled = true;
@@ -158,7 +159,8 @@ export function TenantBehaviorTrackerHost() {
 
   useEffect(() => {
     if (loading || !userId || !tenantDbName) return;
-    const onBehavePage = (pathname || '').startsWith('/thebehave');
+    const onBehavePage =
+      (pathname || '').startsWith('/thebehave') || (pathname || '').startsWith('/tenant-behave');
     const debounceMs = onBehavePage ? 400 : 900;
     let timer: number | undefined;
 

@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, MessageSquare, Send } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { BrandPngIcon } from '@/components/coins/BrandPngIcon';
 import {
   apiAddInboxChatMessage,
   apiCreateEntityChatThread,
@@ -126,7 +127,7 @@ export function DrawerEntityChatTab({
   if (!canView) {
     return (
       <div className={`rounded-xl border border-slate-200 bg-white p-6 text-center ${className}`}>
-        <MessageSquare className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+        <BrandPngIcon name="chat" className="mx-auto mb-3 h-8 w-8" />
         <p className="text-sm font-medium text-slate-700">Team chat unavailable</p>
         <p className="mt-1 text-xs text-slate-500">
           You need inbox access to view or send messages here.
@@ -144,7 +145,7 @@ export function DrawerEntityChatTab({
             Internal messages for team members with inbox access.
           </p>
         </div>
-        <MessageSquare className="h-4 w-4 text-indigo-500" />
+        <BrandPngIcon name="chat" className="h-4 w-4" />
       </div>
 
       <div ref={scrollRef} className="flex max-h-[28rem] flex-1 flex-col gap-3 overflow-y-auto p-4">
@@ -200,7 +201,7 @@ export function DrawerEntityChatTab({
             >
               {sending ? 'Sending…' : (
                 <>
-                  <Send size={14} />
+                  <BrandPngIcon name="send" className="h-3.5 w-3.5" />
                   Send
                 </>
               )}

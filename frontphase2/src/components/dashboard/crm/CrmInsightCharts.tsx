@@ -19,6 +19,7 @@ import type { CrmOverview } from '@/lib/dashboard/api';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { buildKpiDrillDown } from './crmDrillDown';
 import { dashCard, formatNum, useCrmDashboard } from './crmShared';
+import { CrmStatNumber, sparkDelta, sparkValues } from './crmStatNumber';
 
 const TIP = {
   borderRadius: 12,
@@ -224,12 +225,7 @@ export function CrmInsightCharts({ overview }: Props) {
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-[1.35rem] font-bold tabular-nums tracking-tight text-slate-900">
-                      {formatNum(followupTotal)}
-                    </p>
-                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                      Queue
-                    </p>
+                    <CrmStatNumber value={formatNum(followupTotal)} label="queue" size="sm" align="center" />
                   </div>
                 </div>
                 <ul className="grid w-full grid-cols-2 gap-1.5">
@@ -291,10 +287,7 @@ export function CrmInsightCharts({ overview }: Props) {
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-xl font-bold tabular-nums text-slate-900">
-                      {ownership.unassigned}
-                    </p>
-                    <p className="text-[9px] font-semibold uppercase text-slate-400">Unassigned</p>
+                    <CrmStatNumber value={ownership.unassigned} label="open" size="sm" align="center" invertDelta />
                   </div>
                 </button>
                 <ul className="min-w-0 flex-1 space-y-2">
@@ -327,7 +320,17 @@ export function CrmInsightCharts({ overview }: Props) {
             info="How your client count moves over the period. Pipeline “Client health” is a status mix snapshot — this chart is the growth trend."
           >
             {clientGrowth.length ? (
-              <div className="h-[200px] w-full">
+              <div className="flex h-[220px] w-full flex-col">
+                <div className="mb-1 px-1">
+                  <CrmStatNumber
+                    value={formatNum(clientGrowth[clientGrowth.length - 1]?.value)}
+                    label="clients"
+                    size="md"
+                    deltaPct={sparkDelta(clientGrowth)}
+                    spark={sparkValues(clientGrowth)}
+                  />
+                </div>
+                <div className="min-h-0 flex-1">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={clientGrowth} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 6" stroke="#E2E8F0" vertical={false} />
@@ -355,6 +358,7 @@ export function CrmInsightCharts({ overview }: Props) {
                     />
                   </LineChart>
                 </ResponsiveContainer>
+                </div>
               </div>
             ) : (
               <EmptyChart label="No client growth series yet" />
@@ -366,7 +370,7 @@ export function CrmInsightCharts({ overview }: Props) {
           <ChartShell
             title="Engagement"
             subtitle="Touched vs cold leads"
-            info="Share of leads with at least one logged touchpoint. Separate from ownership — this is outreach coverage."
+            info="Share of leads with at least one logged call, meeting or email. Separate from ownership — this is outreach coverage."
           >
             {engagement.slices.length ? (
               <button
@@ -398,8 +402,7 @@ export function CrmInsightCharts({ overview }: Props) {
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-2xl font-bold tabular-nums text-slate-900">{engagement.pct}%</p>
-                    <p className="text-[9px] font-semibold uppercase text-slate-400">Touched</p>
+                    <CrmStatNumber value={`${engagement.pct}%`} label="touched" size="sm" align="center" />
                   </div>
                 </div>
                 <ul className="min-w-0 flex-1 space-y-2.5">
@@ -428,7 +431,7 @@ export function CrmInsightCharts({ overview }: Props) {
                   })}
                   <li className="text-[10px] text-slate-400">
                     {engagement.zero > 0
-                      ? `${engagement.zero} leads still have zero touchpoints`
+                      ? `${engagement.zero} leads still have no calls or meetings`
                       : 'All leads have been touched'}
                   </li>
                 </ul>

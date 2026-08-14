@@ -1,25 +1,54 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import {
-  Download,
-  Filter,
-  RefreshCw,
-  Search,
-  Settings2,
-  Users,
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { Download, RefreshCw, Settings2 } from 'lucide-react';
 import type { CrmOverview } from '@/lib/dashboard/api';
 import { CRM_SECTIONS, crmCard, useCrmDashboard } from './crmShared';
 
-const DATE_OPTIONS = [
+export const CRM_DATE_OPTIONS = [
   { value: 'today', label: 'Today' },
   { value: 'yesterday', label: 'Yesterday' },
-  { value: 'last_7_days', label: 'This Week' },
-  { value: 'last_30_days', label: 'Last 30 Days' },
-  { value: 'month', label: 'This Month' },
-  { value: 'quarter', label: 'Last Quarter' },
+  { value: 'last_7_days', label: 'Week' },
+  { value: 'last_30_days', label: '30 days' },
+  { value: 'month', label: 'Month' },
+  { value: 'quarter', label: 'Quarter' },
+  { value: 'year', label: 'Year' },
+  { value: 'all', label: 'All' },
 ];
+
+export function CrmTimelinePills({ className = '' }: { className?: string }) {
+  const { filters, setFilters, bumpRefresh } = useCrmDashboard();
+  const dateRange = filters.dateRange || 'last_30_days';
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Timeline"
+      className={`flex flex-wrap items-center gap-0.5 rounded-full bg-slate-100 p-1 ring-1 ring-slate-200/90 ${className}`}
+    >
+      {CRM_DATE_OPTIONS.map((opt) => {
+        const active = dateRange === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => {
+              setFilters((f) => ({ ...f, dateRange: opt.value, startDate: undefined, endDate: undefined }));
+              bumpRefresh();
+            }}
+            className={`shrink-0 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition ${
+              active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 type Props = {
   overview: CrmOverview | null;
@@ -27,28 +56,11 @@ type Props = {
 };
 
 export function CrmHeader({ overview, onRefresh }: Props) {
-  const {
-    filters,
-    setFilters,
-    hiddenSections,
-    toggleSection,
-    bumpRefresh,
-  } = useCrmDashboard();
-  const [searchDraft, setSearchDraft] = useState(filters.search || '');
+  const { filters, hiddenSections, toggleSection } = useCrmDashboard();
   const [customizeOpen, setCustomizeOpen] = useState(false);
-  const [dateOpen, setDateOpen] = useState(false);
-  const [teamOpen, setTeamOpen] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        document.getElementById('crm-search')?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const dateLabel =
+    CRM_DATE_OPTIONS.find((d) => d.value === (filters.dateRange || 'last_30_days'))?.label || '30 days';
+  const teamLabel = overview?.teamOptions?.find((t) => t.id === filters.assignedTo)?.name;
 
   const exportCsv = () => {
     const k = overview?.kpis || {};
@@ -64,122 +76,29 @@ export function CrmHeader({ overview, onRefresh }: Props) {
     URL.revokeObjectURL(url);
   };
 
-  const teamLabel =
-    overview?.teamOptions?.find((t) => t.id === filters.assignedTo)?.name || 'All Team';
-
   return (
-    <header className={`${crmCard} px-5 py-4`}>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-[22px] font-bold tracking-tight text-slate-900">
-            HRYANTRA CRM Dashboard
-          </h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Actionable insights · pipeline mix · records & team
+    <header className={`${crmCard} px-5 py-3.5`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[20px] font-bold tracking-tight text-slate-900">CRM Dashboard</h1>
+          <p className="mt-0.5 text-[12px] text-slate-500">
+            Stats for {dateLabel.toLowerCase()}
+            {teamLabel ? ` · ${teamLabel}` : ''}
           </p>
         </div>
 
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
-          <div className="relative min-w-[220px] flex-1 max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-            <input
-              id="crm-search"
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  setFilters((f) => ({ ...f, search: searchDraft.trim() || undefined }));
-                  bumpRefresh();
-                }
-              }}
-              placeholder="Search leads, clients, email, phone, city..."
-              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-12 text-sm outline-none ring-blue-500/25 focus:bg-white focus:ring-2"
-            />
-            <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 text-[10px] text-slate-400">
-              ⌘K
-            </kbd>
-          </div>
-
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setDateOpen((v) => !v)}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              <Filter size={14} /> Date
-            </button>
-            {dateOpen ? (
-              <div className="absolute right-0 z-40 mt-2 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
-                {DATE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
-                      filters.dateRange === opt.value ? 'font-semibold text-blue-600' : 'text-slate-700'
-                    }`}
-                    onClick={() => {
-                      setFilters((f) => ({ ...f, dateRange: opt.value }));
-                      setDateOpen(false);
-                      bumpRefresh();
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setTeamOpen((v) => !v)}
-              className="inline-flex h-10 max-w-[160px] items-center gap-1.5 truncate rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              <Users size={14} /> {teamLabel}
-            </button>
-            {teamOpen ? (
-              <div className="absolute right-0 z-40 mt-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
-                <button
-                  type="button"
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
-                  onClick={() => {
-                    setFilters((f) => ({ ...f, assignedTo: undefined }));
-                    setTeamOpen(false);
-                    bumpRefresh();
-                  }}
-                >
-                  All Team
-                </button>
-                {(overview?.teamOptions || []).map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-slate-50"
-                    onClick={() => {
-                      setFilters((f) => ({ ...f, assignedTo: t.id }));
-                      setTeamOpen(false);
-                      bumpRefresh();
-                    }}
-                  >
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-50"
           >
             <RefreshCw size={14} /> Refresh
           </button>
           <button
             type="button"
             onClick={exportCsv}
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-50"
           >
             <Download size={14} /> Export
           </button>
@@ -188,7 +107,7 @@ export function CrmHeader({ overview, onRefresh }: Props) {
             <button
               type="button"
               onClick={() => setCustomizeOpen((v) => !v)}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-50"
             >
               <Settings2 size={14} /> Customize
             </button>
@@ -196,9 +115,6 @@ export function CrmHeader({ overview, onRefresh }: Props) {
               <div className="absolute right-0 z-40 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
                 <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   Legacy widget toggles
-                </p>
-                <p className="px-2 pb-2 text-[10px] text-slate-400">
-                  Use category tabs below the insight row to navigate sections.
                 </p>
                 {CRM_SECTIONS.map((s) => (
                   <label

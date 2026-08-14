@@ -2,7 +2,8 @@
 
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
-import { Loader2, Send, Sparkles, X } from 'lucide-react';
+import { Loader2, Sparkles, X } from 'lucide-react';
+import { BrandPngIcon } from './coins/BrandPngIcon';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { usePageDrawerOpen } from '../hooks/usePageDrawerOpen';
 import {
@@ -373,7 +374,7 @@ export function HrYantraAiFloatingButton() {
                   className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/25 transition hover:bg-[#1A86B3] disabled:opacity-50"
                   aria-label="Send"
                 >
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BrandPngIcon name="send" className="h-4 w-4" />}
                 </button>
               </form>
             </div>

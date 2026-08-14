@@ -3,7 +3,6 @@
 import React from 'react';
 import {
   PH2_PAGE_HEADER_BRAND_CLASS,
-  PH2_PAGE_HEADER_ICON_TILE_CLASS,
   PH2_PAGE_HEADER_TITLE_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
@@ -20,12 +19,16 @@ export {
   PH2_TABLE_CARD_FOOTER_CLASS as HQ_TABLE_CARD_FOOTER_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS as HQ_TABLE_BODY_SCROLL_CLASS,
   PH2_PAGE_HEADER_BRAND_CLASS as HQ_PAGE_HEADER_BRAND_CLASS,
-  PH2_PAGE_HEADER_ICON_TILE_CLASS as HQ_PAGE_HEADER_ICON_TILE_CLASS,
   PH2_PAGE_HEADER_TITLE_CLASS as HQ_PAGE_HEADER_TITLE_CLASS,
 };
 
+export const HQ_HEADER_ICON_TILE_CLASS =
+  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-900 via-slate-800 to-blue-900 text-white shadow-[0_12px_28px_-14px_rgba(15,23,42,0.55)] ring-1 ring-white/15';
+
+export const HQ_PAGE_HEADER_ICON_TILE_CLASS = HQ_HEADER_ICON_TILE_CLASS;
+
 export const HQ_PRIMARY_BUTTON_CLASS =
-  'inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_12px_28px_-14px_rgba(15,23,42,0.45)] transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
 
 export const HQ_SECONDARY_BUTTON_CLASS =
   'inline-flex items-center gap-2 rounded-xl border border-indigo-100/90 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/40 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
@@ -70,7 +73,7 @@ export function HqModulePageLayout({
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
           <div className={PH2_PAGE_HEADER_BRAND_CLASS}>
-            <div className={PH2_PAGE_HEADER_ICON_TILE_CLASS}>{icon}</div>
+            <div className={HQ_HEADER_ICON_TILE_CLASS}>{icon}</div>
             <div className="min-w-0">
               <h1 className={PH2_PAGE_HEADER_TITLE_CLASS}>{title}</h1>
               {subtitle ? (

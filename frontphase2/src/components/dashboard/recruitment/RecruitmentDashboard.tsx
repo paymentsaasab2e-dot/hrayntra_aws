@@ -10,16 +10,26 @@ import {
   type RecruitmentOverview,
 } from '@/lib/dashboard/api';
 import { useDashboardLayoutStore } from '@/lib/dashboard/DashboardLayoutProvider';
-import { RecDashboardProvider, useRecDashboard } from './recShared';
-import { RecHeader } from './RecHeader';
-import { RecKpiGrid } from './RecKpiGrid';
-import { RecChartsAndTables } from './RecChartsAndTables';
+import { HqDashCategoryTabs } from '@/components/hq/analytics/HqDashCategoryTabs';
+import { crmTextFont, dashFontVars } from '@/components/dashboard/crm/crmStatNumber';
 import {
-  RecAlertsPanel,
-  RecModuleShortcuts,
-  RecSchedulePanel,
-  RecTeamLeaderboard,
-} from './RecPanels';
+  REC_CATEGORY_TABS,
+  RecDashboardProvider,
+  type RecCategoryTabId,
+  useRecDashboard,
+} from './recShared';
+import { RecHeader, RecTimelinePills } from './RecHeader';
+import { RecDecisionInsights } from './RecDecisionInsights';
+import { RecPipelineSection } from './RecPipelineSection';
+import { RecTeamIntelligence } from './RecTeamIntelligence';
+import { PeoplePerfPanel } from '@/components/dashboard/people-perf/PeoplePerfPanel';
+import { useDashboardAccess } from '@/lib/dashboard/useDashboardAccess';
+import {
+  isRecOverviewCacheFresh,
+  readRecOverviewCache,
+  writeRecOverviewCache,
+} from '@/lib/employerPageCache';
+import { DashScopeBanner, RecMineWorkPanel } from '@/components/dashboard/mine/MineWorkPanel';
 
 const POLL_MS = 60_000;
 
@@ -129,7 +139,7 @@ function RecDrillDownModal() {
             <Link
               href={drillDown.href}
               onClick={closeDrillDown}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
               Open records <ExternalLink size={14} />
             </Link>
@@ -143,23 +153,49 @@ function RecDrillDownModal() {
 }
 
 function RecruitmentDashboardInner() {
-  const { filters, refreshKey, hiddenSections } = useRecDashboard();
-  const [overview, setOverview] = useState<RecruitmentOverview | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { filters, refreshKey } = useRecDashboard();
+  const access = useDashboardAccess();
+  const [overview, setOverview] = useState<RecruitmentOverview | null>(() => {
+    const cached = readRecOverviewCache({ dateRange: 'last_30_days', category: 'insights' });
+    return cached?.data ? (cached.data as RecruitmentOverview) : null;
+  });
+  const [loading, setLoading] = useState(
+    () => !readRecOverviewCache({ dateRange: 'last_30_days', category: 'insights' })?.data,
+  );
+  const [category, setCategory] = useState<RecCategoryTabId>('insights');
+  const visibleTabs = REC_CATEGORY_TABS.filter((tab) => access.recTabs[tab.id]);
+
+  useEffect(() => {
+    if (!visibleTabs.length) return;
+    if (!access.recTabs[category]) setCategory(visibleTabs[0].id);
+  }, [access.recTabs, category, visibleTabs]);
+
+  useEffect(() => {
+    const query =
+      category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
+    const cached = readRecOverviewCache({ ...query, category } as Record<string, string | undefined | null>);
+    if (cached?.data) setOverview(cached.data as RecruitmentOverview);
+  }, [category, filters]);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const query =
+      category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
+    const cacheFilters = { ...query, category } as Record<string, string | undefined | null>;
+    const cached = readRecOverviewCache(cacheFilters);
+    const silent = Boolean(cached?.data);
+    if (!silent) setLoading(true);
     try {
-      const data = await apiRecruitmentDashboardOverview(filters);
+      const data = await apiRecruitmentDashboardOverview(query);
       setOverview(data);
+      writeRecOverviewCache(data as Record<string, unknown>, cacheFilters);
     } catch (error: unknown) {
-      setOverview(null);
+      if (!cached?.data) setOverview(null);
       const message = error instanceof Error ? error.message : 'Failed to load recruitment dashboard';
-      toast.error(message);
+      if (!silent) toast.error(message);
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, category]);
 
   useEffect(() => {
     void load();
@@ -167,37 +203,60 @@ function RecruitmentDashboardInner() {
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      void apiRecruitmentDashboardOverview(filters)
-        .then((data) => setOverview(data))
+      const query =
+        category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
+      const cacheFilters = { ...query, category } as Record<string, string | undefined | null>;
+      if (isRecOverviewCacheFresh(readRecOverviewCache(cacheFilters))) return;
+      void apiRecruitmentDashboardOverview(query)
+        .then((data) => {
+          setOverview(data);
+          writeRecOverviewCache(data as Record<string, unknown>, cacheFilters);
+        })
         .catch(() => undefined);
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [filters]);
-
-  const show = (id: string) => !hiddenSections.has(id);
+  }, [filters, category]);
 
   return (
-    <div className="space-y-6">
+    <div className={`${dashFontVars} ${crmTextFont} dash-ui space-y-5 antialiased`}>
       <RecHeader overview={overview} onRefresh={() => void load()} />
 
-      {show('modules') ? <RecModuleShortcuts /> : null}
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <HqDashCategoryTabs
+          instanceId="rec-tenant"
+          tabs={visibleTabs}
+          value={category}
+          onChange={(id) => setCategory(id as RecCategoryTabId)}
+          className="mb-0 min-w-0 flex-1"
+        />
+        <RecTimelinePills className="lg:mt-1.5" />
+      </div>
 
-      {show('kpis') ? <RecKpiGrid overview={overview} loading={loading} /> : null}
-
-      {show('charts') || show('tables') ? (
-        <RecChartsAndTables overview={overview} loading={loading} />
+      {category !== 'mine' ? (
+        <DashScopeBanner
+          access={{
+            statsScope: access.canFullStats ? 'full' : 'self',
+            canFullStats: access.canFullStats,
+            showMineTab: access.showMineTab,
+            showMineApprovals: access.showMineApprovals,
+          }}
+        />
       ) : null}
 
-      {(show('schedule') || show('alerts')) ? (
-        <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {show('schedule') ? (
-            <RecSchedulePanel overview={overview} loading={loading} />
-          ) : null}
-          {show('alerts') ? <RecAlertsPanel overview={overview} loading={loading} /> : null}
-        </div>
+      {visibleTabs.length === 0 ? (
+        <p className="rounded-2xl border border-slate-100 bg-white px-5 py-10 text-center text-sm text-slate-500">
+          No recruitment dashboard tabs are assigned to this role. Ask an admin to enable Insights, Pipeline, Team, or Hours & scores in Team → Roles.
+        </p>
       ) : null}
 
-      {show('team') ? <RecTeamLeaderboard overview={overview} loading={loading} /> : null}
+      {category === 'mine' && access.recTabs.mine ? (
+        <RecMineWorkPanel overview={overview} loading={loading} />
+      ) : null}
+
+      {category === 'insights' && access.recTabs.insights ? <RecDecisionInsights overview={overview} loading={loading} /> : null}
+      {category === 'pipeline' && access.recTabs.pipeline ? <RecPipelineSection overview={overview} loading={loading} /> : null}
+      {category === 'team' && access.recTabs.team ? <RecTeamIntelligence overview={overview} /> : null}
+      {category === 'people' && access.recTabs.people ? <PeoplePerfPanel product="recruitment" /> : null}
 
       {overview?.generatedAt ? (
         <p className="pb-2 text-center text-[11px] text-slate-400">

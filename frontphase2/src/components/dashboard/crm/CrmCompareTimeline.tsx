@@ -194,7 +194,7 @@ export function CrmLeadCompareTimeline({ overview }: Props) {
   return (
     <MultiLineCompare
       title="Top leads · engagement growth"
-      subtitle="Cumulative touchpoints · last 14 days · different color per lead"
+      subtitle="Cumulative outreach · last 14 days · different color per lead"
       info="Compares activity growth for your top leads (completed tasks + logged activities). Only records with real activity in the window."
       block={overview?.entityCompare?.leads}
       emptyLabel="No lead activity in the last 14 days to compare yet"
@@ -206,7 +206,7 @@ export function CrmClientCompareTimeline({ overview }: Props) {
   return (
     <MultiLineCompare
       title="Top clients · engagement growth"
-      subtitle="Cumulative touchpoints · last 14 days · different color per client"
+      subtitle="Cumulative outreach · last 14 days · different color per client"
       info="Compares activity growth for your top clients (completed tasks + logged activities). Only accounts with real activity in the window."
       block={overview?.entityCompare?.clients}
       emptyLabel="No client activity in the last 14 days to compare yet"

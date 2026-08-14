@@ -31,6 +31,8 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
     'manage_settings', 'access_integrations', 'export_data', 'view_activity_log',
     'recycle_bin_manage', 'view_dashboard',
   ],
+  CrmDashboard: ['dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team', 'dash_crm_people', 'view_dashboard'],
+  RecDashboard: ['dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team', 'dash_rec_people', 'view_dashboard'],
   Behaviour: ['view_team_activity', 'reports_read', 'view_activity_log', 'manage_settings', 'view_dashboard'],
 };
 
@@ -66,6 +68,13 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   ],
   '/administration': ['manage_settings', 'manage_roles', 'assign_roles'],
   '/thebehave': [
+    'view_team_activity',
+    'reports_read',
+    'view_activity_log',
+    'manage_settings',
+    'view_dashboard',
+  ],
+  '/tenant-behave': [
     'view_team_activity',
     'reports_read',
     'view_activity_log',

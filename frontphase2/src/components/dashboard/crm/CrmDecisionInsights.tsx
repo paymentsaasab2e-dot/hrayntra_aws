@@ -5,16 +5,14 @@ import {
   ArrowRight,
   CalendarClock,
   Sparkles,
-  TrendingDown,
-  TrendingUp,
-  Zap,
 } from 'lucide-react';
 import type { CrmOverview } from '@/lib/dashboard/api';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { useUser } from '@/hooks/useUser';
 import { CrmInsightCharts } from './CrmInsightCharts';
 import { CrmAlertsPanel, CrmFollowupActivity } from './CrmPanels';
-import { dashCard, formatMoney, formatNum, useCrmDashboard } from './crmShared';
+import { formatMoney, formatNum, useCrmDashboard } from './crmShared';
+import { CrmStatNumber, sparkDelta } from './crmStatNumber';
 
 type Props = { overview: CrmOverview | null; loading?: boolean };
 
@@ -76,6 +74,17 @@ function buildNextSteps(
     steps.push(step);
   };
 
+  const waiting = Number(overview.myWork?.pendingApprovalsTotal || overview.kpis?.waitingOnYou || 0);
+  if (waiting > 0) {
+    push({
+      id: 'approvals-waiting',
+      title: `Act on ${waiting} approval${waiting === 1 ? '' : 's'} waiting on you`,
+      why: 'Team requests, task completions, conversions, and cross-dept items in your Approvals bucket.',
+      href: '/request?view=approvals',
+      tag: 'Approvals',
+    });
+  }
+
   if (opts.manager) {
     if (teamOverdue > 0 || overdue > 0) {
       push({
@@ -97,7 +106,7 @@ function buildNextSteps(
     }
     push({
       id: 'mgr-pipeline',
-      title: 'Review qualified → win rate this period',
+      title: 'Review pipeline conversion this period',
       why: 'Check Pipeline tab for stage drop-offs and coach closers.',
       href: '/dashboard',
       tag: 'Insight',
@@ -145,41 +154,53 @@ function buildNextSteps(
   return steps.slice(0, 3);
 }
 
+const PULSE_GLASS: Record<string, string> = {
+  indigo:
+    'from-indigo-500/90 via-indigo-600/85 to-violet-700/90 shadow-[0_18px_40px_-18px_rgba(79,70,229,0.55)]',
+  rose:
+    'from-rose-500/90 via-rose-600/85 to-orange-600/80 shadow-[0_18px_40px_-18px_rgba(225,29,72,0.5)]',
+  sky:
+    'from-sky-500/90 via-cyan-600/85 to-indigo-600/80 shadow-[0_18px_40px_-18px_rgba(14,165,233,0.5)]',
+  emerald:
+    'from-emerald-500/90 via-teal-600/85 to-lime-600/75 shadow-[0_18px_40px_-18px_rgba(16,185,129,0.5)]',
+};
+
 function PulseStat({
   label,
   value,
+  unit,
   hint,
-  positive,
-  accent,
+  tone,
+  deltaPct,
+  spark,
+  invertDelta,
 }: {
   label: string;
   value: string;
+  unit?: string;
   hint: string;
-  positive?: boolean | null;
-  accent: string;
+  tone: keyof typeof PULSE_GLASS;
+  deltaPct?: number | null;
+  spark?: number[];
+  invertDelta?: boolean;
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-[1.35rem] border border-white/80 bg-white p-4 shadow-[0_14px_40px_-22px_rgba(15,23,42,0.22)] ${accent}`}
+      className={`relative flex h-full min-h-[168px] flex-col justify-between overflow-hidden rounded-[1.5rem] border border-white/25 bg-gradient-to-br p-4 text-white backdrop-blur-xl ${PULSE_GLASS[tone]}`}
     >
-      <div className="pointer-events-none absolute -right-4 -top-4 h-16 w-16 rounded-full bg-current opacity-[0.06]" />
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">{label}</p>
-      <p className="mt-2.5 text-[1.75rem] font-bold leading-none tracking-tight tabular-nums text-slate-900">
-        {value}
-      </p>
-      <p
-        className={`mt-3 inline-flex items-center gap-1 text-[11px] font-semibold ${
-          positive === true
-            ? 'text-lime-600'
-            : positive === false
-              ? 'text-rose-500'
-              : 'text-slate-400'
-        }`}
-      >
-        {positive === true ? <TrendingUp size={12} /> : null}
-        {positive === false ? <TrendingDown size={12} /> : null}
-        {hint}
-      </p>
+      <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/20 blur-2xl" />
+      <div className="pointer-events-none absolute -bottom-10 left-4 h-20 w-20 rounded-full bg-black/10 blur-2xl" />
+      <p className="relative text-[10px] font-semibold uppercase tracking-wider text-white/75">{label}</p>
+      <CrmStatNumber
+        className="relative"
+        value={value}
+        label={unit}
+        light
+        size="lg"
+        deltaPct={deltaPct}
+        invertDelta={invertDelta}
+      />
+      <p className="relative text-[11px] font-medium text-white/85">{hint}</p>
     </div>
   );
 }
@@ -200,9 +221,6 @@ export function CrmDecisionInsights({ overview, loading }: Props) {
     [overview, manager, user?.name, user?.email],
   );
 
-  const topInsight = nextSteps[0];
-  const restSteps = nextSteps.slice(1);
-
   if (loading && !overview) {
     return (
       <div className="space-y-4">
@@ -217,107 +235,94 @@ export function CrmDecisionInsights({ overview, loading }: Props) {
 
   return (
     <div className="space-y-5">
-      {/* Syntho-style top: AI update + pulse KPIs */}
-      <div className="grid gap-4 lg:grid-cols-12">
+      <div className="grid gap-3 lg:grid-cols-12 lg:items-stretch">
         <div className="lg:col-span-4">
-          <button
-            type="button"
-            onClick={() => {
-              if (!topInsight) return;
-              openDrillDown({
-                title: topInsight.title,
-                href: topInsight.href,
-                rows: [{ Action: topInsight.title, Why: topInsight.why }],
-              });
-            }}
-            className="relative flex h-full min-h-[168px] w-full flex-col justify-between overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-[#3B1F8E] via-[#4F2AB8] to-[#6D28D9] p-5 text-left text-white shadow-[0_20px_50px_-28px_rgba(79,42,184,0.65)] transition hover:brightness-105"
-          >
-            <div className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full bg-white/10 blur-2xl" />
-            <div className="pointer-events-none absolute -bottom-8 left-10 h-24 w-24 rounded-full bg-lime-300/20 blur-2xl" />
-            <div className="relative flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider backdrop-blur">
-                <Zap size={11} className="text-lime-300" />
-                AI suggestion
+          <section className="relative flex h-full min-h-[168px] flex-col overflow-hidden rounded-[1.5rem] border border-white/25 bg-gradient-to-br from-indigo-600 via-violet-600 to-teal-500 p-4 text-white shadow-[0_20px_48px_-20px_rgba(79,70,229,0.55)] backdrop-blur-xl">
+            <div className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/20 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-12 left-6 h-24 w-24 rounded-full bg-lime-300/25 blur-2xl" />
+
+            <div className="relative mb-3 flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-white/90">
+                <Sparkles size={13} />
+                AI next steps
               </span>
-              <span className="rounded-full bg-lime-300/20 px-2 py-0.5 text-[10px] font-semibold text-lime-200">
+              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold text-white/95">
                 {manager ? 'Manager' : 'My tasks'}
               </span>
             </div>
-            <div className="relative mt-4">
-              <p className="text-[15px] font-semibold leading-snug tracking-tight text-white">
-                {topInsight?.title || 'You’re clear — keep logging today’s outreach'}
-              </p>
-              <p className="mt-2 text-[12px] leading-relaxed text-violet-100/90">
-                {topInsight?.why || 'No urgent next step right now. Review follow-ups below.'}
-              </p>
-            </div>
-            {topInsight ? (
-              <span className="relative mt-4 inline-flex items-center gap-1 text-[11px] font-bold text-lime-200">
-                Take action <ArrowRight size={12} />
-              </span>
-            ) : null}
-          </button>
+
+            <ul className="relative space-y-1">
+              {(nextSteps.length ? nextSteps : [null]).map((step, i) => {
+                const primary = i === 0;
+                return (
+                  <li key={step?.id || 'empty'}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!step) return;
+                        openDrillDown({
+                          title: step.title,
+                          href: step.href,
+                          rows: [{ Action: step.title, Why: step.why }],
+                        });
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left transition ${
+                        primary ? 'bg-white/18 hover:bg-white/25' : 'hover:bg-white/10'
+                      }`}
+                    >
+                      <span
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                          primary ? 'bg-white text-indigo-700' : 'bg-white/20 text-white'
+                        }`}
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-white">
+                        {step?.tag ? `${step.tag} · ` : ''}
+                        {step?.title || 'You’re clear — keep logging today’s outreach'}
+                      </span>
+                      <ArrowRight size={12} className="shrink-0 text-white/80" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:col-span-8 lg:grid-cols-4">
           <PulseStat
             label="New leads today"
             value={formatNum(today?.newLeads)}
+            unit="leads"
             hint={newLeads > 0 ? 'Fresh pipeline intake' : 'No new leads yet today'}
-            positive={newLeads > 0 ? true : null}
-            accent="text-indigo-500"
+            tone="indigo"
+            deltaPct={sparkDelta(overview?.leadSpark)}
           />
           <PulseStat
             label="Follow-ups due"
             value={formatNum(today?.followupsPending)}
+            unit="due"
             hint="Today’s working queue"
-            positive={Number(today?.followupsPending || 0) === 0 ? true : false}
-            accent="text-violet-500"
+            tone="rose"
+            invertDelta
           />
           <PulseStat
             label="Meetings"
             value={formatNum(today?.meetingsScheduled)}
+            unit="meetings"
             hint={meetings > 0 ? 'On your calendar today' : 'No meetings scheduled'}
-            positive={meetings > 0 ? true : null}
-            accent="text-sky-500"
+            tone="sky"
           />
           <PulseStat
             label="Est. value"
             value={formatMoney(today?.estimatedBusinessValue)}
+            unit="value"
             hint="Org currency · today’s signal"
-            positive={Number(today?.estimatedBusinessValue || 0) > 0 ? true : null}
-            accent="text-lime-600"
+            tone="emerald"
           />
         </div>
       </div>
-
-      {/* Compact secondary AI chips */}
-      {restSteps.length ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
-            Also suggested
-          </span>
-          {restSteps.map((step) => (
-            <button
-              key={step.id}
-              type="button"
-              onClick={() =>
-                openDrillDown({
-                  title: step.title,
-                  href: step.href,
-                  rows: [{ Action: step.title, Why: step.why }],
-                })
-              }
-              className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3 py-1.5 text-left text-[11px] font-semibold text-slate-700 shadow-sm transition hover:border-violet-200 hover:text-violet-800"
-            >
-              <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-violet-600">
-                {step.tag}
-              </span>
-              <span className="truncate">{step.title}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       {/* Today's work — follow-ups up front */}
       <div>

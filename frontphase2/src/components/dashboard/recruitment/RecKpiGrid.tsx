@@ -8,10 +8,12 @@ import {
   Briefcase,
   Calendar,
   Percent,
+  ShieldCheck,
   UserRound,
 } from 'lucide-react';
 import type { RecruitmentOverview } from '@/lib/dashboard/api';
 import { formatInr, formatNum, recCard, useRecDashboard } from './recShared';
+import { useDashboardAccess } from '@/lib/dashboard/useDashboardAccess';
 
 type KpiDef = {
   key: string;
@@ -20,6 +22,7 @@ type KpiDef = {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   tone: string;
   format?: 'number' | 'percent' | 'money';
+  module?: 'jobs' | 'candidates' | 'interviews' | 'placements';
   subtitle?: (overview: RecruitmentOverview | null) => string;
 };
 
@@ -30,6 +33,7 @@ const KPI_DEFS: KpiDef[] = [
     href: '/job',
     icon: Briefcase,
     tone: 'bg-amber-50 text-amber-700',
+    module: 'jobs',
     subtitle: (o) =>
       `${formatNum(o?.kpis?.hotJobs)} hot · ${formatNum(o?.kpis?.jobsNoCandidates)} no candidates`,
   },
@@ -39,6 +43,7 @@ const KPI_DEFS: KpiDef[] = [
     href: '/candidate',
     icon: UserRound,
     tone: 'bg-violet-50 text-violet-700',
+    module: 'candidates',
     subtitle: (o) =>
       `${formatNum(o?.kpis?.newCandidates)} new · ${formatNum(o?.kpis?.activeCandidates)} active`,
   },
@@ -48,6 +53,7 @@ const KPI_DEFS: KpiDef[] = [
     href: '/interviews',
     icon: Calendar,
     tone: 'bg-sky-50 text-sky-700',
+    module: 'interviews',
     subtitle: (o) =>
       `${formatNum(o?.kpis?.interviewsUpcoming)} upcoming · ${formatNum(o?.kpis?.interviewsOverdueFeedback)} feedback due`,
   },
@@ -57,6 +63,7 @@ const KPI_DEFS: KpiDef[] = [
     href: '/placement',
     icon: Award,
     tone: 'bg-emerald-50 text-emerald-700',
+    module: 'placements',
     subtitle: (o) =>
       `${formatNum(o?.kpis?.offersSent)} offers · ${formatNum(o?.kpis?.pendingPlacements)} pending`,
   },
@@ -67,6 +74,7 @@ const KPI_DEFS: KpiDef[] = [
     icon: Percent,
     tone: 'bg-slate-100 text-slate-700',
     format: 'percent',
+    module: 'jobs',
     subtitle: (o) =>
       `${formatNum(o?.kpis?.filledJobs)} filled of ${formatNum(Number(o?.kpis?.openJobs || 0) + Number(o?.kpis?.filledJobs || 0))} roles`,
   },
@@ -78,6 +86,15 @@ const KPI_DEFS: KpiDef[] = [
     tone: 'bg-rose-50 text-rose-700',
     subtitle: (o) =>
       `${formatNum(o?.kpis?.jobsSlaRisk)} SLA risk · ${formatInr(o?.kpis?.placementRevenue as number)} revenue`,
+  },
+  {
+    key: 'waitingOnYou',
+    label: 'Waiting on you',
+    href: '/request?view=approvals',
+    icon: ShieldCheck,
+    tone: 'bg-violet-50 text-violet-700',
+    subtitle: (o) =>
+      `${formatNum(o?.myWork?.pendingTeamRequests)} team · ${formatNum(o?.myWork?.awaitingTaskApproval)} task`,
   },
 ];
 
@@ -92,7 +109,12 @@ type Props = { overview: RecruitmentOverview | null; loading?: boolean };
 
 export function RecKpiGrid({ overview, loading }: Props) {
   const { openDrillDown } = useRecDashboard();
+  const { modules, showMineApprovals } = useDashboardAccess();
   const k = overview?.kpis || {};
+  const defs = KPI_DEFS.filter((def) => {
+    if (def.key === 'waitingOnYou') return showMineApprovals;
+    return !def.module || modules[def.module];
+  });
 
   if (loading && !overview) {
     return (
@@ -106,7 +128,7 @@ export function RecKpiGrid({ overview, loading }: Props) {
 
   return (
     <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-      {KPI_DEFS.map((def, idx) => {
+      {defs.map((def, idx) => {
         const Icon = def.icon;
         const value = k[def.key];
         return (
