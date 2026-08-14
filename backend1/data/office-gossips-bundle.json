@@ -1,31 +1,7 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-13T05:52:17.597Z",
+  "updatedAt": "2026-08-14T10:25:05.157Z",
   "communities": [
-    {
-      "id": "c_job_seekers",
-      "name": "Job Seekers Hub",
-      "description": "Share tips, openings, and interview wins with fellow candidates.",
-      "visibility": "public",
-      "ownerId": "system",
-      "ownerName": "Office Gossips",
-      "memberIds": [
-        "b1c869d84e75048c5c61c5e3"
-      ],
-      "createdAt": "2026-07-29T07:20:48.448Z"
-    },
-    {
-      "id": "c_interview_prep",
-      "name": "Interview Prep Circle",
-      "description": "Practice questions, voice answers, and peer feedback.",
-      "visibility": "public",
-      "ownerId": "system",
-      "ownerName": "Office Gossips",
-      "memberIds": [
-        "9d5194355ec270f0b4a474a8"
-      ],
-      "createdAt": "2026-07-31T07:20:48.449Z"
-    },
     {
       "id": "c_watercooler",
       "name": "Watercooler",
@@ -45,6 +21,30 @@
       "ownerName": "Office Gossips",
       "memberIds": [],
       "createdAt": "2026-08-01T07:20:48.449Z"
+    },
+    {
+      "id": "c_interview_prep",
+      "name": "Interview Prep Circle",
+      "description": "Practice questions, voice answers, and peer feedback.",
+      "visibility": "public",
+      "ownerId": "system",
+      "ownerName": "Office Gossips",
+      "memberIds": [
+        "9d5194355ec270f0b4a474a8"
+      ],
+      "createdAt": "2026-07-31T07:20:48.449Z"
+    },
+    {
+      "id": "c_job_seekers",
+      "name": "Job Seekers Hub",
+      "description": "Share tips, openings, and interview wins with fellow candidates.",
+      "visibility": "public",
+      "ownerId": "system",
+      "ownerName": "Office Gossips",
+      "memberIds": [
+        "b1c869d84e75048c5c61c5e3"
+      ],
+      "createdAt": "2026-07-29T07:20:48.448Z"
     }
   ],
   "companyPages": [
@@ -264,12 +264,12 @@
   ],
   "comments": [
     {
-      "id": "cm_1",
-      "postId": "p_seed_06",
+      "id": "cm_3",
+      "postId": "p_seed_01",
       "authorId": "system",
-      "authorName": "Dev M.",
-      "text": "Yes please share the checklist!",
-      "createdAt": "2026-08-03T03:50:48.450Z"
+      "authorName": "Neha M.",
+      "text": "Update: meeting cancelled. Chaos continues.",
+      "createdAt": "2026-08-03T07:08:48.450Z"
     },
     {
       "id": "cm_2",
@@ -280,28 +280,28 @@
       "createdAt": "2026-08-03T07:02:48.450Z"
     },
     {
-      "id": "cm_msa1dfh1_xyhh9s",
-      "postId": "p_ms9z4l15_kmbbdw",
-      "authorId": "9d5194355ec270f0b4a474a8",
-      "authorName": "demo 1",
-      "text": "hi",
-      "createdAt": "2026-08-01T07:14:43.477Z"
-    },
-    {
-      "id": "cm_3",
-      "postId": "p_seed_01",
-      "authorId": "system",
-      "authorName": "Neha M.",
-      "text": "Update: meeting cancelled. Chaos continues.",
-      "createdAt": "2026-08-03T07:08:48.450Z"
-    },
-    {
       "id": "cm_4",
       "postId": "p_seed_05",
       "authorId": "system",
       "authorName": "Aman R.",
       "text": "Decline and protect your weekend.",
       "createdAt": "2026-08-03T04:50:48.450Z"
+    },
+    {
+      "id": "cm_1",
+      "postId": "p_seed_06",
+      "authorId": "system",
+      "authorName": "Dev M.",
+      "text": "Yes please share the checklist!",
+      "createdAt": "2026-08-03T03:50:48.450Z"
+    },
+    {
+      "id": "cm_msa1dfh1_xyhh9s",
+      "postId": "p_ms9z4l15_kmbbdw",
+      "authorId": "9d5194355ec270f0b4a474a8",
+      "authorName": "demo 1",
+      "text": "hi",
+      "createdAt": "2026-08-01T07:14:43.477Z"
     }
   ],
   "identities": {
@@ -319,73 +319,8 @@
       "followAnonymously": true,
       "realName": "R. A. Lamkhade"
     },
-    "demo_ref_ananya": {
-      "userId": "demo_ref_ananya",
-      "createdAt": "2026-08-03T07:20:48.454Z",
-      "updatedAt": "2026-08-03T07:20:48.454Z",
-      "isAnonymous": true,
-      "username": "ananya_s",
-      "showInCompanyConnections": true,
-      "availableForReferenceCheck": true,
-      "referenceFeeTokens": 6,
-      "completedReferenceChecks": 2,
-      "allowPeopleToFollow": true,
-      "followAnonymously": true
-    },
-    "demo_ref_vikram": {
-      "userId": "demo_ref_vikram",
-      "createdAt": "2026-08-03T07:20:48.454Z",
-      "updatedAt": "2026-08-03T07:20:48.454Z",
-      "isAnonymous": true,
-      "username": "vikram_p",
-      "showInCompanyConnections": true,
-      "availableForReferenceCheck": true,
-      "referenceFeeTokens": 10,
-      "completedReferenceChecks": 5,
-      "allowPeopleToFollow": true,
-      "followAnonymously": true
-    },
-    "demo_ref_meera": {
-      "userId": "demo_ref_meera",
-      "createdAt": "2026-08-03T07:20:48.454Z",
-      "updatedAt": "2026-08-03T07:20:48.454Z",
-      "isAnonymous": true,
-      "username": "meera_k",
-      "showInCompanyConnections": true,
-      "availableForReferenceCheck": true,
-      "referenceFeeTokens": 8,
-      "completedReferenceChecks": 1,
-      "allowPeopleToFollow": true,
-      "followAnonymously": true
-    },
-    "demo_ref_arjun": {
-      "userId": "demo_ref_arjun",
-      "createdAt": "2026-08-03T07:20:48.454Z",
-      "updatedAt": "2026-08-03T07:20:48.454Z",
-      "isAnonymous": true,
-      "username": "arjun_dev",
-      "showInCompanyConnections": true,
-      "availableForReferenceCheck": true,
-      "referenceFeeTokens": 5,
-      "completedReferenceChecks": 0,
-      "allowPeopleToFollow": true,
-      "followAnonymously": true
-    },
-    "demo_ref_priya": {
-      "userId": "demo_ref_priya",
-      "createdAt": "2026-08-03T07:20:48.454Z",
-      "updatedAt": "2026-08-03T07:20:48.454Z",
-      "isAnonymous": true,
-      "username": "priya_pm",
-      "showInCompanyConnections": true,
-      "availableForReferenceCheck": true,
-      "referenceFeeTokens": 12,
-      "completedReferenceChecks": 8,
-      "allowPeopleToFollow": true,
-      "followAnonymously": true
-    },
-    "4fc4a5db2a5627e31c7d5239": {
-      "userId": "4fc4a5db2a5627e31c7d5239",
+    "b1c869d84e75048c5c61c5e3": {
+      "userId": "b1c869d84e75048c5c61c5e3",
       "createdAt": "2026-07-30T06:00:26.749Z",
       "updatedAt": "2026-07-30T06:00:26.749Z",
       "isAnonymous": true,

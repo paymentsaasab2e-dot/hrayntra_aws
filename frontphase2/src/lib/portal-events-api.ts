@@ -30,6 +30,10 @@ export type PortalEventRow = {
   registrationCount: number;
   createdByName?: string;
   createdByEmail?: string;
+  accessType?: 'free' | 'purchase' | string;
+  tokenCost?: number;
+  isFree?: boolean;
+  ctaLabel?: string;
 };
 
 export type CreatePortalEventPayload = {
@@ -43,12 +47,16 @@ export type CreatePortalEventPayload = {
   mode?: string;
   durationMinutes?: number;
   isPublished?: boolean;
+  accessType?: 'free' | 'purchase';
+  tokenCost?: number;
+  ctaLabel?: string;
 };
 
 export type UpdatePortalEventPayload = Partial<CreatePortalEventPayload>;
 
 export const PORTAL_EVENT_MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 export const PORTAL_EVENT_MEDIA_MAX_COUNT = 20;
+export const EVENT_CTA_PRESETS = ['Learn', 'Apply', 'Join', 'Register', 'Attend'] as const;
 
 export async function apiUploadTenantPortalEventMedia(files: File[]): Promise<PortalEventMediaItem[]> {
   const formData = new FormData();

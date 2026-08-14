@@ -28,32 +28,28 @@ async function listPublishedEvents(filters = {}) {
     include: { _count: { select: { registrations: true } } },
   });
 
-  return events.map((event) => ({
-    id: event.id,
-    title: event.title,
-    description: event.description,
-    location: event.location || '',
-    sections: Array.isArray(event.sections) ? event.sections : [],
-    type: event.type,
-    mode: event.mode,
-    scheduledAt: event.scheduledAt,
-    durationMinutes: event.durationMinutes,
-    hostName: event.hostName,
-    source: event.source,
-    createdByName: event.createdByName,
-    media: Array.isArray(event.media) ? event.media : [],
-    registrationCount: event._count?.registrations ?? 0,
-  }));
+  return events.map((event) => serializePublishedEvent(event));
 }
 
-async function getPublishedEventById(eventId) {
-  const event = await prisma.lmsEvent.findFirst({
-    where: { id: String(eventId), isPublished: true, NOT: { status: 'cancelled' } },
-    include: { _count: { select: { registrations: true } } },
-  });
+function normalizeEventMedia(media) {
+  if (Array.isArray(media)) return media.filter((item) => item && item.url);
+  if (typeof media === 'string') {
+    try {
+      const parsed = JSON.parse(media);
+      return Array.isArray(parsed) ? parsed.filter((item) => item && item.url) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
-  if (!event) return null;
-
+function serializePublishedEvent(event) {
+  const tokenCost = Math.max(0, Number(event.tokenCost) || 0);
+  const accessType =
+    String(event.accessType || '').toLowerCase() === 'purchase' || tokenCost > 0
+      ? 'purchase'
+      : 'free';
   return {
     id: event.id,
     title: event.title,
@@ -69,9 +65,24 @@ async function getPublishedEventById(eventId) {
     hostName: event.hostName,
     source: event.source,
     createdByName: event.createdByName,
-    media: Array.isArray(event.media) ? event.media : [],
+    media: normalizeEventMedia(event.media),
     registrationCount: event._count?.registrations ?? 0,
+    accessType,
+    tokenCost: accessType === 'free' ? 0 : tokenCost,
+    isFree: accessType === 'free' || tokenCost <= 0,
+    ctaLabel: String(event.ctaLabel || '').trim() || 'Join',
   };
+}
+
+async function getPublishedEventById(eventId) {
+  const event = await prisma.lmsEvent.findFirst({
+    where: { id: String(eventId), isPublished: true, NOT: { status: 'cancelled' } },
+    include: { _count: { select: { registrations: true } } },
+  });
+
+  if (!event) return null;
+
+  return serializePublishedEvent(event);
 }
 
 module.exports = {

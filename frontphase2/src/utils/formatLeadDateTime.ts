@@ -4,10 +4,22 @@
  */
 import { formatDateDMY, formatTime12hEnGb, parseDisplayableDate } from './dateDisplay';
 
+const EMPTY_FOLLOW_UP_TOKENS = new Set(['—', '–', '-', 'n/a', 'na', 'none', 'null', 'undefined']);
+
+/** True when the value is a real date/time, not a placeholder like "—". */
+export function isValidFollowUpInstant(value: string | null | undefined): boolean {
+  if (value == null) return false;
+  const trimmed = String(value).trim();
+  if (!trimmed || EMPTY_FOLLOW_UP_TOKENS.has(trimmed.toLowerCase()) || EMPTY_FOLLOW_UP_TOKENS.has(trimmed)) {
+    return false;
+  }
+  return Boolean(parseDisplayableDate(trimmed));
+}
+
 export function splitDateTimeForDisplay(value: string | null | undefined): { date: string; time: string } | null {
-  if (value == null || !String(value).trim()) return null;
+  if (!isValidFollowUpInstant(value)) return null;
   const d = parseDisplayableDate(value);
-  if (!d) return { date: String(value).trim(), time: '—' };
+  if (!d) return null;
   return {
     date: formatDateDMY(d),
     time: formatTime12hEnGb(d),

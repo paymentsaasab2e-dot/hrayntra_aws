@@ -11,6 +11,14 @@ export const linkedinController = {
         return sendError(res, 401, 'Authentication required');
       }
 
+      if (!env.LINKEDIN_CLIENT_ID || !env.LINKEDIN_CLIENT_SECRET) {
+        return sendError(
+          res,
+          503,
+          'LinkedIn is not configured. Set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in the backend environment.',
+        );
+      }
+
       // Generate state for CSRF protection
       const state = crypto.randomBytes(32).toString('hex');
       

@@ -1,12 +1,42 @@
 import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
 import { hqCompaniesService } from './hq-companies.service.js';
-import { findFollowUpIndex, recomputeNextFollowUpAt } from './hq-follow-up.helpers.js';
+import {
+  findFollowUpIndex,
+  findNextPendingFollowUpIndex,
+  isNextFollowUpToken,
+  recomputeNextFollowUpAt,
+  withFollowUpIds,
+} from './hq-follow-up.helpers.js';
 
 const HQ_CRM_LEADS_COLLECTION = 'hq_crm_leads';
 const HQ_CRM_TEAM_MEMBERS_COLLECTION = 'hq_crm_team_members';
 const VALID_STAGES = ['new', 'demo', 'contacted', 'qualified', 'converted', 'lost'];
 const FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'];
+const HQ_PRODUCT_LINES = ['crm', 'recruitment'];
+
+function parseHqProductLines(data) {
+  const fromArray = Array.isArray(data?.hqProductLines)
+    ? data.hqProductLines
+    : Array.isArray(data?.hqProductLine)
+      ? data.hqProductLine
+      : String(data?.hqProductLine || '')
+          .split(/[,|]/)
+          .map((item) => String(item || '').trim());
+  const lines = [...new Set(
+    fromArray
+      .map((item) => String(item || '').trim().toLowerCase())
+      .filter((item) => HQ_PRODUCT_LINES.includes(item))
+  )];
+  if (lines.length) return lines;
+  const modules = Array.isArray(data?.interestedModules)
+    ? data.interestedModules.map((item) => String(item).toLowerCase())
+    : [];
+  const fromModules = [];
+  if (modules.includes('crm')) fromModules.push('crm');
+  if (modules.includes('recruitment')) fromModules.push('recruitment');
+  return fromModules;
+}
 const EMPLOYER_DEMO_LEAD_SOURCE = 'Website form fill up';
 
 let cachedClient = null;
@@ -32,13 +62,26 @@ function inferScore(dealValue, users) {
 }
 
 function formatFollowUpDate(date) {
-  if (!date) return '—';
+  if (!date) return '';
   const d = new Date(date);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleString(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+}
+
+function toIsoDateOrNull(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function withNextFollowUpAtWrite(baseSet, nextFollowUpAt) {
+  if (nextFollowUpAt) {
+    return { $set: { ...baseSet, nextFollowUpAt } };
+  }
+  return { $set: baseSet, $unset: { nextFollowUpAt: '' } };
 }
 
 function normalizeStage(stage, convertedToCompanyId) {
@@ -56,9 +99,10 @@ function normalizeStage(stage, convertedToCompanyId) {
 
 function toLeadRow(doc) {
   const stage = normalizeStage(doc.stage, doc.convertedToCompanyId);
+  const nextFollowUpAt = toIsoDateOrNull(doc.nextFollowUpAt);
   const nextFollowUp =
-    stage === 'converted' || stage === 'lost'
-      ? '—'
+    stage === 'converted' || stage === 'lost' || !nextFollowUpAt
+      ? ''
       : formatFollowUpDate(doc.nextFollowUpAt);
 
   return {
@@ -71,8 +115,7 @@ function toLeadRow(doc) {
     owner: doc.leadOwner || '',
     stage,
     nextFollowUp,
-    nextFollowUpAt:
-      doc.nextFollowUpAt instanceof Date ? doc.nextFollowUpAt.toISOString() : null,
+    nextFollowUpAt,
     email: doc.email || '',
     phone: doc.phone || '',
     country: doc.country || '',
@@ -121,7 +164,12 @@ function toLeadRow(doc) {
     assignedToIds: Array.isArray(doc.assignedToIds) ? doc.assignedToIds : [],
     assignedToUsers: Array.isArray(doc.assignedToUsers) ? doc.assignedToUsers : [],
     formSchema: doc.formSchema || null,
-    hqProductLine: doc.hqProductLine || null,
+    hqProductLine: Array.isArray(doc.hqProductLines) && doc.hqProductLines.length
+      ? doc.hqProductLines.join(',')
+      : doc.hqProductLine || null,
+    hqProductLines: Array.isArray(doc.hqProductLines)
+      ? doc.hqProductLines
+      : parseHqProductLines({ hqProductLine: doc.hqProductLine, interestedModules: doc.interestedModules }),
     employerDemoRequestId: doc.employerDemoRequestId || null,
     preferredDemoDate: doc.preferredDemoDate || null,
     preferredDemoTime: doc.preferredDemoTime || null,
@@ -132,7 +180,7 @@ function mapFollowUps(items) {
   if (!Array.isArray(items)) return [];
   return items
     .map((item) => ({
-      id: String(item?.id || ''),
+      id: String(item?.id || item?._id || ''),
       type: String(item?.type || 'Call'),
       scheduledAt:
         item?.scheduledAt instanceof Date
@@ -156,7 +204,6 @@ function mapFollowUps(items) {
             ? new Date(item.completedAt).toISOString()
             : null,
     }))
-    .filter((item) => item.id)
     .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 }
 
@@ -249,7 +296,7 @@ function parseNextFollowUpAt(raw) {
 
 function parseOptionalNextFollowUpAt(raw) {
   const value = String(raw || '').trim();
-  if (!value) return null;
+  if (!value || value === '—' || value === '-' || value.toLowerCase() === 'n/a') return null;
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) {
     throw new Error('Invalid next follow-up date and time');
@@ -645,15 +692,11 @@ function parseLeadInput(data) {
     assignedToId: data?.assignedToId || null,
     assignedToIds: Array.isArray(data?.assignedToIds) ? data.assignedToIds : [],
     formSchema: isPhase2Shape ? 'phase2' : 'hq-legacy',
+    hqProductLines: parseHqProductLines(data),
     hqProductLine: (() => {
-      const raw = String(data?.hqProductLine || '').trim().toLowerCase();
-      if (raw === 'crm' || raw === 'recruitment') return raw;
-      const modules = Array.isArray(data?.interestedModules)
-        ? data.interestedModules.map((m) => String(m).toLowerCase())
-        : [];
-      if (modules.includes('recruitment')) return 'recruitment';
-      if (modules.includes('crm')) return 'crm';
-      return null;
+      const lines = parseHqProductLines(data);
+      if (!lines.length) return null;
+      return lines.join(',');
     })(),
   };
 }
@@ -873,7 +916,7 @@ export const hqLeadsService = {
     const existing = await collection.findOne({ _id: objectId });
     if (!existing) throw new Error('Lead not found');
 
-    const followUps = Array.isArray(existing.followUps) ? [...existing.followUps] : [];
+    const followUps = withFollowUpIds(Array.isArray(existing.followUps) ? [...existing.followUps] : []);
     const index = findFollowUpIndex(followUps, followUpId);
     if (index === -1) throw new Error('Follow-up not found');
 
@@ -894,37 +937,57 @@ export const hqLeadsService = {
     const nextFollowUpAt = recomputeNextFollowUpAt(followUps);
     await collection.updateOne(
       { _id: objectId },
-      {
-        $set: {
+      withNextFollowUpAtWrite(
+        {
           followUps,
-          ...(nextFollowUpAt ? { nextFollowUpAt } : {}),
           updatedAt: new Date(),
           updatedByEmail: reqUser?.email || null,
         },
-      }
+        nextFollowUpAt
+      )
     );
 
     const updated = await collection.findOne({ _id: objectId });
     return { lead: toLeadRow(updated), storage: getStorageInfo() };
   },
 
-  async completeFollowUp(id, followUpId, reqUser) {
+  async completeFollowUp(id, followUpId, reqUser, extra = {}) {
     if (!ObjectId.isValid(id)) throw new Error('Invalid lead id');
     const collection = await getCollection();
     const objectId = new ObjectId(id);
     const existing = await collection.findOne({ _id: objectId });
     if (!existing) throw new Error('Lead not found');
 
-    const followUps = Array.isArray(existing.followUps) ? [...existing.followUps] : [];
-    const index = findFollowUpIndex(followUps, followUpId);
-    if (index === -1) throw new Error('Follow-up not found');
-    if (String(followUps[index]?.status || '') === 'completed') {
+    const remark = String(extra?.notes || extra?.remark || extra?.text || '').trim();
+    const followUps = withFollowUpIds(Array.isArray(existing.followUps) ? [...existing.followUps] : []);
+    let index = isNextFollowUpToken(followUpId) ? -1 : findFollowUpIndex(followUps, followUpId);
+    if (index === -1) {
+      index = findNextPendingFollowUpIndex(followUps);
+    }
+    if (index === -1) {
+      const fallbackAt = existing.nextFollowUpAt || extra?.scheduledAt || extra?.scheduled_at;
+      if (!fallbackAt) throw new Error('Follow-up not found');
+      const type = String(extra?.type || extra?.followUpType || 'Meeting').trim();
+      followUps.push({
+        id: new ObjectId().toString(),
+        type: FOLLOW_UP_TYPES.includes(type) ? type : 'Meeting',
+        scheduledAt: fallbackAt instanceof Date ? fallbackAt : new Date(fallbackAt),
+        notes: remark,
+        status: 'scheduled',
+        createdAt: new Date(),
+        createdByEmail: reqUser?.email || null,
+      });
+      index = followUps.length - 1;
+    }
+    if (String(followUps[index]?.status || '').toLowerCase() === 'completed') {
       throw new Error('Follow-up is already completed');
     }
 
     followUps[index] = {
       ...followUps[index],
+      id: String(followUps[index]?.id || new ObjectId().toString()),
       status: 'completed',
+      notes: remark || followUps[index].notes || '',
       completedAt: new Date(),
       completedByEmail: reqUser?.email || null,
       updatedAt: new Date(),
@@ -934,14 +997,14 @@ export const hqLeadsService = {
     const nextFollowUpAt = recomputeNextFollowUpAt(followUps);
     await collection.updateOne(
       { _id: objectId },
-      {
-        $set: {
+      withNextFollowUpAtWrite(
+        {
           followUps,
-          ...(nextFollowUpAt ? { nextFollowUpAt } : {}),
           updatedAt: new Date(),
           updatedByEmail: reqUser?.email || null,
         },
-      }
+        nextFollowUpAt
+      )
     );
 
     const updated = await collection.findOne({ _id: objectId });
@@ -955,24 +1018,27 @@ export const hqLeadsService = {
     const existing = await collection.findOne({ _id: objectId });
     if (!existing) throw new Error('Lead not found');
 
-    const followUps = (Array.isArray(existing.followUps) ? existing.followUps : []).filter(
-      (item) => String(item?.id || '') !== String(followUpId || '')
-    );
-    if (followUps.length === (existing.followUps || []).length) {
+    const existingFollowUps = withFollowUpIds(Array.isArray(existing.followUps) ? existing.followUps : []);
+    const followUps = existingFollowUps.filter((item) => {
+      const id = String(item?.id || '');
+      const oid = item?._id != null ? String(item._id) : '';
+      return id !== String(followUpId || '') && oid !== String(followUpId || '');
+    });
+    if (followUps.length === existingFollowUps.length) {
       throw new Error('Follow-up not found');
     }
 
     const nextFollowUpAt = recomputeNextFollowUpAt(followUps);
     await collection.updateOne(
       { _id: objectId },
-      {
-        $set: {
+      withNextFollowUpAtWrite(
+        {
           followUps,
-          ...(nextFollowUpAt ? { nextFollowUpAt } : {}),
           updatedAt: new Date(),
           updatedByEmail: reqUser?.email || null,
         },
-      }
+        nextFollowUpAt
+      )
     );
 
     const updated = await collection.findOne({ _id: objectId });

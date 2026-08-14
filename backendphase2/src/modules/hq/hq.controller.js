@@ -201,7 +201,8 @@ export const hqController = {
       const result = await hqService.completeLeadFollowUp(
         req.params.id,
         req.params.followUpId,
-        req.user
+        req.user,
+        req.body
       );
       sendResponse(res, 200, 'Follow-up completed', result);
     } catch (error) {
@@ -336,6 +337,15 @@ export const hqController = {
     try {
       const result = await hqService.updateCompany(req.params.id, req.body, req.user);
       sendResponse(res, 200, 'Company updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async uploadCompanyLogo(req, res) {
+    try {
+      const result = await hqService.uploadCompanyLogo(req.params.id, req.file, req.user);
+      sendResponse(res, 200, 'Company logo uploaded', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

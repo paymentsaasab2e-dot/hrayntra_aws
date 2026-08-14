@@ -7,7 +7,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  BriefcaseBusiness,
   Building2,
   ChevronDown,
   ChevronRight,
@@ -28,7 +27,7 @@ import {
   type HqLeadStage,
 } from '@/app/hq/leads/hqLeadsData';
 import {
-  HQ_PRODUCT_LINE_OPTIONS,
+  HqProductLineSelect,
   hqProductLineLabel,
   type HqProductLine,
 } from './HqProductLinePicker';
@@ -402,77 +401,13 @@ export function HqAddLeadDrawer({
               open={openSections.workspace}
               onToggle={() => toggleSection('workspace')}
             >
-              <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Product line
               </p>
-              <div
-                role="tablist"
-                aria-label="CRM or Recruitment"
-                className="mb-3 grid grid-cols-2 gap-1 rounded-xl border border-indigo-100 bg-slate-50/80 p-1"
-              >
-                {HQ_PRODUCT_LINE_OPTIONS.map((opt) => {
-                  const active = form.hqProductLine === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setProductLine(opt.id)}
-                      className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
-                        active
-                          ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {HQ_PRODUCT_LINE_OPTIONS.map((opt) => {
-                  const Icon = opt.icon;
-                  const active = form.hqProductLine === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setProductLine(opt.id)}
-                      className={`rounded-xl border p-3.5 text-left transition ${
-                        active
-                          ? 'border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-400/25'
-                          : 'border-slate-200 bg-white hover:border-indigo-200'
-                      }`}
-                    >
-                      <span
-                        className={`mb-2 flex h-9 w-9 items-center justify-center rounded-lg ${
-                          active
-                            ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        <Icon className="h-4 w-4" strokeWidth={2.2} />
-                      </span>
-                      <span className="block text-sm font-bold text-slate-900">{opt.label}</span>
-                      <span className="mt-1 block text-[11px] leading-snug text-slate-500">
-                        {opt.description}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              {form.hqProductLine === 'recruitment' ? (
-                <p className="mt-3 flex items-start gap-2 rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 text-[11px] text-violet-800">
-                  <BriefcaseBusiness className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  Recruitment lead — jobs, candidates, and hiring pipeline context.
-                </p>
-              ) : (
-                <p className="mt-3 flex items-start gap-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-[11px] text-sky-800">
-                  <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  CRM lead — sales pipeline, follow-ups, and client conversion.
-                </p>
-              )}
+              <HqProductLineSelect
+                value={form.hqProductLine}
+                onChange={setProductLine}
+              />
             </SectionCard>
 
             <SectionCard

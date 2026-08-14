@@ -28,7 +28,7 @@ import {
 } from '../../lib/contact-channels';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { requestConfirm, requestError } from '../../lib/appDialog';
+import { requestConfirm, requestError, requestWarning } from '../../lib/appDialog';
 import {
   ArrowLeft,
   ArrowRight,
@@ -68,7 +68,6 @@ import {
   MessageSquare,
   Link2,
   MapPin,
-  BriefcaseBusiness,
   Briefcase,
   Globe,
   Users,
@@ -77,8 +76,7 @@ import {
   Megaphone,
   Flag,
   GripVertical,
-  Copy,
-  ExternalLink,
+  Share2,
   Gift,
   PartyPopper,
 } from 'lucide-react';
@@ -89,7 +87,10 @@ import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { LeadFollowUpTabPanel } from './LeadFollowUpTabPanel';
+import { ShareLeadFormMemberModal } from '../leads/ShareLeadFormMemberModal';
+import { LeadFormAccessButton } from '../leads/LeadFormAccessPopup';
 import { NotesService } from '../NotesService';
+import { HqLeadRemarksPanel } from '../hq/HqLeadRemarksPanel';
 import {
   apiAppendLeadStatus,
   apiCheckLeadDuplicate,
@@ -165,6 +166,7 @@ import { isInternalLeadOtherDetailLabel, withPreservedInternalOtherDetails } fro
 import { LeadOccasionFields } from '../forms/LeadOccasionFields';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import { DrawerTabBar } from './DrawerTabBar';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import {
   AddLeadFieldLabel,
@@ -181,6 +183,7 @@ import { LeadLocationFields } from '../location/LeadLocationFields';
 import { getCountryByCodeOrName, inferLocationFromCityName } from '../../lib/cscData';
 import { validatePhoneForCountry } from '../../lib/phoneByCountry';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
+import { HqProductLineSelectBoxes, hqProductLineLabels, type HqProductLine } from '../hq/HqProductLinePicker';
 
 const CALL_OUTCOMES = ['Interested', 'Follow-up Required', 'No Answer', 'Wrong Number', 'Not Interested'];
 
@@ -219,6 +222,54 @@ const STATUS_STYLES: Record<DefaultLeadStatus, string> = {
   Converted: 'bg-green-50 text-green-700 border-green-100',
   Lost: 'bg-gray-50 text-gray-700 border-gray-100',
 };
+
+function leadStatusChipClass(status: string | null | undefined): string {
+  const key = String(status || '').trim();
+  if (STATUS_STYLES[key as DefaultLeadStatus]) return STATUS_STYLES[key as DefaultLeadStatus];
+  if (key.toLowerCase() === 'demo') return 'bg-orange-50 text-orange-800 border-orange-200';
+  return 'bg-slate-50 text-slate-700 border-slate-200';
+}
+
+function prettyDemoNoteValue(value: string): string {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  const slot = trimmed.match(/^\[demo-slot:([^\]|]+)\|([^\]]+)\]$/i);
+  if (slot) {
+    const dmy = formatDateDMY(slot[1].trim());
+    return [dmy || slot[1].trim(), slot[2].trim()].filter(Boolean).join(', ');
+  }
+  const booked = trimmed.match(/^(\d{4}-\d{2}-\d{2})(?:\s+at\s+|\s+)(.+)$/i);
+  if (booked) {
+    const dmy = formatDateDMY(booked[1]);
+    return [dmy || booked[1], booked[2].trim()].filter(Boolean).join(', ');
+  }
+  return trimmed;
+}
+
+function parseLeadDemoNotes(notes: string | null | undefined): Array<{ label: string; value: string }> | null {
+  const raw = String(notes || '').trim();
+  if (!raw) return null;
+  const looksLikeDemo =
+    /booked demo:/i.test(raw) ||
+    /employer demo request:/i.test(raw) ||
+    /\[demo-slot:/i.test(raw) ||
+    /preferred demo:/i.test(raw);
+  if (!looksLikeDemo) return null;
+  const rows = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const idx = line.indexOf(':');
+      if (idx <= 0) return { label: 'Note', value: prettyDemoNoteValue(line) };
+      return {
+        label: line.slice(0, idx).trim(),
+        value: prettyDemoNoteValue(line.slice(idx + 1).trim()),
+      };
+    })
+    .filter((row) => row.value && row.value !== '—');
+  return rows.length ? rows : null;
+}
 
 function isDefaultLeadStatus(status: string | null | undefined): status is DefaultLeadStatus {
   return DEFAULT_LEAD_STATUSES.includes(String(status || '').trim() as DefaultLeadStatus);
@@ -452,6 +503,46 @@ function validateAddLeadWizardStep(
     default:
       return {};
   }
+}
+
+function AddLeadAiFlowProgress({ stage }: { stage: 'chat' | 'form' }) {
+  const steps = [
+    { id: 'chat' as const, label: 'Chat with AI' },
+    { id: 'form' as const, label: 'Review form' },
+  ];
+  const activeIndex = stage === 'chat' ? 0 : 1;
+
+  return (
+    <div className="shrink-0 px-6 pb-4">
+      <div className="flex items-center gap-1 rounded-2xl bg-white/80 p-1 shadow-[0_8px_24px_-16px_rgba(79,70,229,0.45)] ring-1 ring-indigo-100/80">
+        {steps.map((step, i) => {
+          const done = i < activeIndex;
+          const active = i === activeIndex;
+          return (
+            <div
+              key={step.id}
+              className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+                active
+                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                  : done
+                    ? 'text-indigo-700'
+                    : 'text-slate-400'
+              }`}
+            >
+              <span
+                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                  active ? 'bg-white/20 text-white' : done ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'
+                }`}
+              >
+                {done ? <Check className="h-3 w-3" /> : i + 1}
+              </span>
+              <span className="truncate">{step.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function AddLeadWizardProgress({
@@ -709,6 +800,7 @@ function LeadDetailsPanelShell({
   dialogTitleId = 'lead-details-modal-title',
   size = 'md',
   sidePanel = null,
+  modernAi = false,
 }: {
   mode: 'modal' | 'drawer';
   panelRef: React.RefObject<HTMLDivElement | null>;
@@ -718,6 +810,7 @@ function LeadDetailsPanelShell({
   dialogTitleId?: string;
   size?: 'md' | 'lg';
   sidePanel?: React.ReactNode;
+  modernAi?: boolean;
 }) {
   if (mode === 'modal') {
     const modalMaxWidth = size === 'lg' ? 'max-w-6xl' : 'max-w-4xl';
@@ -732,7 +825,11 @@ function LeadDetailsPanelShell({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: 12 }}
           transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-          className={`pointer-events-auto relative flex ${modalHeight} w-full ${modalMaxWidth} flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5`}
+          className={`pointer-events-auto relative flex ${modalHeight} w-full ${modalMaxWidth} flex-col overflow-hidden ${
+            modernAi
+              ? 'rounded-[28px] border-0 bg-white shadow-[0_40px_120px_-24px_rgba(15,23,42,0.45)] ring-1 ring-white/70'
+              : 'rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5'
+          }`}
           role="dialog"
           aria-modal="true"
           aria-labelledby={dialogTitleId}
@@ -843,16 +940,23 @@ function OverviewField({
 }) {
   const displayValue = String(value || '').trim();
   return (
-    <div>
+    <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3.5 py-3">
       <AddLeadFieldLabel label={label} icon={icon} iconClassName={iconClassName} required={required} />
       {displayValue ? (
-        <p
-          className={`text-sm font-medium text-slate-900 ${href ? 'text-blue-600' : ''} ${
-            multiline ? 'whitespace-pre-line' : ''
-          }`}
-        >
-          {displayValue}
-        </p>
+        href ? (
+          <a
+            href={/^https?:\/\//i.test(displayValue) ? displayValue : `https://${displayValue}`}
+            target="_blank"
+            rel="noreferrer"
+            className="break-all text-sm font-semibold text-indigo-600 hover:underline"
+          >
+            {displayValue}
+          </a>
+        ) : (
+          <p className={`text-sm font-semibold text-slate-900 ${multiline ? 'whitespace-pre-line' : ''}`}>
+            {displayValue}
+          </p>
+        )
       ) : (
         <p className="text-sm text-slate-400">—</p>
       )}
@@ -891,17 +995,17 @@ function OverviewFieldDateTime({
 }) {
   const parts = splitDateTimeForDisplay(value);
   return (
-    <div>
+    <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3.5 py-3">
       <AddLeadFieldLabel label={label} icon={icon} iconClassName={iconClassName} />
       {parts ? (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Date</p>
-            <p className="text-sm font-medium text-slate-900">{parts.date}</p>
+            <p className="text-sm font-semibold text-slate-900">{parts.date}</p>
           </div>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Time</p>
-            <p className="text-sm font-medium text-slate-900">{parts.time}</p>
+            <p className="text-sm font-semibold text-slate-900">{parts.time}</p>
           </div>
         </div>
       ) : (
@@ -937,7 +1041,7 @@ const LeadStatusDropdown = ({
       ? createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[80] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
+            className="fixed z-[1200] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
             style={{
               left: menuPosition.left,
               width: menuPosition.width,
@@ -1017,17 +1121,18 @@ export function LeadDetailsDrawer({
   onConvert,
   onMarkLost,
   onAssignLead,
+  onDeleteLead,
   onOpenExistingLead,
 }: LeadDetailsDrawerProps) {
   usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
-  // Public intake only supplies createLeadOverride. HQ supplies updateLeadOverride too.
-  const isHqOverrideMode = Boolean(updateLeadOverride);
-  const isPublicIntakeMode = Boolean(createLeadOverride) && !isHqOverrideMode;
+  // HQ uses updateLeadOverride without createLeadOverride. Public intake may supply both.
+  const isHqOverrideMode = Boolean(updateLeadOverride) && !createLeadOverride;
+  const isPublicIntakeMode = Boolean(createLeadOverride);
   const drawerIsOpen = Boolean(lead) || addLeadMode;
   // Same feature as /leads "Create with AI" toggle + AI chat send (keeps coin badge consistent).
   const leadAiGate = useAiCoinGate('ai.lead_chat');
   /** HQ-only: CRM vs Recruitment product line (never shown on tenant Phase 2). */
-  const [hqProductLine, setHqProductLine] = useState<'crm' | 'recruitment'>('crm');
+  const [hqProductLine, setHqProductLine] = useState<HqProductLine[]>(['crm']);
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'chat' | 'followup' | 'add'>(
     'overview'
   );
@@ -1062,13 +1167,12 @@ export function LeadDetailsDrawer({
   const [publicLeadFormLink, setPublicLeadFormLink] = useState('');
   const [publicLeadFormTenant, setPublicLeadFormTenant] = useState('');
   const [publicLeadFormLinkLoading, setPublicLeadFormLinkLoading] = useState(false);
-  const [publicLeadFormLinkCopied, setPublicLeadFormLinkCopied] = useState(false);
+  const [shareLeadFormMemberOpen, setShareLeadFormMemberOpen] = useState(false);
 
   useEffect(() => {
     if (!addLeadMode || isPublicIntakeMode) {
       setPublicLeadFormLink('');
       setPublicLeadFormTenant('');
-      setPublicLeadFormLinkCopied(false);
       return;
     }
     let cancelled = false;
@@ -1342,6 +1446,7 @@ export function LeadDetailsDrawer({
   const resetLeadAiAssistant = () => {
     setLeadAiChatOpen(false);
     setLeadAiChatHistory([]);
+    setAddLeadAiFlowStage(null);
     setAllowDuplicateCreate(false);
     setPendingDuplicate(null);
     setShowDuplicateNotification(false);
@@ -1611,12 +1716,14 @@ export function LeadDetailsDrawer({
   const addLeadWizardSteps = useMemo((): AddLeadWizardStep[] => {
     return isHqOverrideMode ? ['workspace', ...TENANT_ADD_LEAD_WIZARD_STEPS] : TENANT_ADD_LEAD_WIZARD_STEPS;
   }, [isHqOverrideMode]);
-  const addLeadWizardStepIndex = addLeadWizardSteps.indexOf(addLeadWizardStep);
-  const isAddLeadWizardFirstStep = addLeadWizardStepIndex <= 0;
-  const isAddLeadWizardLastStep =
-    addLeadWizardStepIndex >= 0 && addLeadWizardStepIndex === addLeadWizardSteps.length - 1;
   const [leadAiChatOpen, setLeadAiChatOpen] = useState(false);
   const [leadAiChatHistory, setLeadAiChatHistory] = useState<LeadAiChatMessage[]>([]);
+  const [addLeadAiFlowStage, setAddLeadAiFlowStage] = useState<'chat' | 'form' | null>(null);
+  const addLeadWizardStepIndex = addLeadWizardSteps.indexOf(addLeadWizardStep);
+  const isAddLeadWizardFirstStep = addLeadWizardStepIndex <= 0;
+  const canGoAddLeadWizardBack = !isAddLeadWizardFirstStep || addLeadAiFlowStage === 'form';
+  const isAddLeadWizardLastStep =
+    addLeadWizardStepIndex >= 0 && addLeadWizardStepIndex === addLeadWizardSteps.length - 1;
   const [allowDuplicateCreate, setAllowDuplicateCreate] = useState(false);
   const [pendingDuplicate, setPendingDuplicate] = useState<{
     leadId?: string;
@@ -1647,17 +1754,23 @@ export function LeadDetailsDrawer({
     setAddLeadSectionsOpen(DEFAULT_ADD_LEAD_SECTIONS);
     if (addLeadMode) {
       setAddLeadWizardStep(isHqOverrideMode ? 'workspace' : 'company');
+      setHqProductLine(['crm']);
     }
   }, [lead?.id, addLeadMode, isHqOverrideMode]);
 
   useEffect(() => {
     if (!addLeadMode || isPublicIntakeMode) {
       setLeadAiChatOpen(false);
+      setAddLeadAiFlowStage(null);
       return;
     }
     if (initialOpenAiChat) {
       setLeadAiChatOpen(true);
+      setAddLeadAiFlowStage('chat');
+      return;
     }
+    setLeadAiChatOpen(false);
+    setAddLeadAiFlowStage(null);
   }, [addLeadMode, initialOpenAiChat, isPublicIntakeMode]);
   const [overviewEditMode, setOverviewEditMode] = useState(false);
   const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
@@ -2563,6 +2676,10 @@ export function LeadDetailsDrawer({
   }, [addLeadForm]);
 
   const goAddLeadWizardNext = useCallback(() => {
+    if (addLeadWizardStep === 'workspace' && hqProductLine.length === 0) {
+      void requestWarning('Select at least one product line: CRM or Recruitment.');
+      return;
+    }
     const stepErrors = validateAddLeadWizardStep(addLeadWizardStep, addLeadForm);
     if (Object.keys(stepErrors).length > 0) {
       setAddLeadErrors(stepErrors);
@@ -2573,14 +2690,19 @@ export function LeadDetailsDrawer({
     if (idx >= 0 && idx < addLeadWizardSteps.length - 1) {
       setAddLeadWizardStep(addLeadWizardSteps[idx + 1]!);
     }
-  }, [addLeadForm, addLeadWizardStep, addLeadWizardSteps]);
+  }, [addLeadForm, addLeadWizardStep, addLeadWizardSteps, hqProductLine]);
 
   const goAddLeadWizardBack = useCallback(() => {
     const idx = addLeadWizardSteps.indexOf(addLeadWizardStep);
     if (idx > 0) {
       setAddLeadWizardStep(addLeadWizardSteps[idx - 1]!);
+      return;
     }
-  }, [addLeadWizardStep, addLeadWizardSteps]);
+    if (addLeadAiFlowStage === 'form') {
+      setAddLeadAiFlowStage('chat');
+      setLeadAiChatOpen(true);
+    }
+  }, [addLeadAiFlowStage, addLeadWizardStep, addLeadWizardSteps]);
 
   const handleSubmitAddLead = useCallback(async (options?: { skipDuplicateCheck?: boolean }) => {
     const nextErrors = validateLeadRequiredFields(addLeadForm);
@@ -2718,10 +2840,11 @@ export function LeadDetailsDrawer({
         ...agreementTermsApiPayload(addLeadForm),
         ...(isHqOverrideMode
           ? {
-              hqProductLine,
+              hqProductLine: hqProductLine.join(','),
+              hqProductLines: hqProductLine,
               leadOwner: addLeadForm.assignedToName || undefined,
               interestedModules: [
-                hqProductLine === 'recruitment' ? 'Recruitment' : 'CRM',
+                ...hqProductLineLabels(hqProductLine),
                 ...(addLeadForm.interestedNeeds
                   ? String(addLeadForm.interestedNeeds)
                       .split(/[,|\n]/)
@@ -2832,53 +2955,41 @@ export function LeadDetailsDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => void requestLeadDrawerClose()}
-            className="fixed inset-0 z-[500] pointer-events-auto bg-slate-900/45 backdrop-blur-[2px]"
+            className="fixed inset-0 z-[500] pointer-events-auto bg-slate-950/55 backdrop-blur-md"
             data-drawer-skip-dirty="true"
           />
           <LeadDetailsPanelShell
             mode="modal"
-            size={addLeadMode ? 'md' : 'lg'}
+            size={addLeadMode && addLeadAiFlowStage === 'chat' ? 'lg' : addLeadMode ? 'md' : 'lg'}
+            modernAi={Boolean(addLeadMode && addLeadAiFlowStage)}
             dialogTitleId={addLeadMode ? 'add-lead-modal-title' : 'lead-detail-modal-title'}
             panelRef={leadDrawerPanelRef}
             drawerWidth={addLeadDrawerWidth}
             onBeginResize={beginAddLeadDrawerResize}
-            sidePanel={
-              addLeadMode && leadAiChatOpen ? (
-                <LeadAiChatDrawer
-                  docked
-                  isOpen={leadAiChatOpen}
-                  onClose={() => setLeadAiChatOpen(false)}
-                  form={addLeadForm}
-                  onApplyGenerated={handleApplyLeadAiGenerated}
-                  onExpandSections={() =>
-                    setAddLeadSectionsOpen({ company: true, contact: true, leadDetails: true })
-                  }
-                  chatHistory={leadAiChatHistory}
-                  onChatHistoryChange={setLeadAiChatHistory}
-                  onCreateLead={() => void handleSubmitAddLead()}
-                  createDisabled={isCreateLeadDisabled || uploadingAgreements || uploadingKyc}
-                />
-              ) : null
-            }
+            sidePanel={null}
           >
           <div className="relative flex h-full min-h-0 flex-col">
           {/* Header */}
           <div
             className={`flex shrink-0 items-start justify-between gap-3 px-6 py-5 ${
-              addLeadMode
-                ? 'border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white'
-                : 'border-b border-slate-200 bg-white sm:px-8'
+              addLeadMode && addLeadAiFlowStage
+                ? 'border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/95 via-violet-50/50 to-white'
+                : addLeadMode
+                  ? 'border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white'
+                  : 'border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/90 via-white to-sky-50/50 sm:px-8'
             }`}
           >
             <div className="flex-1 min-w-0 flex items-center gap-3">
               <div
                 className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg ${
-                  addLeadMode
-                    ? 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-blue-500/25'
-                    : 'bg-gradient-to-br from-slate-700 to-slate-900 shadow-slate-900/20'
+                  addLeadMode && addLeadAiFlowStage
+                    ? 'bg-gradient-to-br from-indigo-500 to-violet-600 shadow-indigo-500/30'
+                    : addLeadMode
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-blue-500/25'
+                      : 'bg-gradient-to-br from-indigo-500 via-blue-600 to-sky-500 shadow-indigo-500/25'
                 }`}
               >
-                <Building2 size={20} />
+                {addLeadMode && addLeadAiFlowStage ? <Sparkles size={20} /> : <Building2 size={20} />}
               </div>
               <div className="min-w-0">
                 {addLeadMode ? (
@@ -2886,7 +2997,13 @@ export function LeadDetailsDrawer({
                     <h2 id="add-lead-modal-title" className="text-lg font-bold tracking-tight text-slate-900">
                       Add Lead
                     </h2>
-                    <p className="mt-0.5 text-xs text-slate-500">Create a new lead and capture company details</p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {addLeadAiFlowStage === 'chat'
+                        ? 'Step 1 — chat with AI to capture lead details'
+                        : addLeadAiFlowStage === 'form'
+                          ? 'Step 2 — review and edit the AI-filled form'
+                          : 'Create a new lead and capture company details'}
+                    </p>
                   </>
                 ) : (
                   <>
@@ -2902,9 +3019,9 @@ export function LeadDetailsDrawer({
                         : ''}
                     </p>
                     <span
-                      className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
-                        STATUS_STYLES[lead!.status as DefaultLeadStatus] || 'bg-slate-50 text-slate-700 border-slate-200'
-                      }`}
+                      className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${leadStatusChipClass(
+                        lead!.status,
+                      )}`}
                     >
                       {lead!.status}
                     </span>
@@ -2912,7 +3029,7 @@ export function LeadDetailsDrawer({
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {!addLeadMode &&
               activeTab === 'overview' &&
               !overviewEditMode &&
@@ -2920,10 +3037,11 @@ export function LeadDetailsDrawer({
                 <button
                   type="button"
                   onClick={startOverviewEdit}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                   title="Edit Lead"
                 >
-                  <Edit2 size={18} />
+                  <Edit2 size={14} />
+                  Edit
                 </button>
               ) : null}
               {!addLeadMode &&
@@ -2948,9 +3066,20 @@ export function LeadDetailsDrawer({
                   </button>
                 </>
               ) : null}
+              {!addLeadMode && onDeleteLead && lead?.id && !isLeadAlreadyConverted(lead) ? (
+                <button
+                  type="button"
+                  onClick={() => onDeleteLead(lead.id)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
+                  title="Delete Lead"
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </button>
+              ) : null}
               {addLeadMode ? (
                 <>
-                  {!isPublicIntakeMode ? (
+                  {!isPublicIntakeMode && addLeadAiFlowStage !== 'chat' ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -2959,24 +3088,39 @@ export function LeadDetailsDrawer({
                           return;
                         }
                         setLeadAiChatOpen(true);
+                        setAddLeadAiFlowStage('chat');
                       }}
                       className={`inline-flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition-colors ${
                         leadAiGate.locked
                           ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                          : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                          : addLeadAiFlowStage === 'form'
+                            ? 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                            : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
                       }`}
                       title={
                         leadAiGate.locked
                           ? `Locked — needs ${leadAiGate.cost} coins`
-                          : `Open AI assistant (${leadAiGate.cost} coins per chat message)`
+                          : addLeadAiFlowStage === 'form'
+                            ? 'Go back to AI chat'
+                            : `Create with AI (${leadAiGate.cost} coins per chat message)`
                       }
                     >
                       {leadAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} />}
-                      Create with AI
+                      {addLeadAiFlowStage === 'form' ? 'Back to chat' : 'Create with AI'}
                       <AiCoinLockBadge featureId="ai.lead_chat" />
                     </button>
                   ) : null}
-                  <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
+                  {addLeadAiFlowStage ? (
+                    <button
+                      type="button"
+                      onClick={() => void requestLeadDrawerClose()}
+                      className="rounded-full border border-slate-200/90 bg-white/80 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-slate-900"
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
+                  )}
                 </>
               ) : (
                 <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
@@ -2984,19 +3128,60 @@ export function LeadDetailsDrawer({
             </div>
           </div>
 
-          {addLeadMode ? (
+          {addLeadMode && addLeadAiFlowStage ? (
+            <AddLeadAiFlowProgress stage={addLeadAiFlowStage} />
+          ) : null}
+
+          {addLeadMode && addLeadAiFlowStage !== 'chat' ? (
             <AddLeadWizardProgress steps={addLeadWizardSteps} currentStep={addLeadWizardStep} />
           ) : null}
 
-          {addLeadMode && !isPublicIntakeMode && !isHqOverrideMode && addLeadWizardStep === 'company' ? (
+          {addLeadMode && addLeadAiFlowStage === 'chat' ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <LeadAiChatDrawer
+                stageMode
+                isOpen
+                onClose={() => void requestLeadDrawerClose()}
+                form={addLeadForm}
+                onApplyGenerated={handleApplyLeadAiGenerated}
+                onExpandSections={() =>
+                  setAddLeadSectionsOpen({ company: true, contact: true, leadDetails: true })
+                }
+                chatHistory={leadAiChatHistory}
+                onChatHistoryChange={setLeadAiChatHistory}
+                onContinue={() => {
+                  setAddLeadAiFlowStage('form');
+                  setLeadAiChatOpen(false);
+                  setAddLeadSectionsOpen({ company: true, contact: true, leadDetails: true });
+                  setAddLeadWizardStep(isHqOverrideMode ? 'workspace' : 'company');
+                }}
+              />
+            </div>
+          ) : null}
+
+          {addLeadMode && addLeadAiFlowStage === 'form' ? (
+            <div className="mx-6 mb-3 shrink-0 flex items-start gap-3 rounded-2xl bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-3 ring-1 ring-indigo-100">
+              <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-sm">
+                <Sparkles size={14} />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-indigo-950">AI filled this lead for you</p>
+                <p className="mt-0.5 text-xs text-indigo-800/80">
+                  Review each step, edit anything that looks off, then create the lead.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {addLeadMode && addLeadAiFlowStage !== 'chat' && !isPublicIntakeMode && !isHqOverrideMode && addLeadWizardStep === 'company' ? (
             <div className="shrink-0 border-b border-blue-100 bg-blue-50/70 px-6 py-3">
               <div className="flex items-start gap-2">
                 <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-blue-900">Shareable lead form link</p>
                   <p className="mt-0.5 text-[11px] text-blue-800/80">
-                    Anyone with this link can fill the same lead details. Submissions appear on Leads
-                    for this tenant only
+                    Share this tenant-specific form. Create a member first; after confirmation the
+                    link is emailed so they can open it and fill the lead details
                     {publicLeadFormTenant ? (
                       <>
                         {' '}
@@ -3020,32 +3205,13 @@ export function LeadDetailsDrawer({
                       <button
                         type="button"
                         disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
-                        onClick={async () => {
-                          if (!publicLeadFormLink) return;
-                          try {
-                            await navigator.clipboard.writeText(publicLeadFormLink);
-                            setPublicLeadFormLinkCopied(true);
-                            window.setTimeout(() => setPublicLeadFormLinkCopied(false), 2000);
-                          } catch {
-                            /* ignore */
-                          }
-                        }}
-                        className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 text-[11px] font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                        onClick={() => setShareLeadFormMemberOpen(true)}
+                        className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                       >
-                        <Copy className="h-3.5 w-3.5" />
-                        {publicLeadFormLinkCopied ? 'Copied' : 'Copy'}
+                        <Share2 className="h-3.5 w-3.5" />
+                        Share
                       </button>
-                      <a
-                        href={publicLeadFormLink || undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 text-[11px] font-medium text-blue-800 hover:bg-blue-50 ${
-                          !publicLeadFormLink ? 'pointer-events-none opacity-50' : ''
-                        }`}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Open
-                      </a>
+                      <LeadFormAccessButton disabled={!publicLeadFormLink || publicLeadFormLinkLoading} />
                     </div>
                   </div>
                 </div>
@@ -3054,34 +3220,17 @@ export function LeadDetailsDrawer({
           ) : null}
 
           {/* Tabs — hidden in add mode (header already shows Add Lead) */}
-          {!addLeadMode ? (
-          <div className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 pt-1">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex gap-1">
-                {tabs.map((tab) => {
-                  const isActive = activeTab === tab.id;
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center gap-2 px-4 py-3.5 text-sm font-medium rounded-t-lg transition-all duration-200 ${
-                        isActive
-                          ? 'bg-white text-blue-600 border-b-2 border-blue-600 -mb-px shadow-sm'
-                          : 'border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:bg-white/60 active:bg-white/80'
-                      }`}
-                    >
-                      <Icon size={16} className={isActive ? 'text-blue-600' : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          {!addLeadMode && addLeadAiFlowStage !== 'chat' ? (
+            <DrawerTabBar
+              ariaLabel="Lead sections"
+              tabs={tabs}
+              activeId={activeTab}
+              onChange={setActiveTab}
+            />
           ) : null}
 
           {/* Tab content */}
+          {addLeadAiFlowStage !== 'chat' ? (
           <div className="relative flex min-h-0 flex-1 flex-col">
             <div className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 via-[#f8fafc] to-blue-50/30">
             <div className="px-6 py-5">
@@ -3858,68 +4007,9 @@ export function LeadDetailsDrawer({
                       icon={Target}
                       accent="indigo"
                     >
-                      <div
-                        role="tablist"
-                        aria-label="CRM or Recruitment"
-                        className="mb-3 grid grid-cols-2 gap-1 rounded-xl border border-indigo-100 bg-slate-50/80 p-1"
-                      >
-                        {(
-                          [
-                            { id: 'crm' as const, label: 'CRM', icon: Target },
-                            { id: 'recruitment' as const, label: 'Recruitment', icon: BriefcaseBusiness },
-                          ] as const
-                        ).map((opt) => {
-                          const active = hqProductLine === opt.id;
-                          const Icon = opt.icon;
-                          return (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              role="tab"
-                              aria-selected={active}
-                              onClick={() => setHqProductLine(opt.id)}
-                              className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
-                                active
-                                  ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200'
-                                  : 'text-slate-500 hover:text-slate-800'
-                              }`}
-                            >
-                              <Icon size={15} strokeWidth={2.25} />
-                              {opt.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <button
-                          type="button"
-                          onClick={() => setHqProductLine('crm')}
-                          className={`rounded-xl border p-3.5 text-left transition ${
-                            hqProductLine === 'crm'
-                              ? 'border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-400/25'
-                              : 'border-slate-200 bg-white hover:border-indigo-200'
-                          }`}
-                        >
-                          <p className="text-sm font-bold text-slate-900">CRM</p>
-                          <p className="mt-1 text-[11px] leading-snug text-slate-500">
-                            Sales pipeline, follow-ups, convert to client
-                          </p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setHqProductLine('recruitment')}
-                          className={`rounded-xl border p-3.5 text-left transition ${
-                            hqProductLine === 'recruitment'
-                              ? 'border-violet-300 bg-violet-50/70 ring-2 ring-violet-400/25'
-                              : 'border-slate-200 bg-white hover:border-violet-200'
-                          }`}
-                        >
-                          <p className="text-sm font-bold text-slate-900">Recruitment</p>
-                          <p className="mt-1 text-[11px] leading-snug text-slate-500">
-                            Jobs, candidates, interviews & placements
-                          </p>
-                        </button>
-                      </div>
+                      <AddLeadFieldLabel label="Product line" icon={Target} iconClassName="text-indigo-500" required />
+                      <HqProductLineSelectBoxes value={hqProductLine} onChange={setHqProductLine} />
+                      <p className="mt-2 text-xs text-slate-500">You can select CRM, Recruitment, or both.</p>
                     </AddLeadSectionCard>
                   ) : null}
 
@@ -4938,8 +5028,58 @@ export function LeadDetailsDrawer({
                             accent="rose"
                           >
                             <div className="space-y-4">
-                              <OverviewField label="Services Needed" icon={Layers} iconClassName="text-rose-500" value={lead?.interestedNeeds ?? ''} />
-                              <OverviewField label="Expected Business Value" icon={IndianRupee} iconClassName="text-rose-500" value={lead?.notes ?? ''} multiline />
+                              <OverviewField
+                                label="Services Needed"
+                                icon={Layers}
+                                iconClassName="text-rose-500"
+                                value={lead?.servicesNeeded || lead?.interestedNeeds || ''}
+                              />
+                              {(() => {
+                                const demoRows = parseLeadDemoNotes(lead?.notes);
+                                const businessValue = String(lead?.expectedBusinessValue || '').trim();
+                                const showBusinessValue =
+                                  Boolean(businessValue) &&
+                                  businessValue !== '0' &&
+                                  !/booked demo:|employer demo request:/i.test(businessValue);
+                                return (
+                                  <>
+                                    {showBusinessValue ? (
+                                      <OverviewField
+                                        label="Expected Business Value"
+                                        icon={IndianRupee}
+                                        iconClassName="text-rose-500"
+                                        value={businessValue}
+                                      />
+                                    ) : null}
+                                    {demoRows ? (
+                                      <div className="space-y-3">
+                                        <AddLeadFieldLabel
+                                          label="Demo request"
+                                          icon={CalendarClock}
+                                          iconClassName="text-rose-500"
+                                        />
+                                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                          {demoRows.map((row, index) => (
+                                            <OverviewField
+                                              key={`${row.label}-${index}`}
+                                              label={row.label}
+                                              value={row.value}
+                                            />
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : !showBusinessValue && String(lead?.notes || '').trim() ? (
+                                      <OverviewField
+                                        label="Notes"
+                                        icon={FileText}
+                                        iconClassName="text-rose-500"
+                                        value={lead?.notes ?? ''}
+                                        multiline
+                                      />
+                                    ) : null}
+                                  </>
+                                );
+                              })()}
                               {(() => {
                                 const publicOtherDetails = Array.isArray(lead?.otherDetails)
                                   ? lead.otherDetails.filter(
@@ -4953,12 +5093,13 @@ export function LeadDetailsDrawer({
                                 return (
                                 <div>
                                   <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
-                                  <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-3">
+                                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                     {publicOtherDetails.map((item, index) => (
-                                      <div key={`${item.label}-${index}`} className="text-sm">
-                                        <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
-                                        <span className="text-slate-600">{item.value}</span>
-                                      </div>
+                                      <OverviewField
+                                        key={`${item.label}-${index}`}
+                                        label={item.label}
+                                        value={item.value}
+                                      />
                                     ))}
                                   </div>
                                 </div>
@@ -5438,17 +5579,21 @@ export function LeadDetailsDrawer({
                         <button
                           type="button"
                           onClick={() => setShowLogCallForm(true)}
-                          className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                          className="flex items-center gap-3 rounded-2xl border border-sky-100 bg-sky-50/80 px-4 py-3.5 text-left text-sm font-semibold text-sky-950 shadow-sm transition hover:bg-sky-100 active:scale-[0.98]"
                         >
-                          <PhoneCall size={16} className="text-slate-600" />
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-sky-600 ring-1 ring-sky-100">
+                            <PhoneCall size={16} />
+                          </span>
                           Log Call
                         </button>
                         <button
                           type="button"
                           onClick={() => setShowSendWhatsAppForm(true)}
-                          className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                          className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3.5 text-left text-sm font-semibold text-emerald-950 shadow-sm transition hover:bg-emerald-100 active:scale-[0.98]"
                         >
-                          <WhatsAppIcon size={16} className="text-emerald-600" />
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-emerald-600 ring-1 ring-emerald-100">
+                            <WhatsAppIcon size={16} />
+                          </span>
                           Send WhatsApp
                         </button>
                         <button
@@ -5457,33 +5602,41 @@ export function LeadDetailsDrawer({
                             setShowScheduleFollowUpForm(false);
                             setActiveTab('followup');
                           }}
-                          className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                          className="flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/80 px-4 py-3.5 text-left text-sm font-semibold text-indigo-950 shadow-sm transition hover:bg-indigo-100 active:scale-[0.98]"
                         >
-                          <CalendarPlus size={16} className="text-slate-600" />
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-indigo-600 ring-1 ring-indigo-100">
+                            <CalendarPlus size={16} />
+                          </span>
                           Schedule Follow-up
                         </button>
                         <button
                             type="button"
                             onClick={openConvertToClientForm}
-                            className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                            className="flex items-center gap-3 rounded-2xl border border-violet-100 bg-violet-50/80 px-4 py-3.5 text-left text-sm font-semibold text-violet-950 shadow-sm transition hover:bg-violet-100 active:scale-[0.98]"
                           >
-                            <UserPlus size={16} className="text-slate-600" />
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-violet-600 ring-1 ring-violet-100">
+                            <UserPlus size={16} />
+                          </span>
                             Convert to Client
                           </button>
                         <button
                             type="button"
                             onClick={openMarkLostForm}
-                            className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                            className="flex items-center gap-3 rounded-2xl border border-rose-100 bg-rose-50/80 px-4 py-3.5 text-left text-sm font-semibold text-rose-950 shadow-sm transition hover:bg-rose-100 active:scale-[0.98]"
                           >
-                            <XCircle size={16} className="text-slate-600" />
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100">
+                            <XCircle size={16} />
+                          </span>
                             Mark Lost
                           </button>
                         <button
                             type="button"
                             onClick={openAssignLeadForm}
-                            className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                            className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/80 px-4 py-3.5 text-left text-sm font-semibold text-amber-950 shadow-sm transition hover:bg-amber-100 active:scale-[0.98]"
                           >
-                            <UserCog size={16} className="text-slate-600" />
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-amber-600 ring-1 ring-amber-100">
+                            <UserCog size={16} />
+                          </span>
                             Assign Lead
                           </button>
                       </div>
@@ -5976,6 +6129,8 @@ export function LeadDetailsDrawer({
                     nextFollowUp={lead.nextFollowUp}
                     lastFollowUp={lead.lastFollowUp}
                     otherDetails={lead.otherDetails}
+                    hqMode={isHqOverrideMode}
+                    hqFollowUps={lead.hqFollowUps}
                     onScheduled={() => {
                       onUpdateLead?.();
                     }}
@@ -6176,6 +6331,13 @@ export function LeadDetailsDrawer({
                 </div>
               ) : activeTab === 'notes' ? (
                 lead?.id ? (
+                  isHqOverrideMode ? (
+                    <HqLeadRemarksPanel
+                      leadId={lead.id}
+                      remarks={lead.hqRemarks || []}
+                      onUpdated={() => onUpdateLead?.()}
+                    />
+                  ) : (
                   <NotesService
                     entityType="lead"
                     entityId={lead.id}
@@ -6190,6 +6352,7 @@ export function LeadDetailsDrawer({
                       // Optionally refresh lead data or show notification
                     }}
                   />
+                  )
                 ) : (
                   <div className="py-8 text-center text-sm text-slate-500">
                     No lead selected
@@ -6328,19 +6491,21 @@ export function LeadDetailsDrawer({
               ) : null}
             </div>
             </div>
+          </div>
+          ) : null}
 
-          {addLeadMode ? (
+          {addLeadMode && addLeadAiFlowStage !== 'chat' ? (
             <div className="relative shrink-0 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-sm">
               <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent" />
               <div className="flex items-center justify-between gap-3">
                 <button
                   type="button"
                   onClick={goAddLeadWizardBack}
-                  disabled={isAddLeadWizardFirstStep}
+                  disabled={!canGoAddLeadWizardBack}
                   className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ArrowLeft className="h-4 w-4" />
-                  Back
+                  {isAddLeadWizardFirstStep && addLeadAiFlowStage === 'form' ? 'Back to chat' : 'Back'}
                 </button>
                 <div className="flex items-center gap-2">
                   <button
@@ -6375,7 +6540,6 @@ export function LeadDetailsDrawer({
             </div>
           ) : null}
 
-          </div>
           </div>
           </LeadDetailsPanelShell>
 
@@ -6476,6 +6640,11 @@ export function LeadDetailsDrawer({
             </motion.div>
           ) : null}
         </AnimatePresence>
+        <ShareLeadFormMemberModal
+          isOpen={shareLeadFormMemberOpen}
+          onClose={() => setShareLeadFormMemberOpen(false)}
+          formUrl={publicLeadFormLink}
+        />
         </>
       )}
     </AnimatePresence>

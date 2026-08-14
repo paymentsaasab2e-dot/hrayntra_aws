@@ -8,6 +8,7 @@ import { TrialPlanHost } from "../components/trial/TrialPlanHost";
 import { TenantPausedHost } from "../components/tenant/TenantPausedHost";
 import { TenantCoinsProvider } from "../components/coins/TenantCoinsContext";
 import { TenantIntelligenceHost } from "../components/phase2-intelligence/TenantIntelligenceHost";
+import { WritingAssistHost } from "../components/common/WritingAssistHost";
 import "./globals.css";
 import "../styles/nexus-dashboard.css";
 
@@ -36,6 +37,7 @@ export default function RootLayout({
           <TenantPausedHost />
           <ActiveSessionManager />
           <TenantIntelligenceHost />
+          <WritingAssistHost />
           <FloatingBotMount />
         </TenantCoinsProvider>
       </body>

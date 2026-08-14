@@ -310,7 +310,7 @@ export function DrawerSelectDropdown({
       ? createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[80] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
+            className="fixed z-[1200] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
             style={{
               left: menuPosition.left,
               width: menuPosition.width,

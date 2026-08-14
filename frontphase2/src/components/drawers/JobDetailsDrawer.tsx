@@ -17,6 +17,7 @@ import { jobCandidateItemToMoveStageProfile } from '../../lib/candidateTableToPr
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
 import { DetailsModalShell } from './DetailsModalShell';
+import { DrawerTabBar } from './DrawerTabBar';
 import { requestError, requestInfo } from '../../lib/appDialog';
 import {
   X,
@@ -1602,28 +1603,12 @@ export function JobDetailsDrawer({
 
         {job ? (
           <>
-            {/* Tabs */}
-            <div className="shrink-0 bg-slate-50/80 border-b border-slate-200 px-4 pt-1 overflow-x-auto custom-scrollbar">
-              <div className="flex gap-1 min-w-max pb-1 pr-1">
-                {TABS_VISIBLE_IN_BAR.map((tab) => {
-                  const isActive = activeTab === tab.id;
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center gap-1.5 px-3 py-3 text-sm font-medium rounded-t-lg transition-all duration-200 whitespace-nowrap ${
-                        isActive ? 'bg-white text-blue-600 border-b-2 border-blue-600 -mb-px shadow-sm' : 'border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:bg-white/60'
-                      }`}
-                    >
-                      <Icon size={14} className={isActive ? 'text-blue-600' : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <DrawerTabBar
+              ariaLabel="Job sections"
+              tabs={TABS_VISIBLE_IN_BAR}
+              activeId={activeTab}
+              onChange={setActiveTab}
+            />
 
             {/* Tab content */}
             <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`}>

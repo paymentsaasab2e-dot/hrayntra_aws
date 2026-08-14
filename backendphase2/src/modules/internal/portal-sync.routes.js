@@ -12,6 +12,7 @@ import {
   postProvisionEmployerTrial,
   postProvisionEmployerPaid,
 } from './portal-sync.controller.js';
+import { postEventTokenPayout } from './event-token-payout.service.js';
 
 const router = Router();
 
@@ -111,6 +112,7 @@ router.post(
   portalSyncSecretMiddleware,
   postProvisionEmployerPaid
 );
+router.post('/event-token-payout', portalSyncSecretMiddleware, postEventTokenPayout);
 
 /** Phase 1 token packs + spend costs (HQ-managed) for backend1 catalog. */
 router.get('/phase1-token-catalog', portalSyncSecretMiddleware, async (req, res) => {

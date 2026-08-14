@@ -24,7 +24,19 @@ async function getEventDetail(req, res) {
 async function registerEvent(req, res) {
   try {
     const data = await eventsService.registerForEvent(req.user.id, req.body.eventId);
-    return sendSuccess(res, data, 'Registered successfully');
+    if (data?.tokenSpend?.tokenBalance != null) {
+      res.setHeader('X-Token-Balance', String(data.tokenSpend.tokenBalance));
+      res.setHeader('X-Tokens-Spent', String(data.tokenSpend.spent || 0));
+    }
+    return sendSuccess(
+      res,
+      data,
+      data?.alreadyRegistered
+        ? 'Already registered'
+        : data?.tokenSpend?.spent
+          ? `Joined with ${data.tokenSpend.spent} tokens`
+          : 'Registered successfully',
+    );
   } catch (error) {
     return sendError(res, error);
   }

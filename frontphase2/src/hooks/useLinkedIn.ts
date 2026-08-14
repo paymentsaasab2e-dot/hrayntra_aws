@@ -14,6 +14,11 @@ export interface LinkedInUser {
   picture?: string;
 }
 
+export type LinkedInConnectOptions = {
+  /** When true (default), Create Job drawer reopens after OAuth. */
+  reopenCreateJobDrawer?: boolean;
+};
+
 export function useLinkedIn() {
   const [isConnected, setIsConnected] = useState(false);
   const [linkedinUser, setLinkedinUser] = useState<LinkedInUser | null>(null);
@@ -54,27 +59,38 @@ export function useLinkedIn() {
     }
   }, []);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (options?: LinkedInConnectOptions) => {
     try {
       setError(null);
       if (typeof window !== 'undefined') {
         sessionStorage.setItem('oauth_navigation', '1');
         sessionStorage.setItem('oauth_provider', 'linkedin');
-        sessionStorage.setItem('reopen_create_job_drawer', '1');
+        if (options?.reopenCreateJobDrawer !== false) {
+          sessionStorage.setItem('reopen_create_job_drawer', '1');
+        } else {
+          sessionStorage.removeItem('reopen_create_job_drawer');
+        }
       }
       const response = await apiInitiateLinkedInAuth();
-      const { authUrl, state } = response.data;
+      const { authUrl, state } = response.data || {};
+
+      if (!authUrl || typeof authUrl !== 'string') {
+        throw new Error(response.message || 'LinkedIn login URL was not returned. Check LinkedIn app credentials.');
+      }
 
       // Store state in localStorage for CSRF protection
-      localStorage.setItem('linkedin_oauth_state', state);
+      localStorage.setItem('linkedin_oauth_state', state || '');
 
       // Redirect to LinkedIn OAuth
-      window.location.href = authUrl;
+      window.location.assign(authUrl);
     } catch (err: any) {
       console.error('Failed to initiate LinkedIn auth:', err);
       if (typeof window !== 'undefined') {
         sessionStorage.removeItem('oauth_navigation');
         sessionStorage.removeItem('oauth_provider');
+        if (options?.reopenCreateJobDrawer === false) {
+          sessionStorage.removeItem('reopen_create_job_drawer');
+        }
       }
       setError(err.message || 'Failed to connect to LinkedIn');
       throw err;

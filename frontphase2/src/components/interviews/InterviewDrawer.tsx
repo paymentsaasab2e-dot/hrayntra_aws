@@ -2,7 +2,23 @@ import React, { useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
 import { DetailsModalShell } from '../drawers/DetailsModalShell';
-import { CalendarPlus, Edit2, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
+import {
+  Activity,
+  Building2,
+  CalendarPlus,
+  ClipboardList,
+  Edit2,
+  FileText,
+  LayoutGrid,
+  MessageSquare,
+  StickyNote,
+  Trash2,
+  UserRoundX,
+  Users,
+  X,
+  XCircle,
+} from 'lucide-react';
+import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { useRouter } from 'next/navigation';
 import type { InterviewAction } from './ActionsDropdown';
 import { DrawerActivityLog } from './DrawerActivityLog';
@@ -32,15 +48,15 @@ interface InterviewDrawerProps {
   onAction?: (action: InterviewAction) => void;
 }
 
-const tabs: Array<{ id: DrawerTab; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'panel', label: 'Panel' },
-  { id: 'feedback', label: 'Feedback' },
-  { id: 'client', label: 'Client' },
-  { id: 'notes', label: 'Remarks' },
-  { id: 'activity', label: 'Activity Log' },
-  { id: 'files', label: 'Files' },
-  { id: 'chat', label: 'Chat' },
+const tabs: Array<{ id: DrawerTab; label: string; icon: typeof LayoutGrid }> = [
+  { id: 'overview', label: 'Overview', icon: LayoutGrid },
+  { id: 'panel', label: 'Panel', icon: Users },
+  { id: 'feedback', label: 'Feedback', icon: ClipboardList },
+  { id: 'client', label: 'Client', icon: Building2 },
+  { id: 'notes', label: 'Remarks', icon: StickyNote },
+  { id: 'activity', label: 'Activity Log', icon: Activity },
+  { id: 'files', label: 'Files', icon: FileText },
+  { id: 'chat', label: 'Chat', icon: MessageSquare },
 ];
 
 export function InterviewDrawer({
@@ -206,26 +222,12 @@ export function InterviewDrawer({
               </div>
             </div>
 
-            <div className="border-b border-[#E5E7EB] px-4 pt-3">
-              <div className="flex overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-                <div className="flex min-w-0 shrink-0 gap-2 pb-1">
-                  {tabs.map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`shrink-0 rounded-t-xl px-3 py-2 text-sm font-semibold whitespace-nowrap ${
-                        activeTab === tab.id
-                          ? 'bg-[#EFF6FF] text-[#2563EB]'
-                          : 'text-[#6B7280] hover:bg-[#F9FAFB]'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <DrawerTabBar
+              ariaLabel="Interview sections"
+              tabs={tabs}
+              activeId={activeTab}
+              onChange={setActiveTab}
+            />
 
             <div className="flex-1 overflow-y-auto px-5 py-5">
               {activeTab === 'overview' ? (

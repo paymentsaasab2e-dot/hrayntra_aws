@@ -72,6 +72,22 @@ export interface Lead {
   expectedBusinessValue?: string;
   activities: Activity[];
   notesList?: LeadNote[];
+  /** HQ CRM only — follow-ups stored on headquarters leads. */
+  hqFollowUps?: Array<{
+    id: string;
+    type: string;
+    scheduledAt: string | null;
+    notes: string;
+    status: string;
+    createdAt: string | null;
+  }>;
+  /** HQ CRM only — remarks stored on headquarters leads. */
+  hqRemarks?: Array<{
+    id: string;
+    text: string;
+    createdAt: string | null;
+    createdByEmail?: string | null;
+  }>;
   // Optional extended fields for drawer
   industry?: string;
   sector?: string;
@@ -96,6 +112,7 @@ export interface Lead {
   sourceWebsiteUrl?: string;
   sourceLinkedInUrl?: string;
   sourceEmail?: string;
+  addedByName?: string;
   otherDetails?: Array<{ label: string; value: string }>;
   createdDate?: string;
   /** Agreements & Terms — single primary document uploaded against the lead. */

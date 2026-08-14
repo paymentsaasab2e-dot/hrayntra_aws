@@ -4,24 +4,34 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import {
   Loader2,
+  Pencil,
   Phone,
   Plus,
   RefreshCcw,
   Search,
   Target,
+  Trash2,
   CheckCircle,
   XCircle,
   X,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import {
+  apiDeletePublicLeadFormLead,
   apiGetLead,
   apiGetPublicLeadForm,
   apiGetPublicLeadFormSubmissions,
+  apiLogin,
   apiSubmitPublicLeadForm,
+  apiUpdatePublicLeadFormLead,
+  formatAuthErrorMessage,
+  syncTenantDbName,
   type BackendLead,
   type CreateLeadData,
 } from '../../../lib/api';
+import { buildLoginDevicePayload } from '../../../lib/sessionAuth';
 import { LeadDetailsDrawer } from '../../../components/drawers/LeadDetailsDrawer';
 import type { Lead, LeadSource, LeadStatus, LeadType, Priority } from '../../leads/types';
 import { formatDateDMY } from '../../../utils/dateDisplay';
@@ -33,6 +43,29 @@ import { TableSkeleton } from '../../../components/ui/Skeleton';
 
 const VALID_SOURCES: LeadSource[] = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'];
 const SESSION_IDS_KEY_PREFIX = 'ph2.publicLeadForm.myLeadIds.';
+const LEAD_FORM_GATE_PREFIX = 'ph2.leadForm.unlocked.';
+
+function leadFormGateKey(token: string) {
+  return `${LEAD_FORM_GATE_PREFIX}${token}`;
+}
+
+function isLeadFormUnlocked(token: string) {
+  if (!token || typeof window === 'undefined') return false;
+  try {
+    return sessionStorage.getItem(leadFormGateKey(token)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function unlockLeadForm(token: string) {
+  if (!token) return;
+  try {
+    sessionStorage.setItem(leadFormGateKey(token), '1');
+  } catch {
+    /* ignore */
+  }
+}
 
 function mapPublicLeadToFrontend(row: Record<string, unknown>): Lead {
   const rawSrc = row.source;
@@ -141,11 +174,24 @@ export default function PublicLeadFormPage() {
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
+  const [authReady, setAuthReady] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loginId, setLoginId] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; companyName: string } | null>(
+    null
+  );
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
   useEffect(() => {
-    setIsAuthenticated(Boolean(localStorage.getItem('accessToken')));
-  }, []);
+    if (tenantDbName) syncTenantDbName(tenantDbName);
+    // Never reuse the main Phase 2 accessToken. This emailed link must show login first.
+    setIsAuthenticated(isLeadFormUnlocked(token));
+    setAuthReady(true);
+  }, [token, tenantDbName]);
 
   useEffect(() => {
     if (!token) return;
@@ -153,7 +199,7 @@ export default function PublicLeadFormPage() {
   }, [token]);
 
   const loadSubmissions = useCallback(async () => {
-    if (!token || !tenantDbName) return;
+    if (!token || !tenantDbName || !isAuthenticated) return;
     setLeadsLoading(true);
     try {
       const res = await apiGetPublicLeadFormSubmissions(token, tenantDbName);
@@ -168,9 +214,10 @@ export default function PublicLeadFormPage() {
     } finally {
       setLeadsLoading(false);
     }
-  }, [token, tenantDbName]);
+  }, [token, tenantDbName, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     if (!token) {
       setError('Invalid lead form link');
       setLoading(false);
@@ -202,12 +249,12 @@ export default function PublicLeadFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, tenantDbName]);
+  }, [token, tenantDbName, isAuthenticated]);
 
   useEffect(() => {
-    if (!token || !tenantDbName || loading) return;
+    if (!isAuthenticated || !token || !tenantDbName || loading) return;
     void loadSubmissions();
-  }, [token, tenantDbName, loading, loadSubmissions]);
+  }, [token, tenantDbName, loading, loadSubmissions, isAuthenticated]);
 
   const metrics = useMemo(() => {
     const counts = {
@@ -283,6 +330,26 @@ export default function PublicLeadFormPage() {
 
   const createLeadOverride = useCallback(
     async (data: CreateLeadData) => {
+      let addedByName = '';
+      let addedByEmail = '';
+      let addedById = '';
+      try {
+        const raw = localStorage.getItem('currentUser');
+        if (raw) {
+          const user = JSON.parse(raw) as {
+            id?: string;
+            name?: string;
+            firstName?: string;
+            lastName?: string;
+            email?: string;
+          };
+          addedByName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.name || '';
+          addedByEmail = String(user.email || '').trim();
+          addedById = String(user.id || '').trim();
+        }
+      } catch {
+        /* ignore */
+      }
       const res = await apiSubmitPublicLeadForm(
         token,
         {
@@ -302,6 +369,9 @@ export default function PublicLeadFormPage() {
           source: data.source || 'Website',
           interestedNeeds: data.interestedNeeds || data.servicesNeeded,
           notes: data.notes,
+          addedByName,
+          addedByEmail,
+          addedById,
         },
         tenantDbName
       );
@@ -316,9 +386,193 @@ export default function PublicLeadFormPage() {
     [token, tenantDbName]
   );
 
+  const updateLeadOverride = useCallback(
+    async (leadId: string, data: Record<string, unknown>) => {
+      const res = await apiUpdatePublicLeadFormLead(token, leadId, data, tenantDbName);
+      const updated =
+        ((res as { data?: BackendLead })?.data as BackendLead | undefined) ||
+        (res as unknown as BackendLead);
+      if (!updated?.id) {
+        throw new Error('Lead was saved but no id was returned');
+      }
+      return updated;
+    },
+    [token, tenantDbName]
+  );
+
+  const requestDeleteLead = (lead: { id: string; companyName?: string }) => {
+    if (!lead?.id) return;
+    setDeleteConfirm({ id: lead.id, companyName: lead.companyName || 'this lead' });
+  };
+
+  const handleConfirmDeleteLead = async () => {
+    if (!deleteConfirm?.id) return;
+    setDeleteSubmitting(true);
+    try {
+      await apiDeletePublicLeadFormLead(token, deleteConfirm.id, tenantDbName);
+      setLeads((prev) => prev.filter((row) => row.id !== deleteConfirm.id));
+      setMyLeadIds((prev) => {
+        const next = prev.filter((id) => id !== deleteConfirm.id);
+        writeSessionLeadIds(token, next);
+        return next;
+      });
+      if (selectedLead?.id === deleteConfirm.id) {
+        setSelectedLead(null);
+      }
+      toast.success(`Lead "${deleteConfirm.companyName}" deleted`);
+      setDeleteConfirm(null);
+      void loadSubmissions();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete lead');
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  };
+
   const handleStatusCardClick = (status: LeadStatus) => {
     setStatusFilter((prev) => (prev === status ? 'All' : status));
   };
+
+  const handleLeadFormLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const identifier = loginId.trim();
+    const password = loginPassword.trim();
+    if (!identifier || !password) {
+      setLoginError('Login ID and password are required.');
+      return;
+    }
+    if (tenantDbName) syncTenantDbName(tenantDbName);
+    setLoginSubmitting(true);
+    setLoginError('');
+    try {
+      const device = await buildLoginDevicePayload();
+      let response = await apiLogin(identifier, password, device);
+      if (response.data?.duplicateSession) {
+        response = await apiLogin(identifier, password, {
+          ...device,
+          forceSessionTakeover: true,
+        });
+      }
+      if (!localStorage.getItem('accessToken')) {
+        throw new Error('Failed to store authentication token. Please try again.');
+      }
+      unlockLeadForm(token);
+      setIsAuthenticated(true);
+      setLoginPassword('');
+      toast.success('Signed in. Opening the lead form…');
+    } catch (err: unknown) {
+      setLoginError(
+        formatAuthErrorMessage(err as { message?: string }, 'Invalid login ID or password.')
+      );
+    } finally {
+      setLoginSubmitting(false);
+    }
+  };
+
+  if (!authReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">
+        <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
+
+  if (!token) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-lg rounded-2xl border border-rose-200 bg-white p-8 text-center shadow-sm">
+          <p className="text-base font-semibold text-rose-700">Invalid lead form link</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!tenantDbName) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-lg rounded-2xl border border-rose-200 bg-white p-8 text-center shadow-sm">
+          <p className="text-base font-semibold text-rose-700">This lead form link is missing the tenant parameter</p>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">
+            Ask for the full link that includes{' '}
+            <span className="font-mono text-slate-800">?tenantDbName=…</span>.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_48%,#f8fafc_100%)] px-4">
+        <Toaster position="top-right" richColors />
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 px-6 py-5">
+            <p className="text-lg font-semibold text-slate-900">Sign in to open this lead form</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Use the login ID and password that were emailed with this link
+              {tenantDbName ? (
+                <>
+                  {' '}
+                  · <span className="font-mono">{tenantDbName}</span>
+                </>
+              ) : null}
+            </p>
+          </div>
+          <form onSubmit={handleLeadFormLogin} className="space-y-3 px-6 py-5">
+            {loginError ? (
+              <p className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                {loginError}
+              </p>
+            ) : null}
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-semibold text-slate-700">
+                Login ID / Gmail <span className="text-rose-500">*</span>
+              </span>
+              <input
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                placeholder="Login ID or email"
+                autoComplete="username"
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-semibold text-slate-700">
+                Password <span className="text-rose-500">*</span>
+              </span>
+              <div className="relative">
+                <input
+                  type={showLoginPassword ? 'text' : 'password'}
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="Password"
+                  autoComplete="current-password"
+                  data-writing-assist="off"
+                  className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-10 text-sm outline-none focus:border-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowLoginPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:text-slate-700"
+                  aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </label>
+            <button
+              type="submit"
+              disabled={loginSubmitting}
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {loginSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Sign in
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -485,7 +739,7 @@ export default function PublicLeadFormPage() {
               {leadsLoading && leads.length === 0 ? (
                 <TableSkeleton rows={8} columns={6} />
               ) : (
-                <table className="w-full min-w-[760px] text-left" aria-label="Public intake leads">
+                <table className="w-full min-w-[860px] text-left" aria-label="Public intake leads">
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
                       <th className="px-3 py-2 sm:px-4">Lead</th>
@@ -495,12 +749,13 @@ export default function PublicLeadFormPage() {
                       <th className="px-3 py-2 sm:px-4">Location</th>
                       <th className="px-3 py-2 sm:px-4">Added</th>
                       <th className="px-3 py-2 text-right sm:px-4">Entered by</th>
+                      <th className="px-3 py-2 text-right sm:px-4">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100/80">
                     {filteredLeads.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center">
+                        <td colSpan={8} className="px-4 py-12 text-center">
                           <p className="text-xs font-medium text-slate-500">No leads match your filters</p>
                           <p className="mt-1 text-[11px] text-slate-400">
                             Click Add Lead to enter a new company through this form
@@ -582,6 +837,30 @@ export default function PublicLeadFormPage() {
                                 <span className="text-[11px] font-medium text-slate-400">Form entry</span>
                               )}
                             </td>
+                            <td className="px-3 py-2 text-right sm:px-4" onClick={(e) => e.stopPropagation()}>
+                              <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
+                                {lead.status !== 'Converted' ? (
+                                  <button
+                                    type="button"
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                                    title="Edit Lead"
+                                    onClick={() => void openLeadDrawer(lead, 'edit')}
+                                  >
+                                    <Pencil size={15} strokeWidth={2.35} />
+                                  </button>
+                                ) : null}
+                                {lead.status !== 'Converted' ? (
+                                  <button
+                                    type="button"
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-white hover:text-rose-800 hover:shadow-sm transition-all"
+                                    title="Delete Lead"
+                                    onClick={() => requestDeleteLead(lead)}
+                                  >
+                                    <Trash2 size={15} strokeWidth={2.35} />
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })
@@ -607,6 +886,11 @@ export default function PublicLeadFormPage() {
           addLeadMode={addLeadDrawerOpen}
           initialMode={selectedLeadDrawerMode}
           createLeadOverride={createLeadOverride}
+          updateLeadOverride={updateLeadOverride}
+          onDeleteLead={(id) => {
+            const row = leads.find((item) => item.id === id) || selectedLead;
+            if (row) requestDeleteLead(row);
+          }}
           onClose={() => {
             setSelectedLead(null);
             setAddLeadDrawerOpen(false);
@@ -637,6 +921,43 @@ export default function PublicLeadFormPage() {
           }}
         />
       )}
+
+      {deleteConfirm ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4"
+          onClick={() => {
+            if (!deleteSubmitting) setDeleteConfirm(null);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-medium text-slate-900">
+              Are you sure you want to delete {deleteConfirm.companyName}?{' '}
+              <span className="text-slate-500">This moves the lead to the recycle bin.</span>
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleteSubmitting}
+                className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmDeleteLead()}
+                disabled={deleteSubmitting}
+                className="rounded-full bg-rose-600 px-6 py-2 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60"
+              >
+                {deleteSubmitting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

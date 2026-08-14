@@ -16,6 +16,16 @@ router.get(
   requireAnyPermission(['leads_create', 'leads_read']),
   leadPublicFormController.getPublicFormLink
 );
+router.post(
+  '/public-form-link/invite',
+  requireAnyPermission(['leads_create', 'leads_read']),
+  leadPublicFormController.invitePublicFormMember
+);
+router.get(
+  '/public-form-link/access',
+  requireAnyPermission(['leads_create', 'leads_read']),
+  leadPublicFormController.getPublicFormAccess
+);
 router.get('/assignable-members', requireAnyPermission(['leads_create', 'leads_update']), leadController.getAssignableMembers);
 router.get('/conversion-capabilities', requireAnyPermission(['leads_read', 'leads_update']), leadController.getConversionCapabilities);
 router.get('/', requireAnyPermission(['leads_read']), leadController.getAll);

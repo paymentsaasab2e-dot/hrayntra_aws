@@ -253,6 +253,16 @@ app.post(
   publicApplyTenantMiddleware,
   leadPublicFormController.submitPublicForm
 );
+app.patch(
+  '/api/v1/leads/public/form/:token/leads/:id',
+  publicApplyTenantMiddleware,
+  leadPublicFormController.updatePublicFormLead
+);
+app.delete(
+  '/api/v1/leads/public/form/:token/leads/:id',
+  publicApplyTenantMiddleware,
+  leadPublicFormController.deletePublicFormLead
+);
 // Public candidate pre-screen sessions — MUST be before addCandidateRouter (router-level auth on /api/v1)
 app.use('/api/v1/pre-screen-assessments', preScreenAssessmentRoutes);
 // Public interview application forms (Phase 1) — before auth routers

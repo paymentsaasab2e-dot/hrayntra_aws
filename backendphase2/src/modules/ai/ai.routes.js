@@ -18,6 +18,8 @@ router.post('/lead-details', requireCoins('ai.lead_details'), aiController.gener
 router.post('/lead-chat', requireCoins('ai.lead_chat'), aiController.generateLeadChat);
 router.post('/client-details', requireCoins('ai.client_details'), aiController.generateClientDetails);
 router.post('/client-chat', requireCoins('ai.client_chat'), aiController.generateClientChat);
+router.post('/candidate-details', requireCoins('ai.candidate_details'), aiController.generateCandidateDetails);
+router.post('/candidate-chat', requireCoins('ai.candidate_chat'), aiController.generateCandidateChat);
 router.get('/location/search', aiController.searchLocations);
 router.post('/location/resolve', requireCoins('ai.location_resolve'), aiController.resolveLocation);
 router.get('/location/reverse', aiController.reverseGeocodeLocation);

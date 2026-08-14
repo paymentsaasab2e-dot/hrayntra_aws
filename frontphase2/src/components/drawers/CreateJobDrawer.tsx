@@ -19,6 +19,8 @@ import {
   Send,
   Sparkles,
   ArrowUp,
+  ArrowLeft,
+  ArrowRight,
   FileText,
   Loader2,
   GripHorizontal,
@@ -731,6 +733,20 @@ const DEFAULT_JOB_DRAWER_ACCORDIONS: AccordionSection[] = [
   { id: 'publish', label: 'Publish & Share', isOpen: false },
 ];
 
+type CreateJobWizardStep = AccordionSection['id'];
+
+const CREATE_JOB_WIZARD_STEPS: { id: CreateJobWizardStep; label: string }[] = [
+  { id: 'details', label: 'Job Details' },
+  { id: 'application', label: 'Application' },
+  { id: 'publish', label: 'Publish' },
+];
+
+const CREATE_JOB_WIZARD_HINTS: Record<CreateJobWizardStep, string> = {
+  details: 'Step 1 — fill job details, then continue',
+  application: 'Step 2 — application form and pre-screen',
+  publish: 'Step 3 — publish and share this job',
+};
+
 /** Survives LinkedIn / X / Facebook OAuth full-page redirects from the create-job drawer. */
 const CREATE_JOB_OAUTH_DRAFT_KEY = 'create_job_drawer_oauth_draft_v1';
 
@@ -940,6 +956,7 @@ export function CreateJobDrawer({
 
   // Accordion state
   const [accordions, setAccordions] = useState<AccordionSection[]>(DEFAULT_JOB_DRAWER_ACCORDIONS);
+  const [wizardStep, setWizardStep] = useState<CreateJobWizardStep>('details');
 
   // Form state - Section 1: Job Details
   const [formData, setFormData] = useState({
@@ -1090,6 +1107,7 @@ export function CreateJobDrawer({
       if (draft.aiDraftData) {
         setAiDraftData(draft.aiDraftData);
       }
+      setWizardStep('publish');
       setAccordions([
         { id: 'details', label: 'Job Details', isOpen: false },
         { id: 'application', label: 'Job Application Form', isOpen: false },
@@ -1101,6 +1119,7 @@ export function CreateJobDrawer({
       return () => window.clearTimeout(clearTimer);
     }
 
+    setWizardStep('details');
     setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
   }, [isOpen, jobId, duplicateFromJobId]);
 
@@ -1228,6 +1247,7 @@ export function CreateJobDrawer({
       setDisconnectingLinkedInId(null);
       setDisconnectingTwitterId(null);
       setConnectingLinkedIn(false);
+      setWizardStep('details');
       setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
     }
   }, [isOpen]);
@@ -1637,10 +1657,42 @@ export function CreateJobDrawer({
     }
   }, [formData.jobDescriptionHtml, formData.linkedInEnabled]);
 
-  const toggleAccordion = (id: AccordionSection['id']) => {
-    setAccordions(prev => prev.map(acc => 
-      acc.id === id ? { ...acc, isOpen: !acc.isOpen } : acc
-    ));
+  const wizardStepIndex = Math.max(0, CREATE_JOB_WIZARD_STEPS.findIndex((step) => step.id === wizardStep));
+
+  const goWizardBack = () => {
+    if (wizardStep === 'publish') {
+      setWizardStep('application');
+      return;
+    }
+    if (wizardStep === 'application') setWizardStep('details');
+  };
+
+  const goWizardNext = () => {
+    if (wizardStep === 'details') {
+      if (!formData.jobTitle.trim()) {
+        void requestWarning('Job Title is required');
+        return;
+      }
+      if (!formData.companyId && !isStandaloneMode) {
+        void requestWarning('Company is required');
+        return;
+      }
+      if (!formData.numberOfOpenings) {
+        void requestWarning('Number of Openings is required');
+        return;
+      }
+      if (!formData.country.trim()) {
+        void requestWarning('Country is required');
+        return;
+      }
+      if (!formData.targetHireDate) {
+        void requestWarning('Target Hire Date is required');
+        return;
+      }
+      setWizardStep('application');
+      return;
+    }
+    if (wizardStep === 'application') setWizardStep('publish');
   };
 
   const stripHtml = (value: string) =>
@@ -3560,9 +3612,7 @@ export function CreateJobDrawer({
                 <div className="min-w-0">
                   <h2 id="create-job-modal-title" className="text-lg font-bold tracking-tight text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    {isEditMode
-                      ? 'Update job details, description, and publishing options.'
-                      : 'Upload a JD or paste job details below, then complete the form.'}
+                    {CREATE_JOB_WIZARD_HINTS[wizardStep]}
                   </p>
                 </div>
               </div>
@@ -3574,35 +3624,69 @@ export function CreateJobDrawer({
                 >
                   Close
                 </button>
-                <button
-                  type="button"
-                  onClick={handleSaveJob}
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Send size={14} />
-                  {loading
-                    ? isEditMode
-                      ? 'Saving...'
-                      : 'Publishing...'
-                    : isEditMode
-                      ? 'Save Job'
-                      : 'Publish Job'}
-                </button>
               </div>
+            </div>
+
+            <div className="shrink-0 border-b border-blue-100/80 bg-white/90 px-6 py-4">
+              <div className="flex items-center gap-2">
+                {CREATE_JOB_WIZARD_STEPS.map((step, i) => {
+                  const done = i < wizardStepIndex;
+                  const active = i === wizardStepIndex;
+                  return (
+                    <div key={step.id} className="flex min-w-0 flex-1 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (i <= wizardStepIndex || isEditMode) setWizardStep(step.id);
+                        }}
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[0.7rem] font-bold transition-all ${
+                          done
+                            ? 'bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/30'
+                            : active
+                              ? 'bg-[#2098C8] text-white shadow-lg shadow-[#2098C8]/30 ring-4 ring-[#2098C8]/25'
+                              : 'bg-slate-100 text-slate-400 ring-1 ring-slate-200'
+                        }`}
+                        title={step.label}
+                        aria-current={active ? 'step' : undefined}
+                      >
+                        {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                      </button>
+                      <span
+                        className={`hidden min-w-0 truncate text-xs font-semibold sm:block ${
+                          active ? 'text-slate-900' : done ? 'text-[#2098C8]' : 'text-slate-400'
+                        }`}
+                      >
+                        {step.label}
+                      </span>
+                      {i < CREATE_JOB_WIZARD_STEPS.length - 1 ? (
+                        <div
+                          className={`h-1.5 min-w-[6px] flex-1 rounded-full ${
+                            done
+                              ? 'bg-[#2098C8]'
+                              : active
+                                ? 'bg-gradient-to-r from-[#2098C8] to-slate-200'
+                                : 'bg-slate-200/90'
+                          }`}
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                Step {wizardStepIndex + 1} of {CREATE_JOB_WIZARD_STEPS.length} · {CREATE_JOB_WIZARD_STEPS[wizardStepIndex]?.label}
+              </p>
             </div>
 
             {/* Scrollable Content */}
             <div ref={smartJobPromptBoundsRef} className="flex min-h-0 flex-1 flex-col">
               <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG} p-6 space-y-5`}>
+              {wizardStep === 'details' ? (
               <DrawerSectionCard
                 title="Job Details"
                 subtitle="Description, role info, and requirements"
                 icon={Briefcase}
                 accent="blue"
-                collapsible
-                open={accordions.find((a) => a.id === 'details')?.isOpen ?? false}
-                onOpenChange={() => toggleAccordion('details')}
               >
                   <div className="space-y-6">
                     <div>
@@ -3659,20 +3743,11 @@ export function CreateJobDrawer({
                             Upload job description
                             <span className="font-normal text-slate-500">· PDF, DOC, DOCX, TXT</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleAutoFillFromPastedJd()}
-                            disabled={aiGenerating}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <Sparkles className="h-3.5 w-3.5" />
-                            Auto-fill from pasted JD
-                          </button>
                         </div>
                       </div>
 
                       <p className="mt-1 mb-3 text-xs text-slate-500">
-                        Upload a document to parse and auto-fill job fields with AI, or paste and edit the full posting below.
+                        Upload a JD or paste and edit the full posting below.
                       </p>
 
                       {smartJobAttachment ? (
@@ -3771,15 +3846,14 @@ export function CreateJobDrawer({
                     />
                   </div>
               </DrawerSectionCard>
+              ) : null}
 
+              {wizardStep === 'application' ? (
               <DrawerSectionCard
                 title="Job Application Form"
                 subtitle="Application fields and pre-screen assessments"
                 icon={FileText}
                 accent="violet"
-                collapsible
-                open={accordions.find((a) => a.id === 'application')?.isOpen ?? false}
-                onOpenChange={() => toggleAccordion('application')}
               >
                   <div className="space-y-4">
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -4204,15 +4278,14 @@ export function CreateJobDrawer({
                     />
                   </div>
               </DrawerSectionCard>
+              ) : null}
 
+              {wizardStep === 'publish' ? (
               <DrawerSectionCard
                 title="Publish & Share"
                 subtitle="LinkedIn, social channels, and job board publishing"
                 icon={Share2}
                 accent="sky"
-                collapsible
-                open={accordions.find((a) => a.id === 'publish')?.isOpen ?? false}
-                onOpenChange={() => toggleAccordion('publish')}
               >
                   <div className="space-y-4">
                     {/* LinkedIn Card */}
@@ -4747,9 +4820,10 @@ export function CreateJobDrawer({
                     </div>
                   </div>
               </DrawerSectionCard>
+              ) : null}
               </div>
 
-              {!isEditMode ? (
+              {false && !isEditMode ? (
                 <div
                   className="flex shrink-0 flex-col overflow-hidden border-t border-slate-200 bg-white"
                   style={smartJobPromptVisible ? { height: smartFillPanelHeight } : undefined}
@@ -4842,11 +4916,61 @@ export function CreateJobDrawer({
                   </div>
                 </div>
               ) : null}
+
+              <div className="relative shrink-0 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-sm">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent" />
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={goWizardBack}
+                    disabled={wizardStep === 'details'}
+                    className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Back
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void requestCreateJobClose()}
+                      className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    {wizardStep === 'publish' ? (
+                      <button
+                        type="button"
+                        onClick={handleSaveJob}
+                        disabled={loading}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-[#2098C8] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#2098C8]/30 transition hover:bg-[#1A86B3] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Send size={14} />
+                        {loading
+                          ? isEditMode
+                            ? 'Saving...'
+                            : 'Publishing...'
+                          : isEditMode
+                            ? 'Save Job'
+                            : 'Publish Job'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={goWizardNext}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-[#2098C8] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#2098C8]/30 transition hover:bg-[#1A86B3]"
+                      >
+                        Continue
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </DetailsModalShell>
 
           <AnimatePresence>
-            {showAiPromptBox && (
+            {false && showAiPromptBox && (
               <DetailsModalShell
                 onBackdropClick={() => setShowAiPromptBox(false)}
                 size="lg"

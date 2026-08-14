@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Calendar, FileText, Plus, Pencil, Sparkles, StickyNote, Trash2, X } from 'lucide-react';
+import { Calendar, FileText, LayoutGrid, Plus, Pencil, Sparkles, StickyNote, Trash2, X } from 'lucide-react';
+import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { apiAddCandidateNote, apiDeleteCandidateNote, apiGetCandidate, apiUpdateCandidateNote } from '../../lib/api';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
@@ -14,10 +15,10 @@ interface ProfileDrawerProps {
 }
 
 const tabs = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'resume', label: 'Resume' },
-  { id: 'ai', label: 'AI Score' },
-  { id: 'notes', label: 'Remarks' },
+  { id: 'overview', label: 'Overview', icon: LayoutGrid },
+  { id: 'resume', label: 'Resume', icon: FileText },
+  { id: 'ai', label: 'AI Score', icon: Sparkles },
+  { id: 'notes', label: 'Remarks', icon: StickyNote },
 ] as const;
 
 export default function ProfileDrawer({
@@ -156,24 +157,12 @@ export default function ProfileDrawer({
               </button>
             </div>
 
-            <div className="border-b border-[#E5E7EB] px-6">
-              <div className="flex flex-wrap gap-2 py-3">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                      activeTab === tab.id
-                        ? 'bg-[#2563EB] text-white'
-                        : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <DrawerTabBar
+              ariaLabel="Candidate sections"
+              tabs={tabs}
+              activeId={activeTab}
+              onChange={setActiveTab}
+            />
 
             <div className="flex-1 overflow-y-auto px-6 py-5">
               {activeTab === 'overview' ? (

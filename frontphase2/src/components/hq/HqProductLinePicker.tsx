@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { BriefcaseBusiness, Target, X } from 'lucide-react';
+import { BriefcaseBusiness, Check, Target, X } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
 
 /** HQ multi-SaaS product lines — mirrors Phase 2 sidebar CRM vs Recruitment. */
@@ -16,16 +16,168 @@ export const HQ_PRODUCT_LINE_OPTIONS: Array<{
   {
     id: 'crm',
     label: 'CRM',
-    description: 'Leads, clients, pipeline follow-ups — sales & account CRM workspace.',
+    description: 'Sales pipeline, follow-ups, convert to client',
     icon: Target,
   },
   {
     id: 'recruitment',
     label: 'Recruitment',
-    description: 'Jobs, candidates, interviews & placements — hiring workspace.',
+    description: 'Jobs, candidates, interviews & placements',
     icon: BriefcaseBusiness,
   },
 ];
+
+const PRODUCT_LINE_SELECT_CLASS =
+  'w-full cursor-pointer appearance-none rounded-xl border border-slate-200 bg-white bg-[length:1rem] bg-[right_0.85rem_center] bg-no-repeat py-2.5 pl-10 pr-10 text-sm font-semibold text-slate-900 shadow-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 [background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 fill=%27none%27 viewBox=%270 0 20 20%27%3E%3Cpath stroke=%27%2364748b%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27 stroke-width=%271.6%27 d=%27m6 8 4 4 4-4%27/%3E%3C/svg%3E")]';
+
+type SelectProps = {
+  value: HqProductLine | '' | null;
+  onChange: (line: HqProductLine) => void;
+  id?: string;
+  allowEmpty?: boolean;
+  placeholder?: string;
+  showHint?: boolean;
+  className?: string;
+};
+
+export function HqProductLineSelect({
+  value,
+  onChange,
+  id,
+  allowEmpty = false,
+  placeholder = 'Select product line',
+  showHint = true,
+  className,
+}: SelectProps) {
+  const selected = HQ_PRODUCT_LINE_OPTIONS.find((opt) => opt.id === value) ?? null;
+  const Icon = selected?.icon ?? Target;
+
+  return (
+    <div className={className}>
+      <div className="relative">
+        <Icon
+          size={16}
+          strokeWidth={2.2}
+          className={`pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 ${
+            selected?.id === 'recruitment' ? 'text-violet-500' : 'text-indigo-500'
+          }`}
+        />
+        <select
+          id={id}
+          aria-label="Product line"
+          value={value || ''}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (next === 'crm' || next === 'recruitment') onChange(next);
+          }}
+          className={PRODUCT_LINE_SELECT_CLASS}
+        >
+          {allowEmpty ? <option value="">{placeholder}</option> : null}
+          {HQ_PRODUCT_LINE_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      {showHint && selected ? (
+        <p className="mt-2 text-xs leading-snug text-slate-500">{selected.description}</p>
+      ) : null}
+    </div>
+  );
+}
+
+export function normalizeHqProductLines(value: unknown): HqProductLine[] {
+  const raw = Array.isArray(value)
+    ? value
+    : String(value || '')
+        .split(/[,|]/)
+        .map((item) => item.trim());
+  const lines = raw
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter((item): item is HqProductLine => item === 'crm' || item === 'recruitment');
+  return [...new Set(lines)];
+}
+
+export function hqProductLineLabels(lines: HqProductLine[] | null | undefined): string[] {
+  return (lines || []).map((line) => hqProductLineLabel(line)).filter(Boolean);
+}
+
+export function HqProductLineSelectBoxes({
+  value,
+  onChange,
+  className,
+}: {
+  value: HqProductLine[];
+  onChange: (lines: HqProductLine[]) => void;
+  className?: string;
+}) {
+  const selected = normalizeHqProductLines(value);
+  const toggle = (line: HqProductLine) => {
+    if (selected.includes(line)) {
+      onChange(selected.filter((item) => item !== line));
+      return;
+    }
+    onChange([...selected, line]);
+  };
+
+  return (
+    <div
+      className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${className || ''}`}
+      role="group"
+      aria-label="Product line"
+    >
+      {HQ_PRODUCT_LINE_OPTIONS.map((opt) => {
+        const Icon = opt.icon;
+        const checked = selected.includes(opt.id);
+        const recruitment = opt.id === 'recruitment';
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            aria-pressed={checked}
+            onClick={() => toggle(opt.id)}
+            className={`flex items-start gap-3 rounded-2xl border px-4 py-3.5 text-left shadow-sm transition ${
+              checked
+                ? recruitment
+                  ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
+                  : 'border-indigo-300 bg-indigo-50 ring-2 ring-indigo-200'
+                : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            <span
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                checked
+                  ? recruitment
+                    ? 'border-violet-500 bg-violet-600 text-white'
+                    : 'border-indigo-500 bg-indigo-600 text-white'
+                  : 'border-slate-300 bg-white text-transparent'
+              }`}
+              aria-hidden
+            >
+              <Check size={12} strokeWidth={3} />
+            </span>
+            <span
+              className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                checked
+                  ? recruitment
+                    ? 'bg-white text-violet-600 ring-1 ring-violet-100'
+                    : 'bg-white text-indigo-600 ring-1 ring-indigo-100'
+                  : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              <Icon size={18} strokeWidth={2.2} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-slate-900">{opt.label}</span>
+              <span className="mt-0.5 block text-xs leading-snug text-slate-500">{opt.description}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function hqProductLineLabel(line: HqProductLine | null | undefined): string {
   if (line === 'recruitment') return 'Recruitment';
@@ -87,63 +239,16 @@ export function HqProductLinePickerModal({
         </div>
 
         <div className="space-y-3 p-5">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Product line</p>
-          <div
-            role="tablist"
-            aria-label="HQ product line"
-            className="grid grid-cols-2 gap-1 rounded-xl border border-indigo-100 bg-slate-50/80 p-1"
-          >
-            {HQ_PRODUCT_LINE_OPTIONS.map((opt) => {
-              const active = selected === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setSelected(opt.id)}
-                  className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
-                    active
-                      ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {HQ_PRODUCT_LINE_OPTIONS.map((opt) => {
-              const Icon = opt.icon;
-              const active = selected === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setSelected(opt.id)}
-                  className={`rounded-xl border p-4 text-left transition ${
-                    active
-                      ? 'border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-400/30'
-                      : 'border-slate-200 bg-white hover:border-indigo-200 hover:bg-slate-50/80'
-                  }`}
-                >
-                  <div
-                    className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl ${
-                      active
-                        ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white'
-                        : 'bg-slate-100 text-slate-500'
-                    }`}
-                  >
-                    <Icon className="h-5 w-5" strokeWidth={2.2} />
-                  </div>
-                  <p className="text-sm font-bold text-slate-900">{opt.label}</p>
-                  <p className="mt-1 text-[11px] leading-snug text-slate-500">{opt.description}</p>
-                </button>
-              );
-            })}
-          </div>
+          <label htmlFor="hq-product-line-modal" className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            Product line
+          </label>
+          <HqProductLineSelect
+            id="hq-product-line-modal"
+            value={selected}
+            allowEmpty={!selected}
+            placeholder="Select CRM or Recruitment"
+            onChange={setSelected}
+          />
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
@@ -183,31 +288,12 @@ export function HqProductLineDrawerBar({ value, onChange, entityLabel }: BarProp
         <span className="hidden text-[10px] font-bold uppercase tracking-wider text-slate-400 sm:inline">
           HQ {entityLabel}
         </span>
-        <div
-          role="tablist"
-          aria-label="Switch CRM or Recruitment"
-          className="inline-flex rounded-lg border border-indigo-100 bg-slate-50 p-0.5"
-        >
-          {HQ_PRODUCT_LINE_OPTIONS.map((opt) => {
-            const active = value === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => onChange(opt.id)}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                  active
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+        <HqProductLineSelect
+          value={value}
+          onChange={onChange}
+          showHint={false}
+          className="min-w-[10rem]"
+        />
       </div>
     </div>
   );

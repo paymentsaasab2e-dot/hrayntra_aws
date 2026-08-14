@@ -28,6 +28,7 @@ import {
   type HqTenantBehaviorAnalysis,
   type HqTenantRow,
 } from '@/lib/api';
+import { DrawerTabBar } from '../drawers/DrawerTabBar';
 
 type DrawerTab = 'overview' | 'modules' | 'funnel' | 'triggers' | 'live';
 type TimelineRange = 'today' | 'week' | 'month' | 'year';
@@ -910,34 +911,17 @@ export function HqTenantBehaviorAnalyticsPanel({ tenant }: { tenant: HqTenantRow
         </div>
 
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div
-            role="tablist"
-            aria-label="Analytics sections"
-            className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
-          >
-            {DRAWER_TABS.map(({ id, label, icon: Icon }) => {
-              const active = tab === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setTab(id)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                    active ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              );
-            })}
-          </div>
+          <DrawerTabBar
+            variant="embedded"
+            ariaLabel="Analytics sections"
+            tabs={DRAWER_TABS}
+            activeId={tab}
+            onChange={setTab}
+          />
           <div
             role="tablist"
             aria-label="Analytics timeline"
-            className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
+            className="inline-flex flex-wrap gap-1 rounded-2xl bg-slate-100/95 p-1.5 ring-1 ring-slate-200/80"
           >
             {TIMELINE_RANGES.map((r) => {
               const active = range === r.id;
@@ -948,8 +932,10 @@ export function HqTenantBehaviorAnalyticsPanel({ tenant }: { tenant: HqTenantRow
                   role="tab"
                   aria-selected={active}
                   onClick={() => setRange(r.id)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                    active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+                  className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all duration-200 ${
+                    active
+                      ? 'bg-white text-indigo-700 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-100'
+                      : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900'
                   }`}
                 >
                   {r.label}

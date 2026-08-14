@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
 import { DetailsModalShell } from '../drawers/DetailsModalShell';
-import { X, Mail, Phone, MapPin, Linkedin, Edit, Trash2 } from 'lucide-react';
+import { X, Mail, Phone, MapPin, Linkedin, Edit, Trash2, LayoutGrid, Activity, MessageSquare, Briefcase, MessagesSquare } from 'lucide-react';
+import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import type { BackendContact } from '../../lib/api';
@@ -155,27 +156,20 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
 
               {/* Tabs */}
               <div className="border-t border-gray-200 pt-4">
-                <div className="flex items-center gap-1 mb-4">
-                  {[
-                    { id: 'overview', label: 'Overview' },
-                    { id: 'activity', label: 'Activity' },
-                    { id: 'communication', label: 'Communication' },
-                    { id: 'chat', label: 'Chat' },
-                    { id: 'jobs', label: 'Jobs' },
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id as any)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-lg ${
-                        activeTab === tab.id
-                          ? 'bg-blue-50 text-blue-600'
-                          : 'text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
+                <DrawerTabBar
+                  variant="embedded"
+                  className="mb-4"
+                  ariaLabel="Contact sections"
+                  tabs={[
+                    { id: 'overview', label: 'Overview', icon: LayoutGrid },
+                    { id: 'activity', label: 'Activity', icon: Activity },
+                    { id: 'communication', label: 'Communication', icon: MessageSquare },
+                    { id: 'chat', label: 'Chat', icon: MessagesSquare },
+                    { id: 'jobs', label: 'Jobs', icon: Briefcase },
+                  ]}
+                  activeId={activeTab}
+                  onChange={setActiveTab}
+                />
 
                 {/* Tab Content */}
                 <div className="mt-4">

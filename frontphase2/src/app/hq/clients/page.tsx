@@ -120,7 +120,7 @@ function mapHqCompanyToClient(row: HqCompanyApiRow | HqCompanyRow): Client {
     assignedToId: row.assignedToId || undefined,
     lastActivity: row.nextFollowUp || '—',
     updatedAt: row.createdAt || undefined,
-    logo: '',
+    logo: row.logo || '',
     companySize: row.companySize || (row.users ? String(row.users) : ''),
     hiringLocations: row.hiringLocations || '',
     servicesNeeded: row.servicesNeeded || '',
@@ -190,6 +190,7 @@ function mapHqCompanyToBackendClient(row: HqCompanyApiRow): BackendClient {
     emails: row.emails || [],
     phones: row.phones || [],
     otherDetails: row.otherDetails || [],
+    logo: row.logo || null,
   } as BackendClient;
 }
 
@@ -493,6 +494,7 @@ export default function HqClientsPage() {
                         state: patch.state || item.state,
                         emails: patch.emails || item.emails,
                         phones: patch.phones || item.phones,
+                        logo: patch.logo !== undefined ? patch.logo || '' : item.logo,
                       }
                     : item,
                 ),

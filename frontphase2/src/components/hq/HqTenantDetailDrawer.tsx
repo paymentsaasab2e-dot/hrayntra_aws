@@ -37,6 +37,7 @@ import {
 } from './hqPackagePresentation';
 import { formatDateDMY } from '@/utils/dateDisplay';
 import { DrawerCloseButton } from '../drawers/DrawerCloseButton';
+import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { HqPrimaryButton, HqSecondaryButton, HQ_SELECT_CLASS } from './hqUi';
 import { requestSuccess } from '@/lib/appDialog';
 import { HqTenantBehaviorAnalyticsPanel } from './HqTenantBehaviorDrawer';
@@ -302,33 +303,14 @@ export function HqTenantDetailDrawer({
                   <DrawerCloseButton onClick={onClose} />
                 </div>
 
-                <div
-                  role="tablist"
-                  aria-label="Tenant details"
-                  className="mt-4 inline-flex flex-wrap gap-1 rounded-xl border border-slate-200/90 bg-white/90 p-1 shadow-sm"
-                >
-                  {DETAIL_TABS.map((tab) => {
-                    const Icon = tab.icon;
-                    const active = activeTab === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                          active
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        <Icon size={14} />
-                        {tab.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <DrawerTabBar
+                  variant="embedded"
+                  className="mt-4"
+                  ariaLabel="Tenant details"
+                  tabs={DETAIL_TABS}
+                  activeId={activeTab}
+                  onChange={setActiveTab}
+                />
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">

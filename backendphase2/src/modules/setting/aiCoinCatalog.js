@@ -54,6 +54,20 @@ export const PHASE2_AI_FEATURE_CATALOG = [
     category: 'CRM',
   },
   {
+    id: 'ai.candidate_details',
+    name: 'Create candidate with AI (paste)',
+    description: 'Candidates → Create with AI: paste notes or CV text to autofill the form',
+    coins: 3,
+    category: 'Candidates',
+  },
+  {
+    id: 'ai.candidate_chat',
+    name: 'Create candidate with AI (chat)',
+    description: 'Candidates → Create with AI: each chat message while building a candidate',
+    coins: 2,
+    category: 'Candidates',
+  },
+  {
     id: 'ai.smart_search',
     name: 'Smart search parse',
     description: 'Natural-language filters on list pages',

@@ -21,8 +21,7 @@ import {
   Loader2,
   RefreshCcw,
   Link2,
-  Copy,
-  ExternalLink,
+  Share2,
   Sparkles,
   Lock,
 } from 'lucide-react';
@@ -53,6 +52,8 @@ import { AssigneeAvatars } from './AssigneeAvatars';
 import { SourceCell } from './SourceCell';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
+import { ShareLeadFormMemberModal } from '../../components/leads/ShareLeadFormMemberModal';
+import { LeadFormAccessButton } from '../../components/leads/LeadFormAccessPopup';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import PaginationAll from '../../components/PaginationAll';
 import type { Lead, LeadSource, LeadStatus, Priority } from './types';
@@ -336,6 +337,20 @@ const SelectionCheckbox = ({
 // Helper function to map backend lead to frontend format
 const VALID_LEAD_SOURCES: LeadSource[] = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'];
 
+function readIntakeAddedByName(row: Record<string, unknown> | BackendLead): string | undefined {
+  const details = Array.isArray((row as { otherDetails?: unknown }).otherDetails)
+    ? ((row as { otherDetails: Array<{ label?: string; value?: string }> }).otherDetails)
+    : [];
+  const fromDetails = details.find((item) => String(item?.label || '').trim() === '_intakeAddedBy');
+  const detailName = String(fromDetails?.value || '').trim();
+  if (detailName) return detailName;
+  if (String((row as { campaignName?: string }).campaignName || '') === 'Public intake form') {
+    const referral = String((row as { referralName?: string }).referralName || '').trim();
+    if (referral) return referral;
+  }
+  return undefined;
+}
+
 function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
   const rawSrc = backendLead.source;
   const source =
@@ -424,6 +439,11 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
         : undefined,
     agreementFreeReplacementUnit: backendLead.agreementFreeReplacementUnit || undefined,
     auditMeta: extractAuditMeta(backendLead as Record<string, unknown>),
+    addedByName:
+      readIntakeAddedByName(backendLead) ||
+      (String(backendLead.campaignName || '') === 'Public intake form'
+        ? extractAuditMeta(backendLead as Record<string, unknown>).createdBy?.name || undefined
+        : undefined),
   };
 }
 
@@ -514,7 +534,7 @@ export default function RecruitmentAgencyDashboard() {
   const [publicLeadFormLink, setPublicLeadFormLink] = useState('');
   const [publicLeadFormTenant, setPublicLeadFormTenant] = useState('');
   const [publicLeadFormLinkLoading, setPublicLeadFormLinkLoading] = useState(false);
-  const [publicLeadFormLinkCopied, setPublicLeadFormLinkCopied] = useState(false);
+  const [shareLeadFormMemberOpen, setShareLeadFormMemberOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportLeads, setExportLeads] = useState<Lead[]>([]);
   const [exportLeadsLoading, setExportLeadsLoading] = useState(false);
@@ -2049,11 +2069,15 @@ export default function RecruitmentAgencyDashboard() {
                   <p className="truncate text-xs font-semibold text-blue-900">
                     Public lead form link
                   </p>
-                  {publicLeadFormTenant ? (
-                    <p className="truncate text-[10px] text-blue-800/80">
-                      Tenant-specific · <span className="font-mono">{publicLeadFormTenant}</span>
-                    </p>
-                  ) : null}
+                  <p className="truncate text-[10px] text-blue-800/80">
+                    Share creates a member first, then emails this link
+                    {publicLeadFormTenant ? (
+                      <>
+                        {' '}
+                        · <span className="font-mono">{publicLeadFormTenant}</span>
+                      </>
+                    ) : null}
+                  </p>
                 </div>
               </div>
               <input
@@ -2070,33 +2094,13 @@ export default function RecruitmentAgencyDashboard() {
                 <button
                   type="button"
                   disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
-                  onClick={async () => {
-                    if (!publicLeadFormLink) return;
-                    try {
-                      await navigator.clipboard.writeText(publicLeadFormLink);
-                      setPublicLeadFormLinkCopied(true);
-                      toast.success('Lead form link copied');
-                      window.setTimeout(() => setPublicLeadFormLinkCopied(false), 2000);
-                    } catch {
-                      toast.error('Could not copy link');
-                    }
-                  }}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 text-[11px] font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                  onClick={() => setShareLeadFormMemberOpen(true)}
+                  className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  <Copy size={12} />
-                  {publicLeadFormLinkCopied ? 'Copied' : 'Copy'}
+                  <Share2 size={12} />
+                  Share
                 </button>
-                <a
-                  href={publicLeadFormLink || undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 text-[11px] font-medium text-blue-800 hover:bg-blue-50 ${
-                    !publicLeadFormLink ? 'pointer-events-none opacity-50' : ''
-                  }`}
-                >
-                  <ExternalLink size={12} />
-                  Open
-                </a>
+                <LeadFormAccessButton disabled={!publicLeadFormLink || publicLeadFormLinkLoading} />
               </div>
             </div>
           </div>
@@ -2967,6 +2971,11 @@ export default function RecruitmentAgencyDashboard() {
             onRestored={() => void handleRefresh({ silent: true })}
           />
         )}
+        <ShareLeadFormMemberModal
+          isOpen={shareLeadFormMemberOpen}
+          onClose={() => setShareLeadFormMemberOpen(false)}
+          formUrl={publicLeadFormLink}
+        />
       </main>
     </div>
   );

@@ -1,7 +1,19 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { CalendarDays, ImagePlus, Loader2, Pencil, Plus, Trash2, Users, X, Ban } from 'lucide-react';
+import {
+  CalendarDays,
+  Coins,
+  ImagePlus,
+  Loader2,
+  MapPin,
+  Pencil,
+  Plus,
+  Trash2,
+  Users,
+  X,
+  Ban,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import type {
   CreatePortalEventPayload,
@@ -11,7 +23,11 @@ import type {
   PortalEventSection,
   UpdatePortalEventPayload,
 } from '@/lib/portal-events-api';
-import { PORTAL_EVENT_MEDIA_MAX_BYTES, PORTAL_EVENT_MEDIA_MAX_COUNT } from '@/lib/portal-events-api';
+import {
+  EVENT_CTA_PRESETS,
+  PORTAL_EVENT_MEDIA_MAX_BYTES,
+  PORTAL_EVENT_MEDIA_MAX_COUNT,
+} from '@/lib/portal-events-api';
 import {
   Ph2ModulePageLayout,
   PH2_TABLE_BODY_SCROLL_CLASS,
@@ -69,6 +85,7 @@ function eventFormFromRow(event: PortalEventRow) {
         }))
       : [emptySection(1)];
 
+  const accessType = event.accessType === 'purchase' || Number(event.tokenCost) > 0 ? 'purchase' : 'free';
   return {
     title: event.title || '',
     description: event.description || '',
@@ -76,12 +93,19 @@ function eventFormFromRow(event: PortalEventRow) {
     scheduledAt: toDatetimeLocalValue(event.scheduledAt),
     sections,
     media: Array.isArray(event.media) ? event.media : [],
+    accessType,
+    tokenCost: String(accessType === 'free' ? 0 : event.tokenCost || 0),
+    ctaLabel: event.ctaLabel || 'Join',
   };
 }
 
 function isCancelled(event: PortalEventRow) {
   return String(event.status || 'active') === 'cancelled';
 }
+
+const EVENT_FIELD_CLASS =
+  'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 disabled:bg-slate-50 disabled:text-slate-400';
+const EVENT_LABEL_CLASS = 'mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-slate-400';
 
 export function PortalEventsManager({
   title,
@@ -113,6 +137,9 @@ export function PortalEventsManager({
     scheduledAt: '',
     sections: [emptySection(1)],
     media: [] as PortalEventMediaItem[],
+    accessType: 'free' as 'free' | 'purchase',
+    tokenCost: '0',
+    ctaLabel: 'Join',
   });
 
   const loadEvents = useCallback(async () => {
@@ -139,6 +166,9 @@ export function PortalEventsManager({
       scheduledAt: '',
       sections: [emptySection(1)],
       media: [],
+      accessType: 'free',
+      tokenCost: '0',
+      ctaLabel: 'Join',
     });
     setEditingEvent(null);
   }
@@ -165,6 +195,13 @@ export function PortalEventsManager({
       return;
     }
 
+    const accessType = form.accessType === 'purchase' ? 'purchase' : 'free';
+    const tokenCost = accessType === 'free' ? 0 : Math.max(0, Math.floor(Number(form.tokenCost) || 0));
+    if (accessType === 'purchase' && tokenCost <= 0) {
+      toast.error('Enter how many tokens candidates need to join this event.');
+      return;
+    }
+
     const payload: CreatePortalEventPayload = {
       title: form.title.trim(),
       description: form.description.trim(),
@@ -173,6 +210,9 @@ export function PortalEventsManager({
       sections: form.sections.filter((s) => s.title.trim() || s.content.trim()),
       media: form.media,
       isPublished: true,
+      accessType,
+      tokenCost,
+      ctaLabel: form.ctaLabel.trim() || 'Join',
     };
 
     setSaving(true);
@@ -333,6 +373,7 @@ export function PortalEventsManager({
               <tr>
                 <th className="px-4 py-3 font-semibold">Event</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Access</th>
                 <th className="px-4 py-3 font-semibold">Location</th>
                 <th className="px-4 py-3 font-semibold">Date</th>
                 <th className="px-4 py-3 font-semibold">Applicants</th>
@@ -357,6 +398,17 @@ export function PortalEventsManager({
                       ) : (
                         <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                           Active
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-4">
+                      {event.accessType === 'purchase' || Number(event.tokenCost) > 0 ? (
+                        <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                          {Number(event.tokenCost) || 0} tokens
+                        </span>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                          Free
                         </span>
                       )}
                     </td>
@@ -425,65 +477,210 @@ export function PortalEventsManager({
   const modals = (
     <>
       {formOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-              <h2 className="text-lg font-bold text-slate-900">
-                {editingEvent ? 'Edit event' : 'Create event'}
-              </h2>
-              <button type="button" onClick={closeFormModal} className="rounded-lg p-2 hover:bg-slate-100">
-                <X className="h-5 w-5" />
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]"
+            aria-label="Close"
+            onClick={closeFormModal}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="portal-event-modal-title"
+            className="relative z-10 flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div>
+                <h2 id="portal-event-modal-title" className="text-base font-bold text-slate-900">
+                  {editingEvent ? 'Edit event' : 'Create event'}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Published to the candidate portal. Choose free access or a token price.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeFormModal}
+                disabled={saving}
+                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                aria-label="Close dialog"
+              >
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="space-y-4 px-6 py-5">
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Title</span>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              <div>
+                <label className={EVENT_LABEL_CLASS}>
+                  Title <span className="text-rose-500">*</span>
+                </label>
                 <input
                   value={form.title}
                   onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                  placeholder="Event title"
+                  className={EVENT_FIELD_CLASS}
+                  placeholder="e.g. Career workshop · React hiring day"
                 />
-              </label>
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Description</span>
+              </div>
+
+              <div>
+                <label className={EVENT_LABEL_CLASS}>
+                  Description <span className="text-rose-500">*</span>
+                </label>
                 <textarea
                   value={form.description}
                   onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-                  rows={4}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                  placeholder="What is this event about?"
+                  rows={3}
+                  className={`${EVENT_FIELD_CLASS} resize-none`}
+                  placeholder="What should candidates know about this event?"
                 />
-              </label>
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Location</span>
-                <input
-                  value={form.location}
-                  onChange={(e) => setForm((prev) => ({ ...prev, location: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                  placeholder="City, venue, or online link"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Date & time</span>
-                <input
-                  type="datetime-local"
-                  value={form.scheduledAt}
-                  onChange={(e) => setForm((prev) => ({ ...prev, scheduledAt: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                />
-              </label>
+              </div>
 
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    Photos & videos
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className={EVENT_LABEL_CLASS}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5" />
+                      Location <span className="text-rose-500">*</span>
+                    </span>
+                  </label>
+                  <input
+                    value={form.location}
+                    onChange={(e) => setForm((prev) => ({ ...prev, location: e.target.value }))}
+                    className={EVENT_FIELD_CLASS}
+                    placeholder="City, venue, or online link"
+                  />
+                </div>
+                <div>
+                  <label className={EVENT_LABEL_CLASS}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      Date & time <span className="text-rose-500">*</span>
+                    </span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={form.scheduledAt}
+                    onChange={(e) => setForm((prev) => ({ ...prev, scheduledAt: e.target.value }))}
+                    className={EVENT_FIELD_CLASS}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
+                <label className={EVENT_LABEL_CLASS}>Access</label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, accessType: 'free', tokenCost: '0' }))}
+                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                      form.accessType === 'free'
+                        ? 'border-emerald-300 bg-white ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-slate-900">Free</p>
+                    <p className="mt-0.5 text-xs text-slate-500">Anyone can join</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        accessType: 'purchase',
+                        tokenCost: prev.tokenCost === '0' ? '' : prev.tokenCost,
+                      }))
+                    }
+                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                      form.accessType === 'purchase'
+                        ? 'border-amber-300 bg-white ring-2 ring-amber-500/20'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-slate-900">Purchase</p>
+                    <p className="mt-0.5 text-xs text-slate-500">Tokens required to join</p>
+                  </button>
+                </div>
+                {form.accessType === 'purchase' ? (
+                  <div className="mt-3">
+                    <label className={EVENT_LABEL_CLASS}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Coins className="h-3.5 w-3.5" />
+                        Token cost <span className="text-rose-500">*</span>
+                      </span>
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={form.tokenCost}
+                      onChange={(e) => setForm((prev) => ({ ...prev, tokenCost: e.target.value }))}
+                      className={EVENT_FIELD_CLASS}
+                      placeholder="e.g. 25"
+                    />
+                    <p className="mt-1.5 text-[11px] text-slate-500">
+                      Deducted from the candidate wallet and credited to your account.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-[11px] text-slate-500">
+                    Candidates can register without spending tokens.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
+                <label className={EVENT_LABEL_CLASS}>Button CTA</label>
+                <p className="mb-2 text-[11px] text-slate-500">
+                  Phase 1 candidates see this text on the event button. Pick a preset or type your own.
+                </p>
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {EVENT_CTA_PRESETS.map((preset) => {
+                    const active = form.ctaLabel.trim().toLowerCase() === preset.toLowerCase();
+                    return (
+                      <button
+                        type="button"
+                        key={preset}
+                        onClick={() => setForm((prev) => ({ ...prev, ctaLabel: preset }))}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                          active
+                            ? 'border-indigo-300 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-500/20'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  value={form.ctaLabel}
+                  onChange={(e) => setForm((prev) => ({ ...prev, ctaLabel: e.target.value }))}
+                  className={EVENT_FIELD_CLASS}
+                  placeholder="e.g. Learn, Apply, Join…"
+                  maxLength={32}
+                />
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Preview:{' '}
+                  <span className="ml-1 inline-flex rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white">
+                    {form.ctaLabel.trim() || 'Join'}
+                    {form.accessType === 'purchase' && Number(form.tokenCost) > 0
+                      ? ` · ${form.tokenCost} tokens`
+                      : ''}
                   </span>
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    <ImagePlus className="h-3.5 w-3.5" />
+                    Photos & videos
+                  </label>
                   <span className="text-[11px] font-medium text-slate-400">Max 5 MB each</span>
                 </div>
                 {uploadMedia ? (
                   <div className="space-y-3">
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-indigo-200 bg-indigo-50/30 px-4 py-6 text-center transition hover:border-indigo-300 hover:bg-indigo-50/50">
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-indigo-200 bg-white px-4 py-6 text-center transition hover:border-indigo-300 hover:bg-indigo-50/40">
                       <input
                         type="file"
                         accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
@@ -500,9 +697,7 @@ export function PortalEventsManager({
                       ) : (
                         <ImagePlus className="h-6 w-6 text-indigo-500" />
                       )}
-                      <p className="mt-2 text-sm font-semibold text-slate-700">
-                        Upload images or videos
-                      </p>
+                      <p className="mt-2 text-sm font-semibold text-slate-700">Upload images or videos</p>
                       <p className="mt-1 text-xs text-slate-500">
                         JPG, PNG, WEBP, GIF, MP4, WEBM, MOV · up to {PORTAL_EVENT_MEDIA_MAX_COUNT} files
                       </p>
@@ -513,7 +708,7 @@ export function PortalEventsManager({
                         {form.media.map((item) => (
                           <div
                             key={item.id}
-                            className="group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                            className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white"
                           >
                             {item.type === 'video' ? (
                               <video
@@ -525,7 +720,11 @@ export function PortalEventsManager({
                               />
                             ) : (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={item.url} alt={item.name || 'Event media'} className="h-28 w-full object-cover" />
+                              <img
+                                src={item.url}
+                                alt={item.name || 'Event media'}
+                                className="h-28 w-full object-cover"
+                              />
                             )}
                             <button
                               type="button"
@@ -546,7 +745,7 @@ export function PortalEventsManager({
                     ) : null}
                   </div>
                 ) : (
-                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  <p className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
                     Media upload is unavailable in this view.
                   </p>
                 )}
@@ -554,7 +753,9 @@ export function PortalEventsManager({
 
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Sections</span>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Sections
+                  </label>
                   <button
                     type="button"
                     onClick={() =>
@@ -563,14 +764,35 @@ export function PortalEventsManager({
                         sections: [...prev.sections, emptySection(prev.sections.length + 1)],
                       }))
                     }
-                    className="text-xs font-semibold text-indigo-600"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
                   >
-                    + Add section
+                    <Plus className="h-3.5 w-3.5" />
+                    Add section
                   </button>
                 </div>
                 <div className="space-y-3">
                   {form.sections.map((section, index) => (
-                    <div key={section.id} className="rounded-xl border border-slate-200 p-3">
+                    <div key={section.id} className="rounded-xl border border-slate-200 bg-white p-3.5">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          Section {index + 1}
+                        </p>
+                        {form.sections.length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setForm((prev) => ({
+                                ...prev,
+                                sections: prev.sections.filter((_, i) => i !== index),
+                              }))
+                            }
+                            className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                            title="Remove section"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                      </div>
                       <input
                         value={section.title}
                         onChange={(e) =>
@@ -581,7 +803,7 @@ export function PortalEventsManager({
                             ),
                           }))
                         }
-                        className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        className={`${EVENT_FIELD_CLASS} mb-2`}
                         placeholder="Section title"
                       />
                       <textarea
@@ -595,7 +817,7 @@ export function PortalEventsManager({
                           }))
                         }
                         rows={3}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        className={`${EVENT_FIELD_CLASS} resize-none`}
                         placeholder="Section content"
                       />
                     </div>
@@ -603,20 +825,23 @@ export function PortalEventsManager({
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+
+            <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-4">
               <button
                 type="button"
                 onClick={closeFormModal}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                disabled={saving}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
               >
-                Close
+                Cancel
               </button>
               <button
                 type="button"
                 disabled={saving}
                 onClick={() => void handleSave()}
-                className="rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 disabled:opacity-60"
               >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {saving
                   ? editingEvent
                     ? 'Saving…'
@@ -631,12 +856,25 @@ export function PortalEventsManager({
       ) : null}
 
       {selectedEventId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]"
+            aria-label="Close"
+            onClick={() => {
+              setSelectedEventId(null);
+              setRegistrations([]);
+            }}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Event applicants</h2>
-                <p className="text-xs text-slate-500">Only visible to the user who created this event</p>
+                <h2 className="text-base font-bold text-slate-900">Event applicants</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Only visible to the organizer of this event</p>
               </div>
               <button
                 type="button"
@@ -644,9 +882,10 @@ export function PortalEventsManager({
                   setSelectedEventId(null);
                   setRegistrations([]);
                 }}
-                className="rounded-lg p-2 hover:bg-slate-100"
+                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close dialog"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
             {registrationsLoading ? (
@@ -656,9 +895,9 @@ export function PortalEventsManager({
             ) : registrations.length === 0 ? (
               <div className="px-6 py-16 text-center text-sm text-slate-500">No applicants yet.</div>
             ) : (
-              <div className="overflow-x-auto px-2 py-2">
+              <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase tracking-wider text-slate-500">
+                  <thead className="sticky top-0 bg-white text-xs uppercase tracking-wider text-slate-500">
                     <tr>
                       <th className="px-4 py-2">Name</th>
                       <th className="px-4 py-2">Email</th>
@@ -731,7 +970,7 @@ export function PortalEventsManager({
         <button
           type="button"
           onClick={openCreateModal}
-          className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"
+          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700"
         >
           <Plus className="h-4 w-4" />
           Create event

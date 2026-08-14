@@ -2,6 +2,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
 
 const EMPLOYER_DEMO_COLLECTION = 'employer_demo_requests';
+const HQ_DEMO_COLLECTION = 'hq_employer_demo_requests';
 const TRIAL_PACKAGE_DAYS = 5;
 
 function isoDateFrom(value) {
@@ -30,34 +31,73 @@ function inferTrialEndsAt(doc, start) {
   return d.toISOString().slice(0, 10);
 }
 
-let cachedClient = null;
+let portalClient = null;
+let hqClient = null;
 
 function portalDatabaseUrl() {
   return String(env.JOB_PORTAL_DATABASE_URL || env.DATABASE_URL || '').trim();
 }
 
-function portalDbName() {
-  const url = portalDatabaseUrl();
-  if (!url) return 'jobportal';
+function hqDatabaseUrl() {
+  return String(env.HEADQUARTERS_DATABASE_URL || '').trim();
+}
+
+function databaseNameFromUrl(url, fallback) {
+  if (!url) return fallback;
   try {
-    return new URL(url).pathname.replace(/^\//, '') || 'jobportal';
+    return new URL(url).pathname.replace(/^\//, '') || fallback;
   } catch {
-    return 'jobportal';
+    return fallback;
   }
 }
 
-async function getCollection() {
+function portalDbName() {
+  return databaseNameFromUrl(portalDatabaseUrl(), 'jobportal');
+}
+
+function hqDbName() {
+  return databaseNameFromUrl(hqDatabaseUrl(), 'headquarters');
+}
+
+async function getPortalCollection() {
   const url = portalDatabaseUrl();
+  if (!url) return null;
+  if (!portalClient) {
+    portalClient = new MongoClient(url);
+    await portalClient.connect();
+  }
+  return portalClient.db().collection(EMPLOYER_DEMO_COLLECTION);
+}
+
+async function getHqCollection() {
+  const url = hqDatabaseUrl();
   if (!url) {
-    throw new Error('JOB_PORTAL_DATABASE_URL is not configured');
+    throw new Error('HEADQUARTERS_DATABASE_URL is not configured');
   }
-
-  if (!cachedClient) {
-    cachedClient = new MongoClient(url);
-    await cachedClient.connect();
+  if (!hqClient) {
+    hqClient = new MongoClient(url);
+    await hqClient.connect();
   }
+  return hqClient.db().collection(HQ_DEMO_COLLECTION);
+}
 
-  return cachedClient.db().collection(EMPLOYER_DEMO_COLLECTION);
+async function syncPortalDemosIntoHq() {
+  const portal = await getPortalCollection();
+  if (!portal) return;
+  const hq = await getHqCollection();
+  const docs = await portal.find({}).sort({ createdAt: -1 }).limit(500).toArray();
+  if (!docs.length) return;
+  const now = new Date();
+  await hq.bulkWrite(
+    docs.map((doc) => ({
+      replaceOne: {
+        filter: { _id: doc._id },
+        replacement: { ...doc, mirroredFrom: 'job_portal', mirroredAt: now },
+        upsert: true,
+      },
+    })),
+    { ordered: false },
+  );
 }
 
 function parsePurchaseOutcome(outcome) {
@@ -156,13 +196,59 @@ function computeStats(rows) {
   };
 }
 
+function dualWriteDemoCollection(portalCol, hqCol) {
+  return {
+    find: (...args) => (portalCol || hqCol).find(...args),
+    findOne: async (...args) => {
+      const fromPortal = portalCol ? await portalCol.findOne(...args) : null;
+      if (fromPortal) return fromPortal;
+      return hqCol.findOne(...args);
+    },
+    updateOne: async (filter, update, options) => {
+      const hqResult = await hqCol.updateOne(filter, update, { ...(options || {}), upsert: true });
+      if (portalCol) {
+        try {
+          await portalCol.updateOne(filter, update, options);
+        } catch (error) {
+          console.warn('[hq-demos] portal update skipped:', error?.message || error);
+        }
+      }
+      return hqResult;
+    },
+    deleteOne: async (filter) => {
+      const hqResult = await hqCol.deleteOne(filter);
+      if (portalCol) {
+        try {
+          await portalCol.deleteOne(filter);
+        } catch (error) {
+          console.warn('[hq-demos] portal delete skipped:', error?.message || error);
+        }
+      }
+      return hqResult;
+    },
+  };
+}
+
 export const hqDemosService = {
   async getRawCollection() {
-    return getCollection();
+    try {
+      await syncPortalDemosIntoHq();
+    } catch (error) {
+      console.warn('[hq-demos] portal sync skipped:', error?.message || error);
+    }
+    const hq = await getHqCollection();
+    const portal = await getPortalCollection().catch(() => null);
+    return dualWriteDemoCollection(portal, hq);
   },
 
   async listDemoRequests() {
-    const collection = await getCollection();
+    try {
+      await syncPortalDemosIntoHq();
+    } catch (error) {
+      console.warn('[hq-demos] portal sync skipped:', error?.message || error);
+    }
+
+    const collection = await getHqCollection();
     const docs = await collection.find({}).sort({ createdAt: -1 }).limit(500).toArray();
     const demos = docs.map(toDemoRow);
     return {
@@ -170,8 +256,12 @@ export const hqDemosService = {
       stats: computeStats(demos),
       storage: {
         engine: 'mongodb',
-        database: portalDbName(),
-        collection: EMPLOYER_DEMO_COLLECTION,
+        database: hqDbName(),
+        collection: HQ_DEMO_COLLECTION,
+        mirroredFrom: {
+          database: portalDbName(),
+          collection: EMPLOYER_DEMO_COLLECTION,
+        },
       },
     };
   },
@@ -181,10 +271,22 @@ export const hqDemosService = {
       throw new Error('Invalid demo request id');
     }
 
-    const collection = await getCollection();
     const objectId = new ObjectId(id);
-    const result = await collection.deleteOne({ _id: objectId });
-    if (!result.deletedCount) {
+    const hq = await getHqCollection();
+    const hqResult = await hq.deleteOne({ _id: objectId });
+
+    let portalDeleted = 0;
+    try {
+      const portal = await getPortalCollection();
+      if (portal) {
+        const portalResult = await portal.deleteOne({ _id: objectId });
+        portalDeleted = portalResult.deletedCount || 0;
+      }
+    } catch (error) {
+      console.warn('[hq-demos] portal delete skipped:', error?.message || error);
+    }
+
+    if (!hqResult.deletedCount && !portalDeleted) {
       throw new Error('Demo request not found');
     }
 
@@ -193,8 +295,8 @@ export const hqDemosService = {
       id,
       storage: {
         engine: 'mongodb',
-        database: portalDbName(),
-        collection: EMPLOYER_DEMO_COLLECTION,
+        database: hqDbName(),
+        collection: HQ_DEMO_COLLECTION,
       },
     };
   },

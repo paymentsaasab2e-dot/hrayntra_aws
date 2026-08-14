@@ -6,6 +6,7 @@ import {
   useBulkCvLeaveGuardRegistration,
 } from '../../contexts/BulkCvLeaveGuardContext';
 import { createPortal } from 'react-dom';
+import { motion } from 'motion/react';
 import {
   AlertCircle,
   Check,
@@ -16,10 +17,13 @@ import {
   FileText,
   Loader2,
   Plus,
+  Sparkles,
   StopCircle,
   Upload,
   UserRound,
   X,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -67,6 +71,8 @@ import {
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
 import { addFailedBulkResumeRecords, removeFailedBulkResumesByFileName } from '@/lib/failedBulkResumesStore';
 import { AddCandidateFormSections, CANDIDATE_FORM_STEPS, CandidatePhotoUpload } from './AddCandidateFormSections';
+import { CandidateAiChatDrawer } from './CandidateAiChatDrawer';
+import { CANDIDATE_AI_STRING_KEYS } from '@/lib/candidateAiHelpers';
 import { ResumeUploadReadyCard } from './ResumeUploadReadyCard';
 import {
   appendBulkCvTokenRecord,
@@ -194,7 +200,7 @@ const DRAWER_TITLES = {
 };
 
 const DRAWER_DESCRIPTIONS = {
-  manual: 'Create a candidate profile manually.',
+  manual: 'Fill personal, education, and professional details, then create.',
   resume: 'Upload a resume and let the parser fill the form.',
   csv: 'Import candidates from a CSV file.',
   bulkResume: 'Create candidates from multiple resume files.',
@@ -437,26 +443,6 @@ function DrawerInput({
   );
 }
 
-function PillButton({ active, children, onClick, tone = 'blue' }) {
-  const toneClasses = {
-    blue: active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200',
-    red: active ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-600 border-slate-200',
-    amber: active ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-200',
-    green: active ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200',
-    slate: active ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200',
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${toneClasses[tone]}`}
-    >
-      {children}
-    </button>
-  );
-}
-
 function SearchableDropdown({
   label,
   value,
@@ -642,34 +628,93 @@ function TagInput({
 
 function StepProgress({ currentStep }) {
   const steps = CANDIDATE_FORM_STEPS;
+  const stepIndex = Math.max(0, steps.findIndex((step) => step.id === currentStep));
 
   return (
-    <div className="mb-6 flex items-center justify-between gap-2">
-      {steps.map((step, index) => {
-        const complete = currentStep > step.id;
-        const current = currentStep === step.id;
-        return (
-          <React.Fragment key={step.id}>
-            <div className="flex items-center gap-2">
+    <div className="mb-6">
+      <div className="flex items-center gap-2">
+        {steps.map((step, index) => {
+          const complete = currentStep > step.id;
+          const current = currentStep === step.id;
+          return (
+            <div key={step.id} className="flex min-w-0 flex-1 items-center gap-2">
               <div
-                className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold ${
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[0.7rem] font-bold transition-all ${
                   complete
-                    ? 'border-blue-600 bg-blue-600 text-white'
+                    ? 'bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/30'
                     : current
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-slate-300 bg-white text-slate-400'
+                      ? 'bg-[#2098C8] text-white shadow-lg shadow-[#2098C8]/30 ring-4 ring-[#2098C8]/25'
+                      : 'bg-slate-100 text-slate-400 ring-1 ring-slate-200'
                 }`}
+                title={step.label}
               >
                 {complete ? <Check size={14} /> : step.id}
               </div>
-              <span className={`hidden text-xs font-medium sm:inline sm:text-sm ${current || complete ? 'text-slate-900' : 'text-slate-400'}`}>
+              <span
+                className={`hidden min-w-0 truncate text-xs font-semibold sm:block ${
+                  current ? 'text-slate-900' : complete ? 'text-[#2098C8]' : 'text-slate-400'
+                }`}
+              >
                 {step.label}
               </span>
+              {index < steps.length - 1 ? (
+                <div
+                  className={`h-1.5 min-w-[6px] flex-1 rounded-full ${
+                    complete
+                      ? 'bg-[#2098C8]'
+                      : current
+                        ? 'bg-gradient-to-r from-[#2098C8] to-slate-200'
+                        : 'bg-slate-200/90'
+                  }`}
+                />
+              ) : null}
             </div>
-            {index < steps.length - 1 ? <div className="h-px flex-1 bg-slate-200" /> : null}
-          </React.Fragment>
-        );
-      })}
+          );
+        })}
+      </div>
+      <p className="mt-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
+        Step {stepIndex + 1} of {steps.length} · {steps[stepIndex]?.label}
+      </p>
+    </div>
+  );
+}
+
+function AddCandidateAiFlowProgress({ stage }) {
+  const steps = [
+    { id: 'chat', label: 'Chat with AI' },
+    { id: 'form', label: 'Review form' },
+  ];
+  const activeIndex = stage === 'chat' ? 0 : 1;
+
+  return (
+    <div className="shrink-0 border-b border-indigo-100/80 bg-white/90 px-6 py-3">
+      <div className="flex items-center gap-1 rounded-2xl bg-white/80 p-1 shadow-[0_8px_24px_-16px_rgba(79,70,229,0.45)] ring-1 ring-indigo-100/80">
+        {steps.map((step, i) => {
+          const done = i < activeIndex;
+          const active = i === activeIndex;
+          return (
+            <div
+              key={step.id}
+              className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+                active
+                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                  : done
+                    ? 'text-indigo-700'
+                    : 'text-slate-400'
+              }`}
+            >
+              <span
+                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                  active ? 'bg-white/20 text-white' : done ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'
+                }`}
+              >
+                {done ? <Check className="h-3 w-3" /> : i + 1}
+              </span>
+              <span className="truncate">{step.label}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -688,11 +733,15 @@ function AddCandidateDrawerInner({
   onBulkRetryFileConsumed,
   /** Inline bulk CV panel (e.g. /demoAi) — same parse pipeline, no drawer overlay. */
   embeddedBulkCv = false,
+  /** Open Create with AI chat first, then continue to the review form. */
+  createWithAi = false,
 }) {
   usePageDrawerLifecycle(isOpen);
   const drawerActive = isOpen || embeddedBulkCv;
   const [portalMounted, setPortalMounted] = useState(false);
   const [activeTab, setActiveTab] = useState(embeddedBulkCv ? 'bulkResume' : initialTab);
+  const [aiFlowStage, setAiFlowStage] = useState(null);
+  const [candidateAiChatHistory, setCandidateAiChatHistory] = useState([]);
 
   useEffect(() => {
     setPortalMounted(true);
@@ -865,6 +914,19 @@ function AddCandidateDrawerInner({
     }
     setActiveTab(initialTab || 'manual');
   }, [initialTab, drawerActive, embeddedBulkCv]);
+
+  useEffect(() => {
+    if (!drawerActive) {
+      setAiFlowStage(null);
+      setCandidateAiChatHistory([]);
+      return;
+    }
+    if (createWithAi && !embeddedBulkCv && (initialTab || 'manual') === 'manual') {
+      setAiFlowStage((prev) => prev || 'chat');
+      return;
+    }
+    setAiFlowStage(null);
+  }, [drawerActive, createWithAi, initialTab, embeddedBulkCv]);
 
   useEffect(() => {
     if (!drawerActive || !pendingBulkRetryFile) return;
@@ -1115,6 +1177,12 @@ function AddCandidateDrawerInner({
 
   const updateFormData = (name, value) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
+    setAutoFilledFields((prev) => {
+      if (!prev[name]) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
     setErrors((prev) => {
       if (!prev[name]) return prev;
       const next = { ...prev };
@@ -1122,6 +1190,25 @@ function AddCandidateDrawerInner({
       return next;
     });
     setInlineSuccess('');
+  };
+
+  const applyCandidateAiPatch = (generated) => {
+    if (!generated || typeof generated !== 'object') return;
+    setFormData((prev) => {
+      const next = { ...prev };
+      CANDIDATE_AI_STRING_KEYS.forEach((key) => {
+        const val = generated[key];
+        if (val != null && String(val).trim()) next[key] = String(val).trim();
+      });
+      if (Array.isArray(generated.skills) && generated.skills.length) {
+        next.skills = generated.skills.map((item) => String(item).trim()).filter(Boolean);
+      }
+      if (!String(next.location || '').trim() && next.cityState) {
+        next.location = next.cityState;
+      }
+      return next;
+    });
+    setAutoFilledFields((prev) => ({ ...prev, ...normalizeAutoFilledFields(generated) }));
   };
 
   const scrollToField = (fieldName) => {
@@ -2836,71 +2923,180 @@ function AddCandidateDrawerInner({
 
   if (!drawerActive) return null;
 
+  const showAiChatStage = Boolean(!embeddedBulkCv && activeTab === 'manual' && aiFlowStage === 'chat');
+  const showAiFormStage = Boolean(!embeddedBulkCv && activeTab === 'manual' && aiFlowStage === 'form');
+  const isCenteredPopup = Boolean(!embeddedBulkCv && activeTab === 'manual');
+
   const embeddedShellClass =
     'relative mb-6 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm';
-  const drawerPanelClass = `relative z-10 flex w-full flex-col overflow-hidden bg-white shadow-2xl transition-transform duration-300 ease-out
-    h-[92vh] max-h-[92vh] rounded-t-2xl border-t border-slate-200
-    sm:h-full sm:max-h-none sm:w-[min(100vw,520px)] sm:shrink-0 sm:rounded-none sm:border-t-0 sm:border-l sm:border-slate-200
+  const drawerPanelClass = isCenteredPopup
+    ? 'relative z-10 flex h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border-0 bg-white shadow-[0_40px_120px_-24px_rgba(15,23,42,0.45)] ring-1 ring-white/70'
+    : `relative z-10 flex w-full flex-col overflow-hidden bg-white shadow-2xl transition-transform duration-300 ease-out
+    h-[92vh] max-h-[92vh] rounded-t-[1.5rem] border-t border-slate-200
+    sm:h-full sm:max-h-none sm:w-[min(100vw,560px)] sm:shrink-0 sm:rounded-none sm:border-t-0 sm:border-l sm:border-slate-200
     ${isOpen ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-y-0 sm:translate-x-full'}`;
 
   const drawerBody = (
     <div className={embeddedBulkCv ? embeddedShellClass : drawerPanelClass}>
+        {isCenteredPopup ? (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_at_top_right,_rgba(32,152,200,0.18),_transparent_55%),radial-gradient(ellipse_at_top_left,_rgba(32,152,200,0.12),_transparent_50%)]" />
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.4]"
+              style={{
+                backgroundImage: 'radial-gradient(rgba(15,23,42,0.055) 1px, transparent 1px)',
+                backgroundSize: '18px 18px',
+                maskImage: 'linear-gradient(to bottom, black 0%, transparent 40%)',
+              }}
+              aria-hidden
+            />
+          </>
+        ) : null}
         <div
-          className={`flex items-center justify-between border-b border-slate-200 ${embeddedBulkCv ? 'px-5 py-4' : 'px-6 py-4'}`}
+          className={`relative flex items-center justify-between gap-3 border-b ${
+            isCenteredPopup
+              ? 'border-[#2098C8]/20 px-5 pb-4 pt-5 sm:px-7 sm:pt-6'
+              : `border-slate-200/90 bg-gradient-to-r from-white via-indigo-50/40 to-white ${embeddedBulkCv ? 'px-5 py-4' : 'px-6 py-4'}`
+          }`}
         >
-          <div>
-            <h2 className="text-base font-medium text-slate-900">
-              {embeddedBulkCv ? 'Bulk CV upload' : drawerTitle}
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {embeddedBulkCv
-                ? 'Same parsing pipeline as Candidates — upload files, ZIP, or folders; token usage appears below.'
-                : drawerDescription}
-            </p>
-            {inlineSuccess ? <p className="mt-1 text-xs font-medium text-emerald-600">{inlineSuccess}</p> : null}
-            {isBulkResumeBusy ? (
-              <p className="mt-1 text-xs font-medium text-blue-600">
-                Parsing in progress — leaving or closing will show a confirmation to stop parsing.
-              </p>
-            ) : null}
+          <div className="flex min-w-0 items-center gap-3">
+            {isCenteredPopup ? (
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-2 rounded-full border border-[#2098C8]/35 bg-[#E8F6FC] px-3 py-1 shadow-sm shadow-[#2098C8]/10">
+                  <span className="relative flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm ring-1 ring-[#2098C8]/25">
+                    {showAiChatStage ? <Sparkles size={14} className="text-[#2098C8]" /> : <UserRound size={14} className="text-[#2098C8]" />}
+                  </span>
+                  <span className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-[#176F96]">
+                    {showAiChatStage ? 'AI candidate creation' : 'Create candidate'}
+                  </span>
+                </div>
+                <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[1.7rem]">
+                  {showAiChatStage
+                    ? 'Chat with AI'
+                    : showAiFormStage
+                      ? 'Review candidate'
+                      : drawerTitle}
+                </h2>
+                <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-500">
+                  {showAiChatStage
+                    ? 'Chat, paste notes, or upload a resume, then continue to review the filled form.'
+                    : showAiFormStage
+                      ? 'Review AI-filled fields, then create the candidate.'
+                      : drawerDescription}
+                </p>
+                {inlineSuccess ? <p className="mt-2 text-xs font-medium text-emerald-600">{inlineSuccess}</p> : null}
+              </div>
+            ) : (
+              <>
+                <div
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg ${
+                    showAiChatStage || showAiFormStage
+                      ? 'bg-gradient-to-br from-indigo-600 to-violet-600 shadow-indigo-500/25'
+                      : 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-blue-500/25'
+                  }`}
+                >
+                  {showAiChatStage || showAiFormStage ? <Sparkles size={20} /> : <UserRound size={20} />}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold tracking-tight text-slate-900">
+                    {embeddedBulkCv
+                      ? 'Bulk CV upload'
+                      : showAiChatStage
+                        ? 'Create with AI'
+                        : showAiFormStage
+                          ? 'Review candidate'
+                          : drawerTitle}
+                  </h2>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {embeddedBulkCv
+                      ? 'Same parsing pipeline as Candidates — upload files, ZIP, or folders; token usage appears below.'
+                      : showAiChatStage
+                        ? 'Chat, paste notes, or upload a resume, then continue to review the filled form.'
+                        : showAiFormStage
+                          ? 'Review AI-filled fields, then create the candidate.'
+                          : drawerDescription}
+                  </p>
+                  {inlineSuccess ? <p className="mt-1 text-xs font-medium text-emerald-600">{inlineSuccess}</p> : null}
+                  {isBulkResumeBusy ? (
+                    <p className="mt-1 text-xs font-medium text-blue-600">
+                      Parsing in progress — leaving or closing will show a confirmation to stop parsing.
+                    </p>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
           {!embeddedBulkCv ? (
             <button
               type="button"
               onClick={handleDrawerClose}
               title={isBulkResumeBusy ? 'Stop parsing or confirm close' : 'Close'}
-              className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              className="rounded-full border border-slate-200/90 bg-white/90 p-2 text-slate-400 shadow-sm transition hover:border-slate-300 hover:text-slate-700"
             >
               <X size={18} />
             </button>
           ) : null}
         </div>
 
+        {showAiChatStage || showAiFormStage ? <AddCandidateAiFlowProgress stage={aiFlowStage} /> : null}
+
         <div
           ref={formScrollRef}
           className={
-            embeddedBulkCv
-              ? 'max-h-[min(70vh,640px)] overflow-y-auto px-5 py-5'
-              : 'flex-1 overflow-y-auto px-6 py-5'
+            showAiChatStage
+              ? 'relative flex min-h-0 flex-1 flex-col overflow-hidden'
+              : embeddedBulkCv
+                ? 'max-h-[min(70vh,640px)] overflow-y-auto px-5 py-5'
+                : isCenteredPopup
+                  ? 'relative min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7'
+                  : 'flex-1 overflow-y-auto px-6 py-5'
           }
         >
-          {entryError && embeddedBulkCv ? (
+          {showAiChatStage ? (
+            <CandidateAiChatDrawer
+              isOpen
+              stageMode
+              onClose={handleDrawerClose}
+              onContinue={() => {
+                setAiFlowStage('form');
+                setCurrentStep(1);
+              }}
+              form={formData}
+              onApplyGenerated={(generated) => applyCandidateAiPatch(generated)}
+              onResumeParsed={(data, file) => applyImportedData(data, 'resume', file)}
+              chatHistory={candidateAiChatHistory}
+              onChatHistoryChange={setCandidateAiChatHistory}
+            />
+          ) : null}
+
+          {!showAiChatStage && entryError && embeddedBulkCv ? (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {entryError}
             </div>
           ) : null}
 
-          {!embeddedBulkCv && showMethodTabs ? (
-            <div className="mb-5 flex flex-wrap gap-2">
-              {METHOD_TABS.map((tab) => (
-                <PillButton key={tab.key} active={activeTab === tab.key} onClick={() => handleTabChange(tab.key)}>
-                  {tab.label}
-                </PillButton>
-              ))}
+          {!showAiChatStage && !embeddedBulkCv && showMethodTabs ? (
+            <div className="mb-5 rounded-2xl bg-slate-100/95 p-1.5 ring-1 ring-slate-200/80">
+              <div className="flex flex-wrap gap-1">
+                {METHOD_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => handleTabChange(tab.key)}
+                    className={`inline-flex min-w-[7rem] flex-1 items-center justify-center whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
+                      activeTab === tab.key
+                        ? 'bg-white text-indigo-700 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-100'
+                        : 'bg-white/70 text-slate-700 hover:bg-white hover:text-slate-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : null}
 
-          {!embeddedBulkCv && saveBanner ? (
+          {!showAiChatStage && !embeddedBulkCv && saveBanner ? (
             <div
               className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
                 saveBanner.type === 'duplicate'
@@ -3686,7 +3882,7 @@ function AddCandidateDrawerInner({
                 </div>
               ) : null}
             </div>
-          ) : (embeddedBulkCv || activeTab === 'bulkResume') ? null : (
+          ) : (showAiChatStage || embeddedBulkCv || activeTab === 'bulkResume') ? null : (
             <>
               {activeTab === 'manual' ? (
                 <CandidatePhotoUpload
@@ -3729,8 +3925,11 @@ function AddCandidateDrawerInner({
           )}
         </div>
 
+        {showAiChatStage ? null : (
         <div
-          className={`border-t border-slate-200 bg-white ${embeddedBulkCv ? 'px-5 py-4' : 'px-6 py-4'}`}
+          className={`relative border-t border-slate-200 bg-white/95 ${
+            embeddedBulkCv ? 'px-5 py-4' : isCenteredPopup ? 'px-5 py-4 sm:px-7' : 'px-6 py-4'
+          }`}
         >
           {!embeddedBulkCv && activeTab === 'csv' ? (
             <div className="flex items-center justify-between gap-3">
@@ -3823,18 +4022,32 @@ function AddCandidateDrawerInner({
               {currentStep === 1 ? (
                 <button
                   type="button"
-                  onClick={handleDrawerClose}
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
+                  onClick={() => {
+                    if (showAiFormStage) {
+                      setAiFlowStage('chat');
+                      return;
+                    }
+                    handleDrawerClose();
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
                 >
-                  Cancel
+                  {showAiFormStage ? (
+                    <>
+                      <ArrowLeft className="h-4 w-4" />
+                      Back to chat
+                    </>
+                  ) : (
+                    'Cancel'
+                  )}
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={() => setCurrentStep((prev) => Math.max(1, prev - 1))}
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
                 >
-                  ← Back
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
                 </button>
               )}
               <div className="ml-auto flex flex-wrap items-center gap-3">
@@ -3845,9 +4058,10 @@ function AddCandidateDrawerInner({
                       if (!validateStep(currentStep)) return;
                       setCurrentStep((prev) => prev + 1);
                     }}
-                    className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#2098C8] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#2098C8]/30 hover:bg-[#1A86B3]"
                   >
-                    Next →
+                    Next
+                    <ArrowRight className="h-4 w-4" />
                   </button>
                 ) : (
                   <>
@@ -3863,9 +4077,9 @@ function AddCandidateDrawerInner({
                       type="button"
                       onClick={() => handleSave('save')}
                       disabled={isSaving}
-                      className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                      className="rounded-xl bg-[#2098C8] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#2098C8]/30 hover:bg-[#1A86B3] disabled:opacity-60"
                     >
-                      {isSaving ? 'Submitting...' : 'Submit'}
+                      {isSaving ? 'Submitting...' : 'Create Candidate'}
                     </button>
                   </>
                 )}
@@ -3873,6 +4087,7 @@ function AddCandidateDrawerInner({
             </div>
           )}
         </div>
+        )}
 
         {bulkCvDuplicatePolicy === 'ask' ? renderBulkDuplicatePanel() : null}
 
@@ -3958,6 +4173,28 @@ function AddCandidateDrawerInner({
   }
 
   if (!portalMounted) return null;
+
+  if (isCenteredPopup) {
+    return createPortal(
+      <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6" dir="ltr" role="presentation">
+        <button
+          type="button"
+          className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+          aria-label="Close"
+          onClick={handleDrawerClose}
+        />
+        <motion.div
+          initial={{ opacity: 0, y: 28, scale: 0.94 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 360, damping: 28 }}
+          className="relative flex h-[min(92vh,920px)] w-full max-w-6xl flex-col"
+        >
+          {drawerBody}
+        </motion.div>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div
