@@ -2606,6 +2606,9 @@ model LmsEvent {
   createdByName    String?
   source           String?
   tenantDbName     String?
+  accessType       String   @default("free")
+  tokenCost        Int      @default(0)
+  ctaLabel         String   @default("Join")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -2617,11 +2620,14 @@ model LmsEvent {
 }
 
 model LmsEventRegistration {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId       String   @db.ObjectId
-  eventId      String   @db.ObjectId
-  registeredAt DateTime @default(now())
-  attended     Boolean  @default(false)
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String    @db.ObjectId
+  eventId      String    @db.ObjectId
+  registeredAt DateTime  @default(now())
+  attended     Boolean   @default(false)
+  tokensSpent  Int       @default(0)
+  paidAt       DateTime?
+  payoutStatus String?
 
   event LmsEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 

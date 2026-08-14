@@ -741,6 +741,26 @@ export const headquartersAuthService = {
     return normalizeHeadquartersUser(updated);
   },
 
+  async incrementCoinsForEmail(email, amount) {
+    const add = Math.max(0, Math.floor(Number(amount) || 0));
+    if (add <= 0) return null;
+    const collection = await getCollection();
+    if (!collection) return null;
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return null;
+    const existing = await collection.findOne({ email: normalizedEmail });
+    if (!existing) return null;
+    const plan = normalizeSubscriptionPlanForHq(existing.subscriptionPlan) || { name: 'Custom' };
+    const current = Math.max(0, Number(plan.coins) || 0);
+    plan.coins = current + add;
+    await collection.updateOne(
+      { email: normalizedEmail },
+      { $set: { subscriptionPlan: plan, updatedAt: new Date() } }
+    );
+    const updated = await collection.findOne({ email: normalizedEmail });
+    return normalizeHeadquartersUser(updated);
+  },
+
   async setCoinsForTenantDb(tenantDbName, coins) {
     const collection = await getCollection();
     if (!collection) return null;

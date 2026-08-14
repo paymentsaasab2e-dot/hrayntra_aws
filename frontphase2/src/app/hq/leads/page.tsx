@@ -11,11 +11,12 @@ import {
   CheckCircle,
   Download,
   KeyRound,
-  MoreVertical,
+  Lock,
   Phone,
   Plus,
   RefreshCcw,
   Search,
+  Sparkles,
   Target,
   Trash2,
   Upload,
@@ -25,9 +26,16 @@ import {
 import { Toaster, toast } from 'sonner';
 import { LeadDetailsDrawer } from '@/components/drawers/LeadDetailsDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
-import { HqLeadDetailView } from '@/components/hq/HqLeadDetailView';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '@/components/ui/SummaryCard';
 import { TableBrandAvatar } from '@/components/ui/TableBrandAvatar';
+import { AssigneeAvatars } from '@/app/leads/AssigneeAvatars';
+import { SourceCell } from '@/app/leads/SourceCell';
+import PaginationAll from '@/components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '@/constants/tablePagination';
+import { formatDirectorDisplay } from '@/constants/salutations';
+import { formatContactListDisplay } from '@/lib/contact-channels';
+import { isValidFollowUpInstant, splitDateTimeForDisplay } from '@/utils/formatLeadDateTime';
+import { AiCoinLockBadge, useAiCoinGate } from '@/components/coins/AiCoinGate';
 import {
   BOOK_A_DEMO_TAG_CLASS,
   formatDemoTryFreeAccessLabel,
@@ -35,7 +43,6 @@ import {
   HQ_DEMO_STATUS_LABELS,
   HQ_DEMO_STATUS_STYLES,
   HQ_LEAD_STAGE_LABELS,
-  HQ_LEAD_STAGE_STYLES,
   formatHqLeadSourceDisplay,
   isBookADemoLead,
   type HqDemoRequestRow,
@@ -59,23 +66,67 @@ import {
   type HqLeadStorageInfo,
 } from '@/lib/api';
 
-type StatusFilter = 'All' | 'New' | 'Demo' | 'Contacted' | 'Converted' | 'Lost' | 'Demos';
+type StatusFilter = 'All' | 'New' | 'Demo' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost' | 'Demos';
 
 const STAGE_BY_FILTER: Record<Exclude<StatusFilter, 'All' | 'Demos'>, HqLeadStage> = {
   New: 'new',
   Demo: 'demo',
   Contacted: 'contacted',
+  Qualified: 'qualified',
   Converted: 'converted',
   Lost: 'lost',
 };
 
-function StageBadge({ stage }: { stage: HqLeadStage }) {
+const STAGE_TO_STATUS: Record<HqLeadStage, string> = {
+  new: 'New',
+  demo: 'Demo',
+  contacted: 'Contacted',
+  qualified: 'Qualified',
+  converted: 'Converted',
+  lost: 'Lost',
+};
+
+function pickHqNextFollowUp(row: HqLeadApiRow): string | undefined {
+  const pendingDates = (row.followUps || [])
+    .filter((item) => {
+      const status = String(item.status || '').toLowerCase();
+      return status !== 'completed' && status !== 'done' && status !== 'cancelled';
+    })
+    .map((item) => item.scheduledAt)
+    .filter((value): value is string => isValidFollowUpInstant(value))
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  if (pendingDates[0]) return pendingDates[0];
+  const fallback = row.nextFollowUpAt || row.nextFollowUp || '';
+  return isValidFollowUpInstant(fallback) ? String(fallback) : undefined;
+}
+
+function LeadFollowUpTableCell({
+  lastFollowUp,
+  nextFollowUp,
+}: {
+  lastFollowUp: string;
+  nextFollowUp?: string;
+}) {
+  const last = splitDateTimeForDisplay(lastFollowUp);
+  const next = splitDateTimeForDisplay(nextFollowUp);
   return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${HQ_LEAD_STAGE_STYLES[stage]}`}
-    >
-      {HQ_LEAD_STAGE_LABELS[stage].toUpperCase()}
-    </span>
+    <div className="flex min-w-[9rem] flex-col gap-2">
+      {last ? (
+        <div className="rounded-xl bg-indigo-500/[0.06] px-2.5 py-2 ring-1 ring-indigo-500/10">
+          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-600/90">Last</p>
+          <p className="mt-0.5 text-xs font-semibold leading-snug text-slate-800">{last.date}</p>
+          <p className="mt-1 text-[10px] tabular-nums text-slate-500">{last.time}</p>
+        </div>
+      ) : (
+        <span className="inline-flex rounded-lg bg-slate-100/80 px-2 py-1 text-[11px] font-medium text-slate-400">—</span>
+      )}
+      {next ? (
+        <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 px-2.5 py-2 ring-1 ring-blue-400/15">
+          <p className="text-xs font-semibold leading-snug text-blue-900">{next.date}</p>
+          <p className="mt-1 text-[10px] tabular-nums text-blue-700/90">{next.time}</p>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -106,8 +157,17 @@ const EMPTY_DEMO_STATS: HqDemoStats = {
 };
 
 function mapHqLeadToFrontend(row: HqLeadApiRow): Lead {
-  const status = (row.status || HQ_LEAD_STAGE_LABELS[row.stage] || 'New') as LeadStatus;
+  const status = (row.status || STAGE_TO_STATUS[row.stage] || HQ_LEAD_STAGE_LABELS[row.stage] || 'New') as LeadStatus;
   const source = (row.source || row.leadSource || null) as LeadSource | null;
+  const completedFollowUps = (row.followUps || []).filter((item) => {
+    const value = String(item.status || '').toLowerCase();
+    return value === 'completed' || value === 'done';
+  });
+  const lastCompleted = [...completedFollowUps].sort(
+    (a, b) =>
+      new Date(b.completedAt || b.scheduledAt || b.createdAt || 0).getTime() -
+      new Date(a.completedAt || a.scheduledAt || a.createdAt || 0).getTime(),
+  )[0];
   return {
     id: row.id,
     companyName: row.company || '',
@@ -123,6 +183,7 @@ function mapHqLeadToFrontend(row: HqLeadApiRow): Lead {
     status,
     convertedToClientId: row.convertedToCompanyId || undefined,
     assignedTo: {
+      id: row.assignedToId || undefined,
       name:
         (Array.isArray(row.assignedToUsers) && row.assignedToUsers.length > 0
           ? row.assignedToUsers.map((u) => u.name).filter(Boolean).join(', ')
@@ -133,15 +194,30 @@ function mapHqLeadToFrontend(row: HqLeadApiRow): Lead {
     },
     assignedToId: row.assignedToId || undefined,
     assignedToIds: row.assignedToIds || [],
-    assignedToUsers: row.assignedToUsers || [],
-    lastFollowUp: '',
-    nextFollowUp: row.nextFollowUpAt || undefined,
+    assignedToUsers: (row.assignedToUsers || []).map((user) => ({
+      id: user.id,
+      name: user.name,
+      avatar: '',
+      email: user.email,
+    })),
+    lastFollowUp: lastCompleted?.completedAt || lastCompleted?.scheduledAt || lastCompleted?.createdAt || '',
+    nextFollowUp: pickHqNextFollowUp(row),
     priority: (row.priority as Priority) || 'Medium',
     interestedNeeds: row.interestedNeeds || row.interestedModules?.join(', ') || '',
     servicesNeeded: row.servicesNeeded || undefined,
     notes: row.notes || row.initialNotes || '',
     expectedBusinessValue: row.expectedBusinessValue || String(row.estimatedDealValue || ''),
     activities: [],
+    notesList: (row.remarks || []).map((remark) => ({
+      id: remark.id,
+      title: String(remark.text || 'Remark').slice(0, 48),
+      content: remark.text,
+      tags: [],
+      createdBy: { name: remark.createdByEmail || 'HQ' },
+      createdAt: remark.createdAt || '',
+    })),
+    hqFollowUps: row.followUps || [],
+    hqRemarks: row.remarks || [],
     industry: row.industry || '',
     website: row.website || undefined,
     linkedIn: row.linkedIn || undefined,
@@ -213,6 +289,7 @@ export default function HqLeadsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const highlightLeadId = searchParams.get('leadId') || searchParams.get('lead');
+  const leadAiGate = useAiCoinGate('ai.lead_chat');
 
   const [leads, setLeads] = useState<HqLeadApiRow[]>([]);
   const [stats, setStats] = useState<HqLeadStats>(EMPTY_STATS);
@@ -229,8 +306,13 @@ export default function HqLeadsPage() {
   const [grantSubmitting, setGrantSubmitting] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
+  const [sourceFilter, setSourceFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
+  const [currentPage, setCurrentPage] = useState(1);
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
+  const [addLeadWithAi, setAddLeadWithAi] = useState(false);
+  const [createLeadMode, setCreateLeadMode] = useState<'ai' | 'manual'>('manual');
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
 
@@ -292,11 +374,12 @@ export default function HqLeadsPage() {
   }, [highlightLeadId, loading, leads, router, pathname, searchParams]);
 
   const metrics = useMemo(() => {
-    const counts = { NEW_LEADS: 0, DEMO: 0, CONTACTED: 0, CONVERTED: 0, LOST: 0 };
+    const counts = { NEW_LEADS: 0, DEMO: 0, CONTACTED: 0, QUALIFIED: 0, CONVERTED: 0, LOST: 0 };
     for (const lead of leads) {
       if (isBookADemoLead(lead) || lead.stage === 'demo') counts.DEMO += 1;
       else if (lead.stage === 'new') counts.NEW_LEADS += 1;
       else if (lead.stage === 'contacted') counts.CONTACTED += 1;
+      else if (lead.stage === 'qualified') counts.QUALIFIED += 1;
       else if (lead.stage === 'converted') counts.CONVERTED += 1;
       else if (lead.stage === 'lost') counts.LOST += 1;
     }
@@ -313,6 +396,10 @@ export default function HqLeadsPage() {
           return false;
         }
       }
+      if (sourceFilter) {
+        const source = String(lead.source || lead.leadSource || '');
+        if (source.toLowerCase() !== sourceFilter.toLowerCase()) return false;
+      }
       if (!q) return true;
       return (
         (lead.name || '').toLowerCase().includes(q) ||
@@ -320,10 +407,16 @@ export default function HqLeadsPage() {
         (lead.email || '').toLowerCase().includes(q) ||
         (lead.contactPerson || '').toLowerCase().includes(q) ||
         (lead.owner || '').toLowerCase().includes(q) ||
-        (lead.leadSource || '').toLowerCase().includes(q)
+        (lead.leadSource || '').toLowerCase().includes(q) ||
+        (lead.phone || '').toLowerCase().includes(q)
       );
     });
-  }, [statusFilter, search, leads]);
+  }, [statusFilter, sourceFilter, search, leads]);
+
+  const pagedLeads = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredLeads.slice(start, start + pageSize);
+  }, [filteredLeads, currentPage, pageSize]);
 
   const filteredDemos = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -345,8 +438,6 @@ export default function HqLeadsPage() {
     return selectedLeadRow ? mapHqLeadToFrontend(selectedLeadRow) : null;
   }, [selectedLeadRow]);
 
-  const showLeadDetailView = Boolean(selectedLeadRow) && !addLeadDrawerOpen;
-
   const clearDrawerQuery = useCallback(() => {
     const sp = new URLSearchParams(searchParams.toString());
     sp.delete('leadId');
@@ -356,6 +447,7 @@ export default function HqLeadsPage() {
   }, [router, pathname, searchParams]);
 
   const handleStatusCardClick = (status: StatusFilter) => {
+    setCurrentPage(1);
     setStatusFilter((prev) => (prev === status ? 'All' : status));
   };
 
@@ -364,6 +456,7 @@ export default function HqLeadsPage() {
       ...data,
       formSchema: 'phase2',
       hqProductLine: (data as CreateLeadData & { hqProductLine?: string }).hqProductLine,
+      hqProductLines: (data as CreateLeadData & { hqProductLines?: string[] }).hqProductLines,
     } as CreateLeadData & { formSchema?: string; hqProductLine?: string });
     const created = result.data?.lead;
     if (!created) return null;
@@ -437,10 +530,57 @@ export default function HqLeadsPage() {
       await apiHqDeleteLead(id);
       setSelectedLeadId(null);
       setAddLeadDrawerOpen(false);
+      setAddLeadWithAi(false);
       await loadLeads();
       toast.success('Lead deleted');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to delete lead');
+    }
+  };
+
+  const handleMarkLost = async (id: string) => {
+    try {
+      await apiHqUpdateLead(id, { stage: 'lost', status: 'Lost', formSchema: 'phase2' });
+      await loadLeads();
+      toast.success('Lead marked as lost');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to mark lead lost');
+    }
+  };
+
+  const handleAssignLead = async (
+    leadId: string,
+    formData: { assignTo: string; assignTos?: string[]; priority: 'High' | 'Medium' | 'Low' },
+  ) => {
+    try {
+      const ids =
+        formData.assignTos && formData.assignTos.length > 0
+          ? formData.assignTos
+          : formData.assignTo
+            ? [formData.assignTo]
+            : [];
+      await apiHqUpdateLead(leadId, {
+        assignedToId: ids[0] || null,
+        assignedToIds: ids,
+        priority: formData.priority,
+        formSchema: 'phase2',
+      });
+      toast.success(ids.length > 1 ? `Lead assigned to ${ids.length} members` : 'Lead assigned');
+      await loadLeads();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to assign lead');
+    }
+  };
+
+  const handleInlineStatusChange = async (leadId: string, status: string) => {
+    const stage = (Object.entries(STAGE_TO_STATUS).find(([, label]) => label === status)?.[0] ||
+      status.toLowerCase()) as HqLeadStage;
+    try {
+      await apiHqUpdateLead(leadId, { status, stage, formSchema: 'phase2' });
+      await loadLeads();
+      toast.success(`Status updated to ${status}`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update status');
     }
   };
 
@@ -552,26 +692,24 @@ export default function HqLeadsPage() {
       <div className="ph2-page-shell flex h-[100dvh] w-full flex-col overflow-hidden text-slate-900">
         <Toaster position="top-right" richColors style={{ top: '5rem' }} />
 
-        {(addLeadDrawerOpen || (selectedLead && selectedLeadDrawerMode === 'edit')) && (
+        {(selectedLead || addLeadDrawerOpen) && (
           <LeadDetailsDrawer
             lead={addLeadDrawerOpen ? null : selectedLead}
             addLeadMode={addLeadDrawerOpen}
-            initialMode="edit"
+            initialOpenAiChat={addLeadWithAi}
+            initialMode={selectedLeadDrawerMode}
             onClose={() => {
-              if (addLeadDrawerOpen) {
-                setAddLeadDrawerOpen(false);
-                setSelectedLeadId(null);
-                setSelectedLeadDrawerMode('view');
-                clearDrawerQuery();
-                return;
-              }
-              // Closing edit drawer returns to the detail view
+              setAddLeadDrawerOpen(false);
+              setAddLeadWithAi(false);
+              setSelectedLeadId(null);
               setSelectedLeadDrawerMode('view');
+              clearDrawerQuery();
             }}
             createLeadOverride={handleCreateLeadOverride}
             updateLeadOverride={handleUpdateLeadOverride}
             onAddLead={async (_data, createdLead) => {
               setAddLeadDrawerOpen(false);
+              setAddLeadWithAi(false);
               await loadLeads();
               toast.success(
                 createdLead?.companyName
@@ -583,38 +721,22 @@ export default function HqLeadsPage() {
                 setSelectedLeadId(createdLead.id);
               }
             }}
-            onUpdateLead={async (updated) => {
-              if (updated?.id) {
-                await loadLeads();
-                setSelectedLeadDrawerMode('view');
-              }
+            onUpdateLead={async () => {
+              await loadLeads();
             }}
             onConvert={handleConvert}
+            onMarkLost={handleMarkLost}
+            onAssignLead={handleAssignLead}
             onDeleteLead={handleDeleteLead}
             onOpenExistingLead={(leadId) => {
               setAddLeadDrawerOpen(false);
+              setAddLeadWithAi(false);
               setSelectedLeadDrawerMode('view');
               setSelectedLeadId(leadId);
             }}
           />
         )}
 
-        {showLeadDetailView && selectedLeadRow ? (
-          <HqLeadDetailView
-            lead={selectedLeadRow}
-            onBack={() => {
-              setSelectedLeadId(null);
-              setSelectedLeadDrawerMode('view');
-              clearDrawerQuery();
-            }}
-            onEdit={() => setSelectedLeadDrawerMode('edit')}
-            onConvert={() => void handleConvert(selectedLeadRow.id)}
-            onDelete={() => void handleDeleteLead(selectedLeadRow.id)}
-            onLeadUpdated={(updated) => {
-              setLeads((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-            }}
-          />
-        ) : (
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
             <div className="flex items-center gap-2.5 sm:gap-3">
@@ -666,17 +788,69 @@ export default function HqLeadsPage() {
                 <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
                 <span>Import</span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedLeadId(null);
-                  setAddLeadDrawerOpen(true);
-                }}
-                className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
+              <div
+                role="group"
+                aria-label="Create lead"
+                className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
               >
-                <Plus size={16} className="text-white" strokeWidth={2.5} />
-                <span>Add Lead</span>
-              </button>
+                <button
+                  type="button"
+                  aria-pressed={createLeadMode === 'ai'}
+                  onClick={() => {
+                    if (leadAiGate.locked) {
+                      leadAiGate.confirmAndUnlock();
+                      return;
+                    }
+                    setCreateLeadMode('ai');
+                    setAddLeadWithAi(true);
+                    setSelectedLeadId(null);
+                    setAddLeadDrawerOpen(true);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                    leadAiGate.locked
+                      ? 'text-amber-800 hover:bg-amber-50'
+                      : createLeadMode === 'ai'
+                        ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
+                        : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
+                  }`}
+                  title={
+                    leadAiGate.locked
+                      ? `Locked — needs ${leadAiGate.cost} coins (you have ${leadAiGate.coins})`
+                      : `Create a lead with AI (${leadAiGate.cost} coins per chat message)`
+                  }
+                >
+                  {leadAiGate.locked ? (
+                    <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
+                  ) : (
+                    <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
+                  )}
+                  <span>Create with AI</span>
+                  <AiCoinLockBadge featureId="ai.lead_chat" />
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={createLeadMode === 'manual'}
+                  onClick={() => {
+                    setCreateLeadMode('manual');
+                    setAddLeadWithAi(false);
+                    setSelectedLeadId(null);
+                    setAddLeadDrawerOpen(true);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                    createLeadMode === 'manual'
+                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
+                  }`}
+                  title="Create a lead manually"
+                >
+                  <Plus
+                    size={14}
+                    className={createLeadMode === 'manual' ? 'text-white' : 'text-indigo-500'}
+                    strokeWidth={2.5}
+                  />
+                  <span>Create Manually</span>
+                </button>
+              </div>
             </div>
           </header>
 
@@ -694,9 +868,9 @@ export default function HqLeadsPage() {
               </div>
             ) : null}
 
-            <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
+            <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-7">
               {loading ? (
-                (['blue', 'orange', 'yellow', 'green', 'gray', 'blue'] as SummaryCardColor[]).map((c, i) => (
+                (['blue', 'yellow', 'purple', 'orange', 'green', 'gray', 'blue'] as SummaryCardColor[]).map((c, i) => (
                   <SummaryCardSkeleton key={i} color={c} />
                 ))
               ) : (
@@ -724,6 +898,14 @@ export default function HqLeadsPage() {
                     icon={<Phone size={16} strokeWidth={2.35} />}
                     active={statusFilter === 'Contacted'}
                     onClick={() => handleStatusCardClick('Contacted')}
+                  />
+                  <SummaryCard
+                    label="QUALIFIED"
+                    count={metrics.QUALIFIED}
+                    color="purple"
+                    icon={<Target size={16} strokeWidth={2.35} />}
+                    active={statusFilter === 'Qualified'}
+                    onClick={() => handleStatusCardClick('Qualified')}
                   />
                   <SummaryCard
                     label="CONVERTED"
@@ -770,22 +952,46 @@ export default function HqLeadsPage() {
                     }
                     className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => {
+                      setCurrentPage(1);
+                      setSearch(e.target.value);
+                    }}
                   />
                 </div>
                 <select
                   className="h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40"
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                  onChange={(e) => {
+                    setCurrentPage(1);
+                    setStatusFilter(e.target.value as StatusFilter);
+                  }}
                 >
                   <option value="All">All Status</option>
                   <option value="New">New</option>
                   <option value="Demo">Demo</option>
                   <option value="Contacted">Contacted</option>
+                  <option value="Qualified">Qualified</option>
                   <option value="Converted">Converted</option>
                   <option value="Lost">Lost</option>
                   <option value="Demos">Landing signups ({demoStats.total || demos.length})</option>
                 </select>
+                {!isDemosTab ? (
+                  <select
+                    className="h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40"
+                    value={sourceFilter}
+                    onChange={(e) => {
+                      setCurrentPage(1);
+                      setSourceFilter(e.target.value);
+                    }}
+                  >
+                    <option value="">All Sources</option>
+                    <option value="Website">Website</option>
+                    <option value="LinkedIn">LinkedIn</option>
+                    <option value="Email">Email</option>
+                    <option value="Referral">Referral</option>
+                    <option value="Campaign">Campaign</option>
+                  </select>
+                ) : null}
               </div>
 
               <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
@@ -916,7 +1122,7 @@ export default function HqLeadsPage() {
                   </table>
                   </>
                 ) : (
-                  <table className="w-full min-w-[760px] text-left" aria-label="Leads">
+                  <table className="w-full min-w-[980px] text-left" aria-label="Leads">
                     <thead className="sticky top-0 z-10">
                       <tr>
                         <th className="min-w-[11rem]">Lead</th>
@@ -924,7 +1130,7 @@ export default function HqLeadsPage() {
                         <th>Contact</th>
                         <th>Status</th>
                         <th>Assigned To</th>
-                        <th>Next Follow-up</th>
+                        <th>Follow-up</th>
                         <th className="text-right">Actions</th>
                       </tr>
                     </thead>
@@ -940,7 +1146,7 @@ export default function HqLeadsPage() {
                           <td colSpan={7} className="px-4 py-12 text-center">
                             <p className="text-xs font-medium text-slate-500">
                               {leads.length === 0
-                                ? 'No leads yet. Click Add Lead to open the lead form.'
+                                ? 'No leads yet. Use Create with AI or Create Manually.'
                                 : 'No leads match your filters'}
                             </p>
                             <p className="mt-1 text-[11px] text-slate-400">
@@ -949,11 +1155,14 @@ export default function HqLeadsPage() {
                           </td>
                         </tr>
                       ) : (
-                        filteredLeads.map((lead) => (
+                        pagedLeads.map((lead) => {
+                          const mapped = mapHqLeadToFrontend(lead);
+                          return (
                           <tr
                             key={lead.id}
                             onClick={() => {
                               setAddLeadDrawerOpen(false);
+                              setAddLeadWithAi(false);
                               setSelectedLeadDrawerMode('view');
                               setSelectedLeadId(lead.id);
                             }}
@@ -969,53 +1178,59 @@ export default function HqLeadsPage() {
                                   name={lead.company || lead.name}
                                   size="sm"
                                   showStatusDot={lead.stage !== 'lost'}
-                                  statusDotTitle={`Lead: ${HQ_LEAD_STAGE_LABELS[lead.stage]}`}
+                                  statusDotTitle={`Lead: ${mapped.status}`}
                                 />
                                 <div className="flex min-w-[8rem] flex-col justify-center gap-0.5">
-                                  <span className="text-xs font-semibold text-slate-900 truncate">
+                                  <span className="text-xs font-semibold text-slate-900 whitespace-normal break-words">
                                     {lead.company || lead.name}
                                   </span>
-                                  <span className="text-[11px] text-slate-500 truncate">
-                                    {lead.name}
+                                  <span className="text-[10px] font-medium text-slate-500">
+                                    {mapped.type}
                                   </span>
                                 </div>
                               </div>
                             </td>
-                            <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
-                              {formatHqLeadSourceDisplay(lead.leadSource, lead.leadSourceDetail)}
+                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                              <SourceCell lead={mapped} />
                             </td>
                             <td className="px-3 sm:px-4 py-2">
-                              <div className="text-xs font-medium text-slate-800 truncate">
-                                {lead.contactPerson || lead.name || '—'}
-                              </div>
-                              <div className="text-[11px] text-slate-400 truncate">
-                                {lead.email || lead.phone || '—'}
-                              </div>
-                            </td>
-                            <td className="px-3 sm:px-4 py-2">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {isBookADemoLead(lead) ? (
-                                  <BookADemoTag />
-                                ) : lead.stage !== 'qualified' ? (
-                                  <StageBadge stage={lead.stage} />
-                                ) : (
-                                  <StageBadge stage="demo" />
-                                )}
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-xs font-medium text-slate-800">
+                                  {formatDirectorDisplay(mapped.directorSalutation, mapped.directorName || mapped.contactPerson)}
+                                </span>
+                                <span className="text-[10px] text-slate-500">
+                                  {formatContactListDisplay(mapped.emails, mapped.email)}
+                                </span>
                               </div>
                             </td>
-                            <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
-                              {lead.owner || 'Unassigned'}
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
-                              {lead.preferredDemoDate ? (
-                                <div>
-                                  <span className="inline-flex items-center gap-1 rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold text-orange-700 ring-1 ring-orange-200">
-                                    <CalendarClock size={10} /> Demo: {lead.preferredDemoDate}{lead.preferredDemoTime ? ` ${lead.preferredDemoTime}` : ''}
-                                  </span>
+                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex flex-col gap-1.5">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <select
+                                    className="max-w-[10rem] cursor-pointer rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/90 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                                    value={mapped.status}
+                                    onChange={(e) => void handleInlineStatusChange(lead.id, e.target.value)}
+                                  >
+                                    {Object.values(STAGE_TO_STATUS).map((status) => (
+                                      <option key={status} value={status}>
+                                        {status}
+                                      </option>
+                                    ))}
+                                    {!Object.values(STAGE_TO_STATUS).includes(String(mapped.status)) ? (
+                                      <option value={mapped.status}>{mapped.status}</option>
+                                    ) : null}
+                                  </select>
                                 </div>
-                              ) : (
-                                lead.nextFollowUp || '—'
-                              )}
+                              </div>
+                            </td>
+                            <td className="px-3 sm:px-4 py-2">
+                              <AssigneeAvatars lead={mapped} />
+                            </td>
+                            <td className="px-3 sm:px-4 py-2">
+                              <LeadFollowUpTableCell
+                                lastFollowUp={mapped.lastFollowUp}
+                                nextFollowUp={mapped.nextFollowUp}
+                              />
                             </td>
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex items-center justify-end gap-1">
@@ -1077,32 +1292,37 @@ export default function HqLeadsPage() {
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </button>
-                                <button
-                                  type="button"
-                                  title="Open"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAddLeadDrawerOpen(false);
-                                    setSelectedLeadDrawerMode('view');
-                                    setSelectedLeadId(lead.id);
-                                  }}
-                                  className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                                >
-                                  <MoreVertical className="h-4 w-4" />
-                                </button>
                               </div>
                             </td>
                           </tr>
-                        ))
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
                 )}
               </div>
+              {!isDemosTab && !loading && !loadError ? (
+                <div className="mt-0 w-full shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
+                  <PaginationAll
+                    initialPage={currentPage}
+                    totalPages={Math.max(1, Math.ceil(filteredLeads.length / pageSize))}
+                    totalCount={filteredLeads.length}
+                    pageSize={pageSize}
+                    pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                    onPageSizeChange={(n) => {
+                      if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                      setPageSize(n as TablePageSize);
+                      setCurrentPage(1);
+                    }}
+                    itemLabel="leads"
+                    onPageChange={setCurrentPage}
+                  />
+                </div>
+              ) : null}
             </div>
           </div>
         </main>
-        )}
 
         {grantDemo ? (
           <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]">

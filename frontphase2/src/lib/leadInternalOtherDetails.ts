@@ -5,7 +5,7 @@ export const FOLLOW_UP_SCHEDULE_LABEL = '__followUpSchedule';
 export function isInternalLeadOtherDetailLabel(label?: string | null): boolean {
   const trimmed = String(label || '').trim();
   if (!trimmed) return false;
-  return trimmed.startsWith('__');
+  return trimmed.startsWith('__') || trimmed.startsWith('_intake');
 }
 
 /** Keep system rows when rebuilding otherDetails from the visible form. */

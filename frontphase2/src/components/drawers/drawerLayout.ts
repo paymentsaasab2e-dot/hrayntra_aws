@@ -3,6 +3,8 @@ export type { DrawerCloseButtonProps } from './DrawerCloseButton';
 export { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 export { DetailsModalShell } from './DetailsModalShell';
 export type { DetailsModalSize } from './DetailsModalShell';
+export { DrawerTabBar } from './DrawerTabBar';
+export type { DrawerTabBarItem, DrawerTabIcon } from './DrawerTabBar';
 
 /** Shared width for detail popups (matches Lead / Client drawers). */
 export const DRAWER_PANEL_WIDTH_CLASS = 'w-full max-w-6xl';

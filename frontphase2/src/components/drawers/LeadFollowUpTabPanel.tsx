@@ -10,16 +10,22 @@ import {
   buildFollowUpStatusRemark,
   computePostponedFollowUpIso,
 } from '../LeadFollowUpScheduler';
-import { formatFollowUpDisplay } from '../../utils/formatLeadDateTime';
+import { formatFollowUpDisplay, isValidFollowUpInstant } from '../../utils/formatLeadDateTime';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import {
   apiCompleteLeadFollowUp,
   apiGetLeadActivities,
+  apiHqAddLeadFollowUp,
+  apiHqAddLeadRemark,
+  apiHqCompleteLeadFollowUp,
+  apiHqUpdateLeadFollowUp,
   apiUpdateLead,
   type BackendActivity,
+  type HqLeadFollowUp,
 } from '../../lib/api';
 import { requestError, requestWarning } from '../../lib/appDialog';
 import { FOLLOW_UP_SCHEDULE_LABEL } from '../../lib/leadInternalOtherDetails';
+import { HQ_LEAD_FOLLOW_UP_TYPES, toDatetimeLocalValue } from '@/app/hq/leads/hqLeadsData';
 
 type FollowUpHistoryItem = {
   id: string;
@@ -71,6 +77,8 @@ export function LeadFollowUpTabPanel({
   nextFollowUp,
   lastFollowUp,
   otherDetails,
+  hqMode = false,
+  hqFollowUps = [],
   onScheduled,
   onCompleted,
 }: {
@@ -78,6 +86,8 @@ export function LeadFollowUpTabPanel({
   nextFollowUp?: string | null;
   lastFollowUp?: string | null;
   otherDetails?: Array<{ label: string; value: string }> | null;
+  hqMode?: boolean;
+  hqFollowUps?: HqLeadFollowUp[];
   onScheduled?: () => void;
   onCompleted?: () => void;
 }) {
@@ -93,10 +103,48 @@ export function LeadFollowUpTabPanel({
   const [postponeDate, setPostponeDate] = useState('');
   const [postponeReason, setPostponeReason] = useState('');
   const [postponePreset, setPostponePreset] = useState('1d');
+  const [hqScheduleType, setHqScheduleType] = useState<string>(HQ_LEAD_FOLLOW_UP_TYPES[0]);
+  const [hqScheduleAt, setHqScheduleAt] = useState(() =>
+    toDatetimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+  );
+  const [hqScheduleNotes, setHqScheduleNotes] = useState('');
+  const [hqScheduling, setHqScheduling] = useState(false);
+
+  const pendingHqFollowUp = useMemo(() => {
+    if (!hqMode) return null;
+    const pending = (hqFollowUps || []).find((item) => {
+      const status = String(item.status || '').toLowerCase();
+      return (
+        status !== 'completed' &&
+        status !== 'done' &&
+        status !== 'cancelled' &&
+        isValidFollowUpInstant(item.scheduledAt)
+      );
+    });
+    if (pending) return pending;
+    if (isValidFollowUpInstant(nextFollowUp)) {
+      return {
+        id: '__next__',
+        type: 'Follow-up',
+        scheduledAt: nextFollowUp,
+        notes: '',
+        status: 'pending',
+        createdAt: null,
+      } as HqLeadFollowUp;
+    }
+    return null;
+  }, [hqMode, hqFollowUps, nextFollowUp]);
 
   const scheduleInfo = useMemo(() => readFollowUpSchedule(otherDetails), [otherDetails]);
-  const scheduledType = String(scheduleInfo?.type || 'Meet').trim() || 'Meet';
-  const hasScheduledMeet = Boolean(nextFollowUp);
+  const scheduledAtDisplay = hqMode
+    ? pendingHqFollowUp?.scheduledAt || ''
+    : nextFollowUp || '';
+  const scheduledType =
+    String((hqMode ? pendingHqFollowUp?.type : scheduleInfo?.type) || scheduleInfo?.type || 'Meet').trim() ||
+    'Meet';
+  const hasScheduledMeet = hqMode
+    ? Boolean(pendingHqFollowUp && isValidFollowUpInstant(pendingHqFollowUp.scheduledAt))
+    : isValidFollowUpInstant(nextFollowUp);
   const displayedPostponeReason = useMemo(() => {
     const direct = String(scheduleInfo?.postponeReason || '').trim();
     if (direct) return direct;
@@ -118,6 +166,23 @@ export function LeadFollowUpTabPanel({
   useEffect(() => {
     if (!leadId) return;
     let cancelled = false;
+    if (hqMode) {
+      const completed = (hqFollowUps || [])
+        .filter((item) => {
+          const status = String(item.status || '').toLowerCase();
+          return status === 'completed' || status === 'done';
+        })
+        .map((item) => ({
+          id: item.id,
+          title: `${item.type || 'Follow-up'} Completed`,
+          description: item.notes || '',
+          createdAt: item.createdAt || item.scheduledAt || '',
+          status: 'completed' as const,
+        }));
+      setCompletedMeets(completed);
+      setLoadingHistory(false);
+      return;
+    }
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     if (!token) {
       setCompletedMeets([]);
@@ -158,7 +223,7 @@ export function LeadFollowUpTabPanel({
     return () => {
       cancelled = true;
     };
-  }, [leadId, historyKey]);
+  }, [leadId, historyKey, hqMode, hqFollowUps]);
 
   const handleSuccess = () => {
     setScheduleOpen(false);
@@ -198,7 +263,22 @@ export function LeadFollowUpTabPanel({
     }
     setCompleting(true);
     try {
-      await apiCompleteLeadFollowUp(leadId, { remark: trimmed });
+      if (hqMode) {
+        if (!isValidFollowUpInstant(pendingHqFollowUp?.scheduledAt || nextFollowUp)) {
+          void requestWarning('Schedule a follow-up first, then mark it complete.');
+          return;
+        }
+        const followUpId =
+          pendingHqFollowUp?.id && pendingHqFollowUp.id !== '__next__' ? pendingHqFollowUp.id : 'next';
+        await apiHqCompleteLeadFollowUp(leadId, followUpId, {
+          notes: trimmed,
+          type: pendingHqFollowUp?.type || scheduledType,
+          scheduledAt: pendingHqFollowUp?.scheduledAt || nextFollowUp || undefined,
+        });
+        await apiHqAddLeadRemark(leadId, { text: trimmed }).catch(() => undefined);
+      } else {
+        await apiCompleteLeadFollowUp(leadId, { remark: trimmed });
+      }
       setCompleteOpen(false);
       setRemark('');
       setHistoryKey((k) => k + 1);
@@ -242,6 +322,23 @@ export function LeadFollowUpTabPanel({
         .replace(/^\s*Postponed\.?\s*/i, '')
         .replace(/Postpone reason:\s*[^.]*\.?\s*/gi, '')
         .trim();
+      if (hqMode) {
+        const followUpId = pendingHqFollowUp?.id;
+        const notes = [cleanNotes, `Postpone reason: ${reason}`].filter(Boolean).join('. ');
+        if (followUpId && followUpId !== '__next__') {
+          await apiHqUpdateLeadFollowUp(leadId, followUpId, {
+            type: pendingHqFollowUp?.type || scheduledType,
+            scheduledAt: iso,
+            notes,
+          });
+        } else {
+          await apiHqAddLeadFollowUp(leadId, {
+            type: scheduledType,
+            scheduledAt: iso,
+            notes,
+          });
+        }
+      } else {
       await apiUpdateLead(leadId, {
         nextFollowUp: iso,
         statusRemark: buildFollowUpStatusRemark(fields),
@@ -254,6 +351,7 @@ export function LeadFollowUpTabPanel({
           postponeReason: reason,
         },
       });
+      }
       setPostponeOpen(false);
       setPostponeReason('');
       setHistoryKey((k) => k + 1);
@@ -299,20 +397,22 @@ export function LeadFollowUpTabPanel({
                     className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${
                       isPostponed
                         ? 'bg-amber-100 text-amber-800 ring-amber-200'
-                        : nextFollowUp && new Date(nextFollowUp).getTime() < Date.now()
+                        : isValidFollowUpInstant(scheduledAtDisplay) &&
+                            new Date(scheduledAtDisplay).getTime() < Date.now()
                           ? 'bg-rose-100 text-rose-800 ring-rose-200'
                           : 'bg-amber-50 text-amber-700 ring-amber-200'
                     }`}
                   >
                     {isPostponed
                       ? 'Postponed'
-                      : nextFollowUp && new Date(nextFollowUp).getTime() < Date.now()
+                      : isValidFollowUpInstant(scheduledAtDisplay) &&
+                          new Date(scheduledAtDisplay).getTime() < Date.now()
                         ? 'Overdue'
                         : 'Upcoming'}
                   </span>
                 </div>
                 <p className="mt-2 text-sm font-semibold text-slate-900">
-                  {formatFollowUpDisplay(nextFollowUp)}
+                  {formatFollowUpDisplay(scheduledAtDisplay)}
                 </p>
                 {displayedPostponeReason ? (
                   <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2">
@@ -438,14 +538,86 @@ export function LeadFollowUpTabPanel({
                   </button>
                 </div>
                 <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
-                  <ScheduleMeetingForm
-                    entityType="lead"
-                    entityId={leadId}
-                    title=""
-                    embedded
-                    onSuccess={handleSuccess}
-                    onCancel={() => setScheduleOpen(false)}
-                  />
+                  {hqMode ? (
+                    <div className="space-y-3">
+                      <label className="block">
+                        <span className="mb-1.5 block text-sm font-medium text-slate-700">Type</span>
+                        <select
+                          value={hqScheduleType}
+                          onChange={(e) => setHqScheduleType(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                        >
+                          {HQ_LEAD_FOLLOW_UP_TYPES.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-sm font-medium text-slate-700">When</span>
+                        <input
+                          type="datetime-local"
+                          value={hqScheduleAt}
+                          onChange={(e) => setHqScheduleAt(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-sm font-medium text-slate-700">Notes</span>
+                        <textarea
+                          rows={3}
+                          value={hqScheduleNotes}
+                          onChange={(e) => setHqScheduleNotes(e.target.value)}
+                          className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                        />
+                      </label>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setScheduleOpen(false)}
+                          className="rounded-full px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={hqScheduling || !hqScheduleAt}
+                          onClick={() => {
+                            void (async () => {
+                              setHqScheduling(true);
+                              try {
+                                const iso = new Date(hqScheduleAt).toISOString();
+                                await apiHqAddLeadFollowUp(leadId, {
+                                  type: hqScheduleType,
+                                  scheduledAt: iso,
+                                  notes: hqScheduleNotes.trim() || undefined,
+                                });
+                                setHqScheduleNotes('');
+                                handleSuccess();
+                              } catch (error: any) {
+                                void requestError(error?.message || 'Failed to schedule follow-up');
+                              } finally {
+                                setHqScheduling(false);
+                              }
+                            })();
+                          }}
+                          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          {hqScheduling ? 'Saving…' : 'Schedule'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <ScheduleMeetingForm
+                      entityType="lead"
+                      entityId={leadId}
+                      title=""
+                      embedded
+                      onSuccess={handleSuccess}
+                      onCancel={() => setScheduleOpen(false)}
+                    />
+                  )}
                 </div>
               </div>
             </div>,
@@ -616,7 +788,7 @@ export function LeadFollowUpTabPanel({
                       Scheduled
                     </p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
-                      {scheduledType} &middot; {formatFollowUpDisplay(nextFollowUp)}
+                      {scheduledType} &middot; {formatFollowUpDisplay(scheduledAtDisplay)}
                     </p>
                   </div>
                   <div>

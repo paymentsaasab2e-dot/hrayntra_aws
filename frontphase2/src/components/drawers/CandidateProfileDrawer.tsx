@@ -5,6 +5,7 @@ import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { AnimatePresence, motion } from 'motion/react';
 import { DetailsModalShell } from './DetailsModalShell';
+import { DrawerTabBar } from './DrawerTabBar';
 import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
@@ -36,8 +37,10 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ClipboardList,
   FileSearch,
   FileText,
+  LayoutGrid,
   Loader2,
   AlertTriangle,
   MapPin,
@@ -51,6 +54,7 @@ import {
   SquarePen,
   SendHorizontal,
   Send,
+  StickyNote,
   Tag,
   Trash2,
   UserCircle2,
@@ -222,16 +226,16 @@ type DrawerTab =
   | 'Files'
   | 'Chat';
 
-const TABS: DrawerTab[] = [
-  'Overview',
-  'Resume',
-  'Interviews',
-  'Assessments',
-  'Activity',
-  'Remarks',
-  'Tags',
-  'Files',
-  'Chat',
+const TABS: Array<{ id: DrawerTab; label: string; icon: typeof LayoutGrid }> = [
+  { id: 'Overview', label: 'Overview', icon: LayoutGrid },
+  { id: 'Resume', label: 'Resume', icon: FileText },
+  { id: 'Interviews', label: 'Interviews', icon: Calendar },
+  { id: 'Assessments', label: 'Assessments', icon: ClipboardList },
+  { id: 'Activity', label: 'Activity', icon: Activity },
+  { id: 'Remarks', label: 'Remarks', icon: StickyNote },
+  { id: 'Tags', label: 'Tags', icon: Tag },
+  { id: 'Files', label: 'Files', icon: Paperclip },
+  { id: 'Chat', label: 'Chat', icon: MessageSquare },
 ];
 
 function getInitials(name: string) {
@@ -4682,22 +4686,12 @@ export function CandidateProfileDrawer({
                   </div>
                 </div>
 
-                <div className="flex gap-1 overflow-x-auto border-t border-slate-200 px-3 py-2 sm:px-4">
-                  {TABS.map((tab) => (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => setActiveTab(tab)}
-                      className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
-                        activeTab === tab
-                          ? 'bg-blue-50 text-blue-700'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
+                <DrawerTabBar
+                  ariaLabel="Candidate sections"
+                  tabs={TABS}
+                  activeId={activeTab}
+                  onChange={setActiveTab}
+                />
               </div>
 
               <div className={`flex-1 overflow-y-auto px-5 py-5 sm:px-6 ${DRAWER_FORM_SCROLL_BG}`}>

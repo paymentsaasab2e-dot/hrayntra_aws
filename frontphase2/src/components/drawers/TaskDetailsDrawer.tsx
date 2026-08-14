@@ -5,6 +5,7 @@ import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { confirmDiscardUnsavedChanges, useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { motion, AnimatePresence } from 'motion/react';
 import { DetailsModalShell } from './DetailsModalShell';
+import { DrawerTabBar } from './DrawerTabBar';
 import {
   X,
   Pencil,
@@ -1344,33 +1345,19 @@ export function TaskDetailsDrawer({
               </div>
             ) : (
               <>
-                <div className="shrink-0 bg-slate-50/80 border-b border-slate-200 px-4 pt-1">
-                  <div className="flex gap-1 min-w-max overflow-x-auto no-scrollbar">
-                    {[
-                      { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
-                      { id: 'activity' as const, label: 'Activity', icon: Activity },
-                      { id: 'communication' as const, label: 'Communication', icon: MessageSquare },
-                      { id: 'chat' as const, label: 'Chat', icon: MessagesSquare },
-                      { id: 'alerts' as const, label: 'SLA Alerts', icon: AlertTriangle },
-                      { id: 'suggestions' as const, label: 'AI Suggestions', icon: Sparkles },
-                    ].map((tab) => {
-                      const isActive = activeTab === tab.id;
-                      const Icon = tab.icon;
-                      return (
-                        <button
-                          key={tab.id}
-                          onClick={() => setActiveTab(tab.id)}
-                          className={`flex items-center gap-1.5 px-3 py-3 text-sm font-medium rounded-t-lg transition-all duration-200 whitespace-nowrap ${
-                            isActive ? 'bg-white text-blue-600 border-b-2 border-blue-600 -mb-px shadow-sm' : 'border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:bg-white/60'
-                          }`}
-                        >
-                          <Icon size={14} className={isActive ? 'text-blue-600' : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <DrawerTabBar
+                  ariaLabel="Task sections"
+                  tabs={[
+                    { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
+                    { id: 'activity' as const, label: 'Activity', icon: Activity },
+                    { id: 'communication' as const, label: 'Communication', icon: MessageSquare },
+                    { id: 'chat' as const, label: 'Chat', icon: MessagesSquare },
+                    { id: 'alerts' as const, label: 'SLA Alerts', icon: AlertTriangle },
+                    { id: 'suggestions' as const, label: 'AI Suggestions', icon: Sparkles },
+                  ]}
+                  activeId={activeTab}
+                  onChange={setActiveTab}
+                />
 
                 <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
                   {task && activeTab === 'overview' && (

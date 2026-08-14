@@ -103,10 +103,16 @@ function CrmInsightStatRow({
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: Math.min(index * 0.04, 0.16) }}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onClick}
-        className="group w-full rounded-xl border border-slate-100/90 bg-gradient-to-r from-white to-slate-50/40 px-3.5 py-3 text-left transition hover:border-blue-200/70 hover:shadow-sm"
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          onClick();
+        }}
+        className="group w-full cursor-pointer rounded-xl border border-slate-100/90 bg-gradient-to-r from-white to-slate-50/40 px-3.5 py-3 text-left transition hover:border-blue-200/70 hover:shadow-sm"
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">
@@ -131,7 +137,7 @@ function CrmInsightStatRow({
             Needs action
           </span>
         ) : null}
-      </button>
+      </div>
     </motion.li>
   );
 }
@@ -182,13 +188,19 @@ export function CrmStatTile({
   const valueSize = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-base' : 'text-xl';
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
+      role="button"
+      tabIndex={0}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index * 0.03, 0.18) }}
       onClick={onClick}
-      className="group flex h-full flex-col rounded-xl border border-slate-100/80 bg-gradient-to-b from-white to-slate-50/60 p-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition hover:border-blue-200/60 hover:shadow-[0_8px_24px_-12px_rgba(37,99,235,0.18)]"
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        onClick();
+      }}
+      className="group flex h-full cursor-pointer flex-col rounded-xl border border-slate-100/80 bg-gradient-to-b from-white to-slate-50/60 p-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition hover:border-blue-200/60 hover:shadow-[0_8px_24px_-12px_rgba(37,99,235,0.18)]"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
@@ -213,7 +225,7 @@ export function CrmStatTile({
           Needs action
         </span>
       ) : null}
-    </motion.button>
+    </motion.div>
   );
 }
 

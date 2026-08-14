@@ -104,8 +104,8 @@ export function HqInfoTip({ text }: { text: string }) {
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
-      <button
-        type="button"
+      <span
+        tabIndex={0}
         aria-label="About this metric"
         aria-expanded={open}
         aria-describedby={open ? tipId : undefined}
@@ -113,14 +113,20 @@ export function HqInfoTip({ text }: { text: string }) {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className={`inline-flex h-4 min-w-[14px] items-center justify-center rounded-full px-1 text-[11px] font-bold leading-none outline-none ring-1 transition focus:outline-none focus-visible:outline-none ${
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className={`inline-flex h-4 min-w-[14px] cursor-help items-center justify-center rounded-full px-1 text-[11px] font-bold leading-none outline-none ring-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
           open
             ? 'bg-indigo-100 text-indigo-700 ring-indigo-300'
             : 'bg-indigo-50 text-indigo-600 ring-indigo-200/90 hover:bg-indigo-100 hover:text-indigo-700'
         }`}
       >
         i
-      </button>
+      </span>
       {open && mounted
         ? createPortal(
             <span

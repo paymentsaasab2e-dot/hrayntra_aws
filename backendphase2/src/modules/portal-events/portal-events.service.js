@@ -4,6 +4,11 @@ import {
   normalizePortalEventMedia,
   storePortalEventMediaFile,
 } from './portal-events-media.service.js';
+import {
+  deleteHqEvent,
+  upsertHqEvent,
+  upsertHqEventRegistrations,
+} from '../hq/hq-portal-events.store.js';
 
 function portalDb() {
   return getJobPortalPrismaClient();
@@ -49,6 +54,43 @@ async function loadEventRegistrations(eventId) {
   });
 }
 
+function normalizeEventAccess(payload, existing) {
+  const raw = String(payload?.accessType || payload?.accessTier || existing?.accessType || 'free')
+    .trim()
+    .toLowerCase();
+  const accessType =
+    raw === 'purchase' || raw === 'premium' || raw === 'paid' ? 'purchase' : 'free';
+  let tokenCost = Math.max(0, Math.floor(Number(payload?.tokenCost ?? existing?.tokenCost) || 0));
+  if (accessType === 'free') tokenCost = 0;
+  if (accessType === 'purchase' && tokenCost <= 0) {
+    const err = new Error('Token cost is required for purchase events');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+  return { accessType, tokenCost };
+}
+
+function normalizeCtaLabel(raw, fallback = 'Join') {
+  const text = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return fallback;
+  return text.slice(0, 32);
+}
+
+function eventAccessFields(event) {
+  const tokenCost = Math.max(0, Number(event?.tokenCost) || 0);
+  const accessType =
+    String(event?.accessType || '').toLowerCase() === 'purchase' || tokenCost > 0
+      ? 'purchase'
+      : 'free';
+  return {
+    accessType,
+    tokenCost: accessType === 'free' ? 0 : tokenCost,
+    isFree: accessType === 'free' || tokenCost <= 0,
+  };
+}
+
 function normalizeSections(sections) {
   if (!Array.isArray(sections)) return [];
   return sections
@@ -88,6 +130,7 @@ function buildEventCreateData(payload, creator, source, tenantDbName) {
   }
 
   const mode = String(payload?.mode || 'Offline').trim() || 'Offline';
+  const access = normalizeEventAccess(payload);
 
   return {
     title,
@@ -109,13 +152,27 @@ function buildEventCreateData(payload, creator, source, tenantDbName) {
     createdByName: creatorDisplayName(creator),
     source,
     tenantDbName: tenantDbName ? String(tenantDbName).trim() : null,
+    accessType: access.accessType,
+    tokenCost: access.tokenCost,
+    ctaLabel: normalizeCtaLabel(payload?.ctaLabel || payload?.cta || payload?.buttonLabel),
   };
+}
+
+async function mirrorHqEvent(serialized, source) {
+  if (String(source || serialized?.source || '') !== 'hq' || !serialized?.id) return;
+  try {
+    await upsertHqEvent(serialized);
+  } catch (error) {
+    console.warn('[portal-events] HQ mirror skipped:', error?.message || error);
+  }
 }
 
 export async function createPortalEvent({ payload, creator, source, tenantDbName }) {
   const data = buildEventCreateData(payload, creator, source, tenantDbName);
   const event = await portalDb().lmsEvent.create({ data });
-  return serializeEventRow(event, 0);
+  const serialized = serializeEventRow(event, 0);
+  await mirrorHqEvent(serialized, source);
+  return serialized;
 }
 
 export async function listPortalEventsForCreator({ createdById, source, tenantDbName }) {
@@ -131,7 +188,16 @@ export async function listPortalEventsForCreator({ createdById, source, tenantDb
     include: { _count: { select: { registrations: true } } },
   });
 
-  return rows.map((row) => serializeEventRow(row, row._count?.registrations ?? 0));
+  const serialized = rows.map((row) => serializeEventRow(row, row._count?.registrations ?? 0));
+  if (String(source) === 'hq') {
+    try {
+      await Promise.all(serialized.map((row) => upsertHqEvent(row)));
+    } catch (error) {
+      console.warn('[portal-events] HQ list mirror skipped:', error?.message || error);
+    }
+  }
+
+  return serialized;
 }
 
 export async function getPortalEventRegistrations({ eventId, createdById, source, tenantDbName }) {
@@ -165,24 +231,34 @@ export async function getPortalEventRegistrations({ eventId, createdById, source
 
   const candidateById = new Map(candidates.map((c) => [c.id, c]));
 
+  const eventRow = serializeEventRow(event, registrations.length);
+  const registrationRows = registrations.map((registration) => {
+    const candidate = candidateById.get(registration.userId);
+    return {
+      id: registration.id,
+      registeredAt: registration.registeredAt,
+      attended: registration.attended,
+      userId: registration.userId,
+      name: candidate
+        ? [candidate.firstName, candidate.lastName].filter(Boolean).join(' ').trim() || '—'
+        : '—',
+      email: candidate?.email || '—',
+      phone: candidate?.phone || '—',
+      city: candidate?.city || '—',
+      currentTitle: candidate?.currentTitle || '—',
+    };
+  });
+
+  await mirrorHqEvent(eventRow, source);
+  try {
+    await upsertHqEventRegistrations(event.id, registrationRows);
+  } catch (error) {
+    console.warn('[portal-events] HQ registration mirror skipped:', error?.message || error);
+  }
+
   return {
-    event: serializeEventRow(event, registrations.length),
-    registrations: registrations.map((registration) => {
-      const candidate = candidateById.get(registration.userId);
-      return {
-        id: registration.id,
-        registeredAt: registration.registeredAt,
-        attended: registration.attended,
-        userId: registration.userId,
-        name: candidate
-          ? [candidate.firstName, candidate.lastName].filter(Boolean).join(' ').trim() || '—'
-          : '—',
-        email: candidate?.email || '—',
-        phone: candidate?.phone || '—',
-        city: candidate?.city || '—',
-        currentTitle: candidate?.currentTitle || '—',
-      };
-    }),
+    event: eventRow,
+    registrations: registrationRows,
   };
 }
 
@@ -249,6 +325,17 @@ export async function updatePortalEvent({ eventId, payload, createdById, source,
   if (payload?.media != null) {
     data.media = normalizePortalEventMedia(payload.media);
   }
+  if (payload?.accessType != null || payload?.accessTier != null || payload?.tokenCost != null) {
+    const access = normalizeEventAccess(payload, existing);
+    data.accessType = access.accessType;
+    data.tokenCost = access.tokenCost;
+  }
+  if (payload?.ctaLabel != null || payload?.cta != null || payload?.buttonLabel != null) {
+    data.ctaLabel = normalizeCtaLabel(
+      payload?.ctaLabel ?? payload?.cta ?? payload?.buttonLabel,
+      existing?.ctaLabel || 'Join',
+    );
+  }
 
   if (Object.keys(data).length === 0) {
     const err = new Error('No valid fields to update');
@@ -262,7 +349,9 @@ export async function updatePortalEvent({ eventId, payload, createdById, source,
     include: { _count: { select: { registrations: true } } },
   });
 
-  return serializeEventRow(updated, updated._count?.registrations ?? 0);
+  const serialized = serializeEventRow(updated, updated._count?.registrations ?? 0);
+  await mirrorHqEvent(serialized, source);
+  return serialized;
 }
 
 export async function cancelPortalEvent({ eventId, createdById, source, tenantDbName, organizerName }) {
@@ -291,7 +380,9 @@ export async function cancelPortalEvent({ eventId, createdById, source, tenantDb
     organizerName,
   });
 
-  return serializeEventRow(updated, updated._count?.registrations ?? 0);
+  const serialized = serializeEventRow(updated, updated._count?.registrations ?? 0);
+  await mirrorHqEvent(serialized, source);
+  return serialized;
 }
 
 export async function deletePortalEvent({ eventId, createdById, source, tenantDbName, organizerName }) {
@@ -306,6 +397,13 @@ export async function deletePortalEvent({ eventId, createdById, source, tenantDb
   });
 
   await portalDb().lmsEvent.delete({ where: { id: existing.id } });
+  if (String(source) === 'hq') {
+    try {
+      await deleteHqEvent(existing.id);
+    } catch (error) {
+      console.warn('[portal-events] HQ delete skipped:', error?.message || error);
+    }
+  }
 
   return { id: existing.id, deleted: true };
 }
@@ -319,6 +417,7 @@ export async function uploadPortalEventMediaFiles({ files, tenantDbName }) {
 }
 
 function serializeEventRow(event, registrationCount = 0) {
+  const access = eventAccessFields(event);
   return {
     id: event.id,
     title: event.title,
@@ -337,6 +436,10 @@ function serializeEventRow(event, registrationCount = 0) {
     createdById: event.createdById,
     createdByName: event.createdByName,
     createdByEmail: event.createdByEmail,
+    accessType: access.accessType,
+    tokenCost: access.tokenCost,
+    isFree: access.isFree,
+    ctaLabel: normalizeCtaLabel(event?.ctaLabel, 'Join'),
     registrationCount,
     createdAt: event.createdAt,
     updatedAt: event.updatedAt,

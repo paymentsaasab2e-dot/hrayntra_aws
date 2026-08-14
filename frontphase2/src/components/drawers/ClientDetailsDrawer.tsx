@@ -121,6 +121,7 @@ import {
   Heart,
   CalendarPlus,
   FileCheck,
+  Check,
   CheckCircle,
   XCircle,
   ChevronDown,
@@ -186,6 +187,7 @@ import {
   apiGetJob,
   apiGetJobs,
   apiHqListTeam,
+  apiHqUploadCompanyLogo,
   apiUpdateClient,
   apiUpdateContact,
   apiUpdateJob,
@@ -219,6 +221,7 @@ import {
 } from '@/lib/clientAiHelpers';
 import { inferLocationFromCityName } from '../../lib/cscData';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import { DrawerTabBar } from './DrawerTabBar';
 import {
   DrawerFieldLabel,
   DrawerSectionCard,
@@ -589,6 +592,46 @@ const DEFAULT_ADD_CLIENT_SECTIONS = {
   qualification: true,
   other: true,
 };
+
+function AddClientAiFlowProgress({ stage }: { stage: 'chat' | 'form' }) {
+  const steps = [
+    { id: 'chat' as const, label: 'Chat with AI' },
+    { id: 'form' as const, label: 'Review form' },
+  ];
+  const activeIndex = stage === 'chat' ? 0 : 1;
+
+  return (
+    <div className="shrink-0 px-5 pb-4">
+      <div className="flex items-center gap-1 rounded-2xl bg-white/80 p-1 shadow-[0_8px_24px_-16px_rgba(79,70,229,0.45)] ring-1 ring-indigo-100/80">
+        {steps.map((step, i) => {
+          const done = i < activeIndex;
+          const active = i === activeIndex;
+          return (
+            <div
+              key={step.id}
+              className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+                active
+                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                  : done
+                    ? 'text-indigo-700'
+                    : 'text-slate-400'
+              }`}
+            >
+              <span
+                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                  active ? 'bg-white/20 text-white' : done ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'
+                }`}
+              >
+                {done ? <Check className="h-3 w-3" /> : i + 1}
+              </span>
+              <span className="truncate">{step.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 const CLIENT_TEAM_MEMBER_TAG = 'TEAM_MEMBER';
 
@@ -1239,10 +1282,12 @@ export function ClientDetailsDrawer({
   const agreementsInputRef = useRef<HTMLInputElement>(null);
   const [clientAiChatOpen, setClientAiChatOpen] = useState(false);
   const [clientAiChatHistory, setClientAiChatHistory] = useState<LeadAiChatMessage[]>([]);
+  const [addClientAiFlowStage, setAddClientAiFlowStage] = useState<'chat' | 'form' | null>(null);
 
   const resetClientAiAssistant = useCallback(() => {
     setClientAiChatOpen(false);
     setClientAiChatHistory([]);
+    setAddClientAiFlowStage(null);
   }, []);
 
   const getMissingClientAiFields = useCallback((form: ClientOverviewForm): ClientAiRequiredField[] => {
@@ -2266,7 +2311,7 @@ export function ClientDetailsDrawer({
       return;
     }
 
-    if (isAddMode || !client?.id || isHqOverrideMode) {
+    if (isAddMode || !client?.id) {
       const previewUrl = URL.createObjectURL(file);
       if (pendingClientLogoPreview.startsWith('blob:')) {
         URL.revokeObjectURL(pendingClientLogoPreview);
@@ -2280,17 +2325,29 @@ export function ClientDetailsDrawer({
 
     try {
       setUploadingClientLogo(true);
-      const uploadResponse = await filesApiUpload('client', client.id, file, 'LOGO');
-      const logoUrl = uploadResponse.data?.fileUrl;
+      let logoUrl = '';
+      if (isHqOverrideMode) {
+        const uploadResponse = await apiHqUploadCompanyLogo(client.id, file);
+        logoUrl = String(uploadResponse.data?.logo || uploadResponse.data?.company?.logo || '').trim();
+      } else {
+        const uploadResponse = await filesApiUpload('client', client.id, file, 'LOGO');
+        logoUrl = String(uploadResponse.data?.fileUrl || '').trim();
+        if (logoUrl) {
+          await apiUpdateClient(client.id, { logo: logoUrl });
+        }
+      }
       if (!logoUrl) {
         throw new Error('Upload succeeded but no image URL was returned.');
       }
 
-      await apiUpdateClient(client.id, { logo: logoUrl });
+      if (pendingClientLogoPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(pendingClientLogoPreview);
+      }
+      setPendingClientLogoFile(null);
+      setPendingClientLogoPreview('');
       syncClientLogoLocally(logoUrl);
       setLogoRemoved(false);
       onClientUpdated?.({ id: client.id, logo: logoUrl });
-      onClientCreated?.();
       toast.success('Client image updated');
     } catch (error: any) {
       console.error('Failed to upload client logo:', error);
@@ -2637,11 +2694,24 @@ export function ClientDetailsDrawer({
         }
 
         const createdClientId = createdClientPayload?.id;
-        if (!createClientOverride && createdClientId && pendingClientLogoFile) {
-          const uploadResponse = await filesApiUpload('client', createdClientId, pendingClientLogoFile, 'LOGO');
-          const logoUrl = uploadResponse.data?.fileUrl;
-          if (logoUrl) {
-            await apiUpdateClient(createdClientId, { logo: logoUrl });
+        if (createdClientId && pendingClientLogoFile) {
+          try {
+            if (createClientOverride) {
+              const uploadResponse = await apiHqUploadCompanyLogo(createdClientId, pendingClientLogoFile);
+              const logoUrl = String(uploadResponse.data?.logo || uploadResponse.data?.company?.logo || '').trim();
+              if (logoUrl) {
+                createdClientPayload = { ...createdClientPayload, logo: logoUrl };
+              }
+            } else {
+              const uploadResponse = await filesApiUpload('client', createdClientId, pendingClientLogoFile, 'LOGO');
+              const logoUrl = uploadResponse.data?.fileUrl;
+              if (logoUrl) {
+                await apiUpdateClient(createdClientId, { logo: logoUrl });
+                createdClientPayload = { ...createdClientPayload, logo: logoUrl };
+              }
+            }
+          } catch (logoError) {
+            console.error('Failed to upload new client logo:', logoError);
           }
         }
 
@@ -2852,7 +2922,23 @@ export function ClientDetailsDrawer({
         if (overviewEditForm.assignedToId !== undefined || overviewEditForm.assignedToIds !== undefined) {
           updateData.assignedToId = primaryAssignedToId || null;
         }
-        if (overviewEditForm.logo !== undefined) updateData.logo = overviewEditForm.logo || null;
+        if (isHqOverrideMode && pendingClientLogoFile) {
+          try {
+            setUploadingClientLogo(true);
+            const uploadResponse = await apiHqUploadCompanyLogo(client.id, pendingClientLogoFile);
+            const logoUrl = String(uploadResponse.data?.logo || uploadResponse.data?.company?.logo || '').trim();
+            if (logoUrl) updateData.logo = logoUrl;
+          } catch (logoError: any) {
+            console.error('Failed to upload client logo:', logoError);
+            void requestError(logoError?.message || 'Failed to upload client image');
+          } finally {
+            setUploadingClientLogo(false);
+          }
+        } else if (overviewEditForm.logo !== undefined) {
+          const logo = String(overviewEditForm.logo || '').trim();
+          if (logoRemoved || !logo) updateData.logo = null;
+          else if (!logo.startsWith('blob:') && !logo.startsWith('data:')) updateData.logo = logo;
+        }
         Object.assign(
           updateData,
           teamMemberPayloadFromForm(
@@ -3787,6 +3873,7 @@ export function ClientDetailsDrawer({
       if (initialOpenAiChat) {
         setClientAiChatHistory([]);
         setClientAiChatOpen(true);
+        setAddClientAiFlowStage('chat');
       } else {
         resetClientAiAssistant();
       }
@@ -3896,38 +3983,14 @@ export function ClientDetailsDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => void requestClientDrawerClose()}
-            className={`fixed inset-0 ${isAddMode && clientAiChatOpen ? 'z-[500]' : stackClassName} bg-slate-900/45 backdrop-blur-[2px] pointer-events-auto`}
+            className={`fixed inset-0 ${isAddMode && addClientAiFlowStage === 'chat' ? 'z-[500]' : stackClassName} bg-slate-950/55 backdrop-blur-md pointer-events-auto`}
             data-drawer-skip-dirty="true"
           />
           <div
-            className={
-              isAddMode && clientAiChatOpen
-                ? 'pointer-events-none fixed inset-0 z-[501] flex flex-row items-center justify-center gap-3 overflow-x-auto overflow-y-hidden p-3 sm:gap-4 sm:p-6'
-                : `pointer-events-none fixed inset-0 ${stackClassName} flex flex-col items-center justify-center gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-6`
-            }
+            className={`pointer-events-none fixed inset-0 ${
+              isAddMode && addClientAiFlowStage === 'chat' ? 'z-[501]' : stackClassName
+            } flex flex-col items-center justify-center gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-6`}
           >
-            {isAddMode && clientAiChatOpen ? (
-              <ClientAiChatDrawer
-                docked
-                isOpen={clientAiChatOpen}
-                onClose={() => setClientAiChatOpen(false)}
-                form={overviewEditForm as unknown as Record<string, unknown>}
-                onApplyGenerated={handleApplyClientAiGenerated}
-                onExpandSections={() => {
-                  setAddClientSectionsOpen({
-                    company: true,
-                    location: true,
-                    contacts: true,
-                    qualification: true,
-                    other: true,
-                  });
-                }}
-                chatHistory={clientAiChatHistory}
-                onChatHistoryChange={setClientAiChatHistory}
-                onCreateClient={() => void saveOverviewEdit()}
-                createDisabled={isCreateClientDisabled || uploadingAgreements || uploadingKyc}
-              />
-            ) : null}
             <motion.div
               key="panel"
               ref={clientDrawerPanelRef}
@@ -3940,13 +4003,28 @@ export function ClientDetailsDrawer({
               aria-modal="true"
               aria-labelledby="client-detail-modal-title"
               className={`pointer-events-auto relative flex h-[min(92vh,920px)] w-full ${
-                isAddMode && clientAiChatOpen ? 'max-w-4xl' : 'max-w-6xl'
-              } flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5`}
+                isAddMode && addClientAiFlowStage === 'chat' ? 'max-w-5xl' : 'max-w-6xl'
+              } flex-col overflow-hidden ${
+                isAddMode && addClientAiFlowStage
+                  ? 'rounded-[28px] border-0 bg-white shadow-[0_40px_120px_-24px_rgba(15,23,42,0.45)] ring-1 ring-white/70'
+                  : 'rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5'
+              }`}
             >
             {/* Sticky Header */}
-            <div className="shrink-0 bg-white border-b border-slate-200">
+            <div
+              className={`shrink-0 ${
+                isAddMode && addClientAiFlowStage
+                  ? 'border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/95 via-violet-50/50 to-white'
+                  : 'border-b border-slate-200 bg-white'
+              }`}
+            >
               <div className="p-5 flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0 flex items-center gap-3">
+                  {isAddMode && addClientAiFlowStage ? (
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/30">
+                      <Sparkles size={20} />
+                    </div>
+                  ) : null}
                   {!isAddMode && (
                   <>
                     <input
@@ -3959,13 +4037,11 @@ export function ClientDetailsDrawer({
                     <button
                       type="button"
                       onClick={() => clientLogoInputRef.current?.click()}
-                      disabled={uploadingClientLogo || isHqOverrideMode}
+                      disabled={uploadingClientLogo}
                       title={
-                        isHqOverrideMode
-                          ? 'Client image'
-                          : headerLogoSrc
-                            ? 'Change client image'
-                            : 'Upload client image'
+                        headerLogoSrc
+                          ? 'Change client image'
+                          : 'Upload client image'
                       }
                       className="group relative w-12 h-12 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0 bg-slate-50 disabled:cursor-default"
                     >
@@ -3980,70 +4056,82 @@ export function ClientDetailsDrawer({
                           <Building2 size={22} />
                         </span>
                       )}
-                      {!isHqOverrideMode ? (
-                        <span className="absolute inset-0 flex items-center justify-center bg-slate-900/45 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-                          {uploadingClientLogo ? (
-                            <span className="text-[10px] font-semibold text-white">…</span>
-                          ) : (
-                            <Camera size={16} className="text-white" />
-                          )}
-                        </span>
-                      ) : null}
+                      <span className="absolute inset-0 flex items-center justify-center bg-slate-900/45 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                        {uploadingClientLogo ? (
+                          <span className="text-[10px] font-semibold text-white">…</span>
+                        ) : (
+                          <Camera size={16} className="text-white" />
+                        )}
+                      </span>
                     </button>
                   </>
                   )}
                   <div className="min-w-0">
-                    <h2 id="client-detail-modal-title" className="text-lg font-bold text-slate-900 truncate">
+                    <h2 id="client-detail-modal-title" className="text-lg font-bold tracking-tight text-slate-900 truncate">
                       {isAddMode ? 'Add New Client' : fullClientData?.name || client?.name}
                     </h2>
+                    {isAddMode ? (
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {addClientAiFlowStage === 'chat'
+                          ? 'Step 1 — chat with AI to capture client details'
+                          : addClientAiFlowStage === 'form'
+                            ? 'Step 2 — review and edit the AI-filled form'
+                            : 'Create a new client and capture company details'}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   {isAddMode ? (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (clientAiGate.locked) {
-                            clientAiGate.confirmAndUnlock();
-                            return;
+                      {addClientAiFlowStage !== 'chat' ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (clientAiGate.locked) {
+                              clientAiGate.confirmAndUnlock();
+                              return;
+                            }
+                            setClientAiChatOpen(true);
+                            setAddClientAiFlowStage('chat');
+                          }}
+                          className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
+                            clientAiGate.locked
+                              ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                              : addClientAiFlowStage === 'form'
+                                ? 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                                : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                          }`}
+                          title={
+                            clientAiGate.locked
+                              ? `Locked — needs ${clientAiGate.cost} coins`
+                              : addClientAiFlowStage === 'form'
+                                ? 'Go back to AI chat'
+                                : `Create with AI (${clientAiGate.cost} coins per chat message)`
                           }
-                          setClientAiChatOpen((open) => !open);
-                        }}
-                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${
-                          clientAiGate.locked
-                            ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                            : clientAiChatOpen
-                              ? 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100'
-                              : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                        }`}
-                        title={
-                          clientAiGate.locked
-                            ? `Locked — needs ${clientAiGate.cost} coins`
-                            : clientAiChatOpen
-                              ? 'Hide AI assistant'
-                              : `Open AI assistant beside the form (${clientAiGate.cost} coins per chat message)`
-                        }
-                      >
-                        {clientAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} />}
-                        Create with AI
-                        <AiCoinLockBadge featureId="ai.client_chat" />
-                      </button>
+                        >
+                          {clientAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} />}
+                          {addClientAiFlowStage === 'form' ? 'Back to chat' : 'Create with AI'}
+                          <AiCoinLockBadge featureId="ai.client_chat" />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => void requestClientDrawerClose()}
-                        className="px-3 py-1.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                        className="rounded-full border border-slate-200/90 bg-white/80 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-slate-900"
                       >
                         Cancel
                       </button>
-                      <button
-                        type="button"
-                        onClick={saveOverviewEdit}
-                        disabled={isCreateClientDisabled || uploadingAgreements || uploadingKyc}
-                        className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Create Client
-                      </button>
+                      {addClientAiFlowStage !== 'chat' ? (
+                        <button
+                          type="button"
+                          onClick={saveOverviewEdit}
+                          disabled={isCreateClientDisabled || uploadingAgreements || uploadingKyc}
+                          className="rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition hover:from-indigo-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Create Client
+                        </button>
+                      ) : null}
                     </>
                   ) : (
                     <>
@@ -4075,27 +4163,31 @@ export function ClientDetailsDrawer({
                           </button>
                         </>
                       )}
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('jobs'); openCreateJobDrawer(); }}
-                    disabled={!canCreateJob}
-                    className={`p-2 rounded-lg transition-colors ${
-                      canCreateJob
-                        ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                        : 'text-slate-300 cursor-not-allowed'
-                    }`}
-                    title={canCreateJob ? 'Add Job' : "You don't have permission to create jobs"}
-                  >
-                    <Briefcase size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openSendMessageForm}
-                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                    title="Message Client"
-                  >
-                    <MessageCircle size={18} />
-                  </button>
+                  {!isHqOverrideMode ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('jobs'); openCreateJobDrawer(); }}
+                        disabled={!canCreateJob}
+                        className={`p-2 rounded-lg transition-colors ${
+                          canCreateJob
+                            ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                            : 'text-slate-300 cursor-not-allowed'
+                        }`}
+                        title={canCreateJob ? 'Add Job' : "You don't have permission to create jobs"}
+                      >
+                        <Briefcase size={18} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openSendMessageForm}
+                        className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                        title="Message Client"
+                      >
+                        <MessageCircle size={18} />
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     onClick={openDeleteClientForm}
@@ -4128,30 +4220,67 @@ export function ClientDetailsDrawer({
               )}
             </div>
 
+            {isAddMode && addClientAiFlowStage ? (
+              <AddClientAiFlowProgress stage={addClientAiFlowStage} />
+            ) : null}
+
+            {isAddMode && addClientAiFlowStage === 'form' ? (
+              <div className="mx-5 mb-3 shrink-0 flex items-start gap-3 rounded-2xl bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-3 ring-1 ring-indigo-100">
+                <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-sm">
+                  <Sparkles size={14} />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-indigo-950">AI filled this client for you</p>
+                  <p className="mt-0.5 text-xs text-indigo-800/80">
+                    Review the form, upload logo/agreement/KYC files if needed, then create the client.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {isAddMode && addClientAiFlowStage === 'chat' ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <ClientAiChatDrawer
+                  stageMode
+                  isOpen
+                  onClose={() => void requestClientDrawerClose()}
+                  form={overviewEditForm as unknown as Record<string, unknown>}
+                  onApplyGenerated={handleApplyClientAiGenerated}
+                  onExpandSections={() => {
+                    setAddClientSectionsOpen({
+                      company: true,
+                      location: true,
+                      contacts: true,
+                      qualification: true,
+                      other: true,
+                    });
+                  }}
+                  chatHistory={clientAiChatHistory}
+                  onChatHistoryChange={setClientAiChatHistory}
+                  onContinue={() => {
+                    setAddClientAiFlowStage('form');
+                    setClientAiChatOpen(false);
+                    setAddClientSectionsOpen({
+                      company: true,
+                      location: true,
+                      contacts: true,
+                      qualification: true,
+                      other: true,
+                    });
+                    setAddClientTab('details');
+                  }}
+                />
+              </div>
+            ) : (
+              <>
             {/* Tabs */}
             {!isAddMode && (
-            <div className="shrink-0 bg-slate-50/80 border-b border-slate-200 px-3 pt-1 pb-2">
-              <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-9">
-                {primaryTabs.map((tab) => {
-                  const isActive = activeTab === tab.id;
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`flex min-w-0 items-center justify-center gap-1 rounded-lg px-2 py-2 text-[11px] font-semibold transition-all duration-200 whitespace-nowrap ${
-                        isActive
-                          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                          : 'text-slate-500 hover:text-slate-700 hover:bg-white/70'
-                      }`}
-                    >
-                      <Icon size={12} className={isActive ? 'text-blue-600' : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+              <DrawerTabBar
+                ariaLabel="Client sections"
+                tabs={primaryTabs}
+                activeId={activeTab}
+                onChange={setActiveTab}
+              />
             )}
 
             {/* Tab content */}
@@ -4160,7 +4289,7 @@ export function ClientDetailsDrawer({
               <div className="p-5">
                 {isAddMode ? (
                   <div className="space-y-5">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+                    <div className="rounded-2xl bg-slate-100/95 p-1.5 shadow-sm ring-1 ring-slate-200/80">
                       <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
                         {ADD_CLIENT_TABS.map((tab) => {
                           const Icon = tab.icon;
@@ -4170,24 +4299,24 @@ export function ClientDetailsDrawer({
                               key={tab.id}
                               type="button"
                               onClick={() => setAddClientTab(tab.id)}
-                              className={`flex items-start gap-3 rounded-xl px-3 py-3 text-left transition-all ${
+                              className={`flex items-start gap-3 rounded-xl px-3 py-3 text-left transition-all duration-200 ${
                                 active
-                                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                                  : 'text-slate-600 hover:bg-slate-50'
+                                  ? 'bg-white text-indigo-700 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-100'
+                                  : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900'
                               }`}
                             >
                               <span
                                 className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                                  active ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'
+                                  active ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-500'
                                 }`}
                               >
                                 <Icon size={16} />
                               </span>
                               <span className="min-w-0">
-                                <span className={`block text-sm font-semibold ${active ? 'text-white' : 'text-slate-900'}`}>
+                                <span className={`block text-sm font-semibold ${active ? 'text-indigo-800' : 'text-slate-900'}`}>
                                   {tab.label}
                                 </span>
-                                <span className={`mt-0.5 block text-[11px] leading-snug ${active ? 'text-blue-50/90' : 'text-slate-500'}`}>
+                                <span className={`mt-0.5 block text-[11px] leading-snug ${active ? 'text-indigo-600/80' : 'text-slate-500'}`}>
                                   {tab.subtitle}
                                 </span>
                               </span>
@@ -5464,7 +5593,7 @@ export function ClientDetailsDrawer({
                                     <button
                                       type="button"
                                       onClick={() => clientLogoInputRef.current?.click()}
-                                      disabled={uploadingClientLogo || isHqOverrideMode}
+                                      disabled={uploadingClientLogo}
                                       className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
                                     >
                                       <Upload size={16} />
@@ -5474,7 +5603,7 @@ export function ClientDetailsDrawer({
                                           ? 'Replace Image'
                                           : 'Upload Image'}
                                     </button>
-                                    {clientLogoPreview && !isHqOverrideMode ? (
+                                    {clientLogoPreview ? (
                                       <button
                                         type="button"
                                         onClick={markClientLogoRemoved}
@@ -7739,6 +7868,8 @@ export function ClientDetailsDrawer({
               </div>
 
             </div>
+              </>
+            )}
           </motion.div>
           </div>
         </>

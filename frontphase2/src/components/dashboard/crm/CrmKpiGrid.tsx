@@ -105,9 +105,10 @@ export function CrmKpiGrid({ overview, loading }: Props) {
         const Icon = def.icon;
         const value = def.resolveValue ? def.resolveValue(overview) : k[def.key];
         return (
-          <motion.button
+          <motion.div
             key={def.key}
-            type="button"
+            role="button"
+            tabIndex={0}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: Math.min(idx * 0.03, 0.2) }}
@@ -115,7 +116,12 @@ export function CrmKpiGrid({ overview, loading }: Props) {
             onClick={() =>
               openDrillDown(buildKpiDrillDown(overview, def.key, def.label, def.href))
             }
-            className={`${dashCard} group relative overflow-hidden p-4 text-left transition hover:shadow-[0_18px_48px_-24px_rgba(15,23,42,0.2)]`}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
+              openDrillDown(buildKpiDrillDown(overview, def.key, def.label, def.href));
+            }}
+            className={`${dashCard} group relative cursor-pointer overflow-hidden p-4 text-left transition hover:shadow-[0_18px_48px_-24px_rgba(15,23,42,0.2)]`}
           >
             <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-indigo-500/60 via-blue-400/40 to-teal-400/40 opacity-80" />
             <div className="flex items-start justify-between gap-2">
@@ -149,7 +155,7 @@ export function CrmKpiGrid({ overview, loading }: Props) {
             <p className="mt-1 truncate text-[10px] text-slate-400">
               {def.subtitle?.(overview) || 'Click for details'}
             </p>
-          </motion.button>
+          </motion.div>
         );
       })}
     </section>

@@ -236,6 +236,44 @@ const EMPTY_DRAFT: WizardDraft = {
   forecastRevenue: '',
 };
 
+const JOB_AI_WIZARD_OAUTH_DRAFT_KEY = 'job_ai_wizard_oauth_draft';
+
+type JobAiWizardOauthDraft = {
+  draft: WizardDraft;
+  selectedDistributionPlatforms: Record<string, boolean>;
+  activeDistributionTab: DistributionChannel;
+  publishFlowStep: PublishFlowStep;
+  step: WizardStep;
+  mode: 'ai' | 'manual';
+  preScreenAssessments: JobPreScreenAssessmentLink[];
+};
+
+function saveJobAiWizardOauthDraft(payload: JobAiWizardOauthDraft) {
+  try {
+    sessionStorage.setItem(JOB_AI_WIZARD_OAUTH_DRAFT_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function readJobAiWizardOauthDraft(): JobAiWizardOauthDraft | null {
+  try {
+    const raw = sessionStorage.getItem(JOB_AI_WIZARD_OAUTH_DRAFT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as JobAiWizardOauthDraft;
+  } catch {
+    return null;
+  }
+}
+
+function clearJobAiWizardOauthDraft() {
+  try {
+    sessionStorage.removeItem(JOB_AI_WIZARD_OAUTH_DRAFT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 function defaultTargetHireDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 30);
@@ -375,6 +413,8 @@ type Props = {
   isOpen: boolean;
   onClose: () => void;
   onJobCreated?: () => void;
+  /** AI flow includes Brief the AI / Generate with AI. Manual skips that stage. */
+  mode?: 'ai' | 'manual';
 };
 
 const STEPS: WizardStep[] = ['client', 'title', 'location', 'prompt', 'review'];
@@ -395,7 +435,12 @@ const STEP_HINTS: Record<WizardStep, string> = {
   review: 'Fine-tune everything, then publish when it looks right.',
 };
 
-export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
+export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }: Props) {
+  const isManual = mode === 'manual';
+  const wizardSteps = useMemo(
+    () => (isManual ? (['client', 'title', 'location', 'review'] as WizardStep[]) : STEPS),
+    [isManual],
+  );
   const linkedIn = useLinkedIn();
   const jobAiGate = useAiCoinGate('ai.job_from_prompt');
   const [step, setStep] = useState<WizardStep>('client');
@@ -438,7 +483,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
   });
   const [socialConnections, setSocialConnections] =
     useState<SocialPlatformConnection>(EMPTY_SOCIAL_CONNECTIONS);
-  const [socialStatusLoading, setSocialStatusLoading] = useState(false);
   const [connectingPlatformId, setConnectingPlatformId] = useState<string | null>(null);
 
   const reset = useCallback(() => {
@@ -466,7 +510,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
     setActiveDistributionTab('hryantra');
     setSelectedDistributionPlatforms({ hryantra_job_board: true });
     setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
-    setSocialStatusLoading(false);
     setConnectingPlatformId(null);
   }, []);
 
@@ -482,45 +525,77 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
       'You have unsaved progress in this job wizard. Do you want to discard it and close?',
   });
 
-  const loadSocialConnections = useCallback(async () => {
-    setSocialStatusLoading(true);
-    try {
-      await linkedIn.refreshStatus();
-      const response = await apiGetSocialStatus();
-      const nextConnections: SocialPlatformConnection = {
-        linkedin: response.data.linkedin.connected,
-        x_twitter: response.data.twitter.connected,
-        facebook: response.data.facebook.connected,
-        instagram: false,
-      };
-      setSocialConnections(nextConnections);
+  const linkedInRefreshStatus = linkedIn.refreshStatus;
 
-      setSelectedDistributionPlatforms((prev) => {
-        const next = { ...prev };
-        for (const platformId of SOCIAL_AUTH_PLATFORM_IDS) {
-          if (!nextConnections[platformId as keyof SocialPlatformConnection]) {
-            delete next[platformId];
+  const loadSocialConnections = useCallback(async () => {
+    try {
+      // Prefer the shared social status endpoint; LinkedIn refresh is best-effort
+      // and must not block the Log in buttons if the DB is slow.
+      const [socialResult] = await Promise.allSettled([
+        apiGetSocialStatus(),
+        linkedInRefreshStatus(),
+      ]);
+
+      if (socialResult.status === 'fulfilled') {
+        const response = socialResult.value;
+        const nextConnections: SocialPlatformConnection = {
+          linkedin: Boolean(response.data?.linkedin?.connected),
+          x_twitter: Boolean(response.data?.twitter?.connected),
+          facebook: Boolean(response.data?.facebook?.connected),
+          instagram: false,
+        };
+        setSocialConnections(nextConnections);
+
+        setSelectedDistributionPlatforms((prev) => {
+          const next = { ...prev };
+          for (const platformId of SOCIAL_AUTH_PLATFORM_IDS) {
+            if (!nextConnections[platformId as keyof SocialPlatformConnection]) {
+              delete next[platformId];
+            }
           }
-        }
-        return next;
-      });
+          return next;
+        });
+      } else {
+        setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
+      }
     } catch {
       setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
-    } finally {
-      setSocialStatusLoading(false);
     }
-  }, [linkedIn]);
+  }, [linkedInRefreshStatus]);
 
   useEffect(() => {
     if (!isOpen) return;
 
     if (sessionStorage.getItem('reopen_job_ai_wizard') === '1') {
       sessionStorage.removeItem('reopen_job_ai_wizard');
-      setStep('review');
+      const saved = readJobAiWizardOauthDraft();
+      clearJobAiWizardOauthDraft();
+      if (saved?.draft) {
+        setDraft({ ...EMPTY_DRAFT, ...saved.draft });
+        if (saved.selectedDistributionPlatforms) {
+          setSelectedDistributionPlatforms(saved.selectedDistributionPlatforms);
+        }
+        if (saved.activeDistributionTab) {
+          setActiveDistributionTab(saved.activeDistributionTab);
+        }
+        if (Array.isArray(saved.preScreenAssessments)) {
+          setPreScreenAssessments(saved.preScreenAssessments);
+        }
+        if (saved.step) setStep(saved.step);
+      } else {
+        setStep('review');
+      }
       setPublishFlowStep('distribution');
-      setActiveDistributionTab('social_media');
+      setActiveDistributionTab((prev) =>
+        saved?.activeDistributionTab ? saved.activeDistributionTab : 'social_media',
+      );
+      markWizardDirty();
     }
-  }, [isOpen]);
+  }, [isOpen, markWizardDirty]);
+
+  useEffect(() => {
+    if (isManual && step === 'prompt') setStep('review');
+  }, [isManual, step]);
 
   useEffect(() => {
     if (!isOpen || publishFlowStep !== 'distribution') return;
@@ -806,7 +881,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
   }, [clients, clientSearch]);
 
   useEffect(() => {
-    if (!isOpen || step !== 'title') return;
+    if (!isOpen || step !== 'title' || isManual) return;
     const query = draft.jobTitle.trim();
     if (query.length < 2) {
       setTitleSuggestions([]);
@@ -839,9 +914,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isOpen, step, draft.jobTitle, draft.clientName]);
+  }, [isOpen, step, draft.jobTitle, draft.clientName, isManual]);
 
-  const stepIndex = STEPS.indexOf(step);
+  const stepIndex = Math.max(0, wizardSteps.indexOf(step));
 
   const patchDraft = (patch: Partial<WizardDraft>) => {
     markWizardDirty();
@@ -871,7 +946,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
         setError('Add a location to continue.');
         return;
       }
-      setStep('prompt');
+      setStep(isManual ? 'review' : 'prompt');
       return;
     }
     if (step === 'prompt') {
@@ -939,9 +1014,21 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
     setConnectingPlatformId(platformId);
     setError('');
     try {
+      saveJobAiWizardOauthDraft({
+        draft,
+        selectedDistributionPlatforms,
+        activeDistributionTab,
+        publishFlowStep: 'distribution',
+        step: 'review',
+        mode,
+        preScreenAssessments,
+      });
       sessionStorage.setItem('reopen_job_ai_wizard', '1');
+      sessionStorage.setItem('reopen_job_ai_wizard_mode', mode);
+      sessionStorage.removeItem('reopen_create_job_drawer');
+
       if (platformId === 'linkedin') {
-        await linkedIn.connect();
+        await linkedIn.connect({ reopenCreateJobDrawer: false });
         return;
       }
       if (platformId === 'x_twitter') {
@@ -950,9 +1037,13 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
       }
       if (platformId === 'facebook') {
         await apiConnectIntegration('facebook', window.location.href);
+        return;
       }
+      setConnectingPlatformId(null);
     } catch (err: unknown) {
       sessionStorage.removeItem('reopen_job_ai_wizard');
+      sessionStorage.removeItem('reopen_job_ai_wizard_mode');
+      clearJobAiWizardOauthDraft();
       setError(err instanceof Error ? err.message : 'Could not connect this platform.');
       setConnectingPlatformId(null);
     }
@@ -981,7 +1072,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
       ? 'Add a screening test for applicants, or skip to choose where the job is published.'
       : publishFlowStep === 'distribution'
         ? 'Pick a category, then choose the platforms to publish on.'
-        : STEP_HINTS[step];
+        : isManual && step === 'title'
+          ? 'Give this role a clear title, then continue.'
+          : STEP_HINTS[step];
 
   const goBack = () => {
     setError('');
@@ -993,8 +1086,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
       setPublishFlowStep(null);
       return;
     }
-    const idx = STEPS.indexOf(step);
-    if (idx > 0) setStep(STEPS[idx - 1]);
+    const idx = wizardSteps.indexOf(step);
+    if (idx > 0) setStep(wizardSteps[idx - 1]);
   };
 
   const runAiGenerate = async () => {
@@ -1192,7 +1285,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                   <img src="/hryantra-logo.png" alt="" className="h-5 w-5 object-contain" />
                 </span>
                 <span className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-[#176F96]">
-                  AI job creation
+                  {isManual ? 'Create job' : 'AI job creation'}
                 </span>
               </div>
               <AnimatePresence mode="wait">
@@ -1223,7 +1316,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
           </div>
 
           <div className="mt-5 flex items-center gap-2">
-            {STEPS.map((s, i) => {
+            {wizardSteps.map((s, i) => {
               const done = i < stepIndex;
               const active = i === stepIndex;
               return (
@@ -1239,7 +1332,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                   >
                     {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
                   </div>
-                  {i < STEPS.length - 1 ? (
+                  {i < wizardSteps.length - 1 ? (
                     <div
                       className={`h-1.5 flex-1 rounded-full ${
                         done
@@ -1259,7 +1352,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
               ? 'Publish · Step 1 of 2'
               : publishFlowStep === 'distribution'
                 ? 'Publish · Step 2 of 2'
-                : `Step ${stepIndex + 1} of ${STEPS.length}`}
+                : `Step ${stepIndex + 1} of ${wizardSteps.length}`}
           </p>
         </div>
 
@@ -1428,6 +1521,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                     autoFocus
                   />
                 </div>
+                {!isManual ? (
                 <div className={`${sectionClass} relative overflow-hidden`}>
                   <div className="pointer-events-none absolute -right-8 top-0 h-24 w-24 rounded-full bg-[#D6EEF8]/60 blur-2xl" />
                   <p className="relative mb-3 inline-flex items-center gap-1.5 text-[0.7rem] font-bold uppercase tracking-[0.14em] text-[#176F96]">
@@ -1466,6 +1560,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                     </div>
                   )}
                 </div>
+                ) : null}
               </motion.div>
             ) : null}
 
@@ -1719,10 +1814,10 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                               <button
                                 type="button"
                                 onClick={() => void handleConnectSocialPlatform(platform.id)}
-                                disabled={socialStatusLoading || isConnecting}
-                                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2098C8]/40 bg-[#E8F6FC]/70 px-3 py-1.5 text-xs font-semibold text-[#176F96] transition hover:border-[#2098C8] hover:bg-[#E8F6FC] disabled:opacity-60"
+                                disabled={isConnecting}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2098C8]/40 bg-[#E8F6FC]/70 px-3 py-1.5 text-xs font-semibold text-[#176F96] transition hover:border-[#2098C8] hover:bg-[#E8F6FC] disabled:cursor-wait disabled:opacity-60"
                               >
-                                {isConnecting || (socialStatusLoading && platform.id === 'linkedin') ? (
+                                {isConnecting ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
                                   <LogIn className="h-3.5 w-3.5" />
@@ -1850,6 +1945,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                           Upload job description
                           <span className="font-normal text-slate-500">· PDF, DOC, DOCX, TXT</span>
                         </button>
+                        {!isManual ? (
                         <button
                           type="button"
                           onClick={() => void handleAutoFillFromPastedJd()}
@@ -1859,12 +1955,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated }: Props) {
                           <Sparkles className="h-3.5 w-3.5" />
                           Auto-fill from pasted JD
                         </button>
+                        ) : null}
                       </div>
                     </div>
 
                     <p className="mt-1 mb-3 text-xs text-slate-500">
-                      Upload a document to parse and auto-fill job fields with AI, or paste and edit
-                      the full posting below.
+                      {isManual
+                        ? 'Upload a JD or paste and edit the full posting below.'
+                        : 'Upload a document to parse and auto-fill job fields with AI, or paste and edit the full posting below.'}
                     </p>
 
                     {jdAttachment ? (

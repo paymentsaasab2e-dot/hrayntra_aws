@@ -6,6 +6,7 @@ import { CalendarClock, ChevronDown, LayoutGrid, MessageSquare, Pencil, X } from
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
 import { apiHqAddCompanyFollowUp, apiHqAddCompanyRemark, apiHqCompleteCompanyFollowUp, apiHqDeleteCompanyFollowUp, apiHqUpdateCompanyFollowUp } from '@/lib/api';
 import { HqFollowUpTabPanel } from './HqFollowUpTabPanel';
+import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import {
   defaultNextFollowUpLocal,
   formatNextFollowUpDisplay,
@@ -412,38 +413,20 @@ export function HqCompanyDetailDrawer({
           </button>
         </div>
 
-        <div className="flex gap-1 border-b border-slate-100 px-4 py-2">
-          {DRAWER_TABS.map((tab) => {
-            const Icon = tab.icon;
-            const selected = activeTab === tab.id;
-            const count =
+        <DrawerTabBar
+          ariaLabel="HQ company sections"
+          tabs={DRAWER_TABS.map((tab) => ({
+            ...tab,
+            badge:
               tab.id === 'followup'
                 ? (company.followUps?.length ?? 0)
                 : tab.id === 'remarks'
                   ? (company.remarks?.length ?? 0)
-                  : 0;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => handleTabChange(tab.id)}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                  selected
-                    ? 'bg-slate-100 text-slate-900'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-                {count > 0 ? (
-                  <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-600 ring-1 ring-slate-200">
-                    {count}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
+                  : 0,
+          }))}
+          activeId={activeTab}
+          onChange={handleTabChange}
+        />
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto px-6 py-6">

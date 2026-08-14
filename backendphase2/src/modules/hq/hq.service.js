@@ -744,9 +744,9 @@ export const hqService = {
     return hqLeadsService.updateFollowUp(id, followUpId, data, reqUser);
   },
 
-  async completeLeadFollowUp(id, followUpId, reqUser) {
+  async completeLeadFollowUp(id, followUpId, reqUser, extra) {
     assertPlatformProvisioner(reqUser);
-    return hqLeadsService.completeFollowUp(id, followUpId, reqUser);
+    return hqLeadsService.completeFollowUp(id, followUpId, reqUser, extra);
   },
 
   async deleteLeadFollowUp(id, followUpId, reqUser) {
@@ -816,6 +816,11 @@ export const hqService = {
   async updateCompany(id, data, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqCompaniesService.updateCompany(id, data, reqUser);
+  },
+
+  async uploadCompanyLogo(id, file, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.uploadCompanyLogo(id, file, reqUser);
   },
 
   async deleteCompany(id, reqUser) {

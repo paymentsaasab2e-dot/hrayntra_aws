@@ -65,6 +65,8 @@ import {
   XCircle,
   Users,
   Coins,
+  Sparkles,
+  Lock,
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { extractAuditMeta } from '../../utils/auditMeta';
@@ -117,6 +119,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
+import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
 import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
@@ -332,6 +335,8 @@ function CandidatesPageContent() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
   const [candidateDrawerInitialTab, setCandidateDrawerInitialTab] = useState('manual');
+  const [createCandidateMode, setCreateCandidateMode] = useState<'ai' | 'manual'>('manual');
+  const candidateAiGate = useAiCoinGate('ai.candidate_chat');
   const [failedResumesDrawerOpen, setFailedResumesDrawerOpen] = useState(false);
   const [tokensDrawerOpen, setTokensDrawerOpen] = useState(false);
   const [bulkCvTokenResumeCount, setBulkCvTokenResumeCount] = useState(0);
@@ -1748,14 +1753,65 @@ function CandidatesPageContent() {
                 </button>
               ) : null}
               {canCreateCandidate ? (
-                <button
-                  type="button"
-                  onClick={() => openCandidateDrawer('manual')}
-                  className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
+                <div
+                  role="group"
+                  aria-label="Create candidate"
+                  className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
                 >
-                  <Plus size={16} className="text-white" strokeWidth={2.5} />
-                  <span>Add candidate</span>
-                </button>
+                  <button
+                    type="button"
+                    aria-pressed={createCandidateMode === 'ai'}
+                    onClick={() => {
+                      if (candidateAiGate.locked) {
+                        candidateAiGate.confirmAndUnlock();
+                        return;
+                      }
+                      setCreateCandidateMode('ai');
+                      openCandidateDrawer('manual');
+                    }}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                      candidateAiGate.locked
+                        ? 'text-amber-800 hover:bg-amber-50'
+                        : createCandidateMode === 'ai'
+                          ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
+                          : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
+                    }`}
+                    title={
+                      candidateAiGate.locked
+                        ? `Locked — needs ${candidateAiGate.cost} coins (you have ${candidateAiGate.coins})`
+                        : `Create a candidate with AI (${candidateAiGate.cost} coins per chat message)`
+                    }
+                  >
+                    {candidateAiGate.locked ? (
+                      <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
+                    ) : (
+                      <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
+                    )}
+                    <span>Create with AI</span>
+                    <AiCoinLockBadge featureId="ai.candidate_chat" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={createCandidateMode === 'manual'}
+                    onClick={() => {
+                      setCreateCandidateMode('manual');
+                      openCandidateDrawer('manual');
+                    }}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                      createCandidateMode === 'manual'
+                        ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                        : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
+                    }`}
+                    title="Create a candidate manually"
+                  >
+                    <Plus
+                      size={14}
+                      className={createCandidateMode === 'manual' ? 'text-white' : 'text-indigo-500'}
+                      strokeWidth={2.5}
+                    />
+                    <span>Create Manually</span>
+                  </button>
+                </div>
               ) : null}
             </div>
           </header>
@@ -2075,12 +2131,15 @@ function CandidatesPageContent() {
 
       <AddCandidateDrawer
         isOpen={canCreateCandidate && isAddCandidateOpen}
-        onClose={() => setIsAddCandidateOpen(false)}
+        onClose={() => {
+          setIsAddCandidateOpen(false);
+        }}
         onSuccess={() => {
           void loadCandidates({ silent: true });
         }}
         currentUser={currentUser || { _id: '', name: 'You', email: '', role: 'RECRUITER' }}
         initialTab={candidateDrawerInitialTab}
+        createWithAi={createCandidateMode === 'ai' && candidateDrawerInitialTab === 'manual'}
         showMethodTabs={false}
         pendingBulkRetryFile={pendingBulkRetryFile}
         onBulkRetryFileConsumed={handleBulkRetryFileConsumed}

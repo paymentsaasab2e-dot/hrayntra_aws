@@ -21,20 +21,69 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '../../..');
 
+let hqMongoClient = null;
 let portalMongoClient = null;
 
-async function getPortalDb() {
-  const url = String(env.JOB_PORTAL_DATABASE_URL || env.DATABASE_URL || '').trim();
+async function getHqDb() {
+  const url = String(env.HEADQUARTERS_DATABASE_URL || '').trim();
   if (!url) {
-    const err = new Error('JOB_PORTAL_DATABASE_URL (or DATABASE_URL) is not configured');
+    const err = new Error('HEADQUARTERS_DATABASE_URL is not configured');
     err.statusCode = 500;
     throw err;
   }
+  if (!hqMongoClient) {
+    hqMongoClient = new MongoClient(url);
+    await hqMongoClient.connect();
+  }
+  return hqMongoClient.db();
+}
+
+async function getPortalDb() {
+  const url = String(env.JOB_PORTAL_DATABASE_URL || env.DATABASE_URL || '').trim();
+  if (!url) return null;
   if (!portalMongoClient) {
     portalMongoClient = new MongoClient(url);
     await portalMongoClient.connect();
   }
   return portalMongoClient.db();
+}
+
+async function mirrorCourseToPortal(fn) {
+  try {
+    const portalDb = await getPortalDb();
+    if (!portalDb) return;
+    await fn(portalDb);
+  } catch (error) {
+    console.warn('[hq-courses] portal mirror skipped:', error?.message || error);
+  }
+}
+
+async function backfillHqCoursesFromPortal(hqDb) {
+  const existing = await hqDb.collection(COLLECTION).countDocuments({ source: 'hq' });
+  if (existing > 0) return;
+  const portalDb = await getPortalDb();
+  if (!portalDb) return;
+  try {
+    const rows = await portalDb.collection(COLLECTION).find({ source: 'hq' }).toArray();
+    if (!rows.length) return;
+    await hqDb.collection(COLLECTION).insertMany(rows, { ordered: false }).catch(() => undefined);
+    const enrollments = await portalDb
+      .collection(ENROLLMENTS_COLLECTION)
+      .find({ courseId: { $in: rows.map((row) => row._id) } })
+      .toArray();
+    if (enrollments.length) {
+      await hqDb.collection(ENROLLMENTS_COLLECTION).insertMany(enrollments, { ordered: false }).catch(() => undefined);
+    }
+    const lessons = await portalDb
+      .collection(LESSONS_COLLECTION)
+      .find({ courseId: { $in: rows.map((row) => row._id) } })
+      .toArray();
+    if (lessons.length) {
+      await hqDb.collection(LESSONS_COLLECTION).insertMany(lessons, { ordered: false }).catch(() => undefined);
+    }
+  } catch (error) {
+    console.warn('[hq-courses] portal backfill skipped:', error?.message || error);
+  }
 }
 
 function sanitizeFilename(name) {
@@ -305,7 +354,8 @@ function buildCourseDoc(data, { isUpdate = false } = {}) {
 
 export const hqCoursesService = {
   async listCourses() {
-    const db = await getPortalDb();
+    const db = await getHqDb();
+    await backfillHqCoursesFromPortal(db);
     const rows = await db
       .collection(COLLECTION)
       .find({})
@@ -354,7 +404,8 @@ export const hqCoursesService = {
   },
 
   async listCourseEnrollments(id) {
-    const db = await getPortalDb();
+    const db = await getHqDb();
+    await backfillHqCoursesFromPortal(db);
     let objectId;
     try {
       objectId = new ObjectId(String(id));
@@ -396,40 +447,40 @@ export const hqCoursesService = {
       ),
     ];
 
-    const [candidates, profiles] = await Promise.all([
-      userIds.length
-        ? db
-            .collection(CANDIDATES_COLLECTION)
-            .find({ _id: { $in: userIds } })
-            .project({
-              firstName: 1,
-              lastName: 1,
-              email: 1,
-              phone: 1,
-              whatsappNumber: 1,
-              avatar: 1,
-              currentTitle: 1,
-              location: 1,
-              city: 1,
-            })
-            .toArray()
-        : [],
-      userIds.length
-        ? db
-            .collection(CANDIDATE_PROFILES_COLLECTION)
-            .find({ candidateId: { $in: userIds } })
-            .project({
-              candidateId: 1,
-              fullName: 1,
-              email: 1,
-              phoneNumber: 1,
-              profilePhotoUrl: 1,
-              city: 1,
-              country: 1,
-            })
-            .toArray()
-        : [],
-    ]);
+    const candidateProjection = {
+      firstName: 1,
+      lastName: 1,
+      email: 1,
+      phone: 1,
+      whatsappNumber: 1,
+      avatar: 1,
+      currentTitle: 1,
+      location: 1,
+      city: 1,
+    };
+    const profileProjection = {
+      candidateId: 1,
+      fullName: 1,
+      email: 1,
+      phoneNumber: 1,
+      profilePhotoUrl: 1,
+      city: 1,
+      country: 1,
+    };
+
+    async function loadLearners(fromDb) {
+      if (!userIds.length || !fromDb) return [[], []];
+      return Promise.all([
+        fromDb.collection(CANDIDATES_COLLECTION).find({ _id: { $in: userIds } }).project(candidateProjection).toArray(),
+        fromDb.collection(CANDIDATE_PROFILES_COLLECTION).find({ candidateId: { $in: userIds } }).project(profileProjection).toArray(),
+      ]);
+    }
+
+    let [candidates, profiles] = await loadLearners(db);
+    if (userIds.length && !candidates.length) {
+      const portalDb = await getPortalDb();
+      [candidates, profiles] = await loadLearners(portalDb);
+    }
 
     const candidateById = new Map(candidates.map((c) => [String(c._id), c]));
     const profileByCandidateId = new Map(profiles.map((p) => [String(p.candidateId), p]));
@@ -472,7 +523,7 @@ export const hqCoursesService = {
   },
 
   async createCourse(data) {
-    const db = await getPortalDb();
+    const db = await getHqDb();
     const doc = buildCourseDoc(data, { isUpdate: false });
     const result = await db.collection(COLLECTION).insertOne(doc);
     await syncIntroVideoLesson(db, result.insertedId, {
@@ -480,12 +531,24 @@ export const hqCoursesService = {
       description: doc.description,
       videoUrl: doc.videoUrl,
     });
+    await mirrorCourseToPortal(async (portalDb) => {
+      await portalDb.collection(COLLECTION).updateOne(
+        { _id: result.insertedId },
+        { $set: { ...doc, _id: result.insertedId } },
+        { upsert: true },
+      );
+      await syncIntroVideoLesson(portalDb, result.insertedId, {
+        title: doc.title,
+        description: doc.description,
+        videoUrl: doc.videoUrl,
+      });
+    });
     const created = await db.collection(COLLECTION).findOne({ _id: result.insertedId });
     return { course: toCourseRow(created) };
   },
 
   async updateCourse(id, data) {
-    const db = await getPortalDb();
+    const db = await getHqDb();
     let objectId;
     try {
       objectId = new ObjectId(String(id));
@@ -495,7 +558,11 @@ export const hqCoursesService = {
       throw err;
     }
 
-    const existing = await db.collection(COLLECTION).findOne({ _id: objectId });
+    let existing = await db.collection(COLLECTION).findOne({ _id: objectId });
+    if (!existing) {
+      await backfillHqCoursesFromPortal(db);
+      existing = await db.collection(COLLECTION).findOne({ _id: objectId });
+    }
     if (!existing) {
       const err = new Error('Course not found');
       err.statusCode = 404;
@@ -530,12 +597,20 @@ export const hqCoursesService = {
       description: patch.description,
       videoUrl: patch.videoUrl,
     });
+    await mirrorCourseToPortal(async (portalDb) => {
+      await portalDb.collection(COLLECTION).updateOne({ _id: objectId }, { $set: patch }, { upsert: true });
+      await syncIntroVideoLesson(portalDb, objectId, {
+        title: patch.title,
+        description: patch.description,
+        videoUrl: patch.videoUrl,
+      });
+    });
     const updated = await db.collection(COLLECTION).findOne({ _id: objectId });
     return { course: toCourseRow(updated) };
   },
 
   async deleteCourse(id) {
-    const db = await getPortalDb();
+    const db = await getHqDb();
     let objectId;
     try {
       objectId = new ObjectId(String(id));
@@ -552,6 +627,10 @@ export const hqCoursesService = {
       throw err;
     }
     await db.collection(LESSONS_COLLECTION).deleteMany({ courseId: objectId });
+    await mirrorCourseToPortal(async (portalDb) => {
+      await portalDb.collection(COLLECTION).deleteOne({ _id: objectId });
+      await portalDb.collection(LESSONS_COLLECTION).deleteMany({ courseId: objectId });
+    });
     return { deleted: true, id: String(id) };
   },
 
@@ -579,9 +658,13 @@ export const hqCoursesService = {
       throw err;
     }
 
-    const db = await getPortalDb();
+    const db = await getHqDb();
     const result = await db.collection(COLLECTION).deleteMany({ _id: { $in: objectIds } });
     await db.collection(LESSONS_COLLECTION).deleteMany({ courseId: { $in: objectIds } });
+    await mirrorCourseToPortal(async (portalDb) => {
+      await portalDb.collection(COLLECTION).deleteMany({ _id: { $in: objectIds } });
+      await portalDb.collection(LESSONS_COLLECTION).deleteMany({ courseId: { $in: objectIds } });
+    });
     return {
       deleted: true,
       deletedCount: result.deletedCount || 0,

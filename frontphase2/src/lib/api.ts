@@ -1574,6 +1574,8 @@ export type HqLeadApiRow = {
     roleId?: string | null;
   }>;
   formSchema?: string | null;
+  hqProductLine?: string | null;
+  hqProductLines?: string[];
   employerDemoRequestId?: string | null;
   preferredDemoDate?: string | null;
   preferredDemoTime?: string | null;
@@ -1738,13 +1740,17 @@ export async function apiHqUpdateLeadFollowUp(
   });
 }
 
-export async function apiHqCompleteLeadFollowUp(leadId: string, followUpId: string) {
+export async function apiHqCompleteLeadFollowUp(
+  leadId: string,
+  followUpId: string,
+  body?: { notes?: string; remark?: string; type?: string; scheduledAt?: string },
+) {
   return apiFetch<{
     lead: HqLeadApiRow;
     storage: HqLeadStorageInfo;
   }>(
     `/hq/leads/${encodeURIComponent(leadId)}/follow-ups/${encodeURIComponent(followUpId)}/complete`,
-    { method: 'POST', auth: true, body: {} }
+    { method: 'POST', auth: true, body: body || {} },
   );
 }
 
@@ -1792,6 +1798,7 @@ export type HqCompanyApiRow = {
   email?: string;
   phone?: string;
   website?: string;
+  logo?: string | null;
   country?: string;
   state?: string;
   city?: string;
@@ -2010,6 +2017,19 @@ export async function apiHqCreateCompany(
     '/hq/companies',
     { method: 'POST', auth: true, body }
   );
+}
+
+export async function apiHqUploadCompanyLogo(companyId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetchFormData<{
+    company: HqCompanyApiRow;
+    logo: string;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/companies/${encodeURIComponent(companyId)}/logo`, formData, {
+    method: 'POST',
+    auth: true,
+  });
 }
 
 export async function apiHqUpdateCompany(
@@ -6819,6 +6839,43 @@ export const apiGetLeadPublicFormLink = async () => {
   );
 };
 
+export const apiGetLeadPublicFormAccess = async () => {
+  return apiFetch<{
+    tenantDbName?: string;
+    token?: string;
+    accessCount?: number;
+    leadsFilledCount?: number;
+    members?: Array<{ name?: string; email?: string; leadCount?: number }>;
+  }>('/leads/public-form-link/access', { auth: true });
+};
+
+export const apiInviteLeadPublicFormMember = async (payload: {
+  name: string;
+  designation: string;
+  email: string;
+  password: string;
+}) => {
+  const frontendBase =
+    typeof window !== 'undefined'
+      ? `${window.location.protocol}//${window.location.host}`
+      : undefined;
+  return apiFetch<{
+    memberCreated?: boolean;
+    alreadyExisted?: boolean;
+    name?: string;
+    designation?: string;
+    email?: string;
+    loginId?: string;
+    formUrl?: string;
+    tenantDbName?: string;
+    emailSent?: boolean;
+  }>('/leads/public-form-link/invite', {
+    method: 'POST',
+    auth: true,
+    body: { ...payload, frontendBase },
+  });
+};
+
 export const apiGetPublicLeadForm = async (token: string, tenantDbName?: string) => {
   const tenant = String(tenantDbName || '').trim();
   const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
@@ -6860,9 +6917,51 @@ export const apiSubmitPublicLeadForm = async (
   }>(`/leads/public/form/${encodeURIComponent(token)}/submit${qs}`, {
     method: 'POST',
     body: tenant ? { ...body, tenantDbName: tenant } : body,
-    auth: false,
+    auth: true,
     includeTenantHeader: Boolean(tenant),
   });
+};
+
+export const apiUpdatePublicLeadFormLead = async (
+  token: string,
+  leadId: string,
+  body: Record<string, unknown>,
+  tenantDbName?: string
+) => {
+  const tenant = String(tenantDbName || '').trim();
+  const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+  if (tenant && typeof window !== 'undefined') {
+    syncTenantDbName(tenant);
+  }
+  return apiFetch<BackendLead>(
+    `/leads/public/form/${encodeURIComponent(token)}/leads/${encodeURIComponent(leadId)}${qs}`,
+    {
+      method: 'PATCH',
+      body: tenant ? { ...body, tenantDbName: tenant } : body,
+      auth: true,
+      includeTenantHeader: Boolean(tenant),
+    }
+  );
+};
+
+export const apiDeletePublicLeadFormLead = async (
+  token: string,
+  leadId: string,
+  tenantDbName?: string
+) => {
+  const tenant = String(tenantDbName || '').trim();
+  const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+  if (tenant && typeof window !== 'undefined') {
+    syncTenantDbName(tenant);
+  }
+  return apiFetch<{ id: string; deleted?: boolean }>(
+    `/leads/public/form/${encodeURIComponent(token)}/leads/${encodeURIComponent(leadId)}${qs}`,
+    {
+      method: 'DELETE',
+      auth: true,
+      includeTenantHeader: Boolean(tenant),
+    }
+  );
 };
 
 export const apiGetPublicLeadFormSubmissions = async (token: string, tenantDbName?: string) => {
@@ -9896,6 +9995,84 @@ export async function apiClientAiChat(body: {
     readyToCreate: boolean;
     client: ClientAiGeneratedDetails;
   }>('/ai/client-chat', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export type CandidateAiGeneratedDetails = {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  age?: string;
+  cityState?: string;
+  address?: string;
+  zip?: string;
+  nationality?: string;
+  maritalStatus?: string;
+  birthDate?: string;
+  passportNumber?: string;
+  currentCompany?: string;
+  currentDesignation?: string;
+  currentCompanyWebsite?: string;
+  experience?: string;
+  currentSalary?: string;
+  currentSalaryCurrency?: string;
+  currentBenefits?: string;
+  expectedSalary?: string;
+  currency?: string;
+  expectedBenefits?: string;
+  noticePeriodDays?: string;
+  noticePeriod?: string;
+  availabilityStatus?: string;
+  courses?: string;
+  extracurricularActivities?: string;
+  volunteers?: string;
+  linkedinUrl?: string;
+  twitter?: string;
+  facebook?: string;
+  skypeId?: string;
+  stackOverflow?: string;
+  website?: string;
+  portfolioUrl?: string;
+  summary?: string;
+  workHistory?: string;
+  educationHistory?: string;
+  honoursAwards?: string;
+  source?: string;
+  sourceUrl?: string;
+  referrerName?: string;
+  agencyName?: string;
+  priority?: string;
+  location?: string;
+  remarks?: string;
+  initialNote?: string;
+  skills?: string[];
+};
+
+export async function apiGenerateCandidateDetails(body: {
+  prompt: string;
+  currentForm?: Record<string, unknown>;
+}) {
+  return apiFetch<CandidateAiGeneratedDetails>('/ai/candidate-details', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiCandidateAiChat(body: {
+  message: string;
+  currentForm?: Record<string, unknown>;
+  history?: LeadAiChatMessage[];
+}) {
+  return apiFetch<{
+    reply: string;
+    readyToCreate: boolean;
+    candidate: CandidateAiGeneratedDetails;
+  }>('/ai/candidate-chat', {
     method: 'POST',
     body,
     auth: true,

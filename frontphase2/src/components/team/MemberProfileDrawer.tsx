@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Edit, UserMinus, UserPlus, Mail, Phone, MapPin, Key, Lock, Unlock, Clock, History, Trash2, Eye, EyeOff, Copy } from 'lucide-react';
+import { X, Edit, UserMinus, UserPlus, Mail, Phone, MapPin, Key, Lock, Unlock, Clock, History, Trash2, Eye, EyeOff, Copy, User, MessageSquare } from 'lucide-react';
+import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { motion, AnimatePresence } from 'motion/react';
 import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { toast } from 'sonner';
@@ -376,27 +377,15 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                     </div>
                   </div>
 
-                  <div className="border-b border-slate-200 px-6">
-                    <div className="flex gap-1">
-                      {[
-                        { id: 'profile' as const, label: 'Profile' },
-                        { id: 'chat' as const, label: 'Chat' },
-                      ].map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setProfileTab(tab.id)}
-                          className={`px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                            profileTab === tab.id
-                              ? 'border-indigo-600 text-indigo-600'
-                              : 'border-transparent text-slate-500 hover:text-slate-700'
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <DrawerTabBar
+                    ariaLabel="Member sections"
+                    tabs={[
+                      { id: 'profile' as const, label: 'Profile', icon: User },
+                      { id: 'chat' as const, label: 'Chat', icon: MessageSquare },
+                    ]}
+                    activeId={profileTab}
+                    onChange={setProfileTab}
+                  />
 
                   {profileTab === 'chat' ? (
                     <div className="flex-1 overflow-y-auto p-6">

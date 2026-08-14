@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { prisma, getActiveTenantDbName, runWithTenantContext } from '../../config/prisma.js';
 import { leadService } from './lead.service.js';
+import { generateLoginId, hashPassword } from '../../utils/credentialGenerator.js';
+import { sendEmail } from '../../emails/email.service.js';
+import { leadFormInviteTemplate } from '../../emails/templates/lead-form-invite.template.js';
+import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
+import { assertCanCreateUser } from '../setting/planAccess.service.js';
 
 function requireTenantDbName(tenantDbName) {
   const tenant = String(tenantDbName || getActiveTenantDbName() || '').trim();
@@ -104,7 +109,132 @@ async function findActiveFormForTenant(token, tenantDbName) {
   return form;
 }
 
-function normalizePublicLeadPayload(body = {}) {
+function splitMemberName(rawName) {
+  const name = String(rawName || '').trim().replace(/\s+/g, ' ');
+  if (!name) return { name: '', firstName: '', lastName: '' };
+  const parts = name.split(' ');
+  const firstName = parts[0];
+  const lastName = parts.slice(1).join(' ') || firstName;
+  return { name, firstName, lastName };
+}
+
+async function recordFormInvitee(publicToken, invitee) {
+  const email = String(invitee?.email || '').trim().toLowerCase();
+  if (!publicToken || !email) return;
+  const entry = {
+    email,
+    name: String(invitee?.name || '').trim(),
+    userId: invitee?.userId ? String(invitee.userId) : null,
+    invitedAt: new Date().toISOString(),
+  };
+  try {
+    await prisma.$runCommandRaw({
+      update: 'lead_intake_forms',
+      updates: [
+        {
+          q: { publicToken },
+          u: { $pull: { invitees: { email } } },
+          multi: false,
+        },
+      ],
+    });
+    await prisma.$runCommandRaw({
+      update: 'lead_intake_forms',
+      updates: [
+        {
+          q: { publicToken },
+          u: { $push: { invitees: entry } },
+          multi: false,
+        },
+      ],
+    });
+  } catch {
+    /* best-effort invitee log */
+  }
+}
+
+async function readFormInvitees(publicToken) {
+  try {
+    const result = await prisma.$runCommandRaw({
+      find: 'lead_intake_forms',
+      filter: { publicToken },
+      limit: 1,
+    });
+    const doc = result?.cursor?.firstBatch?.[0];
+    return Array.isArray(doc?.invitees) ? doc.invitees : [];
+  } catch {
+    return [];
+  }
+}
+
+function intakeLeadAddedBy(lead) {
+  const details = Array.isArray(lead?.otherDetails) ? lead.otherDetails : [];
+  const name = String(
+    details.find((item) => String(item?.label || '').trim() === '_intakeAddedBy')?.value ||
+      lead?.referralName ||
+      ''
+  ).trim();
+  const email = String(
+    details.find((item) => String(item?.label || '').trim() === '_intakeAddedByEmail')?.value ||
+      lead?.sourceEmail ||
+      ''
+  )
+    .trim()
+    .toLowerCase();
+  return { name, email, userId: typeof lead?.createdBy === 'string' ? lead.createdBy : null };
+}
+
+function isValidInviteEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function leadMatchesIntakeToken(lead, publicToken) {
+  const token = String(publicToken || '').trim();
+  if (!token || !lead) return false;
+  if (String(lead.campaignLink || '').trim() === token) return true;
+  const details = Array.isArray(lead.otherDetails) ? lead.otherDetails : [];
+  return details.some(
+    (item) =>
+      String(item?.label || '').trim() === '_intakeFormToken' &&
+      String(item?.value || '').trim() === token
+  );
+}
+
+function preserveIntakeOtherDetails(nextDetails, previousDetails, publicToken) {
+  const keepLabels = new Set(['_intakeFormToken', '_intakeAddedBy', '_intakeAddedByEmail']);
+  const base = Array.isArray(nextDetails) ? nextDetails.filter(Boolean) : [];
+  const prev = Array.isArray(previousDetails) ? previousDetails : [];
+  const without = base.filter((item) => !keepLabels.has(String(item?.label || '').trim()));
+  const preserved = [{ label: '_intakeFormToken', value: String(publicToken || '').trim() }];
+  for (const label of ['_intakeAddedBy', '_intakeAddedByEmail']) {
+    const fromNext = base.find((item) => String(item?.label || '').trim() === label);
+    const fromPrev = prev.find((item) => String(item?.label || '').trim() === label);
+    const value = String(fromNext?.value || fromPrev?.value || '').trim();
+    if (value) preserved.push({ label, value });
+  }
+  return [...without, ...preserved];
+}
+
+async function recordTenantUserDirectoryEntry({ email, loginId, tenantDbName }) {
+  if (!tenantDbName) return;
+  try {
+    await headquartersAuthService.upsertTenantUserDirectoryEntry({
+      email,
+      loginId,
+      tenantDbName,
+    });
+  } catch {
+    /* directory is best-effort */
+  }
+}
+
+function submitterDisplayName(user) {
+  if (!user || typeof user !== 'object') return '';
+  const fromParts = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+  return fromParts || String(user.name || '').trim() || String(user.email || '').trim();
+}
+
+function normalizePublicLeadPayload(body = {}, submitter = null) {
   const companyName = String(body.companyName || '').trim();
   const contactPerson = String(body.contactPerson || body.directorName || '').trim();
   const email = String(body.email || '').trim();
@@ -123,6 +253,16 @@ function normalizePublicLeadPayload(body = {}) {
   const source = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(body.source)
     ? body.source
     : 'Website';
+
+  const addedByName =
+    submitterDisplayName(submitter) || String(body.addedByName || '').trim();
+  const addedByEmail = String(submitter?.email || body.addedByEmail || '').trim();
+  const intakeToken = String(body.intakeFormToken || '').trim();
+  const otherDetails = [
+    intakeToken ? { label: '_intakeFormToken', value: intakeToken } : null,
+    addedByName ? { label: '_intakeAddedBy', value: addedByName } : null,
+    addedByEmail ? { label: '_intakeAddedByEmail', value: addedByEmail } : null,
+  ].filter(Boolean);
 
   return {
     companyName,
@@ -151,9 +291,10 @@ function normalizePublicLeadPayload(body = {}) {
     notes: String(body.notes || '').trim() || undefined,
     campaignName: 'Public intake form',
     campaignLink: String(body.intakeFormToken || '').trim() || undefined,
-    otherDetails: String(body.intakeFormToken || '').trim()
-      ? [{ label: '_intakeFormToken', value: String(body.intakeFormToken).trim() }]
-      : undefined,
+    referralName: addedByName || undefined,
+    sourceEmail: addedByEmail || undefined,
+    performedById: submitter?.id || undefined,
+    otherDetails: otherDetails.length ? otherDetails : undefined,
   };
 }
 
@@ -203,17 +344,33 @@ export const leadPublicFormService = {
     });
   },
 
-  async submitPublicForm(token, body, tenantDbName) {
+  async submitPublicForm(token, body, tenantDbName, submitterHint = {}) {
     const tenant = requireTenantDbName(
       tenantDbName || body?.tenantDbName || getActiveTenantDbName()
     );
 
     return runWithTenantContext(tenant, async () => {
       await findActiveFormForTenant(token, tenant);
-      const payload = normalizePublicLeadPayload({
-        ...body,
-        intakeFormToken: String(token || '').trim(),
-      });
+      let submitter = null;
+      const submitterId = String(submitterHint?.userId || body?.addedById || '').trim();
+      if (submitterId && /^[a-f\d]{24}$/i.test(submitterId)) {
+        try {
+          submitter = await prisma.user.findUnique({
+            where: { id: submitterId },
+            select: { id: true, email: true, name: true, firstName: true, lastName: true, isActive: true },
+          });
+          if (submitter && submitter.isActive === false) submitter = null;
+        } catch {
+          submitter = null;
+        }
+      }
+      const payload = normalizePublicLeadPayload(
+        {
+          ...body,
+          intakeFormToken: String(token || '').trim(),
+        },
+        submitter
+      );
       const lead = await leadService.create(payload, null);
       return {
         id: lead.id,
@@ -226,6 +383,8 @@ export const leadPublicFormService = {
         industry: lead.industry,
         location: lead.location,
         createdAt: lead.createdAt,
+        createdBy: lead.createdBy || submitter?.id || null,
+        addedByName: payload.referralName || submitterDisplayName(submitter) || null,
         tenantDbName: tenant,
         message: 'Lead submitted successfully',
       };
@@ -271,7 +430,10 @@ export const leadPublicFormService = {
           interestedNeeds: true,
           campaignName: true,
           campaignLink: true,
+          referralName: true,
+          sourceEmail: true,
           otherDetails: true,
+          createdBy: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -310,7 +472,10 @@ export const leadPublicFormService = {
           interestedNeeds: true,
           campaignName: true,
           campaignLink: true,
+          referralName: true,
+          sourceEmail: true,
           otherDetails: true,
+          createdBy: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -320,15 +485,7 @@ export const leadPublicFormService = {
       for (const lead of byCampaign) byId.set(lead.id, lead);
       for (const lead of recent) {
         if (byId.has(lead.id)) continue;
-        const details = Array.isArray(lead.otherDetails) ? lead.otherDetails : [];
-        const matchesToken =
-          String(lead.campaignLink || '').trim() === publicToken ||
-          details.some(
-            (item) =>
-              String(item?.label || '').trim() === '_intakeFormToken' &&
-              String(item?.value || '').trim() === publicToken
-          );
-        if (matchesToken) byId.set(lead.id, lead);
+        if (leadMatchesIntakeToken(lead, publicToken)) byId.set(lead.id, lead);
       }
 
       const leads = Array.from(byId.values()).sort((a, b) => {
@@ -342,6 +499,288 @@ export const leadPublicFormService = {
         tenantDbName: tenant,
         leads,
       };
+    });
+  },
+
+  async inviteMemberToPublicForm({
+    name,
+    designation,
+    email,
+    password,
+    frontendBase,
+    tenantDbName,
+    createdById,
+  } = {}) {
+    const tenant = requireTenantDbName(tenantDbName || getActiveTenantDbName());
+    const parsedName = splitMemberName(name);
+    const emailNorm = String(email || '').trim().toLowerCase();
+    const designationNorm = String(designation || '').trim();
+    const passwordNorm = String(password || '');
+
+    if (!parsedName.name) {
+      throw Object.assign(new Error('Name is required'), { statusCode: 400 });
+    }
+    if (!designationNorm) {
+      throw Object.assign(new Error('Designation is required'), { statusCode: 400 });
+    }
+    if (!isValidInviteEmail(emailNorm)) {
+      throw Object.assign(new Error('A valid Gmail / email address is required'), { statusCode: 400 });
+    }
+    if (passwordNorm.length < 8) {
+      throw Object.assign(new Error('Password must be at least 8 characters'), { statusCode: 400 });
+    }
+
+    return runWithTenantContext(tenant, async () => {
+      const form = await ensureLeadIntakeFormForTenant(tenant);
+      const formUrl = buildLeadPublicFormUrl(form.publicToken, frontendBase, tenant);
+
+      const existing = await prisma.user.findUnique({ where: { email: emailNorm } });
+      let memberCreated = false;
+      let loginId = emailNorm;
+      let userId = existing?.id || null;
+
+      if (!existing) {
+        try {
+          await assertCanCreateUser();
+        } catch (error) {
+          throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+            statusCode: 400,
+          });
+        }
+        const hashedPassword = await hashPassword(passwordNorm);
+        const user = await prisma.user.create({
+          data: {
+            name: parsedName.name,
+            firstName: parsedName.firstName,
+            lastName: parsedName.lastName,
+            email: emailNorm,
+            designation: designationNorm,
+            passwordHash: hashedPassword,
+            role: 'VIEWER',
+            status: 'ACTIVE',
+            isActive: true,
+          },
+        });
+        userId = user.id;
+        loginId = await generateLoginId(parsedName.firstName, parsedName.lastName);
+        await prisma.userCredential.create({
+          data: {
+            userId: user.id,
+            loginId,
+            hashedPassword,
+            tempPasswordFlag: false,
+            inviteSentAt: new Date(),
+            createdBy: createdById || null,
+          },
+        });
+        await recordTenantUserDirectoryEntry({
+          email: emailNorm,
+          loginId,
+          tenantDbName: tenant,
+        });
+        memberCreated = true;
+      } else {
+        const hashedPassword = await hashPassword(passwordNorm);
+        const credential = await prisma.userCredential.findUnique({
+          where: { userId: existing.id },
+        });
+        loginId = credential?.loginId || emailNorm;
+        await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            designation: designationNorm || existing.designation,
+            passwordHash: hashedPassword,
+            name: parsedName.name || existing.name,
+            firstName: parsedName.firstName || existing.firstName,
+            lastName: parsedName.lastName || existing.lastName,
+            isActive: true,
+            status: 'ACTIVE',
+          },
+        });
+        if (credential) {
+          await prisma.userCredential.update({
+            where: { id: credential.id },
+            data: {
+              hashedPassword,
+              tempPasswordFlag: false,
+              inviteSentAt: new Date(),
+              isLocked: false,
+              failedAttempts: 0,
+            },
+          });
+        } else {
+          loginId = await generateLoginId(parsedName.firstName, parsedName.lastName);
+          await prisma.userCredential.create({
+            data: {
+              userId: existing.id,
+              loginId,
+              hashedPassword,
+              tempPasswordFlag: false,
+              inviteSentAt: new Date(),
+              createdBy: createdById || null,
+            },
+          });
+        }
+        await recordTenantUserDirectoryEntry({
+          email: emailNorm,
+          loginId,
+          tenantDbName: tenant,
+        });
+      }
+
+      const html = leadFormInviteTemplate({
+        name: parsedName.name,
+        designation: designationNorm,
+        email: emailNorm,
+        password: passwordNorm,
+        formUrl,
+        loginId,
+      });
+
+      const mailed = await sendEmail(
+        emailNorm,
+        'Your lead form invitation',
+        html,
+        'leads.public_form_invite'
+      );
+      const emailSent = Boolean(mailed?.success) || Boolean(mailed?.skipped);
+
+      await recordFormInvitee(form.publicToken, {
+        email: emailNorm,
+        name: parsedName.name,
+        userId,
+      });
+
+      return {
+        memberCreated,
+        alreadyExisted: !memberCreated,
+        name: parsedName.name,
+        designation: designationNorm,
+        email: emailNorm,
+        loginId,
+        formUrl,
+        tenantDbName: tenant,
+        emailSent,
+        emailError: emailSent ? undefined : mailed?.error || 'Email service is not configured',
+        userId,
+      };
+    });
+  },
+
+  async getPublicFormAccess({ tenantDbName } = {}) {
+    const tenant = requireTenantDbName(tenantDbName || getActiveTenantDbName());
+
+    return runWithTenantContext(tenant, async () => {
+      const form = await ensureLeadIntakeFormForTenant(tenant);
+      const listed = await this.listPublicSubmissions(form.publicToken, tenant);
+      const leads = Array.isArray(listed?.leads) ? listed.leads : [];
+      const storedInvitees = await readFormInvitees(form.publicToken);
+
+      const people = new Map();
+      const upsertPerson = ({ email, name, userId }) => {
+        const key = String(email || userId || name || '').trim().toLowerCase();
+        if (!key) return null;
+        if (!people.has(key)) {
+          people.set(key, {
+            name: String(name || email || 'Member').trim(),
+            email: String(email || '').trim().toLowerCase(),
+            userId: userId || null,
+            leadCount: 0,
+          });
+        }
+        const row = people.get(key);
+        if (name && (!row.name || row.name === row.email)) row.name = String(name).trim();
+        if (email && !row.email) row.email = String(email).trim().toLowerCase();
+        if (userId && !row.userId) row.userId = userId;
+        return row;
+      };
+
+      for (const invitee of storedInvitees) {
+        upsertPerson({
+          email: invitee?.email,
+          name: invitee?.name,
+          userId: invitee?.userId,
+        });
+      }
+
+      for (const lead of leads) {
+        const added = intakeLeadAddedBy(lead);
+        const row = upsertPerson(added);
+        if (row) row.leadCount += 1;
+      }
+
+      const members = Array.from(people.values()).sort((a, b) => b.leadCount - a.leadCount || a.name.localeCompare(b.name));
+
+      return {
+        tenantDbName: tenant,
+        token: form.publicToken,
+        accessCount: members.length,
+        leadsFilledCount: leads.length,
+        members,
+      };
+    });
+  },
+
+  async updatePublicFormLead(token, leadId, body, tenantDbName, actorHint = {}) {
+    const tenant = requireTenantDbName(tenantDbName || body?.tenantDbName || getActiveTenantDbName());
+    const publicToken = String(token || '').trim();
+    const id = String(leadId || '').trim();
+    const actorId = String(actorHint?.userId || body?.performedById || '').trim();
+    if (!id) {
+      throw Object.assign(new Error('Lead id is required'), { statusCode: 400 });
+    }
+    if (!actorId) {
+      throw Object.assign(new Error('Sign in to edit a lead on this form'), { statusCode: 401 });
+    }
+
+    return runWithTenantContext(tenant, async () => {
+      await findActiveFormForTenant(publicToken, tenant);
+      const current = await prisma.lead.findFirst({
+        where: { id, isDeleted: { not: true } },
+      });
+      if (!current || !leadMatchesIntakeToken(current, publicToken)) {
+        throw Object.assign(new Error('Lead not found on this form'), { statusCode: 404 });
+      }
+
+      const payload = { ...(body || {}) };
+      delete payload.tenantDbName;
+      payload.campaignLink = publicToken;
+      payload.campaignName = current.campaignName || 'Public intake form';
+      payload.performedById = actorId;
+      if (payload.otherDetails !== undefined) {
+        payload.otherDetails = preserveIntakeOtherDetails(
+          payload.otherDetails,
+          current.otherDetails,
+          publicToken
+        );
+      }
+
+      return leadService.update(id, payload, null);
+    });
+  },
+
+  async deletePublicFormLead(token, leadId, tenantDbName, actorHint = {}) {
+    const tenant = requireTenantDbName(tenantDbName || getActiveTenantDbName());
+    const publicToken = String(token || '').trim();
+    const id = String(leadId || '').trim();
+    const actorId = String(actorHint?.userId || '').trim();
+    if (!id) {
+      throw Object.assign(new Error('Lead id is required'), { statusCode: 400 });
+    }
+    if (!actorId) {
+      throw Object.assign(new Error('Sign in to delete a lead on this form'), { statusCode: 401 });
+    }
+
+    return runWithTenantContext(tenant, async () => {
+      await findActiveFormForTenant(publicToken, tenant);
+      const current = await prisma.lead.findFirst({
+        where: { id, isDeleted: { not: true } },
+      });
+      if (!current || !leadMatchesIntakeToken(current, publicToken)) {
+        throw Object.assign(new Error('Lead not found on this form'), { statusCode: 404 });
+      }
+      await leadService.delete(id, actorId, null);
+      return { id, deleted: true };
     });
   },
 };

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { TeamMember, Badge } from '../TeamComponents';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import { DrawerTabBar } from './DrawerTabBar';
 import { 
   BarChart, 
   Bar, 
@@ -82,25 +83,12 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
               <DrawerCloseButton onClick={onClose} />
             </div>
 
-            {/* Tabs Navigation */}
-            <div className="px-6 border-b border-slate-100">
-              <div className="flex gap-6">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`py-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-                      activeTab === tab.id 
-                        ? 'border-blue-600 text-blue-600' 
-                        : 'border-transparent text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    <tab.icon className="size-4" />
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <DrawerTabBar
+              ariaLabel="Member sections"
+              tabs={tabs}
+              activeId={activeTab}
+              onChange={setActiveTab}
+            />
 
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30">

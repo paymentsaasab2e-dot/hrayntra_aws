@@ -1068,6 +1068,7 @@ export default function JobsPage() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
   const [jobAiWizardOpen, setJobAiWizardOpen] = useState(false);
+  const [createJobMode, setCreateJobMode] = useState<'ai' | 'manual'>('manual');
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [duplicateFromJobId, setDuplicateFromJobId] = useState<string | null>(null);
   const [addCandidateDrawerOpen, setAddCandidateDrawerOpen] = useState(false);
@@ -1331,8 +1332,19 @@ export default function JobsPage() {
         integrationError === 'facebook');
 
     if (shouldReopenAiWizard) {
+      const savedWizardMode = sessionStorage.getItem('reopen_job_ai_wizard_mode');
+      sessionStorage.removeItem('reopen_job_ai_wizard_mode');
+      setCreateJobMode(savedWizardMode === 'manual' ? 'manual' : 'ai');
       setJobAiWizardOpen(true);
+      if (linkedinParam === 'connected') {
+        toast.success('LinkedIn connected successfully.');
+      } else if (linkedinParam === 'error') {
+        toast.error(
+          decodeURIComponent(params.get('message') || 'Failed to connect LinkedIn. Please try again.'),
+        );
+      }
     } else if (shouldReopenDrawer) {
+      setCreateJobMode('manual');
       setCreateJobDrawerOpen(true);
       sessionStorage.removeItem('reopen_create_job_drawer');
       sessionStorage.removeItem('oauth_navigation');
@@ -2160,20 +2172,30 @@ export default function JobsPage() {
               <span>Export</span>
                 </button>
             {canCreateJob ? (
-              <>
+              <div
+                role="group"
+                aria-label="Create job"
+                className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
+              >
                 <button
                   type="button"
+                  aria-pressed={createJobMode === 'ai'}
                   onClick={() => {
                     if (jobAiGate.locked) {
                       jobAiGate.confirmAndUnlock();
                       return;
                     }
+                    setCreateJobMode('ai');
+                    setDuplicateFromJobId(null);
+                    setCreateJobDrawerOpen(false);
                     setJobAiWizardOpen(true);
                   }}
-                  className={`px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(13,148,136,0.25)] border active:scale-[0.98] ${
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
                     jobAiGate.locked
-                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200/80 hover:border-amber-300'
-                      : 'bg-white hover:bg-teal-50 text-teal-900 border-teal-200/80 hover:border-teal-300'
+                      ? 'text-amber-800 hover:bg-amber-50'
+                      : createJobMode === 'ai'
+                        ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
+                        : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
                   }`}
                   title={
                     jobAiGate.locked
@@ -2182,25 +2204,37 @@ export default function JobsPage() {
                   }
                 >
                   {jobAiGate.locked ? (
-                    <Lock size={16} className="text-amber-600" strokeWidth={2.25} />
+                    <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
                   ) : (
-                    <Sparkles size={16} className="text-teal-600" strokeWidth={2.25} />
+                    <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
                   )}
-                  <span>Create Job with AI</span>
+                  <span>Create with AI</span>
                   <AiCoinLockBadge featureId="ai.job_from_prompt" />
                 </button>
                 <button
                   type="button"
+                  aria-pressed={createJobMode === 'manual'}
                   onClick={() => {
+                    setCreateJobMode('manual');
                     setDuplicateFromJobId(null);
-                    setCreateJobDrawerOpen(true);
+                    setCreateJobDrawerOpen(false);
+                    setJobAiWizardOpen(true);
                   }}
-                  className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                    createJobMode === 'manual'
+                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
+                  }`}
+                  title="Create a job manually"
                 >
-                  <Plus size={16} className="text-white" strokeWidth={2.5} />
-                  <span>Create Job</span>
+                  <Plus
+                    size={14}
+                    className={createJobMode === 'manual' ? 'text-white' : 'text-indigo-500'}
+                    strokeWidth={2.5}
+                  />
+                  <span>Create Manually</span>
                 </button>
-              </>
+              </div>
             ) : null}
               </div>
         }
@@ -2418,6 +2452,7 @@ export default function JobsPage() {
 
       <JobAiCreateWizard
         isOpen={canCreateJob && jobAiWizardOpen}
+        mode={createJobMode}
         onClose={() => setJobAiWizardOpen(false)}
         onJobCreated={() => {
           setJobAiWizardOpen(false);

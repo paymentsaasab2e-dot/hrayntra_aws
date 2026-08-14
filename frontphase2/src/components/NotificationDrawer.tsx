@@ -29,6 +29,7 @@ import {
   type AppNotificationCategory,
 } from '../lib/api';
 import { formatDateDMY } from '../utils/dateDisplay';
+import { DrawerTabBar } from './drawers/DrawerTabBar';
 
 interface NotificationDrawerProps {
   isOpen: boolean;
@@ -353,53 +354,22 @@ export function NotificationDrawer({ isOpen, onClose }: NotificationDrawerProps)
                 </div>
               </div>
 
-              {/* Primary tabs: Unread / Read / Alerts */}
-              <div
-                className="mt-4 grid grid-cols-3 gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1"
-                role="tablist"
-                aria-label="Notification status"
-              >
-                {STATUS_TABS.map((tab) => {
-                  const Icon = tab.icon;
-                  const active = statusTab === tab.id;
-                  const count =
+              <DrawerTabBar
+                variant="embedded"
+                className="mt-4"
+                ariaLabel="Notification status"
+                tabs={STATUS_TABS.map((tab) => ({
+                  ...tab,
+                  badge:
                     tab.id === 'unread'
                       ? counts.unread
                       : tab.id === 'read'
                         ? counts.read
-                        : counts.alerts;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setStatusTab(tab.id)}
-                      className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-bold transition ${
-                        active
-                          ? tab.id === 'alerts'
-                            ? 'bg-amber-500 text-white shadow-sm'
-                            : 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      <Icon className="size-3.5 shrink-0" />
-                      <span>{tab.label}</span>
-                      <span
-                        className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${
-                          active
-                            ? tab.id === 'alerts'
-                              ? 'bg-white/20 text-white'
-                              : 'bg-slate-100 text-slate-600'
-                            : 'bg-slate-200/70 text-slate-500'
-                        }`}
-                      >
-                        {count > 99 ? '99+' : count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                        : counts.alerts,
+                }))}
+                activeId={statusTab}
+                onChange={setStatusTab}
+              />
 
               <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">

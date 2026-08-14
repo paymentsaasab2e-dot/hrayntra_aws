@@ -13,6 +13,10 @@ import {
   courseThumbnailMulterFilter,
   courseVideoMulterFilter,
 } from './hq-courses.service.js';
+import {
+  HQ_COMPANY_LOGO_MAX_BYTES,
+  companyLogoMulterFilter,
+} from './hq-companies.service.js';
 
 const router = express.Router();
 
@@ -32,6 +36,12 @@ const courseVideoUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: HQ_COURSE_VIDEO_MAX_BYTES, files: 1 },
   fileFilter: courseVideoMulterFilter,
+});
+
+const companyLogoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: HQ_COMPANY_LOGO_MAX_BYTES, files: 1 },
+  fileFilter: companyLogoMulterFilter,
 });
 
 // Setup initial Super Admin credentials directly
@@ -90,6 +100,12 @@ router.patch('/help-tickets', authMiddleware, hqController.updateHelpTicket);
 router.get('/companies', authMiddleware, hqController.listCompanies);
 router.post('/companies', authMiddleware, hqController.createCompany);
 router.put('/companies/:id', authMiddleware, hqController.updateCompany);
+router.post(
+  '/companies/:id/logo',
+  authMiddleware,
+  companyLogoUpload.single('file'),
+  hqController.uploadCompanyLogo,
+);
 router.delete('/companies/:id', authMiddleware, hqController.deleteCompany);
 router.post('/companies/:id/follow-ups', authMiddleware, hqController.addCompanyFollowUp);
 router.put('/companies/:id/follow-ups/:followUpId', authMiddleware, hqController.updateCompanyFollowUp);

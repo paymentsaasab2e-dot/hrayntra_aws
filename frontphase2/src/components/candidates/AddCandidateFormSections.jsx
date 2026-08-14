@@ -252,8 +252,8 @@ function StepPanel({ step, currentStep, title, children }) {
   if (step !== currentStep) return null;
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+      <div className="rounded-2xl border border-[#2098C8]/20 bg-gradient-to-r from-[#E8F6FC]/80 to-white px-4 py-3 shadow-sm">
+        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-[#176F96]">
           Step {step} of {CANDIDATE_FORM_STEPS.length}
         </p>
         <h3 className="text-base font-bold text-slate-900">{title}</h3>

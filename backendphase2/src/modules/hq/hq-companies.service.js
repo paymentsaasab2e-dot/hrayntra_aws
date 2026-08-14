@@ -1,10 +1,107 @@
+import fs from 'fs';
+import path from 'path';
+import { randomUUID } from 'crypto';
+import { fileURLToPath } from 'url';
 import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
+import { uploadBufferToS3 } from '../../utils/s3.js';
+import { isS3Configured } from '../../utils/publicUploads.util.js';
 import { findFollowUpIndex, recomputeNextFollowUpAt } from './hq-follow-up.helpers.js';
 
 const HQ_CRM_COMPANIES_COLLECTION = 'hq_crm_companies';
 const VALID_STATUSES = ['active', 'inactive', 'on_hold', 'closed'];
 const FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'];
+export const HQ_COMPANY_LOGO_MAX_BYTES = 5 * 1024 * 1024;
+const COMPANY_LOGO_MIMES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/svg+xml',
+]);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, '../../..');
+
+export function companyLogoMulterFilter(_req, file, cb) {
+  const mime = String(file?.mimetype || '').trim().toLowerCase();
+  if (!COMPANY_LOGO_MIMES.has(mime)) {
+    cb(new Error('Only images (JPG, PNG, WEBP, GIF, SVG) are allowed'));
+    return;
+  }
+  cb(null, true);
+}
+
+function sanitizeFilename(name) {
+  const base = path.basename(String(name || 'file').trim());
+  return base.replace(/[^a-zA-Z0-9._-]/g, '_') || 'file';
+}
+
+function backendPublicBase() {
+  return String(
+    env.BACKEND_PUBLIC_URL ||
+      process.env.BACKEND_PUBLIC_URL ||
+      process.env.PUBLIC_BACKEND_URL ||
+      `http://localhost:${process.env.PORT || '5001'}`,
+  ).replace(/\/+$/, '');
+}
+
+async function storeHqCompanyLogoFile(file) {
+  if (!file?.buffer?.length) {
+    const err = new Error('No file provided');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (file.size > HQ_COMPANY_LOGO_MAX_BYTES) {
+    const err = new Error('Image must be 5 MB or smaller');
+    err.statusCode = 400;
+    throw err;
+  }
+  const mime = String(file.mimetype || '').trim().toLowerCase();
+  if (!COMPANY_LOGO_MIMES.has(mime)) {
+    const err = new Error('Only images (JPG, PNG, WEBP, GIF, SVG) are allowed');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const safeName = sanitizeFilename(file.originalname);
+  const storedName = `${Date.now()}_${randomUUID().slice(0, 8)}_${safeName}`;
+
+  if (isS3Configured()) {
+    try {
+      const uploaded = await uploadBufferToS3(file.buffer, {
+        folder: 'hq-company-logos',
+        originalFilename: storedName,
+        contentType: file.mimetype,
+      });
+      return {
+        url: uploaded.secure_url || uploaded.url,
+        name: safeName,
+        size: file.size,
+      };
+    } catch (error) {
+      console.warn('[hq-companies] S3 upload failed, using local storage:', error?.message || error);
+    }
+  }
+
+  const dir = path.join(projectRoot, 'uploads', 'hq-company-logos');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, storedName), file.buffer);
+  return {
+    url: `${backendPublicBase()}/uploads/hq-company-logos/${encodeURIComponent(storedName)}`,
+    name: safeName,
+    size: file.size,
+  };
+}
+
+function parseLogoValue(data) {
+  if (data?.logo === null || data?.logo === '') return null;
+  if (typeof data?.logo === 'undefined') return undefined;
+  const raw = String(data.logo || '').trim();
+  if (!raw || raw.startsWith('blob:') || raw.startsWith('data:')) return undefined;
+  return raw;
+}
 
 let cachedClient = null;
 let indexesEnsured = false;
@@ -114,6 +211,7 @@ function toCompanyRow(doc) {
     email: doc.email || '',
     phone: doc.phone || '',
     website: doc.website || '',
+    logo: doc.logo || '',
     country: doc.country || '',
     state: doc.state || '',
     city: doc.city || '',
@@ -386,6 +484,7 @@ function parseCompanyInput(data) {
     email,
     phone,
     website: String(data?.website || '').trim(),
+    ...(parseLogoValue(data) !== undefined ? { logo: parseLogoValue(data) } : {}),
     industry,
     country,
     state: String(data?.state || '').trim(),
@@ -624,6 +723,32 @@ export const hqCompaniesService = {
     const result = await collection.insertOne(doc);
     const inserted = await collection.findOne({ _id: result.insertedId });
     return { company: toCompanyRow(inserted), alreadyExisted: false };
+  },
+
+  async uploadCompanyLogo(id, file, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+
+    const uploaded = await storeHqCompanyLogoFile(file);
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          logo: uploaded.url,
+          updatedAt: new Date(),
+          updatedByEmail: reqUser?.email || null,
+        },
+      },
+    );
+    const updated = await collection.findOne({ _id: objectId });
+    return {
+      company: toCompanyRow(updated),
+      logo: uploaded.url,
+      storage: getStorageInfo(),
+    };
   },
 
   async updateCompany(id, data, reqUser) {

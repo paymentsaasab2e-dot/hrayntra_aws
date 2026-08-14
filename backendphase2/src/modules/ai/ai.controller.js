@@ -391,6 +391,142 @@ When readyToCreate is true, confirm the client is ready and tell the user to rev
 
 Always return clientPatch with ALL schema fields (empty strings for unknown values).`;
 
+const candidateDetailsFieldProperties = {
+  firstName: { type: 'string' },
+  lastName: { type: 'string' },
+  email: { type: 'string' },
+  phone: { type: 'string' },
+  age: { type: 'string' },
+  cityState: { type: 'string' },
+  address: { type: 'string' },
+  zip: { type: 'string' },
+  nationality: { type: 'string' },
+  maritalStatus: { type: 'string' },
+  birthDate: { type: 'string' },
+  passportNumber: { type: 'string' },
+  currentCompany: { type: 'string' },
+  currentDesignation: { type: 'string' },
+  currentCompanyWebsite: { type: 'string' },
+  experience: { type: 'string' },
+  currentSalary: { type: 'string' },
+  currentSalaryCurrency: { type: 'string' },
+  currentBenefits: { type: 'string' },
+  expectedSalary: { type: 'string' },
+  currency: { type: 'string' },
+  expectedBenefits: { type: 'string' },
+  noticePeriodDays: { type: 'string' },
+  noticePeriod: { type: 'string' },
+  availabilityStatus: { type: 'string' },
+  courses: { type: 'string' },
+  extracurricularActivities: { type: 'string' },
+  volunteers: { type: 'string' },
+  linkedinUrl: { type: 'string' },
+  twitter: { type: 'string' },
+  facebook: { type: 'string' },
+  skypeId: { type: 'string' },
+  stackOverflow: { type: 'string' },
+  website: { type: 'string' },
+  portfolioUrl: { type: 'string' },
+  summary: { type: 'string' },
+  workHistory: { type: 'string' },
+  educationHistory: { type: 'string' },
+  honoursAwards: { type: 'string' },
+  source: { type: 'string' },
+  sourceUrl: { type: 'string' },
+  referrerName: { type: 'string' },
+  agencyName: { type: 'string' },
+  priority: { type: 'string' },
+  location: { type: 'string' },
+  remarks: { type: 'string' },
+  initialNote: { type: 'string' },
+  skills: { type: 'array', items: { type: 'string' } },
+};
+
+const candidateDetailsRequiredFields = Object.keys(candidateDetailsFieldProperties);
+
+const candidateDetailsJsonSchema = {
+  name: 'candidate_details_payload',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: candidateDetailsFieldProperties,
+    required: candidateDetailsRequiredFields,
+  },
+  strict: true,
+};
+
+const candidateChatJsonSchema = {
+  name: 'candidate_chat_response',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      reply: { type: 'string' },
+      readyToCreate: { type: 'boolean' },
+      candidatePatch: {
+        type: 'object',
+        additionalProperties: false,
+        properties: candidateDetailsFieldProperties,
+        required: candidateDetailsRequiredFields,
+      },
+    },
+    required: ['reply', 'readyToCreate', 'candidatePatch'],
+  },
+  strict: true,
+};
+
+const CANDIDATE_AI_FIELD_GUIDE = `Add Candidate drawer fields (map user text into candidatePatch on every turn):
+
+REQUIRED (only these block readyToCreate):
+- firstName — candidate first name
+- email — valid email
+
+OPTIONAL (extract whenever mentioned; never require):
+- lastName, phone, age, birthDate (YYYY-MM-DD), nationality, maritalStatus, passportNumber
+- cityState — "City, State" combined; also set location
+- address, zip, location
+- currentCompany, currentDesignation, currentCompanyWebsite, experience (years, e.g. "5")
+- currentSalary, currentSalaryCurrency (INR/USD/EUR/GBP), currentBenefits
+- expectedSalary, currency, expectedBenefits
+- noticePeriod — Immediate | 15 days | 30 days | 45 days | 60 days | 90 days+
+- noticePeriodDays, availabilityStatus — Available | Notice Period | Not Available
+- skills[] — skill names
+- summary, workHistory, educationHistory, honoursAwards, courses
+- extracurricularActivities, volunteers
+- linkedinUrl, twitter, facebook, skypeId, stackOverflow, website, portfolioUrl
+- source — LinkedIn | Naukri | Indeed | Referral | Company Career Page | Agency | Other
+- sourceUrl, referrerName, agencyName
+- priority — High | Medium | Low
+- remarks, initialNote
+
+Merge with currentForm: keep existing non-empty values unless the user corrects them.`;
+
+const CANDIDATE_DETAILS_SYSTEM_PROMPT = `You are the HRYANTRA recruitment candidate extraction assistant.
+
+${CANDIDATE_AI_FIELD_GUIDE}
+
+From unstructured text (CV snippets, WhatsApp, email, recruiter notes), extract every field you can in one pass.
+Return ONLY valid JSON matching the schema. Use empty string or empty array when unknown. No markdown.`;
+
+const CANDIDATE_CHAT_SYSTEM_PROMPT = `You are the HRYANTRA AI Candidate Assistant for the Add Candidate drawer.
+
+${CANDIDATE_AI_FIELD_GUIDE}
+
+Conversation rules:
+- Extract ALL detectable fields from every user message into candidatePatch immediately.
+- Ask ONE question at a time. Prioritize missing REQUIRED fields (firstName, email) first.
+- All optional fields are optional — user may skip.
+- When the user pastes a CV or notes, extract everything possible and summarize what you filled.
+- Never re-ask fields already present in currentForm unless the user wants to change them.
+- Set readyToCreate=true only when firstName and a valid email are present. Tell the user to review the Add Candidate form and click Create.
+- Always return candidatePatch with ALL schema fields (empty string or [] when unknown).
+
+Reply formatting (reply field only):
+- When summarizing captured fields, use a short intro line then ONE bullet per field on its own line.
+- Start each bullet with the character • (not a hyphen dash).
+- Format: "Label: value" — no markdown, no ** bold, no asterisks.
+- Put a blank line between the intro and the bullet list, and another blank line before the closing sentence.`;
+
 export const aiController = {
   async assistantChat(req, res) {
     try {
@@ -919,6 +1055,106 @@ export const aiController = {
     } catch (error) {
       console.error('[generateClientChat]', error);
       return sendError(res, 500, error.message || 'Failed to generate client chat response', error);
+    }
+  },
+
+  async generateCandidateDetails(req, res) {
+    try {
+      const { prompt, currentForm } = req.body || {};
+
+      if (!String(prompt || '').trim() && !currentForm) {
+        return sendError(res, 400, 'Candidate prompt is required');
+      }
+
+      if (!hasLlmProvider()) {
+        return sendError(res, 503, 'AI candidate generator is not configured');
+      }
+
+      const completion = await chatCompletionWithFallback(
+        {
+          model: env.OPENAI_CHAT_MODEL,
+          temperature: 0.2,
+          max_tokens: 1800,
+          response_format: {
+            type: 'json_schema',
+            json_schema: candidateDetailsJsonSchema,
+          },
+          messages: [
+            { role: 'system', content: CANDIDATE_DETAILS_SYSTEM_PROMPT },
+            {
+              role: 'user',
+              content: [
+                'Optimize this candidate for our Add Candidate drawer and return only valid JSON matching the schema.',
+                `User input:\n${String(prompt || '').trim()}`,
+                `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}`,
+                'Do not return markdown.',
+              ].join('\n\n'),
+            },
+          ],
+        },
+        'ai-candidate-details'
+      );
+
+      const raw = completion.choices?.[0]?.message?.content?.trim();
+      const parsed = raw ? JSON.parse(raw) : null;
+
+      if (!parsed?.firstName && !parsed?.email && !parsed?.lastName) {
+        return sendError(res, 500, 'AI returned an empty candidate payload');
+      }
+
+      return sendResponse(res, 200, 'Candidate details generated successfully', parsed);
+    } catch (error) {
+      console.error('[generateCandidateDetails]', error);
+      return sendError(res, 500, error.message || 'Failed to generate candidate details', error);
+    }
+  },
+
+  async generateCandidateChat(req, res) {
+    try {
+      const { message, currentForm, history = [] } = req.body || {};
+      const trimmedMessage = String(message || '').trim();
+      if (!trimmedMessage) return sendError(res, 400, 'Message is required');
+      if (!hasLlmProvider()) return sendError(res, 503, 'AI candidate assistant is not configured');
+
+      const safeHistory = Array.isArray(history)
+        ? history
+            .filter((entry) => entry && typeof entry === 'object')
+            .slice(-12)
+            .map((entry) => ({
+              role: entry.role === 'assistant' ? 'assistant' : 'user',
+              content: String(entry.content || '').trim(),
+            }))
+            .filter((entry) => entry.content)
+        : [];
+
+      const completion = await chatCompletionWithFallback(
+        {
+          model: env.OPENAI_CHAT_MODEL,
+          temperature: 0.3,
+          max_tokens: 2200,
+          response_format: { type: 'json_schema', json_schema: candidateChatJsonSchema },
+          messages: [
+            { role: 'system', content: CANDIDATE_CHAT_SYSTEM_PROMPT },
+            { role: 'user', content: `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}` },
+            ...safeHistory,
+            { role: 'user', content: trimmedMessage },
+          ],
+        },
+        'ai-candidate-chat'
+      );
+
+      const raw = completion.choices?.[0]?.message?.content?.trim();
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed?.reply) return sendError(res, 500, 'AI returned an empty assistant reply');
+
+      return sendResponse(res, 200, 'Candidate chat response generated successfully', {
+        reply: parsed.reply,
+        readyToCreate: Boolean(parsed.readyToCreate),
+        candidate: parsed.candidatePatch || {},
+      });
+    } catch (error) {
+      console.error('[generateCandidateChat]', error);
+      return sendError(res, 500, error.message || 'Failed to generate candidate chat response', error);
     }
   },
 
