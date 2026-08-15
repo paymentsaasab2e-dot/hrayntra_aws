@@ -210,7 +210,7 @@ export function HqPhase2Title({
   return (
     <div className="relative z-[1] mb-4 flex items-center justify-between gap-3 overflow-visible">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
+        <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-slate-900 to-blue-900" />
         <h3 className="truncate text-[13px] font-semibold tracking-tight text-slate-800">{title}</h3>
         {info ? <HqInfoTip text={info} /> : null}
       </div>
@@ -331,7 +331,7 @@ export function HqPhase2PageHeader({
     <header className="hq-dash-card mb-5 flex flex-col gap-4 rounded-2xl border border-white/80 bg-white/75 px-4 py-5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_18px_48px_-24px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:px-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0 flex-1">
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
+          <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-slate-900 to-blue-900" />
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/80">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
             Live

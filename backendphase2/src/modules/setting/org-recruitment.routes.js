@@ -165,6 +165,47 @@ router.post('/coins/purchase', async (req, res) => {
   }
 });
 
+router.get('/people-perf', async (req, res) => {
+  try {
+    const { getPeoplePerfStatus } = await import('./people-perf.service.js');
+    const data = await getPeoplePerfStatus();
+    sendResponse(res, 200, 'OK', data);
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load people intel status', error);
+  }
+});
+
+router.post('/people-perf/unlock', async (req, res) => {
+  try {
+    const product = String(req.body?.product || '').trim();
+    const { unlockPeoplePerf } = await import('./people-perf.service.js');
+    const data = await unlockPeoplePerf(product, { user: req.user });
+    if (data.coins != null) res.setHeader('X-Coin-Balance', String(data.coins));
+    if (data.spent != null) res.setHeader('X-Coins-Spent', String(data.spent));
+    sendResponse(res, 200, data.alreadyActive ? 'Already active this month' : 'People intel unlocked for 30 days', {
+      ...data,
+      coinBalance: data.coins,
+      coinsSpent: data.spent || 0,
+    });
+  } catch (error) {
+    if (error.code === 'VALIDATION') return sendError(res, 400, error.message);
+    if (error.code === 'INSUFFICIENT_COINS' || error.status === 402) {
+      return res.status(402).json({
+        success: false,
+        message: error.message || 'Insufficient AI coins',
+        data: {
+          code: 'INSUFFICIENT_COINS',
+          balance: error.meta?.balance ?? 0,
+          required: error.meta?.required,
+          feature: error.meta?.feature,
+          shortfall: error.meta?.shortfall ?? 0,
+        },
+      });
+    }
+    sendError(res, 400, error.message || 'Failed to unlock people intel', error);
+  }
+});
+
 /** Standalone tenants: internal workspace company (no Clients module). */
 router.get('/workspace-client', async (req, res) => {
   try {

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 import {
   APP_DIALOG_EVENT,
@@ -11,6 +12,7 @@ import {
   requestAlert,
   SYSTEM_ALERT_TITLE,
 } from '../lib/appDialog';
+import { isEmployerPublicAuthPath } from '../lib/sessionAuth';
 
 type DialogRequest = {
   kind: AppDialogKind;
@@ -25,6 +27,8 @@ type DialogRequest = {
 };
 
 export function GlobalAlertHost() {
+  const pathname = usePathname();
+  const isAuthRoute = isEmployerPublicAuthPath(pathname);
   const [queue, setQueue] = useState<DialogRequest[]>([]);
   const activeRequest = useMemo(() => queue[0] || null, [queue]);
 
@@ -49,6 +53,10 @@ export function GlobalAlertHost() {
       const customEvent = event as CustomEvent<AppDialogRequestDetail>;
       const detail = customEvent.detail;
       if (!detail) return;
+      if (isEmployerPublicAuthPath(window.location.pathname)) {
+        detail.resolve(false);
+        return;
+      }
       setQueue((prev) => [
         ...prev,
         {
@@ -73,6 +81,15 @@ export function GlobalAlertHost() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isAuthRoute) return;
+    setQueue((prev) => {
+      if (!prev.length) return prev;
+      prev.forEach((item) => item.resolve(false));
+      return [];
+    });
+  }, [isAuthRoute]);
+
   // Auto-advance corner alerts (alert kind only)
   useEffect(() => {
     if (!activeRequest) return;
@@ -84,7 +101,7 @@ export function GlobalAlertHost() {
     return () => window.clearTimeout(id);
   }, [activeRequest, closeCurrent]);
 
-  if (!activeRequest) return null;
+  if (isAuthRoute || !activeRequest) return null;
 
   const isConfirm = activeRequest.kind === 'confirm';
   const isCorner = activeRequest.placement === 'corner';

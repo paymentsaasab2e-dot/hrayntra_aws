@@ -155,7 +155,7 @@ export default function ForgotPasswordPage() {
       )}
 
       {step === 'request' ? (
-        <form onSubmit={handleRequestOtp} className="space-y-3.5">
+        <form onSubmit={handleRequestOtp} className="space-y-3.5" data-writing-assist="off">
           <div>
             <label htmlFor="forgot-user-id" className="mb-1.5 block text-[13px] font-medium text-slate-600">
               User ID
@@ -180,7 +180,7 @@ export default function ForgotPasswordPage() {
           </button>
         </form>
       ) : (
-        <form onSubmit={handleResetPassword} className="space-y-3.5">
+        <form onSubmit={handleResetPassword} className="space-y-3.5" data-writing-assist="off">
           <div>
             <label htmlFor="forgot-otp" className="mb-1.5 block text-[13px] font-medium text-slate-600">
               Verification code

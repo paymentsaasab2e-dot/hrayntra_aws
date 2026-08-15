@@ -127,6 +127,7 @@ router.delete('/roles/:id', authMiddleware, hqController.deleteHqRole);
 router.get('/portal', authMiddleware, hqController.getPortalOverview);
 router.get('/candidates', authMiddleware, hqController.listAllCandidates);
 router.get('/tenants/:tenantDbName/behavior', authMiddleware, hqController.getTenantBehavior);
+router.get('/tenants/:tenantDbName/behavior-engine', authMiddleware, hqController.getTenantBehaviorEngine);
 router.get('/candidates/:id/behavior', authMiddleware, hqController.getCandidateBehavior);
 router.delete('/portal/jobs/:id', authMiddleware, hqController.deletePortalJob);
 

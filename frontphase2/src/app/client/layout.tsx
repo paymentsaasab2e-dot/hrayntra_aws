@@ -4,6 +4,7 @@ import { Sidenav } from '../../components/Sidenav';
 import { PasswordResetGuard } from '../../components/PasswordResetGuard';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
 import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
+import { dashTextFont } from '../../lib/dashTypeFonts';
 
 export default function ClientLayout({
   children,
@@ -14,7 +15,7 @@ export default function ClientLayout({
 
   return (
     <PasswordResetGuard>
-      <div className="min-h-screen bg-slate-50 font-['Arimo',sans-serif]">
+      <div className={`min-h-screen bg-slate-50 ${dashTextFont}`}>
         <Sidenav 
           avatarUrl={avatarUrl}
           userProfile={{

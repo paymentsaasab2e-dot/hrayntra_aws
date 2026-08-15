@@ -3,11 +3,12 @@
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
-import { Eraser, MessageSquareText, History, X, PlusCircle, Lock } from 'lucide-react';
+import { Eraser, History, X, PlusCircle, Lock } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AssistantChatPanel, type AssistantPromptSuggestion, type UiChatMessage } from './AssistantChatPanel';
 import { usePageDrawerOpen } from '../hooks/usePageDrawerOpen';
 import { useAiCoinGate } from './coins/AiCoinGate';
+import { BrandPngIcon } from './coins/BrandPngIcon';
 import {
   apiDeleteAssistantHistory,
   apiGetAssistantHistory,
@@ -322,7 +323,7 @@ export function FloatingBotButton() {
               <div className="flex min-h-0 flex-1 flex-col p-5 pt-4">
                 <div className="mb-4 inline-flex w-fit rounded-2xl border border-slate-200 bg-slate-50 p-1">
                   <button type="button" onClick={() => setActiveTab('chat')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'chat' ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100' : 'text-slate-500 hover:text-slate-800'}`}>
-                    <MessageSquareText className="size-4" /> Chat
+                    <BrandPngIcon name="chat" className="h-4 w-4" /> Chat
                   </button>
                   <button type="button" onClick={() => setActiveTab('history')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'history' ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100' : 'text-slate-500 hover:text-slate-800'}`}>
                     <History className="size-4" /> History

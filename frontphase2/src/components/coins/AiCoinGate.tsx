@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useCallback } from 'react';
-import { Coins, Lock, Unlock } from 'lucide-react';
+import { Lock, Unlock } from 'lucide-react';
 import { notifyTenantCoinsChanged } from '@/lib/api';
 import { useTenantCoins } from './TenantCoinsContext';
 import { openAiCoinPurchaseModal } from './AiCoinPurchaseModal';
+import { TokenCoinIcon } from './TokenCoinIcon';
 
 export type AiCoinGateResult = {
   cost: number;
@@ -160,7 +161,7 @@ export function AiCoinGateButton({
             locked ? 'bg-amber-100 text-amber-800' : 'bg-white/20 text-inherit'
           }`}
         >
-          <Coins className="h-2.5 w-2.5" />
+          <TokenCoinIcon className="h-2.5 w-2.5" />
           {cost}
         </span>
       ) : null}
@@ -178,7 +179,7 @@ export function AiCoinLockBadge({ featureId, className = '' }: { featureId: stri
         locked ? 'bg-amber-100 text-amber-800' : 'bg-teal-50 text-teal-800'
       } ${className}`}
     >
-      {locked ? <Lock className="h-2.5 w-2.5" /> : <Coins className="h-2.5 w-2.5" />}
+      {locked ? <Lock className="h-2.5 w-2.5" /> : <TokenCoinIcon className="h-2.5 w-2.5" />}
       {cost}
     </span>
   );

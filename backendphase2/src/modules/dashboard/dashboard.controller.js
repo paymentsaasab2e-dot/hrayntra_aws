@@ -1,6 +1,11 @@
 import { dashboardService } from './dashboard.service.js';
 import { getCrmOverview } from './crmOverview.service.js';
 import { getRecruitmentOverview } from './recruitmentOverview.service.js';
+import {
+  applyDashboardAssignedScope,
+  getMyWorkStats,
+  resolveDashboardAccess,
+} from './dashboardAccess.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 
 export const dashboardController = {
@@ -22,10 +27,32 @@ export const dashboardController = {
     }
   },
 
+  async getAccess(req, res) {
+    try {
+      const access = await resolveDashboardAccess(req);
+      sendResponse(res, 200, 'OK', access);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getCrmOverview(req, res) {
     try {
-      const overview = await getCrmOverview(req);
-      sendResponse(res, 200, 'OK', overview);
+      const access = await applyDashboardAssignedScope(req);
+      const [overview, myWork] = await Promise.all([
+        getCrmOverview(req),
+        getMyWorkStats(req.user?.id),
+      ]);
+      sendResponse(res, 200, 'OK', {
+        ...overview,
+        access,
+        myWork,
+        kpis: {
+          ...(overview?.kpis || {}),
+          waitingOnYou: myWork?.pendingApprovalsTotal || 0,
+          openTasksMine: myWork?.openTasks || 0,
+        },
+      });
     } catch (error) {
       sendError(res, 500, error.message, error);
     }
@@ -33,8 +60,21 @@ export const dashboardController = {
 
   async getRecruitmentOverview(req, res) {
     try {
-      const overview = await getRecruitmentOverview(req);
-      sendResponse(res, 200, 'OK', overview);
+      const access = await applyDashboardAssignedScope(req);
+      const [overview, myWork] = await Promise.all([
+        getRecruitmentOverview(req),
+        getMyWorkStats(req.user?.id),
+      ]);
+      sendResponse(res, 200, 'OK', {
+        ...overview,
+        access,
+        myWork,
+        kpis: {
+          ...(overview?.kpis || {}),
+          waitingOnYou: myWork?.pendingApprovalsTotal || 0,
+          openTasksMine: myWork?.openTasks || 0,
+        },
+      });
     } catch (error) {
       sendError(res, 500, error.message, error);
     }

@@ -7,6 +7,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.post('/', tenantBehaviorController.upsertSnapshot);
+router.get('/engine', tenantBehaviorController.getBehaviorEngine);
 router.get('/all', tenantBehaviorController.getAllBehavior);
 router.get('/live', tenantBehaviorController.getLiveDashboard);
 router.get('/crm-context', tenantBehaviorController.getCrmContext);

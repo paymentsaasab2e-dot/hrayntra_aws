@@ -397,7 +397,11 @@ export function buildClientSliceDrillDown(
   sliceName: string,
 ): DrillDownPayload {
   const clients = clientRows(overview);
-  const filtered = clients.filter((row) => matchStatus(row.status, sliceName));
+  const needle = sliceName.trim().toLowerCase();
+  const byStatus = clients.filter((row) => matchStatus(row.status, sliceName));
+  const filtered = byStatus.length
+    ? byStatus
+    : clients.filter((row) => String(row.industry || '').toLowerCase() === needle);
   return {
     title: `${sliceName} clients`,
     href: '/client',

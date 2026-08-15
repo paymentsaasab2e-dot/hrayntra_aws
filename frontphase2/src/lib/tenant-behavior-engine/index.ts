@@ -9,3 +9,4 @@ export * from './interest-affinity';
 export * from './behaviour-suggestions';
 export * from './sync';
 export * from './track';
+export * from './engine-recs';

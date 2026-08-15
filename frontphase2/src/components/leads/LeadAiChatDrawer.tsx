@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowRight, ArrowUp, Lock, MessageSquare, Sparkles } from 'lucide-react';
+import { ArrowRight, Lock, Sparkles } from 'lucide-react';
+import { BrandPngIcon } from '@/components/coins/BrandPngIcon';
 import type { AddLeadFormData } from '../drawers/LeadDetailsDrawer';
 import { apiGenerateLeadDetails, apiLeadAiChat, type LeadAiChatMessage } from '@/lib/api';
 import {
@@ -244,7 +245,7 @@ export function LeadAiChatDrawer({
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  <MessageSquare size={14} />
+                  <BrandPngIcon name="chat" className="h-3.5 w-3.5" />
                   Chat
                 </button>
                 <button
@@ -390,7 +391,7 @@ export function LeadAiChatDrawer({
                             : `Spend ${chatGate.cost} coins`
                         }
                       >
-                        {chatGate.locked ? <Lock size={14} /> : <ArrowUp size={18} />}
+                        {chatGate.locked ? <Lock size={14} /> : <BrandPngIcon name="send" className="h-[18px] w-[18px]" />}
                         <AiCoinLockBadge featureId="ai.lead_chat" className="absolute -right-1 -top-1" />
                       </button>
                     </div>

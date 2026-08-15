@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, Coins, Loader2, Sparkles, X } from 'lucide-react';
+import { Loader2, Sparkles, X } from 'lucide-react';
 import {
   apiGetAiCoinPacks,
   apiPurchaseAiCoinPack,
   notifyTenantCoinsChanged,
   type AiCoinPack,
 } from '@/lib/api';
+import { TokenCoinIcon } from './TokenCoinIcon';
+import { BrandPngIcon } from './BrandPngIcon';
 
 export const AI_COIN_PURCHASE_EVENT = 'hrayntra:ai-coin-purchase-open';
 
@@ -157,26 +159,29 @@ export function AiCoinPurchaseModal({
       <button
         type="button"
         aria-label="Close purchase modal"
-        className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-900/25 to-slate-900/55 backdrop-blur-[3px]"
         onClick={close}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="ai-coin-purchase-title"
-        className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-amber-200/90 bg-gradient-to-br from-amber-50 via-white to-emerald-50 shadow-[0_28px_80px_rgba(15,23,42,0.35)]"
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-amber-50 to-orange-50 px-5 py-4">
+        <div className="pointer-events-none absolute -left-10 -top-12 h-36 w-36 rounded-full bg-amber-300/45 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-8 -right-8 h-36 w-36 rounded-full bg-emerald-300/35 blur-3xl" />
+        <div className="relative flex items-start justify-between gap-3 px-5 py-4">
           <div>
-            <p className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800">
-              Demo purchase
-            </p>
-            <h2 id="ai-coin-purchase-title" className="mt-1.5 text-xl font-bold text-slate-900">
-              Buy AI coins
+            <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-amber-500 shadow-lg shadow-amber-500/30 ring-4 ring-white">
+              <TokenCoinIcon className="h-7 w-7" />
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">Buy coins</p>
+            <h2 id="ai-coin-purchase-title" className="mt-1 text-xl font-bold text-slate-900">
+              Top up AI coins
             </h2>
             <p className="mt-1 text-sm text-slate-600">
               {context.required != null
-                ? `You need ${context.required} coin${context.required === 1 ? '' : 's'} (balance ${context.balance ?? 0}). Pick a pack — coins credit instantly.`
+                ? `You need ${context.required} (balance ${context.balance ?? 0}). Pick a pack — coins credit instantly.`
                 : 'Your AI coins are low. Choose a pack to top up this tenant.'}
             </p>
           </div>
@@ -184,7 +189,7 @@ export function AiCoinPurchaseModal({
             type="button"
             onClick={close}
             disabled={buying}
-            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
+            className="rounded-full p-2 text-amber-800/55 hover:bg-amber-100 hover:text-amber-900"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -236,7 +241,7 @@ export function AiCoinPurchaseModal({
                       </div>
                       <p className="mt-1 text-xs text-slate-500">{pack.description}</p>
                       <p className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-amber-800">
-                        <Coins className="h-4 w-4" />
+                        <TokenCoinIcon className="h-4 w-4" />
                         {pack.coins.toLocaleString()} AI coins
                       </p>
                     </div>
@@ -244,7 +249,7 @@ export function AiCoinPurchaseModal({
                       <p className="text-lg font-bold text-slate-900">{pack.priceLabel}</p>
                       {selected ? (
                         <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
-                          <Check className="h-3.5 w-3.5" />
+                          <BrandPngIcon name="correct" className="h-3.5 w-3.5" />
                           Selected
                         </span>
                       ) : null}
@@ -273,7 +278,7 @@ export function AiCoinPurchaseModal({
             type="button"
             onClick={() => void handlePurchase()}
             disabled={buying || !selectedId || Boolean(success)}
-            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-slate-900/20 hover:bg-slate-800 disabled:opacity-60"
           >
             {buying ? (
               <>
@@ -282,7 +287,7 @@ export function AiCoinPurchaseModal({
               </>
             ) : (
               <>
-                <Coins className="h-4 w-4" />
+                <TokenCoinIcon className="h-4 w-4" />
                 Purchase (demo)
               </>
             )}

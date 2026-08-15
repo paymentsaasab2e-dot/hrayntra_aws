@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma.js';
 import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
 import { logCrmGlobalActivity } from '../utils/crmGlobalActivity.js';
+import { createAlertNotification } from '../modules/setting/alert-dispatch.service.js';
 import { taskService } from '../modules/task/task.service.js';
 import {
   assertCanSetSelfAsTaskCompletionApprover,
@@ -248,6 +249,18 @@ export async function createTeamRequest(req, res) {
       relatedId: row.id,
       relatedLabel: subject,
     });
+
+    if (recipient.id !== authz.userId) {
+      await createAlertNotification(recipient.id, 'team.request_received', {
+        category: 'SYSTEM',
+        title: 'Request waiting for your approval',
+        description: `${authz.name || 'A team member'} sent "${subject}".`,
+        actionLabel: 'Review request',
+        actionPath: `/request/approval?tab=team&requestId=${encodeURIComponent(row.id)}`,
+        entityType: 'TEAM_REQUEST',
+        entityId: row.id,
+      }).catch(() => null);
+    }
 
     return res.status(201).json({
       success: true,

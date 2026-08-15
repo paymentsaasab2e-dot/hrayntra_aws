@@ -70,12 +70,12 @@ import {
   DollarSign,
   Trash2,
   History,
-  MessageSquarePlus,
-  ShieldCheck,
   Coins,
+  MessageSquarePlus,
   Lock,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { TokenCoinIcon } from './coins/TokenCoinIcon';
 
 const DEFAULT_PROFILE_ICON = '/account-avatar-profile-user-11-svgrepo-com.svg';
 const BLOCKED_DEFAULT_AVATAR_PATTERNS = ['photo-1701463387028-3947648f1337', 'images.unsplash.com'];
@@ -1494,7 +1494,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                 }`}
               >
                 {tenantCoins > 0 ? (
-                  <Coins className="w-4 h-4 text-amber-400" />
+                  <TokenCoinIcon className="h-4 w-4" />
                 ) : (
                   <Lock className="w-4 h-4 text-rose-400" />
                 )}
@@ -1691,12 +1691,13 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               {(isOrgModuleEnabled('team') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Team))) && (
                 <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
               )}
-              {(isOrgModuleEnabled('requests') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request))) && (
-                <NavItem icon={MessageSquarePlus} label="Request" href="/request" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
+              {((isOrgModuleEnabled('requests') || isOrgModuleEnabled('approvals')) &&
+                (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request))) && (
+                <NavItem icon={MessageSquarePlus} label="Requests" href="/request" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
               )}
-              {(isOrgModuleEnabled('approvals') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request))) && (
-                <NavItem icon={ShieldCheck} label="Approvals" href="/request/approval" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" />
-              )}
+              {showAll ? (
+                <NavItem icon={Coins} label="Subscription" href="/subscription" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
+              ) : null}
             </>
           )}
 

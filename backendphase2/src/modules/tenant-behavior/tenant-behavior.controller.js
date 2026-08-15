@@ -87,4 +87,17 @@ export const tenantBehaviorController = {
       return handleError(res, error, '[getAllBehavior]');
     }
   },
+
+  async getBehaviorEngine(req, res) {
+    try {
+      const { buildEmployerBehaviorEngineReport } = await import('./tenant-behavior-engine.service.js');
+      const rangeRaw = String(req.query?.range || 'week').trim().toLowerCase();
+      const range = ['today', 'week', 'month', 'year'].includes(rangeRaw) ? rangeRaw : 'week';
+      const userId = String(req.query?.userId || '').trim() || undefined;
+      const data = await buildEmployerBehaviorEngineReport({ range, userId });
+      return sendResponse(res, 200, 'OK', data);
+    } catch (error) {
+      return handleError(res, error, '[getBehaviorEngine]');
+    }
+  },
 };

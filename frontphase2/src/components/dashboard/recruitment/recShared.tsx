@@ -10,16 +10,49 @@ export type RecSectionId =
   | 'schedule'
   | 'team'
   | 'alerts'
-  | 'modules';
+  | 'modules'
+  | 'insights'
+  | 'pipeline';
 
 export const REC_SECTIONS: Array<{ id: RecSectionId; label: string }> = [
-  { id: 'kpis', label: 'KPI Cards' },
-  { id: 'charts', label: 'Pipeline & Charts' },
-  { id: 'tables', label: 'Jobs & Candidates' },
-  { id: 'schedule', label: 'Interview Schedule' },
-  { id: 'team', label: 'Team Performance' },
-  { id: 'alerts', label: 'Alerts' },
-  { id: 'modules', label: 'Module Shortcuts' },
+  { id: 'insights', label: 'Insights & actions' },
+  { id: 'pipeline', label: 'Pipeline & records' },
+  { id: 'team', label: 'Team & performance' },
+  { id: 'alerts', label: 'Alerts sidebar' },
+];
+
+export type RecCategoryTabId = 'mine' | 'insights' | 'pipeline' | 'team' | 'people';
+
+export const REC_CATEGORY_TABS: Array<{
+  id: RecCategoryTabId;
+  label: string;
+  blurb: string;
+}> = [
+  {
+    id: 'mine',
+    label: 'My work',
+    blurb: 'Your assigned jobs, tasks & approvals — separate from team stats',
+  },
+  {
+    id: 'insights',
+    label: 'Insights & actions',
+    blurb: 'Today’s hiring work, risks & trends — then alerts',
+  },
+  {
+    id: 'pipeline',
+    label: 'Pipeline & records',
+    blurb: 'Jobs or candidates · search a record for health, conversion & related activity',
+  },
+  {
+    id: 'team',
+    label: 'Team & performance',
+    blurb: 'Desk mix, load balance & closer coverage',
+  },
+  {
+    id: 'people',
+    label: 'Hours & scores',
+    blurb: 'Each person’s hours, utilization and scores vs the standard week (unlock with coins)',
+  },
 ];
 
 type RecDashboardContextValue = {
@@ -81,7 +114,7 @@ export function useRecDashboard() {
 }
 
 export const recCard =
-  'rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]';
+  'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_rgba(15,23,42,0.04)]';
 
 export function formatInr(value: number | null | undefined) {
   if (value == null || !Number.isFinite(Number(value))) return '—';

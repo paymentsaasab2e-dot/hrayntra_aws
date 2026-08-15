@@ -21,7 +21,7 @@ export function categorizePhase2Path(pathname: string): TenantActivityCategory {
   if (path.startsWith('/demoai') || path.startsWith('/brain') || path.includes('/ai')) return 'ai';
   if (path.startsWith('/recruitment')) return 'recruitment';
   if (path.startsWith('/dashboard')) return 'dashboard';
-  if (path.startsWith('/thebehave')) return 'reports';
+  if (path.startsWith('/thebehave') || path.startsWith('/tenant-behave')) return 'reports';
   if (path.startsWith('/activity-feed') || path.startsWith('/recycle-bin')) return 'settings';
   if (path.startsWith('/task')) return 'pipeline';
   if (path.startsWith('/request')) return 'team';
@@ -60,7 +60,7 @@ export function isMeaningfulPhase2Path(pathname: string): boolean {
   if (path.startsWith('/login') || path.startsWith('/hq/login')) return false;
   if (path.startsWith('/forgot-password') || path.startsWith('/reset-password')) return false;
   if (path.startsWith('/apply') || path.startsWith('/client-review')) return false;
-  if (path === '/thebehave') return false;
+  if (path === '/thebehave' || path.startsWith('/tenant-behave')) return false;
   return true;
 }
 

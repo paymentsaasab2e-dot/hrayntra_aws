@@ -116,6 +116,20 @@ export const PHASE2_AI_FEATURE_CATALOG = [
     coins: 4,
     category: 'Utilities',
   },
+  {
+    id: 'intel.people_perf_crm',
+    name: 'People performance (CRM)',
+    description: 'Unlock 30 days of CRM employee behaviour stats and recs on the dashboard. Separate from Recruitment intel.',
+    coins: 40,
+    category: 'Insights',
+  },
+  {
+    id: 'intel.people_perf_recruitment',
+    name: 'People performance (Recruitment)',
+    description: 'Unlock 30 days of recruitment desk performance stats and recs. Separate purchase from CRM intel.',
+    coins: 55,
+    category: 'Insights',
+  },
 ];
 
 const BY_ID = Object.fromEntries(PHASE2_AI_FEATURE_CATALOG.map((f) => [f.id, f]));

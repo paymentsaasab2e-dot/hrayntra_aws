@@ -2,8 +2,9 @@
 
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
-import { getTenantDbName } from '@/lib/api';
+import { getAccessToken, getTenantDbName } from '@/lib/api';
 import { useUser } from '@/hooks/useUser';
+import { isEmployerPublicAuthPath } from '@/lib/sessionAuth';
 import {
   alertTenantOverdueScan,
   type TenantOverdueScanResult,
@@ -24,6 +25,7 @@ const PUBLIC_PREFIXES = [
 ];
 
 function isPublicPath(path: string) {
+  if (isEmployerPublicAuthPath(path)) return true;
   const p = (path || '/').toLowerCase();
   return PUBLIC_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
 }
@@ -38,8 +40,12 @@ export function TenantDrawerAnalysisHost() {
   const ranRef = useRef(false);
 
   useEffect(() => {
+    if (isPublicPath(pathname || '/')) {
+      ranRef.current = false;
+      return;
+    }
     if (loading || !user?.id) return;
-    if (isPublicPath(pathname || '/')) return;
+    if (!getAccessToken()) return;
     if (ranRef.current) return;
     ranRef.current = true;
 

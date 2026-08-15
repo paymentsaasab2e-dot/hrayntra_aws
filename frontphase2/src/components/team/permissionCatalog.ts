@@ -52,6 +52,11 @@ export function sortModules(modules: string[]): string[] {
 }
 
 export function formatPermissionLabel(name: string): string {
+  const special: Record<string, string> = {
+    dash_full_scope: 'Complete dashboard stats',
+    dash_mine_approvals: 'My work: approvals',
+  };
+  if (special[name]) return special[name];
   const normalized = String(name || '')
     .replace(/^hq_/, '')
     .trim();

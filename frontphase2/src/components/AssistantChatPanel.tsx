@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { Loader2, Lock, Send } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   apiAssistantChat,
@@ -17,6 +17,7 @@ import {
   useTenantCoins,
 } from './coins/TenantCoinsContext';
 import { AiCoinLockBadge, useAiCoinGate } from './coins/AiCoinGate';
+import { BrandPngIcon } from './coins/BrandPngIcon';
 
 export type UiChatMessage = AssistantChatMessage & {
   id: string;
@@ -636,7 +637,7 @@ export function AssistantChatPanel({
           ) : assistantLocked ? (
             <Lock className="size-5" />
           ) : (
-            <Send className="size-5" />
+            <BrandPngIcon name="send" className="h-5 w-5" />
           )}
           <AiCoinLockBadge featureId="ai.assistant_chat" />
         </button>

@@ -1,16 +1,17 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
 import { dashCard, formatNum, useCrmDashboard } from './crmShared';
 import { buildClientSliceDrillDown, buildLeadSliceDrillDown } from './crmDrillDown';
 import { CrmPipelineIntelligence } from './CrmPipelineIntelligence';
-import { CrmRecordScopePicker } from './CrmRecordScopePicker';
+import { CrmRecordScopePicker, type CrmPipelineSection } from './CrmRecordScopePicker';
+import { useDashboardAccess } from '@/lib/dashboard/useDashboardAccess';
 
-const COLORS = ['#6366F1', '#84CC16', '#8B5CF6', '#0EA5E9', '#F43F5E', '#F59E0B'];
-const FUNNEL_BAR_COLORS = ['#6366F1', '#84CC16', '#8B5CF6', '#0EA5E9', '#F43F5E', '#F59E0B'];
+const CHART_COLORS = ['#2563EB', '#16A34A', '#EA580C', '#0891B2', '#C026D3', '#CA8A04'];
+const FUNNEL_BAR_COLORS = CHART_COLORS;
 
 const FUNNEL_STAGE_ORDER = [
   'new',
@@ -62,9 +63,9 @@ export function PieBlock({
   stack?: boolean;
 }) {
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
-  const chartSize = compact ? 112 : 148;
-  const inner = compact ? 34 : 46;
-  const outer = compact ? 52 : 68;
+  const chartSize = compact ? 128 : 168;
+  const inner = compact ? 44 : 58;
+  const outer = compact ? 58 : 74;
 
   return (
     <div
@@ -78,16 +79,11 @@ export function PieBlock({
         <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-400 to-lime-400 opacity-90" />
       ) : null}
 
-      <div className={`${compact ? 'mb-2' : 'mb-4'} flex items-start justify-between gap-2`}>
-        <div>
-          <h3 className={`${compact ? 'text-[12px]' : 'text-[13px]'} font-bold tracking-tight text-slate-900`}>
-            {title}
-          </h3>
-          {subtitle ? <p className="mt-0.5 text-[11px] text-slate-400">{subtitle}</p> : null}
-        </div>
-        <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-100">
-          {data.length} segments
-        </span>
+      <div className={`${compact ? 'mb-2' : 'mb-4'}`}>
+        <h3 className={`${compact ? 'text-[12px]' : 'text-[13px]'} font-semibold tracking-tight text-slate-900`}>
+          {title}
+        </h3>
+        {subtitle ? <p className="mt-0.5 text-[11px] text-slate-400">{subtitle}</p> : null}
       </div>
 
       <div
@@ -108,8 +104,8 @@ export function PieBlock({
                   nameKey="name"
                   innerRadius={inner}
                   outerRadius={outer}
-                  paddingAngle={3}
-                  cornerRadius={4}
+                  paddingAngle={data.length > 1 ? 2.5 : 0}
+                  cornerRadius={data.length > 1 ? 6 : 0}
                   stroke="#fff"
                   strokeWidth={2}
                   onClick={(entry: { name?: string }) => {
@@ -120,7 +116,7 @@ export function PieBlock({
                   {data.map((_, i) => (
                     <Cell
                       key={i}
-                      fill={COLORS[i % COLORS.length]}
+                      fill={CHART_COLORS[i % CHART_COLORS.length]}
                       className="outline-none transition-opacity hover:opacity-90"
                     />
                   ))}
@@ -148,12 +144,10 @@ export function PieBlock({
           )}
           {center ? (
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <p className={`${compact ? 'text-lg' : 'text-2xl'} font-bold tracking-tight text-slate-900`}>
+              <p className={`${compact ? 'text-lg' : 'text-xl'} font-semibold tabular-nums text-slate-900`}>
                 {center}
               </p>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                {centerLabel}
-              </p>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{centerLabel}</p>
             </div>
           ) : null}
         </div>
@@ -162,6 +156,7 @@ export function PieBlock({
           {data.length ? (
             data.map((d, i) => {
               const pct = (d.value / total) * 100;
+              const fill = CHART_COLORS[i % CHART_COLORS.length];
               return (
                 <li key={d.name} className="group/item">
                   <button
@@ -172,24 +167,18 @@ export function PieBlock({
                     }`}
                   >
                     <span className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-slate-700">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white"
-                        style={{ background: COLORS[i % COLORS.length] }}
-                      />
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: fill }} />
                       <span className="truncate">{d.name}</span>
                     </span>
-                    <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-900">
+                    <span className="shrink-0 text-[12px] font-semibold tabular-nums text-slate-900">
                       {d.value}
-                      <span className="ml-1 font-medium text-slate-400">{pct.toFixed(0)}%</span>
+                      <span className="ml-1 font-medium text-slate-500">{pct.toFixed(0)}%</span>
                     </span>
                   </button>
                   <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${Math.max(pct, 2)}%`,
-                        background: COLORS[i % COLORS.length],
-                      }}
+                      style={{ width: `${Math.max(pct, 2)}%`, background: fill }}
                     />
                   </div>
                 </li>
@@ -341,6 +330,9 @@ export function LeadStageFunnelBlock({
 
 export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
   const { openDrillDown } = useCrmDashboard();
+  const { modules } = useDashboardAccess();
+  const [section, setSection] = useState<CrmPipelineSection>(modules.leads ? 'leads' : 'clients');
+  const [scoped, setScoped] = useState(false);
   const isPortfolio = mode === 'portfolio';
   const showCharts = isPortfolio || mode === 'charts' || mode === 'all';
   const showScope = isPortfolio || mode === 'tables' || mode === 'all';
@@ -361,6 +353,11 @@ export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
         ].filter((x) => x.value > 0);
 
   const sourcePie = overview?.leadSources || [];
+  const industryPie = overview?.industries || [];
+  const useIndustryChart = clientPie.length <= 1 && industryPie.length > 1;
+  const clientChartData = useIndustryChart ? industryPie : clientPie;
+  const clientChartTitle = useIndustryChart ? 'Industries' : 'Client mix';
+  const clientChartSub = useIndustryChart ? 'Account industries' : 'Status mix';
 
   if (loading && !overview) {
     return (
@@ -380,6 +377,7 @@ export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
 
   const chartsBlock = showCharts ? (
     <div className="grid gap-3 lg:grid-cols-12 lg:items-stretch">
+      {modules.leads ? (
       <div className="lg:col-span-5">
         <LeadStageFunnelBlock
           nested={false}
@@ -389,18 +387,22 @@ export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
           onStageClick={(name) => openDrillDown(buildLeadSliceDrillDown(overview, name, 'status'))}
         />
       </div>
+      ) : null}
+      {modules.clients ? (
       <div className="lg:col-span-3">
         <PieBlock
           nested={false}
           compact={isPortfolio}
-          title="Client health"
-          subtitle="Active vs inactive mix"
-          data={clientPie}
+          title={clientChartTitle}
+          subtitle={clientChartSub}
+          data={clientChartData}
           center={formatNum(overview?.kpis?.totalClients)}
           centerLabel="Clients"
           onSliceClick={(name) => openDrillDown(buildClientSliceDrillDown(overview, name))}
         />
       </div>
+      ) : null}
+      {modules.leads ? (
       <div className="lg:col-span-4">
         <PieBlock
           nested={false}
@@ -413,16 +415,25 @@ export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
           onSliceClick={(name) => openDrillDown(buildLeadSliceDrillDown(overview, name, 'source'))}
         />
       </div>
+      ) : null}
     </div>
   ) : null;
 
   if (isPortfolio) {
     return (
       <div className="space-y-5">
-        <CrmRecordScopePicker overview={overview} />
-        <CrmPipelineIntelligence
+        <CrmRecordScopePicker
           overview={overview}
+          section={section}
+          onSectionChange={setSection}
+          onScopedChange={setScoped}
+        />
+        {!scoped ? (
+          <CrmPipelineIntelligence
+          overview={overview}
+          section={section}
           leadCharts={
+            modules.leads ? (
             <div className="grid gap-3 lg:grid-cols-12 lg:items-stretch">
               <div className="lg:col-span-7">
                 <LeadStageFunnelBlock
@@ -450,29 +461,38 @@ export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
                 />
               </div>
             </div>
+            ) : null
           }
           clientCharts={
             <PieBlock
               nested={false}
               compact
               stack
-              title="Client health"
-              subtitle="Active vs inactive mix"
-              data={clientPie}
+              title={clientChartTitle}
+              subtitle={clientChartSub}
+              data={clientChartData}
               center={formatNum(overview?.kpis?.totalClients)}
               centerLabel="Clients"
               onSliceClick={(name) => openDrillDown(buildClientSliceDrillDown(overview, name))}
             />
           }
-        />
+          />
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {chartsBlock}
-      {showScope ? <CrmRecordScopePicker overview={overview} /> : null}
+      {showCharts && !scoped ? chartsBlock : null}
+      {showScope ? (
+        <CrmRecordScopePicker
+          overview={overview}
+          section={section}
+          onSectionChange={setSection}
+          onScopedChange={setScoped}
+        />
+      ) : null}
     </div>
   );
 }

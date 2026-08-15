@@ -323,6 +323,28 @@ All routes are prefixed with `/api/v1/`
 
 ---
 
+## Tenant behaviour engine (`/api/v1/tenant-behavior`)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/` | Tenant JWT | Save slim snapshot (counts + entity ids, no names) |
+| GET | `/engine` | Tenant JWT | Tenant-wide + per-user activity and assigned/done stats |
+| GET | `/live` | Tenant JWT | Live dashboard (legacy aggregate) |
+| GET | `/all` | Tenant JWT | All user snapshots |
+
+Query on `/engine`: `range=today\|week\|month\|year`, `userId=`
+
+## HQ employers behaviour engine (`/api/v1/hq`)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/tenants/:tenantDbName/behavior` | HQ JWT | Existing tenant behaviour rollup |
+| GET | `/tenants/:tenantDbName/behavior-engine` | HQ JWT | Stats + entity ids, tenant-wide and per-user |
+
+See `EMPLOYER_BEHAVIOR_ENGINE_API.md`.
+
+---
+
 ## Authentication
 
 Most endpoints require authentication. Include the JWT token in the Authorization header:

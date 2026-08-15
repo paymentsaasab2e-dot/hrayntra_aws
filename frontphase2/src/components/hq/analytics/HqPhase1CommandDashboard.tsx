@@ -37,6 +37,7 @@ import {
   Upload,
   UserPlus,
   Users,
+  X,
   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -47,7 +48,7 @@ import { HqInfoTip } from './HqPhase2DashboardParts';
 import { HqDashCategoryTabs } from './HqDashCategoryTabs';
 
 const HQ_DASH_BTN_PRIMARY =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:bg-slate-800 disabled:opacity-50';
+  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:brightness-110 disabled:opacity-50';
 const HQ_DASH_BTN_SECONDARY =
   'inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)] transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50';
 
@@ -287,7 +288,7 @@ function SectionTitle({
   return (
     <div className="relative z-10 mb-4 flex items-center justify-between gap-3 overflow-visible">
       <div className="flex min-w-0 items-center gap-2.5">
-        <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
+        <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-slate-900 to-blue-900" />
         <h3 className="truncate text-[13px] font-semibold tracking-tight text-slate-800">{title}</h3>
         {info ? <HqInfoTip text={info} /> : null}
       </div>
@@ -310,6 +311,34 @@ function rankUsageRows(
     rank: i + 1,
     pctOfTop: Math.round((d.value / max) * 1000) / 10,
   }));
+}
+
+function SkillUsageRows({
+  rows,
+}: {
+  rows: Array<{ name: string; value: number }>;
+}) {
+  const max = Math.max(...rows.map((d) => d.value), 1);
+  return (
+    <div className="space-y-3">
+      {rows.map((row) => (
+        <div key={row.name} className="min-w-0">
+          <div className="mb-1 flex items-start justify-between gap-2">
+            <p className="min-w-0 text-[12px] font-medium leading-snug text-slate-700">{row.name}</p>
+            <span className="shrink-0 tabular-nums text-[11px] font-semibold text-slate-800">
+              {fmt(row.value)}
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-violet-500"
+              style={{ width: `${Math.max(8, Math.round((row.value / max) * 100))}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function RankedUsageList({
@@ -435,17 +464,18 @@ export function HqPhase1CommandDashboard({
   const t = data?.tables;
   const insights = data?.insights || [];
   const liveTracking = data?.liveTracking;
-  const hasLiveTracker = Boolean(liveTracking?.available && liveTracking.source === 'phase1_behavior_tracker');
+  const hasLiveTracker = Boolean(liveTracking?.available);
   const isLive = Boolean(data?.live ?? data?.available);
   const [appRange, setAppRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
   const [candRange, setCandRange] = useState<'Daily' | 'Monthly'>('Monthly');
   const [category, setCategory] = useState<(typeof EMPLOYEE_CATEGORY_TABS)[number]['id']>('growth');
-  const [timeline, setTimeline] = useState<TimelineId>('7d');
+  const [timeline, setTimeline] = useState<TimelineId>('30d');
   const [feedSearch, setFeedSearch] = useState('');
   const [feedSuggestOpen, setFeedSuggestOpen] = useState(false);
   const [feedCategory, setFeedCategory] = useState('all');
   const [feedRegion, setFeedRegion] = useState('all');
   const [feedSort, setFeedSort] = useState<'latest' | 'oldest' | 'visits' | 'active'>('latest');
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const feedSearchWrapRef = useRef<HTMLDivElement>(null);
 
   const totalCandidates = num(k?.totalCandidates);
@@ -574,7 +604,8 @@ export function HqPhase1CommandDashboard({
   }, [c, activeJobs, applications, aiMatches, interviewReqs, selected, placements]);
 
   const sources = useMemo(() => withPct(mapPoints(c?.candidatesBySource)), [c]);
-  const skills = useMemo(() => mapPoints(c?.topSkills).slice(0, 7), [c]);
+  const skills = useMemo(() => mapPoints(c?.topSkills), [c]);
+  const previewSkills = skills.slice(0, 4);
   const experience = useMemo(() => mapPoints(c?.experienceBands), [c]);
   const locations = useMemo(() => mapPoints(c?.topLocations).slice(0, 6), [c]);
   const interviewStatus = useMemo(() => withPct(mapPoints(c?.interviewRequestsByStatus)), [c]);
@@ -725,7 +756,14 @@ export function HqPhase1CommandDashboard({
     let rows = liveFeed.filter((row) => {
       const at = row.activityStateUpdatedAt || row.capturedAt;
       const ms = at ? new Date(at).getTime() : NaN;
-      if (Number.isFinite(ms) && ms < timelineCutoff) return false;
+      const hasHistory =
+        (Number(row.visits7d) || 0) +
+          (Number(row.applies7d) || 0) +
+          (Number(row.jobCardClicks7d) || 0) +
+          (Number(row.activeMs7d) || 0) >
+        0;
+      // Keep users with older tracker totals even if they were not active in this window.
+      if (Number.isFinite(ms) && ms < timelineCutoff && !hasHistory) return false;
 
       if (feedCategory !== 'all') {
         const landing = String(row.topFirstOpen || '');
@@ -793,12 +831,22 @@ export function HqPhase1CommandDashboard({
     };
   }, [liveScopeActive, filteredLiveFeed]);
 
-  const displayTrackedUsers = scopedLivePulse ? scopedLivePulse.trackedUsers : liveTrackedUsers;
+  const displayTrackedUsers = scopedLivePulse
+    ? scopedLivePulse.trackedUsers
+    : liveTrackedUsers || liveFeed.length;
   const displayOnline = scopedLivePulse ? scopedLivePulse.onlineNow : activeSessions;
-  const displayVisits = scopedLivePulse ? scopedLivePulse.visits : liveVisits7d;
-  const displayJobClicks = scopedLivePulse ? scopedLivePulse.jobClicks : liveJobClicks7d;
-  const displayApplies = scopedLivePulse ? scopedLivePulse.applies : liveApplies7d;
-  const displayActiveMs = scopedLivePulse ? scopedLivePulse.activeMs : liveActiveMs7d;
+  const displayVisits = scopedLivePulse
+    ? scopedLivePulse.visits || liveVisits7d
+    : liveVisits7d || num(k?.logins7d) || num(k?.logins30d);
+  const displayJobClicks = scopedLivePulse
+    ? scopedLivePulse.jobClicks || liveJobClicks7d
+    : liveJobClicks7d || num(k?.aiMatches) || num(k?.savedJobs);
+  const displayApplies = scopedLivePulse
+    ? scopedLivePulse.applies || liveApplies7d
+    : liveApplies7d || num(k?.applications7d) || num(k?.applications30d) || num(k?.applications);
+  const displayActiveMs = scopedLivePulse
+    ? scopedLivePulse.activeMs || liveActiveMs7d
+    : liveActiveMs7d;
 
   const timelineLabel =
     TIMELINE_OPTIONS.find((t) => t.id === timeline)?.label || 'Week';
@@ -821,15 +869,15 @@ export function HqPhase1CommandDashboard({
     const fromPopular = mapPoints(liveTracking?.popularFeatures)
       .filter((d) => !isInsightNoise(String(d.name)))
       .map((d) => ({
-        name: String(d.name),
-        value: d.value,
-      }));
+      name: String(d.name),
+      value: d.value,
+    }));
     const fromPages = mapPoints(liveTracking?.pageVisitsByCategory)
       .filter((d) => !/other portal|^\s*other\s*$/i.test(String(d.name)))
       .map((d) => ({
-        name: String(d.name),
-        value: d.value,
-      }));
+      name: String(d.name),
+      value: d.value,
+    }));
 
     let rows = fromPopular.length ? fromPopular : fromPages;
     if (!rows.length) {
@@ -914,37 +962,55 @@ export function HqPhase1CommandDashboard({
   const topInterestsRanked = useMemo(() => {
     const rows = (liveTracking?.topInterests || []).map((d) => {
       const users = Number((d as { users?: number }).users ?? 0) || 0;
-      const scoreSum = Number(d.scoreSum ?? d.value) || 0;
-      const avg = d.avgScore != null ? Math.round(Number(d.avgScore)) : null;
+      const scoreSum = Math.round((Number(d.scoreSum ?? d.value) || 0) * 10) / 10;
+      const avg =
+        users > 0
+          ? Math.round((scoreSum / users) * 10) / 10
+          : d.avgScore != null
+            ? Math.round(Number(d.avgScore) * 10) / 10
+            : null;
       return {
         name: String(d.name),
         value: scoreSum,
         hint:
           avg != null
-            ? `${fmt(users || Number(d.value) || 0)} users · avg ${avg}`
+            ? `${fmt(users)} users · avg ${avg}`
             : users
               ? `${fmt(users)} users`
               : undefined,
       };
     });
     if (rows.length) return rankUsageRows(rows);
-    return rankUsageRows(
-      mapPoints(liveTracking?.trendingTopics)
-        .filter((d) => String((d as { kind?: string }).kind || 'interest') === 'interest')
-        .map((d) => ({ name: String(d.name), value: d.value })),
-    );
+    return rankUsageRows([]);
   }, [liveTracking]);
 
   const trendingTopicsRanked = useMemo(() => {
-    return rankUsageRows(
-      mapPoints(liveTracking?.trendingTopics).map((d) => {
+    const interestNames = new Set(
+      (liveTracking?.topInterests || []).map((d) => String(d.name || '').toLowerCase()),
+    );
+    const kindLabel: Record<string, string> = {
+      role: 'role',
+      company: 'company',
+      landing: 'landing',
+      interest: 'interest',
+    };
+    const rows = mapPoints(liveTracking?.trendingTopics)
+      .filter((d) => !interestNames.has(String(d.name || '').toLowerCase()))
+      .map((d) => {
         const kind = String((d as { kind?: string }).kind || '');
         return {
           name: String(d.name),
           value: d.value,
-          hint: kind ? kind : undefined,
+          hint: kindLabel[kind] || (kind || undefined),
         };
-      }),
+      });
+    if (rows.length) return rankUsageRows(rows, 8);
+    return rankUsageRows(
+      mapPoints(liveTracking?.entryPoints).map((d) => ({
+        name: String(d.name),
+        value: d.value,
+        hint: 'landing',
+      })),
       8,
     );
   }, [liveTracking]);
@@ -1065,7 +1131,7 @@ export function HqPhase1CommandDashboard({
       icon={<Users className="h-5 w-5" />}
       locked={false}
       actions={
-        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <Link href="/hq/candidates" prefetch={false} className={HQ_DASH_BTN_SECONDARY}>
             <Users className="h-4 w-4 text-emerald-600" />
             Candidates
@@ -1074,23 +1140,23 @@ export function HqPhase1CommandDashboard({
             <Ticket className="h-4 w-4 text-violet-600" />
             Tickets
           </Link>
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading}
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
             className={HQ_DASH_BTN_PRIMARY}
-          >
-            <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
+            >
+              <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
       }
     >
-      <div className="hq-dash-page text-slate-900">
+      <div className="hq-dash-page dash-ui text-slate-900">
         {/* Heading graphics strip — no action buttons (those live in the top bar) */}
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" />
+            <span className="inline-flex h-1.5 w-10 rounded-full bg-gradient-to-r from-slate-900 to-blue-900" />
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/90">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
               Live
@@ -1147,7 +1213,7 @@ export function HqPhase1CommandDashboard({
                   onClick={() => setTimeline(opt.id)}
                   className={`rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition ${
                     on
-                      ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-teal-500 text-white shadow-sm'
+                      ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 text-white shadow-sm'
                       : 'text-slate-500 hover:bg-white hover:text-slate-800'
                   }`}
                 >
@@ -1478,21 +1544,25 @@ export function HqPhase1CommandDashboard({
           </Card>
 
           <Card className="col-span-12 md:col-span-6 xl:col-span-2">
-            <SectionTitle title="Top Skills" info="Most common skills on portal candidate profiles." />
-            <div className="h-[190px]">
-              {skills.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={skills} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
-                    <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={tip} />
-                    <Bar dataKey="value" fill={PURPLE} radius={[0, 8, 8, 0]} barSize={11} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart />
-              )}
-            </div>
+            <SectionTitle title="Top Skills" info="Most common skills on portal candidate profiles. Click to see the full list." />
+            {previewSkills.length ? (
+              <button
+                type="button"
+                onClick={() => setSkillsOpen(true)}
+                className="w-full rounded-xl text-left outline-none transition hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-indigo-200"
+              >
+                <SkillUsageRows rows={previewSkills} />
+                {skills.length > previewSkills.length ? (
+                  <p className="mt-3 text-center text-[11px] font-semibold text-indigo-600">
+                    View all {fmt(skills.length)} skills
+                  </p>
+                ) : (
+                  <p className="mt-3 text-center text-[10px] text-slate-400">Click to enlarge</p>
+                )}
+              </button>
+            ) : (
+              <EmptyChart />
+            )}
           </Card>
 
           <Card className="col-span-12 md:col-span-6 xl:col-span-2">
@@ -1797,7 +1867,7 @@ export function HqPhase1CommandDashboard({
             <Card className="col-span-12 flex min-h-[260px] flex-col overflow-hidden !p-0 lg:col-span-9">
               <div className="border-b border-slate-100 px-4 py-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-teal-400" />
+                  <span className="h-4 w-1 shrink-0 rounded-full bg-gradient-to-b from-slate-900 to-blue-900" />
                   <h3 className="text-sm font-semibold text-slate-800">Recent Sessions</h3>
                 </div>
                 <p className="mt-0.5 pl-3 text-[11px] text-slate-400">
@@ -2059,10 +2129,14 @@ export function HqPhase1CommandDashboard({
                   );
                 })}
               </div>
-              {!hasLiveTracker ? (
+              {!displayVisits && !displayApplies && !liveFeed.length ? (
                 <p className="mt-3 text-[11px] text-slate-400">
-                  Waiting for live behaviour heartbeats. Open the job portal while logged in so
-                  `/api/hq-behavior` starts receiving payloads.
+                  No employee activity in tracker or portal history yet.
+                </p>
+              ) : liveTracking?.source !== 'phase1_behavior_tracker' ? (
+                <p className="mt-3 text-[11px] text-slate-400">
+                  Showing existing portal history (applies, logins, matches). New tracker
+                  heartbeats will replace these with live visits.
                 </p>
               ) : null}
             </Card>
@@ -2144,7 +2218,7 @@ export function HqPhase1CommandDashboard({
                   ? ` · ${fmt(liveTracking.premiumTokensSpent7d)} tokens`
                   : liveTracking?.premiumVisits7d
                     ? ` · ${fmt(liveTracking.premiumVisits7d)} spends`
-                    : ''}
+                  : ''}
               </p>
               <RankedUsageList
                 rows={premiumServicesRanked}
@@ -2254,8 +2328,8 @@ export function HqPhase1CommandDashboard({
                 {liveTracking?.officeGossip?.usersOnOfficeGossip
                   ? ` · ${fmt(liveTracking.officeGossip.usersOnOfficeGossip)} users`
                   : liveTracking?.communityVisits7d
-                    ? ` · ${fmt(liveTracking.communityVisits7d)} community visits`
-                    : ''}
+                  ? ` · ${fmt(liveTracking.communityVisits7d)} community visits`
+                  : ''}
               </p>
               {liveTracking?.officeGossip?.referenceChecksSummary ? (
                 <div className="mb-3 grid grid-cols-2 gap-2">
@@ -2332,13 +2406,13 @@ export function HqPhase1CommandDashboard({
                 <EmptyChart label="No page visits yet" />
               )}
             </Card>
-          </div>
+                </div>
 
           <div className="mb-4 grid grid-cols-12 gap-4">
             <Card className="col-span-12 lg:col-span-4">
               <SectionTitle
                 title="Interest aggregate"
-                info="Average interest strength across all tracked users (affinity + attention)."
+                info="Same score for every user on a topic, summed. Right side is that total (users × average)."
               />
               <RankedUsageList
                 rows={topInterestsRanked}
@@ -2349,7 +2423,7 @@ export function HqPhase1CommandDashboard({
             <Card className="col-span-12 lg:col-span-4">
               <SectionTitle
                 title="Trending topics"
-                info="Interests, roles, and companies rising across tracked candidates."
+                info="Roles, companies, and landing pages — not a second copy of Interest aggregate."
               />
               <RankedUsageList
                 rows={trendingTopicsRanked}
@@ -2389,8 +2463,8 @@ export function HqPhase1CommandDashboard({
                           </p>
                           <span className="shrink-0 text-[10px] text-slate-400">
                             {formatClock(row.activityStateUpdatedAt || row.capturedAt)}
-                          </span>
-                        </div>
+                        </span>
+                      </div>
                         {name ? (
                           <p className="mt-0.5 text-[10px] text-slate-500">
                             {formatDurationMs(row.activeMs7d)} active · {row.applies7d} applies ·{' '}
@@ -2449,6 +2523,42 @@ export function HqPhase1CommandDashboard({
               : 'Waiting for portal analytics response'}
           </div>
         </div>
+        {skillsOpen ? (
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
+            onClick={() => setSkillsOpen(false)}
+            role="presentation"
+          >
+            <div
+              className="flex max-h-[min(80vh,640px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-labelledby="hq-top-skills-title"
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                <div>
+                  <h3 id="hq-top-skills-title" className="text-base font-semibold text-slate-900">
+                    All skills
+                  </h3>
+                  <p className="mt-0.5 text-[12px] text-slate-500">
+                    {fmt(skills.length)} skills from candidate profiles · scroll to see the rest
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSkillsOpen(false)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                  aria-label="Close skills list"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                <SkillUsageRows rows={skills} />
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </HqModulePageLayout>
   );

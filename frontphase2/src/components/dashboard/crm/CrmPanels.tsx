@@ -27,6 +27,7 @@ import {
 } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
 import { crmCard, dashCard, formatInr, formatNum, relativeTime, useCrmDashboard } from './crmShared';
+import { CrmStatNumber } from './crmStatNumber';
 
 const COLORS = ['#3B82F6', '#6366F1', '#10B981', '#F59E0B', '#EC4899', '#06B6D4', '#8B5CF6', '#94A3B8'];
 
@@ -222,8 +223,15 @@ export function CrmFollowupActivity({ overview, compact = false }: Props) {
               }
               className={`rounded-2xl px-3 py-3.5 text-left shadow-[0_8px_24px_-18px_rgba(15,23,42,0.25)] transition hover:-translate-y-0.5 ${c.tone}`}
             >
-              <p className="text-[1.35rem] font-bold tabular-nums tracking-tight">{formatNum(c.value)}</p>
               <p className="mt-0.5 text-[11px] font-semibold opacity-80">{c.label}</p>
+              <div className="mt-1">
+                <CrmStatNumber
+                  value={formatNum(c.value)}
+                  label={c.label === "Today's" ? 'due' : c.label === 'Completed' ? 'done' : c.label.toLowerCase()}
+                  size="md"
+                  invertDelta={c.label === 'Overdue'}
+                />
+              </div>
               <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-white/60">
                 <div className={`h-full w-2/3 rounded-full ${c.bar}`} />
               </div>
@@ -338,7 +346,7 @@ export function CrmCommunication({ overview }: Props) {
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           <span className="h-4 w-1 rounded-full bg-gradient-to-b from-blue-500 to-emerald-400" />
-          Outreach touchpoints
+          Outreach activity
         </h2>
         <p className="text-[11px] text-slate-400">Calls, meetings, email & WhatsApp</p>
       </div>

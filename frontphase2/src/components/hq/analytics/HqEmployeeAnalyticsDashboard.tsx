@@ -37,7 +37,7 @@ export function HqEmployeeAnalyticsDashboard({
   const t = data.tables;
 
   return (
-    <div className="space-y-6">
+    <div className="dash-ui space-y-6">
       <HqAnalyticsKpiGrid
         items={[
           { label: 'Candidates', value: k.totalCandidates, active: true },

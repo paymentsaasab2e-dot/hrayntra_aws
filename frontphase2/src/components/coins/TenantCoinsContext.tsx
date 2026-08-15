@@ -1,7 +1,8 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Coins, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
+import { TokenCoinIcon } from './TokenCoinIcon';
 import { apiGetTenantCoins, type AiCoinPack, type HqAiFeature, TENANT_COINS_REFRESH_EVENT, AI_FEATURE_COSTS_UPDATED_EVENT, AI_FEATURE_COSTS_UPDATED_STORAGE_KEY } from '@/lib/api';
 import { ApiRequestError } from '@/lib/apiNetworkErrors';
 import {
@@ -231,7 +232,7 @@ export function AiCoinLockBanner({
           }
           className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600"
         >
-          <Coins className="h-3.5 w-3.5" />
+          <TokenCoinIcon className="h-3.5 w-3.5" />
           Purchase coins
         </button>
       </div>
@@ -245,7 +246,7 @@ export function AiCoinCostHint({ featureId }: { featureId: string }) {
   if (!cost) return null;
   return (
     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
-      <Coins className="h-3 w-3" />
+      <TokenCoinIcon className="h-3 w-3" />
       {cost} coin{cost === 1 ? '' : 's'}
       {coins < cost ? ' · locked' : ''}
     </span>

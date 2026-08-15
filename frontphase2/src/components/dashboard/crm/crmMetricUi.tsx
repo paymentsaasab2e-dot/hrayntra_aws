@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { comboBarClass, comboToneClasses, type CrmComboMetric, type CrmInsightCategory } from './crmInsights';
 import { dashCard } from './crmShared';
+import { CrmStatNumber } from './crmStatNumber';
 
 const CATEGORY_META: Record<
   CrmInsightCategory,
@@ -185,7 +186,6 @@ export function CrmStatTile({
   size?: 'sm' | 'md' | 'lg';
 }) {
   const pct = Math.min(100, Math.max(0, metric.pct ?? 0));
-  const valueSize = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-base' : 'text-xl';
 
   return (
     <motion.div
@@ -208,9 +208,7 @@ export function CrmStatTile({
           {metric.info ? <HqInfoTip text={metric.info} /> : null}
         </div>
       </div>
-      <p className={`mt-2 font-bold tabular-nums tracking-tight text-slate-900 ${valueSize}`}>
-        {metric.value}
-      </p>
+      <CrmStatNumber className="mt-2" value={metric.value} label={metric.label.split(/\s+/)[0]?.toLowerCase()} size={size === 'lg' ? 'lg' : size === 'sm' ? 'sm' : 'md'} />
       <p className="mt-1 line-clamp-2 flex-1 text-[10px] leading-relaxed text-slate-400">
         {metric.sub}
       </p>

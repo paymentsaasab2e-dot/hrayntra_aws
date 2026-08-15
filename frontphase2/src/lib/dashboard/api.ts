@@ -163,6 +163,8 @@ export type CrmCommBucket = {
 
 export type CrmOverview = {
   scope?: 'crm';
+  access?: DashboardStatsAccess;
+  myWork?: DashboardMyWork;
   kpis: Record<string, number | null | undefined>;
   health?: { score: number; label: string };
   todaySummary?: {
@@ -289,13 +291,49 @@ export type CrmOverview = {
   generatedAt?: string;
 };
 
+export type DashboardStatsAccess = {
+  statsScope: 'full' | 'self';
+  canFullStats: boolean;
+  showMineTab: boolean;
+  showMineApprovals?: boolean;
+  isSuperAdmin?: boolean;
+  isDepartmentHead?: boolean;
+};
+
+export type DashboardMyWorkApproval = {
+  id: string;
+  kind: 'team' | 'cross-dept' | 'lead-conversion' | 'task-completion' | string;
+  title: string;
+  from?: string;
+  at?: string | null;
+  href: string;
+  priority?: string;
+};
+
+export type DashboardMyWork = {
+  openTasks: number;
+  overdueTasks: number;
+  awaitingTaskApproval: number;
+  pendingLeadConversions: number;
+  pendingCrossDept: number;
+  pendingTeamRequests?: number;
+  pendingApprovalsTotal?: number;
+  approvals?: DashboardMyWorkApproval[];
+};
+
 export type CrmDashboardFilters = {
   dateRange?: string;
   assignedTo?: string;
   search?: string;
   startDate?: string;
   endDate?: string;
+  scope?: 'self' | 'full';
 };
+
+export async function apiDashboardAccess() {
+  const res = await apiFetch<DashboardStatsAccess>('/dashboard/access', { auth: true });
+  return res.data;
+}
 
 export async function apiCrmDashboardOverview(filters?: CrmDashboardFilters) {
   const res = await apiFetch<CrmOverview>(
@@ -307,6 +345,8 @@ export async function apiCrmDashboardOverview(filters?: CrmDashboardFilters) {
 
 export type RecruitmentOverview = {
   scope?: 'recruitment';
+  access?: DashboardStatsAccess;
+  myWork?: DashboardMyWork;
   kpis: Record<string, number | null | undefined>;
   health?: { score: number; label: string };
   todaySummary?: {
@@ -326,7 +366,9 @@ export type RecruitmentOverview = {
   placementStatusPie?: ChartSlice[];
   candidateSources?: ChartSlice[];
   jobsByDepartment?: ChartSlice[];
+  jobsByClient?: ChartSlice[];
   jobSpark?: Array<{ label: string; value: number }>;
+  sourceSpark?: Array<Record<string, string | number>>;
   jobsTable?: Array<{
     id: string;
     title: string;
@@ -359,6 +401,7 @@ export type RecruitmentOverview = {
     company?: string;
     experience?: number | null;
     assignee?: string;
+    createdAt?: string | null;
     updatedAt?: string | null;
     href?: string;
   }>;
@@ -415,6 +458,7 @@ export type RecruitmentDashboardFilters = {
   search?: string;
   startDate?: string;
   endDate?: string;
+  scope?: 'self' | 'full';
 };
 
 export async function apiRecruitmentDashboardOverview(filters?: RecruitmentDashboardFilters) {
