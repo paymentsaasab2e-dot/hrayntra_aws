@@ -1,6 +1,6 @@
 /**
- * HQ-scoped RBAC permission catalog aligned with the current HQ sidebar:
- * Employees · Employers · CRM · Ops
+ * HQ-scoped RBAC permission catalog aligned with the HQ sidebar:
+ * Employees · Employers · CRM · Ops · Settings
  */
 export const HQ_PERMISSION_CATALOG = [
   // Employees (Phase 1)
@@ -18,6 +18,11 @@ export const HQ_PERMISSION_CATALOG = [
     permissionName: 'hq_candidates_write',
     module: 'Employees · Candidates',
     description: 'Manage Phase 1 candidates',
+  },
+  {
+    permissionName: 'hq_candidates_delete',
+    module: 'Employees · Candidates',
+    description: 'Delete Phase 1 candidates',
   },
   {
     permissionName: 'hq_courses_read',
@@ -45,6 +50,11 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'Manage portal jobs',
   },
   {
+    permissionName: 'hq_portal_delete',
+    module: 'Employees · Portal',
+    description: 'Delete portal jobs',
+  },
+  {
     permissionName: 'hq_events_read',
     module: 'Employees · Events',
     description: 'View HQ portal events',
@@ -68,6 +78,16 @@ export const HQ_PERMISSION_CATALOG = [
     permissionName: 'hq_subscriptions_write',
     module: 'Employees · Subscriptions',
     description: 'Edit Phase 1 coin packs and spend costs',
+  },
+  {
+    permissionName: 'hq_employee_tickets_read',
+    module: 'Employees · Tickets',
+    description: 'View employee-audience support tickets',
+  },
+  {
+    permissionName: 'hq_employee_tickets_write',
+    module: 'Employees · Tickets',
+    description: 'Update employee-audience support tickets',
   },
 
   // Employers (Phase 2)
@@ -102,6 +122,11 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'Update support ticket status and notes',
   },
   {
+    permissionName: 'hq_tickets_delete',
+    module: 'Employers · Tickets',
+    description: 'Delete or close support tickets',
+  },
+  {
     permissionName: 'hq_tenants_read',
     module: 'Employers · Tenants',
     description: 'View tenants',
@@ -112,6 +137,11 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'Create and manage tenants / AI coins',
   },
   {
+    permissionName: 'hq_tenants_delete',
+    module: 'Employers · Tenants',
+    description: 'Deactivate or remove tenants',
+  },
+  {
     permissionName: 'hq_billing_read',
     module: 'Employers · Plans',
     description: 'View employer subscription plans, AI plans, and coin packs',
@@ -120,6 +150,26 @@ export const HQ_PERMISSION_CATALOG = [
     permissionName: 'hq_billing_write',
     module: 'Employers · Plans',
     description: 'Manage employer plans, AI feature costs, and coin packs',
+  },
+  {
+    permissionName: 'hq_packages_read',
+    module: 'Employers · Packages',
+    description: 'View HQ packages catalog',
+  },
+  {
+    permissionName: 'hq_packages_write',
+    module: 'Employers · Packages',
+    description: 'Create and edit HQ packages',
+  },
+  {
+    permissionName: 'hq_ai_features_read',
+    module: 'Employers · AI Features',
+    description: 'View AI feature costs and coin packs',
+  },
+  {
+    permissionName: 'hq_ai_features_write',
+    module: 'Employers · AI Features',
+    description: 'Edit AI feature costs and coin packs',
   },
 
   // CRM
@@ -144,6 +194,11 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'Delete HQ leads',
   },
   {
+    permissionName: 'hq_leads_assign',
+    module: 'CRM · Leads',
+    description: 'Assign HQ leads to team members',
+  },
+  {
     permissionName: 'hq_clients_read',
     module: 'CRM · Clients',
     description: 'View HQ clients',
@@ -158,6 +213,16 @@ export const HQ_PERMISSION_CATALOG = [
     module: 'CRM · Clients',
     description: 'Delete HQ clients',
   },
+  {
+    permissionName: 'hq_demos_read',
+    module: 'CRM · Demos',
+    description: 'View demo requests',
+  },
+  {
+    permissionName: 'hq_demos_write',
+    module: 'CRM · Demos',
+    description: 'Manage demo requests and follow-ups',
+  },
 
   // Ops
   {
@@ -171,6 +236,11 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'Add and edit HQ team members',
   },
   {
+    permissionName: 'hq_team_hierarchy',
+    module: 'Ops · Team',
+    description: 'Manage HQ team hierarchy (rank / reports-to)',
+  },
+  {
     permissionName: 'hq_roles_manage',
     module: 'Ops · Team',
     description: 'Create and edit HQ roles & permissions',
@@ -179,6 +249,11 @@ export const HQ_PERMISSION_CATALOG = [
     permissionName: 'hq_reports_read',
     module: 'Ops · Reports',
     description: 'View HQ reports',
+  },
+  {
+    permissionName: 'hq_reports_export',
+    module: 'Ops · Reports',
+    description: 'Export HQ reports',
   },
   {
     permissionName: 'hq_ops_billing_read',
@@ -190,9 +265,26 @@ export const HQ_PERMISSION_CATALOG = [
     module: 'Analytics',
     description: 'View platform analytics APIs used by HQ dashboards',
   },
+  {
+    permissionName: 'hq_analytics_export',
+    module: 'Analytics',
+    description: 'Export platform analytics data',
+  },
+
+  // Settings
+  {
+    permissionName: 'hq_settings_read',
+    module: 'Ops · Settings',
+    description: 'View HQ settings',
+  },
+  {
+    permissionName: 'hq_settings_write',
+    module: 'Ops · Settings',
+    description: 'Update HQ settings',
+  },
 ];
 
-/** Preferred module order in Team → Roles permission picker (matches new HQ sidebar). */
+/** Preferred module order in Team → Roles permission picker (matches HQ sidebar). */
 export const HQ_MODULE_ORDER = [
   'Employees · Dashboard',
   'Employees · Candidates',
@@ -200,16 +292,22 @@ export const HQ_MODULE_ORDER = [
   'Employees · Portal',
   'Employees · Events',
   'Employees · Subscriptions',
+  'Employees · Tickets',
   'Employers · Dashboard',
   'Employers · Companies',
   'Employers · Tenants',
   'Employers · Plans',
+  'Employers · Packages',
+  'Employers · AI Features',
+  'Employers · Tickets',
   'CRM · Dashboard',
   'CRM · Leads',
   'CRM · Clients',
+  'CRM · Demos',
   'Ops · Team',
   'Ops · Reports',
   'Ops · Billing',
+  'Ops · Settings',
   'Analytics',
   // Legacy module names (if any old roles still reference them in UI maps)
   'Dashboard',
@@ -228,32 +326,60 @@ const ALL_IDS = HQ_PERMISSION_CATALOG.map((p) => p.permissionName);
 
 const MANAGER_DENY = new Set([
   'hq_tenants_write',
+  'hq_tenants_delete',
   'hq_billing_write',
   'hq_portal_write',
+  'hq_portal_delete',
   'hq_events_delete',
   'hq_subscriptions_write',
   'hq_companies_delete',
   'hq_candidates_write',
+  'hq_candidates_delete',
   'hq_courses_delete',
   'hq_roles_manage',
+  'hq_team_hierarchy',
+  'hq_settings_write',
+  'hq_packages_write',
+  'hq_ai_features_write',
+  'hq_tickets_delete',
+]);
+
+const LEAD_DENY = new Set([
+  ...MANAGER_DENY,
+  'hq_team_write',
+  'hq_leads_delete',
+  'hq_clients_delete',
+  'hq_companies_write',
+  'hq_tenants_read',
+  'hq_billing_read',
+  'hq_ops_billing_read',
+  'hq_settings_read',
+  'hq_analytics_export',
+  'hq_reports_export',
 ]);
 
 export const HQ_DEFAULT_ROLES = [
   {
     roleName: 'HQ Admin',
-    description: 'Full access to the new headquarters console (Employees, Employers, CRM, Ops)',
+    description: 'Full access to headquarters (Employees, Employers, CRM, Ops, Settings)',
     color: '#4F46E5',
     permissionIds: [...ALL_IDS],
   },
   {
     roleName: 'HQ Manager',
-    description: 'Operate CRM and employee modules without destructive / billing admin rights',
+    description: 'Operate CRM and modules without destructive / billing admin rights',
     color: '#0EA5E9',
     permissionIds: ALL_IDS.filter((id) => !MANAGER_DENY.has(id)),
   },
   {
+    roleName: 'HQ Lead',
+    description: 'Mid-level hierarchy — CRM and employee ops without admin / tenant control',
+    color: '#8B5CF6',
+    permissionIds: ALL_IDS.filter((id) => !LEAD_DENY.has(id)),
+  },
+  {
     roleName: 'HQ Viewer',
-    description: 'Read-only access across the new HQ modules',
+    description: 'Read-only access across HQ modules',
     color: '#64748B',
     permissionIds: ALL_IDS.filter((id) => id.endsWith('_read')),
   },
@@ -267,9 +393,11 @@ export const HQ_NAV_PERMISSION_MAP = {
   portal: ['hq_portal_read'],
   events: ['hq_events_read'],
   subscriptions: ['hq_subscriptions_read'],
+  employeeTickets: ['hq_employee_tickets_read', 'hq_tickets_read'],
   employerDashboard: ['hq_employers_dashboard_read', 'hq_dashboard_read', 'hq_analytics_read'],
   company: ['hq_companies_read'],
   tickets: ['hq_tickets_read'],
+  employerTickets: ['hq_tickets_read'],
   tenants: ['hq_tenants_read'],
   plans: ['hq_billing_read'],
   crmDashboard: ['hq_crm_dashboard_read', 'hq_leads_read', 'hq_dashboard_read'],
@@ -278,6 +406,7 @@ export const HQ_NAV_PERMISSION_MAP = {
   team: ['hq_team_read'],
   reports: ['hq_reports_read'],
   billing: ['hq_billing_read', 'hq_ops_billing_read'],
+  settings: ['hq_settings_read'],
 };
 
 export function listHqPermissions() {
