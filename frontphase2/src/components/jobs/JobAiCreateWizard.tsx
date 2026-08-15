@@ -9,6 +9,7 @@ import {
   Building2,
   Check,
   ChevronDown,
+  ExternalLink,
   FileText,
   Globe,
   Linkedin,
@@ -30,6 +31,7 @@ import {
   apiGetClient,
   apiGetClients,
   apiGetContacts,
+  apiGetJobApplyLink,
   apiGetSocialStatus,
   apiProcessJobCreationPipeline,
   apiSuggestJobTitles,
@@ -39,6 +41,11 @@ import {
   type CreateJobData,
   type JobCreationPipelineResult,
 } from '@/lib/api';
+import {
+  apiCreateTenantCompanyPost,
+  apiGetTenantCompanyPage,
+  type TenantCompanyPage,
+} from '@/lib/company-page-api';
 import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
 import { AiCoinLockBanner } from '../coins/TenantCoinsContext';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api/teamApi';
@@ -82,19 +89,19 @@ const DISTRIBUTION_OPTIONS: Array<{
   {
     id: 'internal_company',
     label: 'Internal company',
-    description: 'Share inside your company workspace and team.',
+    description: 'Post this job on your company page in Phase 1 community.',
     icon: Building2,
   },
   {
     id: 'hryantra',
     label: 'HRyantra',
-    description: 'Publish on the HRyantra job board and candidate portal.',
+    description: 'Publish on the HRyantra job board (Phase 1).',
     icon: Sparkles,
   },
   {
     id: 'external_platforms',
     label: 'External platforms',
-    description: 'Syndicate to partner job boards and external listings.',
+    description: 'Partner job boards — coming soon.',
     icon: Globe,
   },
   {
@@ -109,16 +116,8 @@ const DISTRIBUTION_PLATFORMS: Record<
   DistributionChannel,
   Array<{ id: string; label: string }>
 > = {
-  internal_company: [
-    { id: 'team_workspace', label: 'Team workspace' },
-    { id: 'internal_job_board', label: 'Internal job board' },
-    { id: 'employee_referrals', label: 'Employee referrals' },
-  ],
-  hryantra: [
-    { id: 'hryantra_job_board', label: 'HRyantra job board' },
-    { id: 'candidate_portal', label: 'Candidate portal' },
-    { id: 'public_apply_link', label: 'Public apply link' },
-  ],
+  internal_company: [{ id: 'company_page', label: 'Company page' }],
+  hryantra: [{ id: 'hryantra_job_board', label: 'HRyantra job board' }],
   external_platforms: [
     { id: 'indeed', label: 'Indeed' },
     { id: 'naukri', label: 'Naukri' },
@@ -133,14 +132,37 @@ const DISTRIBUTION_PLATFORMS: Record<
   ],
 };
 
+const EXTERNAL_COMING_SOON_PLATFORM_IDS = new Set([
+  'indeed',
+  'naukri',
+  'glassdoor',
+  'monster',
+]);
+
+const SOCIAL_COMING_SOON_PLATFORM_IDS = new Set([
+  'x_twitter',
+  'facebook',
+  'instagram',
+]);
+
+function isComingSoonPlatform(platformId: string) {
+  return (
+    EXTERNAL_COMING_SOON_PLATFORM_IDS.has(platformId) ||
+    SOCIAL_COMING_SOON_PLATFORM_IDS.has(platformId)
+  );
+}
+
 function getDistributionChannelsFromPlatforms(
   selected: Record<string, boolean>,
 ): Record<DistributionChannel, boolean> {
   return {
     internal_company: DISTRIBUTION_PLATFORMS.internal_company.some((p) => selected[p.id]),
     hryantra: DISTRIBUTION_PLATFORMS.hryantra.some((p) => selected[p.id]),
-    external_platforms: DISTRIBUTION_PLATFORMS.external_platforms.some((p) => selected[p.id]),
-    social_media: DISTRIBUTION_PLATFORMS.social_media.some((p) => selected[p.id]),
+    // External boards are coming soon — never count as selected destinations
+    external_platforms: false,
+    social_media: DISTRIBUTION_PLATFORMS.social_media.some(
+      (p) => selected[p.id] && !isComingSoonPlatform(p.id),
+    ),
   };
 }
 
@@ -484,6 +506,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [socialConnections, setSocialConnections] =
     useState<SocialPlatformConnection>(EMPTY_SOCIAL_CONNECTIONS);
   const [connectingPlatformId, setConnectingPlatformId] = useState<string | null>(null);
+  const [tenantCompanyPage, setTenantCompanyPage] = useState<TenantCompanyPage | null>(null);
+  const [loadingCompanyPage, setLoadingCompanyPage] = useState(false);
 
   const reset = useCallback(() => {
     setStep('client');
@@ -511,6 +535,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setSelectedDistributionPlatforms({ hryantra_job_board: true });
     setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
     setConnectingPlatformId(null);
+    setTenantCompanyPage(null);
+    setLoadingCompanyPage(false);
   }, []);
 
   const {
@@ -562,6 +588,62 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
     }
   }, [linkedInRefreshStatus]);
+
+  useEffect(() => {
+    if (!isOpen || publishFlowStep !== 'distribution') return;
+    setSelectedDistributionPlatforms((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of EXTERNAL_COMING_SOON_PLATFORM_IDS) {
+        if (next[id]) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      for (const id of SOCIAL_COMING_SOON_PLATFORM_IDS) {
+        if (next[id]) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    let cancelled = false;
+    setLoadingCompanyPage(true);
+    void apiGetTenantCompanyPage()
+      .then((res) => {
+        if (cancelled) return;
+        const page = res.data?.page || null;
+        setTenantCompanyPage(page);
+        if (!page) {
+          setSelectedDistributionPlatforms((prev) => {
+            if (!prev.company_page) return prev;
+            const next = { ...prev };
+            delete next.company_page;
+            // Clear legacy internal destinations if present
+            delete next.team_workspace;
+            delete next.internal_job_board;
+            delete next.employee_referrals;
+            return next;
+          });
+        } else {
+          // Default-select company page when it exists
+          setSelectedDistributionPlatforms((prev) => {
+            if (prev.company_page) return prev;
+            return { ...prev, company_page: true };
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTenantCompanyPage(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCompanyPage(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, publishFlowStep]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -995,7 +1077,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   );
 
   const toggleDistributionPlatform = (platformId: string) => {
+    if (isComingSoonPlatform(platformId)) {
+      return;
+    }
     if (activeDistributionTab === 'social_media' && !isSocialPlatformConnected(platformId)) {
+      return;
+    }
+    if (platformId === 'company_page' && !tenantCompanyPage) {
+      setError('Create your company page first to publish internally.');
       return;
     }
     markWizardDirty();
@@ -1154,6 +1243,13 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       return;
     }
 
+    const publishToCompanyPage = Boolean(selectedDistributionPlatforms.company_page);
+    if (publishToCompanyPage && !tenantCompanyPage) {
+      setError('Create your company page first, then publish to Internal company.');
+      setActiveDistributionTab('internal_company');
+      return;
+    }
+
     setPublishing(true);
     setError('');
     try {
@@ -1221,13 +1317,46 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         })),
         distributionPlatforms: {
           internalCompany: distributionChannels.internal_company,
-          hryantra: distributionChannels.hryantra,
+          companyPage: publishToCompanyPage,
+          hryantra: Boolean(selectedDistributionPlatforms.hryantra_job_board),
           externalPlatforms: distributionChannels.external_platforms,
           socialMedia: distributionChannels.social_media,
         },
       };
 
-      await apiCreateJob(jobData);
+      const created = await apiCreateJob(jobData);
+      const createdJob = created.data;
+
+      if (publishToCompanyPage) {
+        let applyUrl = '';
+        try {
+          if (createdJob?.id) {
+            const linkRes = await apiGetJobApplyLink(createdJob.id);
+            applyUrl = String(linkRes.data?.applyUrl || '').trim();
+          }
+        } catch {
+          /* apply link is optional for the company-page post */
+        }
+
+        const locationLine =
+          locationParts.join(', ') || draft.locationQuery.trim() || '';
+        const plainDescription = stripHtml(draft.jobDescriptionHtml || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 280);
+        const postLines = [
+          `We're hiring: ${draft.jobTitle.trim()}`,
+          locationLine ? `Location: ${locationLine}` : '',
+          draft.numberOfOpenings
+            ? `Openings: ${draft.numberOfOpenings}`
+            : '',
+          plainDescription ? `\n${plainDescription}${plainDescription.length >= 280 ? '…' : ''}` : '',
+          applyUrl ? `\nApply: ${applyUrl}` : '',
+        ].filter(Boolean);
+
+        await apiCreateTenantCompanyPost({ text: postLines.join('\n') });
+      }
+
       markWizardClean();
       onJobCreated?.();
       onClose();
@@ -1712,7 +1841,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                     const Icon = option.icon;
                     const active = activeDistributionTab === option.id;
                     const hasSelection = DISTRIBUTION_PLATFORMS[option.id].some(
-                      (platform) => selectedDistributionPlatforms[platform.id],
+                      (platform) =>
+                        !isComingSoonPlatform(platform.id) &&
+                        selectedDistributionPlatforms[platform.id],
                     );
                     return (
                       <button
@@ -1761,8 +1892,110 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                   </div>
 
                   <p className="mt-4 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-400">
-                    Platforms
+                    {activeDistributionTab === 'internal_company' ? 'Company page' : 'Platforms'}
                   </p>
+                  {activeDistributionTab === 'internal_company' ? (
+                    <div className="mt-3">
+                      {loadingCompanyPage ? (
+                        <div className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-4 py-6 text-sm text-slate-500">
+                          <Loader2 className="h-4 w-4 animate-spin text-[#2098C8]" />
+                          Checking company page…
+                        </div>
+                      ) : tenantCompanyPage ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleDistributionPlatform('company_page')}
+                          className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition ${
+                            selectedDistributionPlatforms.company_page
+                              ? 'border-[#2098C8] bg-gradient-to-r from-[#E8F6FC]/90 to-white shadow-sm ring-1 ring-[#2098C8]/20'
+                              : 'border-slate-200/80 bg-white hover:border-[#2098C8]/40 hover:bg-[#E8F6FC]/30'
+                          }`}
+                        >
+                          <span
+                            className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl ${
+                              selectedDistributionPlatforms.company_page
+                                ? 'bg-[#2098C8] text-white'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {tenantCompanyPage.logoUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={tenantCompanyPage.logoUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <Building2 className="h-5 w-5" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold text-slate-900">
+                              {tenantCompanyPage.name}
+                            </span>
+                            <span className="mt-0.5 block text-[0.7rem] text-slate-500">
+                              Post this job on your company page in Phase 1 community
+                              {tenantCompanyPage.domainKey
+                                ? ` · ${tenantCompanyPage.domainKey}`
+                                : ''}
+                            </span>
+                          </span>
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                              selectedDistributionPlatforms.company_page
+                                ? 'border-[#2098C8] bg-[#2098C8] text-white'
+                                : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            {selectedDistributionPlatforms.company_page ? (
+                              <Check className="h-3 w-3" />
+                            ) : null}
+                          </span>
+                        </button>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-5">
+                          <p className="text-sm font-semibold text-slate-900">
+                            No company page yet
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                            Create your company page first. Then you can publish jobs to it from
+                            Internal company.
+                          </p>
+                          <a
+                            href="/company-page"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                          >
+                            Create company page
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLoadingCompanyPage(true);
+                              void apiGetTenantCompanyPage()
+                                .then((res) => {
+                                  const page = res.data?.page || null;
+                                  setTenantCompanyPage(page);
+                                  if (page) {
+                                    setSelectedDistributionPlatforms((prev) => ({
+                                      ...prev,
+                                      company_page: true,
+                                    }));
+                                  }
+                                })
+                                .catch(() => setTenantCompanyPage(null))
+                                .finally(() => setLoadingCompanyPage(false));
+                            }}
+                            className="ml-2 mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Refresh
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     {DISTRIBUTION_PLATFORMS[activeDistributionTab].map((platform) => {
                       const selected = Boolean(selectedDistributionPlatforms[platform.id]);
@@ -1771,6 +2004,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                         isSocialAuthPlatform(platform.id);
                       const connected = isSocialPlatformConnected(platform.id);
                       const isConnecting = connectingPlatformId === platform.id;
+                      const comingSoon = isComingSoonPlatform(platform.id);
                       const PlatformIcon =
                         platform.id === 'linkedin'
                           ? Linkedin
@@ -1781,9 +2015,34 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                                 platform.id === 'glassdoor' ||
                                 platform.id === 'monster'
                               ? Globe
-                              : platform.id.includes('hryantra') || platform.id === 'candidate_portal'
+                              : platform.id.includes('hryantra')
                                 ? Sparkles
                                 : Building2;
+
+                      if (comingSoon) {
+                        return (
+                          <div
+                            key={platform.id}
+                            aria-disabled="true"
+                            className="flex cursor-not-allowed items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/90 px-3 py-3 opacity-75"
+                          >
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-200/80 text-slate-500">
+                              {platform.id === 'x_twitter' ? (
+                                <span className="text-sm font-bold">X</span>
+                              ) : (
+                                <PlatformIcon className="h-4 w-4" />
+                              )}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-slate-700">{platform.label}</p>
+                              <p className="text-[0.7rem] text-slate-500">Coming soon</p>
+                            </div>
+                            <span className="shrink-0 rounded-full bg-slate-200/90 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">
+                              Soon
+                            </span>
+                          </div>
+                        );
+                      }
 
                       if (requiresSocialAuth && !connected) {
                         return (
@@ -1874,6 +2133,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       );
                     })}
                   </div>
+                  )}
                 </div>
               </motion.div>
             ) : null}

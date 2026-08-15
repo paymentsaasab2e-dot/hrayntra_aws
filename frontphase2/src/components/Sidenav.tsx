@@ -1636,6 +1636,10 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             <NavItem icon={CalendarDays} label="Portal Events" href="/events" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
           )}
 
+          {mounted && (isOrgModuleEnabled('clients') || isOrgModuleEnabled('jobs')) && (
+            <NavItem icon={Building2} label="Company Page" href="/company-page" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
+          )}
+
           {(mounted && isOrgModuleEnabled('inbox') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Inbox))) && (
             <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} onNavigate={persistScrollPosition} accent="fuchsia" />
           )}

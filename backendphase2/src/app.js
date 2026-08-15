@@ -70,6 +70,7 @@ import resumePreviewRoutes from './routes/resumePreview.routes.js';
 import hqRoutes from './modules/hq/hq.routes.js';
 import supportRoutes from './modules/support/support.routes.js';
 import portalEventsRoutes from './modules/portal-events/portal-events.routes.js';
+import companyPageRoutes from './modules/company-page/company-page.routes.js';
 import tenantBehaviorRoutes from './modules/tenant-behavior/tenant-behavior.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
@@ -228,6 +229,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/hq', hqRoutes);
 app.use('/api/v1/support', supportRoutes);
 app.use('/api/v1/portal-events', portalEventsRoutes);
+app.use('/api/v1/company-page', companyPageRoutes);
 app.use('/api/v1/tenant-behavior', tenantBehaviorRoutes);
 // Public job apply — register before any `/api/v1` router with router-level authMiddleware
 app.get('/api/v1/jobs/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
