@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Plus, Search, User, X } from 'lucide-react';
+import { ChevronDown, Plus, Search, X } from 'lucide-react';
 import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
 import {
   isJobFieldPubliclyVisible,
@@ -55,6 +55,7 @@ export interface CreateJobDetailsFormData {
   forecastRevenue: string;
   managerId: string;
   assignedToId: string;
+  aboutCompany: string;
   publicFieldVisibility: JobPublicFieldVisibility;
 }
 
@@ -915,12 +916,25 @@ export function CreateJobDetailsForm({
       ) : null}
 
       <div>
-        <label className={labelClass}>
-          <span className="inline-flex items-center gap-1.5">
-            <User size={14} className="text-slate-400" aria-hidden />
-            Assign team member
-          </span>
-        </label>
+        <FieldLabelRow label="About Company" labelAction={visibilityAction('aboutCompany')} />
+        <textarea
+          value={formData.aboutCompany || ''}
+          onChange={(e) => patchForm({ aboutCompany: e.target.value })}
+          placeholder="Short description of the company for the public job page…"
+          rows={4}
+          className={`${inputClass} min-h-[100px] resize-y`}
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Shown as <span className="font-medium">About the company</span> on the public job page when
+          Visible to public.
+        </p>
+      </div>
+
+      <div>
+        <FieldLabelRow
+          label="Assign team member"
+          labelAction={visibilityAction('recruiterProfile')}
+        />
         <div className="relative">
           <button
             type="button"
@@ -976,6 +990,10 @@ export function CreateJobDetailsForm({
             </>
           ) : null}
         </div>
+        <p className="mt-1 text-xs text-slate-500">
+          Shown as the <span className="font-medium">Recruiter</span> card on the public job page
+          (name, photo, designation). Use the hide pill to keep this internal.
+        </p>
       </div>
     </div>
   );

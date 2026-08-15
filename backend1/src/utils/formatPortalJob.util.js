@@ -53,6 +53,56 @@ function isPortalFieldVisible(job, field) {
   return visibility[field] !== false;
 }
 
+function sanitizeRecruiterProfile(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const name = String(raw.name || '').trim();
+  if (!name) return null;
+  const designation = String(raw.designation || '').trim();
+  const avatarUrl = String(raw.avatarUrl || raw.avatar || '').trim();
+  return {
+    id: raw.id ? String(raw.id) : undefined,
+    name,
+    designation: designation || null,
+    avatarUrl: avatarUrl || null,
+  };
+}
+
+async function hydrateJobsPublicProfileFields(prismaClient, jobs) {
+  const list = Array.isArray(jobs) ? jobs : jobs ? [jobs] : [];
+  const ids = list
+    .map((job) => String(job?.id || '').trim())
+    .filter((id) => /^[a-fA-F0-9]{24}$/.test(id));
+  if (!ids.length || typeof prismaClient?.$runCommandRaw !== 'function') return;
+  try {
+    const result = await prismaClient.$runCommandRaw({
+      find: 'jobs',
+      filter: { _id: { $in: ids.map((id) => ({ $oid: id })) } },
+      projection: { aboutCompany: 1, recruiterProfile: 1 },
+    });
+    const docs = result?.cursor?.firstBatch || result?.documents || [];
+    const byId = new Map();
+    for (const doc of docs) {
+      const rawId = doc._id;
+      const id =
+        (rawId && typeof rawId === 'object' && rawId.$oid) ||
+        (typeof rawId === 'string' ? rawId : rawId?.toString?.());
+      if (id) byId.set(String(id), doc);
+    }
+    for (const job of list) {
+      const extra = byId.get(String(job.id));
+      if (!extra) continue;
+      if (job.aboutCompany == null && extra.aboutCompany != null) {
+        job.aboutCompany = extra.aboutCompany;
+      }
+      if (!job.recruiterProfile && extra.recruiterProfile) {
+        job.recruiterProfile = extra.recruiterProfile;
+      }
+    }
+  } catch (err) {
+    console.warn('[hydrateJobsPublicProfileFields]', err?.message || err);
+  }
+}
+
 function resolvePublicCompanyName(job, fallback = '') {
   if (!shouldShowClientNamePublicly(job)) {
     return '';
@@ -192,6 +242,8 @@ function redactPortalJobPayload(job, payload) {
     out.hiringManager = null;
     out.hiringManagerId = null;
   }
+  if (!isPortalFieldVisible(job, 'aboutCompany')) out.aboutCompany = null;
+  if (!isPortalFieldVisible(job, 'recruiterProfile')) out.recruiterProfile = null;
   if (!isPortalFieldVisible(job, 'industryType')) {
     out.industry = null;
     out.jobCategory = null;
@@ -306,11 +358,14 @@ function formatPortalJob(job, options = {}) {
     forecastRevenue: job.forecastRevenue ?? null,
     videoMediaLink: job.videoMediaLink ?? null,
     languages: parseLanguages(job.languages),
+    aboutCompany: job.aboutCompany ?? null,
+    recruiterProfile: sanitizeRecruiterProfile(job.recruiterProfile),
   });
 }
 
 module.exports = {
   formatPortalJob,
+  hydrateJobsPublicProfileFields,
   shouldShowClientNamePublicly,
   resolvePublicCompanyName,
   CONFIDENTIAL_COMPANY_LABEL,

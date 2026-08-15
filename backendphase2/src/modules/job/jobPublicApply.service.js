@@ -155,9 +155,50 @@ function isPortalFieldVisible(job, field) {
   return visibility[field] !== false;
 }
 
+function buildRecruiterProfile(user) {
+  if (!user || !user.id) return null;
+  const name = String(user.name || '').trim();
+  if (!name) return null;
+  return {
+    id: String(user.id),
+    name,
+    designation: user.designation ? String(user.designation).trim() : null,
+    avatarUrl: user.avatar ? String(user.avatar).trim() : null,
+  };
+}
+
+async function hydrateApplyJobPublicProfile(job) {
+  if (!job?.id) return job;
+  const needsAbout = job.aboutCompany == null;
+  const needsRecruiter = !job.assignedTo && !job.recruiterProfile;
+  if (!needsAbout && !needsRecruiter) return job;
+  const idStr = String(job.id).trim();
+  if (!/^[a-fA-F0-9]{24}$/.test(idStr) || typeof prisma.$runCommandRaw !== 'function') {
+    return job;
+  }
+  try {
+    const result = await prisma.$runCommandRaw({
+      find: 'jobs',
+      filter: { _id: { $oid: idStr } },
+      projection: { aboutCompany: 1, recruiterProfile: 1, assignedToId: 1 },
+      limit: 1,
+    });
+    const doc = result?.cursor?.firstBatch?.[0] || result?.documents?.[0] || null;
+    if (!doc) return job;
+    if (needsAbout && doc.aboutCompany != null) job.aboutCompany = doc.aboutCompany;
+    if (needsRecruiter && doc.recruiterProfile) job.recruiterProfile = doc.recruiterProfile;
+  } catch (err) {
+    console.warn('[jobPublicApply] hydrate public profile failed:', err?.message || err);
+  }
+  return job;
+}
+
 function formatPublicJob(job) {
   const client = job.client;
   const showClient = isPortalFieldVisible(job, 'client');
+  const recruiterProfile =
+    buildRecruiterProfile(job.assignedTo) ||
+    (job.recruiterProfile && typeof job.recruiterProfile === 'object' ? job.recruiterProfile : null);
   const payload = {
     id: job.id,
     title: job.title,
@@ -185,6 +226,8 @@ function formatPublicJob(job) {
     salary: job.salary,
     applicationFormNote: job.applicationFormNote || null,
     applicationFormLogo: job.applicationFormLogo || null,
+    aboutCompany: String(job.aboutCompany || '').trim() || null,
+    recruiterProfile,
   };
 
   if (!isPortalFieldVisible(job, 'location')) payload.location = null;
@@ -207,6 +250,8 @@ function formatPublicJob(job) {
   if (!isPortalFieldVisible(job, 'experience')) payload.experienceRequired = null;
   if (!isPortalFieldVisible(job, 'employmentType')) payload.employmentType = null;
   if (!isPortalFieldVisible(job, 'openings')) payload.openings = null;
+  if (!isPortalFieldVisible(job, 'aboutCompany')) payload.aboutCompany = null;
+  if (!isPortalFieldVisible(job, 'recruiterProfile')) payload.recruiterProfile = null;
 
   return payload;
 }
@@ -298,6 +343,9 @@ export const jobPublicApplyService = {
       },
       include: {
         client: { select: { companyName: true, logo: true } },
+        assignedTo: {
+          select: { id: true, name: true, email: true, avatar: true, designation: true },
+        },
       },
     });
     if (!job) {
@@ -306,6 +354,7 @@ export const jobPublicApplyService = {
       });
     }
     const schema = resolveJobFormSchema(job);
+    await hydrateApplyJobPublicProfile(job);
     return {
       job: formatPublicJob(job),
       formSchema: schema,

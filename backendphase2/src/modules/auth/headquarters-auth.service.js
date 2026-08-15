@@ -631,8 +631,33 @@ export const headquartersAuthService = {
     const collection = await getCollection();
     const dbName = String(tenantDbName || '').trim();
     if (!collection || !dbName) return null;
-    const doc = await collection.findOne({ tenantDbName: dbName });
-    return normalizeHeadquartersUser(doc);
+    // Prefer the most recently updated HQ workspace for this DB so tab changes
+    // (enabledModules) win over stale sibling / shared-DB records.
+    const docs = await collection
+      .find({ tenantDbName: dbName })
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(1)
+      .toArray();
+    return normalizeHeadquartersUser(docs[0] || null);
+  },
+
+  /**
+   * Resolve HQ tab entitlements for a live Phase 2 session.
+   * Prefer the logged-in HQ owner email when present; else latest row for tenantDbName.
+   */
+  async findTenantModulesForSession({ email, tenantDbName } = {}) {
+    const normalizedEmail = normalizeEmail(email);
+    if (normalizedEmail) {
+      const byEmail = await this.findWorkspaceUserByEmail(normalizedEmail);
+      if (byEmail) {
+        const emailDb = String(byEmail.tenantDbName || '').trim();
+        const sessionDb = String(tenantDbName || '').trim();
+        if (!sessionDb || !emailDb || emailDb === sessionDb) {
+          return byEmail;
+        }
+      }
+    }
+    return this.findTenantByDbName(tenantDbName);
   },
 
   async findWorkspaceUserByEmail(email) {

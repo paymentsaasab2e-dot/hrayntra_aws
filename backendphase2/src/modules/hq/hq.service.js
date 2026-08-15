@@ -5,7 +5,7 @@ import { authService } from '../auth/auth.service.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { env } from '../../config/env.js';
 import { applyTenantSubscriptionPlan } from '../setting/planAccess.service.js';
-import { setSubscriptionPlan, setHqEnabledModules } from '../setting/recruitmentMode.service.js';
+import { setSubscriptionPlan, setHqEnabledModules, getHqEnabledModules } from '../setting/recruitmentMode.service.js';
 import { resolvePackageSlug, todayPlanStartDate } from './hq-packages.config.js';
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { hqLeadsService } from './hq-leads.service.js';
@@ -575,21 +575,46 @@ export const hqService = {
     });
     if (!updated) throw new Error('Tenant not found');
 
-    if (updated.tenantDbName) {
-      try {
-        await runWithTenantContext(updated.tenantDbName, () =>
-          setHqEnabledModules({
-            productLine: updated.productLine || productLine || 'crm',
-            enabledModules,
-            modulesRestricted: true,
-          }),
-        );
-      } catch (err) {
-        console.warn('[hq] failed to sync modules into tenant DB:', err?.message || err);
+    const tenantDbName = String(updated.tenantDbName || '').trim();
+    if (!tenantDbName) {
+      throw new Error(
+        'Tenant database is not provisioned yet. Finish provisioning before changing Phase 2 tabs.',
+      );
+    }
+
+    try {
+      await runWithTenantContext(tenantDbName, () =>
+        setHqEnabledModules({
+          productLine: updated.productLine || productLine || 'crm',
+          enabledModules,
+          modulesRestricted: true,
+        }),
+      );
+    } catch (err) {
+      console.warn('[hq] failed to sync modules into tenant DB:', err?.message || err);
+      throw new Error(
+        `Modules saved in HQ but tenant sync failed: ${err?.message || err}. Retry after tenant DB is reachable.`,
+      );
+    }
+
+    // Verify tenant DB actually has the new tab list (fail closed so HQ does not show a false success).
+    try {
+      const verified = await runWithTenantContext(tenantDbName, () => getHqEnabledModules());
+      const verifiedSet = new Set(
+        (verified?.enabledModules || []).map((m) => String(m || '').trim()).filter(Boolean),
+      );
+      const missing = enabledModules.filter((m) => !verifiedSet.has(m));
+      if (missing.length > 0) {
         throw new Error(
-          `Modules saved in HQ but tenant sync failed: ${err?.message || err}. Retry after tenant DB is reachable.`,
+          `Tenant DB sync mismatch (missing: ${missing.slice(0, 5).join(', ')}). Retry.`,
         );
       }
+    } catch (err) {
+      if (String(err?.message || '').includes('Tenant DB sync mismatch')) throw err;
+      console.warn('[hq] modules verify failed:', err?.message || err);
+      throw new Error(
+        `Modules saved but could not verify tenant sync: ${err?.message || err}`,
+      );
     }
 
     return {
@@ -597,7 +622,8 @@ export const hqService = {
       productLine: updated.productLine || productLine || '',
       enabledModules: updated.enabledModules || enabledModules,
       modulesRestricted: true,
-      tenantDbName: updated.tenantDbName || '',
+      tenantDbName,
+      syncedToTenant: true,
     };
   },
 

@@ -24,7 +24,11 @@ function formatPreviewLocation(city: string, state: string, country: string): st
 
 export function buildPhase1JobPreviewFromForm(
   form: CreateJobDetailsFormData,
-  options?: { companyName?: string | null; jobDescriptionHtml?: string },
+  options?: {
+    companyName?: string | null;
+    jobDescriptionHtml?: string;
+    recruiterProfile?: PublicJobOverviewJob['recruiterProfile'];
+  },
 ): PublicJobOverviewJob {
   const location = formatPreviewLocation(form.city, form.state, form.country);
   const experienceRequired = formatExperienceRequired(form.minExperience, form.maxExperience);
@@ -43,5 +47,7 @@ export function buildPhase1JobPreviewFromForm(
     skills: form.skills || [],
     experienceRequired,
     employmentType: form.employmentType || null,
+    aboutCompany: form.aboutCompany?.trim() || null,
+    recruiterProfile: options?.recruiterProfile || null,
   };
 }

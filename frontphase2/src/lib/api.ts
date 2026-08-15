@@ -476,6 +476,9 @@ export async function apiFetch<T>(
         localStorage.removeItem('tenantDbName');
         localStorage.removeItem('orgRecruitmentMode');
         localStorage.removeItem('orgBillingEnabled');
+        localStorage.removeItem('orgEnabledModules');
+        localStorage.removeItem('orgModulesRestricted');
+        localStorage.removeItem('orgProductLine');
         syncAuthCookie('accessToken', null);
         syncAuthCookie('refreshToken', null);
         syncTenantDbName(null);
@@ -831,19 +834,23 @@ export function applyOrgRecruitmentSummaryPayload(
       normalizeClientPageFieldVisibility(payload.clientPageFieldVisibility),
     );
   }
-  if (payload && Object.prototype.hasOwnProperty.call(payload, 'modulesRestricted')) {
-    const restricted =
-      payload.modulesRestricted === true ||
-      (Array.isArray(payload.enabledModules) && payload.enabledModules.length > 0);
-    localStorage.setItem('orgModulesRestricted', restricted ? '1' : '0');
+  if (
+    payload &&
+    (Object.prototype.hasOwnProperty.call(payload, 'modulesRestricted') ||
+      Object.prototype.hasOwnProperty.call(payload, 'enabledModules'))
+  ) {
     const modules = Array.isArray(payload.enabledModules)
       ? payload.enabledModules.map((m) => String(m || '').trim()).filter(Boolean)
       : [];
+    const restricted =
+      payload.modulesRestricted === true ||
+      modules.length > 0;
+    localStorage.setItem('orgModulesRestricted', restricted ? '1' : '0');
     localStorage.setItem('orgEnabledModules', JSON.stringify(modules));
     const line = String(payload.productLine || '').trim().toLowerCase();
     if (line === 'crm' || line === 'recruitment') {
       localStorage.setItem('orgProductLine', line);
-    } else {
+    } else if (Object.prototype.hasOwnProperty.call(payload, 'productLine')) {
       localStorage.removeItem('orgProductLine');
     }
   }
@@ -4022,6 +4029,10 @@ export async function apiLogout() {
     localStorage.removeItem('orgPlanUsage');
     localStorage.removeItem('orgTenantPaused');
     localStorage.removeItem('orgTenantPausedAt');
+    localStorage.removeItem('orgEnabledModules');
+    localStorage.removeItem('orgModulesRestricted');
+    localStorage.removeItem('orgProductLine');
+    localStorage.removeItem('orgDefaultCurrency');
     syncAuthCookie('accessToken', null);
     syncAuthCookie('refreshToken', null);
     syncTenantDbName(null);
@@ -4255,6 +4266,14 @@ export interface BackendJob {
   visibility?: string | null;
   showClientNamePublicly?: boolean | null;
   publicFieldVisibility?: Record<string, boolean> | null;
+  aboutCompany?: string | null;
+  recruiterProfile?: {
+    id?: string;
+    name?: string;
+    designation?: string | null;
+    avatarUrl?: string | null;
+    email?: string | null;
+  } | null;
   manager?: { id: string; name: string; email?: string } | null;
   managerId?: string | null;
   jobLocationType?: string | null;
@@ -4378,6 +4397,7 @@ export interface CreateJobData {
   showClientNamePublicly?: boolean;
   /** Per-field visibility for public apply page, Phase 1, and social posts. */
   publicFieldVisibility?: Record<string, boolean>;
+  aboutCompany?: string | null;
   preScreenAssessments?: Array<{
     assessmentId: string;
     sortOrder?: number;

@@ -1682,18 +1682,20 @@ Employer tests start with **Employer login** unless the row says HQ or Phase 1 g
 | Field | Value |
 | --- | --- |
 | Category | Jobs (public + tenant) |
-| Tracker status | **In Progress** |
+| Tracker status | **Deployed** |
 | Who | Employer + Phase 1 guest |
 
 **Click path**
 
-1. **Recruitment** → **Jobs**. Open a job. Drawer tab **Assignment** (or similar). Confirm **Lead team member** / recruiter name is set.
-2. Open the **public job page** (Phase 1 job details / apply page). Look for a **recruiter profile** card (photo, name, role) — not only **Contact person**.
-3. If the public page has no recruiter profile, mark **Fail / In Progress**. Do not invent a block.
+1. Phase 2: **Recruitment** → **Jobs** → **Create Manually** or **Create with AI**.
+2. On the **Job Details** step, find **Assign team member**. Pick a recruiter. Confirm the **Visible to public / Hidden from public** pill next to the label.
+3. Publish / save the job (must be visible on the Phase 1 board).
+4. Phase 1: http://localhost:3000 → **Explore Jobs**. Open the job. Scroll to the **Recruiter** card (photo, name, designation). This is not the **Contact person** field.
+5. Repeat with the pill set to **Hidden from public**. The Recruiter card must be omitted. Phase 2 **Phase 1 candidate preview** in the same drawer/wizard must match.
 
-**Expected today:** In Progress. Screenshot Assignment tab + public job page as it actually looks.
+**Expected:** Recruiter card on the public job page when visible; hidden when the pill is Hidden from public.
 
-**Screenshot:** job Assignment + public job page (presence or absence of recruiter profile).
+**Screenshot:** Assign team member + hide pill + public Recruiter card.
 
 ---
 
@@ -1702,18 +1704,20 @@ Employer tests start with **Employer login** unless the row says HQ or Phase 1 g
 | Field | Value |
 | --- | --- |
 | Category | Phase 2 Jobs |
-| Tracker status | **Not Started** |
-| Who | Employer |
+| Tracker status | **Deployed** |
+| Who | Employer + Phase 1 guest |
 
 **Click path**
 
-1. **Jobs** → **Create Manually** or open an existing job drawer.
-2. Scroll every wizard step and every drawer tab. Look for **About Company** / **About the company**.
-3. Record **Fail / Not Started** if the section is missing. Do not invent copy.
+1. Phase 2: **Recruitment** → **Jobs** → **Create Manually** or **Create with AI**, or open an existing job drawer.
+2. On **Job Details**, find **About Company** (textarea) with the same **Visible to public / Hidden from public** pill.
+3. Enter a short company description. Keep **Visible to public**. Save / publish.
+4. Phase 1: **Explore Jobs** → open the job. Confirm **About the company** shows that text.
+5. Set the pill to **Hidden from public**, save, refresh the public job. The section must disappear. The in-drawer **Phase 1 candidate preview** must match.
 
-**Expected today:** Not Started. Screenshot the job drawer sections that exist.
+**Expected:** About Company in the add/edit job form; shown or hidden on the public job page from the hide pill.
 
-**Screenshot:** job wizard/drawer with no About Company section.
+**Screenshot:** About Company field + hide pill + public About the company section.
 
 ---
 
@@ -1858,6 +1862,15 @@ Employer tests start with **Employer login** unless the row says HQ or Phase 1 g
 **Expected:** country / state / city login breakdowns exist.
 
 **Screenshot:** country and city login charts.
+
+---
+
+### Sheet 3 — results log
+
+| Sr | Task | Pass / Fail / Blocked | Notes | Screenshot file |
+| --- | --- | --- | --- | --- |
+| P2-19 | Recruiter profile on job page | | | |
+| P2-20 | About Company in job drawer | | | |
 
 ---
 

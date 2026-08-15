@@ -23,10 +23,12 @@ import {
   NOTIFICATIONS_UPDATED_EVENT,
   isOrgBillingNavEnabled,
   isOrgModuleEnabled,
+  getAccessToken,
   getCachedOrgSubscriptionPlanName,
   getCachedOrgPlanUsage,
   getCachedOrgRecruitmentMode,
   ORG_RECRUITMENT_CACHE_EVENT,
+  syncOrgRecruitmentSummaryFromApi,
 } from '../lib/api';
 import {
   getCachedOrgSubscriptionPlan,
@@ -880,6 +882,25 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     return () => {
       window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
       window.removeEventListener('storage', sync);
+    };
+  }, []);
+
+  // Pull latest HQ tab entitlements on every shell mount / focus so tenant
+  // sidenav updates after HQ changes tabs (not only on next login).
+  useEffect(() => {
+    if (!getAccessToken()) return undefined;
+    let cancelled = false;
+    const refreshModules = () => {
+      void syncOrgRecruitmentSummaryFromApi().then(() => {
+        if (!cancelled) setHqModulesTick((n) => n + 1);
+      });
+    };
+    refreshModules();
+    const onFocus = () => refreshModules();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
     };
   }, []);
 

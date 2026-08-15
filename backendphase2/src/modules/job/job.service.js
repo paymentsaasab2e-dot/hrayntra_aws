@@ -225,6 +225,8 @@ const JOB_PUBLIC_VISIBILITY_FIELDS = [
   'videoMediaLink',
   'forecastRevenue',
   'priority',
+  'aboutCompany',
+  'recruiterProfile',
 ];
 
 function normalizePublicFieldVisibility(incoming, existing) {
@@ -241,6 +243,57 @@ function normalizePublicFieldVisibility(incoming, existing) {
   return merged;
 }
 
+function buildRecruiterProfileSnapshot(user) {
+  if (!user || !user.id) return null;
+  const name = String(user.name || '').trim();
+  if (!name) return null;
+  return {
+    id: String(user.id),
+    name,
+    designation: user.designation ? String(user.designation).trim() : null,
+    avatarUrl: user.avatar ? String(user.avatar).trim() : null,
+  };
+}
+
+async function resolveRecruiterProfileForJob(job) {
+  if (job?.assignedTo) {
+    const fromInclude = buildRecruiterProfileSnapshot(job.assignedTo);
+    if (fromInclude) return fromInclude;
+  }
+  const assignedToId = String(job?.assignedToId || '').trim();
+  if (!assignedToId) return null;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: assignedToId },
+      select: { id: true, name: true, email: true, avatar: true, designation: true },
+    });
+    return buildRecruiterProfileSnapshot(user);
+  } catch {
+    return null;
+  }
+}
+
+async function persistTenantJobPublicProfile(jobId, { aboutCompany, recruiterProfile }) {
+  const idStr = String(jobId || '').trim();
+  if (!/^[a-fA-F0-9]{24}$/.test(idStr)) return;
+  const setDoc = { updatedAt: { $date: new Date().toISOString() } };
+  if (aboutCompany !== undefined) {
+    const text = String(aboutCompany || '').trim();
+    setDoc.aboutCompany = text || null;
+  }
+  if (recruiterProfile !== undefined) {
+    setDoc.recruiterProfile = recruiterProfile || null;
+  }
+  try {
+    await prisma.$runCommandRaw({
+      update: 'jobs',
+      updates: [{ q: { _id: { $oid: idStr } }, u: { $set: setDoc } }],
+    });
+  } catch (err) {
+    console.warn('[job] persist aboutCompany/recruiterProfile failed:', err?.message || err);
+  }
+}
+
 async function loadJobForPortalSync(jobId) {
   if (!jobId) return null;
   return prisma.job.findUnique({
@@ -248,6 +301,9 @@ async function loadJobForPortalSync(jobId) {
     include: {
       client: {
         select: { id: true, companyName: true, industry: true, logo: true, location: true },
+      },
+      assignedTo: {
+        select: { id: true, name: true, email: true, avatar: true, designation: true },
       },
     },
   });
@@ -382,6 +438,8 @@ function applyVisibilityToPortalSyncPayload(jobPortalData, resolvedVisibility, r
     out.hiringManager = null;
     out.hiringManagerId = null;
   }
+  if (!show('aboutCompany')) out.aboutCompany = null;
+  if (!show('recruiterProfile')) out.recruiterProfile = null;
   if (!show('industryType')) {
     out.department = null;
     out.jobCategory = null;
@@ -465,6 +523,7 @@ async function syncJobToPortal(job, payload = {}) {
   const jobForSync = (await loadJobForPortalSync(job?.id)) || job;
   const mergedForSync = {
     ...jobForSync,
+    ...(payload.aboutCompany !== undefined ? { aboutCompany: payload.aboutCompany } : {}),
     ...(payload.publicFieldVisibility && typeof payload.publicFieldVisibility === 'object'
       ? { publicFieldVisibility: payload.publicFieldVisibility }
       : {}),
@@ -584,6 +643,8 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     forecastRevenue: job.forecastRevenue || null,
     videoMediaLink: job.videoMediaLink || null,
     postedDate: job.postedDate || job.createdAt || null,
+    aboutCompany: job.aboutCompany || payload.aboutCompany || null,
+    recruiterProfile: await resolveRecruiterProfileForJob(job),
   },
     resolvedVisibility,
     resolvedShowClient,
@@ -1398,7 +1459,7 @@ export const jobService = {
           select: { id: true, companyName: true, industry: true, logo: true },
         },
         assignedTo: {
-          select: { id: true, name: true, email: true },
+          select: { id: true, name: true, email: true, avatar: true, designation: true },
         },
       },
     });
@@ -1465,6 +1526,14 @@ export const jobService = {
     if (Array.isArray(data.preScreenAssessments)) {
       await preScreenAssessmentService.replaceJobLinks(job.id, data.preScreenAssessments);
     }
+
+    const recruiterProfile = await resolveRecruiterProfileForJob(job);
+    await persistTenantJobPublicProfile(job.id, {
+      aboutCompany: data.aboutCompany ?? null,
+      recruiterProfile,
+    });
+    job.aboutCompany = String(data.aboutCompany || '').trim() || null;
+    job.recruiterProfile = recruiterProfile;
 
     try {
       const platforms = data.distributionPlatforms || job.distributionPlatforms;
@@ -1714,6 +1783,17 @@ export const jobService = {
         await preScreenAssessmentService.replaceJobLinks(id, data.preScreenAssessments);
       }
 
+      const recruiterProfile = await resolveRecruiterProfileForJob(updatedJob);
+      await persistTenantJobPublicProfile(id, {
+        aboutCompany: data.aboutCompany !== undefined ? data.aboutCompany : updatedJob.aboutCompany,
+        recruiterProfile,
+      });
+      updatedJob.aboutCompany =
+        data.aboutCompany !== undefined
+          ? String(data.aboutCompany || '').trim() || null
+          : updatedJob.aboutCompany;
+      updatedJob.recruiterProfile = recruiterProfile;
+
       try {
         await syncJobToPortal(updatedJob, data);
       } catch (syncError) {
@@ -1918,6 +1998,17 @@ export const jobService = {
     if (Array.isArray(data.preScreenAssessments)) {
       await preScreenAssessmentService.replaceJobLinks(id, data.preScreenAssessments);
     }
+
+    const recruiterProfile = await resolveRecruiterProfileForJob(updated);
+    await persistTenantJobPublicProfile(id, {
+      aboutCompany: data.aboutCompany !== undefined ? data.aboutCompany : updated.aboutCompany,
+      recruiterProfile,
+    });
+    updated.aboutCompany =
+      data.aboutCompany !== undefined
+        ? String(data.aboutCompany || '').trim() || null
+        : updated.aboutCompany;
+    updated.recruiterProfile = recruiterProfile;
 
     try {
       await syncJobToPortal(updated, data);

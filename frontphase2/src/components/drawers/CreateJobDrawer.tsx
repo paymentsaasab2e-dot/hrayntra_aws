@@ -981,6 +981,7 @@ export function CreateJobDrawer({
     assignedToId: '',
     
     // Job Description
+    aboutCompany: '',
     jobDescriptionHtml: '',
     jobLocation: '',
     jobType: 'Part Time',
@@ -1145,6 +1146,7 @@ export function CreateJobDrawer({
         managerId: '',
         languages: [],
         assignedToId: '',
+        aboutCompany: '',
         jobDescriptionHtml: '',
         jobLocation: '',
         jobType: 'Part Time',
@@ -2017,6 +2019,7 @@ export function CreateJobDrawer({
         preScreenAssessments: preScreenAssessmentLinks,
         assignedToId:
           (job as { assignedToId?: string }).assignedToId || (job as { assignedTo?: { id: string } }).assignedTo?.id || '',
+        aboutCompany: String((job as { aboutCompany?: string }).aboutCompany || ''),
       }));
       
       // Set JD file name if available (for display purposes)
@@ -3184,6 +3187,7 @@ export function CreateJobDrawer({
         managerId: formData.managerId || undefined,
         hiringManager: formData.contactPersonName.trim() || undefined,
         hiringManagerId: formData.contactPersonId || undefined,
+        aboutCompany: (formData.aboutCompany || '').trim() || null,
         jobCategory: formData.industryType.trim() || undefined,
         expectedClosureDate: formData.targetHireDate || undefined,
         keyResponsibilities,
@@ -3537,6 +3541,7 @@ export function CreateJobDrawer({
           forecastRevenue: prev.forecastRevenue,
           managerId: prev.managerId,
           assignedToId: prev.assignedToId,
+          aboutCompany: prev.aboutCompany,
         };
         const nextPatch = typeof patch === 'function' ? patch(current) : patch;
         const merged = { ...prev, ...nextPatch };
@@ -3589,6 +3594,7 @@ export function CreateJobDrawer({
     forecastRevenue: formData.forecastRevenue,
     managerId: formData.managerId,
     assignedToId: formData.assignedToId,
+    aboutCompany: formData.aboutCompany,
   };
 
   return (
@@ -3843,6 +3849,7 @@ export function CreateJobDrawer({
                         clients.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ?? null
                       }
                       jobDescriptionHtml={formData.jobDescriptionHtml}
+                      users={users}
                     />
                   </div>
               </DrawerSectionCard>

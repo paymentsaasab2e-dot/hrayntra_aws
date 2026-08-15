@@ -216,7 +216,7 @@ export function HqTenantDetailDrawer({
         productLine,
         enabledModules,
       });
-      void requestSuccess('Tenant tabs updated. Phase 2 will apply them on the next sync.');
+      void requestSuccess('Tenant tabs updated and synced to Phase 2. Ask the tenant to refresh or re-open Phase 2.');
       onSaved();
     } catch (err) {
       setTabsError(err instanceof Error ? err.message : 'Failed to update modules');
