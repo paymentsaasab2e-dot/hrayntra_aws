@@ -23,6 +23,66 @@ const MAX_OPEN_SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
 /** Heartbeat freshness for Phase 1 behaviour tracker payloads. */
 const LIVE_BEHAVIOR_ONLINE_MS = 2 * 60 * 1000;
 
+/** HQ operator workspace — never counted or searchable as a tenant estate. */
+function isHqSetupAccount(row) {
+  const name = String(row?.name || row?.organizationName || '').toLowerCase().trim();
+  const email = String(row?.email || '').toLowerCase().trim();
+  const login = String(row?.loginId || '').toLowerCase().trim();
+  const db = String(row?.tenantDbName || '').toLowerCase().trim();
+  if (email === 'admin@gmail.com') return true;
+  if (login === 'hq_admin') return true;
+  if (name === 'hq platform admin' || name.includes('hq setup') || name.includes('hq-setup')) return true;
+  if (name.includes('hq platform') && name.includes('admin')) return true;
+  if (db === 'hq_admin' || db.startsWith('hqadmin')) return true;
+  return false;
+}
+
+function firstPositive(...values) {
+  for (const value of values) {
+    const n = Number(value) || 0;
+    if (n > 0) return n;
+  }
+  return 0;
+}
+
+function mergeCountMaps(...maps) {
+  const out = {};
+  for (const map of maps) {
+    if (!map || typeof map !== 'object') continue;
+    for (const [key, value] of Object.entries(map)) {
+      const k = String(key || 'Unknown').trim() || 'Unknown';
+      out[k] = (out[k] || 0) + (Number(value) || 0);
+    }
+  }
+  return out;
+}
+
+/** Prefer 7d tracker rollup; if empty, keep older month/year/today so HQ is not stuck at 0. */
+function pickBestUserRollup(user) {
+  const sources = [
+    user?.rollup7d,
+    user?.rollupMonth,
+    user?.rollupYear,
+    user?.rollupToday,
+    user?.payload?.rollup7d,
+    user?.payload?.rollupMonth,
+  ].filter((row) => row && typeof row === 'object');
+  const base = { ...(user?.rollup7d && typeof user.rollup7d === 'object' ? user.rollup7d : {}) };
+  for (const key of ['visits', 'applies', 'jobCardClicks', 'logins', 'sessionCount', 'activeMs']) {
+    const n = firstPositive(...sources.map((s) => s[key]));
+    if (n > 0) base[key] = n;
+  }
+  base.pageVisitsByCategory = mergeCountMaps(...sources.map((s) => s.pageVisitsByCategory));
+  base.firstOpenBreakdown = mergeCountMaps(...sources.map((s) => s.firstOpenBreakdown));
+  const roleLists = sources.flatMap((s) => (Array.isArray(s.topRoles) ? s.topRoles : []));
+  const companyLists = sources.flatMap((s) => (Array.isArray(s.topCompanies) ? s.topCompanies : []));
+  if (roleLists.length) base.topRoles = roleLists;
+  if (companyLists.length) base.topCompanies = companyLists;
+  const triggerLists = sources.flatMap((s) => (Array.isArray(s.hqTriggers) ? s.hqTriggers : []));
+  if (triggerLists.length && !Array.isArray(base.hqTriggers)) base.hqTriggers = triggerLists;
+  return base;
+}
+
 let portalMongoClient = null;
 
 function phase1FrontendBase() {
@@ -430,7 +490,7 @@ async function fetchPhase1LiveBehaviorAggregate() {
     for (const user of payload.users) {
       if (!user?.userId) continue;
       trackedUsers += 1;
-      const rollup = user.rollup7d || {};
+      const rollup = pickBestUserRollup(user);
       const updatedAt = user.activityStateUpdatedAt || user.capturedAt;
       const updatedMs = updatedAt ? new Date(updatedAt).getTime() : NaN;
       if (Number.isFinite(updatedMs) && now - updatedMs <= LIVE_BEHAVIOR_ONLINE_MS) {
@@ -606,23 +666,27 @@ async function fetchPhase1LiveBehaviorAggregate() {
       .sort((a, b) => b.scoreSum - a.scoreSum || b.users - a.users)
       .slice(0, 10);
 
+    const interestNames = new Set(topInterests.map((t) => String(t.name || '').toLowerCase()));
     const trendingTopics = [
-      ...topInterests.map((t) => ({
-        name: t.name,
-        value: Math.round(t.scoreSum) || t.value,
-        kind: 'interest',
-      })),
-      ...toChartArray(roleTopicMap, { limit: 6 }).map((r) => ({
-        ...r,
+      ...toChartArray(roleTopicMap, { limit: 8 }).map((r) => ({
+        name: r.name,
+        value: r.value,
         kind: 'role',
       })),
-      ...toChartArray(companyTopicMap, { limit: 6 }).map((r) => ({
-        ...r,
+      ...toChartArray(companyTopicMap, { limit: 8 }).map((r) => ({
+        name: r.name,
+        value: r.value,
         kind: 'company',
       })),
+      ...toChartArray(entryPointMap, { limit: 6 }).map((r) => ({
+        name: entryPointDisplayName(r.name),
+        value: r.value,
+        kind: 'landing',
+      })),
     ]
+      .filter((row) => row.value > 0 && !interestNames.has(String(row.name || '').toLowerCase()))
       .sort((a, b) => b.value - a.value)
-      .slice(0, 12);
+      .slice(0, 10);
 
     return {
       available: true,
@@ -715,15 +779,21 @@ function parseMonthlyPlanPrice(plan) {
   return n;
 }
 
-/** Spec §7.1 — per-tenant health 0–100 from live activity signals. */
+/** Spec §7.1 — per-tenant health 0–100 from activity (7d first, then all-time so older estates are not 0). */
 function tenantHealthScore(row) {
   let score = 0;
-  if ((row.openJobs || 0) > 0) score += 25;
-  if ((row.applications7d || 0) > 0) score += 25;
+  if ((row.openJobs || 0) > 0 || (row.jobs || 0) > 0) score += 25;
+  if ((row.applications7d || 0) > 0 || (row.applications || 0) > 0) score += 25;
   if ((row.interviews || 0) > 0 || (row.interviewsToday || 0) > 0) score += 20;
   if ((row.placements || 0) > 0 || (row.placementsJoined || 0) > 0) score += 20;
-  // Login signal not always available on tenant snapshot — treat apps/jobs as engagement proxy
-  if ((row.applications7d || 0) > 0 || (row.openJobs || 0) > 0) score += 10;
+  if (
+    (row.applications7d || 0) > 0 ||
+    (row.openJobs || 0) > 0 ||
+    (row.candidates || 0) > 0 ||
+    (row.applications || 0) > 0
+  ) {
+    score += 10;
+  }
   return Math.min(100, score);
 }
 
@@ -1631,6 +1701,33 @@ async function buildEmployeeAnalytics() {
       }),
     );
   }
+  if (liveTracking) {
+    liveTracking.totalApplies7d = firstPositive(
+      liveTracking.totalApplies7d,
+      apps7d,
+      apps30d,
+      applicationTotal,
+    );
+    liveTracking.totalJobClicks7d = firstPositive(liveTracking.totalJobClicks7d, aiMatches, savedJobs);
+    liveTracking.totalLogins7d = firstPositive(liveTracking.totalLogins7d, logins7d, logins30d);
+    liveTracking.totalSessions7d = firstPositive(
+      liveTracking.totalSessions7d,
+      totalSessionsTracked,
+    );
+    liveTracking.totalVisits7d = firstPositive(
+      liveTracking.totalVisits7d,
+      liveTracking.totalLogins7d,
+      liveTracking.totalApplies7d,
+      logins7d,
+    );
+    liveTracking.totalActiveMs7d = firstPositive(
+      liveTracking.totalActiveMs7d,
+      avgSessionDurationMs && (logins7d || totalSessionsTracked)
+        ? avgSessionDurationMs * (logins7d || totalSessionsTracked)
+        : 0,
+    );
+    liveTracking.trackedUsers = firstPositive(liveTracking.trackedUsers, liveTracking.liveFeed?.length);
+  }
   const onlineNow = liveTracking?.available
     ? Math.max(Number(liveTracking.onlineNow) || 0, sessionOnline)
     : sessionOnline;
@@ -1743,17 +1840,20 @@ async function buildEmployeeAnalytics() {
       liveActiveMs7d: liveTracking?.totalActiveMs7d ?? 0,
     },
     liveTracking: liveTracking || {
-      available: false,
+      available: true,
       source: 'portal_db_sessions',
       trackedUsers: 0,
       onlineNow,
-      totalActiveMs7d: 0,
-      totalVisits7d: 0,
-      totalApplies7d: 0,
-      totalJobClicks7d: 0,
+      totalActiveMs7d:
+        avgSessionDurationMs && (logins7d || totalSessionsTracked)
+          ? avgSessionDurationMs * (logins7d || totalSessionsTracked)
+          : 0,
+      totalVisits7d: firstPositive(logins7d, logins30d),
+      totalApplies7d: firstPositive(apps7d, apps30d, applicationTotal),
+      totalJobClicks7d: firstPositive(aiMatches, savedJobs),
       totalLogins7d: logins7d,
       totalSessions7d: totalSessionsTracked,
-      avgActiveMsPerUser7d: 0,
+      avgActiveMsPerUser7d: avgSessionDurationMs || 0,
       pageVisitsByCategory: [],
       topTriggers: [],
       liveFeed: [],
@@ -1768,7 +1868,7 @@ async function buildEmployeeAnalytics() {
       candidatesByStatus: toChartArray(statusMap),
       candidatesBySource: toChartArray(sourceMap),
       topLocations: toChartArray(locationMap),
-      topSkills: toChartArray(skillMap, { limit: 12 }),
+      topSkills: toChartArray(skillMap, { limit: 40 }),
       experienceBands: toChartArray(experienceMap),
       jobsByStatus: toChartArray(jobStatusMap),
       matchScoreBuckets: Object.entries(matchBuckets).map(([name, value]) => ({ name, value })),
@@ -2046,7 +2146,8 @@ async function tenantActivitySnapshot(tenant) {
 }
 
 async function buildEmployerAnalytics() {
-  const tenants = await safe('listTenants', () => headquartersAuthService.listTenants(), []);
+  const listed = await safe('listTenants', () => headquartersAuthService.listTenants(), []);
+  const tenants = (listed || []).filter((t) => !isHqSetupAccount(t));
 
   const [leadResult, companyResult, demoResult, snapshots] = await Promise.all([
     safe('hq.leads', () => hqLeadsService.listLeads(), { leads: [], stats: null }),
@@ -2373,7 +2474,8 @@ async function buildEmployerAnalytics() {
       hotLeads,
       pipelineValue,
       demosVerified: demoStats.verified || 0,
-      demosPurchases: demoStats.purchases || 0,
+      demosPurchases: onPlan,
+      demosPurchaseRequests: demoStats.purchases || 0,
       demosTrials: demoStats.trials || 0,
       demosPending: demoStats.pending || 0,
       demosExpired: demoStats.expired || 0,
@@ -2395,7 +2497,7 @@ async function buildEmployerAnalytics() {
         { name: 'Demo given', value: demoStats.verified || 0 },
         { name: 'Free trials given', value: demoStats.trials || 0 },
         { name: 'Trials active', value: demoStats.trialsLive || 0 },
-        { name: 'Paid / purchases', value: demoStats.purchases || 0 },
+        { name: 'Paid / purchases', value: onPlan },
       ],
       tenantsByPlan: toChartArray(planMap),
       tenantsByType: toChartArray(typeMap),
@@ -2456,7 +2558,7 @@ async function buildEmployerAnalytics() {
     meta: {
       concentration,
       mrrByPlan,
-      healthFormula: 'openJobs25+apps7d25+interviews20+placements20+engagement10',
+      healthFormula: 'openJobs25+apps(7d|all)25+interviews20+placements20+engagement10',
     },
     insights,
   };

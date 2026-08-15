@@ -111,7 +111,7 @@ export default function HqLoginPage() {
               </div>
             ) : null}
 
-            <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+            <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4" data-writing-assist="off">
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
                   Platform email

@@ -73,6 +73,22 @@ export function clearAuthStorage() {
   syncTenantDbName(null);
 }
 
+/** Login / password / public apply screens — no grammar assist or overdue popups. */
+export function isEmployerPublicAuthPath(pathname: string | null | undefined) {
+  const p = (pathname || '/').split('?')[0].toLowerCase();
+  if (p === '/' || p === '') return true;
+  return [
+    '/login',
+    '/hq/login',
+    '/forgot-password',
+    '/reset-password',
+    '/session-transfer',
+    '/apply',
+    '/client-review',
+    '/lead-form',
+  ].some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
+}
+
 /** Tell the API to end the active session row before wiping local tokens (timeout / logout). */
 export async function endSessionOnServer() {
   if (typeof window === 'undefined') return;

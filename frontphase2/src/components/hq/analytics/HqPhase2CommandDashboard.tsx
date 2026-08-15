@@ -73,6 +73,26 @@ function num(n: number | null | undefined) {
   return Number(n) || 0;
 }
 
+function firstPositive(...values: Array<number | null | undefined>) {
+  for (const value of values) {
+    const n = num(value);
+    if (n > 0) return n;
+  }
+  return 0;
+}
+
+function isHqSetupTenant(row: { name?: string | null; email?: string | null; tenantDbName?: string | null; loginId?: string | null }) {
+  const name = String(row?.name || '').toLowerCase().trim();
+  const email = String(row?.email || '').toLowerCase().trim();
+  const login = String(row?.loginId || '').toLowerCase().trim();
+  const db = String(row?.tenantDbName || '').toLowerCase().trim();
+  if (email === 'admin@gmail.com' || login === 'hq_admin') return true;
+  if (name === 'hq platform admin' || name.includes('hq setup') || name.includes('hq-setup')) return true;
+  if (name.includes('hq platform') && name.includes('admin')) return true;
+  if (db === 'hq_admin' || db.startsWith('hqadmin')) return true;
+  return false;
+}
+
 function fmt(n: number | null | undefined) {
   if (n == null || Number.isNaN(Number(n))) return '—';
   return Number(n).toLocaleString();
@@ -119,28 +139,43 @@ function behaviorMetricsForRange(analysis: HqTenantBehaviorAnalysis | undefined,
     usersLoaded: num(eng?.usersLoaded ?? eng?.teamMembersTotal),
     teamMembers: num(eng?.teamMembersTotal),
     onlineNow: num(eng?.onlineNow),
-    health: num(analysis.tenantHealthScore),
+    health: firstPositive(analysis.tenantHealthScore),
     lastAt: eng?.lastActivityAt || null,
   };
   if (range === 'today') {
     return {
       ...people,
-      visits: num(analysis.todayMetrics?.visits ?? period?.visits),
-      actions: num(analysis.todayMetrics?.actions ?? period?.actions),
-      activeMs: num(analysis.todayMetrics?.activeMs ?? period?.activeMs),
-      sessions: num(period?.sessions),
-      logins: num(period?.logins),
-      searches: num(period?.searches),
+      visits: firstPositive(
+        analysis.todayMetrics?.visits,
+        analysis.weekMetrics?.visits,
+        period?.visits,
+        eng?.totalVisits7d,
+      ),
+      actions: firstPositive(
+        analysis.todayMetrics?.actions,
+        analysis.weekMetrics?.actions,
+        period?.actions,
+        eng?.totalActions7d,
+      ),
+      activeMs: firstPositive(
+        analysis.todayMetrics?.activeMs,
+        analysis.weekMetrics?.activeMs,
+        period?.activeMs,
+        eng?.totalActiveMs7d,
+      ),
+      sessions: firstPositive(period?.sessions, eng?.totalSessions7d),
+      logins: firstPositive(period?.logins, eng?.totalLogins7d),
+      searches: firstPositive(period?.searches, eng?.totalSearches7d),
     };
   }
   return {
     ...people,
-    visits: num(analysis.weekMetrics?.visits ?? eng?.totalVisits7d ?? period?.visits),
-    actions: num(analysis.weekMetrics?.actions ?? eng?.totalActions7d ?? period?.actions),
-    activeMs: num(analysis.weekMetrics?.activeMs ?? eng?.totalActiveMs7d ?? period?.activeMs),
-    sessions: num(eng?.totalSessions7d ?? period?.sessions),
-    logins: num(eng?.totalLogins7d ?? period?.logins),
-    searches: num(eng?.totalSearches7d ?? period?.searches),
+    visits: firstPositive(analysis.weekMetrics?.visits, eng?.totalVisits7d, period?.visits),
+    actions: firstPositive(analysis.weekMetrics?.actions, eng?.totalActions7d, period?.actions),
+    activeMs: firstPositive(analysis.weekMetrics?.activeMs, eng?.totalActiveMs7d, period?.activeMs),
+    sessions: firstPositive(eng?.totalSessions7d, period?.sessions),
+    logins: firstPositive(eng?.totalLogins7d, period?.logins),
+    searches: firstPositive(eng?.totalSearches7d, period?.searches),
   };
 }
 
@@ -237,7 +272,7 @@ export function HqPhase2CommandDashboard({
   const [liveSuggestOpen, setLiveSuggestOpen] = useState(false);
   const [liveCategory, setLiveCategory] = useState('all');
   const [liveSort, setLiveSort] = useState<'latest' | 'oldest' | 'activity' | 'jobs'>('activity');
-  const [liveRange, setLiveRange] = useState<LiveRange>('today');
+  const [liveRange, setLiveRange] = useState<LiveRange>('week');
   const [behaviorByTenant, setBehaviorByTenant] = useState<Record<string, HqTenantBehaviorAnalysis>>({});
   const [behaviorLoading, setBehaviorLoading] = useState(false);
   const liveSearchWrapRef = useRef<HTMLDivElement>(null);
@@ -248,7 +283,10 @@ export function HqPhase2CommandDashboard({
   const t = data?.tables;
   const isLive = Boolean(data?.live ?? data?.available);
 
-  const allTenants = useMemo(() => t?.rankedTenants || [], [t]);
+  const allTenants = useMemo(
+    () => (t?.rankedTenants || []).filter((row) => !isHqSetupTenant(row)),
+    [t],
+  );
 
   const tenantKey = (row: HqEmployerTenantRow) => row.tenantDbName || row.name;
 
@@ -307,7 +345,7 @@ export function HqPhase2CommandDashboard({
     setLiveSearch('');
     setLiveCategory('all');
     setLiveSort('activity');
-    setLiveRange('today');
+    setLiveRange('week');
   };
 
   const filteredTenants = useMemo(() => {
@@ -342,8 +380,19 @@ export function HqPhase2CommandDashboard({
   const scopedTenants = useMemo(() => {
     if (selectedTenants.length) return selectedTenants;
     if (billingFilter !== 'all' || tenantQuery.trim()) return filteredTenants;
+    const q = liveSearch.trim().toLowerCase();
+    if (q) {
+      const match = allTenants.filter((row) => {
+        const hay = [row.name, row.tenantDbName, row.email, row.plan, row.organizationType]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      });
+      if (match.length) return match;
+    }
     return null as HqEmployerTenantRow[] | null;
-  }, [selectedTenants, billingFilter, tenantQuery, filteredTenants]);
+  }, [selectedTenants, billingFilter, tenantQuery, filteredTenants, liveSearch, allTenants]);
 
   const isTenantScoped = Boolean(scopedTenants && scopedTenants.length);
 
@@ -375,6 +424,36 @@ export function HqPhase2CommandDashboard({
   const toggleTenant = (id: string) => {
     setSelectedTenantIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
+
+  const tenantChips = useMemo(() => {
+    const searching = Boolean(tenantQuery.trim());
+    const source = searching ? filteredTenants : allTenants;
+    const byDb = new Map<string, HqEmployerTenantRow>();
+    for (const row of source) {
+      if (isHqSetupTenant(row)) continue;
+      const key = String(row.tenantDbName || row.email || row.name || '').trim();
+      if (!key) continue;
+      const prev = byDb.get(key);
+      if (!prev || num(row.activityScore) > num(prev.activityScore)) byDb.set(key, row);
+    }
+    const byName = new Map<string, HqEmployerTenantRow>();
+    for (const row of byDb.values()) {
+      const nameKey = String(row.name || row.tenantDbName || '')
+        .trim()
+        .toLowerCase();
+      if (!nameKey) continue;
+      const prev = byName.get(nameKey);
+      if (!prev || num(row.activityScore) > num(prev.activityScore)) byName.set(nameKey, row);
+    }
+    return [...byName.values()]
+      .sort(
+        (a, b) =>
+          num(b.activityScore) - num(a.activityScore) ||
+          num(b.applications7d) - num(a.applications7d) ||
+          num(b.openJobs) - num(a.openJobs),
+      )
+      .slice(0, searching ? 8 : 7);
+  }, [allTenants, filteredTenants, tenantQuery]);
 
   const liveScopeActive = Boolean(
     isTenantScoped || liveSearch.trim() || liveCategory !== 'all',
@@ -492,7 +571,14 @@ export function HqPhase2CommandDashboard({
       const key = row.tenantDbName;
       const analysis = key ? behaviorByTenant[key] : undefined;
       const metrics = behaviorMetricsForRange(analysis, liveRange);
-      return { row, analysis, metrics };
+      return {
+        row,
+        analysis,
+        metrics: {
+          ...metrics,
+          health: firstPositive(metrics.health, row.health),
+        },
+      };
     });
   }, [liveTenantSlice, behaviorByTenant, liveRange]);
 
@@ -708,12 +794,13 @@ export function HqPhase2CommandDashboard({
 
   const scopedHealthScore = useMemo(() => {
     if (!scopedTenants || !scopedTenants.length) return null as number | null;
-    const vals = scopedTenants
-      .map((r) => (typeof r.health === 'number' ? r.health : null))
-      .filter((n): n is number => n != null);
-    if (!vals.length) return null;
+    const vals = scopedTenants.map((r) => {
+      const analysis = r.tenantDbName ? behaviorByTenant[r.tenantDbName] : undefined;
+      return firstPositive(analysis?.tenantHealthScore, r.health);
+    });
+    if (!vals.some((n) => n > 0)) return null;
     return Math.round(vals.reduce((s, n) => s + n, 0) / vals.length);
-  }, [scopedTenants]);
+  }, [scopedTenants, behaviorByTenant]);
 
   const geoRows = useMemo(() => {
     const map: Record<string, number> = {};
@@ -866,7 +953,7 @@ export function HqPhase2CommandDashboard({
     return [
       { name: 'Verified', value: num(k?.demosVerified) },
       { name: 'Trials', value: num(k?.demosTrials) },
-      { name: 'Purchases', value: num(k?.demosPurchases) },
+      { name: 'Purchases', value: paid },
     ].filter((r) => r.value > 0);
   }, [c, k]);
 
@@ -881,7 +968,7 @@ export function HqPhase2CommandDashboard({
             { name: 'Demo given', value: demosGiven },
             { name: 'Free trials given', value: trials },
             { name: 'Trials active', value: trialsLive },
-            { name: 'Paid / purchases', value: num(k?.demosPurchases) || paid },
+            { name: 'Paid / purchases', value: paid },
           ]
     ).filter(
       (s) =>
@@ -903,7 +990,7 @@ export function HqPhase2CommandDashboard({
       { label: 'Demo given', value: demosGiven, hint: 'Verified demos' },
       { label: 'Trials given', value: trials, hint: 'Free trial requests' },
       { label: 'Using trial', value: trialsLive, hint: 'Provisioned & live' },
-      { label: 'Paid', value: num(k?.demosPurchases), hint: 'Purchase requests' },
+      { label: 'Paid', value: paid, hint: 'Paid tenant accounts (HQ setup excluded)' },
     ],
     [demos, demosPending, demosGiven, trials, trialsLive, k],
   );
@@ -1352,7 +1439,7 @@ export function HqPhase2CommandDashboard({
       iconSrc: HQ_SVG_ASSETS.interviewRequests.icon,
       sparkData: seriesToSpark(demoAnalytics),
       sparkColor: WARNING,
-      compareLabel: `${num(k?.demosPurchases)} purchases`,
+      compareLabel: `${paid} paid accounts`,
         info: 'Inbound demo / trial / purchase requests from the employer funnel.',
     },
     {
@@ -1599,7 +1686,7 @@ export function HqPhase2CommandDashboard({
             )}
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {filteredTenants.slice(0, 10).map((row) => {
+            {tenantChips.map((row) => {
               const id = tenantKey(row);
               const active = selectedTenantIds.includes(id);
               return (
@@ -1618,12 +1705,12 @@ export function HqPhase2CommandDashboard({
                 </button>
               );
             })}
-            {filteredTenants.length === 0 ? (
+            {tenantChips.length === 0 ? (
               <span className="text-xs text-slate-400">No matching tenants</span>
-        ) : null}
-            {filteredTenants.length > 10 ? (
+            ) : null}
+            {!tenantQuery.trim() && allTenants.length > tenantChips.length ? (
               <span className="self-center text-[10px] text-slate-400">
-                +{filteredTenants.length - 10} more — refine search
+                Top {tenantChips.length} by activity — search to find others
               </span>
             ) : null}
           </div>
@@ -2095,8 +2182,8 @@ export function HqPhase2CommandDashboard({
               <p className="mb-1 text-[10px] text-slate-400">
                 {scopeLabel ? `Scoped · ${scopeLabel}` : 'Secondary · storage shape · platform'}
               </p>
-              <div className="flex flex-1 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-                <div className="h-[160px] w-full shrink-0 sm:w-[58%]">
+              <div className="flex min-w-0 flex-1 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+                <div className="h-[160px] w-full shrink-0 sm:w-[52%]">
                   {platformUsage.length ? (
                     <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
@@ -2123,17 +2210,17 @@ export function HqPhase2CommandDashboard({
                     </div>
               )}
             </div>
-                <div className="w-full space-y-1.5 sm:w-[42%] sm:shrink-0">
+                <div className="min-w-0 w-full space-y-1.5 pr-3 sm:w-[48%] sm:shrink-0 sm:pr-4">
                   {platformUsage.slice(0, 5).map((s, i) => (
-                <div key={s.name} className="flex items-center justify-between text-[10px]">
-                  <span className="flex items-center gap-1.5 text-[#6B7280]">
+                <div key={s.name} className="flex min-w-0 items-center justify-between gap-2 text-[10px]">
+                  <span className="flex min-w-0 items-center gap-1.5 text-[#6B7280]">
                     <span
-                      className="h-1.5 w-1.5 rounded-full"
+                      className="h-1.5 w-1.5 shrink-0 rounded-full"
                       style={{ background: USAGE_COLORS[i % USAGE_COLORS.length] }}
                     />
-                    {s.name}
+                    <span className="truncate">{s.name}</span>
                   </span>
-                      <span className="font-semibold">
+                      <span className="shrink-0 pr-1 tabular-nums font-semibold text-slate-800">
                         {s.value}%
                         {typeof s.count === 'number' ? ` · ${fmt(s.count)}` : ''}
                       </span>
@@ -2435,7 +2522,7 @@ export function HqPhase2CommandDashboard({
                     Live
                   </span>
                 )}
-                {liveScopeActive || liveSort !== 'activity' || liveRange !== 'today' ? (
+                {liveScopeActive || liveSort !== 'activity' || liveRange !== 'week' ? (
                   <button
                     type="button"
                     onClick={clearLiveFilters}

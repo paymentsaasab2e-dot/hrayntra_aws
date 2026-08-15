@@ -316,7 +316,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            <form onSubmit={handleLogin} className="space-y-3.5">
+            <form onSubmit={handleLogin} className="space-y-3.5" data-writing-assist="off">
               <div>
                 <label htmlFor="login-user-id" className="mb-1.5 block text-[13px] font-medium text-slate-600">
                   User ID

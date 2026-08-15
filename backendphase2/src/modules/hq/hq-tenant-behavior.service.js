@@ -10,7 +10,7 @@ function countEventType(snapshots, type, rangeDays = 7) {
   let count = 0;
   for (const snap of snapshots) {
     const payload = snap.payload || {};
-    for (const rollup of [payload.rollup7d, payload.rollupToday].filter(Boolean)) {
+    for (const rollup of [payload.rollup7d, payload.rollupMonth, payload.rollupYear, payload.rollupToday].filter(Boolean)) {
       for (const ev of rollup.recentEvents || []) {
         if (ev.type === type && Date.parse(ev.at) >= fromTs) count += 1;
       }

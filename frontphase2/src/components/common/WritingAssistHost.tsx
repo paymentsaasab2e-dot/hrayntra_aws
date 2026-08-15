@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { isEmployerPublicAuthPath } from '@/lib/sessionAuth';
 import {
   applyWritingSpan,
   getCaretViewportRect,
@@ -20,7 +22,9 @@ function skipByName(el: HTMLElement) {
   const blob = `${el.getAttribute('name') || ''} ${el.id || ''} ${el.getAttribute('autocomplete') || ''} ${
     el.getAttribute('inputmode') || ''
   }`.toLowerCase();
-  return /password|otp|one-time|verification.?code|cc-number|cc-csc|card.?number|pin\b/.test(blob);
+  return /password|otp|one-time|verification.?code|cc-number|cc-csc|card.?number|pin\b|username|user.?id|email|identifier|login/.test(
+    blob,
+  );
 }
 
 function isAssistableInput(el: Element): el is FieldEl {
@@ -31,9 +35,16 @@ function isAssistableInput(el: Element): el is FieldEl {
 
   const ac = String(el.getAttribute('autocomplete') || '').toLowerCase();
   if (
-    ['password', 'current-password', 'new-password', 'one-time-code', 'cc-number', 'cc-csc', 'email'].includes(
-      ac,
-    )
+    [
+      'password',
+      'current-password',
+      'new-password',
+      'one-time-code',
+      'cc-number',
+      'cc-csc',
+      'email',
+      'username',
+    ].includes(ac)
   ) {
     return false;
   }
@@ -152,6 +163,7 @@ function applyContentEditableSpan(el: HTMLElement, span: WritingSpanSuggestion) 
  * Global Grammarly-style writing assist for every text / textarea / contenteditable field in Phase 2.
  */
 export function WritingAssistHost() {
+  const pathname = usePathname();
   const [target, setTarget] = useState<AssistEl | null>(null);
   const [active, setActive] = useState<WritingSpanSuggestion | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -159,6 +171,13 @@ export function WritingAssistHost() {
   const targetRef = useRef<AssistEl | null>(null);
 
   const refresh = useCallback((el: AssistEl | null) => {
+    if (isEmployerPublicAuthPath(pathname)) {
+      setTarget(null);
+      setActive(null);
+      setPos(null);
+      targetRef.current = null;
+      return;
+    }
     if (!el || document.activeElement === tooltipRef.current) return;
 
     const focused =
@@ -193,7 +212,7 @@ export function WritingAssistHost() {
       left: Math.min(Math.max(8, rect.left), window.innerWidth - tooltipW - 8),
       top: Math.min(rect.top + rect.height + 6, window.innerHeight - 56),
     });
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     const onFocusIn = (e: FocusEvent) => {
@@ -242,6 +261,7 @@ export function WritingAssistHost() {
     };
   }, [refresh]);
 
+  if (isEmployerPublicAuthPath(pathname)) return null;
   if (!target || !active || !pos) return null;
 
   return (
