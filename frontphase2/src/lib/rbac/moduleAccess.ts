@@ -54,6 +54,7 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/inbox': MODULE_ACCESS_MAP.Inbox,
   '/calendar': MODULE_ACCESS_MAP.Calendar,
   '/events': MODULE_ACCESS_MAP.Calendar,
+  '/company-page': [...MODULE_ACCESS_MAP.Clients, ...MODULE_ACCESS_MAP.Jobs],
   '/activity-feed': ['view_activity_log', 'reports_read', 'view_team_activity'],
   '/recycle-bin': ['recycle_bin_manage'],
   '/dashboard': ['view_dashboard'],

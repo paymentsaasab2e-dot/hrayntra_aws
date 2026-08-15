@@ -438,6 +438,29 @@ export async function refreshJobPortalMirror(jobId) {
   await syncJobToPortal(job, {});
 }
 
+/**
+ * Phase 1 job-board mirror is opt-in when the create wizard sends distributionPlatforms.
+ * Missing / legacy payloads keep previous behaviour (always mirror).
+ */
+function shouldPublishJobToHryantraPortal(distributionPlatforms) {
+  if (!distributionPlatforms || typeof distributionPlatforms !== 'object') return true;
+  if (distributionPlatforms.hryantra === false) return false;
+  if (distributionPlatforms.hryantra === true) return true;
+  if (distributionPlatforms.hryantra_job_board === false) return false;
+  if (distributionPlatforms.hryantra_job_board === true) return true;
+  // Explicit object was sent but hryantra not selected (other channels only)
+  if (
+    'hryantra' in distributionPlatforms ||
+    'internalCompany' in distributionPlatforms ||
+    'companyPage' in distributionPlatforms ||
+    'externalPlatforms' in distributionPlatforms ||
+    'socialMedia' in distributionPlatforms
+  ) {
+    return false;
+  }
+  return true;
+}
+
 async function syncJobToPortal(job, payload = {}) {
   const jobForSync = (await loadJobForPortalSync(job?.id)) || job;
   const mergedForSync = {
@@ -1444,9 +1467,16 @@ export const jobService = {
     }
 
     try {
-      await syncJobToPortal(job, data);
-      if (String(job.status || '').toUpperCase() === 'OPEN') {
-        queueCandidateJobMatchAlerts(job.id);
+      const platforms = data.distributionPlatforms || job.distributionPlatforms;
+      if (shouldPublishJobToHryantraPortal(platforms)) {
+        await syncJobToPortal(job, data);
+        if (String(job.status || '').toUpperCase() === 'OPEN') {
+          queueCandidateJobMatchAlerts(job.id);
+        }
+      } else {
+        console.log(
+          `[job.create] Skipping Phase 1 portal mirror for job ${job.id} (HRyantra job board not selected)`,
+        );
       }
     } catch (syncError) {
       console.error(`Failed to sync job ${job.id} to job portal DB:`, syncError?.message || syncError);
