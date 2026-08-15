@@ -19,6 +19,8 @@ export const JOB_PUBLIC_VISIBILITY_FIELDS = [
   'videoMediaLink',
   'forecastRevenue',
   'priority',
+  'aboutCompany',
+  'recruiterProfile',
 ] as const;
 
 export type JobPublicVisibilityField = (typeof JOB_PUBLIC_VISIBILITY_FIELDS)[number];
@@ -113,6 +115,9 @@ export function htmlSectionTitleVisibleOnPortal(
   if (/^skills$|^key skills$/.test(normalized)) return show('skills');
   if (/benefits|compensation/.test(normalized)) return show('jobDescription');
   if (/^overview$|^job summary$/.test(normalized)) return show('jobDescription');
+  if (/^about (the )?company$|^company overview$|^about us$/.test(normalized)) {
+    return show('aboutCompany');
+  }
   return show('jobDescription');
 }
 
@@ -169,5 +174,7 @@ export function redactPublicJobPayload<T extends Record<string, unknown>>(
     out.overview = null;
     out.benefits = [];
   }
+  if (!show('aboutCompany')) out.aboutCompany = null;
+  if (!show('recruiterProfile')) out.recruiterProfile = null;
   return out as T;
 }

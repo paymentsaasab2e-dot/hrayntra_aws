@@ -682,6 +682,10 @@ model Job {
   showClientNamePublicly   Boolean?  @default(true)
   /// Per-field public visibility for candidate portal, apply page, and social posts.
   publicFieldVisibility    Json?
+  /// Short company description shown on the public job page.
+  aboutCompany             String?
+  /// Snapshot of the assigned recruiter for the public job page.
+  recruiterProfile         Json?
   distributionPlatforms    Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, internalDatabase)
   supportingRecruiters     String[]  @default([]) // Array of supporting recruiter user IDs
   applicationFormEnabled   Boolean   @default(false) // Enable job application form

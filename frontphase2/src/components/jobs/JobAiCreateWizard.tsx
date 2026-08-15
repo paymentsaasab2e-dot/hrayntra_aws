@@ -51,6 +51,7 @@ import { AiCoinLockBanner } from '../coins/TenantCoinsContext';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api/teamApi';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { RichTextEditor } from '@/components/RichTextEditor';
+import { CreateJobPhase1Preview } from '@/components/jobs/CreateJobPhase1Preview';
 import { PreScreenAssessmentSection } from '@/components/jobs/PreScreenAssessmentSection';
 import {
   CreateJobDetailsForm,
@@ -218,6 +219,7 @@ type WizardDraft = {
   contactPersonName: string;
   managerId: string;
   assignedToId: string;
+  aboutCompany: string;
   videoMediaLink: string;
   forecastRevenue: string;
 };
@@ -254,6 +256,7 @@ const EMPTY_DRAFT: WizardDraft = {
   contactPersonName: '',
   managerId: '',
   assignedToId: '',
+  aboutCompany: '',
   videoMediaLink: '',
   forecastRevenue: '',
 };
@@ -386,6 +389,7 @@ function draftToJobDetailsForm(draft: WizardDraft): CreateJobDetailsFormData {
     forecastRevenue: draft.forecastRevenue,
     managerId: draft.managerId,
     assignedToId: draft.assignedToId,
+    aboutCompany: draft.aboutCompany,
   };
 }
 
@@ -428,6 +432,7 @@ function applyJobDetailsPatch(
     forecastRevenue: merged.forecastRevenue,
     managerId: merged.managerId,
     assignedToId: merged.assignedToId,
+    aboutCompany: merged.aboutCompany,
   };
 }
 
@@ -1286,6 +1291,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         assignedToId: draft.assignedToId || undefined,
         hiringManager: draft.contactPersonName.trim() || undefined,
         hiringManagerId: draft.contactPersonId || undefined,
+        aboutCompany: (draft.aboutCompany || '').trim() || null,
         showClientNamePublicly: draft.showClientNamePublicly,
         publicFieldVisibility: draft.publicFieldVisibility,
         forecastRevenue: draft.forecastRevenue.trim() || undefined,
@@ -2302,6 +2308,17 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       onAddSkill={addSkill}
                       onRemoveSkill={removeSkill}
                     />
+                    <div className="mt-4">
+                      <CreateJobPhase1Preview
+                        form={jobDetailsFormData}
+                        companyName={
+                          clients.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ??
+                          null
+                        }
+                        jobDescriptionHtml={draft.jobDescriptionHtml}
+                        users={users}
+                      />
+                    </div>
                   </div>
                 </div>
               </motion.div>

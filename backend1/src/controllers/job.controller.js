@@ -1,7 +1,7 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 const { runJobMatchingPipeline: runJobMatchingPipelinePhase1 } = require('../services/job-matching-pipeline-phase1.service');
-const { formatPortalJob, shouldShowClientNamePublicly } = require('../utils/formatPortalJob.util');
+const { formatPortalJob, hydrateJobsPublicProfileFields, shouldShowClientNamePublicly } = require('../utils/formatPortalJob.util');
 const { normalizeContentLocale } = require('../services/contentTranslation.service');
 const { localizePortalJob, localizePortalJobs } = require('../utils/localizePortalJob.util');
 const {
@@ -211,6 +211,8 @@ async function getAllJobs(req, res) {
       ]);
     });
 
+    await hydrateJobsPublicProfileFields(prisma, jobs);
+
     // Format jobs for frontend (includes Phase 2 CRM fields for job detail UI)
     const formattedJobs = jobs.map((job) => {
       const thumb = jobListingThumbnail(job);
@@ -310,6 +312,8 @@ async function getJobById(req, res) {
         message: 'Job not found',
       });
     }
+
+    await hydrateJobsPublicProfileFields(prisma, job);
 
     console.log(
       `📦 DB fetch result: job-by-id | jobId=${jobId} | found=true | elapsedMs=${Date.now() - startedAt}`
@@ -754,6 +758,8 @@ async function getPersonalizedJobs(req, res) {
       },
       take: 500 // Fetch a deeper pool of jobs for matching
     });
+
+    await hydrateJobsPublicProfileFields(prisma, activeJobs);
 
     console.log(`🤖 AI Pipeline: Initial Rule Scan for ${activeJobs.length} roles...`);
 

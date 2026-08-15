@@ -13,21 +13,34 @@ interface CreateJobPhase1PreviewProps {
   form: CreateJobDetailsFormData;
   companyName?: string | null;
   jobDescriptionHtml?: string;
+  users?: Array<{
+    id: string;
+    name: string;
+    avatar?: string | null;
+    designation?: string | null;
+  }>;
 }
 
 export function CreateJobPhase1Preview({
   form,
   companyName = null,
   jobDescriptionHtml = '',
+  users = [],
 }: CreateJobPhase1PreviewProps) {
-  const previewJob = useMemo(
-    () =>
-      buildPhase1JobPreviewFromForm(form, {
-        companyName,
-        jobDescriptionHtml,
-      }),
-    [form, companyName, jobDescriptionHtml],
-  );
+  const previewJob = useMemo(() => {
+    const assigned = users.find((user) => user.id === form.assignedToId);
+    return buildPhase1JobPreviewFromForm(form, {
+      companyName,
+      jobDescriptionHtml,
+      recruiterProfile: assigned
+        ? {
+            name: assigned.name,
+            designation: assigned.designation || null,
+            avatarUrl: assigned.avatar || null,
+          }
+        : null,
+    });
+  }, [form, companyName, jobDescriptionHtml, users]);
 
   const visibility = parseJobPublicFieldVisibility(previewJob.publicFieldVisibility);
   const show = (field: Parameters<typeof isJobFieldPubliclyVisible>[1]) =>

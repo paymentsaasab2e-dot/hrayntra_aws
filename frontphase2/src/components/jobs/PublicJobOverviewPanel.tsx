@@ -27,6 +27,12 @@ export interface PublicJobOverviewJob {
   workMode?: string | null;
   showClientNamePublicly?: boolean;
   publicFieldVisibility?: Record<string, boolean> | null;
+  aboutCompany?: string | null;
+  recruiterProfile?: {
+    name?: string;
+    designation?: string | null;
+    avatarUrl?: string | null;
+  } | null;
 }
 
 function formatEmploymentType(type?: string | null): string {
@@ -238,6 +244,38 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
               ? `${job.experienceRequired} years`
               : job.experienceRequired}
           </p>
+        </SectionCard>
+      ) : null}
+
+      {show('aboutCompany') && String(job.aboutCompany || '').trim() ? (
+        <SectionCard title="About the company">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+            {String(job.aboutCompany).trim()}
+          </p>
+        </SectionCard>
+      ) : null}
+
+      {show('recruiterProfile') && job.recruiterProfile?.name ? (
+        <SectionCard title="Recruiter">
+          <div className="flex items-center gap-3">
+            {job.recruiterProfile.avatarUrl ? (
+              <img
+                src={job.recruiterProfile.avatarUrl}
+                alt={job.recruiterProfile.name}
+                className="h-11 w-11 rounded-full object-cover ring-1 ring-slate-200"
+              />
+            ) : (
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-sky-100 text-sm font-semibold text-sky-700">
+                {job.recruiterProfile.name.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">{job.recruiterProfile.name}</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {job.recruiterProfile.designation || 'Hiring recruiter'}
+              </p>
+            </div>
+          </div>
         </SectionCard>
       ) : null}
 

@@ -85,7 +85,7 @@ export function EditTenantModulesModal({ open, tenant, onClose, onSaved }: Props
         productLine,
         enabledModules,
       });
-      void requestSuccess('Tenant tabs updated. Phase 2 will apply them on the next sync.');
+      void requestSuccess('Tenant tabs updated and synced to Phase 2. Ask the tenant to refresh or re-open Phase 2.');
       onSaved();
       onClose();
     } catch (err) {
@@ -142,8 +142,8 @@ export function EditTenantModulesModal({ open, tenant, onClose, onSaved }: Props
                         {tenant.name} · {tenant.email}
                       </p>
                       <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                        Enable or disable Phase 2 sidenav tabs anytime. Changes sync to the tenant DB
-                        and apply when users refresh or reopen Phase 2.
+                        Enable or disable Phase 2 sidenav tabs anytime. Changes are written to the
+                        tenant database immediately — users see them after refresh or re-login.
                       </p>
                     </div>
                   </div>

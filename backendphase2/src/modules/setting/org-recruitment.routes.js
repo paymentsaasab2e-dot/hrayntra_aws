@@ -88,23 +88,24 @@ router.get('/recruitment-summary', async (req, res) => {
     let productLine = tenantModules.productLine || '';
     let enabledModules = tenantModules.enabledModules || [];
     let modulesRestricted = Boolean(tenantModules.modulesRestricted);
-    if (tenantDbName) {
+    if (tenantDbName || req.user?.email) {
       try {
-        const hqTenant = await headquartersAuthService.findTenantByDbName(tenantDbName);
+        const hqTenant = await headquartersAuthService.findTenantModulesForSession({
+          email: req.user?.email,
+          tenantDbName,
+        });
         tenantPaused = headquartersAuthService.isTenantPaused(hqTenant);
         tenantPausedAt = hqTenant?.pausedAt || null;
         if (hqTenant) {
           if (hqTenant.productLine) productLine = hqTenant.productLine;
-          if (Array.isArray(hqTenant.enabledModules) && hqTenant.enabledModules.length > 0) {
-            enabledModules = hqTenant.enabledModules;
-            modulesRestricted = true;
-          } else if (hqTenant.modulesRestricted) {
+          // HQ directory is authoritative for tab entitlements after HQ saves tabs.
+          if (hqTenant.modulesRestricted || (Array.isArray(hqTenant.enabledModules) && hqTenant.enabledModules.length > 0)) {
             modulesRestricted = true;
             enabledModules = Array.isArray(hqTenant.enabledModules) ? hqTenant.enabledModules : [];
           }
         }
       } catch (err) {
-        console.warn('[recruitment-summary] tenant pause lookup failed:', err?.message || err);
+        console.warn('[recruitment-summary] tenant modules lookup failed:', err?.message || err);
       }
     }
     sendResponse(res, 200, 'OK', {

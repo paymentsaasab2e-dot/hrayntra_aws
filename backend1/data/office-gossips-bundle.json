@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-15T10:03:16.433Z",
+  "updatedAt": "2026-08-15T13:19:08.164Z",
   "communities": [
     {
       "id": "c_watercooler",
@@ -156,6 +156,19 @@
     }
   ],
   "posts": [
+    {
+      "id": "p_p2_57ebde5a92304961",
+      "companyPageId": "co_p2_adm01",
+      "companyName": "intelly system",
+      "authorId": "employer_adm01",
+      "authorName": "intelly system",
+      "type": "text",
+      "text": "We're hiring: ndfghn\nLocation: India, India\nOpenings: 1\n\nApply: http://localhost:3000/apply/361eeac432196796c5fd4e0fa6eeb1cbf5f8?tenantDbName=adm01",
+      "likeIds": [],
+      "createdAt": "2026-08-15T13:17:40.184Z",
+      "source": "phase2",
+      "tenantDbName": "adm01"
+    },
     {
       "id": "p_seed_01",
       "communityId": "c_watercooler",

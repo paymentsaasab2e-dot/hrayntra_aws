@@ -905,6 +905,8 @@ model Job {
   showClientNamePublicly   Boolean?  @default(true)
   /// Per-field public visibility mirrored from Phase 2 CRM.
   publicFieldVisibility    Json?
+  aboutCompany             String?
+  recruiterProfile         Json?
 
   applications     Application[]
   savedJobs        SavedJob[]
