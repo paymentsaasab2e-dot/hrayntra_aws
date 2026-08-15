@@ -41,12 +41,15 @@ function deriveLoginId(email, firstName, lastName, customLoginId) {
   return fromName || emailLocal || `hq.user.${Date.now()}`;
 }
 
-function toMemberRow(doc, roleById = new Map()) {
+function toMemberRow(doc, roleById = new Map(), memberNameById = new Map()) {
   const roleId = doc.roleId ? String(doc.roleId) : '';
   const roleDoc = roleId ? roleById.get(roleId) : null;
   const permissionIds = Array.isArray(doc.permissionIds)
     ? doc.permissionIds
     : roleDoc?.permissionIds || [];
+  const reportsToId = doc.reportsToId ? String(doc.reportsToId) : '';
+  const rankRaw = Number(doc.rank);
+  const rank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : 1;
 
   return {
     id: doc._id.toString(),
@@ -62,6 +65,9 @@ function toMemberRow(doc, roleById = new Map()) {
     roleId,
     roleColor: roleDoc?.color || '',
     permissionIds,
+    rank,
+    reportsToId,
+    reportsToName: reportsToId ? memberNameById.get(reportsToId) || '' : '',
     loginId: doc.loginId || '',
     hasCredentials: Boolean(doc.loginId && doc.password),
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : null,
@@ -84,6 +90,8 @@ async function getCollection() {
       await collection.createIndex({ status: 1 });
       await collection.createIndex({ email: 1 }, { unique: true });
       await collection.createIndex({ roleId: 1 });
+      await collection.createIndex({ reportsToId: 1 });
+      await collection.createIndex({ rank: 1 });
       indexesEnsured = true;
     } catch {
       // Best-effort index creation.
@@ -146,6 +154,14 @@ function parseMemberInput(data) {
   const permissionIds = hasExplicitPermissions
     ? normalizePermissionIds(data.permissionIds)
     : null;
+  const rankRaw = Number(data?.rank);
+  const rank =
+    data?.rank === undefined || data?.rank === null || data?.rank === ''
+      ? null
+      : Number.isFinite(rankRaw) && rankRaw > 0
+        ? Math.min(20, Math.floor(rankRaw))
+        : 1;
+  const reportsToId = String(data?.reportsToId || '').trim();
 
   if (!name || !email) {
     throw new Error('Name and email are required');
@@ -166,7 +182,20 @@ function parseMemberInput(data) {
     roleId,
     roleLabel,
     permissionIds,
+    rank,
+    reportsToId,
   };
+}
+
+async function assertValidReportsTo(collection, reportsToId, selfId = '') {
+  if (!reportsToId) return '';
+  if (!ObjectId.isValid(reportsToId)) throw new Error('Invalid reports-to member');
+  if (selfId && String(reportsToId) === String(selfId)) {
+    throw new Error('A member cannot report to themselves');
+  }
+  const manager = await collection.findOne({ _id: new ObjectId(reportsToId) });
+  if (!manager) throw new Error('Reports-to member not found');
+  return String(reportsToId);
 }
 
 export const hqTeamService = {
@@ -175,8 +204,14 @@ export const hqTeamService = {
   async listMembers() {
     const collection = await getCollection();
     const roleById = await loadRoleMap();
-    const docs = await collection.find({}).sort({ createdAt: -1 }).toArray();
-    const members = docs.map((doc) => toMemberRow(doc, roleById));
+    const docs = await collection.find({}).sort({ rank: 1, createdAt: -1 }).toArray();
+    const memberNameById = new Map(
+      docs.map((doc) => [
+        doc._id.toString(),
+        doc.name || [doc.firstName, doc.lastName].filter(Boolean).join(' ').trim() || doc.email || '',
+      ]),
+    );
+    const members = docs.map((doc) => toMemberRow(doc, roleById, memberNameById));
     return {
       members,
       stats: computeStats(members),
@@ -215,6 +250,9 @@ export const hqTeamService = {
     const existingEmail = await collection.findOne({ email: parsed.email });
     if (existingEmail) throw new Error('A team member with this email already exists');
 
+    const reportsToId = await assertValidReportsTo(collection, parsed.reportsToId);
+    const rank = parsed.rank != null ? parsed.rank : 1;
+
     const doc = {
       firstName: parsed.firstName,
       lastName: parsed.lastName,
@@ -227,6 +265,8 @@ export const hqTeamService = {
       role: resolvedRole.roleName,
       roleId: resolvedRole.roleId,
       permissionIds,
+      rank,
+      reportsToId: reportsToId || null,
       loginId: loginId || null,
       password: tempPassword || null,
       credentialsGeneratedAt: generateCredentials ? new Date() : null,
@@ -239,9 +279,16 @@ export const hqTeamService = {
     const result = await collection.insertOne(doc);
     const inserted = await collection.findOne({ _id: result.insertedId });
     const roleById = await loadRoleMap();
+    const allDocs = await collection.find({}).toArray();
+    const memberNameById = new Map(
+      allDocs.map((row) => [
+        row._id.toString(),
+        row.name || [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email || '',
+      ]),
+    );
 
     return {
-      member: toMemberRow(inserted, roleById),
+      member: toMemberRow(inserted, roleById, memberNameById),
       credentials: generateCredentials
         ? {
             loginId,
@@ -272,6 +319,9 @@ export const hqTeamService = {
       status: data?.status ?? existing.status ?? 'active',
       roleId: data?.roleId ?? existing.roleId ?? '',
       role: data?.role ?? existing.role ?? 'Member',
+      rank: data?.rank ?? existing.rank ?? 1,
+      reportsToId:
+        data?.reportsToId !== undefined ? data.reportsToId : existing.reportsToId || '',
       ...(Array.isArray(data?.permissionIds) ? { permissionIds: data.permissionIds } : {}),
     });
 
@@ -289,6 +339,13 @@ export const hqTeamService = {
       throw new Error('Select at least one HQ permission for this team member');
     }
 
+    const reportsToId = await assertValidReportsTo(
+      collection,
+      parsed.reportsToId,
+      objectId.toString(),
+    );
+    const rank = parsed.rank != null ? parsed.rank : Number(existing.rank) || 1;
+
     await collection.updateOne(
       { _id: objectId },
       {
@@ -304,6 +361,8 @@ export const hqTeamService = {
           role: resolvedRole.roleName,
           roleId: resolvedRole.roleId,
           permissionIds,
+          rank,
+          reportsToId: reportsToId || null,
           updatedAt: new Date(),
           updatedByEmail: reqUser?.email || null,
         },
@@ -311,13 +370,29 @@ export const hqTeamService = {
     );
     const updated = await collection.findOne({ _id: objectId });
     const roleById = await loadRoleMap();
-    return { member: toMemberRow(updated, roleById), storage: getStorageInfo() };
+    const allDocs = await collection.find({}).toArray();
+    const memberNameById = new Map(
+      allDocs.map((row) => [
+        row._id.toString(),
+        row.name || [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email || '',
+      ]),
+    );
+    return { member: toMemberRow(updated, roleById, memberNameById), storage: getStorageInfo() };
   },
 
   async deleteMember(id) {
     if (!ObjectId.isValid(id)) throw new Error('Invalid member id');
     const collection = await getCollection();
     const objectId = new ObjectId(id);
+    // Clear reports-to links pointing at this member
+    await collection.updateMany(
+      { reportsToId: objectId.toString() },
+      { $set: { reportsToId: null, updatedAt: new Date() } },
+    );
+    await collection.updateMany(
+      { reportsToId: objectId },
+      { $set: { reportsToId: null, updatedAt: new Date() } },
+    );
     const result = await collection.deleteOne({ _id: objectId });
     if (!result.deletedCount) {
       throw new Error('Member not found');

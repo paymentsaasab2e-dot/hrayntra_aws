@@ -2129,6 +2129,10 @@ export type HqTeamMemberRow = {
   designation?: string;
   status: HqTeamMemberStatus;
   department: string;
+  /** 1 = top of hierarchy */
+  rank?: number;
+  reportsToId?: string;
+  reportsToName?: string;
   loginId?: string;
   hasCredentials?: boolean;
   createdAt: string | null;
@@ -2179,6 +2183,8 @@ export async function apiHqCreateTeamMember(body: {
   designation?: string;
   status?: HqTeamMemberStatus;
   department?: string;
+  rank?: number;
+  reportsToId?: string | null;
   generateCredentials?: boolean;
   sendInvite?: boolean;
   customLoginId?: string;
@@ -2209,6 +2215,8 @@ export async function apiHqUpdateTeamMember(
     designation?: string;
     status?: HqTeamMemberStatus;
     department?: string;
+    rank?: number;
+    reportsToId?: string | null;
   },
 ) {
   return apiFetch<{ member: HqTeamMemberRow; storage: HqLeadStorageInfo }>(
