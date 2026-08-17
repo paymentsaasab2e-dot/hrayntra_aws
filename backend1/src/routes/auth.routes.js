@@ -5,6 +5,8 @@ const {
   resendOTP,
   loginWithPassword,
   setPassword,
+  forgotPassword,
+  resetPassword,
   logout,
   checkCredential,
   listSessions,
@@ -17,6 +19,8 @@ router.post('/send-otp', sendOTP);
 router.post('/verify-otp', verifyOTP);
 router.post('/resend-otp', resendOTP);
 router.post('/login', loginWithPassword);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 router.post('/check-credential', checkCredential);
 router.post('/set-password', protect, setPassword);
 router.get('/sessions', protect, listSessions);
