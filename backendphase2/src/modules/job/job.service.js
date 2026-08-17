@@ -534,6 +534,55 @@ async function syncJobToPortal(job, payload = {}) {
   await syncJobToJobPortalDb(mergedForSync, payload);
 }
 
+async function upsertPortalClientMirror(portalPrisma, mirrorClient, job) {
+  if (!mirrorClient?.id || !mirrorClient.companyName) return null;
+
+  const payload = {
+    companyName: mirrorClient.companyName,
+    industry: mirrorClient.industry || null,
+    logo: mirrorClient.logo || null,
+    location: mirrorClient.location || job.location || null,
+    status: 'ACTIVE',
+  };
+
+  const existingById = await portalPrisma.client.findUnique({
+    where: { id: mirrorClient.id },
+    select: { id: true },
+  }).catch(() => null);
+
+  if (existingById?.id) {
+    await portalPrisma.client.update({
+      where: { id: existingById.id },
+      data: payload,
+    });
+    return existingById.id;
+  }
+
+  const name = String(mirrorClient.companyName || '').trim();
+  if (name) {
+    const existingByName = await portalPrisma.client.findFirst({
+      where: { companyName: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    }).catch(() => null);
+    if (existingByName?.id) {
+      await portalPrisma.client.update({
+        where: { id: existingByName.id },
+        data: payload,
+      });
+      return existingByName.id;
+    }
+  }
+
+  const created = await portalPrisma.client.create({
+    data: {
+      id: mirrorClient.id,
+      ...payload,
+    },
+    select: { id: true },
+  });
+  return created?.id || mirrorClient.id;
+}
+
 async function syncJobToJobPortalDb(job, payload = {}) {
   const tenantDbName = resolvePortalSyncTenantDbName(job, payload);
 
@@ -544,25 +593,10 @@ async function syncJobToJobPortalDb(job, payload = {}) {
   // Mirror tenant client into the portal DB — company name, industry, location, **and logo**
   // — so Explore Jobs shows the same image as Clients / converted Leads.
   const mirrorClient = await loadClientMirrorForPortalSync(job);
+  let mirroredClientId = job.clientId || null;
   if (mirrorClient?.id && mirrorClient.companyName) {
     try {
-      await portalPrisma.client.upsert({
-        where: { id: mirrorClient.id },
-        create: {
-          id: mirrorClient.id,
-          companyName: mirrorClient.companyName,
-          industry: mirrorClient.industry || null,
-          logo: mirrorClient.logo || null,
-          location: mirrorClient.location || job.location || null,
-          status: 'ACTIVE',
-        },
-        update: {
-          companyName: mirrorClient.companyName,
-          industry: mirrorClient.industry || null,
-          logo: mirrorClient.logo ?? null,
-          location: mirrorClient.location || job.location || null,
-        },
-      });
+      mirroredClientId = (await upsertPortalClientMirror(portalPrisma, mirrorClient, job)) || mirroredClientId;
     } catch (clientSyncError) {
       console.error(
         `Job portal sync: failed to mirror client ${mirrorClient.id}, proceeding with job sync.`,
@@ -604,7 +638,7 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     // Carrying it on every Job means the system supports as many agencies /
     // tenants as needed without any per-deployment env config.
     tenantDbName,
-    clientId: job.clientId || null,
+    clientId: mirroredClientId,
     assignedToId: job.assignedToId || null,
     createdById: job.createdById || null,
     openings: job.openings || 1,
@@ -1429,7 +1463,14 @@ export const jobService = {
     });
 
     if (data.clientId) {
-      jobData.client = { connect: { id: data.clientId } };
+      const liveClient = await prisma.client.findFirst({
+        where: { id: data.clientId, isDeleted: { not: true } },
+        select: { id: true },
+      });
+      if (!liveClient?.id) {
+        throw new Error('Selected client was not found. Refresh and pick the existing client.');
+      }
+      jobData.client = { connect: { id: liveClient.id } };
     }
 
     if (data.assignedToId) {

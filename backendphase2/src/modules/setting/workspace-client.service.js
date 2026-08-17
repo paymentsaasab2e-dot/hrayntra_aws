@@ -11,13 +11,31 @@ export async function findWorkspaceClient() {
   const tenantDbName = String(getActiveTenantDbName() || '').trim();
   if (!tenantDbName) return null;
 
+  const byWebsite = await prisma.client.findFirst({
+    where: {
+      isDeleted: { not: true },
+      website: `tenant://${tenantDbName}`,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (byWebsite) return byWebsite;
+
+  const byTenantName = await prisma.client.findFirst({
+    where: {
+      isDeleted: { not: true },
+      companyName: `${tenantDbName} Workspace`,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (byTenantName) return byTenantName;
+
   return prisma.client.findFirst({
     where: {
-      OR: [
-        { website: `tenant://${tenantDbName}` },
-        { companyName: `${tenantDbName} Workspace` },
-      ],
+      isDeleted: { not: true },
+      industry: 'Workspace',
+      companyName: { endsWith: ' Workspace' },
     },
+    orderBy: { createdAt: 'asc' },
   });
 }
 

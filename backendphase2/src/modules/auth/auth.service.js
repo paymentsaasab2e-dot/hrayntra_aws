@@ -123,11 +123,14 @@ async function ensureWorkspaceClientForTenant(tenantDbName, user, fallbackWorksp
   return runWithTenantContext(normalizedTenant, async () => {
     const existingWorkspaceClient = await prisma.client.findFirst({
       where: {
+        isDeleted: { not: true },
         OR: [
           { website: `tenant://${normalizedTenant}` },
           { companyName: `${normalizedTenant} Workspace` },
+          { industry: 'Workspace', companyName: { endsWith: ' Workspace' } },
         ],
       },
+      orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
 

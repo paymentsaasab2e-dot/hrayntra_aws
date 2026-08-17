@@ -47,26 +47,55 @@ import {
  */
 
 /** Keep shared portal `clients` row in sync when CRM client name/logo changes (job cards use this). */
+export async function findLiveClientByCompanyName(companyName) {
+  const name = String(companyName || '').trim();
+  if (!name) return null;
+  return prisma.client.findFirst({
+    where: {
+      isDeleted: { not: true },
+      companyName: { equals: name, mode: 'insensitive' },
+    },
+  });
+}
+
 async function mirrorClientRowToJobPortalDb(client) {
   const tenantDbName = getActiveTenantDbName();
   if (!tenantDbName || !client?.id || !client.companyName) return;
   try {
     const portalPrisma = getJobPortalPrismaClient();
-    await portalPrisma.client.upsert({
+    const payload = {
+      companyName: client.companyName,
+      industry: client.industry ?? null,
+      logo: client.logo ?? null,
+      location: client.location ?? null,
+      status: 'ACTIVE',
+    };
+    const byId = await portalPrisma.client.findUnique({
       where: { id: client.id },
-      create: {
+      select: { id: true },
+    }).catch(() => null);
+    if (byId?.id) {
+      await portalPrisma.client.update({
+        where: { id: byId.id },
+        data: payload,
+      });
+      return;
+    }
+    const byName = await portalPrisma.client.findFirst({
+      where: { companyName: { equals: String(client.companyName).trim(), mode: 'insensitive' } },
+      select: { id: true },
+    }).catch(() => null);
+    if (byName?.id) {
+      await portalPrisma.client.update({
+        where: { id: byName.id },
+        data: payload,
+      });
+      return;
+    }
+    await portalPrisma.client.create({
+      data: {
         id: client.id,
-        companyName: client.companyName,
-        industry: client.industry ?? null,
-        logo: client.logo ?? null,
-        location: client.location ?? null,
-        status: 'ACTIVE',
-      },
-      update: {
-        companyName: client.companyName,
-        industry: client.industry ?? undefined,
-        logo: client.logo ?? undefined,
-        location: client.location ?? undefined,
+        ...payload,
       },
     });
   } catch (err) {
@@ -642,6 +671,24 @@ export const clientService = {
   },
 
   async create(data, req = null) {
+    const companyName = String(data.companyName || '').trim();
+    if (companyName && data.forceNew !== true) {
+      const existing = await findLiveClientByCompanyName(companyName);
+      if (existing) {
+        console.log(
+          `Reusing existing client ${existing.id} for "${companyName}" instead of creating a duplicate.`,
+        );
+        return prisma.client.findUnique({
+          where: { id: existing.id },
+          include: {
+            assignedTo: {
+              select: { id: true, name: true, email: true },
+            },
+          },
+        });
+      }
+    }
+
     // Handle hiringLocations - convert array to string or set to null
     let hiringLocationsValue = null;
     if (data.hiringLocations) {

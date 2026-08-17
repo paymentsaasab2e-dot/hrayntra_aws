@@ -38,6 +38,7 @@ import {
   queueAiEntryRecommendation,
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
+import { findLiveClientByCompanyName } from '../client/client.service.js';
 import {
   formatFollowUpInTimezone,
   mergeFollowUpScheduleIntoOtherDetails,
@@ -1660,9 +1661,16 @@ export const leadService = {
     console.log('\n=== CLIENT DATA BEING CREATED ===');
     console.log(JSON.stringify(clientCreateData, null, 2));
 
-    const client = await prisma.client.create({
-      data: clientCreateData,
-    });
+    let client = await findLiveClientByCompanyName(clientCreateData.companyName);
+    if (client) {
+      console.log(
+        `Lead convert: reusing existing client ${client.id} for "${clientCreateData.companyName}"`,
+      );
+    } else {
+      client = await prisma.client.create({
+        data: clientCreateData,
+      });
+    }
 
     // Log the created client
     console.log('\n=== CREATED CLIENT ===');
