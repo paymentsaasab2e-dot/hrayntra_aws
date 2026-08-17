@@ -1528,12 +1528,249 @@ async function listSessions(req, res) {
   }
 }
 
+/**
+ * Request password reset OTP (verified accounts with a password only)
+ * POST /api/auth/forgot-password
+ */
+async function forgotPassword(req, res) {
+  try {
+    const { email } = req.body;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address',
+      });
+    }
+
+    const candidate = await retryQuery(async () => {
+      return await prisma.candidate.findFirst({
+        where: { email: normalizedEmail },
+        select: {
+          id: true,
+          email: true,
+          isVerified: true,
+          passwordHash: true,
+          whatsappNumber: true,
+          countryCode: true,
+        },
+      });
+    });
+
+    if (!candidate || !candidate.isVerified || !candidate.passwordHash) {
+      return res.status(404).json({
+        success: false,
+        code: 'ACCOUNT_NOT_FOUND',
+        message: 'No password account found for this email. Sign in with OTP or create an account.',
+      });
+    }
+
+    if (!candidate.whatsappNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'This account is missing a linked WhatsApp number. Contact support.',
+      });
+    }
+
+    const fullWhatsAppNumber = candidate.whatsappNumber;
+    const resolvedCountryCode = candidate.countryCode || '+91';
+    const dialDigits = String(resolvedCountryCode).replace(/\D/g, '');
+    const fullDigits = String(fullWhatsAppNumber).replace(/\D/g, '');
+    const cleanNumber =
+      dialDigits && fullDigits.startsWith(dialDigits)
+        ? fullDigits.slice(dialDigits.length)
+        : fullDigits;
+
+    const candidateId = generateCandidateIdFromEmail(normalizedEmail);
+    const otpCandidate = await getOrCreateCandidateForOtp({
+      candidateId,
+      normalizedEmail,
+      fullWhatsAppNumber,
+      countryCode: resolvedCountryCode,
+    });
+
+    const linkedForOtp = await collectLinkedCandidates({
+      candidateId,
+      normalizedEmail,
+      fullWhatsAppNumber,
+    });
+    await expirePendingOtpsForCandidates([...linkedForOtp.keys()]);
+
+    const otp = generateOTP();
+    const expiresAt = getOTPExpiration();
+
+    await retryQuery(async () => {
+      return await prisma.otpVerification.create({
+        data: {
+          candidateId: otpCandidate.id,
+          otp: normalizeOtpInput(otp),
+          status: OtpStatus.PENDING,
+          expiresAt,
+        },
+      });
+    });
+
+    const emailResult = await sendOTPEmail(
+      normalizeOtpInput(otp),
+      normalizedEmail,
+      fullWhatsAppNumber,
+    );
+
+    if (!emailResult.success) {
+      console.error('Failed to send password reset OTP email:', emailResult.error);
+    }
+
+    const allowOtpFallback = process.env.ALLOW_OTP_FALLBACK !== 'false';
+    const showOTP =
+      process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
+
+    return res.json({
+      success: true,
+      message: emailResult.success
+        ? 'Password reset code sent to your email'
+        : 'Reset code generated, but email delivery failed. Use the fallback code if shown.',
+      data: {
+        candidateId: otpCandidate.id,
+        whatsappNumber: cleanNumber,
+        countryCode: resolvedCountryCode,
+        email: normalizedEmail,
+        emailSent: emailResult.success,
+        ...(showOTP && { otp }),
+        expiresAt: expiresAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('Error requesting password reset:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to send password reset code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+/**
+ * Reset password with email OTP
+ * POST /api/auth/reset-password
+ */
+async function resetPassword(req, res) {
+  try {
+    const { email, otp, password, confirmPassword } = req.body;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address',
+      });
+    }
+
+    const normalizedSubmittedOtp = normalizeOtpInput(otp);
+    if (!normalizedSubmittedOtp || normalizedSubmittedOtp.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid 6-digit code',
+      });
+    }
+
+    const check = validatePasswordPair(password, confirmPassword);
+    if (!check.ok) {
+      return res.status(check.status).json({
+        success: false,
+        code: check.code,
+        message: check.message,
+      });
+    }
+
+    const candidate = await retryQuery(async () => {
+      return await prisma.candidate.findFirst({
+        where: { email: normalizedEmail },
+      });
+    });
+
+    if (!candidate || !candidate.isVerified) {
+      return res.status(404).json({
+        success: false,
+        code: 'ACCOUNT_NOT_FOUND',
+        message: 'No verified account found for this email.',
+      });
+    }
+
+    if (!candidate.whatsappNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'This account is missing a linked WhatsApp number. Contact support.',
+      });
+    }
+
+    const fullWhatsAppNumber = candidate.whatsappNumber;
+    const dialCode = candidate.countryCode || '+91';
+    const candidateId = generateCandidateIdFromEmail(normalizedEmail);
+
+    const pendingOtpResult = await findPendingOtpForLogin({
+      candidateId,
+      normalizedEmail,
+      fullWhatsAppNumber,
+      submittedOtp: normalizedSubmittedOtp,
+    });
+
+    if (!pendingOtpResult.latestOTP) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset code. Request a new one.',
+      });
+    }
+
+    await retryQuery(async () => {
+      return await prisma.otpVerification.update({
+        where: { id: pendingOtpResult.latestOTP.id },
+        data: { status: OtpStatus.VERIFIED },
+      });
+    });
+
+    const passwordHash = await bcrypt.hash(check.password, 10);
+    const updatedCandidate = await retryQuery(async () => {
+      return await prisma.candidate.update({
+        where: { id: candidate.id },
+        data: { passwordHash },
+      });
+    });
+
+    const token = issueCandidateToken(updatedCandidate);
+    await createCandidateSession(req, updatedCandidate.id, token);
+    await syncProfilePhone(updatedCandidate);
+    scheduleCandidateCommonSync(updatedCandidate.id, { lastLogin: true, forceVerified: true });
+
+    return res.json({
+      success: true,
+      message: 'Password reset successfully',
+      data: {
+        candidateId: updatedCandidate.id,
+        token,
+        skipCvUpload: await computeSkipCvUpload(updatedCandidate),
+      },
+    });
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset password',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   sendOTP,
   verifyOTP,
   resendOTP,
   loginWithPassword,
   setPassword,
+  forgotPassword,
+  resetPassword,
   logout,
   checkCredential,
   listSessions,
