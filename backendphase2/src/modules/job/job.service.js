@@ -5,6 +5,7 @@ import {
   getJobPortalPrismaClient,
 } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
+import { mergeDuplicateClientsByCompanyName } from '../client/client.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
@@ -1116,6 +1117,9 @@ export const jobService = {
   },
 
   async getAll(req) {
+    await mergeDuplicateClientsByCompanyName().catch((err) => {
+      console.warn('Client duplicate merge skipped:', err?.message || err);
+    });
     const { page, limit, skip } = getPaginationParams(req);
     const { status, clientId, assignedToId, search, mine, ids } = req.query;
 

@@ -58,6 +58,118 @@ export async function findLiveClientByCompanyName(companyName) {
   });
 }
 
+const mergedDuplicateTenants = new Set();
+
+async function reassignClientOwnedRecords(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return;
+  const moves = [
+    () => prisma.job.updateMany({ where: { clientId: fromId }, data: { clientId: toId } }),
+    () => prisma.interview.updateMany({ where: { clientId: fromId }, data: { clientId: toId } }),
+    () => prisma.placement.updateMany({ where: { clientId: fromId }, data: { clientId: toId } }),
+    () => prisma.billingRecord.updateMany({ where: { clientId: fromId }, data: { clientId: toId } }),
+    () => prisma.clientNote.updateMany({ where: { clientId: fromId }, data: { clientId: toId } }),
+    () => prisma.clientFile.updateMany({ where: { clientId: fromId }, data: { clientId: toId } }),
+    () => prisma.scheduledMeeting.updateMany({ where: { clientId: fromId }, data: { clientId: toId } }),
+    () => prisma.activity.updateMany({ where: { clientId: fromId }, data: { clientId: toId } }),
+    () => prisma.contact.updateMany({ where: { companyId: fromId }, data: { companyId: toId } }),
+    () => prisma.lead.updateMany({ where: { convertedToClientId: fromId }, data: { convertedToClientId: toId } }),
+  ];
+  for (const move of moves) {
+    try {
+      await move();
+    } catch (err) {
+      console.warn('Client duplicate merge reassign skipped:', err?.message || err);
+    }
+  }
+}
+
+async function mergePortalDuplicateClientsByCompanyName() {
+  try {
+    const portalPrisma = getJobPortalPrismaClient();
+    const rows = await portalPrisma.client.findMany({
+      select: { id: true, companyName: true },
+    });
+    const groups = new Map();
+    for (const row of rows) {
+      const key = String(row.companyName || '').trim().toLowerCase();
+      if (!key) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    }
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const keeper = group[0];
+      for (const extra of group.slice(1)) {
+        try {
+          await portalPrisma.job.updateMany({
+            where: { clientId: extra.id },
+            data: { clientId: keeper.id },
+          });
+        } catch {
+          /* portal job clientId may already match */
+        }
+        try {
+          await portalPrisma.client.delete({ where: { id: extra.id } });
+        } catch {
+          /* keep going */
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Portal client duplicate merge skipped:', err?.message || err);
+  }
+}
+
+/** Collapse same-name live clients created by repeated job posts. */
+export async function mergeDuplicateClientsByCompanyName() {
+  const tenant = String(getActiveTenantDbName() || 'default').trim();
+  if (mergedDuplicateTenants.has(tenant)) return { merged: 0 };
+
+  const rows = await prisma.client.findMany({
+    where: { isDeleted: { not: true } },
+    select: {
+      id: true,
+      companyName: true,
+      createdAt: true,
+      _count: { select: { jobs: true } },
+    },
+  });
+
+  const groups = new Map();
+  for (const row of rows) {
+    const key = String(row.companyName || '').trim().toLowerCase();
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  let merged = 0;
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => {
+      const byJobs = (b._count?.jobs || 0) - (a._count?.jobs || 0);
+      if (byJobs) return byJobs;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+    const keeper = group[0];
+    for (const extra of group.slice(1)) {
+      await reassignClientOwnedRecords(extra.id, keeper.id);
+      await prisma.client.update({
+        where: { id: extra.id },
+        data: { isDeleted: true, deletedAt: new Date() },
+      });
+      merged += 1;
+    }
+  }
+
+  await mergePortalDuplicateClientsByCompanyName();
+  mergedDuplicateTenants.add(tenant);
+  if (merged > 0) {
+    console.log(`Merged ${merged} duplicate client row(s) for tenant ${tenant}.`);
+  }
+  return { merged };
+}
+
 async function mirrorClientRowToJobPortalDb(client) {
   const tenantDbName = getActiveTenantDbName();
   if (!tenantDbName || !client?.id || !client.companyName) return;
@@ -330,6 +442,9 @@ async function findExistingClientImportDuplicate(companyName) {
 
 export const clientService = {
   async getAll(req) {
+    await mergeDuplicateClientsByCompanyName().catch((err) => {
+      console.warn('Client duplicate merge skipped:', err?.message || err);
+    });
     const { page, limit, skip } = getPaginationParams(req);
     const { status, assignedToId, search, ids } = req.query;
     const includeContacts = req.query.includeContacts === 'true';
