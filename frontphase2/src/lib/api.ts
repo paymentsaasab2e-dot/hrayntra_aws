@@ -5,6 +5,7 @@ import {
   normalizeFetchError,
   readApiJson,
 } from './apiNetworkErrors';
+import { CONNECTION_STATUS, formatPortalStatusLine } from './portalStatusCopy';
 import type {
   BillingSettingsSnapshot,
   CreatePlacementInvoicePayload,
@@ -154,7 +155,10 @@ export function formatAuthErrorMessage(
     lowered.includes('trial has ended') ||
     lowered.includes('trial expired')
   ) {
-    return raw || 'Your try-free trial has ended. Request a demo or contact HQ to continue.';
+    return raw || formatPortalStatusLine({
+      title: 'Your trial has ended',
+      message: 'Sign in again after choosing a plan. Your data is kept.',
+    });
   }
 
   if (
@@ -170,7 +174,7 @@ export function formatAuthErrorMessage(
     lowered.includes('invalid server response') ||
     lowered.includes('invalid response')
   ) {
-    return 'Unable to reach the server. The API may be temporarily down — please try again in a moment.';
+    return formatPortalStatusLine(CONNECTION_STATUS.failed);
   }
 
   if (
@@ -178,7 +182,7 @@ export function formatAuthErrorMessage(
     lowered.includes('could not reach the server') ||
     lowered.includes('failed to fetch')
   ) {
-    return 'Unable to reach the server. Check your connection and try again.';
+    return CONNECTION_STATUS.offline.message;
   }
 
   return raw || fallback;
@@ -485,11 +489,22 @@ export async function apiFetch<T>(
         
         // Redirect to login page if not already on a public unauthenticated surface
         if (!isPublicUnauthenticatedPath()) {
-          const currentPath = window.location.pathname + window.location.search;
-          const sessionHint = sessionEnded
-            ? `&session=${encodeURIComponent(json?.message || 'Session ended')}`
-            : '';
-          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}${sessionHint}`;
+          let intentional = false;
+          try {
+            intentional = sessionStorage.getItem('hrayntra:intentional-logout') === '1';
+          } catch {
+            intentional = false;
+          }
+          if (intentional) {
+            const dest = window.location.pathname.startsWith('/hq') ? '/hq/login' : '/login';
+            window.location.href = dest;
+          } else {
+            const currentPath = window.location.pathname + window.location.search;
+            const sessionHint = sessionEnded
+              ? `&session=${encodeURIComponent(json?.message || 'Session ended')}`
+              : '';
+            window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}${sessionHint}`;
+          }
         }
       }
       throw new Error(
@@ -1329,6 +1344,7 @@ export async function apiResetJobPipelineToOrgTemplate(jobId: string) {
 
 export async function apiHqProvisionTenant(body: {
   name: string;
+  organizationName?: string;
   email: string;
   loginId: string;
   password: string;
@@ -1387,6 +1403,10 @@ export interface HqTenantRow {
   createdAt: string | null;
   updatedAt: string | null;
   isLandingSignupOnly?: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string;
+  source?: 'tenant' | 'landing' | string;
 }
 
 export async function apiHqListPackages() {
@@ -1460,6 +1480,47 @@ export async function apiHqListTenants() {
     };
     planOptions: HqSubscriptionPackage[];
   }>('/hq/tenants', { auth: true });
+}
+
+export type HqTenantImpersonationAccess = {
+  token: string;
+  loginUrl: string;
+  expiresAt: string;
+  loginId: string;
+  tenantEmail: string;
+  tenantDbName: string;
+  tenantName: string;
+};
+
+export async function apiHqCreateTenantImpersonation(body: { email: string }) {
+  return apiFetch<HqTenantImpersonationAccess>('/hq/tenants/impersonate', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiConsumeImpersonationToken(body: {
+  token: string;
+  macAddress?: string;
+  deviceId?: string;
+  userAgent?: string;
+}) {
+  return apiFetch<{
+    accessToken: string;
+    refreshToken: string;
+    tenantDbName: string;
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+      roleName: string;
+      loginId?: string;
+    };
+    permissions: string[];
+    requirePasswordReset?: boolean;
+  }>('/auth/consume-impersonation-token', { method: 'POST', body });
 }
 
 export type HqLeadStorageInfo = {
@@ -1869,6 +1930,7 @@ export type HqSupportTicketCategory = 'general' | 'billing' | 'technical' | 'acc
 
 export type HqSupportTicket = {
   id: string;
+  ticketNumber?: string;
   subject: string;
   description: string;
   priority: HqSupportTicketPriority;
@@ -1882,6 +1944,16 @@ export type HqSupportTicket = {
   hqNotes: string;
   createdAt: string | null;
   updatedAt: string | null;
+};
+
+export type HqSupportTicketMessage = {
+  id: string;
+  ticketId: string;
+  senderRole: 'employer' | 'hq';
+  senderName: string;
+  senderId?: string | null;
+  body: string;
+  createdAt: string | null;
 };
 
 export type HqSupportTicketStats = {
@@ -1944,6 +2016,16 @@ export type HqHelpTicketStats = {
   closed: number;
 };
 
+export type HqHelpTicketMessage = {
+  id: string;
+  ticketId: string;
+  senderRole: 'candidate' | 'hq';
+  senderName?: string;
+  senderId?: string | null;
+  body: string;
+  createdAt: string;
+};
+
 export async function apiHqListHelpTickets(params?: {
   status?: HqHelpTicketStatus | '';
   email?: string;
@@ -1977,6 +2059,26 @@ export async function apiHqUpdateHelpTicket(ticketId: string, status: HqHelpTick
   );
 }
 
+export async function apiHqListHelpTicketMessages(ticketId: string) {
+  return apiFetch<{
+    ticketId: string;
+    subject: string;
+    status: HqHelpTicketStatus;
+    messages: HqHelpTicketMessage[];
+  }>(`/hq/help-tickets/${encodeURIComponent(ticketId)}/messages`, { auth: true });
+}
+
+export async function apiHqSendHelpTicketMessage(ticketId: string, body: string) {
+  return apiFetch<{ message: HqHelpTicketMessage }>(
+    `/hq/help-tickets/${encodeURIComponent(ticketId)}/messages`,
+    {
+      method: 'POST',
+      body: { body },
+      auth: true,
+    },
+  );
+}
+
 export async function apiCreateSupportTicket(body: {
   subject: string;
   description: string;
@@ -1995,6 +2097,54 @@ export async function apiListMySupportTickets() {
   return apiFetch<{ tickets: HqSupportTicket[]; stats: HqSupportTicketStats }>('/support/tickets', {
     auth: true,
   });
+}
+
+export async function apiUpdateMySupportTicket(ticketId: string, status: 'closed') {
+  return apiFetch<{ ticket: HqSupportTicket }>(`/support/tickets/${encodeURIComponent(ticketId)}`, {
+    method: 'PATCH',
+    body: { status },
+    auth: true,
+  });
+}
+
+export async function apiListSupportTicketMessages(ticketId: string) {
+  return apiFetch<{
+    ticketId: string;
+    subject: string;
+    status: HqSupportTicketStatus;
+    messages: HqSupportTicketMessage[];
+  }>(`/support/tickets/${encodeURIComponent(ticketId)}/messages`, { auth: true });
+}
+
+export async function apiSendSupportTicketMessage(ticketId: string, body: string) {
+  return apiFetch<{ message: HqSupportTicketMessage }>(
+    `/support/tickets/${encodeURIComponent(ticketId)}/messages`,
+    {
+      method: 'POST',
+      body: { body },
+      auth: true,
+    },
+  );
+}
+
+export async function apiHqListSupportTicketMessages(ticketId: string) {
+  return apiFetch<{
+    ticketId: string;
+    subject: string;
+    status: HqSupportTicketStatus;
+    messages: HqSupportTicketMessage[];
+  }>(`/hq/tickets/${encodeURIComponent(ticketId)}/messages`, { auth: true });
+}
+
+export async function apiHqSendSupportTicketMessage(ticketId: string, body: string) {
+  return apiFetch<{ message: HqSupportTicketMessage }>(
+    `/hq/tickets/${encodeURIComponent(ticketId)}/messages`,
+    {
+      method: 'POST',
+      body: { body },
+      auth: true,
+    },
+  );
 }
 
 export async function apiHqCreateCompany(
@@ -3099,6 +3249,9 @@ export type HqEmployerAnalytics = {
     hqCompanies: number;
     hotLeads?: number;
     pipelineValue?: number;
+    monthlyBillingTotal?: number;
+    billingTenants?: number;
+    trialTenants?: number;
     demosVerified: number;
     demosPurchases: number;
     demosTrials: number;
@@ -3531,18 +3684,37 @@ export async function apiDeleteBillingRecord(invoiceId: string) {
 }
 
 export async function apiHqDeleteTenant(body: { email: string; dropDatabase?: boolean }) {
-  // Use the URL-form so the request body isn't required — this avoids
-  // proxy/library issues where DELETE bodies get stripped. The dropDatabase
-  // flag rides on the query string for the same reason.
-  const path = `/hq/tenants/${encodeURIComponent(body.email)}${
-    body.dropDatabase === false ? '?dropDatabase=false' : ''
-  }`;
+  // Soft-delete: moves the tenant to HQ Recycle Bin. The tenant database is kept.
+  const path = `/hq/tenants/${encodeURIComponent(body.email)}`;
   return apiFetch<{
     deleted: boolean;
+    softDeleted?: boolean;
+    movedToRecycleBin?: boolean;
     email: string;
     tenantDbName: string | null;
     databaseDropped: boolean;
   }>(path, { method: 'DELETE', auth: true });
+}
+
+export async function apiHqListRecycleBin() {
+  return apiFetch<{ items: HqTenantRow[]; count: number }>('/hq/recycle-bin', { auth: true });
+}
+
+export async function apiHqRestoreTenant(email: string) {
+  return apiFetch<{ restored: boolean; email: string; tenantDbName: string | null }>(
+    '/hq/recycle-bin/restore',
+    { method: 'POST', body: { email }, auth: true },
+  );
+}
+
+export async function apiHqPurgeTenant(email: string, dropDatabase = true) {
+  const path = `/hq/recycle-bin/${encodeURIComponent(email)}${
+    dropDatabase ? '' : '?dropDatabase=false'
+  }`;
+  return apiFetch<{ purged: boolean; email: string; databaseDropped: boolean }>(path, {
+    method: 'DELETE',
+    auth: true,
+  });
 }
 
 export async function apiFetchFormData<T>(
@@ -3992,6 +4164,13 @@ export async function apiRefreshToken() {
 
 export async function apiLogout() {
   if (typeof window === 'undefined') return;
+
+  try {
+    const { markIntentionalLogout } = await import('./sessionAuth');
+    markIntentionalLogout();
+  } catch {
+    /* ignore */
+  }
 
   try {
     const token = localStorage.getItem('accessToken');

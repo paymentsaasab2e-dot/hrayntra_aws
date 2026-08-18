@@ -29,6 +29,15 @@ export const hqController = {
     }
   },
 
+  async createTenantImpersonationAccess(req, res) {
+    try {
+      const result = await hqService.createTenantImpersonationAccess(req.body, req.user);
+      sendResponse(res, 200, 'Tenant access link created', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async assignPlan(req, res) {
     try {
       const result = await hqService.assignPlan(req.body, req.user);
@@ -290,6 +299,25 @@ export const hqController = {
     }
   },
 
+  async listSupportTicketMessages(req, res) {
+    try {
+      const result = await hqService.listSupportTicketMessages(req.params.id, req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async addSupportTicketMessage(req, res) {
+    try {
+      const body = req.body?.body;
+      const message = await hqService.addSupportTicketMessage(req.params.id, body, req.user);
+      sendResponse(res, 201, 'Message sent', { message });
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listHelpTickets(req, res) {
     try {
       const result = await hqService.listHelpTickets(req.user, {
@@ -310,6 +338,27 @@ export const hqController = {
       const status = req.body?.status;
       const ticket = await hqService.updateHelpTicket(id, status, req.user);
       sendResponse(res, 200, 'Help ticket updated', { ticket });
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listHelpTicketMessages(req, res) {
+    try {
+      const id = req.params?.id;
+      const result = await hqService.listHelpTicketMessages(id, req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async addHelpTicketMessage(req, res) {
+    try {
+      const id = req.params?.id;
+      const body = req.body?.body;
+      const message = await hqService.addHelpTicketMessage(id, body, req.user);
+      sendResponse(res, 200, 'Message sent', { message });
     } catch (error) {
       sendError(res, 400, error.message, error);
     }
@@ -606,9 +655,44 @@ export const hqController = {
         userRole: req.user?.role,
       });
       const result = await hqService.deleteTenant({ email, dropDatabase }, req.user);
-      sendResponse(res, 200, 'Tenant deleted', result);
+      sendResponse(res, 200, 'Moved to recycle bin', result);
     } catch (error) {
       console.error('[hq] deleteTenant failed:', error?.message || error);
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listRecycleBin(req, res) {
+    try {
+      const result = await hqService.listRecycleBin(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async restoreTenant(req, res) {
+    try {
+      const email = req.body?.email || req.params?.email || req.query?.email || null;
+      const result = await hqService.restoreTenant({ email }, req.user);
+      sendResponse(res, 200, 'Tenant restored', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async purgeTenant(req, res) {
+    try {
+      const email = req.body?.email || req.params?.email || req.query?.email || null;
+      const dropDatabase =
+        typeof req.body?.dropDatabase === 'boolean'
+          ? req.body.dropDatabase
+          : req.query?.dropDatabase === 'false'
+            ? false
+            : true;
+      const result = await hqService.purgeTenant({ email, dropDatabase }, req.user);
+      sendResponse(res, 200, 'Tenant permanently deleted', result);
+    } catch (error) {
       sendError(res, 400, error.message, error);
     }
   },

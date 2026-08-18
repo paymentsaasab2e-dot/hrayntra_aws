@@ -1,3 +1,9 @@
+import {
+  CONNECTION_STATUS,
+  formatPortalStatusLine,
+  type PortalStatusCopy,
+} from './portalStatusCopy';
+
 export type ApiErrorKind =
   | 'abort'
   | 'timeout'
@@ -49,7 +55,7 @@ export function normalizeFetchError(error: unknown): ApiRequestError {
   if (error instanceof ApiRequestError) return error;
 
   if (error && typeof error === 'object' && (error as Error).name === 'TimeoutError') {
-    return new ApiRequestError('Request timed out. The server may be busy — retrying can help.', {
+    return new ApiRequestError(formatPortalStatusLine(CONNECTION_STATUS.timeout), {
       kind: 'timeout',
       retryable: true,
       cause: error,
@@ -59,7 +65,7 @@ export function normalizeFetchError(error: unknown): ApiRequestError {
   if (error && typeof error === 'object' && (error as Error).name === 'AbortError') {
     const msg = String((error as Error).message || '').toLowerCase();
     if (/timeout|timed out/i.test(msg)) {
-      return new ApiRequestError('Request timed out. The server may be busy — retrying can help.', {
+      return new ApiRequestError(formatPortalStatusLine(CONNECTION_STATUS.timeout), {
         kind: 'timeout',
         retryable: true,
         cause: error,
@@ -76,7 +82,7 @@ export function normalizeFetchError(error: unknown): ApiRequestError {
   const name = String((error as Error)?.name || '');
 
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return new ApiRequestError('You appear to be offline. Reconnect and retry.', {
+    return new ApiRequestError(formatPortalStatusLine(CONNECTION_STATUS.offline), {
       kind: 'offline',
       retryable: true,
       cause: error,
@@ -84,7 +90,7 @@ export function normalizeFetchError(error: unknown): ApiRequestError {
   }
 
   if (/timeout|timed out|etimedout/i.test(message)) {
-    return new ApiRequestError('Request timed out. The server may be busy — retrying can help.', {
+    return new ApiRequestError(formatPortalStatusLine(CONNECTION_STATUS.timeout), {
       kind: 'timeout',
       retryable: true,
       cause: error,
@@ -97,15 +103,11 @@ export function normalizeFetchError(error: unknown): ApiRequestError {
     ) ||
     (name === 'TypeError' && message.includes('fetch'))
   ) {
-    const isLocalDev =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1' ||
-        window.location.hostname.endsWith('.local'));
-    const friendly = isLocalDev
-      ? 'Backend unreachable — the API on port 5001 may be restarting or overloaded.'
-      : 'Network error — could not reach the server. The API may be busy; try again shortly.';
-    return new ApiRequestError(friendly, { kind: 'network', retryable: true, cause: error });
+    return new ApiRequestError(formatPortalStatusLine(CONNECTION_STATUS.failed), {
+      kind: 'network',
+      retryable: true,
+      cause: error,
+    });
   }
 
   return new ApiRequestError((error as Error)?.message || 'Unexpected network error.', {
@@ -121,18 +123,14 @@ export function normalizeHttpError(
   meta: Omit<ApiRequestErrorOptions, 'status' | 'kind' | 'retryable'> = {}
 ): ApiRequestError {
   const retryable = isRetryableHttpStatus(status);
-  let friendly = message || `Request failed with status ${status}`;
+  let friendly = message || CONNECTION_STATUS.failed.message;
 
-  if (status === 502) {
-    friendly = 'Bad gateway (502) — the API proxy could not reach the server. Retry in a moment.';
-  } else if (status === 503) {
-    friendly = 'Service unavailable (503) — the server is temporarily overloaded. Retry shortly.';
-  } else if (status === 504) {
-    friendly = 'Gateway timeout (504) — the request took too long. Retry this file.';
-  } else if (status === 408) {
-    friendly = 'Request timeout (408). Retry this file.';
-  } else if (status === 429) {
-    friendly = 'Too many requests (429). Waiting before retry.';
+  if (status === 429) {
+    friendly = formatPortalStatusLine(CONNECTION_STATUS.rateLimit);
+  } else if (status === 408 || status === 504) {
+    friendly = formatPortalStatusLine(CONNECTION_STATUS.timeout);
+  } else if (status === 502 || status === 503) {
+    friendly = formatPortalStatusLine(CONNECTION_STATUS.failed);
   }
 
   return new ApiRequestError(friendly, {
@@ -172,10 +170,9 @@ export function normalizeInvalidResponseError(status?: number, rawText?: string)
   }
 
   const retryable = typeof status === 'number' && isRetryableHttpStatus(status);
-  const message =
-    status === 502 || status === 503 || status === 504
-      ? `Gateway error (${status}) — received an invalid response. Retry in a moment.`
-      : 'Invalid server response — the API returned unexpected output.';
+  const message = retryable
+    ? formatPortalStatusLine(CONNECTION_STATUS.failed)
+    : CONNECTION_STATUS.failed.message;
 
   return new ApiRequestError(message, {
     status,
@@ -222,10 +219,39 @@ export function isRetryableApiError(error: unknown): boolean {
   return normalizeFetchError(error).retryable;
 }
 
+export function getApiErrorCopy(error: unknown): PortalStatusCopy {
+  const err = error instanceof ApiRequestError ? error : normalizeFetchError(error);
+  if (err.kind === 'offline') return CONNECTION_STATUS.offline;
+  if (err.kind === 'timeout') return CONNECTION_STATUS.timeout;
+  if (err.status === 429) return CONNECTION_STATUS.rateLimit;
+  if (err.status === 408 || err.status === 504) return CONNECTION_STATUS.timeout;
+  if (
+    err.kind === 'network' ||
+    err.status === 502 ||
+    err.status === 503 ||
+    (err.kind === 'http' && err.retryable) ||
+    (err.kind === 'invalid_response' && err.retryable)
+  ) {
+    return CONNECTION_STATUS.failed;
+  }
+  return { title: CONNECTION_STATUS.failed.title, message: err.message };
+}
+
 export function getApiErrorMessage(error: unknown): string {
-  if (error instanceof ApiRequestError) return error.message;
+  const copy = getApiErrorCopy(error);
+  if (error instanceof ApiRequestError) {
+    if (
+      error.kind === 'offline' ||
+      error.kind === 'timeout' ||
+      error.kind === 'network' ||
+      error.retryable
+    ) {
+      return formatPortalStatusLine(copy);
+    }
+    return error.message;
+  }
   if (error instanceof Error) return error.message;
-  return String(error || 'Request failed');
+  return formatPortalStatusLine(CONNECTION_STATUS.failed);
 }
 
 export async function sleep(ms: number): Promise<void> {

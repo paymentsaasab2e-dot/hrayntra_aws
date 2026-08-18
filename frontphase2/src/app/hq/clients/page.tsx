@@ -24,8 +24,10 @@ import { Toaster, toast } from 'sonner';
 import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
 import {
+  HqLeadProductLineBadges,
   HqProductLineDrawerBar,
   HqProductLinePickerModal,
+  resolveHqLeadProductLines,
   withHqProductLine,
   type HqProductLine,
 } from '@/components/hq/HqProductLinePicker';
@@ -358,11 +360,14 @@ export default function HqClientsPage() {
       toast.error('Nothing to export');
       return;
     }
-    const header = ['Client', 'Contact', 'Industry', 'Score', 'Owner', 'Status', 'Next Follow-up'];
+    const header = ['Client', 'Contact', 'Interested in', 'Industry', 'Score', 'Owner', 'Status', 'Next Follow-up'];
     const body = filteredCompanies.map((c) =>
       [
         c.name,
         c.contact || '',
+        resolveHqLeadProductLines(c)
+          .map((line) => (line === 'recruitment' ? 'Recruitment' : 'CRM'))
+          .join(' + ') || '',
         c.industry || '',
         c.score,
         c.owner || '',
@@ -616,11 +621,12 @@ export default function HqClientsPage() {
               </div>
 
               <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
-                <table className="w-full min-w-[760px] text-left" aria-label="Clients">
+                <table className="w-full min-w-[880px] text-left" aria-label="Clients">
                   <thead className="sticky top-0 z-10">
                     <tr>
                       <th className="min-w-[11rem]">Client</th>
                       <th>Contact</th>
+                      <th>Interested in</th>
                       <th>Industry</th>
                       <th>Score</th>
                       <th>Owner</th>
@@ -632,13 +638,13 @@ export default function HqClientsPage() {
                   <tbody className="divide-y divide-slate-100/80">
                     {loading ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
+                        <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                           Loading HQ clients…
                         </td>
                       </tr>
                     ) : filteredCompanies.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-16 text-center">
+                        <td colSpan={9} className="px-4 py-16 text-center">
                           <div className="mx-auto flex max-w-sm flex-col items-center">
                             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/20 text-blue-600">
                               <Building2 className="h-8 w-8" strokeWidth={2} />
@@ -668,7 +674,9 @@ export default function HqClientsPage() {
                         </td>
                       </tr>
                     ) : (
-                      filteredCompanies.map((company) => (
+                      filteredCompanies.map((company) => {
+                        const productLines = resolveHqLeadProductLines(company);
+                        return (
                         <tr
                           key={company.id}
                           onClick={() => {
@@ -703,6 +711,9 @@ export default function HqClientsPage() {
                               {company.email || company.phone || '—'}
                             </div>
                           </td>
+                          <td className="px-3 sm:px-4 py-2">
+                            <HqLeadProductLineBadges lines={productLines} />
+                          </td>
                           <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
                             {company.industry || '—'}
                           </td>
@@ -734,7 +745,8 @@ export default function HqClientsPage() {
                             </button>
                           </td>
                         </tr>
-                      ))
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

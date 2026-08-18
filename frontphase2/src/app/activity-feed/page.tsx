@@ -812,7 +812,12 @@ export default function ActivityFeedPage() {
   if (!isPickerMode) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center p-6 text-sm text-slate-500">
-        Unable to load activity log. Please refresh or contact your administrator.
+        <div className="max-w-sm text-center">
+          <p className="text-base font-semibold text-slate-800">Unable to connect right now</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Please try again in a little while. Refresh the page if it continues.
+          </p>
+        </div>
       </div>
     );
   }

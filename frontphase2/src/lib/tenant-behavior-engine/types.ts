@@ -410,6 +410,20 @@ export type TenantBehaviorLiveDashboard = {
   actionBreakdown: TenantActionBreakdown;
   liveFeed: TenantLiveFeedItem[];
   onlineUsers: TenantBehaviorLiveDashboard['users'];
+  periodMetrics?: {
+    range: 'today' | 'week' | 'month' | 'year';
+    windowDays: number;
+    visits: number;
+    actions: number;
+    apiMutations: number;
+    entityViews: number;
+    searches: number;
+    activeMs: number;
+    logins: number;
+    sessions: number;
+    activeUsers: number;
+    avgWorkflow: number;
+  };
 };
 
 export type TenantBehaviorAggregate = TenantBehaviorLiveDashboard;

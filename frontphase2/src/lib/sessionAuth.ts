@@ -73,6 +73,41 @@ export function clearAuthStorage() {
   syncTenantDbName(null);
 }
 
+const INTENTIONAL_LOGOUT_FLAG = 'hrayntra:intentional-logout';
+
+/** Set before POST /auth/logout so the session-ended modal is not shown. */
+export function markIntentionalLogout() {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(INTENTIONAL_LOGOUT_FLAG, '1');
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function isIntentionalLogout() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return sessionStorage.getItem(INTENTIONAL_LOGOUT_FLAG) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function clearIntentionalLogout() {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(INTENTIONAL_LOGOUT_FLAG);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loginPathForCurrentPage() {
+  if (typeof window === 'undefined') return '/login';
+  return window.location.pathname.startsWith('/hq') ? '/hq/login' : '/login';
+}
+
 /** Login / password / public apply screens — no grammar assist or overdue popups. */
 export function isEmployerPublicAuthPath(pathname: string | null | undefined) {
   const p = (pathname || '/').split('?')[0].toLowerCase();

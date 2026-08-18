@@ -10,3 +10,4 @@ export * from './behaviour-suggestions';
 export * from './sync';
 export * from './track';
 export * from './engine-recs';
+export * from './tracking-catalog';

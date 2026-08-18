@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import { Lock, ArrowLeft } from 'lucide-react';
 
 type AccessDeniedProps = {
+  title?: string;
   message?: string;
 };
 
-export const AccessDenied: React.FC<AccessDeniedProps> = ({ message }) => {
+export const AccessDenied: React.FC<AccessDeniedProps> = ({ title, message }) => {
   const router = useRouter();
 
   return (
@@ -16,10 +17,10 @@ export const AccessDenied: React.FC<AccessDeniedProps> = ({ message }) => {
       <div className="size-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
         <Lock className="size-8 text-slate-400" />
       </div>
-      <h2 className="text-xl font-bold text-slate-900 mb-2">Access Restricted</h2>
+      <h2 className="text-xl font-bold text-slate-900 mb-2">{title || 'Access restricted'}</h2>
       <p className="text-sm text-slate-600 text-center max-w-md mb-6">
         {message ||
-          "You don't have permission to view this section. Contact your administrator if you need access."}
+          "You don’t have access to this section. Ask your administrator if you need it."}
       </p>
       <button
         onClick={() => router.back()}

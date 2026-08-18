@@ -71,7 +71,10 @@ export default function PermissionRouteGuard({
     return fallback != null ? (
       <>{fallback}</>
     ) : (
-      <AccessDenied message="This tab is disabled for your organization by HQ." />
+      <AccessDenied
+          title="This section isn’t available"
+          message="It isn’t enabled for your organization."
+        />
     );
   }
 

@@ -216,7 +216,7 @@ export function HqTenantDetailDrawer({
         productLine,
         enabledModules,
       });
-      void requestSuccess('Tenant tabs updated and synced to Phase 2. Ask the tenant to refresh or re-open Phase 2.');
+      void requestSuccess('Tabs updated and synced to Phase 2. Ask the user to refresh or re-open Phase 2.');
       onSaved();
     } catch (err) {
       setTabsError(err instanceof Error ? err.message : 'Failed to update modules');
@@ -271,7 +271,7 @@ export function HqTenantDetailDrawer({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h2 id="tenant-detail-title" className="text-lg font-bold tracking-tight text-slate-900">
-                      {tenant.name || 'Tenant'}
+                      {tenant.organizationName || tenant.name || 'User'}
                     </h2>
                     <p className="mt-0.5 truncate text-sm text-slate-600">{tenant.email}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -306,7 +306,7 @@ export function HqTenantDetailDrawer({
                 <DrawerTabBar
                   variant="embedded"
                   className="mt-4"
-                  ariaLabel="Tenant details"
+                  ariaLabel="User details"
                   tabs={DETAIL_TABS}
                   activeId={activeTab}
                   onChange={setActiveTab}

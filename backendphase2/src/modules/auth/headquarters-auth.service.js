@@ -432,6 +432,13 @@ function normalizeHeadquartersUser(document) {
     tenantProvisioningMode: String(document.tenantProvisioningMode || 'DEDICATED'),
     createdAt: document.createdAt || null,
     updatedAt: document.updatedAt || null,
+    isDeleted: Boolean(document.isDeleted),
+    deletedAt: document.deletedAt
+      ? document.deletedAt instanceof Date
+        ? document.deletedAt.toISOString()
+        : String(document.deletedAt)
+      : null,
+    deletedBy: String(document.deletedBy || ''),
   };
 }
 
@@ -464,6 +471,11 @@ export const headquartersAuthService = {
       email: normalizedEmail,
     });
     if (existingUser) {
+      if (existingUser.isDeleted) {
+        throw new Error(
+          'This user is in Recycle Bin. Restore it from HQ Recycle Bin, or delete it forever first.',
+        );
+      }
       throw new Error('User already exists');
     }
 
@@ -471,6 +483,11 @@ export const headquartersAuthService = {
       loginId: normalizedLoginId,
     });
     if (existingLogin) {
+      if (existingLogin.isDeleted) {
+        throw new Error(
+          'This login ID is in Recycle Bin. Restore it from HQ Recycle Bin, or delete it forever first.',
+        );
+      }
       throw new Error('Login ID already in use');
     }
 
@@ -516,7 +533,7 @@ export const headquartersAuthService = {
     const email = normalizeEmail(userOrEmail);
     if (!email) return null;
 
-    const user = await collection.findOne({ email });
+    const user = await collection.findOne({ email, isDeleted: { $ne: true } });
     if (!user) return null;
 
     let tenantDbName = normalizeLookupValue(user.tenantDbName);
@@ -615,7 +632,7 @@ export const headquartersAuthService = {
     if (!collection) return [];
     const docs = await collection
       .find(
-        {},
+        { isDeleted: { $ne: true } },
         {
           projection: {
             password: 0,
@@ -634,7 +651,7 @@ export const headquartersAuthService = {
     // Prefer the most recently updated HQ workspace for this DB so tab changes
     // (enabledModules) win over stale sibling / shared-DB records.
     const docs = await collection
-      .find({ tenantDbName: dbName })
+      .find({ tenantDbName: dbName, isDeleted: { $ne: true } })
       .sort({ updatedAt: -1, _id: -1 })
       .limit(1)
       .toArray();
@@ -664,7 +681,10 @@ export const headquartersAuthService = {
     const collection = await getCollection();
     const normalizedEmail = normalizeEmail(email);
     if (!collection || !normalizedEmail) return null;
-    const doc = await collection.findOne({ email: normalizedEmail });
+    const doc = await collection.findOne({
+      email: normalizedEmail,
+      isDeleted: { $ne: true },
+    });
     return normalizeHeadquartersUser(doc);
   },
 
@@ -704,8 +724,14 @@ export const headquartersAuthService = {
           $unset: { pausedAt: '', pausedBy: '' },
         };
 
-    await collection.updateOne({ email: normalizedEmail }, update);
-    const updated = await collection.findOne({ email: normalizedEmail });
+    await collection.updateOne(
+      { email: normalizedEmail, isDeleted: { $ne: true } },
+      update,
+    );
+    const updated = await collection.findOne({
+      email: normalizedEmail,
+      isDeleted: { $ne: true },
+    });
     return normalizeHeadquartersUser(updated);
   },
 
@@ -874,6 +900,104 @@ export const headquartersAuthService = {
     };
   },
 
+  async listDeletedTenants() {
+    const collection = await getCollection();
+    if (!collection) return [];
+    const docs = await collection
+      .find({ isDeleted: true }, { projection: { password: 0 } })
+      .sort({ deletedAt: -1, _id: -1 })
+      .toArray();
+    return docs.map((doc) => normalizeHeadquartersUser(doc)).filter(Boolean);
+  },
+
+  async softDeleteTenantByEmail(email, actor = {}) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) throw new Error('email is required');
+    const collection = await getCollection();
+    if (!collection) throw new Error('Headquarters database is not configured');
+
+    const existing = await collection.findOne({
+      email: normalizedEmail,
+      isDeleted: { $ne: true },
+    });
+    if (!existing) {
+      return { deleted: false, email: normalizedEmail };
+    }
+
+    const now = new Date();
+    await collection.updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: now,
+          deletedBy: String(actor?.email || actor?.name || '').trim(),
+          status: 'DELETED',
+          updatedAt: now,
+        },
+      },
+    );
+
+    try {
+      const directory = await getTenantUserDirectoryCollection();
+      if (directory) {
+        const tenantDbName = String(existing.tenantDbName || '').trim();
+        const filter = tenantDbName
+          ? { $or: [{ email: normalizedEmail }, { tenantDbName }] }
+          : { email: normalizedEmail };
+        await directory.updateMany(filter, {
+          $set: { isDeleted: true, deletedAt: now, updatedAt: now },
+        });
+      }
+    } catch (err) {
+      console.warn('[headquarters] failed to mark directory deleted:', err?.message || err);
+    }
+
+    return {
+      deleted: true,
+      softDeleted: true,
+      email: normalizedEmail,
+      tenantDbName: String(existing.tenantDbName || '').trim() || null,
+      databaseDropped: false,
+    };
+  },
+
+  async restoreTenantByEmail(email) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) throw new Error('email is required');
+    const collection = await getCollection();
+    if (!collection) throw new Error('Headquarters database is not configured');
+
+    const existing = await collection.findOne({ email: normalizedEmail, isDeleted: true });
+    if (!existing) {
+      return { restored: false, email: normalizedEmail };
+    }
+
+    const now = new Date();
+    await collection.updateOne(
+      { _id: existing._id },
+      {
+        $set: { status: 'ACTIVE', updatedAt: now },
+        $unset: { isDeleted: '', deletedAt: '', deletedBy: '' },
+      },
+    );
+
+    const tenantDbName = String(existing.tenantDbName || '').trim();
+    if (tenantDbName) {
+      await this.upsertTenantUserDirectoryEntry({
+        email: existing.email,
+        loginId: existing.loginId,
+        tenantDbName,
+      });
+    }
+
+    return {
+      restored: true,
+      email: normalizedEmail,
+      tenantDbName: tenantDbName || null,
+    };
+  },
+
   /**
    * Persist the email/loginId → tenantDbName mapping in the HQ directory so
    * future plain-`/login` attempts (no `x-tenant-db-name` header) can route
@@ -907,6 +1031,7 @@ export const headquartersAuthService = {
         filter,
         {
           $set: setDoc,
+          $unset: { isDeleted: '', deletedAt: '' },
           $setOnInsert: { createdAt: now },
         },
         { upsert: true }
@@ -933,7 +1058,10 @@ export const headquartersAuthService = {
       if (normalizedEmail) filters.push({ email: normalizedEmail });
       filters.push({ loginId: normalized });
 
-      const document = await collection.findOne({ $or: filters });
+      const document = await collection.findOne({
+        $or: filters,
+        isDeleted: { $ne: true },
+      });
       return normalizeLookupValue(document?.tenantDbName);
     } catch (error) {
       return '';
@@ -949,6 +1077,7 @@ export const headquartersAuthService = {
       if (!collection) return [];
       const names = await collection.distinct('tenantDbName', {
         tenantDbName: { $exists: true, $nin: [null, ''] },
+        isDeleted: { $ne: true },
       });
       return [...new Set(names.map((n) => normalizeLookupValue(n)).filter(Boolean))];
     } catch (error) {

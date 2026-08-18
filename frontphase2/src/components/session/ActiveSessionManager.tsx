@@ -10,6 +10,8 @@ import {
   clearAuthStorage,
   endSessionOnServer,
   getStoredSessionId,
+  isIntentionalLogout,
+  loginPathForCurrentPage,
   type ActiveSessionView,
 } from '@/lib/sessionAuth';
 import { registerAppTab, unregisterAppTab } from '@/lib/tabSessionCoordinator';
@@ -43,16 +45,22 @@ export default function ActiveSessionManager() {
     pathname?.startsWith('/client-review');
 
   const forceLogout = useCallback(
-    (message?: string) => {
+    (message?: string, opts?: { silent?: boolean }) => {
       void (async () => {
+        const silent = Boolean(opts?.silent) || isIntentionalLogout();
         await endSessionOnServer();
         clearAuthStorage();
         socketRef.current?.disconnect();
         socketRef.current = null;
+        const loginPath = loginPathForCurrentPage();
+        if (silent) {
+          window.location.assign(loginPath);
+          return;
+        }
         if (message) {
           setSessionMessage({ title: 'Session ended', message });
         }
-        router.replace(`/login?session=${encodeURIComponent(message || 'Session ended')}`);
+        router.replace(`${loginPath}?session=${encodeURIComponent(message || 'Session ended')}`);
       })();
     },
     [router],
@@ -91,8 +99,13 @@ export default function ActiveSessionManager() {
     });
 
     socket.on('session_revoked', (payload: { reason?: string }) => {
+      const reason = String(payload?.reason || '').toUpperCase();
+      if (reason === 'LOGOUT' || reason === 'BROWSER_CLOSED' || isIntentionalLogout()) {
+        forceLogout(undefined, { silent: true });
+        return;
+      }
       forceLogout(
-        payload?.reason === 'TRANSFER_APPROVED'
+        reason === 'TRANSFER_APPROVED'
           ? 'Your session ended because login was approved on another device.'
           : 'Your session is no longer active.',
       );
@@ -227,7 +240,7 @@ export default function ActiveSessionManager() {
             setInactivityWarning(false);
             void apiSessionHeartbeat(getStoredSessionId() || '');
           }}
-          onLogout={() => forceLogout('You logged out.')}
+          onLogout={() => forceLogout(undefined, { silent: true })}
         />
       ) : null}
       {sessionMessage ? (

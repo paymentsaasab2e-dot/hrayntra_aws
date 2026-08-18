@@ -23,7 +23,9 @@ import {
   type HqEmployerAnalytics,
   type HqEmployerTenantRow,
   type HqTenantBehaviorAnalysis,
+  type HqTenantRow,
 } from '@/lib/api';
+import { HqTenantBehaviorAnalyticsPanel } from '@/components/hq/HqTenantBehaviorDrawer';
 import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';
 import { useHqMoney } from '@/components/hq/HqCurrencyProvider';
 import { HQ_SVG_ASSETS, HqSvgKpiCard } from './HqSvgKpiCard';
@@ -112,7 +114,7 @@ function formatActiveMs(ms: number) {
   return `${totalSec}s`;
 }
 
-type LiveRange = 'today' | 'week' | 'month';
+type LiveRange = 'today' | 'week' | 'month' | 'year';
 
 function behaviorMetricsForRange(analysis: HqTenantBehaviorAnalysis | undefined, range: LiveRange) {
   const empty = {
@@ -170,12 +172,12 @@ function behaviorMetricsForRange(analysis: HqTenantBehaviorAnalysis | undefined,
   }
   return {
     ...people,
-    visits: firstPositive(analysis.weekMetrics?.visits, eng?.totalVisits7d, period?.visits),
-    actions: firstPositive(analysis.weekMetrics?.actions, eng?.totalActions7d, period?.actions),
-    activeMs: firstPositive(analysis.weekMetrics?.activeMs, eng?.totalActiveMs7d, period?.activeMs),
-    sessions: firstPositive(eng?.totalSessions7d, period?.sessions),
-    logins: firstPositive(eng?.totalLogins7d, period?.logins),
-    searches: firstPositive(eng?.totalSearches7d, period?.searches),
+    visits: firstPositive(period?.visits, analysis.weekMetrics?.visits, eng?.totalVisits7d),
+    actions: firstPositive(period?.actions, analysis.weekMetrics?.actions, eng?.totalActions7d),
+    activeMs: firstPositive(period?.activeMs, analysis.weekMetrics?.activeMs, eng?.totalActiveMs7d),
+    sessions: firstPositive(period?.sessions, eng?.totalSessions7d),
+    logins: firstPositive(period?.logins, eng?.totalLogins7d),
+    searches: firstPositive(period?.searches, eng?.totalSearches7d),
   };
 }
 
@@ -218,6 +220,21 @@ function formatWhen(iso?: string | null) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function toHqTenantRow(row: HqEmployerTenantRow): HqTenantRow {
+  return {
+    id: row.tenantDbName || row.email,
+    name: row.name,
+    email: row.email,
+    loginId: row.email,
+    organizationType: String(row.organizationType || '').toLowerCase() === 'standalone' ? 'standalone' : 'agency',
+    subscriptionPlan: null,
+    tenantDbName: row.tenantDbName,
+    tenantProvisioningMode: 'DEDICATED',
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
 const EMPLOYER_CATEGORY_TABS = [
   {
     id: 'growth',
@@ -237,7 +254,7 @@ const EMPLOYER_CATEGORY_TABS = [
   {
     id: 'live',
     label: 'Live tracking',
-    blurb: 'Platform utilization from the tenant behaviour engine — all employers, or search one tenant for counts only',
+    blurb: 'Live Phase 2 behaviour engine — all employers, or search one tenant for the same Analytics tabs as Users',
   },
 ] as const;
 
@@ -683,6 +700,9 @@ export function HqPhase2CommandDashboard({
   const placementsJoined = num(k?.placementsJoined);
   const candidates = num(k?.candidates);
   const pipelineValue = num(k?.pipelineValue);
+  const monthlyBilling = num(k?.monthlyBillingTotal ?? k?.mrr);
+  const billingTenants = num(k?.billingTenants);
+  const trialTenants = num(k?.trialTenants);
   const hqLeads = num(k?.hqLeads);
   const hotLeads = num(k?.hotLeads);
   const paused = num(k?.paused);
@@ -1383,34 +1403,24 @@ export function HqPhase2CommandDashboard({
         info: 'Customer workspaces on the platform. Active vs paused shows who can use the product.',
     },
     {
-      label: 'Pipeline Value',
-      value: money(pipelineValue),
+      label: 'Monthly Billing',
+      value: money(monthlyBilling),
       growth: null,
       iconSrc: HQ_SVG_ASSETS.avgMatchScore.icon,
-        sparkData: seriesToSpark(pipelineStages, pipelineValue),
+      sparkData: seriesToSpark(mapPoints(c?.mrrByPlan), monthlyBilling),
       sparkColor: TEAL,
-        compareLabel: `${currency} · ${hqLeads} leads · ${hotLeads} hot`,
-        info: `Sum of estimated deal values on open HQ CRM leads (stored in USD, shown in ${currency}).`,
+      compareLabel: `${currency} · ${billingTenants} paid · ${trialTenants} trial`,
+      info: `Total monthly subscription billing from active tenant plans (Starter / Professional / Enterprise pricing). Trials and paused tenants are excluded.`,
     },
     {
-        label: mrr > 0 ? 'MRR' : 'Candidates',
-        value: mrr > 0 ? money(mrr) : candidates,
+      label: 'Annual Billing',
+      value: money(arr),
       growth: null,
       iconSrc: HQ_SVG_ASSETS.profileCompleteness.icon,
-        sparkData: seriesToSpark(
-          mrr > 0
-            ? mapPoints(c?.mrrByPlan)
-            : [{ value: candidates7d }, { value: apps7d }, { value: candidates }],
-        ),
+      sparkData: seriesToSpark(mapPoints(c?.mrrByPlan), arr),
       sparkColor: BLUE,
-        compareLabel:
-          mrr > 0
-            ? `ARR ${money(arr)} · ${candidates7d} new talent/7d`
-            : `${candidates7d} new/7d · ${apps7d} apps/7d (DB size)`,
-        info:
-          mrr > 0
-            ? 'Estimated monthly recurring revenue from priced tenant plans.'
-            : 'Talent records across tenants. Prefer new/7d and apps/7d over raw DB size.',
+      compareLabel: `${currency} · ${paid} on plan · ${tenants} tenants`,
+      info: 'Annual run rate (monthly billing × 12) from tenant subscription pricing.',
     },
     {
       label: 'Trial Accounts',
@@ -1465,8 +1475,10 @@ export function HqPhase2CommandDashboard({
     paused,
     pipelineValue,
     pipelineStages,
+    monthlyBilling,
+    billingTenants,
+    trialTenants,
     hqLeads,
-    hotLeads,
     mrr,
     arr,
     candidates,
@@ -1892,7 +1904,7 @@ export function HqPhase2CommandDashboard({
                 }
               />
               <p className="mb-1.5 text-[11px] text-[#6B7280]">
-                Pipeline: <strong className="text-[#111827]">{money(pipelineValue)}</strong>
+                Monthly billing: <strong className="text-[#111827]">{money(monthlyBilling)}</strong>
                 {' · '}
                 {apps7d} apps / 7d
               </p>
@@ -1954,12 +1966,12 @@ export function HqPhase2CommandDashboard({
                 title="Subscription Plans"
                 info="How many tenants sit on each plan. MRR appears when plan prices are set."
               />
-              {mrr > 0 ? (
+              {monthlyBilling > 0 ? (
                 <p className="mb-1 text-[10px] font-medium text-emerald-700">
-                  Est. MRR {money(mrr)} · ARR {money(arr)}
+                  Monthly billing {money(monthlyBilling)} · ARR {money(arr)} · {billingTenants} paid
                 </p>
               ) : (
-                <p className="mb-1 text-[10px] text-slate-400">Pair with plan prices for MRR</p>
+                <p className="mb-1 text-[10px] text-slate-400">Assign plan pricing to tenants to see billing totals</p>
               )}
               <div className="min-h-[180px] flex-1">
               {plans.length ? (
@@ -2019,8 +2031,8 @@ export function HqPhase2CommandDashboard({
                   </div>
                   <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 py-3">
                     <div>
-                      <p className="text-[10px] font-medium text-[#6B7280]">Pipeline Value</p>
-                      <p className="mt-0.5 text-xl font-bold text-indigo-700">{money(pipelineValue)}</p>
+                      <p className="text-[10px] font-medium text-[#6B7280]">Monthly Billing</p>
+                      <p className="mt-0.5 text-xl font-bold text-indigo-700">{money(monthlyBilling)}</p>
                     </div>
                     <p className="text-xs font-semibold text-indigo-600">{leadConv}% conversion</p>
                   </div>
@@ -2495,6 +2507,7 @@ export function HqPhase2CommandDashboard({
                   { id: 'today' as const, label: 'Today' },
                   { id: 'week' as const, label: 'Week' },
                   { id: 'month' as const, label: 'Month' },
+                  { id: 'year' as const, label: 'Year' },
                 ]).map((opt) => (
                   <button
                     key={opt.id}
@@ -2609,7 +2622,13 @@ export function HqPhase2CommandDashboard({
                 : liveSearchScoped
                   ? `Searched employers · ${liveBehaviorPulse.tenants} match · `
                   : 'All employers · '}
-              {liveRange === 'today' ? 'today' : liveRange === 'week' ? 'last 7 days' : 'last 30 days (engine month rollup)'}
+              {liveRange === 'today'
+                ? 'today'
+                : liveRange === 'week'
+                  ? 'last 7 days'
+                  : liveRange === 'year'
+                    ? 'last 12 months'
+                    : 'last 30 days (engine month rollup)'}
               {liveBehaviorPulse.withData ? ` · ${liveBehaviorPulse.withData} with engine data` : ''}
               {' · '}
               counts only — no team names or ranks
@@ -2756,6 +2775,12 @@ export function HqPhase2CommandDashboard({
               )}
             </Card>
           </div>
+
+          {liveSingleTenant?.row.tenantDbName ? (
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-3 shadow-sm sm:p-4">
+              <HqTenantBehaviorAnalyticsPanel tenant={toHqTenantRow(liveSingleTenant.row)} />
+            </div>
+          ) : null}
         </section>
         ) : null}
 

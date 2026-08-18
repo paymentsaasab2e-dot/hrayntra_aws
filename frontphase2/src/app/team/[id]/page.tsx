@@ -110,7 +110,8 @@ export default function TeamMemberProfilePage() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-slate-600 mb-4">Team member not found</p>
+          <p className="text-lg font-semibold text-slate-900">We couldn’t find this</p>
+          <p className="mt-1 text-sm text-slate-600 mb-4">This team member isn’t available.</p>
           <button
             onClick={() => router.push(teamBase)}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"

@@ -75,9 +75,7 @@ export function UserDropdown({ avatarUrl: propAvatarUrl }: UserDropdownProps) {
     try {
       await apiLogout();
     } finally {
-      router.replace('/login?redirect=%2F');
-      router.refresh();
-      setIsLoggingOut(false);
+      window.location.assign('/login');
     }
   }
 

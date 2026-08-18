@@ -26,6 +26,10 @@ import {
 import { Toaster, toast } from 'sonner';
 import { LeadDetailsDrawer } from '@/components/drawers/LeadDetailsDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
+import {
+  HqLeadProductLineBadges,
+  resolveHqLeadProductLines,
+} from '@/components/hq/HqProductLinePicker';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '@/components/ui/SummaryCard';
 import { TableBrandAvatar } from '@/components/ui/TableBrandAvatar';
 import { AssigneeAvatars } from '@/app/leads/AssigneeAvatars';
@@ -657,6 +661,7 @@ export default function HqLeadsPage() {
         'Email',
         'Phone',
         'Source',
+        'Interested in',
         'Stage',
         'Owner',
         'Next Follow-up',
@@ -668,6 +673,9 @@ export default function HqLeadsPage() {
           l.email || '',
           l.phone || '',
           formatHqLeadSourceDisplay(l.leadSource, l.leadSourceDetail),
+          resolveHqLeadProductLines(l)
+            .map((line) => (line === 'recruitment' ? 'Recruitment' : 'CRM'))
+            .join(' + ') || '',
           HQ_LEAD_STAGE_LABELS[l.stage],
           l.owner || '',
           l.nextFollowUp || '',
@@ -1122,11 +1130,12 @@ export default function HqLeadsPage() {
                   </table>
                   </>
                 ) : (
-                  <table className="w-full min-w-[980px] text-left" aria-label="Leads">
+                  <table className="w-full min-w-[1080px] text-left" aria-label="Leads">
                     <thead className="sticky top-0 z-10">
                       <tr>
                         <th className="min-w-[11rem]">Lead</th>
                         <th>Source</th>
+                        <th>Interested in</th>
                         <th>Contact</th>
                         <th>Status</th>
                         <th>Assigned To</th>
@@ -1137,13 +1146,13 @@ export default function HqLeadsPage() {
                     <tbody className="divide-y divide-slate-100/80">
                       {loading ? (
                         <tr>
-                          <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
+                          <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
                             Loading HQ leads…
                           </td>
                         </tr>
                       ) : filteredLeads.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="px-4 py-12 text-center">
+                          <td colSpan={8} className="px-4 py-12 text-center">
                             <p className="text-xs font-medium text-slate-500">
                               {leads.length === 0
                                 ? 'No leads yet. Use Create with AI or Create Manually.'
@@ -1157,6 +1166,7 @@ export default function HqLeadsPage() {
                       ) : (
                         pagedLeads.map((lead) => {
                           const mapped = mapHqLeadToFrontend(lead);
+                          const productLines = resolveHqLeadProductLines(lead);
                           return (
                           <tr
                             key={lead.id}
@@ -1192,6 +1202,9 @@ export default function HqLeadsPage() {
                             </td>
                             <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
                               <SourceCell lead={mapped} />
+                            </td>
+                            <td className="px-3 sm:px-4 py-2">
+                              <HqLeadProductLineBadges lines={productLines} />
                             </td>
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex flex-col gap-0.5">

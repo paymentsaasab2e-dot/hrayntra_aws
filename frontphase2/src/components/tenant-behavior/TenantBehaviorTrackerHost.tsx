@@ -21,16 +21,24 @@ import {
 const HEARTBEAT_MS = 15_000;
 const CRM_SYNC_MS = 180_000;
 
-const PUBLIC_PREFIXES = ['/login', '/hq/login', '/forgot-password', '/reset-password', '/apply', '/client-review'];
+const SKIP_PREFIXES = [
+  '/login',
+  '/hq',
+  '/forgot-password',
+  '/reset-password',
+  '/apply',
+  '/client-review',
+];
 
-function isPublicPath(path: string) {
+function isSkippedPath(path: string) {
   const p = (path || '/').toLowerCase();
-  return PUBLIC_PREFIXES.some((prefix) => p.startsWith(prefix));
+  return SKIP_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`) || p.startsWith(`${prefix}?`));
 }
 
 /**
  * Intelligent Phase 2 CRM behaviour tracker:
  * sessions, navigation, entity views, clicks, API mutations, workflow journey, CRM context.
+ * HQ console paths are excluded so operator browsing does not pollute tenant snapshots.
  */
 export function TenantBehaviorTrackerHost() {
   const pathname = usePathname();
@@ -50,10 +58,9 @@ export function TenantBehaviorTrackerHost() {
 
   useEffect(() => {
     if (loading || !userId || !tenantDbName) return;
-    if (isPublicPath(pathname || '/')) return;
+    if (isSkippedPath(pathname || '/')) return;
 
     const path = pathname || '/';
-    const full = `${path}${search}`;
     ensureTenantActivitySession(tenantDbName, userId, { path, userName });
 
     if (lastPathRef.current !== path || lastSearchRef.current !== search) {
@@ -65,7 +72,7 @@ export function TenantBehaviorTrackerHost() {
   }, [loading, userId, tenantDbName, pathname, search, userName]);
 
   useEffect(() => {
-    if (loading || !userId || !tenantDbName || isPublicPath(pathname || '/')) return;
+    if (loading || !userId || !tenantDbName || isSkippedPath(pathname || '/')) return;
 
     const onVis = () => {
       if (document.visibilityState !== 'visible') return;
@@ -88,9 +95,9 @@ export function TenantBehaviorTrackerHost() {
     };
   }, [loading, userId, tenantDbName, pathname, userName]);
 
-  // Global click capture for entity rows/cards with data-track attributes
   useEffect(() => {
     if (loading || !userId || !tenantDbName) return;
+    if (isSkippedPath(pathname || '/')) return;
 
     const onClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
@@ -117,9 +124,9 @@ export function TenantBehaviorTrackerHost() {
     return () => document.removeEventListener('click', onClick, true);
   }, [loading, userId, tenantDbName, pathname]);
 
-  // Sync live CRM workload context + drawer intelligence for unified Phase 2 engines
   useEffect(() => {
     if (loading || !userId || !tenantDbName) return;
+    if (isSkippedPath(pathname || '/')) return;
     let cancelled = false;
 
     const syncCrm = async () => {
@@ -159,6 +166,7 @@ export function TenantBehaviorTrackerHost() {
 
   useEffect(() => {
     if (loading || !userId || !tenantDbName) return;
+    if (isSkippedPath(pathname || '/')) return;
     const onBehavePage =
       (pathname || '').startsWith('/thebehave') || (pathname || '').startsWith('/tenant-behave');
     const debounceMs = onBehavePage ? 400 : 900;

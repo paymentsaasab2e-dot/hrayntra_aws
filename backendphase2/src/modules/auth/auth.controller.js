@@ -46,6 +46,20 @@ export const authController = {
     }
   },
 
+  async consumeImpersonationToken(req, res) {
+    try {
+      const token = String(req.body?.token || '').trim();
+      if (!token) {
+        return sendError(res, 400, 'token is required');
+      }
+      const deviceMeta = buildDeviceMeta(req, req.body);
+      const result = await authService.consumeImpersonationToken(token, deviceMeta);
+      sendResponse(res, 200, 'Tenant access granted', result);
+    } catch (error) {
+      sendError(res, 401, error.message || 'Invalid access link', error);
+    }
+  },
+
   async logout(req, res) {
     try {
       const sessionId = req.body?.sessionId || req.user?.sessionId || null;

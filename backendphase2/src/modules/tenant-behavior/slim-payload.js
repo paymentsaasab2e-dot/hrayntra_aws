@@ -41,6 +41,10 @@ function slimTrigger(t) {
     flag: row.flag,
     audience: row.audience,
     priority: Number(row.priority || 0),
+    title: row.title || '',
+    reason: row.reason || '',
+    evidence: Array.isArray(row.evidence) ? row.evidence.slice(0, 8).map(String) : [],
+    recommendedAction: row.recommendedAction || '',
   };
 }
 
@@ -82,6 +86,14 @@ function slimRollup(rollup) {
       : [],
     recentEvents: Array.isArray(r.recentEvents)
       ? r.recentEvents.slice(0, 40).map(slimEvent).filter(Boolean)
+      : [],
+    insights: Array.isArray(r.insights)
+      ? r.insights.slice(0, 12).map((i) => ({
+          id: i?.id,
+          label: i?.label,
+          severity: i?.severity,
+          summary: i?.summary,
+        }))
       : [],
   };
 }

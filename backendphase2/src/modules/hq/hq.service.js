@@ -3,7 +3,8 @@ import { prisma, runWithTenantContext } from '../../config/prisma.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { authService } from '../auth/auth.service.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
-import { env } from '../../config/env.js';
+import { signHqImpersonationToken } from '../../utils/hqImpersonationToken.js';
+import { env, normalizePublicUrl } from '../../config/env.js';
 import { applyTenantSubscriptionPlan } from '../setting/planAccess.service.js';
 import { setSubscriptionPlan, setHqEnabledModules, getHqEnabledModules } from '../setting/recruitmentMode.service.js';
 import { resolvePackageSlug, todayPlanStartDate } from './hq-packages.config.js';
@@ -201,6 +202,9 @@ function mapTenantForHqResponse(tenant) {
     createdAt: tenant.createdAt,
     updatedAt: tenant.updatedAt,
     isLandingSignupOnly: Boolean(tenant.isLandingSignupOnly),
+    isDeleted: Boolean(tenant.isDeleted),
+    deletedAt: tenant.deletedAt || null,
+    deletedBy: tenant.deletedBy || '',
   };
 }
 
@@ -380,6 +384,7 @@ export const hqService = {
     }
     const hqUser = await headquartersAuthService.registerWorkspaceUserAndProvisionTenant({
       name,
+      organizationName: String(data?.organizationName || name || '').trim(),
       email,
       password,
       loginId,
@@ -491,6 +496,57 @@ export const hqService = {
       tenants: tenants.map(mapTenantForHqResponse),
       stats,
       planOptions: packages,
+    };
+  },
+
+  async createTenantImpersonationAccess(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = normalizeTenantEmail(data?.email);
+    if (!email) throw new Error('email is required');
+
+    const hqActorEmail = normalizeTenantEmail(reqUser?.email);
+    if (!hqActorEmail) throw new Error('HQ operator email is required');
+
+    const tenant = await headquartersAuthService.findWorkspaceUserByEmail(email);
+    if (!tenant) throw new Error('Tenant not found');
+    if (tenant.isDeleted) throw new Error('Tenant is in recycle bin');
+    if (tenant.isLandingSignupOnly) {
+      throw new Error('Tenant database is not provisioned yet. Finish provisioning before opening the account.');
+    }
+
+    const tenantDbName = String(tenant.tenantDbName || '').trim();
+    if (!tenantDbName) {
+      throw new Error('Tenant database is not ready yet.');
+    }
+
+    const { token, expiresAt } = signHqImpersonationToken({
+      tenantEmail: email,
+      tenantDbName,
+      hqActorEmail,
+      tenantUserId: tenant.id,
+    });
+
+    const frontendBase =
+      normalizePublicUrl(env.FRONTEND_URL || env.CLIENT_URL || process.env.NEXT_PUBLIC_APP_URL) ||
+      'http://localhost:3001';
+    const loginPath = '/login';
+    const loginUrl = `${frontendBase.replace(/\/$/, '')}${loginPath}#hqImpersonation=${encodeURIComponent(token)}`;
+
+    console.info('[hq-impersonation] access link created', {
+      tenantEmail: email,
+      tenantDbName,
+      hqActorEmail,
+      expiresAt,
+    });
+
+    return {
+      token,
+      loginUrl,
+      expiresAt,
+      loginId: tenant.loginId || email,
+      tenantEmail: email,
+      tenantDbName,
+      tenantName: tenant.name || tenant.organizationName || email,
     };
   },
 
@@ -732,12 +788,105 @@ export const hqService = {
     assertPlatformProvisioner(reqUser);
     const email = String(data?.email || '').trim().toLowerCase();
     if (!email) throw new Error('email is required');
-    // Operator can opt out of dropping the tenant database (e.g. retain data
-    // for forensic reasons); default is full cleanup.
+
+    const hqResult = await headquartersAuthService.softDeleteTenantByEmail(email, reqUser);
+    const demoResult = await hqDemosService.softDeleteDemoByEmail(email, reqUser);
+
+    if (!hqResult?.deleted && !demoResult?.deleted) {
+      throw new Error('Tenant not found');
+    }
+
+    return {
+      deleted: true,
+      softDeleted: true,
+      email,
+      tenantDbName: hqResult?.tenantDbName || null,
+      databaseDropped: false,
+      movedToRecycleBin: true,
+    };
+  },
+
+  async listRecycleBin(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const deletedTenants = await headquartersAuthService.listDeletedTenants();
+    const deletedDemos = await hqDemosService.listDeletedDemoRequests();
+    const byEmail = new Set(
+      deletedTenants.map((t) => String(t.email || '').trim().toLowerCase()).filter(Boolean),
+    );
+
+    const items = deletedTenants.map((tenant) => ({
+      ...mapTenantForHqResponse(tenant),
+      source: 'tenant',
+    }));
+
+    for (const demo of deletedDemos) {
+      const email = String(demo.email || '').trim().toLowerCase();
+      if (!email || byEmail.has(email)) continue;
+      items.push({
+        id: `landing-${demo.id}`,
+        name: demo.fullName || demo.organizationName || demo.email,
+        email: demo.email,
+        loginId: demo.trialLoginId || demo.email,
+        organizationType: demo.organizationType,
+        organizationName: demo.organizationName || '',
+        signupSource: demo.requestKind === 'purchase' ? 'landing_purchase' : 'landing_trial',
+        subscriptionPlan: buildSubscriptionPlanFromDemo(demo),
+        tenantDbName: demo.trialTenantDbName || '',
+        tenantProvisioningMode: 'DEDICATED',
+        status: 'DELETED',
+        pausedAt: null,
+        pausedBy: '',
+        createdAt: demo.createdAt || null,
+        updatedAt: demo.deletedAt || demo.createdAt || null,
+        isLandingSignupOnly: true,
+        isDeleted: true,
+        deletedAt: demo.deletedAt || null,
+        deletedBy: demo.deletedBy || '',
+        source: 'landing',
+      });
+    }
+
+    items.sort((a, b) => new Date(b.deletedAt || 0).getTime() - new Date(a.deletedAt || 0).getTime());
+    return { items, count: items.length };
+  },
+
+  async restoreTenant(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email is required');
+    const hqResult = await headquartersAuthService.restoreTenantByEmail(email);
+    const demoResult = await hqDemosService.restoreDemoByEmail(email);
+    if (!hqResult?.restored && !demoResult?.restored) {
+      throw new Error('Recycle bin item not found');
+    }
+    return {
+      restored: true,
+      email,
+      tenantDbName: hqResult?.tenantDbName || null,
+    };
+  },
+
+  async purgeTenant(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email is required');
     const dropDatabase = data?.dropDatabase !== false;
-    const result = await headquartersAuthService.deleteTenantByEmail(email, { dropDatabase });
-    if (!result?.deleted) throw new Error('Tenant not found');
-    return result;
+    let hqPurged = false;
+    try {
+      const result = await headquartersAuthService.deleteTenantByEmail(email, { dropDatabase });
+      hqPurged = Boolean(result?.deleted);
+    } catch {
+      hqPurged = false;
+    }
+    const demoResult = await hqDemosService.purgeDemoByEmail(email);
+    if (!hqPurged && !demoResult?.purged) {
+      throw new Error('Recycle bin item not found');
+    }
+    return {
+      purged: true,
+      email,
+      databaseDropped: Boolean(hqPurged && dropDatabase),
+    };
   },
 
   async listLeads(reqUser) {
@@ -818,6 +967,16 @@ export const hqService = {
     return hqTicketsService.updateTicket(id, data, reqUser);
   },
 
+  async listSupportTicketMessages(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTicketsService.listMessages(id, { hq: true });
+  },
+
+  async addSupportTicketMessage(id, body, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTicketsService.addMessage(id, body, reqUser, { hq: true });
+  },
+
   /** Phase 1 Help-page tickets (candidate portal /help → /api/hq-tickets). */
   async listHelpTickets(reqUser, filters = {}) {
     assertPlatformProvisioner(reqUser);
@@ -827,6 +986,16 @@ export const hqService = {
   async updateHelpTicket(id, status, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqHelpTicketsService.updateTicketStatus(id, status);
+  },
+
+  async listHelpTicketMessages(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqHelpTicketsService.listMessages(id);
+  },
+
+  async addHelpTicketMessage(id, body, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqHelpTicketsService.addMessage(id, body, reqUser);
   },
 
   async listCompanies(reqUser) {

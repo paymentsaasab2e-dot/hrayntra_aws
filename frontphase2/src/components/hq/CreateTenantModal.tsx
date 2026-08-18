@@ -25,6 +25,7 @@ export type TenantBillingCycle = 'monthly' | 'annual';
 export type TenantPlanName = 'Starter' | 'Professional' | 'Enterprise' | 'Custom';
 
 export type ProvisionTenantFormData = {
+  organizationName: string;
   name: string;
   email: string;
   loginId: string;
@@ -75,6 +76,7 @@ export function emptyProvisionTenantForm(
   const planStartDate = new Date().toISOString().slice(0, 10);
   const billingCycle: TenantBillingCycle = overrides?.billingCycle || 'monthly';
   return {
+    organizationName: '',
     name: '',
     email: '',
     loginId: '',
@@ -126,6 +128,7 @@ export function provisionFormFromCompany(company: {
   return emptyProvisionTenantForm({
     source: 'company',
     companyId: company.id,
+    organizationName: company.name || '',
     name: contactName || company.name || '',
     email: company.email || '',
     loginId: loginSeed ? `${loginSeed}_admin` : '',
@@ -211,7 +214,7 @@ export function ProvisionTenantFormFields({
             Create from
           </label>
           <p className="mt-1 text-[11px] text-slate-500">
-            Funnel: Lead → Client → Company → Tenant. Or create a workspace manually.
+            Funnel: Lead → Client → Company → User. Or create a workspace manually.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -279,7 +282,7 @@ export function ProvisionTenantFormFields({
             </select>
             {availableCompanies.length === 0 && !companiesLoading ? (
               <p className="text-xs text-amber-700">
-                No companies without a tenant yet. Convert a lead to a client/company first, or
+                No companies without a user yet. Convert a lead to a client/company first, or
                 create manually.
               </p>
             ) : null}
@@ -288,7 +291,14 @@ export function ProvisionTenantFormFields({
       </div>
 
       <HqFieldText
-        label="Tenant admin name"
+        label="User name"
+        icon={Building2}
+        value={data.organizationName}
+        onChange={(v) => onChange({ ...data, organizationName: v })}
+        placeholder="Acme Recruiters Pvt Ltd"
+      />
+      <HqFieldText
+        label="Admin name"
         icon={User}
         value={data.name}
         onChange={(v) => onChange({ ...data, name: v })}
@@ -466,7 +476,7 @@ export function ProvisionTenantFormFields({
             Pricing & plan
           </label>
           <p className="mt-1 text-[11px] text-slate-500">
-            Choose a plan, billing cycle, and set user/job limits for this tenant.
+            Choose a plan, billing cycle, and set user/job limits for this workspace.
           </p>
         </div>
 
@@ -751,11 +761,11 @@ export function CreateTenantModal({
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
           <div>
             <h2 id="create-tenant-title" className="text-xl font-bold text-slate-900">
-              Create tenant
+              Create user
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               From an HQ company (Lead → Client → Company) or create manually. Assign pricing later
-              on Tenants / Plans.
+              on Users / Plans.
             </p>
           </div>
           <button
@@ -790,7 +800,7 @@ export function CreateTenantModal({
               disabled={isLoading || !canSubmit}
               loading={isLoading}
             >
-              Create tenant
+              Create user
             </HqPrimaryButton>
           </div>
         </form>

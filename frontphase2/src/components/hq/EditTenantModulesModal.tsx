@@ -85,7 +85,7 @@ export function EditTenantModulesModal({ open, tenant, onClose, onSaved }: Props
         productLine,
         enabledModules,
       });
-      void requestSuccess('Tenant tabs updated and synced to Phase 2. Ask the tenant to refresh or re-open Phase 2.');
+      void requestSuccess('Tabs updated and synced to Phase 2. Ask the user to refresh or re-open Phase 2.');
       onSaved();
       onClose();
     } catch (err) {
@@ -136,7 +136,7 @@ export function EditTenantModulesModal({ open, tenant, onClose, onSaved }: Props
                         id="edit-tenant-modules-title"
                         className="text-lg font-bold tracking-tight text-slate-900"
                       >
-                        Tenant modules &amp; tabs
+                        User modules &amp; tabs
                       </h2>
                       <p className="mt-0.5 truncate text-sm font-medium text-slate-600">
                         {tenant.name} · {tenant.email}

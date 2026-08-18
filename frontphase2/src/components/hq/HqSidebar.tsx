@@ -11,16 +11,15 @@ import {
   CalendarDays,
   ChevronDown,
   CreditCard,
-  Database,
   Globe,
   GraduationCap,
   LayoutDashboard,
   Loader2,
   LogOut,
-  Server,
   Settings,
   Target,
   Ticket,
+  Trash2,
   UserRound,
   Users,
   UsersRound,
@@ -57,6 +56,7 @@ export type HqNavId =
   | 'company'
   | 'employeeTickets'
   | 'employerTickets'
+  | 'recycleBin'
   | 'portal'
   | 'events'
   | 'settings';
@@ -145,7 +145,7 @@ export const HQ_NAV_ITEMS: {
   },
   {
     id: 'tenants',
-    label: 'Tenants',
+    label: 'Users',
     href: '/hq?tab=tenants',
     icon: Users,
     accent: 'blue',
@@ -165,6 +165,14 @@ export const HQ_NAV_ITEMS: {
     href: '/hq/tickets?audience=employer',
     icon: Ticket,
     accent: 'rose',
+    group: 'employers',
+  },
+  {
+    id: 'recycleBin',
+    label: 'Recycle Bin',
+    href: '/hq/recycle-bin',
+    icon: Trash2,
+    accent: 'slate',
     group: 'employers',
   },
   // CRM dropdown — Dashboard, Leads, Clients
@@ -276,6 +284,9 @@ function isNavActive(
       (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) && audience === 'employer'
     );
   }
+  if (item.id === 'recycleBin') {
+    return pathname === '/hq/recycle-bin' || pathname.startsWith('/hq/recycle-bin/');
+  }
   if (item.id === 'candidates') {
     return pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/');
   }
@@ -325,6 +336,7 @@ function isEmployersSectionActive(
   audience: string | null,
 ) {
   if (pathname === '/hq/company' || pathname.startsWith('/hq/company/')) return true;
+  if (pathname === '/hq/recycle-bin' || pathname.startsWith('/hq/recycle-bin/')) return true;
   if (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) {
     return audience === 'employer';
   }
@@ -515,9 +527,7 @@ export function HqSidebar() {
         /* ignore */
       }
     } finally {
-      router.replace('/hq/login');
-      router.refresh();
-      setLoggingOut(false);
+      window.location.assign('/hq/login');
     }
   };
 
@@ -643,16 +653,6 @@ export function HqSidebar() {
           )}
           {loggingOut ? 'Signing out…' : 'Logout'}
         </button>
-        <div className="space-y-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 text-[10px] font-semibold uppercase tracking-wider text-[#6b7f90]">
-          <div className="flex items-center gap-2">
-            <Server className="h-3 w-3" />
-            <span>Auth v2.4</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Database className="h-3 w-3" />
-            <span>MongoDB Atlas</span>
-          </div>
-        </div>
       </div>
     </aside>
   );

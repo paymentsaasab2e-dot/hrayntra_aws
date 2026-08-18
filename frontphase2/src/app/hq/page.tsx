@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -13,6 +14,8 @@ import {
   Plus,
   Eye,
   Trash2,
+  LogIn,
+  Copy,
 } from 'lucide-react';
 import {
   buildApiUrl,
@@ -22,6 +25,7 @@ import {
   apiHqDeleteTenant,
   apiHqSetTenantPause,
   apiHqGetAnalytics,
+  apiHqCreateTenantImpersonation,
   type HqTenantRow,
   type HqSubscriptionPackage,
   type HqAnalyticsPayload,
@@ -81,7 +85,7 @@ interface HqStats {
 
 const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
   dashboard: 'Portal and employer platform analytics, plus tenant overview.',
-  tenants: 'All Phase 2 workspaces — including employers who purchased from the landing page.',
+  tenants: 'Phase 2 employer users and workspaces — including landing-page signups.',
   plans: '',
   bootstrap: 'Local-only super admin credential injection.',
 };
@@ -265,7 +269,7 @@ function HQSetupPage() {
       setPlanOptions(subscriptionPackagesWithPricing(opts));
     } catch (err: any) {
       // Tenants list requires a super admin session in the main app — fail soft.
-      setTenantsError(err?.message || 'Sign in as super admin in the main app first to load tenants.');
+      setTenantsError(err?.message || 'Sign in as super admin in the main app first to load users.');
       setTenants([]);
       setStats(null);
     } finally {
@@ -359,6 +363,7 @@ function HQSetupPage() {
       const maxJobs = provisionData.maxJobs ? Number(provisionData.maxJobs) : null;
       const res = await apiHqProvisionTenant({
         name: provisionData.name.trim(),
+        organizationName: provisionData.organizationName.trim() || provisionData.name.trim(),
         email: provisionData.email.trim().toLowerCase(),
         loginId: provisionData.loginId.trim(),
         password: provisionData.password,
@@ -469,19 +474,16 @@ function HQSetupPage() {
     }
   };
 
-  const handleDeleteTenant = async (email: string, dbName: string) => {
+  const handleDeleteTenant = async (email: string) => {
     if (!email) return;
 
     setPendingDeleteEmail(email);
     setStatus({ type: 'idle', message: '' });
     try {
-      const res = await apiHqDeleteTenant({ email, dropDatabase: true });
-      const d = res.data;
+      await apiHqDeleteTenant({ email });
       setStatus({
         type: 'success',
-        message: d?.databaseDropped
-          ? `Tenant ${email} deleted and database "${d.tenantDbName || dbName}" dropped.`
-          : `Tenant ${email} deleted (database was not dropped — see server logs).`,
+        message: `Tenant ${email} moved to Recycle Bin. Restore it from Employers → Recycle Bin.`,
       });
       void refreshTenants();
     } catch (err: any) {
@@ -706,7 +708,7 @@ function DashboardPanel({
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <HqStatCard label="Tenants" value={stats?.total ?? (tenantsLoading ? '…' : 0)} active />
+        <HqStatCard label="Users" value={stats?.total ?? (tenantsLoading ? '…' : 0)} active />
         <HqStatCard label="Landing purchases" value={stats?.landingPurchases ?? tenants.filter((t) => t.signupSource === 'landing_purchase').length} />
         <HqStatCard label="Agency" value={stats?.agency ?? 0} />
         <HqStatCard label="Standalone" value={stats?.standalone ?? 0} />
@@ -729,11 +731,11 @@ function DashboardPanel({
           </div>
         </HqPanel>
         <HqPanel>
-          <HqPanelTitle title="Recent tenants" />
+          <HqPanelTitle title="Recent users" />
           {tenantsError ? (
             <p className="text-xs text-rose-600">{tenantsError}</p>
           ) : recent.length === 0 ? (
-            <p className="text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No tenants provisioned yet.'}</p>
+            <p className="text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No users provisioned yet.'}</p>
           ) : (
             <div className="space-y-2">
               {recent.map((t) => (
@@ -742,7 +744,7 @@ function DashboardPanel({
                   className="flex items-center justify-between border-b border-slate-100 py-2 text-sm last:border-b-0"
                 >
                   <div className="min-w-0">
-                    <div className="truncate font-semibold text-slate-900">{t.name}</div>
+                    <div className="truncate font-semibold text-slate-900">{tenantDisplayName(t)}</div>
                     <div className="truncate text-xs text-slate-500">{t.email}</div>
                   </div>
                   <div className="shrink-0 text-right">
@@ -766,9 +768,20 @@ function DashboardPanel({
 
 function formatPlanLimits(plan: HqTenantRow['subscriptionPlan']) {
   if (!plan) return '—';
-  const users = plan.maxUsers == null ? '∞ users' : `${plan.maxUsers} users`;
+  const seats = plan.maxUsers == null ? '∞ seats' : `${plan.maxUsers} seats`;
   const jobs = plan.maxJobs == null ? '∞ jobs' : `${plan.maxJobs} jobs`;
-  return `${users} · ${jobs}`;
+  return `${seats} · ${jobs}`;
+}
+
+function tenantDisplayName(tenant: HqTenantRow) {
+  return String(tenant.organizationName || tenant.name || '').trim() || '—';
+}
+
+function tenantAdminSubtitle(tenant: HqTenantRow) {
+  const org = String(tenant.organizationName || '').trim();
+  const admin = String(tenant.name || '').trim();
+  if (!org || !admin || org.toLowerCase() === admin.toLowerCase()) return null;
+  return admin;
 }
 
 function isTenantPaused(tenant: HqTenantRow) {
@@ -780,7 +793,7 @@ function tenantSignupSourceLabel(source?: string) {
   if (source === 'landing_trial') return 'Landing trial';
   if (source === 'hq_company') return 'From company';
   if (source === 'hq_manual') return 'HQ created';
-  return 'Platform tenant';
+  return 'Platform user';
 }
 
 function tenantSignupSourceClass(source?: string) {
@@ -813,7 +826,7 @@ function TenantsPanel({
   planOptions: HqSubscriptionPackage[];
   onAssignPlan: (email: string, planId: string, billingCycle?: BillingCycle) => void;
   pendingPlanEmail: string;
-  onDeleteTenant: (email: string, dbName: string) => void;
+  onDeleteTenant: (email: string) => void;
   pendingDeleteEmail: string;
   onSetTenantPause: (email: string, paused: boolean) => void;
   pendingPauseEmail: string;
@@ -824,9 +837,44 @@ function TenantsPanel({
   const landingTrials = tenantStats?.landingTrials ?? tenants.filter((t) => t.signupSource === 'landing_trial').length;
   const [detailTenant, setDetailTenant] = useState<HqTenantRow | null>(null);
   const [deleteTenant, setDeleteTenant] = useState<DeleteTenantTarget | null>(null);
+  const [pendingAccessEmail, setPendingAccessEmail] = useState('');
+  const [accessNotice, setAccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const openDetail = (tenant: HqTenantRow) => {
     setDetailTenant(tenant);
+  };
+
+  const openTenantAccount = async (tenant: HqTenantRow) => {
+    if (!tenant.email || tenant.isLandingSignupOnly || !tenant.tenantDbName) return;
+    setPendingAccessEmail(tenant.email);
+    setAccessNotice(null);
+    try {
+      const response = await apiHqCreateTenantImpersonation({ email: tenant.email });
+      const data = response.data;
+      if (!data?.token) {
+        throw new Error('Unable to create tenant access link');
+      }
+      const loginUrl = `${window.location.origin}/login#hqImpersonation=${encodeURIComponent(data.token)}`;
+      window.open(loginUrl, '_blank', 'noopener,noreferrer');
+      setAccessNotice({
+        type: 'success',
+        message: `Opened ${tenant.name || tenant.email}. Login ID: ${data.loginId || tenant.loginId || tenant.email}. Link expires in 5 minutes.`,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to open tenant account';
+      setAccessNotice({ type: 'error', message });
+    } finally {
+      setPendingAccessEmail('');
+    }
+  };
+
+  const copyTenantLoginId = async (loginId: string) => {
+    try {
+      await navigator.clipboard.writeText(loginId);
+      setAccessNotice({ type: 'success', message: `Copied login ID: ${loginId}` });
+    } catch {
+      setAccessNotice({ type: 'error', message: 'Unable to copy login ID' });
+    }
   };
 
   // Keep detail drawer in sync after list refresh (plan/coins/tabs/pause).
@@ -861,7 +909,7 @@ function TenantsPanel({
         onConfirm={() => {
           if (!deleteTenant) return;
           void (async () => {
-            await onDeleteTenant(deleteTenant.email, deleteTenant.dbName);
+            await onDeleteTenant(deleteTenant.email);
             setDeleteTenant(null);
             if (detailTenant?.email === deleteTenant.email) setDetailTenant(null);
           })();
@@ -869,22 +917,42 @@ function TenantsPanel({
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/80 px-5 py-4">
         <HqPanelTitle
-          title="Tenants"
+          title="Users"
           meta={
             <span className="text-[10px] font-medium text-slate-400">
               {tenants.length} total · {landingPurchases} landing purchases · {landingTrials} landing trials
             </span>
           }
         />
-        <HqPrimaryButton type="button" onClick={onCreateTenant}>
-          <Plus className="h-4 w-4" />
-          Create tenant
-        </HqPrimaryButton>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/hq/recycle-bin"
+            className="inline-flex items-center gap-2 rounded-xl border border-indigo-100/90 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/40"
+          >
+            <Trash2 className="h-4 w-4" />
+            Recycle Bin
+          </Link>
+          <HqPrimaryButton type="button" onClick={onCreateTenant}>
+            <Plus className="h-4 w-4" />
+            Create user
+          </HqPrimaryButton>
+        </div>
       </div>
+      {accessNotice ? (
+        <div
+          className={`mx-5 mt-4 rounded-xl border px-4 py-3 text-xs ${
+            accessNotice.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-rose-200 bg-rose-50 text-rose-700'
+          }`}
+        >
+          {accessNotice.message}
+        </div>
+      ) : null}
       {tenantsError ? (
         <div className="m-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700">{tenantsError}</div>
       ) : tenants.length === 0 ? (
-        <div className="px-5 pb-5 text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No tenants yet.'}</div>
+        <div className="px-5 pb-5 text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No users yet.'}</div>
       ) : (
         <div className="hq-table-scroll px-1 pb-2">
           <table className="min-w-full text-left">
@@ -892,6 +960,7 @@ function TenantsPanel({
               <tr>
                 <th>Name</th>
                 <th>Email</th>
+                <th>Login ID</th>
                 <th>Source</th>
                 <th>Type</th>
                 <th>Product</th>
@@ -913,15 +982,34 @@ function TenantsPanel({
                   key={t.id}
                   className="border-b border-slate-100 last:border-b-0 transition-colors hover:bg-slate-50/60 cursor-pointer"
                   onClick={() => openDetail(t)}
-                  title="Open tenant details"
+                  title="Open user details"
                 >
                   <td className="py-3 pr-3">
-                    <p className="font-semibold text-slate-900">{t.name}</p>
-                    {t.organizationName ? (
-                      <p className="text-[10px] text-slate-500">{t.organizationName}</p>
+                    <p className="font-semibold text-slate-900">{tenantDisplayName(t)}</p>
+                    {tenantAdminSubtitle(t) ? (
+                      <p className="text-[10px] text-slate-500">Admin: {tenantAdminSubtitle(t)}</p>
                     ) : null}
                   </td>
                   <td className="py-3 pr-3 text-slate-600">{t.email}</td>
+                  <td className="py-3 pr-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-xs text-slate-700">{t.loginId || '—'}</span>
+                      {t.loginId ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void copyTenantLoginId(t.loginId);
+                          }}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
+                          title="Copy login ID"
+                          aria-label={`Copy login ID for ${t.name || t.email}`}
+                        >
+                          <Copy size={12} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
                   <td className="py-3 pr-3">
                     <span
                       className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${tenantSignupSourceClass(t.signupSource)}`}
@@ -929,7 +1017,10 @@ function TenantsPanel({
                       {tenantSignupSourceLabel(t.signupSource)}
                     </span>
                     {t.isLandingSignupOnly ? (
-                      <p className="mt-1 text-[10px] font-medium text-amber-600">Provisioned — sync pending</p>
+                      <p className="mt-1 max-w-[220px] text-[10px] font-medium leading-snug text-amber-600">
+                        Landing signup only — provision/sync pending. Pricing and tabs stay read-only until
+                        the tenant DB is ready.
+                      </p>
                     ) : null}
                   </td>
                   <td className="py-3 pr-3 font-semibold text-sky-700">{t.organizationType}</td>
@@ -1013,6 +1104,24 @@ function TenantsPanel({
                     <div className="inline-flex items-center justify-end gap-1.5">
                       <button
                         type="button"
+                        onClick={() => void openTenantAccount(t)}
+                        disabled={
+                          pendingAccessEmail === t.email ||
+                          t.isLandingSignupOnly ||
+                          !t.tenantDbName
+                        }
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+                        title={
+                          t.isLandingSignupOnly || !t.tenantDbName
+                            ? 'Tenant database not ready'
+                            : 'Open tenant account'
+                        }
+                        aria-label={`Open tenant account for ${t.name || t.email}`}
+                      >
+                        <LogIn size={15} strokeWidth={2.25} />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => openDetail(t)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100"
                         title="View details"
@@ -1020,24 +1129,26 @@ function TenantsPanel({
                       >
                         <Eye size={15} strokeWidth={2.25} />
                       </button>
-                      {t.isLandingSignupOnly ? null : (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDeleteTenant({
-                              email: t.email,
-                              dbName: t.tenantDbName,
-                              name: t.name,
-                            })
-                          }
-                          disabled={pendingDeleteEmail === t.email}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
-                          title="Delete tenant"
-                          aria-label={`Delete ${t.name || t.email}`}
-                        >
-                          <Trash2 size={15} strokeWidth={2.25} />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDeleteTenant({
+                            email: t.email,
+                            dbName: t.tenantDbName,
+                            name: t.name,
+                          })
+                        }
+                        disabled={pendingDeleteEmail === t.email}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                        title={
+                          t.isLandingSignupOnly
+                            ? 'Delete landing signup'
+                            : 'Delete user'
+                        }
+                        aria-label={`Delete ${t.name || t.email}`}
+                      >
+                        <Trash2 size={15} strokeWidth={2.25} />
+                      </button>
                     </div>
                   </td>
                 </tr>

@@ -23,6 +23,21 @@ function phase1FrontendBase() {
     .replace(/\/+$/, '');
 }
 
+/** localhost vs 127.0.0.1 often fail independently on Windows (IPv6 vs IPv4). */
+function phase1FrontendBases() {
+  const primary = phase1FrontendBase();
+  const bases = [primary];
+  try {
+    const u = new URL(primary);
+    const port = u.port ? `:${u.port}` : '';
+    if (u.hostname === 'localhost') bases.push(`${u.protocol}//127.0.0.1${port}`);
+    if (u.hostname === '127.0.0.1') bases.push(`${u.protocol}//localhost${port}`);
+  } catch {
+    /* keep primary only */
+  }
+  return [...new Set(bases.filter(Boolean))];
+}
+
 async function getHqDb() {
   if (!env.HEADQUARTERS_DATABASE_URL) {
     throw new Error('HEADQUARTERS_DATABASE_URL is not configured');
@@ -39,7 +54,7 @@ async function getCollection() {
   const collection = db.collection(HQ_HELP_TICKETS_COLLECTION);
   if (!indexesEnsured) {
     await collection.createIndexes([
-      { key: { externalId: 1 }, unique: true },
+      { key: { externalId: 1 }, unique: true, sparse: true },
       { key: { createdAt: -1 } },
       { key: { status: 1, createdAt: -1 } },
       { key: { email: 1, createdAt: -1 } },
@@ -92,6 +107,7 @@ function unwrapUpdated(result) {
 function mapTicket(doc) {
   if (!doc) return null;
   const status = String(doc.status || 'open').trim().toLowerCase();
+  const problemId = doc.problemId || (typeof doc.meta === 'string' ? doc.meta : null) || null;
   return {
     id: String(doc.externalId || doc.id || doc._id || ''),
     subject: doc.subject || '',
@@ -103,8 +119,10 @@ function mapTicket(doc) {
     createdAt: toIso(doc.createdAt),
     updatedAt: toIso(doc.updatedAt),
     meta: doc.meta || undefined,
+    problemId,
     priority: doc.priority || undefined,
     userId: doc.userId || null,
+    source: doc.source || 'help_page',
   };
 }
 
@@ -119,9 +137,12 @@ function buildStats(tickets) {
 }
 
 function ticketPayload(raw) {
-  const id = String(raw?.id || raw?._id || '').trim();
+  const id = String(raw?.id || raw?.externalId || raw?._id || '').trim();
   if (!id) return null;
   const status = String(raw.status || 'open').trim().toLowerCase();
+  const problemId = raw.problemId != null && String(raw.problemId).trim()
+    ? String(raw.problemId).trim()
+    : null;
   return {
     externalId: id,
     subject: String(raw.subject || '').trim(),
@@ -131,10 +152,25 @@ function ticketPayload(raw) {
     category: String(raw.category || '').trim(),
     status: VALID_STATUSES.has(status) ? status : 'open',
     createdAt: raw.createdAt ? new Date(raw.createdAt) : new Date(),
-    meta: raw.meta || null,
+    meta: raw.meta || problemId || null,
+    problemId,
     priority: raw.priority || null,
     userId: raw.userId || null,
+    source: raw.source || 'help_page',
   };
+}
+
+function extractPhase1Tickets(json, filters = {}) {
+  if (filters.id) {
+    const one = json?.data && typeof json.data === 'object' && !Array.isArray(json.data)
+      ? json.data
+      : json?.ticket || json?.data?.ticket || null;
+    return one?.id || one?.externalId ? [one] : [];
+  }
+  if (Array.isArray(json?.data?.tickets)) return json.data.tickets;
+  if (Array.isArray(json?.tickets)) return json.tickets;
+  if (Array.isArray(json?.data)) return json.data;
+  return [];
 }
 
 async function upsertPhase1Tickets(rawTickets) {
@@ -146,11 +182,17 @@ async function upsertPhase1Tickets(rawTickets) {
     .find({ externalId: { $in: payloads.map((row) => row.externalId) } })
     .project({ externalId: 1, hqStatusOverride: 1 })
     .toArray();
-  const overrideIds = new Set(existing.filter((row) => row.hqStatusOverride).map((row) => String(row.externalId)));
+  const existingIds = new Set(existing.map((row) => String(row.externalId)));
+  const overrideIds = new Set(
+    existing.filter((row) => row.hqStatusOverride).map((row) => String(row.externalId)),
+  );
   const now = new Date();
 
+  // Mongo rejects the same path in both $set and $setOnInsert (status conflict
+  // was dropping every Phase 1 ticket before it reached HQ).
   await collection.bulkWrite(
     payloads.map((row) => {
+      const exists = existingIds.has(row.externalId);
       const $set = {
         subject: row.subject,
         description: row.description,
@@ -159,23 +201,26 @@ async function upsertPhase1Tickets(rawTickets) {
         category: row.category,
         createdAt: row.createdAt,
         meta: row.meta,
+        problemId: row.problemId,
         priority: row.priority,
         userId: row.userId,
+        source: row.source || 'help_page',
         syncedAt: now,
         updatedAt: now,
       };
-      if (!overrideIds.has(row.externalId)) $set.status = row.status;
+      const $setOnInsert = {
+        externalId: row.externalId,
+        hqStatusOverride: false,
+      };
+      if (exists) {
+        if (!overrideIds.has(row.externalId)) $set.status = row.status;
+      } else {
+        $setOnInsert.status = row.status;
+      }
       return {
         updateOne: {
           filter: { externalId: row.externalId },
-          update: {
-            $set,
-            $setOnInsert: {
-              externalId: row.externalId,
-              hqStatusOverride: false,
-              status: row.status,
-            },
-          },
+          update: { $set, $setOnInsert },
           upsert: true,
         },
       };
@@ -194,17 +239,21 @@ async function syncFromPhase1(filters = {}) {
   const limit = Math.min(200, Math.max(1, Number(filters.limit) || 100));
   qs.set('limit', String(limit));
 
-  const url = `${phase1FrontendBase()}/api/hq-tickets?${qs.toString()}`;
-  const json = await fetchJson(url);
-
-  if (filters.id) {
-    const one = json?.data || null;
-    if (one) await upsertPhase1Tickets([one]);
-    return;
+  let lastError = null;
+  let json = null;
+  for (const base of phase1FrontendBases()) {
+    const url = `${base}/api/hq-tickets?${qs.toString()}`;
+    try {
+      json = await fetchJson(url);
+      lastError = null;
+      break;
+    } catch (error) {
+      lastError = error;
+    }
   }
+  if (!json) throw lastError || new Error('Phase 1 tickets unreachable');
 
-  const data = json?.data || {};
-  const tickets = Array.isArray(data.tickets) ? data.tickets : [];
+  const tickets = extractPhase1Tickets(json, filters);
   await upsertPhase1Tickets(tickets);
 }
 
@@ -213,7 +262,11 @@ export const hqHelpTicketsService = {
     try {
       await syncFromPhase1(filters);
     } catch (error) {
-      console.warn('[hq-help-tickets] phase1 sync skipped:', error?.message || error);
+      console.warn(
+        '[hq-help-tickets] phase1 sync skipped:',
+        error?.message || error,
+        error?.code ? `(code ${error.code})` : '',
+      );
     }
 
     const collection = await getCollection();
@@ -318,5 +371,76 @@ export const hqHelpTicketsService = {
     }
 
     return mapTicket(doc);
+  },
+
+  async listMessages(ticketId) {
+    const id = String(ticketId || '').trim();
+    if (!id) throw new Error('Ticket id is required');
+
+    try {
+      await syncFromPhase1({ id });
+    } catch (error) {
+      console.warn('[hq-help-tickets] phase1 sync before messages skipped:', error?.message || error);
+    }
+
+    let lastError = null;
+    for (const base of phase1FrontendBases()) {
+      const url = `${base}/api/hq-tickets/messages?ticketId=${encodeURIComponent(id)}&hq=1`;
+      try {
+        const json = await fetchJson(url);
+        return {
+          ticketId: id,
+          subject: json?.data?.subject || '',
+          status: json?.data?.status || 'open',
+          messages: Array.isArray(json?.data?.messages) ? json.data.messages : [],
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('Unable to load ticket messages');
+  },
+
+  async addMessage(ticketId, body, reqUser = {}) {
+    const id = String(ticketId || '').trim();
+    const text = String(body || '').trim();
+    if (!id) throw new Error('Ticket id is required');
+    if (!text) throw new Error('Message body is required');
+
+    try {
+      await syncFromPhase1({ id });
+    } catch {
+      /* optional sync */
+    }
+
+    const collection = await getCollection();
+    const doc = await collection.findOne({ externalId: id });
+    if (doc && String(doc.status || '').toLowerCase() === 'closed') {
+      throw new Error('Chat is closed for completed tickets');
+    }
+
+    const senderName =
+      String(reqUser?.name || reqUser?.fullName || reqUser?.email || 'HQ Support').trim() ||
+      'HQ Support';
+
+    let lastError = null;
+    for (const base of phase1FrontendBases()) {
+      try {
+        const json = await fetchJson(`${base}/api/hq-tickets/messages`, {
+          method: 'POST',
+          body: JSON.stringify({
+            ticketId: id,
+            body: text,
+            senderRole: 'hq',
+            senderName,
+            senderId: reqUser?.id || reqUser?._id || null,
+          }),
+        });
+        return json?.data || null;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('Unable to send ticket message');
   },
 };

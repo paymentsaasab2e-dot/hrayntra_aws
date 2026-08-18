@@ -86,7 +86,7 @@ export function DeleteTenantConfirmModal({
                         id="delete-tenant-title"
                         className="text-lg font-bold tracking-tight text-slate-900"
                       >
-                        Delete tenant
+                        Move to Recycle Bin
                       </h2>
                       <p className="mt-0.5 truncate text-sm font-medium text-slate-600">
                         {tenant.name ? `${tenant.name} · ` : ''}
@@ -100,36 +100,38 @@ export function DeleteTenantConfirmModal({
 
               <div className="space-y-4 px-5 py-5 sm:px-6">
                 <p className="text-sm leading-relaxed text-slate-600">
-                  Permanently delete{' '}
-                  <span className="font-semibold text-slate-900">{tenant.email}</span>? This will:
+                  Move{' '}
+                  <span className="font-semibold text-slate-900">{tenant.email}</span> to the Recycle
+                  Bin?
                 </p>
-                <ul className="space-y-2.5 rounded-2xl border border-rose-100 bg-rose-50/50 p-4">
+                <ul className="space-y-2.5 rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
                   <li className="flex items-start gap-2.5 text-sm text-slate-700">
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-rose-600 ring-1 ring-rose-100">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-amber-600 ring-1 ring-amber-100">
                       <UserX size={14} />
                     </span>
-                    <span>Remove the HQ workspace user record</span>
+                    <span>The user disappears from HQ Users (soft delete)</span>
                   </li>
                   <li className="flex items-start gap-2.5 text-sm text-slate-700">
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-rose-600 ring-1 ring-rose-100">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-amber-600 ring-1 ring-amber-100">
                       <Database size={14} />
                     </span>
                     <span>
-                      Drop the tenant database{' '}
+                      Tenant database{' '}
                       <span className="font-mono text-xs font-semibold text-slate-900">
                         {dbLabel}
-                      </span>
+                      </span>{' '}
+                      is kept until you delete forever
                     </span>
                   </li>
                   <li className="flex items-start gap-2.5 text-sm text-slate-700">
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-rose-600 ring-1 ring-rose-100">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-amber-600 ring-1 ring-amber-100">
                       <Trash2 size={14} />
                     </span>
-                    <span>Clear the directory mapping</span>
+                    <span>You can restore this user from Recycle Bin</span>
                   </li>
                 </ul>
-                <p className="text-xs font-semibold text-rose-700">
-                  This action cannot be undone.
+                <p className="text-xs font-semibold text-slate-500">
+                  Permanent delete is only available in Recycle Bin.
                 </p>
               </div>
 
@@ -145,7 +147,7 @@ export function DeleteTenantConfirmModal({
                   className="!bg-rose-600 hover:!bg-rose-700"
                 >
                   <Trash2 className="h-4 w-4" />
-                  Delete tenant
+                  Move to Recycle Bin
                 </HqPrimaryButton>
               </div>
             </motion.div>

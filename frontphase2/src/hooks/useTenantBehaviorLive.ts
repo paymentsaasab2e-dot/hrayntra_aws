@@ -10,7 +10,10 @@ import {
 
 const DEFAULT_POLL_MS = 8_000;
 
-export function useTenantBehaviorLive(pollMs = DEFAULT_POLL_MS) {
+export function useTenantBehaviorLive(
+  pollMs = DEFAULT_POLL_MS,
+  range: 'today' | 'week' | 'month' | 'year' = 'week',
+) {
   const [data, setData] = useState<TenantBehaviorLiveDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -22,7 +25,7 @@ export function useTenantBehaviorLive(pollMs = DEFAULT_POLL_MS) {
     if (!silent) setRefreshing(true);
     setError(null);
     try {
-      const live = await fetchTenantBehaviorLive();
+      const live = await fetchTenantBehaviorLive(range);
       if (!mountedRef.current) return;
       setData(live);
       setLastUpdated(new Date());
@@ -35,7 +38,7 @@ export function useTenantBehaviorLive(pollMs = DEFAULT_POLL_MS) {
         setRefreshing(false);
       }
     }
-  }, []);
+  }, [range]);
 
   useEffect(() => {
     mountedRef.current = true;

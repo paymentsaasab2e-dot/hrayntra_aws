@@ -50,6 +50,7 @@ router.post('/setup', hqController.setupSuperAdmin);
 
 router.post('/provision-tenant', authMiddleware, hqController.provisionTenant);
 router.get('/tenants', authMiddleware, hqController.listTenants);
+router.post('/tenants/impersonate', authMiddleware, hqController.createTenantImpersonationAccess);
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.put('/tenants/coins', authMiddleware, hqController.setTenantCoins);
 router.put('/tenants/pause', authMiddleware, hqController.setTenantPause);
@@ -74,6 +75,9 @@ router.delete('/packages/:id', authMiddleware, hqController.deletePackage);
 // clients that strip DELETE bodies.
 router.delete('/tenants', authMiddleware, hqController.deleteTenant);
 router.delete('/tenants/:email', authMiddleware, hqController.deleteTenant);
+router.get('/recycle-bin', authMiddleware, hqController.listRecycleBin);
+router.post('/recycle-bin/restore', authMiddleware, hqController.restoreTenant);
+router.delete('/recycle-bin/:email', authMiddleware, hqController.purgeTenant);
 
 router.get('/leads', authMiddleware, hqController.listLeads);
 router.post('/leads', authMiddleware, hqController.createLead);
@@ -92,8 +96,12 @@ router.post('/demos/:id/grant-trial', authMiddleware, hqController.grantDemoTria
 
 router.get('/tickets', authMiddleware, hqController.listSupportTickets);
 router.patch('/tickets/:id', authMiddleware, hqController.updateSupportTicket);
+router.get('/tickets/:id/messages', authMiddleware, hqController.listSupportTicketMessages);
+router.post('/tickets/:id/messages', authMiddleware, hqController.addSupportTicketMessage);
 
 router.get('/help-tickets', authMiddleware, hqController.listHelpTickets);
+router.get('/help-tickets/:id/messages', authMiddleware, hqController.listHelpTicketMessages);
+router.post('/help-tickets/:id/messages', authMiddleware, hqController.addHelpTicketMessage);
 router.patch('/help-tickets/:id', authMiddleware, hqController.updateHelpTicket);
 router.patch('/help-tickets', authMiddleware, hqController.updateHelpTicket);
 
