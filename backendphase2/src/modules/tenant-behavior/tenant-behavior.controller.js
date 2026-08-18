@@ -32,7 +32,9 @@ export const tenantBehaviorController = {
 
   async getTenantAggregate(req, res) {
     try {
-      const aggregate = await tenantBehaviorService.buildTenantBehaviorAggregate();
+      const rangeRaw = String(req.query?.range || 'week').trim().toLowerCase();
+      const range = ['today', 'week', 'month', 'year'].includes(rangeRaw) ? rangeRaw : 'week';
+      const aggregate = await tenantBehaviorService.buildTenantBehaviorAggregate(range);
       return sendResponse(res, 200, 'OK', aggregate);
     } catch (error) {
       return handleError(res, error, '[getTenantAggregate]');
@@ -41,7 +43,9 @@ export const tenantBehaviorController = {
 
   async getLiveDashboard(req, res) {
     try {
-      const dashboard = await tenantBehaviorService.buildTenantLiveDashboard();
+      const rangeRaw = String(req.query?.range || 'week').trim().toLowerCase();
+      const range = ['today', 'week', 'month', 'year'].includes(rangeRaw) ? rangeRaw : 'week';
+      const dashboard = await tenantBehaviorService.buildTenantLiveDashboard(range);
       return sendResponse(res, 200, 'OK', dashboard);
     } catch (error) {
       return handleError(res, error, '[getLiveDashboard]');

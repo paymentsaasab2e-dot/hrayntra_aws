@@ -179,6 +179,52 @@ export function HqProductLineSelectBoxes({
   );
 }
 
+export function resolveHqLeadProductLines(lead: {
+  hqProductLines?: string[] | null;
+  hqProductLine?: string | null;
+  interestedModules?: string[] | null;
+}): HqProductLine[] {
+  const fromFields = normalizeHqProductLines(
+    Array.isArray(lead.hqProductLines) && lead.hqProductLines.length
+      ? lead.hqProductLines
+      : lead.hqProductLine || null,
+  );
+  if (fromFields.length) return fromFields;
+  const modules = (lead.interestedModules || []).map((item) => String(item).toLowerCase());
+  const fromModules: HqProductLine[] = [];
+  if (modules.includes('crm')) fromModules.push('crm');
+  if (modules.includes('recruitment')) fromModules.push('recruitment');
+  return fromModules;
+}
+
+export function HqLeadProductLineBadges({
+  lines,
+  className,
+}: {
+  lines: HqProductLine[];
+  className?: string;
+}) {
+  if (!lines.length) {
+    return <span className="text-[11px] text-slate-400">—</span>;
+  }
+  return (
+    <div className={`flex flex-wrap gap-1 ${className || ''}`}>
+      {lines.map((line) => (
+        <span
+          key={line}
+          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ring-1 ${
+            line === 'recruitment'
+              ? 'bg-violet-50 text-violet-700 ring-violet-200'
+              : 'bg-indigo-50 text-indigo-700 ring-indigo-200'
+          }`}
+        >
+          {hqProductLineLabel(line)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function hqProductLineLabel(line: HqProductLine | null | undefined): string {
   if (line === 'recruitment') return 'Recruitment';
   if (line === 'crm') return 'CRM';

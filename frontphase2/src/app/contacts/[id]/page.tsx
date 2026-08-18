@@ -74,7 +74,8 @@ export default function ContactProfilePage() {
     return (
       <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center">
         <div className="text-center">
-          <div className="text-gray-500 mb-4">Contact not found</div>
+          <div className="text-lg font-semibold text-gray-900">We couldn’t find this</div>
+          <div className="text-sm text-gray-500 mb-4 mt-1">This contact isn’t available.</div>
           <button
             onClick={() => router.push('/contacts')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium"

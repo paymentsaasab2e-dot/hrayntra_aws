@@ -55,9 +55,14 @@ export function HqEmployerAnalyticsDashboard({
           { label: 'HQ leads', value: k.hqLeads, delta: `${k.hqLeadConversionRate}% conv` },
           { label: 'Hot leads', value: k.hotLeads ?? 0 },
           {
-            label: 'Pipeline value',
-            value: Number(k.pipelineValue || 0).toLocaleString(),
+            label: 'Monthly billing',
+            value: Number(k.monthlyBillingTotal ?? k.mrr ?? 0).toLocaleString(),
           },
+          {
+            label: 'Annual billing (ARR)',
+            value: Number(k.arr ?? 0).toLocaleString(),
+          },
+          { label: 'Billing tenants', value: k.billingTenants ?? 0 },
           { label: 'HQ companies', value: k.hqCompanies },
           { label: 'Follow-ups today', value: k.followUpsToday },
           { label: 'Demos verified', value: k.demosVerified },
@@ -366,7 +371,9 @@ function EmployerParametersReference({ data }: { data: HqEmployerAnalytics }) {
               <PRow label="HQ Leads" value={k.hqLeads} description="Leads managed in the HQ CRM pipeline" />
               <PRow label="HQ Lead Conversion" value={`${k.hqLeadConversionRate}%`} description="Lead-to-company conversion rate" />
               <PRow label="Hot Leads" value={k.hotLeads ?? 0} description="High-priority leads requiring immediate attention" />
-              <PRow label="Pipeline Value" value={`$${Number(k.pipelineValue || 0).toLocaleString()}`} description="Total estimated deal value of active leads" />
+              <PRow label="Monthly Billing" value={`$${Number(k.monthlyBillingTotal ?? k.mrr ?? 0).toLocaleString()}`} description="Total monthly subscription billing from tenant plan pricing" />
+              <PRow label="Annual Billing (ARR)" value={`$${Number(k.arr ?? 0).toLocaleString()}`} description="Monthly billing × 12 across paid tenant plans" />
+              <PRow label="Billing Tenants" value={k.billingTenants ?? 0} description="Active tenants with priced subscription plans (excludes trials)" />
               <PRow label="HQ Companies" value={k.hqCompanies} description="Companies created from converted leads" />
               <PRow label="Demos Verified" value={k.demosVerified} description="Landing page demo requests that are verified" />
               <PRow label="Demo Purchases" value={k.demosPurchases} description="Demo requests converted to purchases" />

@@ -57,7 +57,7 @@ export function categoryLabel(cat: TenantActivityCategory | string): string {
 export function isMeaningfulPhase2Path(pathname: string): boolean {
   const path = (pathname || '/').split('?')[0].toLowerCase();
   if (!path || path === '/') return false;
-  if (path.startsWith('/login') || path.startsWith('/hq/login')) return false;
+  if (path.startsWith('/login') || path.startsWith('/hq')) return false;
   if (path.startsWith('/forgot-password') || path.startsWith('/reset-password')) return false;
   if (path.startsWith('/apply') || path.startsWith('/client-review')) return false;
   if (path === '/thebehave' || path.startsWith('/tenant-behave')) return false;

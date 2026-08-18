@@ -528,8 +528,8 @@ export default function CalendarPage() {
               </div>
             ) : error ? (
               <div className="p-8 text-center">
-                <div className="text-lg font-semibold text-red-700">Unable to load calendar</div>
-                <p className="mt-1 text-sm text-red-500">{error}</p>
+                <div className="text-lg font-semibold text-slate-900">Unable to connect right now</div>
+                <p className="mt-1 text-sm text-slate-600">Please try again in a little while.</p>
               </div>
             ) : (
               <div className="grid grid-cols-7">

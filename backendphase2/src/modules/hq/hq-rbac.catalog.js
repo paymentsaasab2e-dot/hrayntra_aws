@@ -399,6 +399,7 @@ export const HQ_NAV_PERMISSION_MAP = {
   tickets: ['hq_tickets_read'],
   employerTickets: ['hq_tickets_read'],
   tenants: ['hq_tenants_read'],
+  recycleBin: ['hq_tenants_read', 'hq_tenants_delete'],
   plans: ['hq_billing_read'],
   crmDashboard: ['hq_crm_dashboard_read', 'hq_leads_read', 'hq_dashboard_read'],
   leads: ['hq_leads_read'],

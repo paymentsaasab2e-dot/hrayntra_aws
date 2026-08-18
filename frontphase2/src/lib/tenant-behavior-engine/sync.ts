@@ -70,8 +70,11 @@ export async function postTenantBehaviorPayload(payload: TenantBehaviorPayload):
     });
 }
 
-export async function fetchTenantBehaviorLive(): Promise<TenantBehaviorLiveDashboard | null> {
-  const res = await apiFetch<TenantBehaviorLiveDashboard>('/tenant-behavior/live', {
+export async function fetchTenantBehaviorLive(
+  range: 'today' | 'week' | 'month' | 'year' = 'week',
+): Promise<TenantBehaviorLiveDashboard | null> {
+  const q = new URLSearchParams({ range });
+  const res = await apiFetch<TenantBehaviorLiveDashboard>(`/tenant-behavior/live?${q.toString()}`, {
     auth: true,
   });
   return res.data || null;

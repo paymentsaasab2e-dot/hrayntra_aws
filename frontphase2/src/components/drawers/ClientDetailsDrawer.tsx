@@ -1053,7 +1053,13 @@ export function ClientDetailsDrawer({
     if (activeTab === 'billing' && !isOrgBillingNavEnabled()) {
       setActiveTab('overview');
     }
-  }, [activeTab, orgRecruitmentUiVersion]);
+    if (
+      isHqOverrideMode &&
+      (activeTab === 'jobs' || activeTab === 'placements' || activeTab === 'billing')
+    ) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, orgRecruitmentUiVersion, isHqOverrideMode]);
   const [fullClientData, setFullClientData] = useState<Client | null>(client);
   
   // Fetch full client data when drawer opens to ensure all fields are available
@@ -3718,7 +3724,7 @@ export function ClientDetailsDrawer({
           title: job.title,
           department: (job as any).department || 'Not specified',
           location: job.location || 'Not specified',
-          hiringManager: job.assignedTo?.name || (job as any).hiringManager || 'â€”',
+          hiringManager: job.assignedTo?.name || (job as any).hiringManager || '-',
           openings: job.openings,
           pipelineStages: (job as any).pipelineStages || [],
           status: statusMap[job.status] || 'Open',
@@ -3919,8 +3925,12 @@ export function ClientDetailsDrawer({
     { id: 'notes' as const, label: 'Remarks', icon: StickyNote },
     { id: 'files' as const, label: 'Files', icon: Paperclip },
   ];
-    return isOrgBillingNavEnabled() ? all : all.filter((t) => t.id !== 'billing');
-  }, [orgRecruitmentUiVersion]);
+    let tabs = isOrgBillingNavEnabled() ? all : all.filter((t) => t.id !== 'billing');
+    if (isHqOverrideMode) {
+      tabs = tabs.filter((t) => t.id !== 'jobs' && t.id !== 'placements' && t.id !== 'billing');
+    }
+    return tabs;
+  }, [orgRecruitmentUiVersion, isHqOverrideMode]);
 
   const revenue = client?.revenue ?? `$${(Number(client?.placements ?? 0) * 3.5).toFixed(1)}k`;
   const teamMemberContactIds = useMemo(

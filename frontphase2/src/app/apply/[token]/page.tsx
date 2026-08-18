@@ -85,11 +85,16 @@ export default function PublicJobApplyPage() {
         setJob(data.job || null);
         const schema = normalizeApplicationFormSchema(data.formSchema);
         setFormSchema(schema);
-        if (!data.job) setError('Job not found');
+        if (!data.job) setError('This job isn’t available');
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Unable to load application');
+          const status = (err as { status?: number })?.status;
+          if (status === 404 || !token) {
+            setError('This job isn’t available');
+          } else {
+            setError('Unable to connect right now');
+          }
         }
       })
       .finally(() => {
@@ -136,17 +141,14 @@ export default function PublicJobApplyPage() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="max-w-md rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm">
-          <p className="text-red-700 font-medium">{error}</p>
-          {!tenantDbName ? (
-            <p className="mt-3 text-sm text-slate-600">
-              This apply link is missing the tenant parameter. Ask the recruiter for a full link that
-              includes <span className="font-mono text-slate-800">?tenantDbName=…</span> in the URL.
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-slate-600">
-              Tenant: <span className="font-mono font-medium">{tenantDbName}</span>
-            </p>
-          )}
+          <p className="text-lg font-semibold text-slate-900">
+            {error === 'Unable to connect right now' ? 'Unable to connect right now' : 'This job isn’t available'}
+          </p>
+          <p className="mt-3 text-sm text-slate-600">
+            {error === 'Unable to connect right now'
+              ? 'Please try again in a little while. Your work is safe.'
+              : 'Ask the recruiter for a new link and try again.'}
+          </p>
         </div>
       </div>
     );

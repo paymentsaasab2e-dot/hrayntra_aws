@@ -316,6 +316,28 @@ export async function gateLoginOrIssueTokens({
   return createSessionAndTokens({ userId, tokenPayload, refreshPayload, deviceMeta });
 }
 
+/**
+ * HQ support impersonation: issue tokens without touching the tenant user's active session.
+ * No sessionId is attached so duplicate-session checks and single-session enforcement are skipped.
+ */
+export async function issueHqImpersonationTokens({
+  userId,
+  tokenPayload,
+  refreshPayload,
+  deviceMeta,
+  hqActorEmail,
+}) {
+  const accessToken = signToken({ ...tokenPayload, hqImpersonation: true });
+  const refreshToken = signRefreshToken({ ...refreshPayload, hqImpersonation: true });
+
+  await audit(userId, 'HQ_IMPERSONATION_LOGIN', deviceMeta, {
+    hqActorEmail: String(hqActorEmail || '').trim() || undefined,
+    impersonation: true,
+  });
+
+  return { accessToken, refreshToken, sessionId: null };
+}
+
 export async function createSessionAndTokens({ userId, tokenPayload, refreshPayload, deviceMeta }) {
   const sessionId = crypto.randomUUID();
   const accessToken = signToken({ ...tokenPayload, sessionId });
@@ -841,6 +863,7 @@ export async function expireStaleTransfers() {
 
 export const sessionService = {
   gateLoginOrIssueTokens,
+  issueHqImpersonationTokens,
   findActiveSessionForUser,
   validateSessionFromToken,
   heartbeat,

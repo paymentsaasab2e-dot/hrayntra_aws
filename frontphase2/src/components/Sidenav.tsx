@@ -235,9 +235,7 @@ const UserDropdown = ({
         // so dropping the user on /login lets them sign into a different workspace.
         await apiLogout();
       } finally {
-        router.replace('/login?switchWorkspace=1');
-        router.refresh();
-        setIsSwitching(false);
+        window.location.assign('/login?switchWorkspace=1');
       }
       return;
     }
@@ -251,9 +249,7 @@ const UserDropdown = ({
     try {
       await apiLogout();
     } finally {
-      router.replace('/login?redirect=%2F');
-      router.refresh();
-      setIsLoggingOut(false);
+      window.location.assign('/login');
     }
   }
 

@@ -174,6 +174,12 @@ export default function HelpCenterPage() {
                 Back to dashboard
                 <ArrowRight className="h-4 w-4" />
               </Link>
+              <Link
+                href="/status-screens"
+                className="mt-3 block text-sm font-medium text-teal-200 hover:text-white"
+              >
+                View status screens catalog
+              </Link>
             </div>
           </aside>
         </div>

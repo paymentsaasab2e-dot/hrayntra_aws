@@ -7,6 +7,7 @@ const router = express.Router();
 
 router.post('/register', authController.register);
 router.post('/login', authController.login);
+router.post('/consume-impersonation-token', authController.consumeImpersonationToken);
 router.post('/logout', authMiddleware, authController.logout);
 router.get('/logout-beacon', authController.logoutBeacon);
 router.post('/refresh', authController.refresh);

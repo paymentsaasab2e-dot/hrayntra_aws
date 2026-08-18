@@ -38,11 +38,10 @@ export function TrialExpiredPurchaseModal({ open, plan, onDismiss }: TrialExpire
         </div>
 
         <h2 id="trial-expired-title" className="text-2xl font-bold text-slate-900">
-          Your 5-day trial has ended
+          Your trial has ended
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          You have been signed out. Purchase a plan to sign back in and continue using HRYANTRA with
-          full access. Your workspace data is kept safe until you upgrade.
+          Sign in again after choosing a plan. Your data is kept.
         </p>
 
         {plan?.planStartDate || plan?.planEndDate ? (

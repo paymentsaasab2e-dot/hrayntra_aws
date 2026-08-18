@@ -87,17 +87,20 @@ async function syncPortalDemosIntoHq() {
   const hq = await getHqCollection();
   const docs = await portal.find({}).sort({ createdAt: -1 }).limit(500).toArray();
   if (!docs.length) return;
+  const deletedHq = await hq.find({ isDeleted: true }, { projection: { _id: 1 } }).toArray();
+  const deletedIds = new Set(deletedHq.map((d) => String(d._id)));
   const now = new Date();
-  await hq.bulkWrite(
-    docs.map((doc) => ({
+  const ops = docs
+    .filter((doc) => !deletedIds.has(String(doc._id)))
+    .map((doc) => ({
       replaceOne: {
         filter: { _id: doc._id },
         replacement: { ...doc, mirroredFrom: 'job_portal', mirroredAt: now },
         upsert: true,
       },
-    })),
-    { ordered: false },
-  );
+    }));
+  if (!ops.length) return;
+  await hq.bulkWrite(ops, { ordered: false });
 }
 
 function parsePurchaseOutcome(outcome) {
@@ -173,6 +176,13 @@ function toDemoRow(doc) {
         : doc.emailVerifiedAt || null,
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : doc.createdAt || null,
     submittedAt: formatDate(doc.emailVerifiedAt || doc.createdAt),
+    isDeleted: Boolean(doc.isDeleted),
+    deletedAt: doc.deletedAt
+      ? doc.deletedAt instanceof Date
+        ? doc.deletedAt.toISOString()
+        : String(doc.deletedAt)
+      : null,
+    deletedBy: String(doc.deletedBy || ''),
   };
 }
 
@@ -249,7 +259,11 @@ export const hqDemosService = {
     }
 
     const collection = await getHqCollection();
-    const docs = await collection.find({}).sort({ createdAt: -1 }).limit(500).toArray();
+    const docs = await collection
+      .find({ isDeleted: { $ne: true } })
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .toArray();
     const demos = docs.map(toDemoRow);
     return {
       demos,
@@ -298,6 +312,91 @@ export const hqDemosService = {
         database: hqDbName(),
         collection: HQ_DEMO_COLLECTION,
       },
+    };
+  },
+
+  async listDeletedDemoRequests() {
+    const collection = await getHqCollection();
+    const docs = await collection
+      .find({ isDeleted: true })
+      .sort({ deletedAt: -1, createdAt: -1 })
+      .limit(500)
+      .toArray();
+    return docs.map(toDemoRow);
+  },
+
+  async softDeleteDemoByEmail(email, actor = {}) {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized) return { deleted: false };
+    const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const filter = {
+      email: { $regex: `^${escaped}$`, $options: 'i' },
+      isDeleted: { $ne: true },
+    };
+    const now = new Date();
+    const update = {
+      $set: {
+        isDeleted: true,
+        deletedAt: now,
+        deletedBy: String(actor?.email || actor?.name || '').trim(),
+        updatedAt: now,
+      },
+    };
+    const hq = await getHqCollection();
+    const hqResult = await hq.updateMany(filter, update);
+    try {
+      const portal = await getPortalCollection();
+      if (portal) await portal.updateMany(filter, update);
+    } catch (error) {
+      console.warn('[hq-demos] portal soft-delete skipped:', error?.message || error);
+    }
+    return { deleted: (hqResult.modifiedCount || 0) > 0, email: normalized };
+  },
+
+  async restoreDemoByEmail(email) {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized) return { restored: false };
+    const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const filter = {
+      email: { $regex: `^${escaped}$`, $options: 'i' },
+      isDeleted: true,
+    };
+    const now = new Date();
+    const update = {
+      $set: { updatedAt: now },
+      $unset: { isDeleted: '', deletedAt: '', deletedBy: '' },
+    };
+    const hq = await getHqCollection();
+    const hqResult = await hq.updateMany(filter, update);
+    try {
+      const portal = await getPortalCollection();
+      if (portal) await portal.updateMany(filter, update);
+    } catch (error) {
+      console.warn('[hq-demos] portal restore skipped:', error?.message || error);
+    }
+    return { restored: (hqResult.modifiedCount || 0) > 0, email: normalized };
+  },
+
+  async purgeDemoByEmail(email) {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized) return { purged: false };
+    const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const filter = { email: { $regex: `^${escaped}$`, $options: 'i' } };
+    const hq = await getHqCollection();
+    const hqResult = await hq.deleteMany(filter);
+    let portalDeleted = 0;
+    try {
+      const portal = await getPortalCollection();
+      if (portal) {
+        const portalResult = await portal.deleteMany(filter);
+        portalDeleted = portalResult.deletedCount || 0;
+      }
+    } catch (error) {
+      console.warn('[hq-demos] portal purge skipped:', error?.message || error);
+    }
+    return {
+      purged: (hqResult.deletedCount || 0) > 0 || portalDeleted > 0,
+      email: normalized,
     };
   },
 };

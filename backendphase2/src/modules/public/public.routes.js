@@ -6,7 +6,7 @@ const router = express.Router();
 
 /**
  * GET /api/v1/public/landing-metrics
- * Safe aggregate counts only. Disabled unless LANDING_PUBLIC_METRICS=true.
+ * Safe aggregate counts only. Set LANDING_PUBLIC_METRICS=false to force demo mode.
  */
 router.get('/landing-metrics', async (_req, res) => {
   try {

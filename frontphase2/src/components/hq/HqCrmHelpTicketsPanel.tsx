@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Mail, RefreshCw, Search, Ticket } from 'lucide-react';
+import { Loader2, Mail, MessageSquareText, RefreshCw, Search, Ticket } from 'lucide-react';
 import {
   apiHqListHelpTickets,
   apiHqListTickets,
@@ -10,6 +10,7 @@ import {
   type HqHelpTicketStatus,
   type HqSupportTicketStatus,
 } from '@/lib/api';
+import { HqHelpTicketChatModal } from '@/components/hq/HqHelpTicketChatModal';
 
 type Audience = 'employee' | 'employer';
 
@@ -50,10 +51,12 @@ const STATUS_STYLES: Record<string, string> = {
   open: 'bg-sky-50 text-sky-700 ring-sky-200',
   in_progress: 'bg-amber-50 text-amber-700 ring-amber-200',
   resolved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  closed: 'bg-slate-100 text-slate-600 ring-slate-200',
+  closed: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
 };
 
-function labelStatus(status: string) {
+function labelStatus(status: string, audience?: Audience) {
+  if ((audience === 'employee' || audience === 'employer') && status === 'closed') return 'Completed';
+  if (audience === 'employer' && status === 'resolved') return 'Resolved';
   return String(status || '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
@@ -88,6 +91,12 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [chatTicket, setChatTicket] = useState<{
+    id: string;
+    subject: string;
+    status: string;
+    kind: Audience;
+  } | null>(null);
 
   useEffect(() => {
     if (!lockedAudience) return;
@@ -117,7 +126,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
           category: t.category || '—',
           status: t.status,
           createdAt: t.createdAt || null,
-          meta: t.problemId || undefined,
+          meta: t.problemId || (typeof t.meta === 'string' ? t.meta : undefined),
           userId: t.userId || null,
           audience: 'employee' as const,
         }));
@@ -223,13 +232,13 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
       ? ([
           { status: 'open', label: 'Mark open' },
           { status: 'in_progress', label: 'In progress' },
-          { status: 'closed', label: 'Close' },
+          { status: 'closed', label: 'Completed' },
         ] as const)
       : ([
           { status: 'open', label: 'Mark open' },
           { status: 'in_progress', label: 'In progress' },
           { status: 'resolved', label: 'Resolve' },
-          { status: 'closed', label: 'Close' },
+          { status: 'closed', label: 'Completed' },
         ] as const);
 
   const statCards =
@@ -238,18 +247,28 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
           { label: 'Total', value: stats.total },
           { label: 'Open', value: stats.open },
           { label: 'In progress', value: stats.inProgress },
-          { label: 'Closed', value: stats.closed },
+          { label: 'Completed', value: stats.closed },
         ]
       : [
           { label: 'Total', value: stats.total },
           { label: 'Open', value: stats.open },
           { label: 'In progress', value: stats.inProgress },
-          { label: 'Resolved', value: stats.resolved || 0 },
+          { label: 'Completed', value: stats.closed },
           { label: 'High / Urgent', value: stats.highPriority || 0 },
         ];
 
   return (
     <section className="mb-2 grid grid-cols-12 items-start gap-4">
+      {chatTicket ? (
+        <HqHelpTicketChatModal
+          open
+          onClose={() => setChatTicket(null)}
+          ticketId={chatTicket.id}
+          subject={chatTicket.subject}
+          ticketStatus={chatTicket.status}
+          ticketKind={chatTicket.kind}
+        />
+      ) : null}
       {!lockedAudience ? (
       <div className="col-span-12">
         <div className="inline-flex rounded-2xl border border-slate-200/90 bg-slate-100/80 p-1 shadow-inner">
@@ -332,7 +351,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
             <option value="open">Open</option>
             <option value="in_progress">In progress</option>
             {audience === 'employer' ? <option value="resolved">Resolved</option> : null}
-            <option value="closed">Closed</option>
+            <option value="closed">{audience === 'employee' || audience === 'employer' ? 'Completed' : 'Closed'}</option>
           </select>
           <button
             type="button"
@@ -383,6 +402,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
           <table className="w-full min-w-[520px] text-left text-sm">
             <thead className="sticky top-0 bg-slate-50/95 text-[10px] uppercase tracking-wider text-slate-400">
               <tr>
+                <th className="px-4 py-2 font-semibold">Ticket ID</th>
                 <th className="px-4 py-2 font-semibold">Subject</th>
                 <th className="px-2 py-2 font-semibold">
                   {audience === 'employee' ? 'User' : 'Raised by'}
@@ -396,13 +416,13 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
             <tbody>
               {loading && tickets.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
                     Loading tickets…
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
                     {audience === 'employee'
                       ? 'No employee help tickets yet. Raise one from portal `/help`.'
                       : 'No employer support tickets yet.'}
@@ -417,6 +437,9 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
                       selected?.id === ticket.id ? 'bg-blue-50/70' : 'bg-white'
                     }`}
                   >
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-bold text-emerald-700">
+                      {ticket.id}
+                    </td>
                     <td className="px-4 py-3">
                       <p className="font-semibold text-slate-900">{ticket.subject}</p>
                       <p className="mt-0.5 text-[10px] text-slate-400">
@@ -437,7 +460,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
                           STATUS_STYLES[ticket.status] || STATUS_STYLES.open
                         }`}
                       >
-                        {labelStatus(ticket.status)}
+                        {labelStatus(ticket.status, audience)}
                       </span>
                     </td>
                   </tr>
@@ -465,6 +488,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
         ) : (
           <div className="space-y-3">
             <div>
+              <p className="font-mono text-xs font-bold text-emerald-700">{selected.id}</p>
               <p className="text-base font-bold text-slate-900">{selected.subject}</p>
               <p className="mt-1 text-[11px] text-slate-500">
                 {selected.category}
@@ -511,6 +535,30 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
                 Actions
               </p>
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setChatTicket({
+                      id: selected.id,
+                      subject: selected.subject,
+                      status: selected.status,
+                      kind: audience,
+                    })
+                  }
+                  title={
+                    selected.status === 'closed'
+                      ? 'View chat history (read-only)'
+                      : 'Open ticket chat'
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition ${
+                    selected.status === 'closed'
+                      ? 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                      : 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100'
+                  }`}
+                >
+                  <MessageSquareText className="h-3.5 w-3.5" />
+                  Chat
+                </button>
                 {statusActions.map((action) => {
                   const active = selected.status === action.status;
                   const busy = updatingId === selected.id;
@@ -522,14 +570,20 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
                       onClick={() => void updateStatus(selected.id, action.status)}
                       className={`rounded-xl px-3 py-2 text-[12px] font-semibold transition disabled:opacity-50 ${
                         active
-                          ? 'bg-slate-900 text-white'
-                          : action.status === 'closed'
-                            ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                            : action.status === 'resolved'
-                              ? 'border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                              : action.status === 'in_progress'
-                                ? 'border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                                : 'border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100'
+                          ? action.status === 'closed' &&
+                              (audience === 'employee' || audience === 'employer')
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-slate-900 text-white'
+                          : action.status === 'closed' &&
+                              (audience === 'employee' || audience === 'employer')
+                            ? 'border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                            : action.status === 'closed'
+                              ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                              : action.status === 'resolved'
+                                ? 'border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                                : action.status === 'in_progress'
+                                  ? 'border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                  : 'border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100'
                       }`}
                     >
                       {busy && !active ? (

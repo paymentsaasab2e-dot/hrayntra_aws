@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Building2, Lock, LogIn, Mail, Shield } from 'lucide-react';
 import { apiLogin, formatAuthErrorMessage } from '../../../lib/api';
-import { buildLoginDevicePayload } from '../../../lib/sessionAuth';
+import { buildLoginDevicePayload, clearIntentionalLogout } from '../../../lib/sessionAuth';
 import { HQ_PLATFORM_EMAIL, isEmailAllowedForHq } from '../../../lib/hqAccess';
 import { writeHqPermissionIds } from '../../../lib/hqNavPermissions';
 
@@ -16,6 +16,10 @@ export default function HqLoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [statusHint, setStatusHint] = useState('');
+
+  useEffect(() => {
+    clearIntentionalLogout();
+  }, []);
 
   const enterHq = () => {
     writeHqPermissionIds(null);

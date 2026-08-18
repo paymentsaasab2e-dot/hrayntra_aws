@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 import { DM_Sans } from 'next/font/google';
-import { apiLogin, formatAuthErrorMessage, getAccessToken, syncTenantDbName } from '../../lib/api';
-import { buildLoginDevicePayload } from '../../lib/sessionAuth';
+import { apiLogin, apiConsumeImpersonationToken, formatAuthErrorMessage, getAccessToken, syncTenantDbName } from '../../lib/api';
+import { buildLoginDevicePayload, clearIntentionalLogout, finalizeAuthAfterTokens } from '../../lib/sessionAuth';
 import { LoginSessionFlow } from '../../components/session/LoginSessionFlow';
 import { TrialExpiredLoginPrompt } from '../../components/trial/TrialExpiredLoginPrompt';
 import { AuthBrandLogo } from '../../components/auth/AuthBrandLogo';
@@ -57,6 +57,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    clearIntentionalLogout();
     const params = new URLSearchParams(window.location.search);
     const redirect = params.get('redirect');
     if (redirect === '/hq' || redirect?.startsWith('/hq/')) {
@@ -72,8 +73,42 @@ export default function LoginPage() {
       setMessage(sessionMsg);
     }
 
-    // Handoff from marketing try-free login (tokens in hash, never query string).
+    // HQ support access link (one-time token in hash).
     const hash = window.location.hash.replace(/^#/, '');
+    if (hash.startsWith('hqImpersonation=')) {
+      const consumeHqAccess = async () => {
+        try {
+          setLoading(true);
+          setLoadingMessage('Opening tenant account...');
+          const token = decodeURIComponent(hash.slice('hqImpersonation='.length));
+          const device = await buildLoginDevicePayload();
+          const response = await apiConsumeImpersonationToken({ token, ...device });
+          const data = response.data;
+          if (!data?.accessToken) {
+            throw new Error('Unable to open tenant account');
+          }
+          await finalizeAuthAfterTokens({
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            tenantDbName: data.tenantDbName,
+            requirePasswordReset: data.requirePasswordReset,
+          });
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          window.location.href = '/dashboard';
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Invalid or expired access link';
+          setError(message);
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        } finally {
+          setLoading(false);
+          setLoadingMessage('');
+        }
+      };
+      void consumeHqAccess();
+      return;
+    }
+
+    // Handoff from marketing try-free login (tokens in hash, never query string).
     if (hash.startsWith('tryFreeHandoff=')) {
       try {
         const encoded = decodeURIComponent(hash.slice('tryFreeHandoff='.length));

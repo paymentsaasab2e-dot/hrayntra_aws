@@ -35,15 +35,11 @@ export function TenantPausedModal({ open, pausedAt }: Props) {
           Workspace paused
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          Your tenant workspace has been temporarily paused by Hryantra HQ. You cannot use the platform
-          until operations are resumed.
+          Access is paused for now. Contact your administrator if you need help.
         </p>
         {pausedLabel ? (
           <p className="mt-3 text-xs text-slate-500">Paused on {pausedLabel}</p>
         ) : null}
-        <p className="mt-5 text-xs text-slate-500">
-          Contact your account administrator or Hryantra support if you need help.
-        </p>
       </div>
     </div>
   );

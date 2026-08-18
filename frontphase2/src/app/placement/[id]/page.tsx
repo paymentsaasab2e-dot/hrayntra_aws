@@ -70,8 +70,9 @@ export default function PlacementDetailPage() {
   if (error || !placement) {
     return (
       <div className="p-8">
-        <div className="mx-auto max-w-4xl rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-red-700">
-          {error || 'Placement not found'}
+        <div className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white px-5 py-6 text-center">
+          <p className="text-lg font-semibold text-slate-900">We couldn’t find this</p>
+          <p className="mt-1 text-sm text-slate-600">This placement isn’t available.</p>
         </div>
       </div>
     );

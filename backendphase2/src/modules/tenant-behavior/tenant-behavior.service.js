@@ -35,6 +35,93 @@ function categoryLabel(cat) {
   return labels[cat] || String(cat);
 }
 
+/** Restore human titles for snapshots that previously stored id/flag only. */
+const TRIGGER_CATALOG = {
+  tenant_lead_convert_gap: {
+    title: 'Lead activity without client conversion',
+    reason: 'Team researches leads but rarely progresses to clients.',
+    recommendedAction: 'Review lead follow-ups and conversion playbook.',
+  },
+  tenant_job_pipeline_gap: {
+    title: 'Job management without pipeline movement',
+    reason: 'Jobs module is active but candidate/pipeline work is lagging.',
+    recommendedAction: 'Coach on candidate submission and pipeline hygiene.',
+  },
+  tenant_browse_no_followthrough: {
+    title: 'Record research without follow-through',
+    reason: 'Opens many CRM records but rarely saves, assigns, or moves pipeline.',
+    recommendedAction: 'Complete the next step: assign, schedule, or update stage.',
+  },
+  tenant_overdue_meetings_nudge: {
+    title: 'Clear overdue meetings & follow-ups',
+    reason: 'Overdue CRM meetings are blocking pipeline progress.',
+    recommendedAction: 'Complete or reschedule overdue items now.',
+  },
+  tenant_incomplete_records_nudge: {
+    title: 'Fill missing mandatory CRM fields',
+    reason: 'Records are opened with incomplete mandatory drawer data.',
+    recommendedAction: 'Fill company, contact, and phone/email on open records.',
+  },
+  tenant_entity_stuck: {
+    title: 'Repeated focus on the same record',
+    reason: 'Same record revisited many times without a tracked action.',
+    recommendedAction: 'Check if the user is blocked on info, approval, or feedback.',
+  },
+  tenant_module_focus: {
+    title: 'Primary module concentration',
+    reason: 'User concentrates on one CRM module repeatedly.',
+    recommendedAction: 'Balance the funnel: jobs → candidates → interviews.',
+  },
+  tenant_ai_ops_combo: {
+    title: 'AI + jobs research without follow-through',
+    reason: 'Uses AI and jobs modules but few tracked operational actions.',
+    recommendedAction: 'Convert research into pipeline actions.',
+  },
+  tenant_strong_operator: {
+    title: 'Strong end-to-end CRM operator',
+    reason: 'Progresses across funnel modules with meaningful workflow steps.',
+    recommendedAction: 'Consider advanced modules or team-lead responsibilities.',
+  },
+  tenant_analytics_only: {
+    title: 'Analytics-heavy session pattern',
+    reason: 'Mostly viewing reports without operational CRM updates.',
+    recommendedAction: 'Move from reports into candidates, interviews, or placements.',
+  },
+  tenant_placement_gap: {
+    title: 'Interviews without placement follow-through',
+    reason: 'Active in interviews but placements are barely used.',
+    recommendedAction: 'Move completed interviews to offer/placement.',
+  },
+  tenant_onboarding_struggle: {
+    title: 'High activity but low workflow progression',
+    reason: 'Many views and API calls but funnel score is low.',
+    recommendedAction: 'Review setup, module enablement, and funnel training.',
+  },
+  tenant_full_funnel_active: {
+    title: 'Full recruitment funnel active',
+    reason: 'Leads, clients, jobs, and candidates are all in use.',
+    recommendedAction: 'Protect this workflow; expansion window is open.',
+  },
+};
+
+function hydrateTrigger(trigger) {
+  if (!trigger || typeof trigger !== 'object') return null;
+  const catalog = TRIGGER_CATALOG[trigger.id] || {};
+  const title =
+    String(trigger.title || '').trim() ||
+    catalog.title ||
+    String(trigger.id || trigger.flag || '').replace(/_/g, ' ');
+  if (!title || title === 'undefined') return null;
+  return {
+    ...catalog,
+    ...trigger,
+    title,
+    reason: String(trigger.reason || catalog.reason || '').trim(),
+    recommendedAction: String(trigger.recommendedAction || catalog.recommendedAction || '').trim(),
+    evidence: Array.isArray(trigger.evidence) ? trigger.evidence : catalog.evidence || [],
+  };
+}
+
 function normalizePayload(body, user) {
   const userId = String(body?.userId || user?.id || '').trim();
   if (!userId) {
@@ -224,8 +311,9 @@ function buildIntelligenceSummary({ crmContext, weekMetrics, onlineCount, topTri
   if (weekMetrics?.actions > 0) {
     lines.push(`${weekMetrics.actions} CRM actions recorded across the team in the last 7 days.`);
   }
-  if (topTriggers?.length) {
-    lines.push(`Top signal: ${topTriggers[0].title}.`);
+  const topTitle = String(topTriggers?.[0]?.title || '').trim();
+  if (topTitle && topTitle !== 'undefined') {
+    lines.push(`Top signal: ${topTitle}.`);
   }
   if (!lines.length) {
     lines.push('Engine is live — use the CRM to build tenant behaviour intelligence.');
@@ -308,7 +396,7 @@ function aggregateSnapshots(snapshots, range = 'week') {
     const activeMsToday = Number(rollupToday.activeMs || 0);
     const workflowScore = Number(rollup.workflowScore || rollup7d.workflowScore || 0);
     const triggers = Array.isArray(payload.triggers) ? payload.triggers : [];
-    const topTrigger = triggers[0];
+    const topTrigger = hydrateTrigger(triggers[0]);
     const lastActive = payload.activityStateUpdatedAt || snap.capturedAt;
     const online = isOnline(lastActive, nowMs);
 
@@ -423,7 +511,11 @@ function aggregateSnapshots(snapshots, range = 'week') {
     visits: Number(funnelProgress[cat] || 0),
   }));
 
-  const topTriggers = [...triggerMap.values()].sort((a, b) => (b.priority || 0) - (a.priority || 0)).slice(0, 15);
+  const topTriggers = [...triggerMap.values()]
+    .map(hydrateTrigger)
+    .filter(Boolean)
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0))
+    .slice(0, 15);
   const onlineUsers = users.filter((u) => u.online);
   const avgWorkflow = workflowCount > 0 ? Math.round(workflowSum / workflowCount) : 0;
   const activeRatio = snapshots.length > 0 ? activeUsersInRange / snapshots.length : 0;

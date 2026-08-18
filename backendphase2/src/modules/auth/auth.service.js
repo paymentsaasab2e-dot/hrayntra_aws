@@ -11,6 +11,7 @@ import {
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions, syncDefaultRolePresets, syncMissingRolePresetPermissions } from '../role/permission-sync.service.js';
 import { revokeAllSessionsForUser, sessionService } from '../session/session.service.js';
+import { verifyHqImpersonationToken } from '../../utils/hqImpersonationToken.js';
 
 const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
 const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
@@ -1313,6 +1314,105 @@ export const authService = {
     }
 
     return null;
+  },
+
+  async consumeImpersonationToken(token, deviceMeta = {}) {
+    const payload = verifyHqImpersonationToken(token);
+    if (!payload) {
+      throw new Error('Invalid or expired access link');
+    }
+
+    const headquartersUser = await headquartersAuthService.findWorkspaceUserByEmail(payload.tenantEmail);
+    if (!headquartersUser) {
+      throw new Error('Tenant not found');
+    }
+    if (headquartersUser.isDeleted) {
+      throw new Error('Tenant is no longer active');
+    }
+
+    const tenantDbName = String(payload.tenantDbName || headquartersUser.tenantDbName || '').trim();
+    if (!tenantDbName) {
+      throw new Error('Tenant database is not ready yet');
+    }
+
+    const impersonationDeviceMeta = {
+      ...deviceMeta,
+      hqImpersonation: true,
+      browserInfo: deviceMeta.browserInfo || 'HQ Support Access',
+      deviceType: deviceMeta.deviceType || 'hq-support',
+    };
+
+    const loginResult = await runWithTenantContext(tenantDbName, async () => {
+      const tenantLocalUser = await ensureLocalSuperAdminFromHeadquarters(headquartersUser);
+      const tokenResult = await sessionService.issueHqImpersonationTokens({
+        userId: tenantLocalUser.id,
+        tokenPayload: {
+          userId: tenantLocalUser.id,
+          email: tenantLocalUser.email,
+          role: 'SUPER_ADMIN',
+          roleName: 'Super Admin',
+          tenantDbName,
+          hqImpersonation: true,
+          hqActorEmail: payload.hqActorEmail,
+        },
+        refreshPayload: {
+          userId: tenantLocalUser.id,
+          email: tenantLocalUser.email,
+          role: 'SUPER_ADMIN',
+          roleName: 'Super Admin',
+          tenantDbName,
+          hqImpersonation: true,
+          hqActorEmail: payload.hqActorEmail,
+        },
+        deviceMeta: impersonationDeviceMeta,
+        hqActorEmail: payload.hqActorEmail,
+      });
+
+      await prisma.user.update({
+        where: { id: tenantLocalUser.id },
+        data: {
+          isActive: true,
+          role: 'SUPER_ADMIN',
+          lastLogin: new Date(),
+        },
+      });
+
+      return {
+        localUser: tenantLocalUser,
+        accessToken: tokenResult.accessToken,
+        refreshToken: tokenResult.refreshToken,
+      };
+    });
+
+    await ensureWorkspaceClientForTenant(tenantDbName, loginResult.localUser, headquartersUser.name);
+
+    console.info('[hq-impersonation] access consumed', {
+      tenantEmail: payload.tenantEmail,
+      tenantDbName,
+      hqActorEmail: payload.hqActorEmail,
+      tenantUserId: loginResult.localUser.id,
+    });
+
+    return {
+      user: {
+        id: loginResult.localUser.id,
+        name: loginResult.localUser.name,
+        email: loginResult.localUser.email,
+        role: 'SUPER_ADMIN',
+        roleName: 'Super Admin',
+        roleColor: 'red',
+        loginId: headquartersUser.loginId || headquartersUser.email,
+      },
+      accessToken: loginResult.accessToken,
+      refreshToken: loginResult.refreshToken,
+      permissions: ['all'],
+      requirePasswordReset: false,
+      tenantDbName,
+      tenantDatabaseUrl: headquartersUser.tenantDatabaseUrl || '',
+      tenantProvisioningMode: headquartersUser.tenantProvisioningMode || 'DEDICATED',
+      tenantProvisioningStatus: 'READY',
+      hqImpersonation: true,
+    };
   },
 
   async changePassword(userId, newPassword) {

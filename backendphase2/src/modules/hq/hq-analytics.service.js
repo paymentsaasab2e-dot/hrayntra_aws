@@ -10,6 +10,7 @@ import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { hqLeadsService } from './hq-leads.service.js';
 import { hqCompaniesService } from './hq-companies.service.js';
 import { hqDemosService } from './hq-demos.service.js';
+import { getDefaultPackageTemplate, resolveBillingCycle } from './hq-packages.config.js';
 
 const SAMPLE_LIMIT = Math.min(
   8000,
@@ -768,15 +769,25 @@ function iso(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-/** Parse plan price into monthly USD-ish number for MRR rollup (best-effort). */
+/** Parse tenant plan price into monthly USD for billing rollup. */
 function parseMonthlyPlanPrice(plan) {
   if (!plan) return 0;
-  const raw = String(plan.price || plan.amount || '').replace(/[^0-9.]/g, '');
-  const n = Number(raw) || 0;
-  if (n <= 0) return 0;
-  const cycle = String(plan.billingCycle || plan.pricePeriod || '').toLowerCase();
-  if (cycle.includes('year') || cycle.includes('annual')) return Math.round((n / 12) * 100) / 100;
-  return n;
+  const cycle = resolveBillingCycle(plan.billingCycle || plan.pricePeriod);
+  const template = getDefaultPackageTemplate(plan.slug, plan.name);
+  const parseMoney = (value) => Number(String(value || '').replace(/[^0-9.]/g, '')) || 0;
+
+  if (cycle === 'annual') {
+    const monthly =
+      parseMoney(plan.yearlyPrice) ||
+      parseMoney(plan.price || plan.amount) ||
+      (template ? parseMoney(template.yearlyPrice) : 0);
+    return monthly > 0 ? Math.round(monthly * 100) / 100 : 0;
+  }
+
+  const monthly =
+    parseMoney(plan.price || plan.amount) ||
+    (template ? parseMoney(template.price) : 0);
+  return monthly > 0 ? Math.round(monthly * 100) / 100 : 0;
 }
 
 /** Spec §7.1 — per-tenant health 0–100 from activity (7d first, then all-time so older estates are not 0). */
@@ -2310,13 +2321,20 @@ async function buildEmployerAnalytics() {
     .sort((a, b) => a.health - b.health)
     .slice(0, 12);
 
-  // MRR best-effort from tenant plan prices
+  // Tenant billing totals from subscription plan pricing (excludes paused + trial workspaces).
   const mrrByPlanMap = {};
   let mrr = 0;
+  let billingTenants = 0;
+  let trialTenants = 0;
   for (const t of tenants || []) {
     if (String(t.status || '').toUpperCase() === 'PAUSED') continue;
+    if (t.subscriptionPlan?.isTrial) {
+      trialTenants += 1;
+      continue;
+    }
     const monthly = parseMonthlyPlanPrice(t.subscriptionPlan);
     if (monthly <= 0) continue;
+    billingTenants += 1;
     mrr += monthly;
     const planName = t.subscriptionPlan?.name || 'Custom';
     if (!mrrByPlanMap[planName]) mrrByPlanMap[planName] = { planName, mrr: 0, tenantCount: 0 };
@@ -2412,13 +2430,13 @@ async function buildEmployerAnalytics() {
   if (hotLeads > 0) {
     insights.push({
       tone: 'good',
-      text: `${hotLeads} hot HQ CRM lead(s) · pipeline value ${pipelineValue.toLocaleString()}.`,
+      text: `${hotLeads} hot HQ CRM lead(s) in the pipeline.`,
     });
   }
   if (mrr > 0) {
     insights.push({
       tone: 'good',
-      text: `Estimated MRR $${mrr.toLocaleString()} (ARR $${arr.toLocaleString()}) from priced plans.`,
+      text: `Tenant billing: ${billingTenants} paid workspace(s) · MRR $${mrr.toLocaleString()} (ARR $${arr.toLocaleString()}).`,
     });
   }
   if (leadStats.followUpsToday > 0 || companyStats.followUpsToday > 0) {
@@ -2473,6 +2491,9 @@ async function buildEmployerAnalytics() {
       hqCompanies: companyStats.total || 0,
       hotLeads,
       pipelineValue,
+      monthlyBillingTotal: mrr,
+      billingTenants,
+      trialTenants,
       demosVerified: demoStats.verified || 0,
       demosPurchases: onPlan,
       demosPurchaseRequests: demoStats.purchases || 0,
