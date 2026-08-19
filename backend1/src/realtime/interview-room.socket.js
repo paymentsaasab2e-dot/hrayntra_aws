@@ -71,6 +71,11 @@ function registerInterviewRoomSocketHandlers(io) {
       }
 
       const room = rooms.get(roomId);
+      for (const [id] of room) {
+        if (!io.sockets.sockets.get(id)) {
+          room.delete(id);
+        }
+      }
       if (room.size >= MAX_ROOM_PARTICIPANTS) {
         socket.emit(ROOM_EVENT.JOIN_ERROR, { message: 'Room is full. Only 2 participants are allowed.' });
         return;

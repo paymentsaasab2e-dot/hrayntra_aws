@@ -621,6 +621,7 @@ async function candidateScheduleDecision(req, res) {
         return res.status(400).json({ success: false, message: dateCheck.error });
       }
       const safeDate = dateCheck.date;
+      const alreadyPaid = Boolean(request.paymentHeldAt);
       const updated = await retryQuery(async () =>
         prisma.interviewRequest.update({
           where: { id: request.id },
@@ -628,7 +629,7 @@ async function candidateScheduleDecision(req, res) {
             status: 'WAITING_FOR_ACCEPTANCE',
             preferredDate: safeDate,
             preferredTime: mergePreferredSlot(request.preferredTime, slot),
-            scheduledAt: buildScheduledAtFromDateAndSlot(safeDate, slot),
+            scheduledAt: alreadyPaid ? request.scheduledAt : buildScheduledAtFromDateAndSlot(safeDate, slot),
             interviewerFeedback: null,
             candidateFeedback: encodeSlotProposal(slot, safeDate, note || 'Candidate proposed a new slot'),
           },
@@ -663,23 +664,31 @@ async function candidateScheduleDecision(req, res) {
     }
 
     if (decision === 'CONFIRM') {
-      if (String(request.status) !== 'ACCEPTED') {
-        return res.status(400).json({ success: false, message: 'Slot can be confirmed only when awaiting your confirmation' });
+      if (!['ACCEPTED', 'WAITING_FOR_ACCEPTANCE'].includes(String(request.status))) {
+        return res.status(400).json({ success: false, message: 'Slot can be confirmed only when a new time is waiting for your confirmation' });
       }
       const proposal = decodeSlotProposal(request.interviewerFeedback);
-      const proposedSlotFromInterviewer = proposal.slot || '';
+      const candidateProposal = decodeSlotProposal(request.candidateFeedback);
+      const preferredTimes = Array.isArray(request.preferredTime) ? request.preferredTime : [];
+      const latestPreferred = [...preferredTimes].reverse().find((item) => parseSlotStart(item)) || '';
       const slotCandidates = [
+        proposal.slot,
         slot,
-        proposedSlotFromInterviewer,
-        ...(Array.isArray(request.preferredTime) ? request.preferredTime : []),
+        candidateProposal.slot,
+        latestPreferred,
+        preferredTimes[0],
       ]
         .map((item) => String(item || '').trim())
         .filter(Boolean);
-      const finalSlot = slotCandidates.find((item) => Boolean(parseSlotStart(item))) || slotCandidates[0] || '';
+      const finalSlot = slotCandidates.find((item) => Boolean(parseSlotStart(item))) || '';
       if (!finalSlot) {
         return res.status(400).json({ success: false, message: 'Please choose a valid slot to finalize' });
       }
-      const dateToUse = preferredDateInput || toDateOrNull(proposal.date) || request.preferredDate;
+      const dateToUse =
+        toDateOrNull(proposal.date) ||
+        preferredDateInput ||
+        toDateOrNull(candidateProposal.date) ||
+        request.preferredDate;
 
       const agreedPrice = clampInterviewPrice(request.interviewPrice, 50);
       let tokenBalance = null;
@@ -729,7 +738,10 @@ async function candidateScheduleDecision(req, res) {
               buildScheduledAtFromDateAndSlot(dateToUse || request.preferredDate, finalSlot) ||
               request.scheduledAt ||
               new Date(request.preferredDate),
-            candidateFeedback: note || request.candidateFeedback || null,
+            interviewerFeedback: encodeSlotProposal(finalSlot, dateToUse || request.preferredDate, ''),
+            candidateFeedback: String(request.candidateFeedback || '').startsWith('SLOT_PROPOSAL::')
+              ? note || null
+              : note || request.candidateFeedback,
           },
         })
       );

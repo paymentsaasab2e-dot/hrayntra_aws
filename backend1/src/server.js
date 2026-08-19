@@ -35,7 +35,7 @@ const { registerInterviewRoomSocketHandlers } = require('./realtime/interview-ro
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const DEFAULT_ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:3001,https://jobportal-himanshu.vercel.app,https://frontend1-nu-ten.vercel.app';
+const DEFAULT_ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:3001,https://www.hryantra.com,https://hryantra.com,https://jobportal-himanshu.vercel.app,https://frontend1-nu-ten.vercel.app';
 const allowedOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || DEFAULT_ALLOWED_ORIGINS)
   .split(',')
   .map(v => v.trim().replace(/^https:https:/i, 'https:'))
@@ -49,11 +49,19 @@ if (!allowedOrigins.includes(targetVercelDomain)) {
 
 const isOriginAllowed = (origin) => {
   if (!origin) return true;
-  return (
+  if (
     allowedOrigins.includes(origin) ||
     origin.includes('localhost') ||
     origin.includes('127.0.0.1')
-  );
+  ) {
+    return true;
+  }
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return host === 'hryantra.com' || host.endsWith('.hryantra.com');
+  } catch {
+    return false;
+  }
 };
 
 // Middleware
@@ -66,7 +74,7 @@ app.use(cors({
     console.log(`[CORS DEBUG] Allowed: ${allowedOrigins.join(', ')}`);
 
     if (isOriginAllowed(origin)) {
-      return callback(null, true);
+      return callback(null, origin);
     }
     
     console.error(`[CORS ERROR] Blocked: ${origin}`);
@@ -163,7 +171,7 @@ const io = new SocketServer(httpServer, {
   cors: {
     origin: (origin, callback) => {
       if (!origin || isOriginAllowed(origin)) {
-        callback(null, true);
+        callback(null, origin || true);
         return;
       }
       callback(new Error(`Socket CORS blocked for origin: ${origin}`));

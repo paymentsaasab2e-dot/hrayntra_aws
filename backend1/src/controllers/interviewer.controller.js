@@ -595,14 +595,17 @@ async function respondToInterviewRequest(req, res) {
     }
 
     if (decision === 'ACCEPT') {
+      const fromCandidate = decodeSlotProposal(request.candidateFeedback);
+      const preferredTimes = Array.isArray(request.preferredTime) ? request.preferredTime : [];
+      const latestPreferred = [...preferredTimes].reverse().find((item) => parseSlotStart(item)) || '';
       const slotToUse =
         proposedSlot && parseSlotStart(proposedSlot)
           ? proposedSlot
-          : request.preferredTime?.[0] || '';
+          : fromCandidate.slot || latestPreferred || request.preferredTime?.[0] || '';
       if (proposedSlot && !parseSlotStart(proposedSlot)) {
         return res.status(400).json({ success: false, message: 'Proposed time is invalid. Use HH:MM or a listed slot.' });
       }
-      const dateToUse = proposedDate || request.preferredDate;
+      const dateToUse = proposedDate || toDateOrNull(fromCandidate.date) || request.preferredDate;
       if (!dateToUse) {
         return res.status(400).json({ success: false, message: 'Please pick a valid date' });
       }
@@ -611,17 +614,24 @@ async function respondToInterviewRequest(req, res) {
         return res.status(400).json({ success: false, message: dateCheck.error });
       }
       const safeDate = dateCheck.date;
-      const scheduledAt =
+      const nextScheduledAt =
         buildScheduledAtFromDateAndSlot(safeDate, slotToUse) || safeDate;
       const alreadyPaid = Boolean(request.paymentHeldAt);
+      const confirmingCandidateProposal =
+        alreadyPaid && String(request.status) === 'WAITING_FOR_ACCEPTANCE';
+      const nextStatus = confirmingCandidateProposal ? 'SCHEDULED' : 'ACCEPTED';
       const updated = await retryQuery(async () =>
         prisma.interviewRequest.update({
           where: { id: request.id },
           data: {
             interviewerId: candidateId,
-            status: alreadyPaid ? 'SCHEDULED' : 'ACCEPTED',
-            acceptedAt: new Date(),
-            scheduledAt,
+            status: nextStatus,
+            acceptedAt: request.acceptedAt || new Date(),
+            scheduledAt: confirmingCandidateProposal
+              ? nextScheduledAt
+              : alreadyPaid
+                ? request.scheduledAt
+                : nextScheduledAt,
             preferredDate: safeDate,
             preferredTime: mergePreferredSlot(request.preferredTime, slotToUse),
             interviewPrice: clampInterviewPrice(
@@ -631,6 +641,9 @@ async function respondToInterviewRequest(req, res) {
             interviewerFeedback: slotToUse
               ? encodeSlotProposal(slotToUse, safeDate, '')
               : request.interviewerFeedback,
+            candidateFeedback: String(request.candidateFeedback || '').startsWith('SLOT_PROPOSAL::')
+              ? null
+              : request.candidateFeedback,
           },
         })
       );
@@ -640,11 +653,23 @@ async function respondToInterviewRequest(req, res) {
           data: {
             candidateId: request.candidateId,
             type: 'interview',
-            title: 'Interviewer proposed an interview slot',
-            description: `Request ${request.requestId} is waiting for your confirmation.`,
-            actionButton: 'Confirm slot',
+            title: confirmingCandidateProposal
+              ? 'New interview time confirmed'
+              : alreadyPaid
+                ? 'Interviewer proposed a new time'
+                : 'Interviewer proposed an interview slot',
+            description: confirmingCandidateProposal
+              ? `Request ${request.requestId} is confirmed for ${slotToUse}. No extra tokens were charged.`
+              : alreadyPaid
+                ? `Request ${request.requestId}: confirm the new time at no extra cost.`
+                : `Request ${request.requestId} is waiting for your confirmation.`,
+            actionButton: confirmingCandidateProposal ? 'View interviews' : 'Confirm slot',
             actionPath: '/lms/interview-prep/request-interview',
-            metadata: { requestId: request.requestId, status: 'ACCEPTED', proposedSlot: slotToUse || null },
+            metadata: {
+              requestId: request.requestId,
+              status: nextStatus,
+              proposedSlot: slotToUse || null,
+            },
           },
         })
       ).catch(() => {});
@@ -746,6 +771,7 @@ async function scheduleInterviewRequest(req, res) {
       return res.status(400).json({ success: false, message: dateCheck.error });
     }
     const safeDate = dateCheck.date;
+    const alreadyPaid = Boolean(request.paymentHeldAt);
     const feedback = encodeSlotProposal(slot, safeDate, note);
     const updated = await retryQuery(async () =>
       prisma.interviewRequest.update({
@@ -756,8 +782,9 @@ async function scheduleInterviewRequest(req, res) {
           interviewerFeedback: feedback,
           preferredDate: safeDate,
           preferredTime: mergePreferredSlot(request.preferredTime, slot),
-          scheduledAt:
-            buildScheduledAtFromDateAndSlot(safeDate, slot) || request.scheduledAt || safeDate,
+          scheduledAt: alreadyPaid
+            ? request.scheduledAt
+            : buildScheduledAtFromDateAndSlot(safeDate, slot) || request.scheduledAt || safeDate,
         },
       })
     );
