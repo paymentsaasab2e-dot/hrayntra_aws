@@ -51,9 +51,11 @@ function parseSlotStart(slotValue) {
 }
 
 function mergePreferredSlot(preferredTime, slot) {
-  const times = Array.isArray(preferredTime) ? preferredTime.map((item) => String(item || '').trim()).filter(Boolean) : [];
   const next = String(slot || '').trim();
-  if (next && !times.includes(next)) times.push(next);
+  if (next) return [next];
+  const times = Array.isArray(preferredTime)
+    ? preferredTime.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
   return times;
 }
 

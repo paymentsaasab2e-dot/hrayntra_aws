@@ -787,15 +787,11 @@ async function sendOTP(req, res) {
       // Continue anyway - OTP is saved in database, user can still verify
     }
 
-    // Show OTP for local/testing or when email delivery fails and fallback is enabled.
-    const allowOtpFallback = process.env.ALLOW_OTP_FALLBACK !== 'false';
-    const showOTP = process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
-
     res.json({
       success: true,
       message: emailResult.success
         ? 'OTP sent successfully to your email'
-        : 'OTP generated, but email delivery failed. Use fallback OTP for verification.',
+        : 'OTP generated, but email delivery failed. Please try resend or check your email shortly.',
       data: {
         candidateId: candidate.id,
         whatsappNumber: fullWhatsAppNumber,
@@ -803,8 +799,6 @@ async function sendOTP(req, res) {
         email: normalizedEmail,
         emailSent: emailResult.success,
         emailMessageId: emailResult.messageId,
-        // Only show OTP in development
-        ...(showOTP && { otp: otp }),
         expiresAt: expiresAt.toISOString(),
       },
     });
@@ -1066,23 +1060,17 @@ async function resendOTP(req, res) {
       // Continue anyway - OTP is saved in database
     }
 
-    // Show OTP for local/testing or when email delivery fails and fallback is enabled.
-    const allowOtpFallback = process.env.ALLOW_OTP_FALLBACK !== 'false';
-    const showOTP = process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
-
     res.json({
       success: true,
       message: emailResult.success
         ? 'OTP resent successfully to your email'
-        : 'OTP regenerated, but email delivery failed. Use fallback OTP for verification.',
+        : 'OTP regenerated, but email delivery failed. Please try resend or check your email shortly.',
       data: {
         candidateId: candidate.id,
         whatsappNumber: fullWhatsAppNumber,
         email: normalizedEmail,
         emailSent: emailResult.success,
         emailMessageId: emailResult.messageId,
-        // Only show OTP in development
-        ...(showOTP && { otp: otp }),
         expiresAt: expiresAt.toISOString(),
       },
     });
