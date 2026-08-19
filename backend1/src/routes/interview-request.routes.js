@@ -6,8 +6,12 @@ const {
   getMyInterviewRequestSummary,
   rematchInterviewRequest,
   candidateScheduleDecision,
+  getInterviewLiveByRoom,
+  getInterviewLiveByRequest,
   getInterviewRequestChat,
   postInterviewRequestChat,
+  completeLiveInterview,
+  submitInterviewReview,
 } = require('../controllers/interview-request.controller');
 
 const router = Router();
@@ -17,8 +21,12 @@ router.use(protect);
 router.post('/', createInterviewRequest);
 router.get('/my', getMyInterviewRequests);
 router.get('/my/summary', getMyInterviewRequestSummary);
+router.get('/live-room/:roomId', getInterviewLiveByRoom);
+router.get('/:requestId/live', getInterviewLiveByRequest);
 router.post('/:requestId/rematch', rematchInterviewRequest);
 router.post('/:requestId/schedule-decision', candidateScheduleDecision);
+router.post('/:requestId/complete', completeLiveInterview);
+router.post('/:requestId/review', submitInterviewReview);
 router.get('/:requestId/chat', getInterviewRequestChat);
 router.post('/:requestId/chat', postInterviewRequestChat);
 

@@ -1,4 +1,5 @@
 const { prisma, retryQuery } = require('../lib/prisma');
+const { clampInterviewPrice, releaseInterviewerEarnings } = require('../services/interviewTokenBooking.service');
 
 const INTERNAL_ADMIN_KEY = process.env.INTERVIEW_ADMIN_KEY || process.env.INTERNAL_API_KEY || '';
 const {
@@ -23,30 +24,34 @@ function normalizeTextArray(value, limit = 50) {
 }
 
 function toDateOrNull(value) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const raw = String(value ?? '').trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const d = new Date(year, month - 1, day);
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+    return d;
+  }
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function parseSlotStart(slotValue) {
-  const raw = String(slotValue || '').trim();
-  if (!raw) return null;
-  const dashFormat = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/.exec(raw);
-  if (dashFormat) {
-    const hour = Number(dashFormat[1]);
-    const minute = Number(dashFormat[2]);
-    if (Number.isFinite(hour) && Number.isFinite(minute)) return { hour, minute };
-  }
-  const amPmFormat = /^(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(AM|PM)$/i.exec(raw);
-  if (amPmFormat) {
-    let hour = Number(amPmFormat[1]);
-    const minute = Number(amPmFormat[2]);
-    const period = String(amPmFormat[3]).toUpperCase();
-    if (period === 'PM' && hour < 12) hour += 12;
-    if (period === 'AM' && hour === 12) hour = 0;
-    if (Number.isFinite(hour) && Number.isFinite(minute)) return { hour, minute };
-  }
-  return null;
+async function getAccountProfilePhotoUrl(candidateId) {
+  if (!candidateId) return null;
+  const profile = await retryQuery(async () =>
+    prisma.candidateProfile.findUnique({
+      where: { candidateId },
+      select: { profilePhotoUrl: true },
+    })
+  );
+  const url = String(profile?.profilePhotoUrl || '').trim();
+  return url || null;
 }
+
+const { parseSlotStart, mergePreferredSlot, encodeSlotProposal, decodeSlotProposal, assertFutureBookingDate } = require('../utils/interviewSlot.util');
 
 function buildScheduledAtFromDateAndSlot(dateValue, slotValue) {
   const date = toDateOrNull(dateValue);
@@ -63,6 +68,52 @@ function isAuthorizedForAdmin(req) {
   return Boolean(INTERNAL_ADMIN_KEY) && incoming === INTERNAL_ADMIN_KEY;
 }
 
+function readApplicationPayload(req) {
+  const fullName = String(req.body?.fullName || '').trim();
+  const currentCompany = String(req.body?.currentCompany || '').trim();
+  const currentRole = String(req.body?.currentRole || '').trim();
+  const yearsOfExperience = Number(req.body?.yearsOfExperience || 0);
+  const expertiseAreas = normalizeTextArray(req.body?.expertiseAreas, 24);
+  const interviewTypes = normalizeTextArray(req.body?.interviewTypes, 16);
+  const languages = normalizeTextArray(req.body?.languages, 12);
+  const weeklyAvailability = String(req.body?.weeklyAvailability || '').trim();
+  const aboutYourself = String(req.body?.aboutYourself || '').trim();
+  const feedbackStyle = String(req.body?.feedbackStyle || '').trim();
+  const linkedinUrl = String(req.body?.linkedinUrl || '').trim();
+  const resumeUrl = String(req.body?.resumeUrl || '').trim();
+  const interviewPrice = clampInterviewPrice(req.body?.interviewPrice, 50);
+
+  if (!fullName) return { error: 'Full name is required' };
+  if (!currentRole) return { error: 'Current role is required' };
+  if (!Number.isFinite(yearsOfExperience) || yearsOfExperience < 0) {
+    return { error: 'Years of experience is invalid' };
+  }
+  if (!expertiseAreas.length) return { error: 'Select at least one expertise area' };
+  if (!interviewTypes.length) return { error: 'Select at least one interview type' };
+  if (!languages.length) return { error: 'Select at least one language' };
+  if (weeklyAvailability.length < 5) return { error: 'Weekly availability is required' };
+  if (aboutYourself.length < 20) return { error: 'About yourself must be at least 20 characters' };
+  if (feedbackStyle.length < 10) return { error: 'Feedback style must be at least 10 characters' };
+
+  return {
+    data: {
+      fullName,
+      currentCompany: currentCompany || null,
+      currentRole,
+      yearsOfExperience: Math.floor(yearsOfExperience),
+      expertiseAreas,
+      interviewTypes,
+      languages,
+      weeklyAvailability,
+      aboutYourself,
+      feedbackStyle,
+      interviewPrice,
+      ...(linkedinUrl ? { linkedinUrl } : {}),
+      ...(resumeUrl ? { resumeUrl } : {}),
+    },
+  };
+}
+
 async function submitInterviewerApplication(req, res) {
   try {
     const candidateId = String(req.user?.candidateId || '').trim();
@@ -70,30 +121,12 @@ async function submitInterviewerApplication(req, res) {
       return res.status(401).json({ success: false, message: 'Candidate authentication required' });
     }
 
-    const fullName = String(req.body?.fullName || '').trim();
-    const currentCompany = String(req.body?.currentCompany || '').trim();
-    const currentRole = String(req.body?.currentRole || '').trim();
-    const yearsOfExperience = Number(req.body?.yearsOfExperience || 0);
-    const expertiseAreas = normalizeTextArray(req.body?.expertiseAreas, 24);
-    const interviewTypes = normalizeTextArray(req.body?.interviewTypes, 16);
-    const languages = normalizeTextArray(req.body?.languages, 12);
-    const weeklyAvailability = String(req.body?.weeklyAvailability || '').trim();
-    const aboutYourself = String(req.body?.aboutYourself || '').trim();
-    const feedbackStyle = String(req.body?.feedbackStyle || '').trim();
-    const linkedinUrl = String(req.body?.linkedinUrl || '').trim();
-    const resumeUrl = String(req.body?.resumeUrl || '').trim();
-
-    if (!fullName) return res.status(400).json({ success: false, message: 'Full name is required' });
-    if (!currentRole) return res.status(400).json({ success: false, message: 'Current role is required' });
-    if (!Number.isFinite(yearsOfExperience) || yearsOfExperience < 0) {
-      return res.status(400).json({ success: false, message: 'Years of experience is invalid' });
+    const parsed = readApplicationPayload(req);
+    if (parsed.error) {
+      return res.status(400).json({ success: false, message: parsed.error });
     }
-    if (!expertiseAreas.length) return res.status(400).json({ success: false, message: 'Select at least one expertise area' });
-    if (!interviewTypes.length) return res.status(400).json({ success: false, message: 'Select at least one interview type' });
-    if (!languages.length) return res.status(400).json({ success: false, message: 'Select at least one language' });
-    if (weeklyAvailability.length < 5) return res.status(400).json({ success: false, message: 'Weekly availability is required' });
-    if (aboutYourself.length < 20) return res.status(400).json({ success: false, message: 'About yourself must be at least 20 characters' });
-    if (feedbackStyle.length < 10) return res.status(400).json({ success: false, message: 'Feedback style must be at least 10 characters' });
+
+    const accountPhotoUrl = await getAccountProfilePhotoUrl(candidateId);
 
     const existingProfile = await retryQuery(async () =>
       prisma.interviewerProfile.findUnique({ where: { candidateId } })
@@ -109,18 +142,8 @@ async function submitInterviewerApplication(req, res) {
       prisma.interviewerApplication.create({
         data: {
           candidateId,
-          fullName,
-          currentCompany: currentCompany || null,
-          currentRole,
-          yearsOfExperience: Math.floor(yearsOfExperience),
-          expertiseAreas,
-          interviewTypes,
-          languages,
-          weeklyAvailability,
-          aboutYourself,
-          feedbackStyle,
-          linkedinUrl: linkedinUrl || null,
-          resumeUrl: resumeUrl || null,
+          ...parsed.data,
+          profilePhotoUrl: accountPhotoUrl,
           status: 'SUBMITTED',
         },
       })
@@ -139,6 +162,97 @@ async function submitInterviewerApplication(req, res) {
     return res.status(500).json({
       success: false,
       message: 'Failed to submit interviewer application',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+async function updateMyInterviewerApplication(req, res) {
+  try {
+    const candidateId = String(req.user?.candidateId || '').trim();
+    if (!candidateId) {
+      return res.status(401).json({ success: false, message: 'Candidate authentication required' });
+    }
+
+    const parsed = readApplicationPayload(req);
+    if (parsed.error) {
+      return res.status(400).json({ success: false, message: parsed.error });
+    }
+
+    const accountPhotoUrl = await getAccountProfilePhotoUrl(candidateId);
+
+    const [latestApplication, existingProfile] = await Promise.all([
+      retryQuery(async () =>
+        prisma.interviewerApplication.findFirst({
+          where: { candidateId },
+          orderBy: { createdAt: 'desc' },
+        })
+      ),
+      retryQuery(async () =>
+        prisma.interviewerProfile.findUnique({
+          where: { candidateId },
+        })
+      ),
+    ]);
+
+    if (!latestApplication && !existingProfile) {
+      return res.status(404).json({
+        success: false,
+        message: 'No interviewer application found to update. Submit an application first.',
+      });
+    }
+
+    const wasRejected = latestApplication?.status === 'REJECTED';
+    let updatedApplication = latestApplication;
+
+    if (latestApplication) {
+      updatedApplication = await retryQuery(async () =>
+        prisma.interviewerApplication.update({
+          where: { id: latestApplication.id },
+          data: {
+            ...parsed.data,
+            profilePhotoUrl: accountPhotoUrl,
+            ...(wasRejected
+              ? {
+                  status: 'SUBMITTED',
+                  reviewNotes: null,
+                  reviewedBy: null,
+                  reviewedAt: null,
+                }
+              : {}),
+          },
+        })
+      );
+    }
+
+    let updatedProfile = existingProfile;
+    if (existingProfile) {
+      updatedProfile = await retryQuery(async () =>
+        prisma.interviewerProfile.update({
+          where: { candidateId },
+          data: {
+            ...parsed.data,
+            profilePhotoUrl: accountPhotoUrl,
+          },
+        })
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: wasRejected ? 'Interviewer application resubmitted' : 'Interviewer profile updated',
+      data: {
+        application: updatedApplication
+          ? { ...updatedApplication, statusLabel: normalizeStatusLabel(updatedApplication.status) }
+          : null,
+        profile: updatedProfile,
+      },
+    });
+  } catch (error) {
+    console.error('updateMyInterviewerApplication error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update interviewer application',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
@@ -225,6 +339,8 @@ async function reviewInterviewerApplication(req, res) {
     );
 
     if (status === 'APPROVED') {
+      const accountPhotoUrl =
+        (await getAccountProfilePhotoUrl(application.candidateId)) || application.profilePhotoUrl || null;
       await retryQuery(async () =>
         prisma.interviewerProfile.upsert({
           where: { candidateId: application.candidateId },
@@ -241,6 +357,8 @@ async function reviewInterviewerApplication(req, res) {
             feedbackStyle: application.feedbackStyle,
             linkedinUrl: application.linkedinUrl,
             resumeUrl: application.resumeUrl,
+            profilePhotoUrl: accountPhotoUrl,
+            interviewPrice: clampInterviewPrice(application.interviewPrice, 50),
             status: 'AVAILABLE',
           },
           create: {
@@ -257,6 +375,8 @@ async function reviewInterviewerApplication(req, res) {
             feedbackStyle: application.feedbackStyle,
             linkedinUrl: application.linkedinUrl,
             resumeUrl: application.resumeUrl,
+            profilePhotoUrl: accountPhotoUrl,
+            interviewPrice: clampInterviewPrice(application.interviewPrice, 50),
             status: 'AVAILABLE',
           },
         })
@@ -348,7 +468,7 @@ async function getInterviewerQueue(req, res) {
           OR: [
             {
               interviewerId: candidateId,
-              status: { in: ['WAITING_FOR_ACCEPTANCE', 'ACCEPTED', 'SCHEDULED', 'IN_PROGRESS'] },
+              status: { in: ['WAITING_FOR_ACCEPTANCE', 'ACCEPTED', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED'] },
             },
             ...(profile || latestApplication
               ? [
@@ -392,9 +512,27 @@ async function getInterviewerQueue(req, res) {
       data: requests.map((row) => {
         const candidateProfile = profileByCandidateId.get(String(row.candidateId)) || null;
         const candidateResume = resumeByCandidateId.get(String(row.candidateId)) || null;
+        const fromInterviewer = decodeSlotProposal(row.interviewerFeedback);
+        const fromCandidate = decodeSlotProposal(row.candidateFeedback);
+        const preferredTimes = Array.isArray(row.preferredTime) ? row.preferredTime : [];
+        const latestCustomSlot =
+          [...preferredTimes]
+            .reverse()
+            .map((item) => String(item || '').trim())
+            .find((item) => /^\d{1,2}:\d{2}$/.test(item)) || null;
+        const candidateSlot = fromCandidate.slot || latestCustomSlot;
+        const waitingOnCandidate = String(row.status || '') === 'WAITING_FOR_ACCEPTANCE' && Boolean(candidateSlot);
         return {
           ...row,
           statusLabel: normalizeStatusLabel(row.status),
+          proposedSlot: waitingOnCandidate
+            ? candidateSlot
+            : fromInterviewer.slot || candidateSlot || null,
+          proposedDate: waitingOnCandidate
+            ? fromCandidate.date
+            : fromInterviewer.date || fromCandidate.date || null,
+          candidateProposedSlot: candidateSlot || null,
+          candidateProposedDate: fromCandidate.date || null,
           candidateProfile,
           candidateResume,
         };
@@ -416,6 +554,7 @@ async function respondToInterviewRequest(req, res) {
     const requestId = String(req.params?.requestId || '').trim();
     const decision = String(req.body?.decision || '').trim().toUpperCase();
     const proposedSlot = String(req.body?.proposedSlot || '').trim();
+    const proposedDate = toDateOrNull(req.body?.preferredDate || req.body?.proposedDate);
     if (!candidateId || !requestId) {
       return res.status(400).json({ success: false, message: 'Candidate and request IDs are required' });
     }
@@ -457,20 +596,41 @@ async function respondToInterviewRequest(req, res) {
 
     if (decision === 'ACCEPT') {
       const slotToUse =
-        proposedSlot && request.preferredTime.includes(proposedSlot)
+        proposedSlot && parseSlotStart(proposedSlot)
           ? proposedSlot
           : request.preferredTime?.[0] || '';
+      if (proposedSlot && !parseSlotStart(proposedSlot)) {
+        return res.status(400).json({ success: false, message: 'Proposed time is invalid. Use HH:MM or a listed slot.' });
+      }
+      const dateToUse = proposedDate || request.preferredDate;
+      if (!dateToUse) {
+        return res.status(400).json({ success: false, message: 'Please pick a valid date' });
+      }
+      const dateCheck = assertFutureBookingDate(dateToUse);
+      if (dateCheck.error) {
+        return res.status(400).json({ success: false, message: dateCheck.error });
+      }
+      const safeDate = dateCheck.date;
       const scheduledAt =
-        buildScheduledAtFromDateAndSlot(request.preferredDate, slotToUse) || new Date(request.preferredDate);
+        buildScheduledAtFromDateAndSlot(safeDate, slotToUse) || safeDate;
+      const alreadyPaid = Boolean(request.paymentHeldAt);
       const updated = await retryQuery(async () =>
         prisma.interviewRequest.update({
           where: { id: request.id },
           data: {
             interviewerId: candidateId,
-            status: 'ACCEPTED',
+            status: alreadyPaid ? 'SCHEDULED' : 'ACCEPTED',
             acceptedAt: new Date(),
             scheduledAt,
-            interviewerFeedback: slotToUse ? `SLOT_PROPOSAL::${slotToUse}` : request.interviewerFeedback,
+            preferredDate: safeDate,
+            preferredTime: mergePreferredSlot(request.preferredTime, slotToUse),
+            interviewPrice: clampInterviewPrice(
+              request.interviewPrice ?? profile?.interviewPrice ?? latestApplication?.interviewPrice,
+              50
+            ),
+            interviewerFeedback: slotToUse
+              ? encodeSlotProposal(slotToUse, safeDate, '')
+              : request.interviewerFeedback,
           },
         })
       );
@@ -498,12 +658,17 @@ async function respondToInterviewRequest(req, res) {
     const updated = await retryQuery(async () =>
       prisma.interviewRequest.update({
         where: { id: request.id },
-        data: {
-          status: 'FINDING_INTERVIEWER',
-          rejectedAt: new Date(),
-          interviewerId: null,
-          matchingScore: null,
-        },
+        data: isAssignedToMe
+          ? {
+              status: 'REJECTED',
+              rejectedAt: new Date(),
+            }
+          : {
+              status: 'FINDING_INTERVIEWER',
+              rejectedAt: new Date(),
+              interviewerId: null,
+              matchingScore: null,
+            },
       })
     );
 
@@ -512,11 +677,16 @@ async function respondToInterviewRequest(req, res) {
         data: {
           candidateId: request.candidateId,
           type: 'interview',
-          title: 'Interviewer declined your request',
-          description: `Request ${request.requestId} will be matched with another interviewer.`,
+          title: isAssignedToMe ? 'Interviewer declined your request' : 'Interviewer declined your request',
+          description: isAssignedToMe
+            ? `Request ${request.requestId} was rejected. No tokens were charged.`
+            : `Request ${request.requestId} will be matched with another interviewer.`,
           actionButton: 'Track request',
           actionPath: '/lms/interview-prep/request-interview',
-          metadata: { requestId: request.requestId, status: 'FINDING_INTERVIEWER' },
+          metadata: {
+            requestId: request.requestId,
+            status: isAssignedToMe ? 'REJECTED' : 'FINDING_INTERVIEWER',
+          },
         },
       })
     ).catch(() => {});
@@ -541,6 +711,7 @@ async function scheduleInterviewRequest(req, res) {
     const requestId = String(req.params?.requestId || '').trim();
     const slot = String(req.body?.slot || '').trim();
     const note = String(req.body?.note || '').trim();
+    const proposedDate = toDateOrNull(req.body?.preferredDate || req.body?.proposedDate);
     if (!candidateId || !requestId) {
       return res.status(400).json({ success: false, message: 'Candidate and request IDs are required' });
     }
@@ -556,17 +727,26 @@ async function scheduleInterviewRequest(req, res) {
     if (!request || String(request.interviewerId || '') !== candidateId) {
       return res.status(404).json({ success: false, message: 'Interview request not found in your queue' });
     }
-    if (!['ACCEPTED', 'WAITING_FOR_ACCEPTANCE'].includes(String(request.status || ''))) {
+    if (!['ACCEPTED', 'WAITING_FOR_ACCEPTANCE', 'SCHEDULED'].includes(String(request.status || ''))) {
       return res.status(400).json({
         success: false,
-        message: 'Slot proposal can be sent only for accepted requests awaiting candidate action',
+        message: 'Slot proposal can be sent for accepted, scheduled, or waiting requests',
       });
     }
-    if (!Array.isArray(request.preferredTime) || !request.preferredTime.includes(slot)) {
-      return res.status(400).json({ success: false, message: 'Selected slot must be from candidate preferred slots' });
+    if (!parseSlotStart(slot)) {
+      return res.status(400).json({ success: false, message: 'Selected time is invalid. Use HH:MM or a listed slot.' });
     }
 
-    const feedback = note ? `SLOT_PROPOSAL::${slot}||${note}` : `SLOT_PROPOSAL::${slot}`;
+    const dateToUse = proposedDate || request.preferredDate;
+    if (!dateToUse) {
+      return res.status(400).json({ success: false, message: 'Please pick a valid date' });
+    }
+    const dateCheck = assertFutureBookingDate(dateToUse);
+    if (dateCheck.error) {
+      return res.status(400).json({ success: false, message: dateCheck.error });
+    }
+    const safeDate = dateCheck.date;
+    const feedback = encodeSlotProposal(slot, safeDate, note);
     const updated = await retryQuery(async () =>
       prisma.interviewRequest.update({
         where: { id: request.id },
@@ -574,6 +754,10 @@ async function scheduleInterviewRequest(req, res) {
           status: 'ACCEPTED',
           acceptedAt: request.acceptedAt || new Date(),
           interviewerFeedback: feedback,
+          preferredDate: safeDate,
+          preferredTime: mergePreferredSlot(request.preferredTime, slot),
+          scheduledAt:
+            buildScheduledAtFromDateAndSlot(safeDate, slot) || request.scheduledAt || safeDate,
         },
       })
     );
@@ -606,11 +790,238 @@ async function scheduleInterviewRequest(req, res) {
   }
 }
 
+function scoreMarketplaceInterviewer(filters, profile) {
+  let score = 0;
+  const requestCategory = String(filters.category || '').toLowerCase();
+  const requestType = String(filters.interviewType || '').toLowerCase();
+  const requestLanguage = String(filters.language || '').toLowerCase();
+  const requestTech = Array.isArray(filters.techStack)
+    ? filters.techStack.map((s) => String(s).toLowerCase())
+    : [];
+  const expertise = Array.isArray(profile.expertiseAreas)
+    ? profile.expertiseAreas.map((s) => String(s).toLowerCase())
+    : [];
+  const interviewTypes = Array.isArray(profile.interviewTypes)
+    ? profile.interviewTypes.map((s) => String(s).toLowerCase())
+    : [];
+  const languages = Array.isArray(profile.languages)
+    ? profile.languages.map((s) => String(s).toLowerCase())
+    : [];
+
+  if (expertise.some((item) => item.includes(requestCategory) || requestCategory.includes(item))) {
+    score += 30;
+  }
+  if (requestTech.length > 0) {
+    const overlapCount = requestTech.filter((tech) => expertise.includes(tech)).length;
+    score += Math.round((overlapCount / requestTech.length) * 30);
+  }
+  if (interviewTypes.some((item) => item.includes(requestType) || requestType.includes(item))) {
+    score += 15;
+  }
+  if (languages.some((item) => item.includes(requestLanguage) || requestLanguage.includes(item))) {
+    score += 15;
+  }
+  const rating = Number(profile.ratingAverage || 0);
+  if (rating > 0) score += Math.round((Math.min(5, rating) / 5) * 10);
+  return score;
+}
+
+function toMarketplaceCard(row, photoByCandidateId) {
+  const candidateId = String(row.candidateId);
+  return {
+    candidateId,
+    fullName: row.fullName,
+    currentRole: row.currentRole,
+    currentCompany: row.currentCompany,
+    yearsOfExperience: row.yearsOfExperience,
+    expertiseAreas: row.expertiseAreas || [],
+    interviewTypes: row.interviewTypes || [],
+    languages: row.languages || [],
+    weeklyAvailability: row.weeklyAvailability || '',
+    aboutYourself: row.aboutYourself || '',
+    feedbackStyle: row.feedbackStyle || '',
+    ratingAverage: Number(row.ratingAverage || 0),
+    totalRatings: Number(row.totalRatings || 0),
+    totalInterviews: Number(row.totalInterviews || 0),
+    interviewPrice: clampInterviewPrice(row.interviewPrice, 50),
+    profilePhotoUrl: photoByCandidateId.get(candidateId) || row.profilePhotoUrl || null,
+  };
+}
+
+async function listMarketplaceInterviewers(req, res) {
+  try {
+    const viewerId = String(req.user?.candidateId || '').trim();
+    const category = String(req.query?.category || '').trim();
+    const interviewType = String(req.query?.interviewType || '').trim();
+    const language = String(req.query?.language || '').trim();
+    const techStack = String(req.query?.techStack || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    const [profiles, applications] = await Promise.all([
+      retryQuery(async () =>
+        prisma.interviewerProfile.findMany({
+          where: { status: { in: ['AVAILABLE', 'BUSY'] } },
+          orderBy: [{ ratingAverage: 'desc' }, { totalInterviews: 'desc' }],
+          take: 200,
+        })
+      ),
+      retryQuery(async () =>
+        prisma.interviewerApplication.findMany({
+          where: { status: { in: ['SUBMITTED', 'APPROVED'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 400,
+        })
+      ),
+    ]);
+
+    const interviewerIds = [
+      ...new Set([
+        ...profiles.map((row) => String(row.candidateId)),
+        ...applications.map((row) => String(row.candidateId)),
+      ]),
+    ].filter((id) => id && id !== viewerId);
+
+    const photos = interviewerIds.length
+      ? await retryQuery(async () =>
+          prisma.candidateProfile.findMany({
+            where: { candidateId: { in: interviewerIds } },
+            select: { candidateId: true, profilePhotoUrl: true },
+          })
+        )
+      : [];
+
+    const photoByCandidateId = new Map(
+      photos
+        .filter((row) => row.profilePhotoUrl)
+        .map((row) => [String(row.candidateId), row.profilePhotoUrl])
+    );
+
+    const byId = new Map();
+    for (const app of applications) {
+      const id = String(app.candidateId);
+      if (viewerId && id === viewerId) continue;
+      if (!byId.has(id)) {
+        byId.set(id, toMarketplaceCard({ ...app, ratingAverage: 0, totalRatings: 0, totalInterviews: 0 }, photoByCandidateId));
+      }
+    }
+    for (const profile of profiles) {
+      const id = String(profile.candidateId);
+      if (viewerId && id === viewerId) continue;
+      byId.set(id, toMarketplaceCard(profile, photoByCandidateId));
+    }
+
+    const filters = { category, interviewType, language, techStack };
+    const data = [...byId.values()]
+      .map((card) => ({
+        ...card,
+        matchingScore: scoreMarketplaceInterviewer(filters, card),
+      }))
+      .sort((a, b) => b.matchingScore - a.matchingScore || b.ratingAverage - a.ratingAverage)
+      .slice(0, 40);
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('listMarketplaceInterviewers error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load interviewers',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+async function completeInterviewRequest(req, res) {
+  try {
+    const candidateId = String(req.user?.candidateId || '').trim();
+    const requestId = String(req.params?.requestId || '').trim();
+    const feedback = String(req.body?.feedback || req.body?.interviewerFeedback || '').trim();
+    const remarks = String(req.body?.remarks || '').trim();
+    const rating = Number(req.body?.rating);
+    if (!candidateId || !requestId) {
+      return res.status(400).json({ success: false, message: 'Candidate and request IDs are required' });
+    }
+
+    const request = await retryQuery(async () =>
+      prisma.interviewRequest.findUnique({ where: { id: requestId } })
+    );
+    if (!request || String(request.interviewerId || '') !== candidateId) {
+      return res.status(404).json({ success: false, message: 'Interview request not found in your queue' });
+    }
+    const status = String(request.status || '');
+    if (!['SCHEDULED', 'IN_PROGRESS', 'COMPLETED'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Interview can be completed only after it is scheduled',
+      });
+    }
+
+    const combinedFeedback = [feedback, remarks].filter(Boolean).join('\n').slice(0, 4000);
+    const alreadyPaid = Boolean(request.payoutReleasedAt);
+    let payout = { alreadyPaid: true, granted: 0, fee: clampInterviewPrice(request.interviewPrice, 50) };
+
+    if (!alreadyPaid && request.paymentHeldAt) {
+      payout = await releaseInterviewerEarnings({
+        interviewerId: candidateId,
+        requestDbId: request.id,
+        amount: request.interviewPrice,
+      });
+    }
+
+    const updated = await retryQuery(async () =>
+      prisma.interviewRequest.update({
+        where: { id: request.id },
+        data: {
+          status: 'COMPLETED',
+          completedAt: request.completedAt || new Date(),
+          interviewerFeedback: combinedFeedback || request.interviewerFeedback,
+          interviewerRating: Number.isFinite(rating) ? Math.max(1, Math.min(5, Math.round(rating))) : request.interviewerRating,
+          payoutReleasedAt: request.payoutReleasedAt || (request.paymentHeldAt ? new Date() : null),
+        },
+      })
+    );
+
+    await retryQuery(async () =>
+      prisma.notification.create({
+        data: {
+          candidateId: request.candidateId,
+          type: 'interview',
+          title: 'Interview completed',
+          description: `Request ${request.requestId} is complete. ${payout.fee} tokens were released to the interviewer.`,
+          actionButton: 'View request',
+          actionPath: '/lms/interview-prep/request-interview',
+          metadata: { requestId: request.requestId, status: 'COMPLETED' },
+        },
+      })
+    ).catch(() => {});
+
+    return res.json({
+      success: true,
+      data: {
+        ...updated,
+        statusLabel: normalizeStatusLabel(updated.status),
+        payoutTokens: payout.granted || (alreadyPaid ? payout.fee : 0),
+      },
+    });
+  } catch (error) {
+    console.error('completeInterviewRequest error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to complete interview',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   submitInterviewerApplication,
+  updateMyInterviewerApplication,
   getMyInterviewerApplication,
   reviewInterviewerApplication,
   getInterviewerQueue,
   respondToInterviewRequest,
   scheduleInterviewRequest,
+  listMarketplaceInterviewers,
+  completeInterviewRequest,
 };

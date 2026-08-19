@@ -6,7 +6,13 @@ const ROOM_EVENT = {
   PARTICIPANT_LEFT: 'interview-room:participant-left',
   SIGNAL: 'interview-room:signal',
   CHAT_MESSAGE: 'interview-room:chat-message',
+  NOTES_UPDATED: 'interview-room:notes-updated',
+  NOTES_UPDATE: 'interview-room:notes-update',
+  COMPLETE: 'interview-room:complete',
+  MEETING_COMPLETED: 'interview-room:meeting-completed',
 };
+
+const { getLiveBundle, saveLiveNotes, appendLiveMessage } = require('../services/interviewLive.service');
 
 const MAX_ROOM_PARTICIPANTS = 2;
 const rooms = new Map();
@@ -79,11 +85,25 @@ function registerInterviewRoomSocketHandlers(io) {
       });
 
       const otherParticipants = getRoomParticipants(roomId).filter((item) => item.socketId !== socket.id);
-      socket.emit(ROOM_EVENT.JOINED, {
-        roomId,
-        selfSocketId: socket.id,
-        participants: otherParticipants,
-      });
+      getLiveBundle(roomId)
+        .then((bundle) => {
+          socket.emit(ROOM_EVENT.JOINED, {
+            roomId,
+            selfSocketId: socket.id,
+            participants: otherParticipants,
+            notes: bundle.notes || '',
+            messages: bundle.messages || [],
+          });
+        })
+        .catch(() => {
+          socket.emit(ROOM_EVENT.JOINED, {
+            roomId,
+            selfSocketId: socket.id,
+            participants: otherParticipants,
+            notes: '',
+            messages: [],
+          });
+        });
 
       socket.to(roomId).emit(ROOM_EVENT.PARTICIPANT_JOINED, {
         socketId: socket.id,
@@ -113,12 +133,41 @@ function registerInterviewRoomSocketHandlers(io) {
       const message = String(payload.message || '').trim();
       if (!message) return;
 
-      io.to(joinedRoomId).emit(ROOM_EVENT.CHAT_MESSAGE, {
+      const chatPayload = {
         socketId: socket.id,
         displayName: String(payload.displayName || 'Participant').trim().slice(0, 80) || 'Participant',
         role: String(payload.role || 'guest').trim().toLowerCase() || 'guest',
         message: message.slice(0, 1000),
         createdAt: new Date().toISOString(),
+      };
+
+      io.to(joinedRoomId).emit(ROOM_EVENT.CHAT_MESSAGE, chatPayload);
+      appendLiveMessage(joinedRoomId, chatPayload).catch((error) => {
+        console.warn('[interview-room] failed to persist chat:', error?.message || error);
+      });
+    });
+
+    socket.on(ROOM_EVENT.NOTES_UPDATE, (payload = {}) => {
+      const joinedRoomId = socket.data?.interviewRoomId;
+      if (!joinedRoomId) return;
+      const notes = String(payload.notes || '').slice(0, 20000);
+      io.to(joinedRoomId).emit(ROOM_EVENT.NOTES_UPDATED, {
+        notes,
+        updatedBy: String(payload.displayName || 'Participant').trim().slice(0, 80) || 'Participant',
+        updatedAt: new Date().toISOString(),
+      });
+      saveLiveNotes(joinedRoomId, notes).catch((error) => {
+        console.warn('[interview-room] failed to persist notes:', error?.message || error);
+      });
+    });
+
+    socket.on(ROOM_EVENT.COMPLETE, (payload = {}) => {
+      const joinedRoomId = socket.data?.interviewRoomId;
+      if (!joinedRoomId) return;
+      io.to(joinedRoomId).emit(ROOM_EVENT.MEETING_COMPLETED, {
+        roomId: joinedRoomId,
+        completedBy: String(payload.displayName || 'Participant').trim().slice(0, 80) || 'Participant',
+        completedAt: new Date().toISOString(),
       });
     });
 

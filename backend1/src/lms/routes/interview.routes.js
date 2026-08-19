@@ -10,10 +10,14 @@ const {
   validateFeedbackSet, validateStartMock, validateAnswerMock
 } = require('../validators/interview.validator');
 const { requireTokens } = require('../../middleware/requireTokens.middleware');
+const { listMarketplaceInterviewers } = require('../../controllers/interviewer.controller');
+const { createInterviewRequest } = require('../../controllers/interview-request.controller');
 
 const router = Router();
 
 router.get('/', getInterviewDashboard);
+router.get('/marketplace', listMarketplaceInterviewers);
+router.post('/requests', createInterviewRequest);
 router.get('/question-bank/:category', getQuestionBank);
 router.post('/generate-set', requireTokens('lms.interview.generate-set'), validateGenerateSet, requestGenerateSet);
 router.post('/sets', validateCreateSet, saveSet);

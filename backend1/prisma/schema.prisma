@@ -1511,6 +1511,9 @@ model InterviewRequest {
   scheduledAt    DateTime?
   startedAt      DateTime?
   completedAt    DateTime?
+  interviewPrice     Int?
+  paymentHeldAt      DateTime?
+  payoutReleasedAt   DateTime?
   interviewerFeedback String?
   candidateFeedback   String?
   candidateRating     Int?
@@ -1543,6 +1546,8 @@ model InterviewerApplication {
   feedbackStyle    String
   linkedinUrl      String?
   resumeUrl        String?
+  profilePhotoUrl  String?
+  interviewPrice   Int                          @default(50)
   status           InterviewerApplicationStatus @default(SUBMITTED)
   reviewedBy       String?
   reviewNotes      String?
@@ -1572,6 +1577,8 @@ model InterviewerProfile {
   feedbackStyle     String
   linkedinUrl       String?
   resumeUrl         String?
+  profilePhotoUrl   String?
+  interviewPrice    Int                     @default(50)
   ratingAverage     Float                   @default(0)
   totalRatings      Int                     @default(0)
   totalInterviews   Int                     @default(0)
