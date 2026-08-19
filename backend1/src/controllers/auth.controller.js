@@ -14,7 +14,6 @@ const {
 } = require('../utils/session-tracking.util');
 
 const MIN_PASSWORD_LENGTH = 8;
-const RETURNING_USER_MS = 60_000;
 
 function issueCandidateToken(candidate) {
   return jwt.sign(
@@ -161,30 +160,25 @@ async function logout(req, res) {
   }
 }
 
-async function computeSkipCvUpload(candidate, otpCreatedAt = null) {
+async function computeSkipCvUpload(candidate) {
   const onboarding = await retryQuery(async () => {
     return await prisma.candidate.findUnique({
       where: { id: candidate.id },
       select: {
-        profile: { select: { id: true } },
-        resume: { select: { id: true } },
+        profile: { select: { fullName: true, profileCompleteness: true } },
+        resume: { select: { fileUrl: true, fileName: true } },
       },
     });
   });
 
-  const hasProfileOrResume = !!(onboarding?.profile || onboarding?.resume);
-  if (hasProfileOrResume) return true;
+  const hasUploadedResume = Boolean(
+    String(onboarding?.resume?.fileUrl || '').trim() ||
+      String(onboarding?.resume?.fileName || '').trim()
+  );
+  if (hasUploadedResume) return true;
 
-  if (otpCreatedAt && candidate.createdAt) {
-    const otpMs = new Date(otpCreatedAt).getTime();
-    const candMs = new Date(candidate.createdAt).getTime();
-    return otpMs - candMs > RETURNING_USER_MS;
-  }
-
-  // Password login: treat verified accounts older than a minute as returning
-  if (candidate.createdAt) {
-    return Date.now() - new Date(candidate.createdAt).getTime() > RETURNING_USER_MS;
-  }
+  const completeness = Number(onboarding?.profile?.profileCompleteness || 0);
+  if (completeness >= 25) return true;
 
   return false;
 }
@@ -961,10 +955,10 @@ async function verifyOTP(req, res) {
       });
     });
     const needsPassword = !withPassword?.passwordHash;
-    const skipCvUpload = await computeSkipCvUpload(
-      { id: candidate.id, createdAt: withPassword?.createdAt || candidate.createdAt },
-      latestOTP.createdAt
-    );
+    const skipCvUpload = await computeSkipCvUpload({
+      id: candidate.id,
+      createdAt: withPassword?.createdAt || candidate.createdAt,
+    });
 
     const token = issueCandidateToken(candidate);
     await createCandidateSession(req, candidate.id, token);
