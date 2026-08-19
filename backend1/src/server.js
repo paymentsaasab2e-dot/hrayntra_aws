@@ -118,7 +118,11 @@ app.use('/api/lms', lmsRoutes);
 app.use('/api/lms/questions', lmsAiRoutes);
 app.use('/api/mock-interview', mockInterviewRoutes);
 app.use('/api/interview-requests', interviewRequestRoutes);
+app.use('/api/interview-request', interviewRequestRoutes);
 app.use('/api/interviewer', interviewerRoutes);
+app.use('/api/interviewers', interviewerRoutes);
+app.use('/api/lms/interview-requests', interviewRequestRoutes);
+app.use('/api/lms/interviewer', interviewerRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/internal', internalRoutes);
@@ -147,6 +151,7 @@ app.use((err, req, res, next) => {
 
 // 404 handler
 app.use((req, res) => {
+  console.warn(`[404] ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     success: false,
     message: 'Route not found',

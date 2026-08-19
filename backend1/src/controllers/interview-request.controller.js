@@ -1,6 +1,14 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { matchInterviewRequestById } = require('../services/interviewMatching.service');
 const { sendInterviewStatusEmail } = require('../services/email.service');
+const {
+  clampInterviewPrice,
+  holdInterviewPayment,
+  releaseInterviewerEarnings,
+} = require('../services/interviewTokenBooking.service');
+const tokenService = require('../services/token.service');
+const { getLiveBundle, getLiveBundleByRequestId, findRequestForLiveRoom } = require('../services/interviewLive.service');
+const { mergePreferredSlot, encodeSlotProposal, decodeSlotProposal, assertFutureBookingDate } = require('../utils/interviewSlot.util');
 
 const DEFAULT_DURATION_MINUTES = 45;
 const ALLOWED_DURATIONS = new Set([30, 45, 60, 90, 120]);
@@ -38,6 +46,17 @@ function normalizeStatusLabel(status) {
 }
 
 function toDateOrNull(value) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const raw = String(value ?? '').trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const d = new Date(year, month - 1, day);
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+    return d;
+  }
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -57,15 +76,15 @@ function normalizeStatusFilter(value) {
 }
 
 function normalizeRequestRow(row) {
-  const proposalPrefix = 'SLOT_PROPOSAL::';
-  const proposedRaw = String(row?.interviewerFeedback || '').startsWith(proposalPrefix)
-    ? String(row.interviewerFeedback).slice(proposalPrefix.length).trim()
-    : '';
-  const proposedSlot = proposedRaw ? proposedRaw.split('||')[0].trim() : null;
+  const fromInterviewer = decodeSlotProposal(row?.interviewerFeedback);
+  const fromCandidate = decodeSlotProposal(row?.candidateFeedback);
+  const proposedSlot = fromInterviewer.slot || fromCandidate.slot || null;
+  const proposedDate = fromInterviewer.date || fromCandidate.date || null;
   return {
     ...row,
     statusLabel: normalizeStatusLabel(row.status),
-    proposedSlot: proposedSlot || null,
+    proposedSlot,
+    proposedDate,
   };
 }
 
@@ -96,6 +115,25 @@ function parseSlotStart(slotValue) {
     let hour = Number(amPmFormat[1]);
     const minute = Number(amPmFormat[2]);
     const period = String(amPmFormat[3]).toUpperCase();
+    if (period === 'PM' && hour < 12) hour += 12;
+    if (period === 'AM' && hour === 12) hour = 0;
+    if (Number.isFinite(hour) && Number.isFinite(minute)) return { hour, minute };
+  }
+
+  const single24 = /^(\d{1,2}):(\d{2})$/.exec(raw);
+  if (single24) {
+    const hour = Number(single24[1]);
+    const minute = Number(single24[2]);
+    if (Number.isFinite(hour) && hour >= 0 && hour <= 23 && Number.isFinite(minute)) {
+      return { hour, minute };
+    }
+  }
+
+  const singleAmPm = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(raw);
+  if (singleAmPm) {
+    let hour = Number(singleAmPm[1]);
+    const minute = Number(singleAmPm[2]);
+    const period = String(singleAmPm[3]).toUpperCase();
     if (period === 'PM' && hour < 12) hour += 12;
     if (period === 'AM' && hour === 12) hour = 0;
     if (Number.isFinite(hour) && Number.isFinite(minute)) return { hour, minute };
@@ -220,6 +258,7 @@ async function createInterviewRequest(req, res) {
     const rawDuration = Number(req.body?.duration);
     const duration = Number.isFinite(rawDuration) ? Math.round(rawDuration) : DEFAULT_DURATION_MINUTES;
     const notes = String(req.body?.notes || '').trim();
+    const requestedInterviewerId = String(req.body?.interviewerId || '').trim();
 
     if (!targetRole) return res.status(400).json({ success: false, message: 'Target role is required' });
     if (!companyDomain) return res.status(400).json({ success: false, message: 'Company or domain is required' });
@@ -233,11 +272,9 @@ async function createInterviewRequest(req, res) {
     if (!interviewType) return res.status(400).json({ success: false, message: 'Interview type is required' });
     if (!weakAreas) return res.status(400).json({ success: false, message: 'Weak areas are required' });
     if (!preferredDate) return res.status(400).json({ success: false, message: 'Preferred date is invalid' });
-
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    if (preferredDate < startOfToday) {
-      return res.status(400).json({ success: false, message: 'Preferred date must be in the future' });
+    const preferredDateCheck = assertFutureBookingDate(preferredDate);
+    if (preferredDateCheck.error) {
+      return res.status(400).json({ success: false, message: preferredDateCheck.error });
     }
     if (!preferredTime.length) return res.status(400).json({ success: false, message: 'Select at least one preferred time slot' });
     if (!ALLOWED_DURATIONS.has(duration)) {
@@ -247,12 +284,42 @@ async function createInterviewRequest(req, res) {
       return res.status(400).json({ success: false, message: 'Additional notes must be 1000 characters or less' });
     }
 
+    if (requestedInterviewerId && requestedInterviewerId === candidateId) {
+      return res.status(400).json({ success: false, message: 'You cannot request an interview with yourself' });
+    }
+
+    let lockedPrice = null;
+    if (requestedInterviewerId) {
+      const [interviewerProfile, interviewerApplication] = await Promise.all([
+        retryQuery(async () =>
+          prisma.interviewerProfile.findUnique({ where: { candidateId: requestedInterviewerId } })
+        ),
+        retryQuery(async () =>
+          prisma.interviewerApplication.findFirst({
+            where: {
+              candidateId: requestedInterviewerId,
+              status: { in: ['SUBMITTED', 'APPROVED'] },
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        ),
+      ]);
+      if (!interviewerProfile && !interviewerApplication) {
+        return res.status(400).json({ success: false, message: 'Selected interviewer is not available' });
+      }
+      lockedPrice = clampInterviewPrice(
+        interviewerProfile?.interviewPrice ?? interviewerApplication?.interviewPrice,
+        50
+      );
+    }
+
     const requestId = generateRequestId();
     const created = await retryQuery(async () =>
       prisma.interviewRequest.create({
         data: {
           requestId,
           candidateId,
+          interviewerId: requestedInterviewerId || null,
           targetRole,
           companyDomain,
           category,
@@ -266,12 +333,13 @@ async function createInterviewRequest(req, res) {
           preferredTime,
           duration,
           notes: notes || null,
-          status: 'FINDING_INTERVIEWER',
+          interviewPrice: lockedPrice,
+          status: requestedInterviewerId ? 'WAITING_FOR_ACCEPTANCE' : 'FINDING_INTERVIEWER',
         },
       })
     );
 
-    const matched = await matchInterviewRequestById(created.id);
+    const matched = requestedInterviewerId ? created : await matchInterviewRequestById(created.id);
 
     await retryQuery(async () =>
       prisma.notification.create({
@@ -289,6 +357,22 @@ async function createInterviewRequest(req, res) {
         },
       })
     ).catch(() => {});
+
+    if (requestedInterviewerId) {
+      await retryQuery(async () =>
+        prisma.notification.create({
+          data: {
+            candidateId: requestedInterviewerId,
+            type: 'interview',
+            title: 'New interview request',
+            description: `Request ${requestId} is waiting for your acceptance. Agreed price: ${lockedPrice} tokens.`,
+            actionButton: 'Open inbox',
+            actionPath: '/lms/interview-prep/become-interviewer',
+            metadata: { requestId, status: 'WAITING_FOR_ACCEPTANCE', interviewPrice: lockedPrice },
+          },
+        })
+      ).catch(() => {});
+    }
 
     const finalRow = matched || created;
     return res.status(201).json({
@@ -340,7 +424,15 @@ async function getMyInterviewRequests(req, res) {
       ? await retryQuery(async () =>
           prisma.candidateProfile.findMany({
             where: { candidateId: { in: interviewerIds } },
-            select: { candidateId: true, fullName: true, email: true, phoneNumber: true },
+            select: { candidateId: true, fullName: true, email: true, phoneNumber: true, profilePhotoUrl: true },
+          })
+        )
+      : [];
+
+    const interviewerCards = interviewerIds.length
+      ? await retryQuery(async () =>
+          prisma.interviewerProfile.findMany({
+            where: { candidateId: { in: interviewerIds } },
           })
         )
       : [];
@@ -348,15 +440,41 @@ async function getMyInterviewRequests(req, res) {
     const interviewerProfileById = new Map(
       interviewerProfiles.map((row) => [String(row.candidateId), row])
     );
+    const interviewerCardById = new Map(
+      interviewerCards.map((row) => [String(row.candidateId), row])
+    );
 
     return res.json({
       success: true,
       data: requests.map((row) => {
         const normalized = normalizeRequestRow(row);
         const interviewerId = String(row.interviewerId || '').trim();
+        const basic = interviewerId ? interviewerProfileById.get(interviewerId) || null : null;
+        const card = interviewerId ? interviewerCardById.get(interviewerId) || null : null;
         return {
           ...normalized,
-          interviewerProfile: interviewerId ? interviewerProfileById.get(interviewerId) || null : null,
+          interviewPrice: clampInterviewPrice(row.interviewPrice ?? card?.interviewPrice, 50),
+          paymentHeldAt: row.paymentHeldAt || null,
+          payoutReleasedAt: row.payoutReleasedAt || null,
+          interviewerProfile: interviewerId
+            ? {
+                candidateId: interviewerId,
+                fullName: card?.fullName || basic?.fullName || null,
+                email: basic?.email || null,
+                phoneNumber: basic?.phoneNumber || null,
+                profilePhotoUrl: basic?.profilePhotoUrl || card?.profilePhotoUrl || null,
+                currentRole: card?.currentRole || null,
+                yearsOfExperience: card?.yearsOfExperience || null,
+                expertiseAreas: card?.expertiseAreas || [],
+                interviewTypes: card?.interviewTypes || [],
+                languages: card?.languages || [],
+                weeklyAvailability: card?.weeklyAvailability || null,
+                aboutYourself: card?.aboutYourself || null,
+                feedbackStyle: card?.feedbackStyle || null,
+                ratingAverage: Number(card?.ratingAverage || 0),
+                interviewPrice: clampInterviewPrice(row.interviewPrice ?? card?.interviewPrice, 50),
+              }
+            : null,
         };
       }),
     });
@@ -470,11 +588,12 @@ async function candidateScheduleDecision(req, res) {
     const decision = String(req.body?.decision || '').trim().toUpperCase();
     const note = String(req.body?.note || '').trim();
     const slot = String(req.body?.slot || '').trim();
+    const preferredDateInput = toDateOrNull(req.body?.preferredDate || req.body?.proposedDate);
     if (!candidateId || !requestId) {
       return res.status(400).json({ success: false, message: 'Candidate and request ID are required' });
     }
-    if (decision !== 'CONFIRM' && decision !== 'REQUEST_NEW_SLOT') {
-      return res.status(400).json({ success: false, message: 'Decision must be CONFIRM or REQUEST_NEW_SLOT' });
+    if (decision !== 'CONFIRM' && decision !== 'REQUEST_NEW_SLOT' && decision !== 'PROPOSE_SLOT') {
+      return res.status(400).json({ success: false, message: 'Decision must be CONFIRM, PROPOSE_SLOT, or REQUEST_NEW_SLOT' });
     }
 
     const request = await retryQuery(async () =>
@@ -485,25 +604,116 @@ async function candidateScheduleDecision(req, res) {
     if (!request || String(request.candidateId) !== candidateId) {
       return res.status(404).json({ success: false, message: 'Interview request not found' });
     }
-    if (String(request.status) !== 'ACCEPTED' && String(request.status) !== 'SCHEDULED') {
+    if (!['ACCEPTED', 'SCHEDULED', 'WAITING_FOR_ACCEPTANCE'].includes(String(request.status))) {
       return res.status(400).json({ success: false, message: 'This request is not ready for scheduling actions' });
+    }
+
+    if (decision === 'PROPOSE_SLOT' || (decision === 'REQUEST_NEW_SLOT' && slot && parseSlotStart(slot))) {
+      if (!parseSlotStart(slot)) {
+        return res.status(400).json({ success: false, message: 'Please pick a valid time' });
+      }
+      const dateToUse = preferredDateInput || request.preferredDate;
+      if (!dateToUse) {
+        return res.status(400).json({ success: false, message: 'Please pick a valid date' });
+      }
+      const dateCheck = assertFutureBookingDate(dateToUse);
+      if (dateCheck.error) {
+        return res.status(400).json({ success: false, message: dateCheck.error });
+      }
+      const safeDate = dateCheck.date;
+      const updated = await retryQuery(async () =>
+        prisma.interviewRequest.update({
+          where: { id: request.id },
+          data: {
+            status: 'WAITING_FOR_ACCEPTANCE',
+            preferredDate: safeDate,
+            preferredTime: mergePreferredSlot(request.preferredTime, slot),
+            scheduledAt: buildScheduledAtFromDateAndSlot(safeDate, slot),
+            interviewerFeedback: null,
+            candidateFeedback: encodeSlotProposal(slot, safeDate, note || 'Candidate proposed a new slot'),
+          },
+        })
+      );
+      if (request.interviewerId) {
+        await retryQuery(async () =>
+          prisma.notification.create({
+            data: {
+              candidateId: request.interviewerId,
+              type: 'interview',
+              title: 'Candidate proposed a new slot',
+              description: `Request ${request.requestId}: ${String(dateToUse).slice(0, 10)} ${slot}. Please accept or propose another time.`,
+              actionButton: 'Review slot',
+              actionPath: '/lms/interview-prep/become-interviewer',
+              metadata: { requestId: request.requestId, status: 'WAITING_FOR_ACCEPTANCE', slot },
+            },
+          })
+        ).catch(() => {});
+      }
+      return res.json({ success: true, data: normalizeRequestRow(updated) });
+    }
+
+    if (decision === 'CONFIRM' && String(request.status) === 'SCHEDULED' && request.paymentHeldAt) {
+      return res.json({
+        success: true,
+        data: {
+          ...normalizeRequestRow(request),
+          interviewPrice: clampInterviewPrice(request.interviewPrice, 50),
+        },
+      });
     }
 
     if (decision === 'CONFIRM') {
       if (String(request.status) !== 'ACCEPTED') {
         return res.status(400).json({ success: false, message: 'Slot can be confirmed only when awaiting your confirmation' });
       }
-      const proposalPrefix = 'SLOT_PROPOSAL::';
-      const proposalRaw = String(request.interviewerFeedback || '').startsWith(proposalPrefix)
-        ? String(request.interviewerFeedback).slice(proposalPrefix.length).trim()
-        : '';
-      const proposedSlotFromInterviewer = proposalRaw ? proposalRaw.split('||')[0].trim() : '';
-      const finalSlot =
-        slot && Array.isArray(request.preferredTime) && request.preferredTime.includes(slot)
-          ? slot
-          : proposedSlotFromInterviewer || request.preferredTime?.[0] || '';
+      const proposal = decodeSlotProposal(request.interviewerFeedback);
+      const proposedSlotFromInterviewer = proposal.slot || '';
+      const slotCandidates = [
+        slot,
+        proposedSlotFromInterviewer,
+        ...(Array.isArray(request.preferredTime) ? request.preferredTime : []),
+      ]
+        .map((item) => String(item || '').trim())
+        .filter(Boolean);
+      const finalSlot = slotCandidates.find((item) => Boolean(parseSlotStart(item))) || slotCandidates[0] || '';
       if (!finalSlot) {
         return res.status(400).json({ success: false, message: 'Please choose a valid slot to finalize' });
+      }
+      const dateToUse = preferredDateInput || toDateOrNull(proposal.date) || request.preferredDate;
+
+      const agreedPrice = clampInterviewPrice(request.interviewPrice, 50);
+      let tokenBalance = null;
+
+      if (!request.paymentHeldAt) {
+        try {
+          const hold = await holdInterviewPayment({
+            candidateId,
+            requestDbId: request.id,
+            amount: agreedPrice,
+          });
+          tokenBalance = hold.tokenBalance;
+        } catch (error) {
+          if (error.code === 'INSUFFICIENT_TOKENS' || error.status === 402) {
+            const balance = Number(error.balance ?? 0);
+            return res.status(402).json({
+              success: false,
+              code: 'INSUFFICIENT_TOKENS',
+              message: `Need ${agreedPrice} tokens to confirm (you have ${balance}).`,
+              interviewPrice: agreedPrice,
+              balance,
+              required: agreedPrice,
+              shortfall: Math.max(0, agreedPrice - balance),
+            });
+          }
+          throw error;
+        }
+      } else {
+        try {
+          const bal = await tokenService.getBalance(candidateId);
+          tokenBalance = bal.tokenBalance;
+        } catch {
+          tokenBalance = null;
+        }
       }
 
       const updated = await retryQuery(async () =>
@@ -511,9 +721,12 @@ async function candidateScheduleDecision(req, res) {
           where: { id: request.id },
           data: {
             status: 'SCHEDULED',
+            interviewPrice: agreedPrice,
+            paymentHeldAt: request.paymentHeldAt || new Date(),
             preferredTime: [finalSlot],
+            preferredDate: dateToUse || request.preferredDate,
             scheduledAt:
-              buildScheduledAtFromDateAndSlot(request.preferredDate, finalSlot) ||
+              buildScheduledAtFromDateAndSlot(dateToUse || request.preferredDate, finalSlot) ||
               request.scheduledAt ||
               new Date(request.preferredDate),
             candidateFeedback: note || request.candidateFeedback || null,
@@ -539,11 +752,18 @@ async function candidateScheduleDecision(req, res) {
 
       await sendScheduledEmailsToParticipants(updated, finalSlot);
 
-      return res.json({ success: true, data: normalizeRequestRow(updated) });
+      return res.json({
+        success: true,
+        data: {
+          ...normalizeRequestRow(updated),
+          interviewPrice: agreedPrice,
+          tokenBalance,
+        },
+      });
     }
 
-    if (String(request.status) !== 'ACCEPTED') {
-      return res.status(400).json({ success: false, message: 'You can request a new slot only after interviewer proposal' });
+    if (!['ACCEPTED', 'SCHEDULED'].includes(String(request.status))) {
+      return res.status(400).json({ success: false, message: 'You can request a new slot after a proposal or while scheduled' });
     }
 
     const updated = await retryQuery(async () =>
@@ -580,6 +800,82 @@ async function candidateScheduleDecision(req, res) {
     return res.status(500).json({
       success: false,
       message: 'Failed to update schedule decision',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+async function getInterviewLiveByRoom(req, res) {
+  try {
+    const actorId = String(req.user?.candidateId || '').trim();
+    const roomId = String(req.params?.roomId || '').trim();
+    if (!actorId || !roomId) {
+      return res.status(400).json({ success: false, message: 'Candidate and room ID are required' });
+    }
+
+    const request = await findRequestForLiveRoom(roomId);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Live room not found' });
+    }
+    const isCandidate = String(request.candidateId) === actorId;
+    const isInterviewer = String(request.interviewerId || '') === actorId;
+    if (!isCandidate && !isInterviewer) {
+      return res.status(403).json({ success: false, message: 'Not authorized to view this live room' });
+    }
+
+    const bundle = await getLiveBundle(roomId);
+    return res.json({
+      success: true,
+      data: {
+        ...bundle,
+        request: {
+          id: request.id,
+          requestId: request.requestId,
+          status: request.status,
+          candidateId: request.candidateId,
+          interviewerId: request.interviewerId || null,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('getInterviewLiveByRoom error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load live room history',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+async function getInterviewLiveByRequest(req, res) {
+  try {
+    const actorId = String(req.user?.candidateId || '').trim();
+    const requestId = String(req.params?.requestId || '').trim();
+    if (!actorId || !requestId) {
+      return res.status(400).json({ success: false, message: 'Candidate and request ID are required' });
+    }
+
+    const request = await retryQuery(async () =>
+      prisma.interviewRequest.findUnique({
+        where: { id: requestId },
+      })
+    );
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Interview request not found' });
+    }
+    const isCandidate = String(request.candidateId) === actorId;
+    const isInterviewer = String(request.interviewerId || '') === actorId;
+    if (!isCandidate && !isInterviewer) {
+      return res.status(403).json({ success: false, message: 'Not authorized to view this live history' });
+    }
+
+    const bundle = await getLiveBundleByRequestId(request.id);
+    return res.json({ success: true, data: bundle });
+  } catch (error) {
+    console.error('getInterviewLiveByRequest error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load live interview notes',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
@@ -724,12 +1020,223 @@ async function postInterviewRequestChat(req, res) {
   }
 }
 
+async function completeLiveInterview(req, res) {
+  try {
+    const actorId = String(req.user?.candidateId || '').trim();
+    const requestId = String(req.params?.requestId || '').trim();
+    if (!actorId || !requestId) {
+      return res.status(400).json({ success: false, message: 'Candidate and request ID are required' });
+    }
+
+    const request = await retryQuery(async () =>
+      prisma.interviewRequest.findFirst({
+        where: {
+          OR: [{ id: requestId }, { requestId }, { requestId: requestId.toUpperCase() }],
+        },
+      })
+    );
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Interview request not found' });
+    }
+
+    const isCandidate = String(request.candidateId) === actorId;
+    const isInterviewer = String(request.interviewerId || '') === actorId;
+    if (!isCandidate && !isInterviewer) {
+      return res.status(403).json({ success: false, message: 'Not authorized to complete this interview' });
+    }
+
+    const status = String(request.status || '');
+    if (!['ACCEPTED', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This interview can be completed only after it is accepted or scheduled',
+      });
+    }
+
+    let payoutTokens = 0;
+    const updateData = {
+      status: 'COMPLETED',
+      completedAt: request.completedAt || new Date(),
+    };
+
+    if (request.paymentHeldAt && !request.payoutReleasedAt && request.interviewerId) {
+      const payout = await releaseInterviewerEarnings({
+        interviewerId: request.interviewerId,
+        requestDbId: request.id,
+        amount: request.interviewPrice,
+      });
+      updateData.payoutReleasedAt = request.payoutReleasedAt || new Date();
+      payoutTokens = payout.granted || payout.fee || 0;
+    }
+
+    const updated = await retryQuery(async () =>
+      prisma.interviewRequest.update({
+        where: { id: request.id },
+        data: updateData,
+      })
+    );
+
+    const notifyId = isCandidate ? request.interviewerId : request.candidateId;
+    if (notifyId) {
+      await retryQuery(async () =>
+        prisma.notification.create({
+          data: {
+            candidateId: notifyId,
+            type: 'interview',
+            title: 'Interview completed',
+            description: `Request ${request.requestId} was marked completed from the live meeting.`,
+            actionButton: 'View completed',
+            actionPath: isCandidate
+              ? '/lms/interview-prep/become-interviewer'
+              : '/lms/interview-prep/request-interview',
+            metadata: { requestId: request.requestId, status: 'COMPLETED' },
+          },
+        })
+      ).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...normalizeRequestRow(updated),
+        payoutTokens,
+      },
+    });
+  } catch (error) {
+    console.error('completeLiveInterview error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to complete interview',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+async function submitInterviewReview(req, res) {
+  try {
+    const actorId = String(req.user?.candidateId || '').trim();
+    const requestId = String(req.params?.requestId || '').trim();
+    const feedback = String(req.body?.feedback || req.body?.review || '').trim();
+    const rating = Number(req.body?.rating);
+    if (!actorId || !requestId) {
+      return res.status(400).json({ success: false, message: 'Candidate and request ID are required' });
+    }
+    if (feedback.length < 10) {
+      return res.status(400).json({ success: false, message: 'Review must be at least 10 characters' });
+    }
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, message: 'Rating must be between 1 and 5' });
+    }
+
+    const request = await retryQuery(async () =>
+      prisma.interviewRequest.findUnique({ where: { id: requestId } })
+    );
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Interview request not found' });
+    }
+
+    const isCandidate = String(request.candidateId) === actorId;
+    const isInterviewer = String(request.interviewerId || '') === actorId;
+    if (!isCandidate && !isInterviewer) {
+      return res.status(403).json({ success: false, message: 'Not authorized to review this interview' });
+    }
+
+    const status = String(request.status || '');
+    if (!['SCHEDULED', 'IN_PROGRESS', 'COMPLETED'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reviews can be submitted only after the interview is scheduled',
+      });
+    }
+
+    const scheduledAt = request.scheduledAt ? new Date(request.scheduledAt).getTime() : Number.NaN;
+    const durationMin = Math.max(15, Number(request.duration || 45));
+    const meetingEndsAt = Number.isFinite(scheduledAt) ? scheduledAt + durationMin * 60 * 1000 : 0;
+    if (status !== 'COMPLETED' && meetingEndsAt && Date.now() < meetingEndsAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'Complete and review become available after the scheduled meeting time ends',
+      });
+    }
+
+    const safeRating = Math.max(1, Math.min(5, Math.round(rating)));
+    const data = {
+      status: 'COMPLETED',
+      completedAt: request.completedAt || new Date(),
+    };
+
+    if (isCandidate) {
+      data.candidateFeedback = feedback.slice(0, 4000);
+      data.candidateRating = safeRating;
+    } else {
+      data.interviewerFeedback = feedback.slice(0, 4000);
+      data.interviewerRating = safeRating;
+    }
+
+    let payoutTokens = 0;
+    if (isInterviewer && request.paymentHeldAt && !request.payoutReleasedAt) {
+      const payout = await releaseInterviewerEarnings({
+        interviewerId: actorId,
+        requestDbId: request.id,
+        amount: request.interviewPrice,
+      });
+      data.payoutReleasedAt = request.payoutReleasedAt || new Date();
+      payoutTokens = payout.granted || payout.fee || 0;
+    }
+
+    const updated = await retryQuery(async () =>
+      prisma.interviewRequest.update({
+        where: { id: request.id },
+        data,
+      })
+    );
+
+    const notifyId = isCandidate ? request.interviewerId : request.candidateId;
+    if (notifyId) {
+      await retryQuery(async () =>
+        prisma.notification.create({
+          data: {
+            candidateId: notifyId,
+            type: 'interview',
+            title: isCandidate ? 'Candidate submitted interview review' : 'Interviewer submitted interview review',
+            description: `Request ${request.requestId} is marked completed. Open Completed to see feedback.`,
+            actionButton: 'View completed',
+            actionPath: isCandidate
+              ? '/lms/interview-prep/become-interviewer'
+              : '/lms/interview-prep/request-interview',
+            metadata: { requestId: request.requestId, status: 'COMPLETED' },
+          },
+        })
+      ).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...normalizeRequestRow(updated),
+        payoutTokens,
+      },
+    });
+  } catch (error) {
+    console.error('submitInterviewReview error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to submit interview review',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   createInterviewRequest,
   getMyInterviewRequests,
   getMyInterviewRequestSummary,
   rematchInterviewRequest,
   candidateScheduleDecision,
+  getInterviewLiveByRoom,
+  getInterviewLiveByRequest,
   getInterviewRequestChat,
   postInterviewRequestChat,
+  completeLiveInterview,
+  submitInterviewReview,
 };

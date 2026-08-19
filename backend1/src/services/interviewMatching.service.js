@@ -123,6 +123,7 @@ async function matchInterviewRequestById(requestId) {
         interviewerId: winner.profile.candidateId,
         matchingScore: winner.score,
         matchedAt: new Date(),
+        interviewPrice: Number(winner.profile.interviewPrice || request.interviewPrice || 50),
         status: 'WAITING_FOR_ACCEPTANCE',
       },
     })
