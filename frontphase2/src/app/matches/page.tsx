@@ -1165,6 +1165,7 @@ export default function MatchesPage() {
         jobs={jobs}
         recruiters={recruiters}
         onClose={() => setOpenModal(null)}
+        onRequestSubmitToClient={() => setOpenModal('submit')}
         onSubmit={async ({ jobId, stage, recruiterId, notes }) => {
           if (!activeCandidateId) return;
           try {

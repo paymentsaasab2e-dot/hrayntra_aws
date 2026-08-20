@@ -151,10 +151,13 @@ import {
 } from '../../lib/mapCandidateProfile';
 import {
   candidateRowCanSubmitToClient,
+  isSubmitToClientStageOption,
   profileCanSubmitToClient,
   resolveSubmitJobIdForProfile,
   resolveSubmitJobIdForRow,
   resolveSubmitJobIdFromBackend,
+  SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
+  SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
 } from '../../lib/candidateSubmitToClient';
 
 export const dynamic = 'force-dynamic';
@@ -1487,6 +1490,12 @@ function CandidatesPageContent() {
   const submitBulkMoveStage = useCallback(async () => {
     if (!bulkMoveStageJobId || !bulkMoveStageStageId || selectedIds.length === 0) return;
 
+    if (isSubmitToClientStageOption(bulkMoveStageStageId)) {
+      closeBulkMoveStageModal();
+      openBulkSubmitToClient(selectedIds);
+      return;
+    }
+
     try {
       setBulkMoveStageSaving(true);
       await Promise.all(
@@ -1520,7 +1529,9 @@ function CandidatesPageContent() {
     bulkMoveStageNote,
     bulkMoveStageOptions,
     bulkMoveStageStageId,
+    closeBulkMoveStageModal,
     loadCandidates,
+    openBulkSubmitToClient,
     selectedIds,
   ]);
 
@@ -2264,18 +2275,29 @@ function CandidatesPageContent() {
                   value={bulkMoveStageStageId}
                   onChange={(e) => setBulkMoveStageStageId(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  disabled={bulkMoveStageSaving || bulkMoveStageLoading || bulkMoveStageOptions.length === 0}
+                  disabled={
+                    bulkMoveStageSaving ||
+                    bulkMoveStageLoading ||
+                    (bulkMoveStageOptions.length === 0 && !canSubmitToClient)
+                  }
                 >
                   {bulkMoveStageLoading ? (
                     <option value="">Loading stages...</option>
-                  ) : bulkMoveStageOptions.length === 0 ? (
+                  ) : bulkMoveStageOptions.length === 0 && !canSubmitToClient ? (
                     <option value="">No pipeline configured for this job</option>
                   ) : (
-                    bulkMoveStageOptions.map((stage) => (
-                      <option key={stage.id} value={stage.id}>
-                        {stage.name}
-                      </option>
-                    ))
+                    <>
+                      {bulkMoveStageOptions.map((stage) => (
+                        <option key={stage.id} value={stage.id}>
+                          {stage.name}
+                        </option>
+                      ))}
+                      {canSubmitToClient ? (
+                        <option value={SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE}>
+                          {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
+                        </option>
+                      ) : null}
+                    </>
                   )}
                 </select>
               </div>
@@ -2314,7 +2336,11 @@ function CandidatesPageContent() {
                   selectedIds.length === 0
                 }
               >
-                {bulkMoveStageSaving ? 'Moving...' : 'Move stage'}
+                {bulkMoveStageSaving
+                  ? 'Moving...'
+                  : isSubmitToClientStageOption(bulkMoveStageStageId)
+                    ? SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL
+                    : 'Move stage'}
               </button>
             </div>
           </div>

@@ -21,9 +21,12 @@ interface PipelineModalProps {
     recruiterId: string;
     notes: string;
   }) => Promise<void>;
+  /** Opens Submit to client instead of adding a pipeline stage. */
+  onRequestSubmitToClient?: (payload: { jobId: string }) => void;
 }
 
 const STAGES = ['Applied', 'Screening', 'Shortlist', 'Interview', 'Offer', 'Hired'];
+const SUBMIT_TO_CLIENT_STAGE = 'Submit to client';
 
 export default function PipelineModal({
   isOpen,
@@ -32,6 +35,7 @@ export default function PipelineModal({
   recruiters,
   onClose,
   onSubmit,
+  onRequestSubmitToClient,
 }: PipelineModalProps) {
   const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLDivElement>({
     isOpen,
@@ -121,6 +125,19 @@ export default function PipelineModal({
                       {item}
                     </button>
                   ))}
+                  {onRequestSubmitToClient ? (
+                    <button
+                      key={SUBMIT_TO_CLIENT_STAGE}
+                      type="button"
+                      onClick={() => {
+                        if (!jobId) return;
+                        onRequestSubmitToClient({ jobId });
+                      }}
+                      className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-800 hover:bg-indigo-100"
+                    >
+                      {SUBMIT_TO_CLIENT_STAGE}
+                    </button>
+                  ) : null}
                 </div>
               </div>
 

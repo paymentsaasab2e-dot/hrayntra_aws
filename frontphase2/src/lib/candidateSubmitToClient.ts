@@ -3,6 +3,18 @@ import type { CandidateProfileDrawerData } from '../components/drawers/Candidate
 import type { BackendCandidate } from './api';
 import { isValidObjectId } from './mapCandidateProfile';
 
+/** Sentinel stage-picker value — opens Submit to client instead of moving pipeline stage. */
+export const SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE = '__submit_to_client__';
+export const SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL = 'Submit to client';
+
+export function isSubmitToClientStageOption(value: string): boolean {
+  const normalized = String(value || '').trim().toLowerCase();
+  return (
+    value === SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE ||
+    normalized === SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL.toLowerCase()
+  );
+}
+
 /** Resolve a job id used for submit-to-client from list row data. */
 export function resolveSubmitJobIdForRow(row: Candidate): string | null {
   if (row.pipelineJobId && isValidObjectId(row.pipelineJobId)) {

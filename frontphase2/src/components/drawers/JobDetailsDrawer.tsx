@@ -2917,6 +2917,18 @@ export function JobDetailsDrawer({
             }
           : undefined
       }
+      onRequestSubmitToClient={
+        job?.id
+          ? ({ candidateId, jobId }) => {
+              const source = displayJobCandidates.find((c) => c.id === candidateId);
+              if (!source) return;
+              setMoveStageModalOpen(false);
+              setMoveStageCandidate(null);
+              setSubmitClientRowId(candidateId);
+              openFromJobDrawerRow(source, jobId, job.title, job.clientId);
+            }
+          : undefined
+      }
     />
 
     {canAddCandidate && job?.id ? (

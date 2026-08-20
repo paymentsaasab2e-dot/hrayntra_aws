@@ -98,7 +98,12 @@ import {
   extractEditableInterviewNotes,
   mergeEditableInterviewNotesWithAudit,
 } from '../../lib/interview-schedule-helpers';
-import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
+import {
+  profileCanSubmitToClient,
+  isSubmitToClientStageOption,
+  SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
+  SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
+} from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
@@ -590,6 +595,8 @@ export interface AddToPipelineModalProps {
   onRemoveFromPipeline?: (payload: { candidateId: string; jobId: string }) => void | Promise<void>;
   /** Opens reject modal (reason, feedback, email) when user picks Rejected in move stage. */
   onRequestReject?: (payload: { candidateId: string; jobId: string }) => void;
+  /** Opens Submit to client when user picks that option in the stage dropdown. */
+  onRequestSubmitToClient?: (payload: { candidateId: string; jobId: string }) => void;
 }
 
 const PIPELINE_REJECTED_STAGE = 'Rejected';
@@ -2304,6 +2311,7 @@ export function AddToPipelineModal({
   onSubmit,
   onRemoveFromPipeline,
   onRequestReject,
+  onRequestSubmitToClient,
 }: AddToPipelineModalProps) {
   const [jobSearch, setJobSearch] = useState('');
   const [recruiterSearch, setRecruiterSearch] = useState('');
@@ -2591,10 +2599,24 @@ export function AddToPipelineModal({
     return true;
   };
 
+  const openSubmitToClientFlowForSelectedJob = () => {
+    if (!candidate?.id || !onRequestSubmitToClient) return false;
+    if (!selectedJobId) {
+      setErrors((prev) => ({ ...prev, job: 'Select a job before submitting to the client' }));
+      return true;
+    }
+    onRequestSubmitToClient({ candidateId: candidate.id, jobId: selectedJobId });
+    return true;
+  };
+
   const handleSelectStageFromDropdown = (stageName: string) => {
     if (!stageName) return;
     const normalized = stageName.trim();
     if (!normalized) return;
+    if (isSubmitToClientStageOption(normalized)) {
+      openSubmitToClientFlowForSelectedJob();
+      return;
+    }
     if (isRejectedPipelineStage(normalized)) {
       openRejectFlowForSelectedJob();
       return;
@@ -2673,6 +2695,11 @@ export function AddToPipelineModal({
   const handleSubmit = async () => {
     if (!candidate) return;
     if (!validate()) return;
+
+    if (isSubmitToClientStageOption(targetStage)) {
+      openSubmitToClientFlowForSelectedJob();
+      return;
+    }
 
     if (isRejectedPipelineStage(targetStage)) {
       openRejectFlowForSelectedJob();
@@ -2949,7 +2976,7 @@ export function AddToPipelineModal({
 
                     {loadingJobStages ? (
                       <p className="text-sm text-slate-500">Loading stages…</p>
-                    ) : jobStageOptions.length === 0 ? (
+                    ) : jobStageOptions.length === 0 && !onRequestSubmitToClient ? (
                       <p className="text-sm text-slate-500">No pipeline configured for this job</p>
                     ) : (
                       <div className="space-y-3">
@@ -3013,13 +3040,16 @@ export function AddToPipelineModal({
                                 setStagePickerValue('');
                               }
                             }}
-                            disabled={loadingJobStages || jobStageOptions.length === 0}
+                            disabled={
+                              loadingJobStages ||
+                              (jobStageOptions.length === 0 && !onRequestSubmitToClient)
+                            }
                             className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
                               errors.stage ? 'border-red-300' : 'border-slate-200'
                             }`}
                           >
                             <option value="">
-                              {jobStageOptions.length === 0
+                              {jobStageOptions.length === 0 && !onRequestSubmitToClient
                                 ? 'No stages available'
                                 : 'Select a stage'}
                             </option>
@@ -3028,6 +3058,11 @@ export function AddToPipelineModal({
                                 {stage}
                               </option>
                             ))}
+                            {onRequestSubmitToClient ? (
+                              <option value={SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE}>
+                                {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
+                              </option>
+                            ) : null}
                           </select>
                         </div>
                       </div>
@@ -4453,6 +4488,17 @@ export function CandidateProfileDrawer({
                     setRejectModalJobId(jobId);
                     setShowAddToPipelineModal(false);
                     setShowRejectModal(true);
+                  }
+                : undefined
+            }
+            onRequestSubmitToClient={
+              onSubmitToClient && showSubmitToClient
+                ? ({ jobId }) => {
+                    setShowAddToPipelineModal(false);
+                    onSubmitToClient({
+                      ...candidate,
+                      assignedJobId: jobId,
+                    });
                   }
                 : undefined
             }
