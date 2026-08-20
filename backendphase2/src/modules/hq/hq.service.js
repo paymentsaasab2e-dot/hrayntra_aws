@@ -14,6 +14,7 @@ import { hqCompaniesService } from './hq-companies.service.js';
 import { hqTeamService } from './hq-team.service.js';
 import { hqRolesService } from './hq-roles.service.js';
 import { hqPortalService } from './hq-portal.service.js';
+import { hqKycInterviewersService } from './hq-kyc-interviewers.service.js';
 import { hqDemosService } from './hq-demos.service.js';
 import { hqPackagesService } from './hq-packages.service.js';
 import { hqAnalyticsService } from './hq-analytics.service.js';
@@ -1101,6 +1102,21 @@ export const hqService = {
   async listAllCandidates(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqPortalService.listAllCandidates();
+  },
+
+  async listKycInterviewers(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqKycInterviewersService.listInterviewers();
+  },
+
+  async verifyKycInterviewer(reqUser, candidateId) {
+    assertPlatformProvisioner(reqUser);
+    return hqKycInterviewersService.verifyInterviewer(candidateId, reqUser);
+  },
+
+  async rejectKycInterviewer(reqUser, candidateId, reviewNotes) {
+    assertPlatformProvisioner(reqUser);
+    return hqKycInterviewersService.rejectInterviewer(candidateId, reqUser, reviewNotes);
   },
 
   async getCandidateBehavior(reqUser, candidateId) {

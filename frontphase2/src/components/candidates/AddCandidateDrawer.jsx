@@ -1489,11 +1489,16 @@ function AddCandidateDrawerInner({
       setAvatarFile(null);
     }
     setParsedData(data);
-    setResumeAnalysis(data.score || null);
+    setResumeAnalysis(null);
     setAutoFilledFields(normalizeAutoFilledFields(nextData));
     if (file) {
       resumeFileRef.current = file;
       setParsedResumeFile(file);
+    }
+    // Skip the AI score / extracted-data review — jump straight to the editable form.
+    if (!embeddedBulkCv) {
+      setActiveTab('manual');
+      setCurrentStep(1);
     }
   };
 
@@ -3150,43 +3155,30 @@ function AddCandidateDrawerInner({
 
           {!embeddedBulkCv && activeTab === 'resume' ? (
             <div className="mb-5 space-y-4">
-              <CandidatePhotoUpload
-                preview={avatarPreview || formData.avatar}
-                onSelectFile={handleAvatarFile}
-                onRemove={clearAvatarFile}
-              />
-              <label
-                className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 text-center transition-colors ${
-                  parsedResumeFile
-                    ? 'border-slate-300 bg-slate-50 py-6 hover:border-blue-400 hover:bg-blue-50/80'
-                    : 'border-blue-200 bg-blue-50/40 py-8 hover:border-blue-400 hover:bg-blue-50'
-                }`}
-              >
-                <Upload size={24} className={`mb-3 ${parsedResumeFile ? 'text-slate-400' : 'text-blue-500'}`} />
-                <p className="text-sm font-medium text-slate-700">
-                  {parsedResumeFile ? 'Drag & drop to replace resume' : 'Drag resume here or click to browse'}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">{BULK_CV_FORMAT_LABEL} · Max {MAX_RESUME_FILE_LABEL}</p>
-                <input
-                  type="file"
-                  accept={BULK_CV_ACCEPT_INPUT}
-                  className="hidden"
-                  onChange={(event) => handleResumeFile(event.target.files?.[0])}
-                />
-              </label>
-              {parsedResumeFile ? (
-                <ResumeUploadReadyCard
-                  file={parsedResumeFile}
-                  badgeLabel="Resume ready to save"
-                  parsedNote="Parsed successfully — review auto-filled fields in the next steps."
-                  onRemove={() => {
-                    setParsedResumeFile(null);
-                    setParsedData(null);
-                    setResumeAnalysis(null);
-                    setAutoFilledFields({});
-                    resumeFileRef.current = null;
-                  }}
-                />
+              {!parsedResumeFile ? (
+                <>
+                  <CandidatePhotoUpload
+                    preview={avatarPreview || formData.avatar}
+                    onSelectFile={handleAvatarFile}
+                    onRemove={clearAvatarFile}
+                    compact
+                  />
+                  <label
+                    className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 px-6 py-8 text-center transition-colors hover:border-blue-400 hover:bg-blue-50"
+                  >
+                    <Upload size={24} className="mb-3 text-blue-500" />
+                    <p className="text-sm font-medium text-slate-700">
+                      Drag resume here or click to browse
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">{BULK_CV_FORMAT_LABEL} · Max {MAX_RESUME_FILE_LABEL}</p>
+                    <input
+                      type="file"
+                      accept={BULK_CV_ACCEPT_INPUT}
+                      className="hidden"
+                      onChange={(event) => handleResumeFile(event.target.files?.[0])}
+                    />
+                  </label>
+                </>
               ) : null}
               {isLoading ? (
                 <div className="mt-3 flex items-center gap-2 text-sm text-blue-600">
@@ -3204,271 +3196,6 @@ function AddCandidateDrawerInner({
                   </div>
                 </div>
               ) : null}
-              {resumeAnalysis ? (
-                <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">AI Resume Score</p>
-                      <p className="mt-1 text-3xl font-bold text-slate-900">{resumeAnalysis.overall || 0}%</p>
-                    </div>
-                    <div className="grid flex-1 grid-cols-2 gap-3 text-xs text-slate-600">
-                      <div className="rounded-xl bg-white px-3 py-2">
-                        <p className="font-semibold text-slate-700">Skills</p>
-                        <p className="mt-1">{resumeAnalysis.breakdown?.skillsMatch || 0}%</p>
-                      </div>
-                      <div className="rounded-xl bg-white px-3 py-2">
-                        <p className="font-semibold text-slate-700">Experience</p>
-                        <p className="mt-1">{resumeAnalysis.breakdown?.experienceFit || 0}%</p>
-                      </div>
-                      <div className="rounded-xl bg-white px-3 py-2">
-                        <p className="font-semibold text-slate-700">Education</p>
-                        <p className="mt-1">{resumeAnalysis.breakdown?.educationFit || 0}%</p>
-                      </div>
-                      <div className="rounded-xl bg-white px-3 py-2">
-                        <p className="font-semibold text-slate-700">Keywords</p>
-                        <p className="mt-1">{resumeAnalysis.breakdown?.keywordMatch || 0}%</p>
-                      </div>
-                    </div>
-                  </div>
-                  {Array.isArray(resumeAnalysis.insights) && resumeAnalysis.insights.length ? (
-                    <div className="mt-3 rounded-xl bg-white p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Insights</p>
-                      <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                        {resumeAnalysis.insights.slice(0, 4).map((insight) => (
-                          <li key={insight}>• {insight}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {parsedData ? (
-                <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Extracted Resume Data
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        Review all parsed CV details section by section before saving.
-                      </p>
-                    </div>
-                    {parsedData.resumeUrl ? (
-                      <a
-                        href={parsedData.resumeUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                      >
-                        View CV
-                      </a>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Personal Information</p>
-                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl bg-white p-3">
-                          <p className="text-xs text-slate-500">Name</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">
-                            {[parsedData.firstName, parsedData.lastName].filter(Boolean).join(' ') || 'Not found'}
-                          </p>
-                        </div>
-                        <div className="rounded-xl bg-white p-3">
-                          <p className="text-xs text-slate-500">Email</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{parsedData.email || 'Not found'}</p>
-                        </div>
-                        <div className="rounded-xl bg-white p-3">
-                          <p className="text-xs text-slate-500">Phone</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{parsedData.phone || 'Not found'}</p>
-                        </div>
-                        <div className="rounded-xl bg-white p-3">
-                          <p className="text-xs text-slate-500">Location</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">
-                            {parsedData.location || [parsedData.city, parsedData.country].filter(Boolean).join(', ') || 'Not found'}
-                          </p>
-                        </div>
-                        <div className="rounded-xl bg-white p-3">
-                          <p className="text-xs text-slate-500">Current Company</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{parsedData.currentCompany || 'Not found'}</p>
-                        </div>
-                        <div className="rounded-xl bg-white p-3">
-                          <p className="text-xs text-slate-500">Current Designation</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">
-                            {parsedData.currentDesignation || parsedData.designation || 'Not found'}
-                          </p>
-                        </div>
-                      </div>
-                      {parsedData.summary ? (
-                        <div className="mt-3 rounded-xl bg-white p-3">
-                          <p className="text-xs text-slate-500">Summary</p>
-                          <p className="mt-1 text-sm leading-6 text-slate-700">{parsedData.summary}</p>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {(parsedData.linkedinUrl || parsedData.portfolioUrl || parsedData.portfolioLinks?.length) ? (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Links</p>
-                        <div className="mt-3 space-y-2">
-                          {parsedData.linkedinUrl ? (
-                            <a
-                              href={parsedData.linkedinUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="block rounded-xl bg-white p-3 text-sm font-medium text-blue-600"
-                            >
-                              LinkedIn: {parsedData.linkedinUrl}
-                            </a>
-                          ) : null}
-                          {parsedData.portfolioUrl ? (
-                            <a
-                              href={parsedData.portfolioUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="block rounded-xl bg-white p-3 text-sm font-medium text-blue-600"
-                            >
-                              Portfolio: {parsedData.portfolioUrl}
-                            </a>
-                          ) : null}
-                          {Array.isArray(parsedData.portfolioLinks)
-                            ? parsedData.portfolioLinks
-                                .filter((item) => item?.url && item.url !== parsedData.linkedinUrl && item.url !== parsedData.portfolioUrl)
-                                .map((item) => (
-                                  <a
-                                    key={`${item.type}-${item.url}`}
-                                    href={item.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="block rounded-xl bg-white p-3 text-sm font-medium text-blue-600"
-                                  >
-                                    {item.type || 'Link'}: {item.url}
-                                  </a>
-                                ))
-                            : null}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {Array.isArray(parsedData.educationEntries) && parsedData.educationEntries.length ? (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</p>
-                        <div className="mt-3 space-y-3">
-                          {parsedData.educationEntries.map((item, index) => {
-                            const row = mapParsedEducationToRow(item);
-                            return (
-                            <div key={`${item.degree || 'education'}-${index}`} className="rounded-xl bg-white p-3">
-                              <p className="text-sm font-bold uppercase tracking-wide text-slate-900">
-                                {formatEducationTitle(row.educationLevel, row.qualification) || 'Education entry'}
-                              </p>
-                              <p className="mt-1 text-sm text-slate-700">
-                                {formatInstitutionLine(row.instituteName, row.instituteLocation) !== '—'
-                                  ? formatInstitutionLine(row.instituteName, row.instituteLocation)
-                                  : item.institution || 'Institution not found'}
-                              </p>
-                              <p className="mt-2 text-sm text-slate-600">
-                                {formatEducationDateLine(
-                                  row.educationLevel,
-                                  row.qualification,
-                                  row.startYear,
-                                  row.startMonth,
-                                  row.endYear,
-                                  row.endMonth,
-                                  row.currentlyStudying
-                                ) || [item.startYear, item.endYear].filter(Boolean).join(' - ') || 'Dates not found'}
-                              </p>
-                            </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : parsedData.education ? (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</p>
-                        <div className="mt-3 rounded-xl bg-white p-3 text-sm leading-6 text-slate-700">
-                          {parsedData.education}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {Array.isArray(parsedData.workExperienceEntries) && parsedData.workExperienceEntries.length ? (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work Experience</p>
-                        <div className="mt-3 space-y-3">
-                          {parsedData.workExperienceEntries.map((item, index) => (
-                            <div key={`${item.title || 'experience'}-${index}`} className="rounded-xl bg-white p-3">
-                              <p className="text-sm font-semibold text-slate-900">
-                                {item.title || 'Role not found'}
-                                {item.company ? ` at ${item.company}` : ''}
-                              </p>
-                              <p className="mt-1 text-xs text-slate-500">
-                                {[item.location, [item.startDate, item.endDate].filter(Boolean).join(' - ')].filter(Boolean).join(' • ') || 'Details not found'}
-                              </p>
-                              {Array.isArray(item.responsibilities) && item.responsibilities.length ? (
-                                <ul className="mt-3 space-y-1 text-sm text-slate-700">
-                                  {item.responsibilities.slice(0, 4).map((responsibility, responsibilityIndex) => (
-                                    <li key={`${item.title || 'experience'}-${responsibilityIndex}`}>• {responsibility}</li>
-                                  ))}
-                                </ul>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {(parsedData.skills?.length || parsedData.tags?.length || parsedData.certifications?.length || parsedData.languages?.length) ? (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Skills & Qualifications</p>
-                        <div className="mt-3 space-y-3">
-                          {Array.isArray(parsedData.skills) && parsedData.skills.length ? (
-                            <div className="rounded-xl bg-white p-3">
-                              <p className="text-xs text-slate-500">Skills</p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {parsedData.skills.map((skill) => (
-                                  <span key={skill} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                                    {skill}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                          {Array.isArray(parsedData.tags) && parsedData.tags.length ? (
-                            <div className="rounded-xl bg-white p-3">
-                              <p className="text-xs text-slate-500">Tags</p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {parsedData.tags.map((tag) => (
-                                  <span key={tag} className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                          {Array.isArray(parsedData.languages) && parsedData.languages.length ? (
-                            <div className="rounded-xl bg-white p-3">
-                              <p className="text-xs text-slate-500">Languages</p>
-                              <p className="mt-1 text-sm text-slate-700">{parsedData.languages.join(', ')}</p>
-                            </div>
-                          ) : null}
-                          {Array.isArray(parsedData.certifications) && parsedData.certifications.length ? (
-                            <div className="rounded-xl bg-white p-3">
-                              <p className="text-xs text-slate-500">Certifications</p>
-                              <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                                {parsedData.certifications.map((certification) => (
-                                  <li key={certification}>• {certification}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-              {entryBanner}
             </div>
           ) : null}
 
@@ -3884,12 +3611,13 @@ function AddCandidateDrawerInner({
             </div>
           ) : (showAiChatStage || embeddedBulkCv || activeTab === 'bulkResume') ? null : (
             <>
-              {activeTab === 'manual' ? (
+              {activeTab === 'manual' && currentStep === 1 ? (
                 <CandidatePhotoUpload
                   preview={avatarPreview || formData.avatar}
                   onSelectFile={handleAvatarFile}
                   onRemove={clearAvatarFile}
-                  className="mb-4"
+                  className="mb-3"
+                  compact
                 />
               ) : null}
               <StepProgress currentStep={currentStep} />

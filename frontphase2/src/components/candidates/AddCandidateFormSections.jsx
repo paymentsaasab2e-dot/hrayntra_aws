@@ -263,29 +263,41 @@ function StepPanel({ step, currentStep, title, children }) {
   );
 }
 
-export function CandidatePhotoUpload({ preview, onSelectFile, onRemove, className = '' }) {
+export function CandidatePhotoUpload({ preview, onSelectFile, onRemove, className = '', compact = false }) {
+  const sizeClass = compact ? 'h-14 w-14' : 'h-16 w-16';
+  const iconSize = compact ? 22 : 28;
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div className={`space-y-1.5 ${className}`}>
       <label className={labelClass}>Candidate photo (optional)</label>
-      <div className="flex flex-col gap-4 rounded-2xl border border-dashed border-slate-300 bg-gradient-to-br from-slate-50 to-white p-4 sm:flex-row sm:items-center">
+      <div
+        className={`flex items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-gradient-to-br from-slate-50 to-white ${
+          compact ? 'p-2.5' : 'p-3'
+        }`}
+      >
         {preview ? (
           <img
             src={preview}
             alt="Candidate preview"
-            className="h-24 w-24 shrink-0 rounded-full border-2 border-white object-cover shadow-md ring-2 ring-slate-200"
+            className={`${sizeClass} shrink-0 rounded-full border-2 border-white object-cover shadow-sm ring-1 ring-slate-200`}
           />
         ) : (
-          <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-slate-200 bg-white text-slate-400">
-            <UserRound size={36} />
+          <div
+            className={`flex ${sizeClass} shrink-0 items-center justify-center rounded-full border border-dashed border-slate-200 bg-white text-slate-400`}
+          >
+            <UserRound size={iconSize} />
           </div>
         )}
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <p className="text-sm text-slate-600">
-            Upload a profile image for this candidate. It appears in the candidates list and profile drawer.
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <p className={`text-slate-600 ${compact ? 'text-xs' : 'text-sm'}`}>
+            {compact ? 'Optional profile image for the candidates list.' : 'Upload a profile image for this candidate.'}
           </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#1D4ED8]">
-              {preview ? 'Change photo' : 'Upload image'}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <label
+              className={`inline-flex cursor-pointer items-center justify-center rounded-lg bg-[#2563EB] font-semibold text-white shadow-sm hover:bg-[#1D4ED8] ${
+                compact ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'
+              }`}
+            >
+              {preview ? 'Change' : 'Upload'}
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif"
@@ -301,13 +313,15 @@ export function CandidatePhotoUpload({ preview, onSelectFile, onRemove, classNam
               <button
                 type="button"
                 onClick={onRemove}
-                className="rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                className={`rounded-lg border border-red-200 font-semibold text-red-600 hover:bg-red-50 ${
+                  compact ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'
+                }`}
               >
                 Remove
               </button>
             ) : null}
           </div>
-          <p className="text-xs text-slate-500">JPG, PNG, WebP, or GIF · max 5MB</p>
+          <p className="text-[10px] text-slate-500">JPG, PNG, WebP, or GIF · max 5MB</p>
         </div>
       </div>
     </div>
@@ -541,6 +555,63 @@ export function AddCandidateFormSections({
             onChange={(e) => updateFormData('passportNumber', e.target.value)}
           />
         </div>
+
+        {activeTab !== 'resume' ? (
+          <div className="space-y-3">
+            <label className={labelClass}>Resume</label>
+            {parsedResumeFile && !manualResumeFile ? (
+              <ResumeUploadReadyCard
+                file={parsedResumeFile}
+                badgeLabel="Resume ready to save"
+                hint=""
+                parsedNote="Parsed from CV — attached to this candidate."
+              />
+            ) : (
+              <>
+                <label
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-5 text-center transition-colors sm:flex-row sm:justify-between sm:text-left ${
+                    manualResumeFile
+                      ? 'border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/80'
+                      : 'border-blue-200 bg-blue-50/40 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                >
+                  <div className="flex flex-col items-center gap-2 sm:flex-row sm:items-center">
+                    <Upload size={22} className={manualResumeFile ? 'text-slate-400' : 'text-blue-500'} />
+                    <div>
+                      <p className="text-sm font-medium text-slate-700">
+                        {manualResumeFile ? 'Replace resume file' : 'Upload Resume'}
+                      </p>
+                      <p className="text-xs text-slate-500">PDF, DOC, DOCX, TXT, PNG · {maxResumeFileLabel}</p>
+                    </div>
+                  </div>
+                  <span className="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white sm:mt-0">
+                    Choose File
+                  </span>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png"
+                    className="hidden"
+                    onChange={(event) => {
+                      const f = event.target.files?.[0] || null;
+                      resumeFileRef.current = f;
+                      setManualResumeFile(f);
+                    }}
+                  />
+                </label>
+                {manualResumeFile ? (
+                  <ResumeUploadReadyCard
+                    file={manualResumeFile}
+                    badgeLabel="Resume ready to save"
+                    onRemove={() => {
+                      resumeFileRef.current = parsedResumeFile;
+                      setManualResumeFile(null);
+                    }}
+                  />
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
       </StepPanel>
 
       <StepPanel step={2} currentStep={currentStep} title="Education">
@@ -840,52 +911,6 @@ export function AddCandidateFormSections({
               placeholder="e.g. 30"
             />
           </div>
-
-          {activeTab !== 'resume' ? (
-            <div className="space-y-3">
-              <label className={labelClass}>Resume</label>
-              <label
-                className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-5 text-center transition-colors sm:flex-row sm:justify-between sm:text-left ${
-                  manualResumeFile
-                    ? 'border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/80'
-                    : 'border-blue-200 bg-blue-50/40 hover:border-blue-400 hover:bg-blue-50'
-                }`}
-              >
-                <div className="flex flex-col items-center gap-2 sm:flex-row sm:items-center">
-                  <Upload size={22} className={manualResumeFile ? 'text-slate-400' : 'text-blue-500'} />
-                  <div>
-                    <p className="text-sm font-medium text-slate-700">
-                      {manualResumeFile ? 'Replace resume file' : 'Upload Resume'}
-                    </p>
-                    <p className="text-xs text-slate-500">PDF, DOC, DOCX, TXT, PNG · {maxResumeFileLabel}</p>
-                  </div>
-                </div>
-                <span className="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white sm:mt-0">
-                  Choose File
-                </span>
-                <input
-                  type="file"
-                  accept=".pdf,.doc,.docx,.txt,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png"
-                  className="hidden"
-                  onChange={(event) => {
-                    const f = event.target.files?.[0] || null;
-                    resumeFileRef.current = f;
-                    setManualResumeFile(f);
-                  }}
-                />
-              </label>
-              {manualResumeFile ? (
-                <ResumeUploadReadyCard
-                  file={manualResumeFile}
-                  badgeLabel="Resume ready to save"
-                  onRemove={() => {
-                    resumeFileRef.current = parsedResumeFile;
-                    setManualResumeFile(null);
-                  }}
-                />
-              ) : null}
-            </div>
-          ) : null}
 
           <DrawerInput
             label="Courses"

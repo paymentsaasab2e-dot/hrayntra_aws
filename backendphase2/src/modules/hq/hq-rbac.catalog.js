@@ -15,6 +15,11 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'View Phase 1 candidates',
   },
   {
+    permissionName: 'hq_kyc_interviewers_read',
+    module: 'Employees · KYC verified',
+    description: 'View KYC-verified interviewers',
+  },
+  {
     permissionName: 'hq_candidates_write',
     module: 'Employees · Candidates',
     description: 'Manage Phase 1 candidates',
@@ -288,6 +293,7 @@ export const HQ_PERMISSION_CATALOG = [
 export const HQ_MODULE_ORDER = [
   'Employees · Dashboard',
   'Employees · Candidates',
+  'Employees · KYC verified',
   'Employees · Courses',
   'Employees · Portal',
   'Employees · Events',
@@ -389,6 +395,7 @@ export const HQ_DEFAULT_ROLES = [
 export const HQ_NAV_PERMISSION_MAP = {
   dashboard: ['hq_dashboard_read', 'hq_analytics_read'],
   candidates: ['hq_candidates_read'],
+  kycVerified: ['hq_kyc_interviewers_read', 'hq_candidates_read'],
   courses: ['hq_courses_read'],
   portal: ['hq_portal_read'],
   events: ['hq_events_read'],

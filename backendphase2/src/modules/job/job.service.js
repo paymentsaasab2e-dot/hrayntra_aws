@@ -23,6 +23,7 @@ import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import {
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
+  resolveJobStatusEnumFromLabel,
 } from '../setting/recruitmentMode.service.js';
 import { assertCanCreateJob } from '../setting/planAccess.service.js';
 import {
@@ -1126,7 +1127,14 @@ export const jobService = {
     await ensureOrgPipelineTemplateRepairOnce();
 
     const where = {};
-    if (status) where.status = status;
+    // Default Jobs page: keep working pipeline only (hide Closed / Closed Won / Closed not Won / Duplicate).
+    // Pass ?status=CLOSED or ?status=FILLED (or any single status) to include closed outcomes.
+    // When fetching by explicit ids (smart search), do not hide closed jobs.
+    if (status) {
+      where.status = status;
+    } else if (!ids) {
+      where.status = { in: ['OPEN', 'ON_HOLD', 'DRAFT'] };
+    }
 
     // Some legacy rows may exist with `clientId: null`.
     // `Job.clientId` is optional in Prisma now, so we should avoid filtering logic.
@@ -1426,6 +1434,12 @@ export const jobService = {
       location: data.location,
       type: data.type || 'FULL_TIME',
       status: data.status || 'OPEN', // Default to OPEN when creating from client drawer
+      statusLabel:
+        data.statusLabel !== undefined
+          ? data.statusLabel
+            ? String(data.statusLabel).trim() || null
+            : null
+          : undefined,
       openings: data.openings || 1,
       salary: normalizeSalaryData(data.salary),
       experienceRequired: data.experienceRequired,
@@ -1663,6 +1677,22 @@ export const jobService = {
       throw new Error('Job not found');
     }
 
+    const requestedStatusRaw =
+      data.status !== undefined
+        ? data.status
+        : data.statusLabel
+          ? resolveJobStatusEnumFromLabel(data.statusLabel)
+          : undefined;
+    const requestedStatus =
+      requestedStatusRaw != null ? String(requestedStatusRaw).toUpperCase() : undefined;
+    const existingStatus = String(currentJob.status || '').toUpperCase();
+    const nextLabel = data.statusLabel != null ? String(data.statusLabel).trim().toLowerCase() : '';
+    const revertingToDraft =
+      requestedStatus === 'DRAFT' || nextLabel === 'draft';
+    if (revertingToDraft && existingStatus && existingStatus !== 'DRAFT') {
+      throw new Error('Once a job is Active, it cannot be set back to Draft');
+    }
+
     // Utility function to remove undefined values
     const removeUndefined = (obj) => {
       return Object.fromEntries(
@@ -1682,6 +1712,12 @@ export const jobService = {
       location: data.location,
       type: data.type,
       status: data.status,
+      statusLabel:
+        data.statusLabel !== undefined
+          ? data.statusLabel
+            ? String(data.statusLabel).trim() || null
+            : null
+          : undefined,
       clientId: data.clientId,
       assignedToId: data.assignedToId,
       openings: data.openings,

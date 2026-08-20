@@ -636,6 +636,8 @@ model Job {
   location                 String?
   type                     JobType   @default(FULL_TIME)
   status                   JobStatus @default(DRAFT)
+  /// Tenant-facing status label (custom org statuses). Enum `status` stays for metrics/filters.
+  statusLabel              String?
   // Some legacy rows may exist with `clientId: null` (after schema evolution).
   // Make it optional so listing jobs doesn't crash.
   clientId                 String?   @db.ObjectId

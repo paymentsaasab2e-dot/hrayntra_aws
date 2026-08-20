@@ -300,6 +300,7 @@ export async function setDefaultCurrency(code) {
 
 const KEY_COMPANY_SERVICES = 'companyServices';
 const KEY_LEAD_STATUS_OPTIONS = 'leadStatusOptions';
+const KEY_JOB_STATUS_OPTIONS = 'jobStatusOptions';
 const KEY_CLIENT_LEAD_STATUS_OPTIONS = 'clientLeadStatusOptions';
 const KEY_CLIENT_PRIORITY_OPTIONS = 'clientPriorityOptions';
 const KEY_AGREEMENT_LEVEL_OPTIONS = 'agreementLevelOptions';
@@ -334,6 +335,20 @@ export const DEFAULT_LEAD_STATUS_OPTIONS = [
   'Converted',
   'Lost',
 ];
+
+/** CRM job list / drawer status labels (tenant can append custom values). */
+export const DEFAULT_JOB_STATUS_OPTIONS = [
+  'Active',
+  'On Hold',
+  'Closed',
+  'Closed Won',
+  'Closed not Won',
+  'Duplicate',
+  'Draft',
+];
+
+/** Core statuses that cannot be deleted from the tenant catalog. */
+export const PROTECTED_JOB_STATUS_OPTIONS = ['Active', 'On Hold', 'Closed'];
 
 export const DEFAULT_CLIENT_LEAD_STATUS_OPTIONS = ['Active', 'On Hold', 'Inactive'];
 
@@ -511,6 +526,114 @@ export async function appendLeadStatusOption(status) {
 
 export async function removeLeadStatusOption(status) {
   return removeOrgStatusOption(KEY_LEAD_STATUS_OPTIONS, DEFAULT_LEAD_STATUS_OPTIONS, status, 'Lead status');
+}
+
+export async function getOrgCustomJobStatusOptions() {
+  return getOrgCustomStatusOptions(KEY_JOB_STATUS_OPTIONS);
+}
+
+async function getOrgJobStatusSettingParts() {
+  const row = await findOrgSettingRow(KEY_JOB_STATUS_OPTIONS);
+  const value = row?.value;
+  const custom = parseStatusesFromSettingValue(value);
+  const removed =
+    value && typeof value === 'object' && Array.isArray(value.removed)
+      ? uniqueStatusesCaseInsensitive(value.removed)
+      : [];
+  return { custom, removed };
+}
+
+export async function getJobStatusOptions() {
+  const { custom, removed } = await getOrgJobStatusSettingParts();
+  const removedSet = new Set(removed.map((item) => item.toLowerCase()));
+  const defaultsVisible = DEFAULT_JOB_STATUS_OPTIONS.filter(
+    (item) => !removedSet.has(item.toLowerCase()),
+  );
+  return uniqueStatusesCaseInsensitive([...defaultsVisible, ...custom]);
+}
+
+export async function setJobStatusOptions(statuses) {
+  return setOrgCustomStatusOptions(KEY_JOB_STATUS_OPTIONS, statuses);
+}
+
+export async function appendJobStatusOption(status) {
+  const normalized = normalizeStatusLabel(status);
+  if (!normalized) throw new Error('Job status name is required');
+
+  const { custom, removed } = await getOrgJobStatusSettingParts();
+  const nextRemoved = removed.filter((item) => item.toLowerCase() !== normalized.toLowerCase());
+  const isBuiltIn = DEFAULT_JOB_STATUS_OPTIONS.some(
+    (item) => item.toLowerCase() === normalized.toLowerCase(),
+  );
+  const nextCustom = isBuiltIn
+    ? custom
+    : uniqueStatusesCaseInsensitive([...custom, normalized]);
+
+  await upsertOrgSettingJson(KEY_JOB_STATUS_OPTIONS, {
+    statuses: nextCustom,
+    removed: nextRemoved,
+  });
+  return getJobStatusOptions();
+}
+
+export async function removeJobStatusOption(status) {
+  const normalized = normalizeStatusLabel(status);
+  if (!normalized) throw new Error('Job status name is required');
+  if (
+    PROTECTED_JOB_STATUS_OPTIONS.some((item) => item.toLowerCase() === normalized.toLowerCase())
+  ) {
+    throw new Error('Job status is a default option and cannot be deleted');
+  }
+
+  const { custom, removed } = await getOrgJobStatusSettingParts();
+  const nextCustom = custom.filter((item) => item.toLowerCase() !== normalized.toLowerCase());
+  const isBuiltIn = DEFAULT_JOB_STATUS_OPTIONS.some(
+    (item) => item.toLowerCase() === normalized.toLowerCase(),
+  );
+  const nextRemoved = isBuiltIn
+    ? uniqueStatusesCaseInsensitive([...removed, normalized])
+    : removed;
+
+  await upsertOrgSettingJson(KEY_JOB_STATUS_OPTIONS, {
+    statuses: nextCustom,
+    removed: nextRemoved,
+  });
+  return getJobStatusOptions();
+}
+
+/**
+ * Map a tenant status label to Prisma JobStatus enum.
+ * Custom labels keep OPEN so the job remains in active-job metrics unless closed/filled/hold/draft.
+ */
+export function resolveJobStatusEnumFromLabel(label) {
+  const key = String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+  switch (key) {
+    case 'draft':
+      return 'DRAFT';
+    case 'active':
+    case 'open':
+    case 'published':
+      return 'OPEN';
+    case 'on hold':
+    case 'hold':
+    case 'paused':
+      return 'ON_HOLD';
+    case 'closed':
+    case 'close':
+    case 'closed not won':
+    case 'duplicate':
+      return 'CLOSED';
+    case 'closed won':
+    case 'filled':
+    case 'hired':
+      return 'FILLED';
+    default:
+      return 'OPEN';
+  }
 }
 
 export async function getOrgCustomClientLeadStatusOptions() {

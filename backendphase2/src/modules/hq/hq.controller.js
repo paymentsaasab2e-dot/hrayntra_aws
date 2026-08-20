@@ -566,6 +566,37 @@ export const hqController = {
     }
   },
 
+  async listKycInterviewers(req, res) {
+    try {
+      const result = await hqService.listKycInterviewers(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, error?.statusCode || 400, error.message, error);
+    }
+  },
+
+  async verifyKycInterviewer(req, res) {
+    try {
+      const result = await hqService.verifyKycInterviewer(req.user, req.params.id);
+      sendResponse(res, 200, 'Interviewer verified for candidate marketplace', result);
+    } catch (error) {
+      sendError(res, error?.statusCode || 400, error.message, error);
+    }
+  },
+
+  async rejectKycInterviewer(req, res) {
+    try {
+      const result = await hqService.rejectKycInterviewer(
+        req.user,
+        req.params.id,
+        req.body?.reviewNotes || req.body?.notes,
+      );
+      sendResponse(res, 200, 'Interviewer application rejected', result);
+    } catch (error) {
+      sendError(res, error?.statusCode || 400, error.message, error);
+    }
+  },
+
   async getCandidateBehavior(req, res) {
     try {
       const result = await hqService.getCandidateBehavior(req.user, req.params.id);

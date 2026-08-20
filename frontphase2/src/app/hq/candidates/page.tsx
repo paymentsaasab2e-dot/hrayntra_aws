@@ -127,6 +127,8 @@ export default function HqCandidatesPage() {
         row.source,
         row.stage,
         row.origin,
+        row.kycVerified ? 'kyc verified' : 'unverified',
+        row.isInterviewer ? 'interviewer' : '',
       ]
         .join(' ')
         .toLowerCase();
@@ -258,6 +260,7 @@ export default function HqCandidatesPage() {
                   <th>Title</th>
                   <th>Location</th>
                   <th>Status</th>
+                  <th>KYC</th>
                   <th>Source</th>
                   <th>Updated</th>
                 </tr>
@@ -265,7 +268,7 @@ export default function HqCandidatesPage() {
               <tbody>
                 {filteredCandidates.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                    <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                       {loading ? 'Loading candidates…' : 'No Phase 1 candidates found.'}
                     </td>
                   </tr>
@@ -291,6 +294,24 @@ export default function HqCandidatesPage() {
                       <td className="px-4 py-3 text-slate-700">{row.location || '—'}</td>
                       <td className="px-4 py-3">
                         <StatusPill value={row.status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {row.kycVerified ? (
+                            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
+                              KYC verified
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200">
+                              Unverified
+                            </span>
+                          )}
+                          {row.isInterviewer ? (
+                            <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 ring-1 ring-sky-200">
+                              Interviewer
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-slate-600">{row.source || '—'}</td>
                       <td className="px-4 py-3 text-slate-500">{formatDate(row.updatedAt)}</td>

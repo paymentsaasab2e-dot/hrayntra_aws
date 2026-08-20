@@ -21,7 +21,9 @@ import {
   Inbox,
   Sparkles,
   Lock,
+  ChevronDown,
 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
@@ -83,6 +85,9 @@ import {
   apiCreateInterview,
   emitNotificationsUpdated,
   apiGetUsers,
+  apiGetJobStatusCatalog,
+  apiAppendJobStatus,
+  apiRemoveJobStatus,
   type BackendClient,
   type BackendJob,
   type BackendCandidate,
@@ -92,6 +97,19 @@ import {
   getCachedOrgRecruitmentMode,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
+import {
+  DEFAULT_JOB_STATUS_OPTIONS,
+  displayJobStatusFromBackend,
+  isProtectedJobStatus,
+  isArchivedFromJobsList,
+  filterJobStatusOptionsForCurrent,
+  isDraftJobStatus,
+  canRevertJobToDraft,
+  jobStatusPillClass,
+  mapJobStatusLabelToBackend,
+  mergeJobStatusOptions,
+} from '../../lib/jobStatus';
+import { useDrawerPortalDropdownPosition } from '../../components/drawers/drawerFormUi';
 import type { Candidate } from '../candidate/components/CandidateTable';
 import {
   CandidateProfileDrawer,
@@ -185,7 +203,7 @@ function parseJobsApiPayload(res: any): JobsApiPayload {
 }
 
 // Types
-type JobStatus = 'Active' | 'On Hold' | 'Closed';
+type JobStatus = string;
 
 interface JobPipelineStageSummary {
   id: string;
@@ -288,7 +306,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     client: backendJob.client?.companyName || job?.client || '',
     clientId: backendJob.client?.id,
     location: backendJob.location || job?.location || '',
-    status: mapBackendStatus(backendJob.status) as JobForDrawer['status'],
+    status: displayJobStatusFromBackend(backendJob.status, backendJob.statusLabel) as JobForDrawer['status'],
     employmentType: formatEmploymentType(backendJob.type) || undefined,
     salaryRange: formatSalaryRange(backendJob.salary),
     postedDate: backendJob.postedDate
@@ -450,6 +468,9 @@ interface JobsListViewProps {
   onRemarkChange: (remark: string) => void;
   onSaveStatusEdit: () => void;
   onCancelStatusEdit: () => void;
+  statusOptions: string[];
+  onAppendStatusOption: (status: string) => Promise<string[] | void>;
+  onRemoveStatusOption: (status: string) => Promise<string[] | void>;
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
 }
 
@@ -470,15 +491,190 @@ const STATS_CONFIG: Array<{
 ];
 
 const JobStatusPill = ({ status }: JobStatusPillProps) => {
-  const styles: Record<JobStatus, string> = {
-    Active: 'bg-green-100 text-green-700 border-green-200',
-    'On Hold': 'bg-amber-100 text-amber-700 border-amber-200',
-    Closed: 'bg-gray-100 text-gray-700 border-gray-200',
-  };
   return (
-    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${styles[status]}`}>
+    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${jobStatusPillClass(status)}`}>
       {status}
     </span>
+  );
+};
+
+const JobStatusTableDropdown = ({
+  value,
+  options,
+  onSelect,
+  onAppend,
+  onRemove,
+}: {
+  value: string;
+  options: string[];
+  onSelect: (status: string) => void;
+  onAppend: (status: string) => Promise<string[] | void>;
+  onRemove: (status: string) => Promise<string[] | void>;
+}) => {
+  const [open, setOpen] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newStatus, setNewStatus] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    setShowAdd(false);
+    setNewStatus('');
+  }, []);
+  const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(open, false, closeMenu);
+
+  const handleAdd = async () => {
+    const label = String(newStatus || '').trim();
+    if (!label) {
+      toast.error('Enter a status name first.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onAppend(label);
+      onSelect(label);
+      setNewStatus('');
+      setShowAdd(false);
+      setOpen(false);
+      toast.success(`Status "${label}" added.`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to add status');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const menu =
+    open && menuPosition && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[1200] max-h-72 overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{
+              left: menuPosition.left,
+              width: Math.max(menuPosition.width, 240),
+              ...(menuPosition.placement === 'top'
+                ? { bottom: menuPosition.bottom }
+                : { top: menuPosition.top }),
+            }}
+          >
+            {options.map((status) => {
+              const isActive = String(value || '') === String(status || '');
+              const canDelete = !isProtectedJobStatus(status);
+              return (
+                <div
+                  key={status}
+                  className={`flex w-full items-center gap-1 px-1.5 py-0.5 ${
+                    isActive ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelect(status);
+                      setOpen(false);
+                    }}
+                    className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left text-xs font-semibold ${
+                      isActive ? 'text-indigo-700' : 'text-slate-800'
+                    }`}
+                  >
+                    {status}
+                  </button>
+                  {canDelete ? (
+                    <button
+                      type="button"
+                      title={`Delete ${status}`}
+                      aria-label={`Delete ${status}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void (async () => {
+                          setDeleting(true);
+                          try {
+                            await onRemove(status);
+                            toast.success(`Status "${status}" removed.`);
+                          } catch (error: any) {
+                            toast.error(error?.message || 'Failed to remove status');
+                          } finally {
+                            setDeleting(false);
+                          }
+                        })();
+                      }}
+                      disabled={deleting}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-1.5 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+            <div className="border-t border-slate-100 p-2">
+              {!showAdd ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAdd(true)}
+                  className="inline-flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add status
+                </button>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <input
+                    value={newStatus}
+                    onChange={(e) => setNewStatus(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleAdd();
+                      }
+                    }}
+                    className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    placeholder="Enter new status"
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void handleAdd()}
+                      disabled={saving}
+                      className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                    >
+                      {saving ? 'Adding…' : 'Add'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAdd(false);
+                        setNewStatus('');
+                      }}
+                      className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={`inline-flex max-w-[11rem] items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-bold ${jobStatusPillClass(value)} hover:opacity-90`}
+      >
+        <span className="truncate">{value}</span>
+        <ChevronDown size={12} className="shrink-0 opacity-70" />
+      </button>
+      {menu}
+    </div>
   );
 };
 
@@ -550,7 +746,26 @@ const PipelineSnapshot = ({ applied, interviewed, offered, joined, stages }: Pip
   );
 };
 
-const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit, workspaceAlertsByEntityId }: JobsListViewProps) => {
+const JobsListView = ({
+  jobs,
+  onJobClick,
+  onEditJob,
+  onAddCandidate,
+  onDeleteJob,
+  deletingJobId,
+  canUpdateJob,
+  canDeleteJob,
+  canAddCandidate,
+  statusEdit,
+  onStatusChange,
+  onRemarkChange,
+  onSaveStatusEdit,
+  onCancelStatusEdit,
+  statusOptions,
+  onAppendStatusOption,
+  onRemoveStatusOption,
+  workspaceAlertsByEntityId,
+}: JobsListViewProps) => {
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
       Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
@@ -615,17 +830,13 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
                 <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
               <div className="flex flex-col gap-2">
                 {canUpdateJob ? (
-                  <select
-                        className="max-w-[10rem] rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
+                  <JobStatusTableDropdown
                     value={job.status}
-                    onChange={(e) =>
-                      onStatusChange(job.id, e.target.value as JobStatus)
-                    }
-                  >
-                    <option value="Active">Active</option>
-                    <option value="On Hold">On Hold</option>
-                    <option value="Closed">Closed</option>
-                  </select>
+                    options={filterJobStatusOptionsForCurrent(statusOptions, job.status)}
+                    onSelect={(status) => onStatusChange(job.id, status)}
+                    onAppend={onAppendStatusOption}
+                    onRemove={onRemoveStatusOption}
+                  />
                 ) : (
                   <JobStatusPill status={job.status} />
                 )}
@@ -726,34 +937,12 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
   );
 };
 
-function mapBackendStatus(status: string): JobStatus {
-  switch (status) {
-    case 'OPEN':
-    case 'PUBLISHED':
-      return 'Active';
-    case 'ON_HOLD':
-      return 'On Hold';
-    case 'CLOSED':
-    case 'FILLED':
-      return 'Closed';
-    case 'DRAFT':
-      return 'Active'; // Treat draft as active for display
-    default:
-      return 'Active';
-  }
+function mapBackendStatus(status: string, statusLabel?: string | null): JobStatus {
+  return displayJobStatusFromBackend(status, statusLabel);
 }
 
 function mapFrontendStatusToBackend(status: JobStatus): string {
-  switch (status) {
-    case 'Active':
-      return 'OPEN';
-    case 'On Hold':
-      return 'ON_HOLD';
-    case 'Closed':
-      return 'CLOSED';
-    default:
-      return 'OPEN';
-  }
+  return mapJobStatusLabelToBackend(status);
 }
 
 function formatEmploymentType(type?: string | null): string | undefined {
@@ -834,7 +1023,7 @@ function mapBackendJob(job: BackendJob): Job {
     client: job.client?.companyName ?? '-',
     clientId: job.client?.id,
     location: job.location ?? '-',
-    status: mapBackendStatus(job.status),
+    status: mapBackendStatus(job.status, (job as any).statusLabel),
     backendStatus: job.status,
     jobLocationType: job.jobLocationType ?? undefined,
     applied,
@@ -1120,6 +1309,9 @@ export default function JobsPage() {
     newStatus: null,
     remark: '',
   });
+  const [jobStatusOptions, setJobStatusOptions] = useState<string[]>([
+    ...DEFAULT_JOB_STATUS_OPTIONS,
+  ]);
   const [totalEntries, setTotalEntries] = useState(() => {
     const cached = readJobsListCache(DEFAULT_PAGE, DEFAULT_PAGE_SIZE);
     return typeof cached?.data?.totalEntries === 'number' ? cached.data.totalEntries : 0;
@@ -1938,7 +2130,64 @@ export default function JobsPage() {
     [scheduleModalJobs, jobDetails?.id, selectedJob?.id, refreshJobCandidates]
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    const fetchJobStatusCatalog = async () => {
+      try {
+        const response = await apiGetJobStatusCatalog();
+        if (cancelled) return;
+        setJobStatusOptions(
+          mergeJobStatusOptions(
+            response?.data?.statuses,
+            jobs.map((job) => job.status),
+          ),
+        );
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load job status catalog:', err);
+        setJobStatusOptions(
+          mergeJobStatusOptions(undefined, jobs.map((job) => job.status)),
+        );
+      }
+    };
+    void fetchJobStatusCatalog();
+    return () => {
+      cancelled = true;
+    };
+    // Intentional: load once on mount; current statuses merged via separate effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setJobStatusOptions((current) =>
+      mergeJobStatusOptions(current, jobs.map((job) => job.status)),
+    );
+  }, [jobs]);
+
+  const handleAppendJobStatusOption = useCallback(async (status: string) => {
+    const response = await apiAppendJobStatus(status);
+    const next = mergeJobStatusOptions(response?.data?.statuses, status);
+    setJobStatusOptions(next);
+    return next;
+  }, []);
+
+  const handleRemoveJobStatusOption = useCallback(async (status: string) => {
+    const response = await apiRemoveJobStatus(status);
+    const next = mergeJobStatusOptions(response?.data?.statuses, jobs.map((job) => job.status));
+    setJobStatusOptions(next);
+    return next;
+  }, [jobs]);
+
   const handleInlineStatusChange = (id: string, newStatus: JobStatus) => {
+    const current = jobs.find((j) => j.id === id);
+    if (
+      current &&
+      isDraftJobStatus(newStatus) &&
+      !canRevertJobToDraft(current.status)
+    ) {
+      toast.error('Once a job is Active, it cannot be set back to Draft.');
+      return;
+    }
     // Optimistically update UI
     setJobs(prev => prev.map(j => (j.id === id ? { ...j, status: newStatus } : j)));
     // Open remark editor for this row
@@ -1959,11 +2208,21 @@ export default function JobsPage() {
   const handleSaveStatusEdit = async () => {
     if (!statusEdit.jobId || !statusEdit.newStatus) return;
 
+    const jobId = statusEdit.jobId;
+    const label = statusEdit.newStatus;
     try {
-      await apiUpdateJob(statusEdit.jobId, {
-        status: mapFrontendStatusToBackend(statusEdit.newStatus) as any,
+      await apiUpdateJob(jobId, {
+        status: mapFrontendStatusToBackend(label) as any,
+        statusLabel: label,
         statusRemark: statusEdit.remark || undefined,
       } as any);
+      if (isArchivedFromJobsList(label)) {
+        setJobs((prev) => prev.filter((j) => j.id !== jobId));
+        setSelectedJob((prev) => (prev && prev.id === jobId ? null : prev));
+        setJobDetails((prev) => (prev && prev.id === jobId ? null : prev));
+        setJobDrawerOpen(false);
+        toast.success(`Job marked "${label}" and removed from the active list.`);
+      }
       await reloadMyJobsAndMetrics();
     } catch (err: any) {
       console.error('Failed to update job status with remark:', err);
@@ -2091,17 +2350,17 @@ export default function JobsPage() {
     try {
       await apiUpdateJob(job.id, {
         status: 'CLOSED' as any,
+        statusLabel: 'Closed',
         statusRemark: 'Closed from Job drawer',
       } as any);
 
-      setJobs((prev) =>
-        prev.map((item) => (item.id === job.id ? { ...item, status: 'Closed' } : item))
-      );
-      setSelectedJob((prev) => (prev && prev.id === job.id ? { ...prev, status: 'Closed' } : prev));
-      setJobDetails((prev) => (prev && prev.id === job.id ? { ...prev, status: 'Closed' } : prev));
+      setJobs((prev) => prev.filter((item) => item.id !== job.id));
+      setSelectedJob((prev) => (prev && prev.id === job.id ? null : prev));
+      setJobDetails((prev) => (prev && prev.id === job.id ? null : prev));
+      setJobDrawerOpen(false);
 
       await reloadMyJobsAndMetrics();
-      toast.success('Job closed successfully');
+      toast.success('Job closed and removed from the active list');
     } catch (err: any) {
       console.error('Failed to close job:', err);
       void requestError(err?.message || 'Failed to close job');
@@ -2274,12 +2533,12 @@ export default function JobsPage() {
                     options={[
                       { value: 'OPEN', label: 'Active (open)' },
                       { value: 'ON_HOLD', label: 'On hold' },
-                      { value: 'CLOSED', label: 'Closed' },
                       { value: 'DRAFT', label: 'Draft' },
-                      { value: 'FILLED', label: 'Filled' },
+                      { value: 'CLOSED', label: 'Closed / not won' },
+                      { value: 'FILLED', label: 'Closed Won' },
                     ]}
-                    placeholder="All Status"
-                    allLabel="All Status"
+                    placeholder="Active list"
+                    allLabel="Active list"
                     className="w-[9.5rem]"
                     ariaLabel="Filter by status"
                     searchPlaceholder="Search status…"
@@ -2383,6 +2642,9 @@ export default function JobsPage() {
                       onRemarkChange={handleRemarkChange}
                       onSaveStatusEdit={handleSaveStatusEdit}
                       onCancelStatusEdit={handleCancelStatusEdit}
+                      statusOptions={jobStatusOptions}
+                      onAppendStatusOption={handleAppendJobStatusOption}
+                      onRemoveStatusOption={handleRemoveJobStatusOption}
                       workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                     />
                   <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
@@ -2454,6 +2716,7 @@ export default function JobsPage() {
         job={jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null)}
         jobCandidates={jobCandidates}
         onJobCandidatesChange={setJobCandidates}
+        canAddCandidate={canAddCandidate}
         pipelineStages={jobPipelineStages}
         onPipelineStagesChange={(stages) => {
           setJobPipelineStages(stages);
@@ -2504,6 +2767,20 @@ export default function JobsPage() {
         onRejectCandidate={canUpdateJob ? (candidateId, jobId) => { /* TODO: reject candidate */ } : undefined}
         onViewCandidateProfile={openJobDrawerCandidateView}
         onEditCandidate={canUpdateCandidate ? openJobDrawerCandidateEdit : undefined}
+        onStatusUpdated={(jobId, status) => {
+          setJobStatusOptions((current) => mergeJobStatusOptions(current, status));
+          if (isArchivedFromJobsList(status)) {
+            setJobs((prev) => prev.filter((j) => j.id !== jobId));
+            setSelectedJob((prev) => (prev && prev.id === jobId ? null : prev));
+            setJobDetails((prev) => (prev && prev.id === jobId ? null : prev));
+            setJobDrawerOpen(false);
+            toast.success(`Job marked "${status}" and removed from the active list.`);
+            return;
+          }
+          setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status } : j)));
+          setJobDetails((prev) => (prev && prev.id === jobId ? { ...prev, status } : prev));
+          setSelectedJob((prev) => (prev && prev.id === jobId ? { ...prev, status } : prev));
+        }}
       />
 
       <CandidateProfileDrawer

@@ -72,8 +72,25 @@ import {
   apiGetJobApplyLink,
   apiGetPlacements,
   apiToggleSavedMatch,
+  apiGetJobStatusCatalog,
+  apiAppendJobStatus,
+  apiRemoveJobStatus,
   type BackendInterviewListItem,
 } from '../../lib/api';
+import {
+  DEFAULT_JOB_STATUS_OPTIONS,
+  isProtectedJobStatus,
+  jobStatusPillClass,
+  mapJobStatusLabelToBackend,
+  mergeJobStatusOptions,
+  filterJobStatusOptionsForCurrent,
+  isDraftJobStatus,
+  canRevertJobToDraft,
+} from '../../lib/jobStatus';
+import { useDrawerPortalDropdownPosition } from './drawerFormUi';
+import { createPortal } from 'react-dom';
+import { toast } from 'sonner';
+import AddCandidateDrawer from '../candidates/AddCandidateDrawer';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import type { Placement } from '../../types/placement';
 import {
@@ -131,7 +148,7 @@ function formatJobSalaryRange(job: {
   return job.salaryRange || '';
 }
 
-export type JobDrawerStatus = 'Draft' | 'Active' | 'On Hold' | 'Closed';
+export type JobDrawerStatus = string;
 
 export interface JobForDrawer {
   id: string;
@@ -416,6 +433,10 @@ export interface JobDetailsDrawerProps {
   onEditCandidate?: (candidate: JobDrawerTableCandidate) => void;
   /** Sync scored candidates back to the job page after Run AI Applied Matches */
   onJobCandidatesChange?: (candidates: JobCandidateItem[]) => void;
+  /** Called after status is changed from the drawer header */
+  onStatusUpdated?: (jobId: string, status: string) => void;
+  /** When true, show Upload CV on the Candidates tab */
+  canAddCandidate?: boolean;
 }
 
 const TAB_CONFIG = [
@@ -554,11 +575,111 @@ function matchCandidateToJobTableRow(
   };
 }
 
-const STATUS_STYLES: Record<JobDrawerStatus, string> = {
+const STATUS_STYLES: Record<string, string> = {
   Draft: 'bg-slate-100 text-slate-700 border-slate-200',
   Active: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   'On Hold': 'bg-amber-100 text-amber-700 border-amber-200',
   Closed: 'bg-gray-100 text-gray-600 border-gray-200',
+  'Closed Won': 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  'Closed not Won': 'bg-gray-100 text-gray-700 border-gray-200',
+  Duplicate: 'bg-rose-50 text-rose-700 border-rose-200',
+};
+
+function statusStyleFor(status: string): string {
+  return STATUS_STYLES[status] || jobStatusPillClass(status);
+}
+
+const JobDrawerStatusDropdown = ({
+  value,
+  options,
+  onSelect,
+  onDelete,
+  deleting,
+}: {
+  value: string;
+  options: string[];
+  onSelect: (status: string) => void;
+  onDelete: (status: string) => void;
+  deleting: boolean;
+}) => {
+  const [open, setOpen] = useState(false);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(open, false, closeMenu);
+
+  const menu =
+    open && menuPosition && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[1200] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{
+              left: menuPosition.left,
+              width: Math.max(menuPosition.width, 240),
+              ...(menuPosition.placement === 'top'
+                ? { bottom: menuPosition.bottom }
+                : { top: menuPosition.top }),
+            }}
+          >
+            {options.map((status) => {
+              const isActive = String(value || '') === String(status || '');
+              const canDelete = !isProtectedJobStatus(status);
+              return (
+                <div
+                  key={status}
+                  className={`flex w-full items-center gap-1 px-1.5 py-0.5 ${
+                    isActive ? 'bg-blue-50' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelect(status);
+                      setOpen(false);
+                    }}
+                    className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left text-sm ${
+                      isActive ? 'text-blue-700 font-semibold' : 'text-slate-800'
+                    }`}
+                  >
+                    {status}
+                  </button>
+                  {canDelete ? (
+                    <button
+                      type="button"
+                      title={`Delete ${status}`}
+                      aria-label={`Delete ${status}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete(status);
+                      }}
+                      disabled={deleting}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-1.5 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${statusStyleFor(value)} hover:opacity-90`}
+      >
+        <span>{value}</span>
+        <ChevronDown size={12} className="opacity-70" />
+      </button>
+      {menu}
+    </div>
+  );
 };
 
 interface JobDrawerAiMatchesTabProps {
@@ -697,6 +818,8 @@ export function JobDetailsDrawer({
   onViewCandidateProfile,
   onEditCandidate,
   onJobCandidatesChange,
+  onStatusUpdated,
+  canAddCandidate = false,
 }: JobDetailsDrawerProps) {
   usePageDrawerLifecycle(isOpen);
   const [pipelineStages, setPipelineStages] = useState<JobPipelineStage[]>(normalizePipelineStages(initialPipelineStages));
@@ -1083,12 +1206,144 @@ export function JobDetailsDrawer({
   const [supportingRecruiterNames, setSupportingRecruiterNames] = useState<string>('—');
   const [loadingAssignmentMeta, setLoadingAssignmentMeta] = useState(false);
   const [showStatusChange, setShowStatusChange] = useState(false);
+  const [jobStatusCatalog, setJobStatusCatalog] = useState<string[]>([...DEFAULT_JOB_STATUS_OPTIONS]);
+  const [localJobStatus, setLocalJobStatus] = useState<string>('Active');
+  const [showAddJobStatusInput, setShowAddJobStatusInput] = useState(false);
+  const [newJobStatusValue, setNewJobStatusValue] = useState('');
+  const [savingJobStatus, setSavingJobStatus] = useState(false);
+  const [deletingJobStatus, setDeletingJobStatus] = useState(false);
+  const [updatingJobStatus, setUpdatingJobStatus] = useState(false);
+  const [uploadCvDrawerOpen, setUploadCvDrawerOpen] = useState(false);
+  const [uploadCvCurrentUser, setUploadCvCurrentUser] = useState<{
+    _id?: string;
+    id?: string;
+    name?: string;
+    email?: string;
+    role?: string;
+  } | null>(null);
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
   const [applyLinkLoading, setApplyLinkLoading] = useState(false);
   const [applyLinkCopied, setApplyLinkCopied] = useState(false);
   const [applyShareOpen, setApplyShareOpen] = useState(false);
   const applyShareRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setShowStatusChange(false);
+    setShowAddJobStatusInput(false);
+    setNewJobStatusValue('');
+    setLocalJobStatus(job?.status || 'Active');
+    setUploadCvDrawerOpen(false);
+  }, [job?.id, job?.status]);
+
+  useEffect(() => {
+    if (!isOpen || !canAddCandidate) return;
+    try {
+      const raw = localStorage.getItem('currentUser');
+      if (!raw) {
+        setUploadCvCurrentUser(null);
+        return;
+      }
+      setUploadCvCurrentUser(JSON.parse(raw));
+    } catch {
+      setUploadCvCurrentUser(null);
+    }
+  }, [isOpen, canAddCandidate]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await apiGetJobStatusCatalog();
+        if (cancelled) return;
+        setJobStatusCatalog(
+          mergeJobStatusOptions(response?.data?.statuses, job?.status || localJobStatus),
+        );
+      } catch {
+        if (cancelled) return;
+        setJobStatusCatalog(mergeJobStatusOptions(undefined, job?.status || localJobStatus));
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, job?.id, job?.status, localJobStatus]);
+
+  const drawerStatusOptions = useMemo(
+    () =>
+      filterJobStatusOptionsForCurrent(
+        mergeJobStatusOptions(jobStatusCatalog, localJobStatus),
+        localJobStatus,
+      ),
+    [jobStatusCatalog, localJobStatus],
+  );
+
+  const applyJobStatusChange = async (status: string) => {
+    if (!job?.id) return;
+    if (isDraftJobStatus(status) && !canRevertJobToDraft(localJobStatus)) {
+      toast.error('Once a job is Active, it cannot be set back to Draft.');
+      return;
+    }
+    const previous = localJobStatus;
+    setLocalJobStatus(status);
+    setUpdatingJobStatus(true);
+    try {
+      await apiUpdateJob(job.id, {
+        status: mapJobStatusLabelToBackend(status),
+        statusLabel: status,
+      } as any);
+      onStatusUpdated?.(job.id, status);
+      setShowStatusChange(false);
+      setShowAddJobStatusInput(false);
+      toast.success(`Status updated to "${status}".`);
+    } catch (error: any) {
+      setLocalJobStatus(previous);
+      void requestError(error?.message || 'Failed to update job status');
+    } finally {
+      setUpdatingJobStatus(false);
+    }
+  };
+
+  const addJobStatusOption = async () => {
+    const status = String(newJobStatusValue || '').trim();
+    if (!status) {
+      toast.error('Enter a status name first.');
+      return;
+    }
+    setSavingJobStatus(true);
+    try {
+      const response = await apiAppendJobStatus(status);
+      const next = mergeJobStatusOptions(response?.data?.statuses, status);
+      setJobStatusCatalog(next);
+      setNewJobStatusValue('');
+      setShowAddJobStatusInput(false);
+      await applyJobStatusChange(status);
+    } catch (error: any) {
+      void requestError(error?.message || 'Failed to add status');
+    } finally {
+      setSavingJobStatus(false);
+    }
+  };
+
+  const deleteJobStatusOption = async (status: string) => {
+    setDeletingJobStatus(true);
+    try {
+      const response = await apiRemoveJobStatus(status);
+      const next = mergeJobStatusOptions(response?.data?.statuses, localJobStatus);
+      setJobStatusCatalog(next);
+      if (localJobStatus === status) {
+        const fallback = next[0] || 'Active';
+        await applyJobStatusChange(fallback);
+      }
+      toast.success(`Status "${status}" removed.`);
+    } catch (error: any) {
+      void requestError(error?.message || 'Failed to remove status');
+    } finally {
+      setDeletingJobStatus(false);
+    }
+  };
 
   useEffect(() => {
     if (!applyShareOpen) return;
@@ -1452,11 +1707,70 @@ export function JobDetailsDrawer({
                       <button
                         type="button"
                         onClick={() => setShowStatusChange(true)}
-                        className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${STATUS_STYLES[job.status]} hover:opacity-80 transition-opacity`}
+                        className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${statusStyleFor(localJobStatus || job.status)} hover:opacity-80 transition-opacity`}
+                        title="Change status"
                       >
-                        {job.status}
+                        {localJobStatus || job.status}
                       </button>
-                    ) : null}
+                    ) : (
+                      <div className="flex flex-col gap-2 min-w-[12rem]">
+                        <div className="flex items-center gap-2">
+                          <JobDrawerStatusDropdown
+                            value={localJobStatus || job.status}
+                            options={drawerStatusOptions}
+                            deleting={deletingJobStatus || updatingJobStatus}
+                            onSelect={(status) => {
+                              void applyJobStatusChange(status);
+                            }}
+                            onDelete={(status) => {
+                              void deleteJobStatusOption(status);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAddJobStatusInput((prev) => !prev);
+                              setNewJobStatusValue('');
+                            }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-800"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Add status
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowStatusChange(false);
+                              setShowAddJobStatusInput(false);
+                              setNewJobStatusValue('');
+                              setLocalJobStatus(job.status);
+                            }}
+                            className="text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        {showAddJobStatusInput ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={newJobStatusValue}
+                              onChange={(e) => setNewJobStatusValue(e.target.value)}
+                              className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              placeholder="Enter new status"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void addJobStatusOption()}
+                              disabled={savingJobStatus}
+                              className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                            >
+                              {savingJobStatus ? 'Adding…' : 'Add'}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                     {job.jobLocationType && (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
                         <UserCheck size={12} />
@@ -1636,6 +1950,17 @@ export function JobDetailsDrawer({
                   accent="blue"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                    {canAddCandidate && job?.id ? (
+                      <button
+                        type="button"
+                        onClick={() => setUploadCvDrawerOpen(true)}
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                        title="Upload a CV to create a candidate and assign them to this job"
+                      >
+                        <Upload size={16} strokeWidth={2.25} />
+                        Upload CV
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void handleRunAppliedMatches()}
@@ -1664,6 +1989,16 @@ export function JobDetailsDrawer({
                       <p className="text-sm text-slate-500">
                         No candidates applied, assigned, or in the pipeline for this job yet.
                       </p>
+                      {canAddCandidate && job?.id ? (
+                        <button
+                          type="button"
+                          onClick={() => setUploadCvDrawerOpen(true)}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                        >
+                          <Upload size={16} />
+                          Upload CV to add a candidate
+                        </button>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="no-scrollbar overflow-x-auto">
@@ -2583,6 +2918,30 @@ export function JobDetailsDrawer({
           : undefined
       }
     />
+
+    {canAddCandidate && job?.id ? (
+      <AddCandidateDrawer
+        isOpen={uploadCvDrawerOpen}
+        onClose={() => setUploadCvDrawerOpen(false)}
+        onSuccess={async () => {
+          setUploadCvDrawerOpen(false);
+          toast.success('Candidate created from CV and assigned to this job.');
+          await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+        }}
+        currentUser={
+          uploadCvCurrentUser || {
+            _id: '',
+            name: 'You',
+            email: '',
+            role: 'RECRUITER',
+          }
+        }
+        initialTab="resume"
+        defaultJobId={job.id}
+        lockJobSelection
+        showMethodTabs={false}
+      />
+    ) : null}
 
     {submitToClientModal}
     </>

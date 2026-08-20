@@ -17,6 +17,7 @@ import {
   Loader2,
   LogOut,
   Settings,
+  ShieldCheck,
   Target,
   Ticket,
   Trash2,
@@ -45,6 +46,7 @@ export type HqNavId =
   | HqNavTab
   | 'employerDashboard'
   | 'candidates'
+  | 'kycVerified'
   | 'courses'
   | 'subscriptions'
   | 'leads'
@@ -83,6 +85,14 @@ export const HQ_NAV_ITEMS: {
     label: 'Candidates',
     href: '/hq/candidates',
     icon: UserRound,
+    accent: 'emerald',
+    group: 'employees',
+  },
+  {
+    id: 'kycVerified',
+    label: 'KYC verified',
+    href: '/hq/kyc-verified',
+    icon: ShieldCheck,
     accent: 'emerald',
     group: 'employees',
   },
@@ -290,6 +300,9 @@ function isNavActive(
   if (item.id === 'candidates') {
     return pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/');
   }
+  if (item.id === 'kycVerified') {
+    return pathname === '/hq/kyc-verified' || pathname.startsWith('/hq/kyc-verified/');
+  }
   if (item.id === 'courses') {
     return pathname === '/hq/courses' || pathname.startsWith('/hq/courses/');
   }
@@ -317,6 +330,7 @@ function isEmployeesSectionActive(
   audience: string | null,
 ) {
   if (pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/')) return true;
+  if (pathname === '/hq/kyc-verified' || pathname.startsWith('/hq/kyc-verified/')) return true;
   if (pathname === '/hq/courses' || pathname.startsWith('/hq/courses/')) return true;
   if (pathname === '/hq/portal' || pathname.startsWith('/hq/portal/')) return true;
   if (pathname === '/hq/events' || pathname.startsWith('/hq/events/')) return true;

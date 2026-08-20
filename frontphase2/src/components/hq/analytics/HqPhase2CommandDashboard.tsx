@@ -1769,12 +1769,12 @@ export function HqPhase2CommandDashboard({
                   <div key={s.label} className="rounded-lg bg-slate-50 px-1.5 py-1.5 text-center" title={s.hint}>
                     <p className="text-[8px] font-semibold uppercase tracking-wide text-slate-400">{s.label}</p>
                     <p className="text-sm font-bold text-[#111827]">{fmt(s.value)}</p>
-                </div>
+            </div>
                 ))}
             </div>
               <div className="min-h-[140px] flex-1">
                 {demoAnalytics.length ? (
-                <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={demoAnalytics}
@@ -1790,7 +1790,7 @@ export function HqPhase2CommandDashboard({
                       </Pie>
                     <Tooltip contentStyle={tip} />
                     </PieChart>
-                </ResponsiveContainer>
+              </ResponsiveContainer>
               ) : (
                   <div className="flex h-full min-h-[140px] items-center justify-center text-xs text-slate-400">
                     No demos yet
@@ -1810,7 +1810,7 @@ export function HqPhase2CommandDashboard({
                     <span className="font-semibold text-[#111827]">{fmt(s.value)}</span>
                   </div>
                 ))}
-              </div>
+            </div>
           </Card>
 
             <Card className="col-span-12 flex h-full flex-col !p-4 lg:col-span-5">
@@ -1853,8 +1853,8 @@ export function HqPhase2CommandDashboard({
               <Title title="Tenant Distribution" info="Mix of agency vs standalone (and paused) customers." />
               <div className="min-h-[130px] flex-1">
               {tenantDist.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
                     <Pie
                       data={tenantDist}
                       dataKey="value"
@@ -1863,17 +1863,17 @@ export function HqPhase2CommandDashboard({
                         outerRadius={52}
                       paddingAngle={2}
                     >
-                      {tenantDist.map((_, i) => (
-                        <Cell key={i} fill={TENANT_COLORS[i % TENANT_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={tip} />
-                  </PieChart>
-                </ResponsiveContainer>
+                    {tenantDist.map((_, i) => (
+                      <Cell key={i} fill={TENANT_COLORS[i % TENANT_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={tip} />
+                </PieChart>
+              </ResponsiveContainer>
               ) : (
                   <div className="flex h-full min-h-[130px] items-center justify-center text-xs text-slate-400">
                     No data
-                  </div>
+            </div>
               )}
             </div>
               <div className="mt-2 space-y-1.5">
@@ -1924,7 +1924,7 @@ export function HqPhase2CommandDashboard({
               ) : null}
               <div className="min-h-[200px] flex-1">
                 {tenantActivity.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={tenantActivity} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="tenFillLive" x1="0" y1="0" x2="0" y2="1">
@@ -1932,7 +1932,7 @@ export function HqPhase2CommandDashboard({
                           <stop offset="100%" stopColor={INDIGO} stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="4 8" stroke={gridStroke} vertical={false} />
+                  <CartesianGrid strokeDasharray="4 8" stroke={gridStroke} vertical={false} />
                       <XAxis
                         dataKey="name"
                         tick={{ ...axisTick, fontSize: 9 }}
@@ -1991,14 +1991,14 @@ export function HqPhase2CommandDashboard({
                         tickLine={false}
                         width={24}
                       />
-                    <Tooltip contentStyle={tip} />
+                  <Tooltip contentStyle={tip} />
                       <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={16}>
-                      {plans.map((_, i) => (
-                        <Cell key={i} fill={PLAN_COLORS[i % PLAN_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                    {plans.map((_, i) => (
+                      <Cell key={i} fill={PLAN_COLORS[i % PLAN_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
               ) : (
                   <div className="flex h-full min-h-[180px] items-center justify-center text-xs text-slate-400">
                   No plan distribution yet
@@ -2136,7 +2136,7 @@ export function HqPhase2CommandDashboard({
               />
               <div className="min-h-[200px] flex-1">
                 {clientFeatureUsage.length ? (
-                <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={clientFeatureUsage}
                       layout="vertical"
@@ -2198,7 +2198,7 @@ export function HqPhase2CommandDashboard({
                 <div className="h-[160px] w-full shrink-0 sm:w-[52%]">
                   {platformUsage.length ? (
                     <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
+                <PieChart>
                     <Pie
                       data={platformUsage}
                       dataKey="value"
@@ -2209,17 +2209,17 @@ export function HqPhase2CommandDashboard({
                       outerRadius={62}
                       paddingAngle={2}
                     >
-                      {platformUsage.map((_, i) => (
-                        <Cell key={i} fill={USAGE_COLORS[i % USAGE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={tip} />
-                  </PieChart>
-                </ResponsiveContainer>
+                    {platformUsage.map((_, i) => (
+                      <Cell key={i} fill={USAGE_COLORS[i % USAGE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={tip} />
+                </PieChart>
+              </ResponsiveContainer>
               ) : (
                     <div className="flex h-[160px] items-center justify-center text-xs text-slate-400">
                       No usage yet for this scope
-                    </div>
+            </div>
               )}
             </div>
                 <div className="min-w-0 w-full space-y-1.5 pr-3 sm:w-[48%] sm:shrink-0 sm:pr-4">
@@ -2266,7 +2266,7 @@ export function HqPhase2CommandDashboard({
                     <span className="font-semibold text-[#111827]">{fmt(row.value)}</span>
                   </div>
                 ))}
-              </div>
+            </div>
           </Card>
             ) : null}
 
@@ -2305,9 +2305,9 @@ export function HqPhase2CommandDashboard({
                       <th className="px-2 py-2 font-semibold text-right">Apps</th>
                       <th className="px-2 py-2 font-semibold text-right">Placed</th>
                       <th className="px-4 py-2 font-semibold text-right">Health</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                  </tr>
+                </thead>
+                <tbody>
                     {topTenants.map((row, idx) => (
                       <tr
                         key={row.name}
@@ -2317,10 +2317,10 @@ export function HqPhase2CommandDashboard({
                           <div className="flex items-center gap-2">
                             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-[10px] font-bold text-indigo-700">
                               {String(idx + 1).padStart(2, '0')}
-                            </span>
+                          </span>
                             <span className="truncate font-semibold text-[#111827]">{row.name}</span>
-                          </div>
-                        </td>
+                        </div>
+                      </td>
                         <td className="px-2 py-2">
                           <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                             {row.plan}
@@ -2330,22 +2330,22 @@ export function HqPhase2CommandDashboard({
                         <td className="px-2 py-2 text-right font-medium tabular-nums">{fmt(row.apps)}</td>
                         <td className="px-2 py-2 text-right font-medium tabular-nums">{fmt(row.placements)}</td>
                         <td className="px-4 py-2 text-right">
-                          <span
+                        <span
                             className={`inline-flex min-w-[2rem] justify-center rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                              row.health >= 90
-                                ? 'bg-emerald-50 text-emerald-700'
+                            row.health >= 90
+                              ? 'bg-emerald-50 text-emerald-700'
                                 : row.health >= 70
-                                  ? 'bg-indigo-50 text-indigo-700'
-                                  : 'bg-amber-50 text-amber-700'
-                            }`}
-                          >
-                            {row.health}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                                ? 'bg-indigo-50 text-indigo-700'
+                                : 'bg-amber-50 text-amber-700'
+                          }`}
+                        >
+                          {row.health}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
             ) : null}
@@ -2361,7 +2361,7 @@ export function HqPhase2CommandDashboard({
                     <div className="flex items-center gap-1.5">
                       <h3 className="text-sm font-semibold text-[#111827]">At-risk Tenants</h3>
                       <HqInfoTip text="Customers with low health, zero activity, or jobs with no recent applications." />
-                    </div>
+            </div>
                     <p className="text-[10px] font-medium text-amber-700/80">
                       Needs attention · {atRiskTenants.length} flagged
                       {scopeLabel ? ` · ${scopeLabel}` : ''}
@@ -2384,7 +2384,7 @@ export function HqPhase2CommandDashboard({
                         <div className="mt-1 flex flex-wrap gap-1">
                           <span className="rounded-md bg-amber-100/80 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">
                             {row.reason}
-                          </span>
+                  </span>
             </div>
                       </div>
                       <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
@@ -2490,9 +2490,9 @@ export function HqPhase2CommandDashboard({
                   </h3>
                   <HqInfoTip text="Latest jobs, placements, and tenant events for the current scope." />
             </div>
-              </div>
-              <HqPhase2ActivityFeed activities={activities} />
-            </Card>
+            </div>
+            <HqPhase2ActivityFeed activities={activities} />
+          </Card>
             ) : null}
           </div>
         </section>
@@ -2670,7 +2670,7 @@ export function HqPhase2CommandDashboard({
                   </div>
                 ))}
               </div>
-            </Card>
+          </Card>
 
             <Card className="col-span-12 xl:col-span-7">
               <Title
@@ -2773,19 +2773,19 @@ export function HqPhase2CommandDashboard({
                   {liveScopeActive ? 'No employers match this search' : 'No tenant rows yet'}
                 </p>
               )}
-            </Card>
-          </div>
+          </Card>
+        </div>
 
           {liveSingleTenant?.row.tenantDbName ? (
             <div className="rounded-2xl border border-slate-200/90 bg-white p-3 shadow-sm sm:p-4">
               <HqTenantBehaviorAnalyticsPanel tenant={toHqTenantRow(liveSingleTenant.row)} />
-            </div>
+      </div>
           ) : null}
         </section>
         ) : null}
 
         <HqPhase2Footer updatedLabel={isLive ? `Live · ${updatedLabel}` : updatedLabel} />
-      </div>
+    </div>
     </HqModulePageLayout>
   );
 }
