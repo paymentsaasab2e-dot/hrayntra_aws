@@ -1266,6 +1266,26 @@ export async function apiRemoveLeadStatus(status: string) {
   });
 }
 
+export async function apiGetJobStatusCatalog() {
+  return apiFetch<StatusCatalogResponse>('/settings/org/job-statuses', { auth: true });
+}
+
+export async function apiAppendJobStatus(status: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/job-statuses/append', {
+    method: 'POST',
+    auth: true,
+    body: { status },
+  });
+}
+
+export async function apiRemoveJobStatus(status: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/job-statuses/remove', {
+    method: 'POST',
+    auth: true,
+    body: { status },
+  });
+}
+
 export async function apiGetClientLeadStatusCatalog() {
   return apiFetch<StatusCatalogResponse>('/settings/org/client-lead-statuses', { auth: true });
 }
@@ -2447,6 +2467,8 @@ export type HqPortalCandidateRow = {
   updatedAt: string | null;
   createdAt: string | null;
   origin: 'phase1_portal' | 'phase1_common' | 'phase2_crm';
+  kycVerified?: boolean;
+  isInterviewer?: boolean;
 };
 
 export type HqPortalJobRow = {
@@ -2512,6 +2534,79 @@ export async function apiHqListCandidates() {
     >;
     storage: HqPortalStorageInfo;
   }>('/hq/candidates', { auth: true });
+}
+
+export type HqKycInterviewerRow = {
+  id: string;
+  applicationId?: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  currentRole: string;
+  currentCompany: string;
+  yearsOfExperience: number;
+  interviewPrice: number;
+  expertiseAreas: string[];
+  interviewTypes: string[];
+  languages: string[];
+  weeklyAvailability?: string;
+  aboutYourself?: string;
+  feedbackStyle?: string;
+  linkedinUrl?: string;
+  resumeUrl?: string;
+  profilePhotoUrl?: string;
+  dateOfBirth?: string | null;
+  passportNumber?: string;
+  applicationStatus: string;
+  profileStatus?: string | null;
+  reviewedBy?: string | null;
+  reviewNotes?: string | null;
+  kycVerified: boolean;
+  kycMissing: string[];
+  hqVerified: boolean;
+  liveForCandidates: boolean;
+  kind?: 'applicant' | 'interviewer';
+  createdAt?: string | null;
+  updatedAt: string | null;
+};
+
+export async function apiHqListKycInterviewers() {
+  return apiFetch<{
+    interviewers: HqKycInterviewerRow[];
+    stats: {
+      total: number;
+      applicants?: number;
+      interviewers?: number;
+      kycVerified: number;
+      pendingHqVerify: number;
+      liveForCandidates: number;
+    };
+  }>('/hq/kyc-interviewers', { auth: true });
+}
+
+export async function apiHqVerifyKycInterviewer(candidateId: string) {
+  return apiFetch<{
+    candidateId: string;
+    hqVerified: boolean;
+    kycVerified: boolean;
+    liveForCandidates: boolean;
+  }>(`/hq/kyc-interviewers/${encodeURIComponent(candidateId)}/verify`, {
+    method: 'POST',
+    auth: true,
+  });
+}
+
+export async function apiHqRejectKycInterviewer(candidateId: string, reviewNotes?: string) {
+  return apiFetch<{
+    candidateId: string;
+    hqVerified: boolean;
+    applicationStatus: string;
+    reviewNotes: string;
+  }>(`/hq/kyc-interviewers/${encodeURIComponent(candidateId)}/reject`, {
+    method: 'POST',
+    auth: true,
+    body: { reviewNotes: reviewNotes || '' },
+  });
 }
 
 export type HqCourseRow = {
@@ -4388,6 +4483,8 @@ export interface BackendJob {
   overview?: string | null;
   location?: string | null;
   status: string;
+  /** Tenant-facing label when org uses custom job statuses */
+  statusLabel?: string | null;
   openings: number;
   createdAt: string;
   postedDate?: string | null;
@@ -4528,6 +4625,8 @@ export interface CreateJobData {
   location?: string;
   type?: 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'FREELANCE' | 'INTERNSHIP';
   status?: 'DRAFT' | 'OPEN' | 'ON_HOLD' | 'CLOSED' | 'FILLED';
+  /** Display label (supports tenant custom statuses) */
+  statusLabel?: string | null;
   clientId: string;
   /** Job assignee (recruiter). Use `null` on PATCH to unassign. */
   assignedToId?: string | null;

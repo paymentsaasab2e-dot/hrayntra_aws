@@ -22,6 +22,11 @@ import {
   appendLeadStatusOption,
   removeLeadStatusOption,
   DEFAULT_LEAD_STATUS_OPTIONS,
+  getOrgCustomJobStatusOptions,
+  getJobStatusOptions,
+  appendJobStatusOption,
+  removeJobStatusOption,
+  DEFAULT_JOB_STATUS_OPTIONS,
   getOrgCustomClientLeadStatusOptions,
   getClientLeadStatusOptions,
   appendClientLeadStatusOption,
@@ -616,6 +621,46 @@ router.post('/lead-statuses/remove', async (req, res) => {
     });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to remove lead status', error);
+  }
+});
+
+router.get('/job-statuses', async (req, res) => {
+  try {
+    const custom = await getOrgCustomJobStatusOptions();
+    const statuses = await getJobStatusOptions();
+    sendResponse(res, 200, 'OK', {
+      statuses,
+      custom,
+      defaults: DEFAULT_JOB_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load job statuses', error);
+  }
+});
+
+router.post('/job-statuses/append', async (req, res) => {
+  try {
+    const status = req.body?.status ?? req.body?.name ?? req.body;
+    const statuses = await appendJobStatusOption(status);
+    sendResponse(res, 200, 'Job status added', {
+      statuses,
+      defaults: DEFAULT_JOB_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to add job status', error);
+  }
+});
+
+router.post('/job-statuses/remove', async (req, res) => {
+  try {
+    const status = req.body?.status ?? req.body?.name ?? req.body;
+    const statuses = await removeJobStatusOption(status);
+    sendResponse(res, 200, 'Job status removed', {
+      statuses,
+      defaults: DEFAULT_JOB_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to remove job status', error);
   }
 });
 
