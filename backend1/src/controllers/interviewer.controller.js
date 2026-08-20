@@ -51,16 +51,7 @@ async function getAccountProfilePhotoUrl(candidateId) {
   return url || null;
 }
 
-const { parseSlotStart, mergePreferredSlot, encodeSlotProposal, decodeSlotProposal, assertFutureBookingDate } = require('../utils/interviewSlot.util');
-
-function buildScheduledAtFromDateAndSlot(dateValue, slotValue) {
-  const date = toDateOrNull(dateValue);
-  const slot = parseSlotStart(slotValue);
-  if (!date || !slot) return null;
-  const scheduled = new Date(date);
-  scheduled.setHours(slot.hour, slot.minute, 0, 0);
-  return scheduled;
-}
+const { parseSlotStart, mergePreferredSlot, encodeSlotProposal, decodeSlotProposal, assertFutureBookingDate, buildScheduledAtFromDateAndSlot } = require('../utils/interviewSlot.util');
 
 function isAuthorizedForAdmin(req) {
   if (process.env.NODE_ENV !== 'production' && !INTERNAL_ADMIN_KEY) return true;
