@@ -8,7 +8,14 @@ const {
 } = require('../services/interviewTokenBooking.service');
 const tokenService = require('../services/token.service');
 const { getLiveBundle, getLiveBundleByRequestId, findRequestForLiveRoom } = require('../services/interviewLive.service');
-const { mergePreferredSlot, encodeSlotProposal, decodeSlotProposal, assertFutureBookingDate } = require('../utils/interviewSlot.util');
+const {
+  mergePreferredSlot,
+  encodeSlotProposal,
+  decodeSlotProposal,
+  assertFutureBookingDate,
+  buildScheduledAtFromDateAndSlot,
+  parseSlotStart,
+} = require('../utils/interviewSlot.util');
 
 const DEFAULT_DURATION_MINUTES = 45;
 const ALLOWED_DURATIONS = new Set([30, 45, 60, 90, 120]);
@@ -97,58 +104,6 @@ function normalizeChatMessageRow(row) {
     message: String(row?.message || ''),
     createdAt: row?.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
   };
-}
-
-function parseSlotStart(slotValue) {
-  const raw = String(slotValue || '').trim();
-  if (!raw) return null;
-
-  const dashFormat = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/.exec(raw);
-  if (dashFormat) {
-    const hour = Number(dashFormat[1]);
-    const minute = Number(dashFormat[2]);
-    if (Number.isFinite(hour) && Number.isFinite(minute)) return { hour, minute };
-  }
-
-  const amPmFormat = /^(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(AM|PM)$/i.exec(raw);
-  if (amPmFormat) {
-    let hour = Number(amPmFormat[1]);
-    const minute = Number(amPmFormat[2]);
-    const period = String(amPmFormat[3]).toUpperCase();
-    if (period === 'PM' && hour < 12) hour += 12;
-    if (period === 'AM' && hour === 12) hour = 0;
-    if (Number.isFinite(hour) && Number.isFinite(minute)) return { hour, minute };
-  }
-
-  const single24 = /^(\d{1,2}):(\d{2})$/.exec(raw);
-  if (single24) {
-    const hour = Number(single24[1]);
-    const minute = Number(single24[2]);
-    if (Number.isFinite(hour) && hour >= 0 && hour <= 23 && Number.isFinite(minute)) {
-      return { hour, minute };
-    }
-  }
-
-  const singleAmPm = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(raw);
-  if (singleAmPm) {
-    let hour = Number(singleAmPm[1]);
-    const minute = Number(singleAmPm[2]);
-    const period = String(singleAmPm[3]).toUpperCase();
-    if (period === 'PM' && hour < 12) hour += 12;
-    if (period === 'AM' && hour === 12) hour = 0;
-    if (Number.isFinite(hour) && Number.isFinite(minute)) return { hour, minute };
-  }
-
-  return null;
-}
-
-function buildScheduledAtFromDateAndSlot(dateValue, slotValue) {
-  const date = toDateOrNull(dateValue);
-  const slot = parseSlotStart(slotValue);
-  if (!date || !slot) return null;
-  const scheduled = new Date(date);
-  scheduled.setHours(slot.hour, slot.minute, 0, 0);
-  return scheduled;
 }
 
 function buildFrontendBaseUrl() {

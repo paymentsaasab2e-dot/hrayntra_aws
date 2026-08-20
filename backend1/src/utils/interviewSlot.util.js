@@ -60,20 +60,16 @@ function mergePreferredSlot(preferredTime, slot) {
 }
 
 function toDateKey(value) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
   const raw = String(value || '').trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    const y = parsed.getFullYear();
-    const m = String(parsed.getMonth() + 1).padStart(2, '0');
-    const d = String(parsed.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+  const date = value instanceof Date ? value : raw ? new Date(raw) : null;
+  if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
   }
   return '';
 }
@@ -130,6 +126,20 @@ function assertFutureBookingDate(dateValue) {
   return { date: d };
 }
 
+/**
+ * Build scheduledAt from a calendar date + slot time as Asia/Kolkata wall clock.
+ * Avoids UTC server drift (e.g. 14:30 becoming ~20:00 IST in the UI).
+ */
+function buildScheduledAtFromDateAndSlot(dateValue, slotValue) {
+  const slot = parseSlotStart(slotValue);
+  const dateKey = toDateKey(dateValue);
+  if (!slot || !dateKey) return null;
+  const hour = String(slot.hour).padStart(2, '0');
+  const minute = String(slot.minute).padStart(2, '0');
+  const scheduled = new Date(`${dateKey}T${hour}:${minute}:00+05:30`);
+  return Number.isNaN(scheduled.getTime()) ? null : scheduled;
+}
+
 module.exports = {
   normalizeRoomId,
   parseSlotStart,
@@ -137,4 +147,6 @@ module.exports = {
   encodeSlotProposal,
   decodeSlotProposal,
   assertFutureBookingDate,
+  buildScheduledAtFromDateAndSlot,
+  toDateKey,
 };
