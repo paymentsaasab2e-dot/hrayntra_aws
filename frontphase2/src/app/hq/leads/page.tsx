@@ -591,7 +591,7 @@ export default function HqLeadsPage() {
   const handleDeleteDemo = async (demoId: string) => {
     if (!window.confirm('Delete this landing signup?')) return;
     await apiHqDeleteDemoRequest(demoId);
-    await loadDemos();
+      await loadDemos();
   };
 
   const openGrantTrialModal = (demo: HqDemoRequestRow) => {
@@ -767,8 +767,8 @@ export default function HqLeadsPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
+            <button
+              type="button"
                 onClick={() => void (isDemosTab ? loadDemos() : loadLeads())}
                 disabled={loading || demosLoading}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
@@ -779,17 +779,17 @@ export default function HqLeadsPage() {
                   strokeWidth={2.25}
                   className={loading || demosLoading ? 'animate-spin' : ''}
                 />
-              </button>
-              <button
-                type="button"
+            </button>
+            <button
+              type="button"
                 onClick={exportCsv}
                 className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
-              >
+            >
                 <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
                 <span>Export</span>
-              </button>
-              <button
-                type="button"
+            </button>
+            <button
+              type="button"
                 onClick={() => toast.message('CSV import for HQ leads is coming soon')}
                 className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               >
@@ -857,8 +857,8 @@ export default function HqLeadsPage() {
                     strokeWidth={2.5}
                   />
                   <span>Create Manually</span>
-                </button>
-              </div>
+            </button>
+          </div>
             </div>
           </header>
 
@@ -866,23 +866,23 @@ export default function HqLeadsPage() {
             {loadError ? (
               <div className="mb-4 shrink-0 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                 {loadError}
-                <button
-                  type="button"
+            <button
+              type="button"
                   onClick={() => void loadLeads()}
-                  className="ml-2 font-semibold underline"
-                >
+              className="ml-2 font-semibold underline"
+            >
                   Retry
-                </button>
-              </div>
-            ) : null}
+            </button>
+          </div>
+        ) : null}
 
             <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-7">
               {loading ? (
                 (['blue', 'yellow', 'purple', 'orange', 'green', 'gray', 'blue'] as SummaryCardColor[]).map((c, i) => (
                   <SummaryCardSkeleton key={i} color={c} />
                 ))
-              ) : (
-                <>
+          ) : (
+            <>
                   <SummaryCard
                     label="NEW LEADS"
                     count={metrics.NEW_LEADS || stats.newLeads}
@@ -939,9 +939,9 @@ export default function HqLeadsPage() {
                     active={statusFilter === 'Demos'}
                     onClick={() => handleStatusCardClick('Demos')}
                   />
-                </>
-              )}
-            </div>
+            </>
+          )}
+          </div>
 
             <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
               <div className="flex shrink-0 items-center gap-2 overflow-x-auto ph2-invisible-scrollbar border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
@@ -951,10 +951,10 @@ export default function HqLeadsPage() {
                     size={16}
                     strokeWidth={2.25}
                   />
-                  <input
+              <input
                     type="text"
-                    placeholder={
-                      isDemosTab
+                placeholder={
+                  isDemosTab
                         ? 'Search signups by name, email, or company...'
                         : 'Search company, email, or contact...'
                     }
@@ -964,8 +964,8 @@ export default function HqLeadsPage() {
                       setCurrentPage(1);
                       setSearch(e.target.value);
                     }}
-                  />
-                </div>
+              />
+            </div>
                 <select
                   className="h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40"
                   value={statusFilter}
@@ -1000,10 +1000,10 @@ export default function HqLeadsPage() {
                     <option value="Campaign">Campaign</option>
                   </select>
                 ) : null}
-              </div>
+          </div>
 
               <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
-                {isDemosTab ? (
+            {isDemosTab ? (
                   <>
                   {filteredDemos.length > 0 && (
                     <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 bg-slate-50/50">
@@ -1036,28 +1036,28 @@ export default function HqLeadsPage() {
                         <th>Try-free</th>
                         <th>Submitted</th>
                         <th className="text-right">Actions</th>
-                      </tr>
-                    </thead>
+                  </tr>
+                </thead>
                     <tbody className="divide-y divide-slate-100/80">
-                      {demosLoading ? (
-                        <tr>
+                  {demosLoading ? (
+                    <tr>
                           <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
                             Loading landing signups…
-                          </td>
-                        </tr>
-                      ) : filteredDemos.length === 0 ? (
-                        <tr>
+                      </td>
+                    </tr>
+                  ) : filteredDemos.length === 0 ? (
+                    <tr>
                           <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
                             No landing signups found.
-                          </td>
-                        </tr>
-                      ) : (
+                      </td>
+                    </tr>
+                  ) : (
                         filteredDemos.map((demo) => {
                           const accessStatus = getDemoTryFreeAccessStatus(demo);
                           const canGrant = demo.status === 'VERIFIED';
                           return (
-                          <tr
-                            key={demo.id}
+                      <tr
+                        key={demo.id}
                             className="even:bg-slate-50/35 hover:bg-indigo-50/45 transition-colors"
                           >
                             <td className="px-3 sm:px-4 py-2">
@@ -1073,13 +1073,13 @@ export default function HqLeadsPage() {
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 {demo.requestKind === 'demo' ? <BookADemoTag /> : null}
-                                <span
+                          <span
                                   className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black tracking-wide ring-1 ${HQ_DEMO_STATUS_STYLES[demo.status]}`}
-                                >
+                          >
                                   {HQ_DEMO_STATUS_LABELS[demo.status]}
-                                </span>
+                          </span>
                               </div>
-                            </td>
+                        </td>
                             <td className="px-3 sm:px-4 py-2">
                               <span
                                 className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide ring-1 ${
@@ -1094,23 +1094,23 @@ export default function HqLeadsPage() {
                               </span>
                               {demo.trialLoginId ? (
                                 <div className="mt-1 text-[10px] text-slate-400">{demo.trialLoginId}</div>
-                              ) : null}
-                            </td>
+                          ) : null}
+                        </td>
                             <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
                               {demo.submittedAt}
-                            </td>
+                        </td>
                             <td className="px-3 sm:px-4 py-2 text-right">
                               <div className="inline-flex items-center gap-1">
                                 {canGrant ? (
-                                  <button
-                                    type="button"
+                          <button
+                            type="button"
                                     onClick={() => openGrantTrialModal(demo)}
                                     className="rounded-lg p-1.5 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-700"
                                     aria-label={`Grant try-free access to ${demo.fullName}`}
                                     title="Grant try-free access"
                                   >
                                     <KeyRound className="h-4 w-4" />
-                                  </button>
+                          </button>
                                 ) : null}
                                 <button
                                   type="button"
@@ -1121,13 +1121,13 @@ export default function HqLeadsPage() {
                                   <Trash2 className="h-4 w-4" />
                                 </button>
                               </div>
-                            </td>
-                          </tr>
+                        </td>
+                      </tr>
                           );
                         })
-                      )}
-                    </tbody>
-                  </table>
+                  )}
+                </tbody>
+              </table>
                   </>
                 ) : (
                   <table className="w-full min-w-[1080px] text-left" aria-label="Leads">
@@ -1141,35 +1141,35 @@ export default function HqLeadsPage() {
                         <th>Assigned To</th>
                         <th>Follow-up</th>
                         <th className="text-right">Actions</th>
-                      </tr>
-                    </thead>
+                </tr>
+              </thead>
                     <tbody className="divide-y divide-slate-100/80">
-                      {loading ? (
-                        <tr>
+                {loading ? (
+                  <tr>
                           <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
                             Loading HQ leads…
-                          </td>
-                        </tr>
-                      ) : filteredLeads.length === 0 ? (
-                        <tr>
+                    </td>
+                  </tr>
+                ) : filteredLeads.length === 0 ? (
+                  <tr>
                           <td colSpan={8} className="px-4 py-12 text-center">
                             <p className="text-xs font-medium text-slate-500">
-                              {leads.length === 0
+                      {leads.length === 0
                                 ? 'No leads yet. Use Create with AI or Create Manually.'
                                 : 'No leads match your filters'}
                             </p>
                             <p className="mt-1 text-[11px] text-slate-400">
                               Try adjusting search or clear filters
                             </p>
-                          </td>
-                        </tr>
-                      ) : (
+                    </td>
+                  </tr>
+                ) : (
                         pagedLeads.map((lead) => {
                           const mapped = mapHqLeadToFrontend(lead);
                           const productLines = resolveHqLeadProductLines(lead);
                           return (
-                          <tr
-                            key={lead.id}
+                    <tr
+                      key={lead.id}
                             onClick={() => {
                               setAddLeadDrawerOpen(false);
                               setAddLeadWithAi(false);
@@ -1199,10 +1199,10 @@ export default function HqLeadsPage() {
                                   </span>
                                 </div>
                               </div>
-                            </td>
+                      </td>
                             <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
                               <SourceCell lead={mapped} />
-                            </td>
+                      </td>
                             <td className="px-3 sm:px-4 py-2">
                               <HqLeadProductLineBadges lines={productLines} />
                             </td>
@@ -1248,11 +1248,11 @@ export default function HqLeadsPage() {
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex items-center justify-end gap-1">
                                 {lead.employerDemoRequestId ? (
-                                  <button
-                                    type="button"
+                          <button
+                            type="button"
                                     title="Grant try-free access"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
+                            onClick={(e) => {
+                              e.stopPropagation();
                                       openGrantTrialModal({
                                         id: lead.employerDemoRequestId as string,
                                         fullName: lead.contactPerson || lead.name || 'Lead',
@@ -1279,42 +1279,42 @@ export default function HqLeadsPage() {
                                     className="rounded-lg p-1.5 text-emerald-600 transition hover:bg-emerald-50"
                                   >
                                     <KeyRound className="h-4 w-4" />
-                                  </button>
+                          </button>
                                 ) : null}
                                 {lead.stage !== 'converted' && lead.stage !== 'lost' ? (
-                                  <button
-                                    type="button"
+                          <button
+                            type="button"
                                     title="Convert to Client"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
+                            onClick={(e) => {
+                              e.stopPropagation();
                                       void handleConvert(lead.id);
-                                    }}
+                            }}
                                     className="rounded-lg p-1.5 text-emerald-600 transition hover:bg-emerald-50"
-                                  >
+                          >
                                     <UserPlus className="h-4 w-4" />
-                                  </button>
+                          </button>
                                 ) : null}
-                                <button
-                                  type="button"
+                        <button
+                          type="button"
                                   title="Delete"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
+                          onClick={(e) => {
+                            e.stopPropagation();
                                     void handleDeleteLead(lead.id);
-                                  }}
+                          }}
                                   className="rounded-lg p-1.5 text-rose-500 transition hover:bg-rose-50"
-                                >
+                        >
                                   <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
+                        </button>
+                        </div>
+                      </td>
+                    </tr>
                           );
                         })
-                      )}
-                    </tbody>
-                  </table>
                 )}
-              </div>
+              </tbody>
+            </table>
+            )}
+          </div>
               {!isDemosTab && !loading && !loadError ? (
                 <div className="mt-0 w-full shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
                   <PaginationAll

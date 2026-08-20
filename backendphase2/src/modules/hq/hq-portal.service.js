@@ -27,6 +27,7 @@ const CANDIDATE_SELECT = {
   recruiterStatus: true,
   source: true,
   stage: true,
+  avatar: true,
   createdAt: true,
   updatedAt: true,
 };
@@ -73,6 +74,19 @@ function jobKey(id, tenantDbName = '') {
   return `${tenantDbName || 'phase1'}:${id}`;
 }
 
+function evaluatePortalKyc(candidate, profile) {
+  const missing = [];
+  const fullName =
+    profile?.fullName || [candidate?.firstName, candidate?.lastName].filter(Boolean).join(' ');
+  if (!String(fullName || '').trim()) missing.push('Full name');
+  if (!profile?.dateOfBirth) missing.push('Date of birth');
+  const phone = profile?.phoneNumber || candidate?.phone;
+  if (!String(phone || '').trim()) missing.push('Phone number');
+  if (!String(profile?.passportNumber || '').trim()) missing.push('Passport / ID number');
+  if (!String(profile?.profilePhotoUrl || candidate?.avatar || '').trim()) missing.push('Profile photo');
+  return { kycVerified: missing.length === 0, missing };
+}
+
 function toPortalCandidateRow(doc, origin, extra = {}) {
   const tenantDbName = extra.tenantDbName || '';
   return {
@@ -89,6 +103,8 @@ function toPortalCandidateRow(doc, origin, extra = {}) {
     updatedAt: doc.updatedAt instanceof Date ? doc.updatedAt.toISOString() : null,
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : null,
     origin,
+    kycVerified: Boolean(extra.kycVerified),
+    isInterviewer: Boolean(extra.isInterviewer),
   };
 }
 
@@ -312,14 +328,49 @@ export const hqPortalService = {
         : Promise.resolve([]),
     ]);
 
-    const portalIds = new Set(portalCandidateDocs.map((row) => String(row.id)));
+    const portalIds = portalCandidateDocs.map((row) => String(row.id));
+    let profileDocs = [];
+    let interviewerDocs = [];
+    try {
+      [profileDocs, interviewerDocs] = await Promise.all([
+        portalIds.length
+          ? portal.candidateProfile.findMany({
+              where: { candidateId: { in: portalIds } },
+              select: {
+                candidateId: true,
+                fullName: true,
+                dateOfBirth: true,
+                phoneNumber: true,
+                passportNumber: true,
+                profilePhotoUrl: true,
+              },
+            })
+          : Promise.resolve([]),
+        portalIds.length
+          ? portal.interviewerProfile.findMany({
+              where: { candidateId: { in: portalIds } },
+              select: { candidateId: true },
+            })
+          : Promise.resolve([]),
+      ]);
+    } catch (error) {
+      console.warn('[hq-portal] KYC / interviewer enrich skipped:', error?.message || error);
+    }
 
-    const portalCandidates = portalCandidateDocs.map((row) =>
-      toPortalCandidateRow(row, 'phase1_portal'),
-    );
+    const profileById = new Map(profileDocs.map((row) => [String(row.candidateId), row]));
+    const interviewerIds = new Set(interviewerDocs.map((row) => String(row.candidateId)));
+    const portalIdSet = new Set(portalIds);
+
+    const portalCandidates = portalCandidateDocs.map((row) => {
+      const kyc = evaluatePortalKyc(row, profileById.get(String(row.id)));
+      return toPortalCandidateRow(row, 'phase1_portal', {
+        kycVerified: kyc.kycVerified,
+        isInterviewer: interviewerIds.has(String(row.id)),
+      });
+    });
 
     const commonOnlyCandidates = (commonCandidateDocs || [])
-      .filter((row) => row?.candidateId && !portalIds.has(String(row.candidateId)))
+      .filter((row) => row?.candidateId && !portalIdSet.has(String(row.candidateId)))
       .map((row) =>
         toPortalCandidateRow(
           {
@@ -339,6 +390,7 @@ export const hqPortalService = {
             updatedAt: row.updatedAt,
           },
           'phase1_common',
+          { kycVerified: Boolean(row.isVerified) },
         ),
       );
 

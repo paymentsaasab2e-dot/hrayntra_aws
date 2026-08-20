@@ -275,7 +275,7 @@ After login, **left HQ sidebar groups:**
 | Field | Value |
 | --- | --- |
 | Category | Phase 1 |
-| Tracker status | **In progress** |
+| Tracker status | **Deployed** |
 | Who | Candidate |
 
 **Click path**

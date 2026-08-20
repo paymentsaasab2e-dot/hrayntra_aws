@@ -482,6 +482,22 @@ export function HqCandidateBehaviorPanel({ candidate, onClose }: HqCandidateBeha
                 Behaviour analysis · Phase 1 user-stats view
               </p>
               <h2 className="mt-1 truncate text-xl font-semibold text-slate-900">{candidate.name}</h2>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {candidate.kycVerified ? (
+                  <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
+                    KYC verified
+                  </span>
+                ) : (
+                  <span className="inline-flex rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200">
+                    Unverified
+                  </span>
+                )}
+                {candidate.isInterviewer ? (
+                  <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 ring-1 ring-sky-200">
+                    Interviewer
+                  </span>
+                ) : null}
+              </div>
               <p className="mt-1 text-sm text-slate-600">
                 {candidate.email || '—'} · <span className="font-mono text-slate-800">{candidate.id}</span>
               </p>

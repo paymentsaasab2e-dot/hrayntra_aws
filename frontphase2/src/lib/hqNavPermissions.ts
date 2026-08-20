@@ -7,6 +7,7 @@ export const HQ_PERMISSIONS_STORAGE_KEY = 'hrayntra:hq-permission-ids';
 export const HQ_NAV_PERMISSION_MAP: Record<string, string[]> = {
   dashboard: ['hq_dashboard_read', 'hq_analytics_read'],
   candidates: ['hq_candidates_read'],
+  kycVerified: ['hq_candidates_read'],
   courses: ['hq_courses_read'],
   portal: ['hq_portal_read'],
   events: ['hq_events_read'],

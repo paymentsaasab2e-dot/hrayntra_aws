@@ -1395,7 +1395,7 @@ export function HqPhase1CommandDashboard({
                         />
                         <span className="truncate capitalize" title={s.name}>
                           {String(s.name || '').replace(/_/g, ' ').toLowerCase()}
-                        </span>
+                      </span>
                       </span>
                       <span className="shrink-0 tabular-nums font-semibold text-slate-800">
                         {s.pct}% · {fmt(s.value)}
@@ -1728,9 +1728,9 @@ export function HqPhase1CommandDashboard({
               <SectionTitle title="Session Overview" info="Login sessions, duration, and device mix." />
               <div className="grid gap-4 sm:grid-cols-12 sm:items-center">
                 <div className="grid grid-cols-2 gap-2.5 sm:col-span-5">
-                  {[
-                    { label: 'Logins today', value: fmt(loginsToday), icon: LogIn, color: INDIGO },
-                    { label: 'Logins 7d', value: fmt(logins7d), icon: Calendar, color: PURPLE },
+              {[
+                { label: 'Logins today', value: fmt(loginsToday), icon: LogIn, color: INDIGO },
+                { label: 'Logins 7d', value: fmt(logins7d), icon: Calendar, color: PURPLE },
                     {
                       label: 'Online now',
                       value: fmt(activeSessions),
@@ -1743,32 +1743,32 @@ export function HqPhase1CommandDashboard({
                       icon: Clock3,
                       color: ORANGE,
                     },
-                  ].map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <div
-                        key={item.label}
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    key={item.label}
                         className="rounded-xl border border-slate-100 bg-slate-50/80 p-3"
-                      >
-                        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  >
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                           <Icon className="h-3 w-3 shrink-0" style={{ color: item.color }} />
                           <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                        </div>
-                        <p className="mt-1.5 text-xl font-bold tabular-nums text-slate-900">{item.value}</p>
-                      </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                    <p className="mt-1.5 text-xl font-bold tabular-nums text-slate-900">{item.value}</p>
+                  </div>
+                );
+              })}
+            </div>
                 <div className="h-[180px] sm:col-span-7">
                   {loginsDaily.length ? (
                     <ResponsiveContainer width="100%" height={180}>
                       <AreaChart data={loginsDaily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="loginFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor={TEAL} stopOpacity={0.28} />
-                            <stop offset="100%" stopColor={TEAL} stopOpacity={0.02} />
-                          </linearGradient>
-                        </defs>
+                    <defs>
+                      <linearGradient id="loginFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={TEAL} stopOpacity={0.28} />
+                        <stop offset="100%" stopColor={TEAL} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
                         <CartesianGrid strokeDasharray="4 8" stroke={gridStroke} vertical={false} />
                         <XAxis
                           dataKey="name"
@@ -1777,67 +1777,67 @@ export function HqPhase1CommandDashboard({
                           tickLine={false}
                         />
                         <YAxis tick={axisTick} axisLine={false} tickLine={false} width={28} />
-                        <Tooltip contentStyle={tip} cursor={{ stroke: '#99F6E4', strokeWidth: 1 }} />
-                        <Area
-                          type="monotone"
-                          dataKey="value"
-                          stroke={TEAL}
-                          fill="url(#loginFill)"
-                          strokeWidth={2.4}
-                          strokeLinecap="round"
-                          activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <EmptyChart label="No login timeline yet" />
-                  )}
+                    <Tooltip contentStyle={tip} cursor={{ stroke: '#99F6E4', strokeWidth: 1 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke={TEAL}
+                      fill="url(#loginFill)"
+                      strokeWidth={2.4}
+                      strokeLinecap="round"
+                      activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyChart label="No login timeline yet" />
+              )}
                 </div>
-              </div>
-            </Card>
+            </div>
+          </Card>
 
             <Card className="col-span-12 !p-4 lg:col-span-5">
               <SectionTitle title="Logins by Country" info="Portal logins grouped by country." />
-              {loginsByCountry.length ? (
+            {loginsByCountry.length ? (
                 <div className="flex items-center gap-4">
                   <div className="h-[180px] w-[180px] shrink-0">
                     <ResponsiveContainer width="100%" height={180}>
-                      <PieChart>
-                        <Pie
-                          data={loginsByCountry}
-                          dataKey="value"
-                          nameKey="name"
+                    <PieChart>
+                      <Pie
+                        data={loginsByCountry}
+                        dataKey="value"
+                        nameKey="name"
                           cx="50%"
                           cy="50%"
                           innerRadius={48}
                           outerRadius={72}
-                          paddingAngle={3}
-                          stroke="#fff"
-                          strokeWidth={2}
-                        >
-                          {loginsByCountry.map((_, i) => (
-                            <Cell key={i} fill={SOURCE_COLORS[i % SOURCE_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={tip} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
+                        paddingAngle={3}
+                        stroke="#fff"
+                        strokeWidth={2}
+                      >
+                        {loginsByCountry.map((_, i) => (
+                          <Cell key={i} fill={SOURCE_COLORS[i % SOURCE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={tip} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
                   <div className="min-w-0 flex-1 space-y-2">
-                    {loginsByCountry.map((s, i) => (
+                  {loginsByCountry.map((s, i) => (
                       <div key={s.name} className="flex items-center justify-between gap-2 text-[12px]">
-                        <span className="flex min-w-0 items-center gap-1.5 truncate text-slate-600">
+                      <span className="flex min-w-0 items-center gap-1.5 truncate text-slate-600">
                           <Globe2 className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
                           <span
                             className="h-2 w-2 shrink-0 rounded-full"
                             style={{ background: SOURCE_COLORS[i % SOURCE_COLORS.length] }}
                           />
-                          {s.name}
-                        </span>
+                        {s.name}
+                      </span>
                         <span className="shrink-0 font-semibold text-slate-800">
                           {s.pct}% · {fmt(s.value)}
                         </span>
-                      </div>
+                    </div>
                     ))}
                     {loginsByDevice.length ? (
                       <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
@@ -1856,12 +1856,12 @@ export function HqPhase1CommandDashboard({
                         ))}
                       </div>
                     ) : null}
-                  </div>
                 </div>
-              ) : (
-                <EmptyChart label="No country login data yet" />
-              )}
-            </Card>
+              </div>
+            ) : (
+              <EmptyChart label="No country login data yet" />
+            )}
+          </Card>
 
             {/* Row 2 — Recent Sessions (wide) + State/Region */}
             <Card className="col-span-12 flex min-h-[260px] flex-col overflow-hidden !p-0 lg:col-span-9">
@@ -1936,37 +1936,37 @@ export function HqPhase1CommandDashboard({
 
             <Card className="col-span-12 !p-4 lg:col-span-3">
               <SectionTitle title="By State / Region" info="Portal logins grouped by state or region." />
-              <div className="space-y-2">
-                {loginsByState.length ? (
-                  loginsByState.map((row) => (
+            <div className="space-y-2">
+              {loginsByState.length ? (
+                loginsByState.map((row) => (
                     <div key={row.name} className="flex items-center justify-between text-[12px]">
-                      <span className="truncate text-slate-600">{row.name}</span>
+                    <span className="truncate text-slate-600">{row.name}</span>
+                    <span className="font-semibold text-slate-800">{fmt(row.value)}</span>
+                  </div>
+                ))
+              ) : (
+                <EmptyChart label="No state data" />
+              )}
+            </div>
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">By city</p>
+              <div className="space-y-1.5">
+                {loginsByCity.length ? (
+                  loginsByCity.map((row) => (
+                      <div key={row.name} className="flex items-center justify-between text-[12px]">
+                      <span className="flex items-center gap-1 truncate text-slate-600">
+                        <MapPin className="h-3 w-3 text-violet-500" />
+                        {row.name}
+                      </span>
                       <span className="font-semibold text-slate-800">{fmt(row.value)}</span>
                     </div>
                   ))
                 ) : (
-                  <EmptyChart label="No state data" />
+                  <p className="text-[11px] text-slate-400">No city data yet</p>
                 )}
               </div>
-              <div className="mt-4 border-t border-slate-100 pt-3">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">By city</p>
-                <div className="space-y-1.5">
-                  {loginsByCity.length ? (
-                    loginsByCity.map((row) => (
-                      <div key={row.name} className="flex items-center justify-between text-[12px]">
-                        <span className="flex items-center gap-1 truncate text-slate-600">
-                          <MapPin className="h-3 w-3 text-violet-500" />
-                          {row.name}
-                        </span>
-                        <span className="font-semibold text-slate-800">{fmt(row.value)}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-[11px] text-slate-400">No city data yet</p>
-                  )}
-                </div>
-              </div>
-            </Card>
+            </div>
+          </Card>
           </div>
         </section>
         ) : null}
@@ -2082,7 +2082,7 @@ export function HqPhase1CommandDashboard({
                 </>
               )}
             </p>
-          </div>
+                          </div>
 
           <div className="mb-4 grid grid-cols-12 gap-4">
             <Card className="col-span-12 xl:col-span-9">
@@ -2199,7 +2199,7 @@ export function HqPhase1CommandDashboard({
                 <EmptyChart label="No signals yet" />
               )}
             </Card>
-          </div>
+                </div>
 
           <div className="mb-4 grid grid-cols-12 gap-4">
             <Card className="col-span-12 !p-4 lg:col-span-5">
@@ -2263,8 +2263,8 @@ export function HqPhase1CommandDashboard({
                     </>
                   ) : (
                     <p className="mt-2 text-xs text-slate-400">No premium data yet</p>
-                  )}
-                </div>
+              )}
+            </div>
                 <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700/80">
                     Most used feature
@@ -2366,9 +2366,9 @@ export function HqPhase1CommandDashboard({
                         {fmt(Number(m.value) || 0)}
                       </p>
                     </div>
-                  ))}
-                </div>
-              ) : null}
+                ))}
+              </div>
+            ) : null}
               <RankedUsageList
                 rows={communityRanked}
                 emptyLabel="No Office Gossip / reference-check data yet"
@@ -2405,8 +2405,8 @@ export function HqPhase1CommandDashboard({
               ) : (
                 <EmptyChart label="No page visits yet" />
               )}
-            </Card>
-                </div>
+          </Card>
+        </div>
 
           <div className="mb-4 grid grid-cols-12 gap-4">
             <Card className="col-span-12 lg:col-span-4">
@@ -2544,22 +2544,22 @@ export function HqPhase1CommandDashboard({
                     {fmt(skills.length)} skills from candidate profiles · scroll to see the rest
                   </p>
                 </div>
-                <button
-                  type="button"
+            <button
+              type="button"
                   onClick={() => setSkillsOpen(false)}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                   aria-label="Close skills list"
                 >
                   <X className="h-4 w-4" />
-                </button>
-              </div>
+            </button>
+          </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                 <SkillUsageRows rows={skills} />
-              </div>
-            </div>
           </div>
-        ) : null}
+        </div>
       </div>
+        ) : null}
+    </div>
     </HqModulePageLayout>
   );
 }

@@ -134,6 +134,9 @@ router.delete('/roles/:id', authMiddleware, hqController.deleteHqRole);
 
 router.get('/portal', authMiddleware, hqController.getPortalOverview);
 router.get('/candidates', authMiddleware, hqController.listAllCandidates);
+router.get('/kyc-interviewers', authMiddleware, hqController.listKycInterviewers);
+router.post('/kyc-interviewers/:id/verify', authMiddleware, hqController.verifyKycInterviewer);
+router.post('/kyc-interviewers/:id/reject', authMiddleware, hqController.rejectKycInterviewer);
 router.get('/tenants/:tenantDbName/behavior', authMiddleware, hqController.getTenantBehavior);
 router.get('/tenants/:tenantDbName/behavior-engine', authMiddleware, hqController.getTenantBehaviorEngine);
 router.get('/candidates/:id/behavior', authMiddleware, hqController.getCandidateBehavior);

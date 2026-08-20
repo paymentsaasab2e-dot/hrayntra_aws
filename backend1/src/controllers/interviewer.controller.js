@@ -1,5 +1,6 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { clampInterviewPrice, releaseInterviewerEarnings } = require('../services/interviewTokenBooking.service');
+const { evaluateCandidateKyc } = require('../utils/candidateKyc.util');
 
 const INTERNAL_ADMIN_KEY = process.env.INTERVIEW_ADMIN_KEY || process.env.INTERNAL_API_KEY || '';
 const {
@@ -37,6 +38,49 @@ function toDateOrNull(value) {
   }
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+async function loadCandidateKyc(candidateId) {
+  if (!candidateId) return evaluateCandidateKyc();
+  const [candidate, profile] = await Promise.all([
+    retryQuery(async () =>
+      prisma.candidate.findUnique({
+        where: { id: candidateId },
+        select: {
+          firstName: true,
+          lastName: true,
+          phone: true,
+          whatsappNumber: true,
+          avatar: true,
+        },
+      })
+    ),
+    retryQuery(async () =>
+      prisma.candidateProfile.findUnique({
+        where: { candidateId },
+        select: {
+          fullName: true,
+          dateOfBirth: true,
+          phoneNumber: true,
+          passportNumber: true,
+          profilePhotoUrl: true,
+        },
+      })
+    ),
+  ]);
+  return evaluateCandidateKyc({ candidate, profile });
+}
+
+async function assertInterviewerKyc(candidateId) {
+  const kyc = await loadCandidateKyc(candidateId);
+  if (kyc.kycVerified) return kyc;
+  const missing = kyc.missing.length ? ` Missing: ${kyc.missing.join(', ')}.` : '';
+  const error = new Error(
+    `Complete KYC / ID verification on your profile before applying as an interviewer.${missing}`,
+  );
+  error.status = 403;
+  error.kyc = kyc;
+  throw error;
 }
 
 async function getAccountProfilePhotoUrl(candidateId) {
@@ -117,6 +161,16 @@ async function submitInterviewerApplication(req, res) {
       return res.status(400).json({ success: false, message: parsed.error });
     }
 
+    try {
+      await assertInterviewerKyc(candidateId);
+    } catch (kycError) {
+      return res.status(kycError.status || 403).json({
+        success: false,
+        message: kycError.message,
+        data: { kyc: kycError.kyc || { kycVerified: false, missing: [] } },
+      });
+    }
+
     const accountPhotoUrl = await getAccountProfilePhotoUrl(candidateId);
 
     const existingProfile = await retryQuery(async () =>
@@ -170,6 +224,16 @@ async function updateMyInterviewerApplication(req, res) {
       return res.status(400).json({ success: false, message: parsed.error });
     }
 
+    try {
+      await assertInterviewerKyc(candidateId);
+    } catch (kycError) {
+      return res.status(kycError.status || 403).json({
+        success: false,
+        message: kycError.message,
+        data: { kyc: kycError.kyc || { kycVerified: false, missing: [] } },
+      });
+    }
+
     const accountPhotoUrl = await getAccountProfilePhotoUrl(candidateId);
 
     const [latestApplication, existingProfile] = await Promise.all([
@@ -217,7 +281,7 @@ async function updateMyInterviewerApplication(req, res) {
     }
 
     let updatedProfile = existingProfile;
-    if (existingProfile) {
+    if (existingProfile && !wasRejected) {
       updatedProfile = await retryQuery(async () =>
         prisma.interviewerProfile.update({
           where: { candidateId },
@@ -227,6 +291,8 @@ async function updateMyInterviewerApplication(req, res) {
           },
         })
       );
+    } else if (wasRejected) {
+      updatedProfile = null;
     }
 
     return res.json({
@@ -256,7 +322,7 @@ async function getMyInterviewerApplication(req, res) {
       return res.status(401).json({ success: false, message: 'Candidate authentication required' });
     }
 
-    const [latestApplication, profile] = await Promise.all([
+    const [latestApplication, profile, kyc] = await Promise.all([
       retryQuery(async () =>
         prisma.interviewerApplication.findFirst({
           where: { candidateId },
@@ -268,7 +334,15 @@ async function getMyInterviewerApplication(req, res) {
           where: { candidateId },
         })
       ),
+      loadCandidateKyc(candidateId),
     ]);
+
+    const liveProfile =
+      profile &&
+      String(profile.status || '').toUpperCase() !== 'INACTIVE' &&
+      String(latestApplication?.status || '').toUpperCase() !== 'REJECTED'
+        ? profile
+        : null;
 
     return res.json({
       success: true,
@@ -276,7 +350,8 @@ async function getMyInterviewerApplication(req, res) {
         application: latestApplication
           ? { ...latestApplication, statusLabel: normalizeStatusLabel(latestApplication.status) }
           : null,
-        profile,
+        profile: liveProfile,
+        kyc,
       },
     });
   } catch (error) {
@@ -844,7 +919,7 @@ function scoreMarketplaceInterviewer(filters, profile) {
   return score;
 }
 
-function toMarketplaceCard(row, photoByCandidateId) {
+function toMarketplaceCard(row, photoByCandidateId, kycByCandidateId) {
   const candidateId = String(row.candidateId);
   return {
     candidateId,
@@ -863,6 +938,7 @@ function toMarketplaceCard(row, photoByCandidateId) {
     totalInterviews: Number(row.totalInterviews || 0),
     interviewPrice: clampInterviewPrice(row.interviewPrice, 50),
     profilePhotoUrl: photoByCandidateId.get(candidateId) || row.profilePhotoUrl || null,
+    kycVerified: Boolean(kycByCandidateId?.get(candidateId)),
   };
 }
 
@@ -887,7 +963,7 @@ async function listMarketplaceInterviewers(req, res) {
       ),
       retryQuery(async () =>
         prisma.interviewerApplication.findMany({
-          where: { status: { in: ['SUBMITTED', 'APPROVED'] } },
+          where: { status: 'APPROVED' },
           orderBy: { createdAt: 'desc' },
           take: 400,
         })
@@ -905,7 +981,30 @@ async function listMarketplaceInterviewers(req, res) {
       ? await retryQuery(async () =>
           prisma.candidateProfile.findMany({
             where: { candidateId: { in: interviewerIds } },
-            select: { candidateId: true, profilePhotoUrl: true },
+            select: {
+              candidateId: true,
+              profilePhotoUrl: true,
+              fullName: true,
+              dateOfBirth: true,
+              phoneNumber: true,
+              passportNumber: true,
+            },
+          })
+        )
+      : [];
+
+    const candidates = interviewerIds.length
+      ? await retryQuery(async () =>
+          prisma.candidate.findMany({
+            where: { id: { in: interviewerIds } },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+              whatsappNumber: true,
+              avatar: true,
+            },
           })
         )
       : [];
@@ -915,19 +1014,30 @@ async function listMarketplaceInterviewers(req, res) {
         .filter((row) => row.profilePhotoUrl)
         .map((row) => [String(row.candidateId), row.profilePhotoUrl])
     );
+    const profileById = new Map(photos.map((row) => [String(row.candidateId), row]));
+    const candidateById = new Map(candidates.map((row) => [String(row.id), row]));
+    const kycByCandidateId = new Map(
+      interviewerIds.map((id) => {
+        const kyc = evaluateCandidateKyc({
+          candidate: candidateById.get(id),
+          profile: profileById.get(id),
+        });
+        return [id, kyc.kycVerified];
+      })
+    );
 
     const byId = new Map();
     for (const app of applications) {
       const id = String(app.candidateId);
       if (viewerId && id === viewerId) continue;
       if (!byId.has(id)) {
-        byId.set(id, toMarketplaceCard({ ...app, ratingAverage: 0, totalRatings: 0, totalInterviews: 0 }, photoByCandidateId));
+        byId.set(id, toMarketplaceCard({ ...app, ratingAverage: 0, totalRatings: 0, totalInterviews: 0 }, photoByCandidateId, kycByCandidateId));
       }
     }
     for (const profile of profiles) {
       const id = String(profile.candidateId);
       if (viewerId && id === viewerId) continue;
-      byId.set(id, toMarketplaceCard(profile, photoByCandidateId));
+      byId.set(id, toMarketplaceCard(profile, photoByCandidateId, kycByCandidateId));
     }
 
     const filters = { category, interviewType, language, techStack };
@@ -936,6 +1046,7 @@ async function listMarketplaceInterviewers(req, res) {
         ...card,
         matchingScore: scoreMarketplaceInterviewer(filters, card),
       }))
+      .filter((card) => card.kycVerified)
       .sort((a, b) => b.matchingScore - a.matchingScore || b.ratingAverage - a.ratingAverage)
       .slice(0, 40);
 
