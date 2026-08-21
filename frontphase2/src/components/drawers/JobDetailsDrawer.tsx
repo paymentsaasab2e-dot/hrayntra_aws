@@ -75,6 +75,8 @@ import {
   apiGetJobStatusCatalog,
   apiAppendJobStatus,
   apiRemoveJobStatus,
+  apiGetPipelineStages,
+  apiMoveCandidateStage,
   type BackendInterviewListItem,
 } from '../../lib/api';
 import {
@@ -896,6 +898,15 @@ export function JobDetailsDrawer({
 
   const [moveStageModalOpen, setMoveStageModalOpen] = useState(false);
   const [moveStageCandidate, setMoveStageCandidate] = useState<CandidateProfileDrawerData | null>(null);
+  const [inlineStageOptionsByJobId, setInlineStageOptionsByJobId] = useState<
+    Record<string, Array<{ id: string; name: string }>>
+  >({});
+  const [inlineStageOptionsLoadingJobId, setInlineStageOptionsLoadingJobId] = useState<string | null>(
+    null,
+  );
+  const [inlineStageUpdatingCandidateId, setInlineStageUpdatingCandidateId] = useState<string | null>(
+    null,
+  );
   const [aiMatchCandidates, setAiMatchCandidates] = useState<MatchCandidate[]>([]);
   const [aiMatchesLoading, setAiMatchesLoading] = useState(false);
   const [aiPipelineRunning, setAiPipelineRunning] = useState(false);
@@ -908,6 +919,12 @@ export function JobDetailsDrawer({
 
   useEffect(() => {
     setSubmitClientRowId(null);
+  }, [job?.id, isOpen]);
+
+  useEffect(() => {
+    setInlineStageOptionsByJobId({});
+    setInlineStageOptionsLoadingJobId(null);
+    setInlineStageUpdatingCandidateId(null);
   }, [job?.id, isOpen]);
 
   useEffect(() => {
@@ -951,6 +968,65 @@ export function JobDetailsDrawer({
       setMoveStageModalOpen(true);
     },
     [displayJobCandidates, job, onAddToPipeline],
+  );
+
+  const stageOptionsFromJobPipeline = useMemo(() => {
+    if (!job?.id) return {} as Record<string, Array<{ id: string; name: string }>>;
+    const mapped = (Array.isArray(pipelineStages) ? pipelineStages : [])
+      .map((stage) => ({
+        id: String(stage?.id || '').trim(),
+        name: String(stage?.name || '').trim(),
+      }))
+      .filter((stage) => stage.id && stage.name);
+    return mapped.length ? { [job.id]: mapped } : {};
+  }, [job?.id, pipelineStages]);
+
+  const inlineStageOptionsMerged = useMemo(
+    () => ({
+      ...stageOptionsFromJobPipeline,
+      ...inlineStageOptionsByJobId,
+    }),
+    [inlineStageOptionsByJobId, stageOptionsFromJobPipeline],
+  );
+
+  const loadInlineStageOptionsForCandidate = useCallback(
+    async (candidate: JobDrawerTableCandidate) => {
+      const jobId = candidate.pipelineJobId || job?.id;
+      if (!jobId) return;
+      // Prefer API stages (real DB ids). Refetch if we only have local defaults.
+      const existing = inlineStageOptionsByJobId[jobId];
+      if (existing?.length) return;
+
+      try {
+        setInlineStageOptionsLoadingJobId(jobId);
+        const response = await apiGetPipelineStages(jobId);
+        const payload = response.data;
+        const stages = Array.isArray(payload)
+          ? payload
+          : Array.isArray((payload as { data?: unknown })?.data)
+            ? (payload as { data: unknown[] }).data
+            : [];
+
+        const mappedStages = stages
+          .map((stage: { id?: string; name?: string }) => ({
+            id: String(stage.id || ''),
+            name: String(stage.name || '').trim(),
+          }))
+          .filter((stage) => stage.id && stage.name);
+
+        if (mappedStages.length) {
+          setInlineStageOptionsByJobId((prev) => ({ ...prev, [jobId]: mappedStages }));
+        }
+      } catch (stageError: unknown) {
+        const message =
+          stageError instanceof Error ? stageError.message : 'Failed to load stages';
+        console.error('Failed to load pipeline stages for job candidate row:', stageError);
+        toast.error(message);
+      } finally {
+        setInlineStageOptionsLoadingJobId((prev) => (prev === jobId ? null : prev));
+      }
+    },
+    [inlineStageOptionsByJobId, job?.id],
   );
 
   const recruiterFallbackForJob = useMemo(
@@ -997,6 +1073,51 @@ export function JobDetailsDrawer({
     [job?.id, job?.applications, jobCandidates, onJobCandidatesChange, recruiterFallbackForJob],
   );
 
+  const handleInlineCandidateStageChange = useCallback(
+    async (candidate: JobDrawerTableCandidate, stageId: string) => {
+      const jobId = candidate.pipelineJobId || job?.id;
+      if (!jobId) {
+        toast.error('No job found for this candidate');
+        return;
+      }
+
+      try {
+        setInlineStageUpdatingCandidateId(candidate.id);
+        await apiMoveCandidateStage(jobId, {
+          candidateId: candidate.id,
+          stageId,
+        });
+
+        const nextStageName =
+          inlineStageOptionsMerged[jobId]?.find((stage) => stage.id === stageId)?.name ||
+          candidate.stage;
+
+        setDisplayJobCandidates((prev) =>
+          prev.map((item) =>
+            item.id === candidate.id
+              ? {
+                  ...item,
+                  currentStage: nextStageName,
+                  isJobAppliedCandidate:
+                    resolveJobCandidateDisplayStage(nextStageName) === 'Applied',
+                }
+              : item,
+          ),
+        );
+
+        await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+        toast.success(`Stage updated to ${nextStageName}`);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to update candidate stage';
+        console.error('Failed to update candidate stage from job drawer:', error);
+        toast.error(message);
+      } finally {
+        setInlineStageUpdatingCandidateId((prev) => (prev === candidate.id ? null : prev));
+      }
+    },
+    [inlineStageOptionsMerged, job?.id, refreshAppliedJobCandidates],
+  );
+
   const handleRunAppliedMatches = useCallback(async () => {
     if (!job?.id) return;
     try {
@@ -1032,8 +1153,18 @@ export function JobDetailsDrawer({
     prevCandidatesTabJobIdRef.current = job.id;
     if (switchedToCandidatesTab || jobChanged) {
       void refreshAppliedJobCandidates();
+      void loadInlineStageOptionsForCandidate({
+        id: '__prefetch__',
+        pipelineJobId: job.id,
+      } as JobDrawerTableCandidate);
     }
-  }, [isOpen, activeTab, job?.id, refreshAppliedJobCandidates]);
+  }, [
+    isOpen,
+    activeTab,
+    job?.id,
+    refreshAppliedJobCandidates,
+    loadInlineStageOptionsForCandidate,
+  ]);
 
   const refreshAiMatches = useCallback(
     async (opts?: { runPipeline?: boolean; refresh?: boolean }) => {
@@ -2020,6 +2151,15 @@ export function JobDetailsDrawer({
                         }
                         onViewProfile={onViewCandidateProfile}
                         onEditCandidate={onEditCandidate}
+                        stageOptionsByJobId={inlineStageOptionsMerged}
+                        stageOptionsLoadingJobId={inlineStageOptionsLoadingJobId}
+                        movingCandidateId={inlineStageUpdatingCandidateId}
+                        onLoadStageOptions={
+                          job?.id ? loadInlineStageOptionsForCandidate : undefined
+                        }
+                        onChangeCandidateStage={
+                          job?.id ? handleInlineCandidateStageChange : undefined
+                        }
                         onMoveStage={
                           onAddToPipeline && job?.id ? openMoveStageFromTable : undefined
                         }

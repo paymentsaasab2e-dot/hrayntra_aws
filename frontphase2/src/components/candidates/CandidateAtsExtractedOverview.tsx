@@ -451,9 +451,10 @@ type Props = {
   candidate: CandidateProfileDrawerData;
   /** When set, sections marked false are omitted (client review preview). */
   sectionVisibility?: Partial<ClientSectionVisibility> | null;
+  onAssignJob?: () => void;
 };
 
-export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: Props) {
+export function CandidateAtsExtractedOverview({ candidate, sectionVisibility, onAssignJob }: Props) {
   const model = useMemo(() => buildOverviewModel(candidate), [candidate]);
   const [open, setOpen] = useState<Record<SectionKey, boolean>>(DEFAULT_CLOSED_SECTIONS);
 
@@ -542,7 +543,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
 
   return (
     <div className="space-y-5">
-      <CandidateHiringOverview candidate={candidate} />
+      <CandidateHiringOverview candidate={candidate} onAssignJob={onAssignJob} />
 
       {!hasAnyExtracted ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">

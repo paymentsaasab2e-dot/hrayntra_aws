@@ -1527,14 +1527,14 @@ export function ScheduleInterviewModal({
       {isOpen ? (
         <>
           <motion.div
-            className="fixed inset-0 z-[70] bg-slate-950/45"
+            className="fixed inset-0 z-[130] bg-slate-950/45"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
           <motion.div
-            className="fixed inset-x-0 bottom-0 top-14 z-[80] md:inset-0 md:flex md:items-center md:justify-center md:p-4"
+            className="fixed inset-x-0 bottom-0 top-14 z-[140] md:inset-0 md:flex md:items-center md:justify-center md:p-4"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
@@ -2744,14 +2744,14 @@ export function AddToPipelineModal({
       {isOpen ? (
         <>
           <motion.div
-            className="fixed inset-0 z-[70] bg-slate-950/45"
+            className="fixed inset-0 z-[130] bg-slate-950/45"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
           <motion.div
-            className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+            className="fixed inset-0 z-[140] flex items-center justify-center p-4"
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
@@ -3356,14 +3356,14 @@ function RejectCandidateModal({
       {isOpen ? (
         <>
           <motion.div
-            className="fixed inset-0 z-[70] bg-slate-950/45"
+            className="fixed inset-0 z-[130] bg-slate-950/45"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
           <motion.div
-            className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+            className="fixed inset-0 z-[140] flex items-center justify-center p-4"
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
@@ -4398,11 +4398,6 @@ export function CandidateProfileDrawer({
   const candidateEditFormSections =
     isPhase1PortalCandidate(candidate) && phase1EditSnapshot ? (
       <>
-        <CandidatePhase1SubmitEditSections
-          candidate={candidate}
-          snapshot={phase1EditSnapshot}
-          onChange={setPhase1EditSnapshot}
-        />
         {editForm ? (
           <CandidateHiringEditSection
             form={editForm}
@@ -4411,6 +4406,11 @@ export function CandidateProfileDrawer({
             jobs={jobs}
           />
         ) : null}
+        <CandidatePhase1SubmitEditSections
+          candidate={candidate}
+          snapshot={phase1EditSnapshot}
+          onChange={setPhase1EditSnapshot}
+        />
       </>
     ) : editForm ? (
       <CandidateEditAtsSections
@@ -4622,10 +4622,33 @@ export function CandidateProfileDrawer({
 
                       <div className="mt-4 space-y-2 text-sm">
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-700">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs">
-                            <span className="font-medium text-indigo-600">Assigned Job</span>
-                            <span className="font-semibold text-indigo-900">{linkedJobLabel || candidate.assignedJob || '—'}</span>
-                          </span>
+                          {onAddToPipeline ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowAddToPipelineModal(true)}
+                              title={
+                                linkedJobLabel || candidate.assignedJob
+                                  ? 'Change or assign job'
+                                  : 'Assign job'
+                              }
+                              className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs transition-colors hover:bg-indigo-100 hover:ring-2 hover:ring-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                            >
+                              <span className="font-medium text-indigo-600">Assigned Job</span>
+                              <span className="font-semibold text-indigo-900">
+                                {linkedJobLabel || candidate.assignedJob || '—'}
+                              </span>
+                              <span className="ml-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-500">
+                                {linkedJobLabel || candidate.assignedJob ? 'Edit' : 'Assign'}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs">
+                              <span className="font-medium text-indigo-600">Assigned Job</span>
+                              <span className="font-semibold text-indigo-900">
+                                {linkedJobLabel || candidate.assignedJob || '—'}
+                              </span>
+                            </span>
+                          )}
                           <span
                             className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${getStageClasses(
                               candidate.stage
@@ -4765,9 +4788,21 @@ export function CandidateProfileDrawer({
                           </>
                         ) : null}
                         {isPhase1PortalCandidate(candidate) ? (
-                          <CandidatePhase1DetailSections key={overviewContentKey} candidate={candidate} />
+                          <CandidatePhase1DetailSections
+                            key={overviewContentKey}
+                            candidate={candidate}
+                            onAssignJob={
+                              onAddToPipeline ? () => setShowAddToPipelineModal(true) : undefined
+                            }
+                          />
                         ) : (
-                          <CandidateAtsExtractedOverview key={overviewContentKey} candidate={candidate} />
+                          <CandidateAtsExtractedOverview
+                            key={overviewContentKey}
+                            candidate={candidate}
+                            onAssignJob={
+                              onAddToPipeline ? () => setShowAddToPipelineModal(true) : undefined
+                            }
+                          />
                         )}
                       </>
                     )}

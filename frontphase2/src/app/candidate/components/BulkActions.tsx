@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   BadgeCheck,
   ArrowRightLeft,
+  Briefcase,
   CalendarPlus,
   ChevronDown,
   Download,
@@ -19,6 +20,7 @@ import { motion, AnimatePresence } from 'motion/react';
 interface BulkActionsProps {
   selectedIds: string[];
   onMoveStage?: (ids: string[]) => void;
+  onAssignJob?: (ids: string[]) => void;
   onDelete?: (ids: string[]) => void;
   onAssignRecruiter?: (ids: string[]) => void;
   onSendEmail?: (ids: string[]) => void;
@@ -41,6 +43,7 @@ interface ActionConfig {
 export const BulkActions: React.FC<BulkActionsProps> = ({
   selectedIds,
   onMoveStage,
+  onAssignJob,
   onDelete,
   onAssignRecruiter,
   onSendEmail,
@@ -72,6 +75,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
 
   const actions: ActionConfig[] = [
     onMoveStage ? { key: 'move-stage', label: 'Move Stage', icon: ArrowRightLeft, onClick: onMoveStage } : null,
+    onAssignJob ? { key: 'assign-job', label: 'Assign the job', icon: Briefcase, onClick: onAssignJob } : null,
     onScheduleInterview
       ? { key: 'schedule-interview', label: 'Schedule Interview', icon: CalendarPlus, onClick: onScheduleInterview }
       : null,

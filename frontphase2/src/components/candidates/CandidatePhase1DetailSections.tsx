@@ -293,10 +293,11 @@ const DEFAULT_OPEN: Record<SectionId, boolean> = {
 type Props = {
   candidate: CandidateProfileDrawerData;
   sectionVisibility?: Partial<Phase1ClientSectionVisibility> | null;
+  onAssignJob?: () => void;
 };
 
 /** Phase 1 candidate profile sections for the profile drawer (no duplicate-policy banner). */
-export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: Props) {
+export function CandidatePhase1DetailSections({ candidate, sectionVisibility, onAssignJob }: Props) {
   const snap = useMemo(
     () => getPhase1ProfileSnapshot(candidate.extraData),
     [candidate.extraData],
@@ -417,7 +418,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
 
   return (
     <div className="space-y-5">
-      <CandidateHiringOverview candidate={candidate} />
+      <CandidateHiringOverview candidate={candidate} onAssignJob={onAssignJob} />
 
       {!hasAnyOverviewData ? (
         <div className="rounded-2xl border border-dashed border-violet-300 bg-violet-50/50 p-8 text-center">
