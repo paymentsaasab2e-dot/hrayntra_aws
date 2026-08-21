@@ -1,4 +1,7 @@
-import React from 'react';
+'use client';
+
+import React, { useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
   Phone,
@@ -25,9 +28,160 @@ import type { AuditMeta } from '../../../types/audit';
 import { TableAuditColumnHeader, TableAuditCell } from '../../../components/table/TableAuditCell';
 import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../../components/ai/WorkspaceAlertTableCell';
+import { useDrawerPortalDropdownPosition } from '../../../components/drawers/drawerFormUi';
+import {
+  SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
+  SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
+} from '../../../lib/candidateSubmitToClient';
 
 export type { CandidateTableColumnFilters } from './CandidateTableFilters';
 export { EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS } from './CandidateTableFilters';
+
+function normalizeStageKey(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function CandidateStageMoveDropdown({
+  candidate,
+  options,
+  loadingOptions,
+  moving,
+  showSubmitToClient,
+  onOpen,
+  onChangeStage,
+  onSubmitToClient,
+}: {
+  candidate: Candidate;
+  options: Array<{ id: string; name: string }>;
+  loadingOptions: boolean;
+  moving: boolean;
+  showSubmitToClient?: boolean;
+  onOpen?: () => void | Promise<void>;
+  onChangeStage: (stageId: string) => void | Promise<void>;
+  onSubmitToClient?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(open, false, closeMenu);
+
+  const selectedId =
+    options.find((option) => normalizeStageKey(option.name) === normalizeStageKey(candidate.stage))
+      ?.id || '';
+
+  const menu =
+    open && menuPosition && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[1200] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-2xl"
+            style={{
+              left: menuPosition.left,
+              width: Math.max(menuPosition.width, 200),
+              ...(menuPosition.placement === 'top'
+                ? { bottom: menuPosition.bottom }
+                : { top: menuPosition.top }),
+            }}
+            role="listbox"
+            aria-label="Move candidate stage"
+          >
+            <div className="border-b border-slate-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Move stage
+            </div>
+            {loadingOptions && options.length === 0 ? (
+              <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-slate-500">
+                <Loader2 size={14} className="animate-spin" />
+                Loading stages…
+              </div>
+            ) : options.length === 0 && !showSubmitToClient ? (
+              <div className="px-3 py-2.5 text-xs text-slate-500">No stages available</div>
+            ) : (
+              <>
+                {options.map((option) => {
+                  const isActive = option.id === selectedId;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      disabled={moving}
+                      onClick={() => {
+                        setOpen(false);
+                        if (option.id === selectedId) return;
+                        void onChangeStage(option.id);
+                      }}
+                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
+                        isActive
+                          ? 'bg-blue-50 font-semibold text-blue-700'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      } disabled:opacity-50`}
+                    >
+                      <span>{option.name}</span>
+                      {isActive ? (
+                        <span className="text-[10px] font-bold uppercase text-blue-500">Current</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+                {showSubmitToClient && onSubmitToClient ? (
+                  <>
+                    <div className="my-1 border-t border-slate-100" />
+                    <button
+                      key={SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE}
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      disabled={moving}
+                      onClick={() => {
+                        setOpen(false);
+                        onSubmitToClient();
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-50"
+                    >
+                      <Send size={14} className="shrink-0" strokeWidth={2.25} />
+                      {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
+                    </button>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={moving}
+        title="Move stage"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={(event) => {
+          event.stopPropagation();
+          const next = !open;
+          setOpen(next);
+          if (next) void onOpen?.();
+        }}
+        className={`inline-flex max-w-[12rem] items-center gap-1 rounded-full border py-1 pl-2.5 pr-1.5 text-xs font-semibold transition-shadow hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/25 disabled:cursor-wait disabled:opacity-60 ${getCandidateStageBadgeClasses(candidate.stage)}`}
+      >
+        <span className="truncate">{getCandidateStageLabel(candidate.stage)}</span>
+        {moving ? (
+          <Loader2 size={12} className="shrink-0 animate-spin opacity-80" />
+        ) : (
+          <ChevronDown size={12} className={`shrink-0 opacity-80 transition-transform ${open ? 'rotate-180' : ''}`} />
+        )}
+      </button>
+      {menu}
+    </>
+  );
+}
 
 export interface Candidate {
   id: string;
@@ -126,8 +280,11 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   onMoveStage,
   onDeleteCandidate,
   deletingCandidateId,
-  // Inline-stage props are still accepted (kept on the interface for parent compatibility)
-  // but no longer wired to the cell — the stage column is read-only from the table now.
+  stageOptionsByJobId = {},
+  stageOptionsLoadingJobId = null,
+  movingCandidateId = null,
+  onLoadStageOptions,
+  onChangeCandidateStage,
   showMatchScore = false,
   onSubmitToClient,
   canSubmitToClient,
@@ -275,15 +432,37 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     </p>
                   </div>
                 </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
-                  {/* Stage is read-only on the list — recruiters change it from the candidate
-                      edit drawer / profile drawer instead of inline. Keeping it as a chip avoids
-                      accidental moves and matches the rest of the row's look-and-feel. */}
-                  <span
-                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${getCandidateStageBadgeClasses(candidate.stage)}`}
-                  >
-                    {getCandidateStageLabel(candidate.stage)}
-                  </span>
+                <td
+                  className="px-3 py-2.5 sm:px-4 sm:py-3"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {onChangeCandidateStage && candidate.pipelineJobId ? (
+                    <CandidateStageMoveDropdown
+                      candidate={candidate}
+                      options={stageOptionsByJobId[candidate.pipelineJobId] || []}
+                      loadingOptions={stageOptionsLoadingJobId === candidate.pipelineJobId}
+                      moving={movingCandidateId === candidate.id}
+                      showSubmitToClient={Boolean(
+                        onSubmitToClient &&
+                          (!canSubmitToClient || canSubmitToClient(candidate)),
+                      )}
+                      onOpen={() => void onLoadStageOptions?.(candidate)}
+                      onChangeStage={(stageId) => onChangeCandidateStage(candidate, stageId)}
+                      onSubmitToClient={
+                        onSubmitToClient
+                          ? () => {
+                              onSubmitToClient(candidate);
+                            }
+                          : undefined
+                      }
+                    />
+                  ) : (
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(candidate.stage)}`}
+                    >
+                      {getCandidateStageLabel(candidate.stage)}
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex items-center gap-2">

@@ -791,6 +791,9 @@ export function CandidateEditAtsSections({
           onRemove={onAvatarRemove}
         />
       ) : null}
+      {!isClientSubmit ? (
+        <CandidateHiringEditSection form={form} onChange={onChange} recruiters={recruiters} jobs={jobs} />
+      ) : null}
       <EditSection
         sectionId="personal"
         title="Personal Information"
@@ -1065,10 +1068,6 @@ export function CandidateEditAtsSections({
           <EditTextarea label="Internal notes" value={form.notes} onChange={(v) => onChange('notes', v)} rows={4} />
         </div>
       </EditSection>
-
-      {!isClientSubmit ? (
-        <CandidateHiringEditSection form={form} onChange={onChange} recruiters={recruiters} jobs={jobs} />
-      ) : null}
     </div>
   );
 }

@@ -45,9 +45,11 @@ function resolveAssignedJobLabel(candidate: CandidateProfileDrawerData): string 
 
 type HiringOverviewProps = {
   candidate: CandidateProfileDrawerData;
+  /** Opens assign / pipeline job modal when Assigned job is clicked. */
+  onAssignJob?: () => void;
 };
 
-export function CandidateHiringOverview({ candidate }: HiringOverviewProps) {
+export function CandidateHiringOverview({ candidate, onAssignJob }: HiringOverviewProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -88,7 +90,26 @@ export function CandidateHiringOverview({ candidate }: HiringOverviewProps) {
       onOpenChange={() => setOpen((prev) => !prev)}
     >
       <div className="grid gap-2 sm:grid-cols-2">
-        <OverviewField label="Assigned job" value={assignedJob} />
+        {onAssignJob ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAssignJob();
+            }}
+            className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            title={assignedJob ? 'Change or assign job' : 'Assign job'}
+          >
+            <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-500">Assigned job</p>
+            {assignedJob ? (
+              <p className="mt-1 break-words text-sm font-medium text-indigo-950">{assignedJob}</p>
+            ) : (
+              <p className="mt-1 text-sm font-semibold text-indigo-700">Click to assign a job</p>
+            )}
+          </button>
+        ) : (
+          <OverviewField label="Assigned job" value={assignedJob} />
+        )}
         <OverviewField label="Pipeline stage" value={candidate.stage} />
         <OverviewField label="Status" value={candidate.status} />
         <OverviewField label="Assigned recruiter" value={candidate.recruiter} />

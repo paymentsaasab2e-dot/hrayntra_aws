@@ -458,6 +458,13 @@ function CandidatesPageContent() {
   const [bulkMoveStageOptions, setBulkMoveStageOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [bulkMoveStageLoading, setBulkMoveStageLoading] = useState(false);
   const [bulkMoveStageSaving, setBulkMoveStageSaving] = useState(false);
+  const [bulkAssignJobOpen, setBulkAssignJobOpen] = useState(false);
+  const [bulkAssignJobJobId, setBulkAssignJobJobId] = useState('');
+  const [bulkAssignJobStageId, setBulkAssignJobStageId] = useState('');
+  const [bulkAssignJobNote, setBulkAssignJobNote] = useState('');
+  const [bulkAssignJobOptions, setBulkAssignJobOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [bulkAssignJobLoading, setBulkAssignJobLoading] = useState(false);
+  const [bulkAssignJobSaving, setBulkAssignJobSaving] = useState(false);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
@@ -1270,6 +1277,125 @@ function CandidatesPageContent() {
     setBulkMoveStageOptions([]);
   }, [bulkMoveStageSaving]);
 
+  const loadBulkAssignJobOptions = useCallback(async (jobId: string) => {
+    if (!jobId) {
+      setBulkAssignJobOptions([]);
+      setBulkAssignJobStageId('');
+      return;
+    }
+
+    try {
+      setBulkAssignJobLoading(true);
+      const response = await apiGetPipelineStages(jobId);
+      const payload = response.data;
+      const stages = Array.isArray(payload)
+        ? payload
+        : Array.isArray((payload as any)?.data)
+          ? (payload as any).data
+          : [];
+
+      const mappedStages = stages
+        .map((stage: any) => ({
+          id: String(stage.id || ''),
+          name: String(stage.name || '').trim(),
+        }))
+        .filter((stage: { id: string; name: string }) => stage.id && stage.name);
+
+      setBulkAssignJobOptions(mappedStages);
+      setBulkAssignJobStageId(mappedStages[0]?.id || '');
+    } catch (stageError: any) {
+      console.error('Failed to load pipeline stages for bulk assign job:', stageError);
+      setBulkAssignJobOptions([]);
+      setBulkAssignJobStageId('');
+      toast.error(stageError?.message || 'Failed to load stages');
+    } finally {
+      setBulkAssignJobLoading(false);
+    }
+  }, []);
+
+  const openBulkAssignJobModal = useCallback(async () => {
+    const firstJobId = pipelineJobs[0]?.id || '';
+    setBulkAssignJobJobId(firstJobId);
+    setBulkAssignJobStageId('');
+    setBulkAssignJobNote('');
+    setBulkAssignJobOpen(true);
+
+    if (firstJobId) {
+      await loadBulkAssignJobOptions(firstJobId);
+    } else {
+      setBulkAssignJobOptions([]);
+    }
+  }, [loadBulkAssignJobOptions, pipelineJobs]);
+
+  const closeBulkAssignJobModal = useCallback(() => {
+    if (bulkAssignJobSaving) return;
+    setBulkAssignJobOpen(false);
+    setBulkAssignJobJobId('');
+    setBulkAssignJobStageId('');
+    setBulkAssignJobNote('');
+    setBulkAssignJobOptions([]);
+  }, [bulkAssignJobSaving]);
+
+  const submitBulkAssignJob = useCallback(async () => {
+    if (!bulkAssignJobJobId || !bulkAssignJobStageId || selectedIds.length === 0) return;
+
+    const stageName =
+      bulkAssignJobOptions.find((stage) => stage.id === bulkAssignJobStageId)?.name || '';
+    if (!stageName) {
+      toast.error('Select a pipeline stage for this job');
+      return;
+    }
+
+    try {
+      setBulkAssignJobSaving(true);
+      const results = await Promise.allSettled(
+        selectedIds.map((candidateId) =>
+          apiAddCandidateToPipeline(candidateId, {
+            jobId: bulkAssignJobJobId,
+            stage: stageName,
+            priority: 'Medium',
+            notes: bulkAssignJobNote.trim() || undefined,
+          }),
+        ),
+      );
+
+      const succeeded = results.filter((result) => result.status === 'fulfilled').length;
+      const failed = results.length - succeeded;
+      const jobTitle =
+        pipelineJobs.find((job) => job.id === bulkAssignJobJobId)?.title || 'selected job';
+
+      if (succeeded > 0) {
+        toast.success(
+          `Assigned ${succeeded} candidate${succeeded === 1 ? '' : 's'} to ${jobTitle} (${stageName})`,
+        );
+      }
+      if (failed > 0) {
+        toast.error(`Failed to assign ${failed} candidate${failed === 1 ? '' : 's'}`);
+      }
+
+      setBulkAssignJobOpen(false);
+      setBulkAssignJobJobId('');
+      setBulkAssignJobStageId('');
+      setBulkAssignJobNote('');
+      setBulkAssignJobOptions([]);
+      setSelectedIds([]);
+      await loadCandidates({ silent: true });
+    } catch (error: any) {
+      console.error('Failed to bulk assign job:', error);
+      toast.error(error?.message || 'Failed to assign job');
+    } finally {
+      setBulkAssignJobSaving(false);
+    }
+  }, [
+    bulkAssignJobJobId,
+    bulkAssignJobNote,
+    bulkAssignJobOptions,
+    bulkAssignJobStageId,
+    loadCandidates,
+    pipelineJobs,
+    selectedIds,
+  ]);
+
   const openBulkAssignModal = useCallback(() => {
     setBulkAssignRecruiterIds([]);
     setBulkAssignOpen(true);
@@ -1985,6 +2111,7 @@ function CandidatesPageContent() {
                 <BulkActions
                   selectedIds={selectedIds}
                   onMoveStage={canUpdateCandidate ? openBulkMoveStageModal : undefined}
+                  onAssignJob={canUpdateCandidate ? openBulkAssignJobModal : undefined}
                   onDelete={canDeleteCandidate ? async (ids) => {
                     if (
                       !(await requestConfirm(
@@ -2341,6 +2468,122 @@ function CandidatesPageContent() {
                   : isSubmitToClientStageOption(bulkMoveStageStageId)
                     ? SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL
                     : 'Move stage'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {canUpdateCandidate && bulkAssignJobOpen ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={closeBulkAssignJobModal} />
+          <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-100 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-lg font-bold text-slate-900">Assign the job</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Assign {selectedIds.length} selected candidate
+                    {selectedIds.length === 1 ? '' : 's'} to a job pipeline at once.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={closeBulkAssignJobModal}
+                  disabled={bulkAssignJobSaving}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-slate-500">Job</label>
+                <select
+                  value={bulkAssignJobJobId}
+                  onChange={async (e) => {
+                    const nextJobId = e.target.value;
+                    setBulkAssignJobJobId(nextJobId);
+                    await loadBulkAssignJobOptions(nextJobId);
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  disabled={bulkAssignJobSaving || pipelineJobs.length === 0}
+                >
+                  {pipelineJobs.length === 0 ? (
+                    <option value="">No jobs available</option>
+                  ) : (
+                    pipelineJobs.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.title}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-slate-500">Starting stage</label>
+                <select
+                  value={bulkAssignJobStageId}
+                  onChange={(e) => setBulkAssignJobStageId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  disabled={
+                    bulkAssignJobSaving ||
+                    bulkAssignJobLoading ||
+                    bulkAssignJobOptions.length === 0
+                  }
+                >
+                  {bulkAssignJobLoading ? (
+                    <option value="">Loading stages...</option>
+                  ) : bulkAssignJobOptions.length === 0 ? (
+                    <option value="">No pipeline configured for this job</option>
+                  ) : (
+                    bulkAssignJobOptions.map((stage) => (
+                      <option key={stage.id} value={stage.id}>
+                        {stage.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-slate-500">Note (optional)</label>
+                <textarea
+                  value={bulkAssignJobNote}
+                  onChange={(e) => setBulkAssignJobNote(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Add a short note for this assignment"
+                  disabled={bulkAssignJobSaving}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 p-5">
+              <button
+                type="button"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                onClick={closeBulkAssignJobModal}
+                disabled={bulkAssignJobSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                onClick={submitBulkAssignJob}
+                disabled={
+                  bulkAssignJobSaving ||
+                  bulkAssignJobLoading ||
+                  !bulkAssignJobJobId ||
+                  !bulkAssignJobStageId ||
+                  selectedIds.length === 0
+                }
+              >
+                {bulkAssignJobSaving ? 'Assigning...' : 'Assign the job'}
               </button>
             </div>
           </div>
