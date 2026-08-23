@@ -121,6 +121,7 @@ export function HqTenantDetailDrawer({
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [productLine, setProductLine] = useState<TenantProductLine>('crm');
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
+  const [phase1CommonPoolEnabled, setPhase1CommonPoolEnabled] = useState(true);
   const [savingTabs, setSavingTabs] = useState(false);
   const [tabsError, setTabsError] = useState('');
   const [coins, setCoins] = useState('');
@@ -148,6 +149,7 @@ export function HqTenantDetailDrawer({
         ? [...tenant.enabledModules]
         : defaultModulesForProductLine(line),
     );
+    setPhase1CommonPoolEnabled(tenant.phase1CommonPoolEnabled !== false);
     setCoins(String(tenant.subscriptionPlan?.coins ?? 0));
     setPricingBillingPreview(
       tenant.subscriptionPlan?.billingCycle === 'annual' ? 'annual' : 'monthly',
@@ -215,6 +217,7 @@ export function HqTenantDetailDrawer({
         email: tenant.email,
         productLine,
         enabledModules,
+        phase1CommonPoolEnabled,
       });
       void requestSuccess('Tabs updated and synced to Phase 2. Ask the user to refresh or re-open Phase 2.');
       onSaved();
@@ -628,6 +631,26 @@ export function HqTenantDetailDrawer({
                           Clear
                         </button>
                       </div>
+                    </section>
+
+                    <section className="rounded-xl border border-violet-100 bg-violet-50/40 p-3.5">
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={phase1CommonPoolEnabled}
+                          disabled={readOnly}
+                          onChange={(e) => setPhase1CommonPoolEnabled(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:opacity-50"
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold text-slate-900">
+                            Phase 1 candidate database access
+                          </span>
+                          <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">
+                            Show Hrayntra Phase 1 candidates on Phase 2 → Candidates → All candidates.
+                          </span>
+                        </span>
+                      </label>
                     </section>
 
                     <div className="mb-1 flex items-center justify-between">

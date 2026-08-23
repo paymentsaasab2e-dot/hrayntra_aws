@@ -33,6 +33,8 @@ export type ProvisionTenantFormData = {
   organizationType: 'agency' | 'standalone';
   productLine: TenantProductLine;
   enabledModules: string[];
+  /** When true, Phase 2 All candidates includes Hrayntra Phase 1 (candidatecommon) pool. */
+  phase1CommonPoolEnabled: boolean;
   source: TenantCreateSource;
   companyId: string;
   planName: TenantPlanName;
@@ -84,6 +86,7 @@ export function emptyProvisionTenantForm(
     organizationType: 'agency',
     productLine: 'crm',
     enabledModules: defaultModulesForProductLine('crm'),
+    phase1CommonPoolEnabled: true,
     source: 'manual',
     companyId: '',
     planName: 'Starter',
@@ -467,6 +470,32 @@ export function ProvisionTenantFormFields({
             for {data.productLine === 'recruitment' ? 'Recruitment' : 'CRM'}.
           </p>
         )}
+
+        <label
+          className={`mt-3 flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition ${
+            data.phase1CommonPoolEnabled
+              ? 'border-violet-300 bg-violet-50/70'
+              : 'border-slate-200 bg-white hover:border-violet-200'
+          }`}
+        >
+          <input
+            type="checkbox"
+            checked={data.phase1CommonPoolEnabled}
+            onChange={(e) =>
+              onChange({ ...data, phase1CommonPoolEnabled: e.target.checked })
+            }
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-slate-900">
+              Phase 1 candidate database access
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">
+              When selected, this tenant can see Hrayntra Phase 1 candidates in Phase 2 → Candidates
+              → All candidates. Selected by default.
+            </span>
+          </span>
+        </label>
       </div>
 
       {/* ── Pricing & Limits ── */}

@@ -405,6 +405,11 @@ function normalizeEnabledModules(value) {
   return [...new Set(value.map((m) => String(m || '').trim()).filter(Boolean))];
 }
 
+/** Missing/legacy → true (Phase 1 All-candidates pool stays available). */
+function normalizePhase1CommonPoolEnabled(value) {
+  return value !== false;
+}
+
 function normalizeHeadquartersUser(document) {
   if (!document) return null;
   return {
@@ -418,6 +423,7 @@ function normalizeHeadquartersUser(document) {
     modulesRestricted:
       document.modulesRestricted === true ||
       normalizeEnabledModules(document.enabledModules).length > 0,
+    phase1CommonPoolEnabled: normalizePhase1CommonPoolEnabled(document.phase1CommonPoolEnabled),
     subscriptionPlan: normalizeSubscriptionPlanForHq(document.subscriptionPlan),
     role: String(document.role || ''),
     status: String(document.status || 'ACTIVE'),
@@ -462,6 +468,9 @@ export const headquartersAuthService = {
     const subscriptionPlan = normalizeSubscriptionPlanForHq(data?.subscriptionPlan);
     const productLine = data?.productLine ? normalizeProductLine(data.productLine) : '';
     const enabledModules = normalizeEnabledModules(data?.enabledModules);
+    const phase1CommonPoolEnabled = normalizePhase1CommonPoolEnabled(
+      data?.phase1CommonPoolEnabled === undefined ? true : data.phase1CommonPoolEnabled,
+    );
 
     if (!normalizedEmail || !normalizedPassword) {
       throw new Error('Email and password are required');
@@ -515,6 +524,7 @@ export const headquartersAuthService = {
       ...(signupSource ? { signupSource } : {}),
       ...(productLine ? { productLine } : {}),
       ...(enabledModules.length ? { enabledModules } : {}),
+      phase1CommonPoolEnabled,
       createdAt: now,
       updatedAt: now,
     };
@@ -756,7 +766,10 @@ export const headquartersAuthService = {
   /**
    * Update CRM/Recruitment product line + enabled Phase 2 tabs for an existing tenant.
    */
-  async setEnabledModulesForEmail(email, { productLine, enabledModules } = {}) {
+  async setEnabledModulesForEmail(
+    email,
+    { productLine, enabledModules, phase1CommonPoolEnabled } = {},
+  ) {
     const collection = await getCollection();
     if (!collection) return null;
     const normalizedEmail = normalizeEmail(email);
@@ -769,6 +782,9 @@ export const headquartersAuthService = {
       updatedAt: new Date(),
     };
     if (line) $set.productLine = line;
+    if (phase1CommonPoolEnabled !== undefined) {
+      $set.phase1CommonPoolEnabled = phase1CommonPoolEnabled !== false;
+    }
     await collection.updateOne({ email: normalizedEmail }, { $set });
     const updated = await collection.findOne({ email: normalizedEmail });
     return normalizeHeadquartersUser(updated);

@@ -204,6 +204,7 @@ export default function HqCompanyPage() {
         organizationType: provisionData.organizationType,
         productLine: provisionData.productLine,
         enabledModules: provisionData.enabledModules,
+        phase1CommonPoolEnabled: provisionData.phase1CommonPoolEnabled !== false,
         billingCycle: provisionData.billingCycle,
         planStartDate: provisionData.planStartDate || undefined,
         planEndDate: provisionData.planEndDate || undefined,

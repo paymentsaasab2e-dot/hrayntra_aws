@@ -112,7 +112,10 @@ import {
   apiUpdateCandidateNote,
   type BackendCandidate,
   type BackendJob,
+  getCachedPhase1CommonPoolEnabled,
+  ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
+import { shouldIncludePhase1CommonPool } from '../../lib/phase1CommonPoolAccess';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -352,9 +355,16 @@ function CandidatesPageContent() {
   const [pendingBulkRetryFile, setPendingBulkRetryFile] = useState<File | null>(null);
   const [failedBulkResumeCount, setFailedBulkResumeCount] = useState(0);
   const [recycleBinModuleOpen, setRecycleBinModuleOpen] = useState(false);
-  const [listTab, setListTab] = useState<CandidateListTab>(() =>
-    searchParams.get('tab') === 'mine' ? 'mine' : 'all',
+  const [phase1CommonPoolEnabled, setPhase1CommonPoolEnabled] = useState(() =>
+    typeof window !== 'undefined' ? getCachedPhase1CommonPoolEnabled() : true,
   );
+  const [listTab, setListTab] = useState<CandidateListTab>(() => {
+    const wantsMine = searchParams.get('tab') === 'mine';
+    const phase1On =
+      typeof window !== 'undefined' ? getCachedPhase1CommonPoolEnabled() : true;
+    if (wantsMine || !phase1On) return 'mine';
+    return 'all';
+  });
   const [filters, setFilters] = useState({
     search: searchParams.get('search') || '',
     status: searchParams.get('status') || '',
@@ -392,6 +402,15 @@ function CandidatesPageContent() {
     const timer = window.setTimeout(() => setDebouncedColumnFilters(columnFilters), 400);
     return () => window.clearTimeout(timer);
   }, [columnFilters]);
+
+  useEffect(() => {
+    const syncPhase1Access = () => {
+      setPhase1CommonPoolEnabled(getCachedPhase1CommonPoolEnabled());
+    };
+    syncPhase1Access();
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, syncPhase1Access);
+    return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, syncPhase1Access);
+  }, []);
 
   const [selectedCandidateProfile, setSelectedCandidateProfile] = useState<CandidateProfileDrawerData | null>(null);
   const [candidateDrawerOpen, setCandidateDrawerOpen] = useState(false);
@@ -679,7 +698,7 @@ function CandidatesPageContent() {
           : undefined,
         status: !debouncedColumnFilters.stage && filters.status ? filters.status : undefined,
         mine: activeListTab === 'mine',
-        includeCommonPool: true,
+        ...(shouldIncludePhase1CommonPool() ? { includeCommonPool: true } : {}),
         matchingCandidateIds: smartSearchCandidateIds,
       });
 
@@ -756,12 +775,23 @@ function CandidatesPageContent() {
 
   const switchListTab = useCallback(
     (tab: CandidateListTab) => {
-      setListTab(tab);
+      const nextTab = tab === 'all' && !shouldIncludePhase1CommonPool() ? 'mine' : tab;
+      setListTab(nextTab);
       setCurrentPage(1);
-      void loadCandidates({ tab, page: 1, silent: tab === 'all' && hasLoadedCandidatesOnceRef.current });
+      void loadCandidates({
+        tab: nextTab,
+        page: 1,
+        silent: nextTab === 'all' && hasLoadedCandidatesOnceRef.current,
+      });
     },
     [loadCandidates],
   );
+
+  useEffect(() => {
+    if (!phase1CommonPoolEnabled && listTab === 'all') {
+      switchListTab('mine');
+    }
+  }, [phase1CommonPoolEnabled, listTab, switchListTab]);
 
   const refreshJobFilterOptions = useCallback(async () => {
     try {
@@ -1056,10 +1086,10 @@ function CandidatesPageContent() {
       } else if (filters.status) {
         queryParams.status = filters.status;
       }
-      queryParams.includeCommonPool = true;
+      queryParams.includeCommonPool = shouldIncludePhase1CommonPool() ? true : undefined;
       return queryParams;
     },
-    [debouncedColumnFilters, filters.search, filters.status, listTab],
+    [debouncedColumnFilters, filters.search, filters.status, listTab, phase1CommonPoolEnabled],
   );
 
   const fetchAllCandidatesForExport = useCallback(async (): Promise<Candidate[]> => {
@@ -1996,21 +2026,20 @@ function CandidatesPageContent() {
 
               <div className={PH2_TABLE_CARD_CLASS}>
                 <div className="flex shrink-0 items-center gap-1 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-4 sm:px-5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setListTab('all');
-                      setCurrentPage(1);
-                    }}
-                    className={`${CANDIDATE_TABLE_TAB_CLASS} ${
-                      listTab === 'all'
-                        ? 'border-indigo-600 text-indigo-700'
-                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
-                    }`}
-                    aria-current={listTab === 'all' ? 'page' : undefined}
-                  >
-                    All candidates
-                  </button>
+                  {phase1CommonPoolEnabled ? (
+                    <button
+                      type="button"
+                      onClick={() => switchListTab('all')}
+                      className={`${CANDIDATE_TABLE_TAB_CLASS} ${
+                        listTab === 'all'
+                          ? 'border-indigo-600 text-indigo-700'
+                          : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
+                      }`}
+                      aria-current={listTab === 'all' ? 'page' : undefined}
+                    >
+                      All candidates
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => switchListTab('mine')}
@@ -2030,7 +2059,9 @@ function CandidatesPageContent() {
                       ? 'Loading candidates…'
                       : listTab === 'mine'
                         ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} you added or who applied to your jobs`
-                        : `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — CRM + job portal + Phase 1 (candidatecommon)`}
+                        : phase1CommonPoolEnabled
+                          ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — CRM + job portal + Phase 1 (candidatecommon)`
+                          : `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — CRM + job portal`}
                   </p>
                 </div>
                 <div className={PH2_TOOLBAR_ROW_CLASS}>

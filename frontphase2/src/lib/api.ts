@@ -483,6 +483,7 @@ export async function apiFetch<T>(
         localStorage.removeItem('orgEnabledModules');
         localStorage.removeItem('orgModulesRestricted');
         localStorage.removeItem('orgProductLine');
+        localStorage.removeItem('orgPhase1CommonPoolEnabled');
         syncAuthCookie('accessToken', null);
         syncAuthCookie('refreshToken', null);
         syncTenantDbName(null);
@@ -764,6 +765,17 @@ export function isOrgModuleEnabled(moduleId: string): boolean {
   return list.includes(moduleId);
 }
 
+/**
+ * Phase 1 (Hrayntra candidatecommon) access for this tenant.
+ * Missing cache → true (legacy tenants keep All candidates + Phase 1 pool).
+ */
+export function getCachedPhase1CommonPoolEnabled(): boolean {
+  if (typeof window === 'undefined') return true;
+  const raw = localStorage.getItem('orgPhase1CommonPoolEnabled');
+  if (raw === null || raw === '') return true;
+  return raw !== '0' && raw !== 'false';
+}
+
 export function getCachedTenantPaused(): { paused: boolean; pausedAt: string | null } {
   if (typeof window === 'undefined') return { paused: false, pausedAt: null };
   return {
@@ -785,6 +797,7 @@ export function applyOrgRecruitmentSummaryPayload(
         productLine?: string | null;
         enabledModules?: string[] | null;
         modulesRestricted?: boolean;
+        phase1CommonPoolEnabled?: boolean;
         clientPageFieldVisibility?: {
           interestLevel?: boolean;
           status?: boolean;
@@ -869,6 +882,12 @@ export function applyOrgRecruitmentSummaryPayload(
       localStorage.removeItem('orgProductLine');
     }
   }
+  if (payload && Object.prototype.hasOwnProperty.call(payload, 'phase1CommonPoolEnabled')) {
+    localStorage.setItem(
+      'orgPhase1CommonPoolEnabled',
+      payload.phase1CommonPoolEnabled === false ? '0' : '1',
+    );
+  }
   if (payload?.tenantPaused) {
     localStorage.setItem('orgTenantPaused', '1');
     if (payload.tenantPausedAt) {
@@ -899,6 +918,7 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
       productLine?: string | null;
       enabledModules?: string[] | null;
       modulesRestricted?: boolean;
+      phase1CommonPoolEnabled?: boolean;
       clientPageFieldVisibility?: {
         interestLevel?: boolean;
         status?: boolean;
@@ -1376,6 +1396,8 @@ export async function apiHqProvisionTenant(body: {
   productLine?: 'crm' | 'recruitment';
   /** Enabled Phase 2 sidebar module ids for this tenant */
   enabledModules?: string[];
+  /** When true, All candidates includes Phase 1 (Hrayntra) candidatecommon pool. Default true. */
+  phase1CommonPoolEnabled?: boolean;
   /** Optional HQ company id (Lead → Client → Company funnel) */
   companyId?: string;
   plan?: {
@@ -1397,6 +1419,7 @@ export async function apiHqProvisionTenant(body: {
     organizationType?: string;
     productLine?: 'crm' | 'recruitment';
     enabledModules?: string[];
+    phase1CommonPoolEnabled?: boolean;
     subscriptionPlan?: { name: string } | null;
     user?: { id: string; email: string; loginId: string };
     companyId?: string | null;
@@ -1414,6 +1437,8 @@ export interface HqTenantRow {
   productLine?: 'crm' | 'recruitment' | string;
   enabledModules?: string[];
   modulesRestricted?: boolean;
+  /** When false, Phase 2 All candidates hides Phase 1 common pool. Default true. */
+  phase1CommonPoolEnabled?: boolean;
   subscriptionPlan: HqTenantSubscriptionPlan | null;
   tenantDbName: string;
   tenantProvisioningMode: string;
@@ -3880,12 +3905,14 @@ export async function apiHqUpdateTenantModules(body: {
   email: string;
   productLine?: 'crm' | 'recruitment';
   enabledModules: string[];
+  phase1CommonPoolEnabled?: boolean;
 }) {
   return apiFetch<{
     email: string;
     productLine?: string;
     enabledModules?: string[];
     modulesRestricted?: boolean;
+    phase1CommonPoolEnabled?: boolean;
     tenantDbName?: string;
   }>('/hq/tenants/modules', { method: 'PUT', auth: true, body });
 }

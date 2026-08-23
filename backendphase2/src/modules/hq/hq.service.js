@@ -202,6 +202,7 @@ function mapTenantForHqResponse(tenant) {
     productLine: tenant.productLine || '',
     enabledModules: Array.isArray(tenant.enabledModules) ? tenant.enabledModules : [],
     modulesRestricted: Boolean(tenant.modulesRestricted),
+    phase1CommonPoolEnabled: tenant.phase1CommonPoolEnabled !== false,
     subscriptionPlan: tenant.subscriptionPlan,
     tenantDbName: tenant.tenantDbName,
     tenantProvisioningMode: tenant.tenantProvisioningMode,
@@ -376,6 +377,7 @@ export const hqService = {
     const enabledModules = Array.isArray(data?.enabledModules)
       ? [...new Set(data.enabledModules.map((m) => String(m || '').trim()).filter(Boolean))]
       : [];
+    const phase1CommonPoolEnabled = data?.phase1CommonPoolEnabled !== false;
     const subscriptionPlan = await resolvePlanInput(
       data?.plan ?? data?.subscriptionPlan ?? 'Starter',
       data?.billingCycle ?? data?.plan?.billingCycle ?? data?.subscriptionPlan?.billingCycle,
@@ -402,6 +404,7 @@ export const hqService = {
       signupSource: data?.companyId ? 'hq_company' : 'hq_manual',
       productLine,
       enabledModules,
+      phase1CommonPoolEnabled,
     });
     const localUser = await authService.provisionHeadquartersMappedTenant(hqUser);
     await authService.finalizeHeadquartersTenantWorkspace(hqUser, localUser);
@@ -419,6 +422,7 @@ export const hqService = {
             productLine,
             enabledModules,
             modulesRestricted: true,
+            phase1CommonPoolEnabled,
           }),
         );
       } catch (err) {
@@ -477,6 +481,8 @@ export const hqService = {
       organizationType,
       productLine: hqUser.productLine || productLine,
       enabledModules: hqUser.enabledModules || enabledModules,
+      phase1CommonPoolEnabled:
+        hqUser.phase1CommonPoolEnabled !== false && phase1CommonPoolEnabled !== false,
       subscriptionPlan,
       user: { id: localUser.id, email: localUser.email, loginId },
       credentialEmailSent,
@@ -634,9 +640,15 @@ export const hqService = {
       throw new Error('Select at least one Phase 2 tab to keep enabled');
     }
 
+    const phase1CommonPoolEnabled =
+      data?.phase1CommonPoolEnabled === undefined
+        ? undefined
+        : data.phase1CommonPoolEnabled !== false;
+
     const updated = await headquartersAuthService.setEnabledModulesForEmail(email, {
       productLine: productLine || undefined,
       enabledModules,
+      ...(phase1CommonPoolEnabled !== undefined ? { phase1CommonPoolEnabled } : {}),
     });
     if (!updated) throw new Error('Tenant not found');
 
@@ -653,6 +665,10 @@ export const hqService = {
           productLine: updated.productLine || productLine || 'crm',
           enabledModules,
           modulesRestricted: true,
+          phase1CommonPoolEnabled:
+            phase1CommonPoolEnabled !== undefined
+              ? phase1CommonPoolEnabled
+              : updated.phase1CommonPoolEnabled !== false,
         }),
       );
     } catch (err) {
@@ -687,6 +703,7 @@ export const hqService = {
       productLine: updated.productLine || productLine || '',
       enabledModules: updated.enabledModules || enabledModules,
       modulesRestricted: true,
+      phase1CommonPoolEnabled: updated.phase1CommonPoolEnabled !== false,
       tenantDbName,
       syncedToTenant: true,
     };

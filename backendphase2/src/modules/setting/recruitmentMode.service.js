@@ -51,6 +51,11 @@ function normalizeEnabledModules(value) {
  * HQ-controlled Phase 2 tabs for this tenant.
  * When `modulesRestricted` is false, Phase 2 shows all RBAC-allowed tabs (legacy / unset).
  */
+/** Missing/legacy → true so existing tenants keep Phase 1 All-candidates access. */
+function normalizePhase1CommonPoolEnabled(value) {
+  return value !== false;
+}
+
 export async function getHqEnabledModules() {
   const row = await findOrgSettingRow(KEY_TENANT_MODULES);
   const value = row?.value && typeof row.value === 'object' ? row.value : null;
@@ -60,14 +65,25 @@ export async function getHqEnabledModules() {
     productLine: value?.productLine ? normalizeProductLine(value.productLine) : '',
     enabledModules,
     modulesRestricted,
+    phase1CommonPoolEnabled: normalizePhase1CommonPoolEnabled(value?.phase1CommonPoolEnabled),
   };
 }
 
-export async function setHqEnabledModules({ productLine, enabledModules, modulesRestricted = true }) {
+export async function setHqEnabledModules({
+  productLine,
+  enabledModules,
+  modulesRestricted = true,
+  phase1CommonPoolEnabled,
+} = {}) {
+  const existing = await getHqEnabledModules().catch(() => null);
   const normalized = {
     productLine: productLine ? normalizeProductLine(productLine) : '',
     enabledModules: normalizeEnabledModules(enabledModules),
     modulesRestricted: modulesRestricted !== false,
+    phase1CommonPoolEnabled:
+      phase1CommonPoolEnabled === undefined
+        ? normalizePhase1CommonPoolEnabled(existing?.phase1CommonPoolEnabled)
+        : phase1CommonPoolEnabled !== false,
     updatedAt: new Date().toISOString(),
   };
   await upsertOrgSettingJson(KEY_TENANT_MODULES, normalized);
