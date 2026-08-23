@@ -64,6 +64,7 @@ import { notifyInterviewScheduleChange } from '../notification/interviewNotifica
 import { AI_MATCH_AUTHOR_WHERE } from '../match/matchQueryHelpers.js';
 import { permanentDeleteCandidateById } from '../../services/candidatePermanentDelete.service.js';
 import { detachCandidateFromJobLink } from '../internal/portal-job-detach.service.js';
+import { getHqEnabledModules } from '../setting/recruitmentMode.service.js';
 import {
   queueAiEntryRecommendation,
   buildEntitySnapshot,
@@ -464,6 +465,22 @@ function parseIncludeCommonPoolQuery(query = {}) {
   const raw = query?.includeCommonPool;
   if (raw === 'false' || raw === '0' || raw === false) return false;
   return true;
+}
+
+/** Tenant HQ flag: Phase 1 (candidatecommon) on All candidates. Missing → allowed. */
+async function tenantAllowsPhase1CommonPool() {
+  try {
+    const modules = await getHqEnabledModules();
+    return modules?.phase1CommonPoolEnabled !== false;
+  } catch {
+    return true;
+  }
+}
+
+async function resolveLoadCommonPool(query = {}) {
+  if (!parseIncludeCommonPoolQuery(query)) return false;
+  if (!isTenantScopedRequest()) return true;
+  return tenantAllowsPhase1CommonPool();
 }
 
 function shouldShowOnCrmCandidatesList(candidate, options = {}) {
@@ -1750,6 +1767,7 @@ async function getCandidateOrThrow(id, options = {}) {
 async function fetchCandidateCommonMappedByIds(candidateIds) {
   const map = new Map();
   if (!Array.isArray(candidateIds) || !candidateIds.length) return map;
+  if (!(await tenantAllowsPhase1CommonPool())) return map;
 
   let commonPrisma = null;
   try {
@@ -3009,7 +3027,7 @@ export const candidateService = {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, assignedToId, search, ids } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
-    const loadCommonPool = parseIncludeCommonPoolQuery(req.query);
+    const loadCommonPool = await resolveLoadCommonPool(req.query);
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
@@ -5040,7 +5058,7 @@ export const candidateService = {
   },
 
   async getStats(req = {}) {
-    const loadCommonPool = parseIncludeCommonPoolQuery(req.query);
+    const loadCommonPool = await resolveLoadCommonPool(req.query || {});
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     const userId = req.user?.id;

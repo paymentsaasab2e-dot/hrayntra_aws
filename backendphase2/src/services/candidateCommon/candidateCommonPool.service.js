@@ -11,9 +11,21 @@ import { hydratePhase1SnapshotPersonalInfoFromPortal } from '../../utils/phase1S
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
 import { normalizePortfolioLinksForCommon } from '../../utils/portfolioLinkFilter.util.js';
+import { getHqEnabledModules } from '../../modules/setting/recruitmentMode.service.js';
 
 function isTenantScopedRequest() {
   return Boolean(getActiveTenantDbName());
+}
+
+/** HQ flag: Phase 1 candidatecommon access. Missing/legacy → allowed. */
+async function tenantAllowsPhase1CommonPool() {
+  if (!isTenantScopedRequest()) return true;
+  try {
+    const modules = await getHqEnabledModules();
+    return modules?.phase1CommonPoolEnabled !== false;
+  } catch {
+    return true;
+  }
 }
 
 async function getVisibleTenantJobIds(req, mine) {
@@ -287,6 +299,7 @@ export function mapCandidateCommonRowToCandidate(row) {
 export async function fetchCandidateCommonForMatchPipeline(req) {
   const commonPrisma = getCandidateCommonPrismaClient();
   if (!commonPrisma || !isTenantScopedRequest()) return [];
+  if (!(await tenantAllowsPhase1CommonPool())) return [];
 
   const limit = Math.min(5000, Math.max(1, Number(process.env.MATCH_COMMON_POOL_MAX || 500) || 500));
 
@@ -338,6 +351,7 @@ async function getAllTenantJobIdSet() {
 export async function fetchCandidateCommonForCandidatesList(req) {
   const commonPrisma = getCandidateCommonPrismaClient();
   if (!commonPrisma) return [];
+  if (!(await tenantAllowsPhase1CommonPool())) return [];
 
   const limit = Math.min(
     10000,
@@ -398,6 +412,7 @@ export async function fetchCandidateCommonByCandidateId(candidateId, options = {
   const { requireVerified = true } = options;
   const commonPrisma = getCandidateCommonPrismaClient();
   if (!commonPrisma) return null;
+  if (!(await tenantAllowsPhase1CommonPool())) return null;
 
   const id = String(candidateId || '').trim();
   if (!id) return null;
@@ -442,6 +457,7 @@ export async function fetchCandidateCommonByCandidateId(candidateId, options = {
 export async function fetchCandidateCommonForTenant(req, jobId) {
   const commonPrisma = getCandidateCommonPrismaClient();
   if (!commonPrisma || !isTenantScopedRequest()) return [];
+  if (!(await tenantAllowsPhase1CommonPool())) return [];
 
   const jobIdStr = String(jobId || '').trim();
   const tenantJobIds = await getVisibleTenantJobIds(req, false);

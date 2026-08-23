@@ -49,6 +49,7 @@ import {
   type BackendJob,
   type BackendUser,
 } from "../../lib/api";
+import { shouldIncludePhase1CommonPool } from "../../lib/phase1CommonPoolAccess";
 import {
   candidateHasRealJobAssignment,
   resolveCandidateListStage,
@@ -625,14 +626,15 @@ export default function App() {
   const loadPipelineCandidates = React.useCallback(async () => {
     setLoadingCandidates(true);
     try {
+      const poolParams = shouldIncludePhase1CommonPool() ? { includeCommonPool: true as const } : {};
       const candidateParams =
         selectedOwnerId === '__me__'
-          ? { page: 1, limit: 500, mine: true, includeCommonPool: true }
+          ? { page: 1, limit: 500, mine: true, ...poolParams }
           : selectedOwnerId
-            ? { page: 1, limit: 500, assignedToId: selectedOwnerId, includeCommonPool: true }
+            ? { page: 1, limit: 500, assignedToId: selectedOwnerId, ...poolParams }
             : selectedJobId
-              ? { page: 1, limit: 500, jobId: selectedJobId, includeCommonPool: true }
-              : { page: 1, limit: 500, includeCommonPool: true };
+              ? { page: 1, limit: 500, jobId: selectedJobId, ...poolParams }
+              : { page: 1, limit: 500, ...poolParams };
 
       const candidatesRes = await apiGetCandidates(candidateParams);
       const backendCandidates = parseCandidatesResponse(candidatesRes);

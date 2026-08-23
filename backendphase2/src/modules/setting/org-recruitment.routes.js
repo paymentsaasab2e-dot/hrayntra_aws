@@ -93,6 +93,7 @@ router.get('/recruitment-summary', async (req, res) => {
     let productLine = tenantModules.productLine || '';
     let enabledModules = tenantModules.enabledModules || [];
     let modulesRestricted = Boolean(tenantModules.modulesRestricted);
+    let phase1CommonPoolEnabled = tenantModules.phase1CommonPoolEnabled !== false;
     if (tenantDbName || req.user?.email) {
       try {
         const hqTenant = await headquartersAuthService.findTenantModulesForSession({
@@ -107,6 +108,9 @@ router.get('/recruitment-summary', async (req, res) => {
           if (hqTenant.modulesRestricted || (Array.isArray(hqTenant.enabledModules) && hqTenant.enabledModules.length > 0)) {
             modulesRestricted = true;
             enabledModules = Array.isArray(hqTenant.enabledModules) ? hqTenant.enabledModules : [];
+          }
+          if (Object.prototype.hasOwnProperty.call(hqTenant, 'phase1CommonPoolEnabled')) {
+            phase1CommonPoolEnabled = hqTenant.phase1CommonPoolEnabled !== false;
           }
         }
       } catch (err) {
@@ -127,6 +131,7 @@ router.get('/recruitment-summary', async (req, res) => {
       productLine: productLine || null,
       enabledModules,
       modulesRestricted,
+      phase1CommonPoolEnabled,
     });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load org summary', error);
