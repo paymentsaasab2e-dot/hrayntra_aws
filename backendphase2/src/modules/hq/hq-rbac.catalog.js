@@ -391,29 +391,29 @@ export const HQ_DEFAULT_ROLES = [
   },
 ];
 
-/** Map sidebar nav ids → required permission (any-of). */
+/** Map sidebar nav ids → required permission (any-of). Keep each nav item scoped to its module. */
 export const HQ_NAV_PERMISSION_MAP = {
-  dashboard: ['hq_dashboard_read', 'hq_analytics_read'],
+  dashboard: ['hq_dashboard_read'],
   candidates: ['hq_candidates_read'],
-  kycVerified: ['hq_kyc_interviewers_read', 'hq_candidates_read'],
+  kycVerified: ['hq_kyc_interviewers_read'],
   courses: ['hq_courses_read'],
   portal: ['hq_portal_read'],
   events: ['hq_events_read'],
   subscriptions: ['hq_subscriptions_read'],
-  employeeTickets: ['hq_employee_tickets_read', 'hq_tickets_read'],
-  employerDashboard: ['hq_employers_dashboard_read', 'hq_dashboard_read', 'hq_analytics_read'],
+  employeeTickets: ['hq_employee_tickets_read'],
+  employerDashboard: ['hq_employers_dashboard_read'],
   company: ['hq_companies_read'],
   tickets: ['hq_tickets_read'],
   employerTickets: ['hq_tickets_read'],
   tenants: ['hq_tenants_read'],
-  recycleBin: ['hq_tenants_read', 'hq_tenants_delete'],
+  recycleBin: ['hq_tenants_delete'],
   plans: ['hq_billing_read'],
-  crmDashboard: ['hq_crm_dashboard_read', 'hq_leads_read', 'hq_dashboard_read'],
+  crmDashboard: ['hq_crm_dashboard_read'],
   leads: ['hq_leads_read'],
-  clients: ['hq_clients_read', 'hq_companies_read'],
+  clients: ['hq_clients_read'],
   team: ['hq_team_read'],
   reports: ['hq_reports_read'],
-  billing: ['hq_billing_read', 'hq_ops_billing_read'],
+  billing: ['hq_ops_billing_read'],
   settings: ['hq_settings_read'],
 };
 

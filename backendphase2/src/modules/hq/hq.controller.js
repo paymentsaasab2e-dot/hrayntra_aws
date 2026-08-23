@@ -476,6 +476,15 @@ export const hqController = {
     }
   },
 
+  async getSessionAccess(req, res) {
+    try {
+      const result = await hqService.getSessionAccess(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 403, error.message, error);
+    }
+  },
+
   async createTeamMember(req, res) {
     try {
       const result = await hqService.createTeamMember(req.body, req.user);
@@ -639,6 +648,37 @@ export const hqController = {
       sendResponse(res, 200, 'OK', result);
     } catch (error) {
       if (error?.code === 'VALIDATION') return sendError(res, 400, error.message);
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getBilling(req, res) {
+    try {
+      const result = await hqService.getBilling(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getCandidateBillingLedger(req, res) {
+    try {
+      const candidateId = String(req.params?.id || '').trim();
+      if (!candidateId) return sendError(res, 400, 'Candidate ID is required');
+      const result = await hqService.getCandidateBillingLedger(req.user, candidateId);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getEmployerBillingLedger(req, res) {
+    try {
+      const tenantKey = decodeURIComponent(String(req.params?.tenantKey || '').trim());
+      if (!tenantKey) return sendError(res, 400, 'Tenant key is required');
+      const result = await hqService.getEmployerBillingLedger(req.user, tenantKey);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
       sendError(res, 400, error.message, error);
     }
   },

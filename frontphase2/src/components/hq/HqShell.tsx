@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
+import { Toaster } from 'sonner';
 import { HqCurrencyProvider } from './HqCurrencyProvider';
 import { HqSidebar, HQ_SIDEBAR_W } from './HqSidebar';
 
@@ -20,6 +21,7 @@ function HqSidebarFallback() {
 export function HqShell({ children }: { children: React.ReactNode }) {
   return (
     <HqCurrencyProvider>
+      <Toaster position="top-right" richColors closeButton style={{ top: '5rem' }} />
       <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-slate-50 text-slate-900">
         <Suspense fallback={<HqSidebarFallback />}>
           <HqSidebar />

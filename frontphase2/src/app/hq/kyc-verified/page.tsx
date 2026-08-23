@@ -45,10 +45,6 @@ function rowKind(row: HqKycInterviewerRow): 'applicant' | 'interviewer' {
   if (String(row.applicationStatus || '').toUpperCase() === 'REJECTED') return 'applicant';
   return row.kind === 'interviewer' || row.hqVerified ? 'interviewer' : 'applicant';
 }
-  return row.kind === 'interviewer' || row.hqVerified || Boolean(row.profileStatus)
-    ? 'interviewer'
-    : 'applicant';
-}
 
 function FormField({ label, value }: { label: string; value: React.ReactNode }) {
   return (

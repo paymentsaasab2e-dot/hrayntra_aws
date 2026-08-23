@@ -3,6 +3,15 @@ import { getAiFeature, listAiFeaturesWithLockState } from './aiCoinCatalog.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { hqAiFeaturesService } from '../hq/hq-ai-features.service.js';
 import { getCoinPackAsync, listCoinPacksAsync } from './aiCoinPacks.js';
+import { appendTenantBillingTransaction } from '../hq/hq-billing-ledger.service.js';
+
+function tenantKeyFromUser(user) {
+  return {
+    tenantDbName: String(user?.tenantDbName || user?.orgId || '').trim(),
+    tenantEmail: String(user?.email || '').trim().toLowerCase(),
+    actorEmail: String(user?.email || '').trim().toLowerCase(),
+  };
+}
 
 function insufficientError(balance, required, featureId) {
   const err = new Error(
@@ -123,6 +132,22 @@ export async function spendTenantCoins(featureId, { user, meta } = {}) {
   });
   await syncHqCoins(next, user);
 
+  try {
+    const keys = tenantKeyFromUser(user);
+    await appendTenantBillingTransaction({
+      ...keys,
+      type: 'COIN_SPEND',
+      amount: required,
+      balanceAfter: next,
+      unit: 'coins',
+      featureId,
+      description: `Spent ${required} AI coins on ${resolved?.label || resolved?.name || featureId}`,
+      reference: `spend_${featureId}_${Date.now()}`,
+    });
+  } catch {
+    /* ledger is best-effort */
+  }
+
   return {
     spent: required,
     coins: next,
@@ -142,6 +167,22 @@ export async function purchaseCoinPack(packId, { user } = {}) {
     packId: pack.id,
     reason: 'demo_purchase',
   });
+
+  try {
+    const keys = tenantKeyFromUser(user);
+    await appendTenantBillingTransaction({
+      ...keys,
+      type: 'COIN_PURCHASE',
+      amount: pack.coins,
+      balanceAfter: result.coins,
+      unit: 'coins',
+      packId: pack.id,
+      description: `Purchased ${pack.name} (${pack.coins} AI coins)`,
+      reference: `coin_pack_${pack.id}_${Date.now()}`,
+    });
+  } catch {
+    /* ledger is best-effort */
+  }
 
   return {
     demo: true,

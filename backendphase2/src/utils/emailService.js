@@ -128,6 +128,72 @@ export async function sendCredentialInvite({
 }
 
 /**
+ * HQ Headquarters team member invite — login at /hq/login with email + password.
+ */
+export async function sendHqTeamInviteEmail({ email, loginId, tempPassword, roleName }) {
+  const loginLink = `${String(env.FRONTEND_URL || '').replace(/\/$/, '')}/hq/login`;
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Headquarters access</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #0f766e 0%, #134e4a 100%); padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 28px;">Headquarters access</h1>
+  </div>
+  <div style="background: #ffffff; padding: 40px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+    <p style="font-size: 16px; margin-bottom: 20px;">Hello,</p>
+    <p style="font-size: 16px; margin-bottom: 20px;">
+      You have been added to the HRYANTRA Headquarters team as <strong>${roleName || 'Team member'}</strong>.
+      Use the credentials below to sign in:
+    </p>
+    <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;"><strong>Email:</strong></p>
+      <p style="margin: 0 0 20px 0; font-size: 16px; font-family: monospace; color: #111827; background: white; padding: 10px; border-radius: 4px;">${email}</p>
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;"><strong>Login ID:</strong></p>
+      <p style="margin: 0 0 20px 0; font-size: 16px; font-family: monospace; color: #111827; background: white; padding: 10px; border-radius: 4px;">${loginId}</p>
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;"><strong>Password:</strong></p>
+      <p style="margin: 0; font-size: 16px; font-family: monospace; color: #111827; background: white; padding: 10px; border-radius: 4px;">${tempPassword}</p>
+    </div>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${loginLink}" style="display: inline-block; background: #0f766e; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">Sign in to Headquarters</a>
+    </div>
+    <p style="font-size: 13px; color: #374151; margin: 0 0 6px 0;">
+      HQ login URL: <a href="${loginLink}" style="color: #0f766e; text-decoration: none;">${loginLink}</a>
+    </p>
+    <p style="font-size: 14px; color: #6b7280; margin-top: 30px;">
+      Sign in with your <strong>email address</strong> and the password above.
+    </p>
+    <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
+      Best regards,<br>
+      <strong>The HRYANTRA Team</strong>
+    </p>
+  </div>
+  <div style="text-align: center; margin-top: 20px; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p style="margin: 0;">This is an automated email. Please do not reply.</p>
+  </div>
+</body>
+</html>
+  `;
+
+  try {
+    const result = await resend.emails.send({
+      from: getEmailFromForTrigger('team.invite_email'),
+      to: email,
+      subject: 'Your HRYANTRA Headquarters login credentials',
+      html,
+    });
+    return { success: true, messageId: result.id };
+  } catch (error) {
+    console.error('Error sending HQ team invite email:', error);
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
+}
+
+/**
  * Employer package purchase — login credentials for Phase 2 workspace.
  */
 export async function sendEmployerPurchaseCredentialsEmail({

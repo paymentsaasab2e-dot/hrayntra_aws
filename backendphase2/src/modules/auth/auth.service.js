@@ -12,9 +12,71 @@ import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions, syncDefaultRolePresets, syncMissingRolePresetPermissions } from '../role/permission-sync.service.js';
 import { revokeAllSessionsForUser, sessionService } from '../session/session.service.js';
 import { verifyHqImpersonationToken } from '../../utils/hqImpersonationToken.js';
+import {
+  ensureLocalUserFromHqTeamMember,
+  findActiveHqTeamMemberByIdentity,
+  findHqTeamMemberByCredentials,
+  provisionHqTeamMemberPlatformAccount,
+  resolvePlatformTenantDbName,
+  buildHqTeamMemberAuthPayload,
+} from '../hq/hq-team-platform-auth.service.js';
 
 const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
 const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
+
+async function resolveActiveHqTeamMemberForLogin({ email, loginId, loginIdOrEmail }) {
+  if (email) {
+    const byEmail = await findActiveHqTeamMemberByIdentity(email);
+    if (byEmail) return byEmail;
+  }
+  if (loginId) {
+    const byLoginId = await findActiveHqTeamMemberByIdentity(loginId);
+    if (byLoginId) return byLoginId;
+  }
+  if (loginIdOrEmail) {
+    return findActiveHqTeamMemberByIdentity(loginIdOrEmail);
+  }
+  return null;
+}
+
+function applyHqTeamMemberToTokenPayload(tokenPayload, refreshPayload, member) {
+  if (!member) {
+    return { tokenPayload, refreshPayload, hqAuth: null };
+  }
+  const hqAuth = buildHqTeamMemberAuthPayload(member);
+  return {
+    tokenPayload: {
+      ...tokenPayload,
+      hqTeamMemberId: hqAuth.hqTeamMemberId,
+      hqPermissionIds: hqAuth.hqPermissionIds,
+      isHqTeamMember: true,
+      roleName: hqAuth.roleName || tokenPayload.roleName,
+    },
+    refreshPayload: {
+      ...refreshPayload,
+      hqTeamMemberId: hqAuth.hqTeamMemberId,
+      hqPermissionIds: hqAuth.hqPermissionIds,
+    },
+    hqAuth,
+  };
+}
+
+function buildLoginResponseWithHqTeamMember(baseResponse, hqAuth) {
+  if (!hqAuth?.hqTeamMemberId) return baseResponse;
+  return {
+    ...baseResponse,
+    hqPermissionIds: hqAuth.hqPermissionIds,
+    permissions: hqAuth.hqPermissionIds,
+    user: {
+      ...baseResponse.user,
+      email: baseResponse.user?.email || hqAuth.email,
+      loginId: hqAuth.loginId || baseResponse.user?.loginId,
+      hqTeamMemberId: hqAuth.hqTeamMemberId,
+      isHqTeamMember: true,
+      roleName: hqAuth.roleName || baseResponse.user?.roleName,
+    },
+  };
+}
 
 function resolveActiveTenantDbName() {
   const tenantDbName = String(getActiveTenantDbName() || '').trim();
@@ -469,7 +531,16 @@ export const authService = {
     };
   },
 
-  async login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta = {}) {
+  async login(loginIdOrEmailRaw, passwordRaw, ipAddress, userAgent, deviceMeta = {}) {
+    let loginIdOrEmail = String(loginIdOrEmailRaw || '').trim();
+    if (loginIdOrEmail.includes('@')) {
+      loginIdOrEmail = loginIdOrEmail.toLowerCase();
+    }
+    const password = String(passwordRaw ?? '').trim();
+    if (!loginIdOrEmail || !password) {
+      throw new Error('Invalid credentials');
+    }
+
     // Plain `/login` (no invite token, no cached `x-tenant-db-name`) carries no
     // tenant context, so Prisma would fall back to the default DB and never see
     // tenant-scoped team-member credentials. Resolve the user's tenant via the
@@ -578,6 +649,131 @@ export const authService = {
       };
     };
 
+    const tryHqTeamMemberLogin = async () => {
+      const member = await findHqTeamMemberByCredentials(loginIdOrEmail, password);
+      if (!member) return null;
+      if (member.status !== 'active') {
+        throw new Error('Account is deactivated');
+      }
+
+      const tenantDbName = await resolvePlatformTenantDbName();
+      const hqPermissionIds = Array.isArray(member.permissionIds)
+        ? member.permissionIds.map(String)
+        : [];
+
+      const hqLoginResult = await runWithTenantContext(tenantDbName, async () => {
+        try {
+          await provisionHqTeamMemberPlatformAccount(member);
+        } catch {
+          await ensureLocalUserFromHqTeamMember(member);
+        }
+
+        const { user: localUser, role } = await ensureLocalUserFromHqTeamMember(member);
+
+        const tokenResult = await sessionService.gateLoginOrIssueTokens({
+          userId: localUser.id,
+          tokenPayload: {
+            userId: localUser.id,
+            email: localUser.email,
+            role: 'HQ_TEAM',
+            roleId: role.id,
+            roleName: role.roleName || 'HQ Team Member',
+            tenantDbName: tenantDbName || undefined,
+            hqTeamMemberId: member.id,
+            hqPermissionIds,
+            isHqTeamMember: true,
+          },
+          refreshPayload: {
+            userId: localUser.id,
+            email: localUser.email,
+            tenantDbName: tenantDbName || undefined,
+            hqTeamMemberId: member.id,
+            hqPermissionIds,
+          },
+          deviceMeta,
+          identity: {
+            email: localUser.email,
+            loginId: member.loginId || loginIdOrEmail,
+          },
+        });
+
+        if (tokenResult.duplicateSession) {
+          return { duplicateSession: true, activeSession: tokenResult.activeSession };
+        }
+
+        await prisma.user.update({
+          where: { id: localUser.id },
+          data: {
+            isActive: true,
+            status: 'ACTIVE',
+            role: 'VIEWER',
+            roleId: role.id,
+          },
+        });
+
+        return {
+          localUser,
+          role,
+          accessToken: tokenResult.accessToken,
+          refreshToken: tokenResult.refreshToken,
+        };
+      });
+
+      if (hqLoginResult?.duplicateSession) {
+        return {
+          duplicateSession: true,
+          activeSession: hqLoginResult.activeSession,
+          tenantDbName,
+        };
+      }
+
+      const { localUser, role, accessToken, refreshToken } = hqLoginResult;
+
+      return {
+        user: {
+          id: localUser.id,
+          name: localUser.name,
+          firstName: localUser.firstName,
+          lastName: localUser.lastName,
+          email: localUser.email,
+          loginId: member.loginId,
+          role: 'HQ_TEAM',
+          roleId: role.id,
+          roleName: role.roleName || 'HQ Team Member',
+          roleColor: role.color || 'teal',
+          hqTeamMemberId: member.id,
+          isHqTeamMember: true,
+        },
+        accessToken,
+        refreshToken,
+        permissions: hqPermissionIds,
+        hqPermissionIds,
+        requirePasswordReset: false,
+        tenantDbName,
+      };
+    };
+
+    const safeTryHeadquartersSuperAdminLogin = async () => {
+      try {
+        return await tryHeadquartersSuperAdminLogin();
+      } catch (error) {
+        console.warn('[auth] headquarters super admin login check failed:', error?.message || error);
+        return null;
+      }
+    };
+
+    const safeTryHqTeamMemberLogin = async () => {
+      try {
+        return await tryHqTeamMemberLogin();
+      } catch (error) {
+        if (error?.message === 'Account is deactivated') {
+          throw error;
+        }
+        console.warn('[auth] HQ team member login check failed:', error?.message || error);
+        return null;
+      }
+    };
+
     const tryDirectSuperAdminLogin = async () => {
       if (
         loginIdOrEmail !== DIRECT_SUPER_ADMIN_LOGIN_ID ||
@@ -673,6 +869,16 @@ export const authService = {
       };
     };
 
+    const headquartersFirstResult = await safeTryHeadquartersSuperAdminLogin();
+    if (headquartersFirstResult) {
+      return headquartersFirstResult;
+    }
+
+    const hqTeamFirstResult = await safeTryHqTeamMemberLogin();
+    if (hqTeamFirstResult) {
+      return hqTeamFirstResult;
+    }
+
     if (isLoginId) {
       const directSuperAdminResult = await tryDirectSuperAdminLogin();
       if (directSuperAdminResult) {
@@ -700,9 +906,13 @@ export const authService = {
       });
 
       if (!credential) {
-        const headquartersResult = await tryHeadquartersSuperAdminLogin();
+        const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
         if (headquartersResult) {
           return headquartersResult;
+        }
+        const hqTeamResult = await safeTryHqTeamMemberLogin();
+        if (hqTeamResult) {
+          return hqTeamResult;
         }
         throw new Error('Invalid credentials');
       }
@@ -737,6 +947,14 @@ export const authService = {
           },
         });
 
+        const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
+        if (headquartersResult) {
+          return headquartersResult;
+        }
+        const hqTeamResult = await safeTryHqTeamMemberLogin();
+        if (hqTeamResult) {
+          return hqTeamResult;
+        }
         throw new Error('Invalid credentials');
       }
 
@@ -792,8 +1010,13 @@ export const authService = {
 
       const tenantDbName = resolveActiveTenantDbName();
 
-      // Issue JWT with required payload
-      const tokenPayload = {
+      const hqMember = await resolveActiveHqTeamMemberForLogin({
+        email: user.email,
+        loginId: credential.loginId,
+        loginIdOrEmail,
+      });
+
+      let tokenPayload = {
         userId: user.id,
         roleId: userWithRole.systemRole?.id,
         roleName: userWithRole.systemRole?.roleName,
@@ -801,10 +1024,15 @@ export const authService = {
         tenantDbName: tenantDbName || undefined,
       };
 
+      let refreshPayload = { userId: user.id, tenantDbName: tenantDbName || undefined };
+      const appliedHq = applyHqTeamMemberToTokenPayload(tokenPayload, refreshPayload, hqMember);
+      tokenPayload = appliedHq.tokenPayload;
+      refreshPayload = appliedHq.refreshPayload;
+
       const tokenResult = await sessionService.gateLoginOrIssueTokens({
         userId: user.id,
         tokenPayload,
-        refreshPayload: { userId: user.id, tenantDbName: tenantDbName || undefined },
+        refreshPayload,
         deviceMeta,
         identity: { email: user.email, loginId: loginIdOrEmail },
       });
@@ -827,23 +1055,26 @@ export const authService = {
         tenantDbName,
       });
 
-      return {
-        token: accessToken,
-        accessToken,
-        refreshToken,
-        user: {
-          id: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          loginId: credential.loginId,
-          roleName: userWithRole.systemRole?.roleName,
-          roleColor: userWithRole.systemRole?.color,
+      return buildLoginResponseWithHqTeamMember(
+        {
+          token: accessToken,
+          accessToken,
+          refreshToken,
+          user: {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            loginId: credential.loginId,
+            roleName: userWithRole.systemRole?.roleName,
+            roleColor: userWithRole.systemRole?.color,
+          },
+          permissions: appliedHq.hqAuth?.hqPermissionIds?.length ? appliedHq.hqAuth.hqPermissionIds : permissions,
+          requirePasswordReset: await resolveRequirePasswordReset(credential, user.email),
+          tenantDbName: tenantDbName || undefined,
         },
-        permissions,
-        requirePasswordReset: await resolveRequirePasswordReset(credential, user.email),
-        tenantDbName: tenantDbName || undefined,
-      };
+        appliedHq.hqAuth,
+      );
     } else {
       // Email-based login (backward compatibility)
       user = await prisma.user.findUnique({ 
@@ -873,9 +1104,13 @@ export const authService = {
 
     // Check if user is active (for email-based login)
     if (!user || !user.isActive || (user.status && user.status !== 'ACTIVE')) {
-      const headquartersResult = await tryHeadquartersSuperAdminLogin();
+      const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
       if (headquartersResult) {
         return headquartersResult;
+      }
+      const hqTeamResult = await safeTryHqTeamMemberLogin();
+      if (hqTeamResult) {
+        return hqTeamResult;
       }
       throw new Error('Invalid credentials');
     }
@@ -904,9 +1139,13 @@ export const authService = {
             outcome: 'FAILED',
           },
         });
-        const headquartersResult = await tryHeadquartersSuperAdminLogin();
+        const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
         if (headquartersResult) {
           return headquartersResult;
+        }
+        const hqTeamResult = await safeTryHqTeamMemberLogin();
+        if (hqTeamResult) {
+          return hqTeamResult;
         }
         throw new Error('Invalid credentials');
       }
@@ -953,7 +1192,13 @@ export const authService = {
 
       const tenantDbName = resolveActiveTenantDbName();
 
-      const tokenPayload = {
+      const hqMember = await resolveActiveHqTeamMemberForLogin({
+        email: user.email,
+        loginId: credential.loginId,
+        loginIdOrEmail,
+      });
+
+      let tokenPayload = {
         userId: user.id,
         email: user.email,
         roleId: user.systemRole?.id,
@@ -962,10 +1207,15 @@ export const authService = {
         tenantDbName: tenantDbName || undefined,
       };
 
+      let refreshPayload = { userId: user.id, tenantDbName: tenantDbName || undefined };
+      const appliedHq = applyHqTeamMemberToTokenPayload(tokenPayload, refreshPayload, hqMember);
+      tokenPayload = appliedHq.tokenPayload;
+      refreshPayload = appliedHq.refreshPayload;
+
       const tokenResult = await sessionService.gateLoginOrIssueTokens({
         userId: user.id,
         tokenPayload,
-        refreshPayload: { userId: user.id, tenantDbName: tenantDbName || undefined },
+        refreshPayload,
         deviceMeta,
         identity: { email: user.email, loginId: credential.loginId },
       });
@@ -988,32 +1238,39 @@ export const authService = {
         tenantDbName,
       });
 
-      return {
-        user: {
-          id: user.id,
-          name: user.name,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          loginId: credential.loginId,
-          role: user.role,
-          roleId: user.systemRole?.id,
-          roleName: user.systemRole?.roleName,
-          roleColor: user.systemRole?.color,
+      return buildLoginResponseWithHqTeamMember(
+        {
+          user: {
+            id: user.id,
+            name: user.name,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            loginId: credential.loginId,
+            role: user.role,
+            roleId: user.systemRole?.id,
+            roleName: user.systemRole?.roleName,
+            roleColor: user.systemRole?.color,
+          },
+          accessToken,
+          refreshToken,
+          permissions: appliedHq.hqAuth?.hqPermissionIds?.length ? appliedHq.hqAuth.hqPermissionIds : permissions,
+          requirePasswordReset: await resolveRequirePasswordReset(credential, user.email),
+          tenantDbName: tenantDbName || undefined,
         },
-        accessToken,
-        refreshToken,
-        permissions,
-        requirePasswordReset: await resolveRequirePasswordReset(credential, user.email),
-        tenantDbName: tenantDbName || undefined,
-      };
+        appliedHq.hqAuth,
+      );
     } else {
       // Legacy email/password login (backward compatibility)
       const isValid = await bcrypt.compare(password, user.passwordHash);
       if (!isValid) {
-        const headquartersResult = await tryHeadquartersSuperAdminLogin();
+        const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
         if (headquartersResult) {
           return headquartersResult;
+        }
+        const hqTeamResult = await safeTryHqTeamMemberLogin();
+        if (hqTeamResult) {
+          return hqTeamResult;
         }
         throw new Error('Invalid credentials');
       }

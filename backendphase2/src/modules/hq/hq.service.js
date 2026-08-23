@@ -22,6 +22,7 @@ import { hqCoursesService } from './hq-courses.service.js';
 import { hqTicketsService } from './hq-tickets.service.js';
 import { hqTrialService } from './hq-trial.service.js';
 import { hqHelpTicketsService } from './hq-help-tickets.service.js';
+import { hqBillingService } from './hq-billing.service.js';
 
 async function resolvePlanInput(raw, billingCycle, planStartDate, planEndDate) {
   const plan = await hqPackagesService.resolvePlanInput(
@@ -127,6 +128,13 @@ async function backfillUnassignedTenantPlans(tenants) {
 }
 
 function assertPlatformProvisioner(reqUser) {
+  const hqPermissionIds = Array.isArray(reqUser?.hqPermissionIds)
+    ? reqUser.hqPermissionIds.map(String)
+    : [];
+  if (reqUser?.hqTeamMemberId && hqPermissionIds.length > 0) {
+    return;
+  }
+
   if (!isSuperAdminUser({ user: reqUser })) {
     throw new Error('Only super administrators can provision tenants');
   }
@@ -1054,6 +1062,35 @@ export const hqService = {
     return hqTeamService.listMembers();
   },
 
+  async getSessionAccess(reqUser) {
+    const { getHqTeamMemberById } = await import('./hq-team-platform-auth.service.js');
+    if (reqUser?.hqTeamMemberId) {
+      const member = await getHqTeamMemberById(String(reqUser.hqTeamMemberId));
+      if (!member || member.status !== 'active') {
+        throw new Error('HQ team member account is inactive or missing');
+      }
+      return {
+        isHqTeamMember: true,
+        isPlatformOperator: false,
+        hqTeamMemberId: member.id,
+        email: member.email,
+        loginId: member.loginId || '',
+        hqPermissionIds: Array.isArray(member.permissionIds)
+          ? member.permissionIds.map(String)
+          : [],
+      };
+    }
+
+    assertPlatformProvisioner(reqUser);
+    return {
+      isHqTeamMember: false,
+      isPlatformOperator: true,
+      hqPermissionIds: null,
+      email: reqUser?.email || '',
+      loginId: '',
+    };
+  },
+
   async createTeamMember(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqTeamService.createMember(data, reqUser);
@@ -1220,5 +1257,20 @@ export const hqService = {
   async uploadCourseVideo(file, reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqCoursesService.uploadVideo(file);
+  },
+
+  async getBilling(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqBillingService.getBilling();
+  },
+
+  async getCandidateBillingLedger(reqUser, candidateId) {
+    assertPlatformProvisioner(reqUser);
+    return hqBillingService.getCandidateLedger(candidateId);
+  },
+
+  async getEmployerBillingLedger(reqUser, tenantKey) {
+    assertPlatformProvisioner(reqUser);
+    return hqBillingService.getEmployerLedger(tenantKey);
   },
 };

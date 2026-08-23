@@ -121,6 +121,10 @@ router.post('/companies/:id/follow-ups/:followUpId/complete', authMiddleware, hq
 router.delete('/companies/:id/follow-ups/:followUpId', authMiddleware, hqController.deleteCompanyFollowUp);
 router.post('/companies/:id/remarks', authMiddleware, hqController.addCompanyRemark);
 
+router.get('/session-access', authMiddleware, hqController.getSessionAccess);
+router.get('/billing', authMiddleware, hqController.getBilling);
+router.get('/billing/candidate/:id/ledger', authMiddleware, hqController.getCandidateBillingLedger);
+router.get('/billing/employer/:tenantKey/ledger', authMiddleware, hqController.getEmployerBillingLedger);
 router.get('/team', authMiddleware, hqController.listTeamMembers);
 router.post('/team', authMiddleware, hqController.createTeamMember);
 router.put('/team/:id', authMiddleware, hqController.updateTeamMember);

@@ -27,12 +27,14 @@ import {
 } from 'lucide-react';
 import { HqBrandLogo } from './HqBrandLogo';
 import {
+  applyHqSessionAccess,
   canAccessHqNav,
   HQ_PERMISSIONS_STORAGE_KEY,
-  readHqPermissionIds,
+  resolveHqNavAccess,
+  type HqNavAccess,
   writeHqPermissionIds,
 } from '@/lib/hqNavPermissions';
-import { apiLogout } from '@/lib/api';
+import { apiHqGetSessionAccess, apiLogout } from '@/lib/api';
 import { HQ_DISPLAY_CURRENCY_KEY } from '@/lib/hqCurrency';
 import { HQ_FX_CACHE_KEY } from '@/lib/hqFxRates';
 
@@ -202,7 +204,7 @@ export const HQ_NAV_ITEMS: {
   {
     id: 'billing',
     label: 'Billing',
-    href: '/hq?tab=plans',
+    href: '/hq/billing',
     icon: CreditCard,
     accent: 'amber',
     group: 'ops',
@@ -309,7 +311,7 @@ function isNavActive(
   if (item.id === 'subscriptions') {
     return pathname === '/hq/subscriptions' || pathname.startsWith('/hq/subscriptions/');
   }
-  if (item.id === 'billing') return pathname === '/hq' && tab === 'plans';
+  if (item.id === 'billing') return pathname === '/hq/billing' || pathname.startsWith('/hq/billing/');
   if (item.id === 'plans') return pathname === '/hq' && tab === 'plans';
   if (item.id === 'portal') return pathname === '/hq/portal' || pathname.startsWith('/hq/portal/');
   if (item.id === 'events') return pathname === '/hq/events' || pathname.startsWith('/hq/events/');
@@ -488,21 +490,57 @@ export function HqSidebar() {
   const tab = searchParams.get('tab');
   const view = searchParams.get('view');
   const audience = searchParams.get('audience');
-  const [permissionIds, setPermissionIds] = useState<string[] | null>(null);
+  const [navAccess, setNavAccess] = useState<HqNavAccess>(() =>
+    typeof window === 'undefined'
+      ? { mode: 'full', permissionIds: [], isHqTeamMember: false }
+      : resolveHqNavAccess(),
+  );
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
-    setPermissionIds(readHqPermissionIds());
+    let cancelled = false;
+
+    const syncAccess = async () => {
+      const localAccess = resolveHqNavAccess();
+      if (!localAccess.isHqTeamMember) {
+        if (!cancelled) setNavAccess(localAccess);
+        return;
+      }
+
+      try {
+        const response = await apiHqGetSessionAccess();
+        const data = response.data;
+        if (data?.isHqTeamMember) {
+          applyHqSessionAccess({
+            isHqTeamMember: true,
+            hqTeamMemberId: data.hqTeamMemberId,
+            hqPermissionIds: data.hqPermissionIds || [],
+            loginId: data.loginId,
+            email: data.email,
+          });
+        }
+      } catch {
+        /* keep local session permissions */
+      }
+
+      if (!cancelled) setNavAccess(resolveHqNavAccess());
+    };
+
+    void syncAccess();
+
     const onStorage = (event: StorageEvent) => {
-      if (event.key === HQ_PERMISSIONS_STORAGE_KEY) {
-        setPermissionIds(readHqPermissionIds());
+      if (event.key === HQ_PERMISSIONS_STORAGE_KEY || event.key === 'currentUser') {
+        setNavAccess(resolveHqNavAccess());
       }
     };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('storage', onStorage);
+    };
   }, []);
 
-  const visibleItems = HQ_NAV_ITEMS.filter((item) => canAccessHqNav(item.id, permissionIds));
+  const visibleItems = HQ_NAV_ITEMS.filter((item) => canAccessHqNav(item.id, navAccess));
   const employeeItems = visibleItems.filter((item) => item.group === 'employees');
   const employerItems = visibleItems.filter((item) => item.group === 'employers');
   const platformItems = visibleItems.filter((item) => item.group === 'platform');
