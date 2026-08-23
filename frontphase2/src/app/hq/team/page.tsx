@@ -44,7 +44,12 @@ import {
 } from '@/lib/api';
 
 type TabType = 'members' | 'roles';
-type Credentials = { loginId: string; tempPassword: string };
+type Credentials = {
+  loginId: string;
+  tempPassword: string;
+  inviteEmailSent?: boolean;
+  inviteEmailError?: string | null;
+};
 
 type MemberForm = {
   firstName: string;
@@ -84,7 +89,7 @@ const emptyMemberForm = (): MemberForm => ({
   rank: 1,
   reportsToId: '',
   generateCredentials: true,
-  sendInvite: false,
+  sendInvite: true,
 });
 
 const emptyRoleForm = (): RoleForm => ({
@@ -145,6 +150,7 @@ export default function HqTeamPage() {
   const [inlineRoleDescription, setInlineRoleDescription] = useState('');
   const [inlineRoleColor, setInlineRoleColor] = useState('#6366F1');
   const [creatingInlineRole, setCreatingInlineRole] = useState(false);
+  const [memberSaveError, setMemberSaveError] = useState('');
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -264,6 +270,7 @@ export default function HqTeamPage() {
     setEditingMember(null);
     setMemberForm(emptyMemberForm());
     setCreatedCredentials(null);
+    setMemberSaveError('');
     resetInlineRole();
     setMemberDrawerOpen(true);
   }
@@ -287,6 +294,7 @@ export default function HqTeamPage() {
       sendInvite: false,
     });
     setCreatedCredentials(null);
+    setMemberSaveError('');
     resetInlineRole();
     setMemberDrawerOpen(true);
   }
@@ -366,11 +374,35 @@ export default function HqTeamPage() {
     const lastName = memberForm.lastName.trim();
     const email = memberForm.email.trim();
     const role = roles.find((candidate) => candidate.id === memberForm.roleId);
-    if (!firstName || !email || !role) {
-      toast.error('First name, email, and role are required.');
+
+    if (!firstName) {
+      const message = 'First name is required.';
+      setMemberSaveError(message);
+      toast.error(message);
+      return;
+    }
+    if (!email) {
+      const message = 'Email is required.';
+      setMemberSaveError(message);
+      toast.error(message);
+      return;
+    }
+    if (!memberForm.roleId || !role) {
+      const message = roles.length
+        ? 'Select a role for this team member.'
+        : 'Create an HQ role first, then assign it to the member.';
+      setMemberSaveError(message);
+      toast.error(message);
+      return;
+    }
+    if (!memberForm.permissionIds.length) {
+      const message = 'Select at least one HQ permission for this team member.';
+      setMemberSaveError(message);
+      toast.error(message);
       return;
     }
 
+    setMemberSaveError('');
     setSavingMember(true);
     try {
       const payload = {
@@ -400,10 +432,15 @@ export default function HqTeamPage() {
           sendInvite: memberForm.generateCredentials && memberForm.sendInvite,
         });
         toast.success('Team member created.');
+        if (response.data.credentials?.inviteEmailError) {
+          toast.warning(response.data.credentials.inviteEmailError);
+        }
         if (response.data.credentials) {
           setCreatedCredentials({
             loginId: response.data.credentials.loginId,
             tempPassword: response.data.credentials.tempPassword,
+            inviteEmailSent: response.data.credentials.inviteEmailSent,
+            inviteEmailError: response.data.credentials.inviteEmailError,
           });
         } else {
           setMemberDrawerOpen(false);
@@ -411,7 +448,9 @@ export default function HqTeamPage() {
       }
       await loadAll();
     } catch (saveError) {
-      toast.error(errorMessage(saveError));
+      const message = errorMessage(saveError);
+      setMemberSaveError(message);
+      toast.error(message);
     } finally {
       setSavingMember(false);
     }
@@ -536,6 +575,11 @@ export default function HqTeamPage() {
             </div>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
+              {memberSaveError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-800">
+                  {memberSaveError}
+                </div>
+              ) : null}
               {createdCredentials ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
                   <p className="font-bold">Credentials generated</p>
@@ -550,7 +594,14 @@ export default function HqTeamPage() {
                     </span>
                   </p>
                   <p className="mt-2 text-xs text-emerald-800">
-                    Copy these credentials now and share them securely.
+                    {createdCredentials.inviteEmailSent
+                      ? 'An invite email with the HQ login link was sent to their address.'
+                      : createdCredentials.inviteEmailError
+                        ? `Invite email could not be sent: ${createdCredentials.inviteEmailError}`
+                        : 'Copy these credentials now and share them securely, or enable “Send invite email” when creating the member.'}
+                  </p>
+                  <p className="mt-2 text-xs text-emerald-800">
+                    They can sign in at <span className="font-mono">/hq/login</span> using their email and password.
                   </p>
                 </div>
               ) : (
@@ -882,7 +933,7 @@ export default function HqTeamPage() {
                             }))
                           }
                         />
-                        Mark invite pending
+                        Send invite email with HQ login link
                       </label>
                     </div>
                   ) : null}
@@ -901,7 +952,7 @@ export default function HqTeamPage() {
                   >
                     Cancel
                   </HqSecondaryButton>
-                  <HqPrimaryButton onClick={() => void saveMember()} loading={savingMember}>
+                  <HqPrimaryButton type="button" onClick={() => void saveMember()} loading={savingMember}>
                     {editingMember ? 'Save changes' : 'Create member'}
                   </HqPrimaryButton>
                 </>
@@ -1152,10 +1203,19 @@ export default function HqTeamPage() {
                       <td className="px-4 py-3">{statusPill(member.status)}</td>
                       <td className="px-4 py-3">
                         {member.hasCredentials ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                            <KeyRound className="h-3.5 w-3.5" />
-                            {member.loginId || 'Credentials set'}
-                          </span>
+                          <div className="space-y-1 text-xs">
+                            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                              <KeyRound className="h-3.5 w-3.5" />
+                              HQ login
+                            </span>
+                            <div className="font-mono text-[11px] text-slate-700">
+                              <span className="text-slate-500">ID:</span> {member.loginId || '—'}
+                            </div>
+                            <div className="font-mono text-[11px] text-slate-700">
+                              <span className="text-slate-500">Pass:</span>{' '}
+                              {member.loginPassword || '—'}
+                            </div>
+                          </div>
                         ) : (
                           <span className="text-xs text-slate-400">No login yet</span>
                         )}

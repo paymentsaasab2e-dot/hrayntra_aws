@@ -1,8 +1,10 @@
 import crypto from 'crypto';
 import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
+import { sendHqTeamInviteEmail } from '../../utils/emailService.js';
 import { hqRolesService } from './hq-roles.service.js';
 import { normalizePermissionIds } from './hq-rbac.catalog.js';
+import { provisionHqTeamMemberPlatformAccount } from './hq-team-platform-auth.service.js';
 
 const HQ_CRM_TEAM_MEMBERS_COLLECTION = 'hq_crm_team_members';
 const VALID_STATUSES = ['active', 'inactive'];
@@ -69,6 +71,7 @@ function toMemberRow(doc, roleById = new Map(), memberNameById = new Map()) {
     reportsToId,
     reportsToName: reportsToId ? memberNameById.get(reportsToId) || '' : '',
     loginId: doc.loginId || '',
+    loginPassword: doc.password || '',
     hasCredentials: Boolean(doc.loginId && doc.password),
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : null,
     updatedAt: doc.updatedAt instanceof Date ? doc.updatedAt.toISOString() : null,
@@ -287,6 +290,60 @@ export const hqTeamService = {
       ]),
     );
 
+    let platformTenantDbName = null;
+    let inviteEmailSent = false;
+    let inviteEmailError = null;
+    let provisionError = null;
+
+    if (generateCredentials && inserted) {
+      try {
+        platformTenantDbName = await provisionHqTeamMemberPlatformAccount({
+          id: inserted._id.toString(),
+          name: inserted.name,
+          firstName: inserted.firstName,
+          lastName: inserted.lastName,
+          email: inserted.email,
+          loginId: inserted.loginId,
+          password: inserted.password,
+          role: inserted.role,
+          roleId: inserted.roleId ? String(inserted.roleId) : '',
+          permissionIds: inserted.permissionIds || [],
+          status: inserted.status,
+        });
+      } catch (provisionErr) {
+        provisionError = provisionErr?.message || String(provisionErr);
+        console.warn('[hq-team] platform account provisioning failed:', provisionError);
+      }
+
+      if (sendInvite) {
+        try {
+          await sendHqTeamInviteEmail({
+            email: parsed.email,
+            loginId,
+            tempPassword,
+            roleName: resolvedRole.roleName,
+          });
+          inviteEmailSent = true;
+          await collection.updateOne(
+            { _id: inserted._id },
+            { $set: { invitePending: false, inviteSentAt: new Date(), updatedAt: new Date() } },
+          );
+          inserted.invitePending = false;
+        } catch (emailErr) {
+          inviteEmailError = emailErr?.message || String(emailErr);
+          console.warn('[hq-team] invite email failed:', inviteEmailError);
+        }
+      }
+
+      if (provisionError && !inviteEmailSent) {
+        inviteEmailError = inviteEmailError
+          ? `${inviteEmailError} (Platform login provisioning: ${provisionError})`
+          : `HQ login account could not be provisioned: ${provisionError}`;
+      } else if (provisionError && inviteEmailSent) {
+        inviteEmailError = `Member created and invite sent, but platform login provisioning failed: ${provisionError}`;
+      }
+    }
+
     return {
       member: toMemberRow(inserted, roleById, memberNameById),
       credentials: generateCredentials
@@ -295,6 +352,9 @@ export const hqTeamService = {
             tempPassword,
             email: parsed.email,
             sendInvite,
+            inviteEmailSent,
+            inviteEmailError,
+            platformTenantDbName,
           }
         : null,
       storage: getStorageInfo(),

@@ -3,16 +3,44 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, Lock, LogIn, Mail, Shield } from 'lucide-react';
-import { apiLogin, formatAuthErrorMessage } from '../../../lib/api';
+import { Building2, Eye, EyeOff, Lock, LogIn, Shield, UserRound } from 'lucide-react';
+import { apiHqLogin, formatAuthErrorMessage } from '../../../lib/api';
 import { buildLoginDevicePayload, clearIntentionalLogout } from '../../../lib/sessionAuth';
-import { HQ_PLATFORM_EMAIL, isEmailAllowedForHq } from '../../../lib/hqAccess';
-import { writeHqPermissionIds } from '../../../lib/hqNavPermissions';
+import { isEmailAllowedForHq } from '../../../lib/hqAccess';
+import { applyHqSessionAccess } from '../../../lib/hqNavPermissions';
+
+function looksLikeEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function readHqTeamMemberFromResponse(response: Awaited<ReturnType<typeof apiHqLogin>>) {
+  const data = response.data as {
+    hqPermissionIds?: string[];
+    permissions?: string[];
+    user?: {
+      isHqTeamMember?: boolean;
+      hqTeamMemberId?: string;
+      email?: string;
+    };
+  };
+
+  const isHqTeamMember = Boolean(data?.user?.isHqTeamMember || data?.user?.hqTeamMemberId);
+  const hqPermissionIds = isHqTeamMember
+    ? Array.isArray(data?.hqPermissionIds)
+      ? data.hqPermissionIds.filter((id) => String(id).startsWith('hq_'))
+      : Array.isArray(data?.permissions)
+        ? data.permissions.filter((id) => String(id).startsWith('hq_'))
+        : []
+    : null;
+
+  return { isHqTeamMember, hqPermissionIds };
+}
 
 export default function HqLoginPage() {
   const router = useRouter();
-  const [email] = useState(HQ_PLATFORM_EMAIL);
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [statusHint, setStatusHint] = useState('');
@@ -21,8 +49,22 @@ export default function HqLoginPage() {
     clearIntentionalLogout();
   }, []);
 
-  const enterHq = () => {
-    writeHqPermissionIds(null);
+  const enterHq = (
+    isHqTeamMember: boolean,
+    hqPermissionIds?: string[] | null,
+    session?: { hqTeamMemberId?: string; email?: string; loginId?: string },
+  ) => {
+    if (isHqTeamMember) {
+      applyHqSessionAccess({
+        isHqTeamMember: true,
+        hqTeamMemberId: session?.hqTeamMemberId,
+        hqPermissionIds: hqPermissionIds || [],
+        email: session?.email,
+        loginId: session?.loginId,
+      });
+    } else {
+      applyHqSessionAccess({ isHqTeamMember: false, hqPermissionIds: null });
+    }
     router.replace('/hq');
   };
 
@@ -31,9 +73,9 @@ export default function HqLoginPage() {
     setError('');
     setStatusHint('');
 
-    const normalizedEmail = email.trim().toLowerCase();
-    if (normalizedEmail !== HQ_PLATFORM_EMAIL.toLowerCase()) {
-      setError(`HQ access is restricted to ${HQ_PLATFORM_EMAIL}.`);
+    const loginInput = identifier.trim();
+    if (!loginInput) {
+      setError('Enter your email or login ID.');
       return;
     }
     if (!password.trim()) {
@@ -45,13 +87,11 @@ export default function HqLoginPage() {
       setLoading(true);
       const device = await buildLoginDevicePayload();
 
-      // First attempt — may hit a leftover session from an old tab on this same machine.
-      let response = await apiLogin(normalizedEmail, password.trim(), device);
+      let response = await apiHqLogin(loginInput, password.trim(), device);
 
       if (response.data?.duplicateSession) {
         setStatusHint('Ending leftover session on this machine…');
-        // Alone / single machine: take over instead of waiting for approval from yourself.
-        response = await apiLogin(normalizedEmail, password.trim(), {
+        response = await apiHqLogin(loginInput, password.trim(), {
           ...device,
           forceSessionTakeover: true,
         });
@@ -64,14 +104,20 @@ export default function HqLoginPage() {
         return;
       }
 
-      const loggedInEmail = String(response.data?.user?.email || normalizedEmail).trim().toLowerCase();
+      const loggedInEmail = String(response.data?.user?.email || '').trim().toLowerCase();
+      const { isHqTeamMember, hqPermissionIds } = readHqTeamMemberFromResponse(response);
 
-      if (!isEmailAllowedForHq(loggedInEmail)) {
+      const allowed =
+        isHqTeamMember ||
+        (loggedInEmail && isEmailAllowedForHq(loggedInEmail)) ||
+        (looksLikeEmail(loginInput) && isEmailAllowedForHq(loginInput.toLowerCase()));
+
+      if (!allowed) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
           localStorage.removeItem('currentUser');
-          writeHqPermissionIds(null);
+          applyHqSessionAccess({ isHqTeamMember: false, hqPermissionIds: null });
         }
         setError('This account is not authorized for Headquarters access.');
         return;
@@ -82,9 +128,13 @@ export default function HqLoginPage() {
         return;
       }
 
-      enterHq();
+      enterHq(isHqTeamMember, hqPermissionIds, {
+        hqTeamMemberId: response.data?.user?.hqTeamMemberId,
+        email: loggedInEmail || response.data?.user?.email,
+        loginId: response.data?.user?.loginId,
+      });
     } catch (err: unknown) {
-      setError(formatAuthErrorMessage(err as { status?: number; message?: string }, 'Invalid email or password.'));
+      setError(formatAuthErrorMessage(err as { status?: number; message?: string }, 'Invalid email/login ID or password.'));
     } finally {
       setLoading(false);
       setStatusHint('');
@@ -100,7 +150,7 @@ export default function HqLoginPage() {
               <Shield size={24} strokeWidth={2} />
             </div>
             <h1 className="hq-display text-xl font-semibold text-white">Headquarters login</h1>
-            <p className="mt-1 text-sm font-medium text-slate-400">Platform operator access for tenant provisioning</p>
+            <p className="mt-1 text-sm font-medium text-slate-400">Platform operator and HQ team access</p>
           </div>
 
           <div className="p-6">
@@ -118,15 +168,17 @@ export default function HqLoginPage() {
             <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4" data-writing-assist="off">
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Platform email
+                  Email or Login ID
                 </label>
                 <div className="relative">
-                  <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <UserRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                   <input
-                    type="email"
-                    value={email}
-                    readOnly
-                    className="w-full cursor-not-allowed rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 pl-10 pr-4 text-sm text-slate-300"
+                    type="text"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    placeholder="you@company.com or login.id"
+                    autoComplete="username"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950/60 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
                   />
                 </div>
               </div>
@@ -135,13 +187,21 @@ export default function HqLoginPage() {
                 <div className="relative">
                   <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter HQ password"
+                    placeholder="Enter your password"
                     autoComplete="current-password"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950/60 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950/60 py-2.5 pl-10 pr-11 text-sm text-white placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-500 transition hover:text-slate-300"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
               </div>
               <button
@@ -163,7 +223,7 @@ export default function HqLoginPage() {
           </div>
         </div>
         <p className="mt-4 text-center text-xs text-slate-600">
-          Only {HQ_PLATFORM_EMAIL} may access the Headquarters console.
+          HQ team members: sign in with your invite email or login ID and password.
         </p>
       </div>
     </div>

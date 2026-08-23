@@ -81,6 +81,11 @@ export const authMiddleware = async (req, res, next) => {
           orgId: tokenPayload?.orgId || tokenPayload?.tenantDbName || null,
           tenantDbName: tokenPayload?.tenantDbName || null,
           sessionId: tokenPayload?.sessionId || null,
+          hqTeamMemberId: tokenPayload?.hqTeamMemberId || null,
+          hqPermissionIds: Array.isArray(tokenPayload?.hqPermissionIds)
+            ? tokenPayload.hqPermissionIds.map(String)
+            : null,
+          isHqTeamMember: Boolean(tokenPayload?.hqTeamMemberId),
         };
         setTenantAuditUser(user);
         return next();

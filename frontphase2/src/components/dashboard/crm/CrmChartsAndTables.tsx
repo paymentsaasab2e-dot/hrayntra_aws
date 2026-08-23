@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
 import { dashCard, formatNum, useCrmDashboard } from './crmShared';

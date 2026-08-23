@@ -2311,6 +2311,7 @@ export type HqTeamMemberRow = {
   reportsToId?: string;
   reportsToName?: string;
   loginId?: string;
+  loginPassword?: string;
   hasCredentials?: boolean;
   createdAt: string | null;
   updatedAt?: string | null;
@@ -2339,6 +2340,17 @@ export type HqPermissionRow = {
   module: string;
   description: string;
 };
+
+export async function apiHqGetSessionAccess() {
+  return apiFetch<{
+    isHqTeamMember: boolean;
+    isPlatformOperator?: boolean;
+    hqTeamMemberId?: string;
+    email?: string;
+    loginId?: string;
+    hqPermissionIds: string[] | null;
+  }>('/hq/session-access', { auth: true });
+}
 
 export async function apiHqListTeam() {
   return apiFetch<{
@@ -2369,7 +2381,15 @@ export async function apiHqCreateTeamMember(body: {
 }) {
   return apiFetch<{
     member: HqTeamMemberRow;
-    credentials?: { loginId: string; tempPassword: string; email: string; sendInvite: boolean } | null;
+    credentials?: {
+      loginId: string;
+      tempPassword: string;
+      email: string;
+      sendInvite: boolean;
+      inviteEmailSent?: boolean;
+      inviteEmailError?: string | null;
+      platformTenantDbName?: string | null;
+    } | null;
     storage: HqLeadStorageInfo;
   }>('/hq/team', {
     method: 'POST',
@@ -3467,6 +3487,204 @@ export type HqAnalyticsPayload = {
   employer: HqEmployerAnalytics;
 };
 
+export type HqBillingTransactionDirection = 'credit' | 'debit';
+
+export type HqBillingCandidatePurchaseRow = {
+  id: string;
+  candidateId: string;
+  candidateName: string;
+  candidateEmail: string;
+  candidatePhone: string;
+  packageId: string | null;
+  packageName: string;
+  tokens: number;
+  balanceAfter: number;
+  reference: string;
+  description: string;
+  purchasedAt: string | null;
+};
+
+export type HqBillingCandidateTransactionRow = {
+  id: string;
+  candidateId: string;
+  candidateName: string;
+  candidateEmail: string;
+  candidatePhone: string;
+  type: string;
+  label: string;
+  amount: number;
+  direction: HqBillingTransactionDirection;
+  unit: string;
+  balanceAfter: number;
+  packageId: string | null;
+  packageName: string;
+  service: string;
+  reference: string;
+  description: string;
+  occurredAt: string | null;
+};
+
+export type HqBillingEmployerTransactionRow = {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  email: string;
+  tenantDbName: string;
+  type: string;
+  label: string;
+  amount: number;
+  direction: HqBillingTransactionDirection;
+  unit: string;
+  balanceAfter?: number;
+  reference: string;
+  description: string;
+  featureId?: string;
+  packId?: string;
+  occurredAt: string | null;
+  actorEmail: string;
+};
+
+export type HqBillingLedgerStats = {
+  purchases: number;
+  spends: number;
+  grants: number;
+  coinsIn: number;
+  coinsOut: number;
+  total: number;
+};
+
+export type HqBillingCandidateLedgerPayload = {
+  entity: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    title: string;
+    tokenBalance: number;
+    phase: 'phase1';
+  };
+  transactions: HqBillingCandidateTransactionRow[];
+  stats: HqBillingLedgerStats;
+};
+
+export type HqBillingEmployerLedgerPayload = {
+  entity: {
+    phase: 'phase2';
+    tenantId: string;
+    tenantName: string;
+    email: string;
+    tenantDbName: string;
+    planName: string;
+    billingCycle: 'monthly' | 'annual';
+    aiCoins: number;
+    price: string | null;
+    planStartDate: string | null;
+    planEndDate: string | null;
+  };
+  transactions: HqBillingEmployerTransactionRow[];
+  stats: HqBillingLedgerStats;
+};
+
+export type HqBillingTenantCycleRow = {
+  tenantId: string;
+  tenantName: string;
+  email: string;
+  tenantDbName: string;
+  signupSource: string;
+  planName: string;
+  planId: string | null;
+  billingCycle: 'monthly' | 'annual';
+  price: string | null;
+  planStartDate: string | null;
+  planEndDate: string | null;
+  purchasedAt: string | null;
+  lastPaymentReference: string | null;
+  isTrial: boolean;
+  aiCoins: number;
+  status: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type HqBillingPurchaseRequestRow = {
+  id: string;
+  fullName: string;
+  email: string;
+  organizationName: string;
+  requestKind: string;
+  packageName: string;
+  packageSlug: string;
+  billingCycle: 'monthly' | 'annual';
+  trialProvisioned: boolean;
+  trialTenantDbName: string;
+  status: string;
+  submittedAt: string | null;
+  createdAt: string | null;
+};
+
+export type HqBillingPayload = {
+  overview: {
+    employer: {
+      totalTenants: number;
+      tenantsOnPlan: number;
+      monthlyCycles: number;
+      annualCycles: number;
+      landingPurchases: number;
+      purchaseRequests: number;
+      coinPurchases?: number;
+      coinSpends?: number;
+      totalTransactions?: number;
+    };
+    candidate: {
+      totalPurchases: number;
+      totalSpends?: number;
+      totalGrants?: number;
+      totalTokensSold: number;
+      totalTokensSpent?: number;
+      uniqueBuyers: number;
+      activePackTypes: number;
+      totalTransactions?: number;
+    };
+    generatedAt: string;
+  };
+  candidate: {
+    transactions: HqBillingCandidateTransactionRow[];
+    stats: HqBillingLedgerStats;
+  };
+  employer: {
+    tenantCycles: HqBillingTenantCycleRow[];
+    purchaseRequests: HqBillingPurchaseRequestRow[];
+    transactions: HqBillingEmployerTransactionRow[];
+    stats: {
+      totalTenants: number;
+      tenantsOnPlan: number;
+      monthlyCycles: number;
+      annualCycles: number;
+      landingPurchases: number;
+      purchaseRequests: number;
+      totalTransactions?: number;
+    };
+  };
+};
+
+export async function apiHqGetBilling() {
+  return apiFetch<HqBillingPayload>('/hq/billing', { auth: true });
+}
+
+export async function apiHqGetCandidateBillingLedger(candidateId: string) {
+  return apiFetch<HqBillingCandidateLedgerPayload>(
+    `/hq/billing/candidate/${encodeURIComponent(candidateId)}/ledger`,
+    { auth: true },
+  );
+}
+
+export async function apiHqGetEmployerBillingLedger(tenantKey: string) {
+  return apiFetch<HqBillingEmployerLedgerPayload>(
+    `/hq/billing/employer/${encodeURIComponent(tenantKey)}/ledger`,
+    { auth: true },
+  );
+}
+
 export async function apiHqGetAnalytics() {
   const bust = Date.now();
   return apiFetch<HqAnalyticsPayload>(`/hq/analytics?_=${bust}`, { auth: true });
@@ -4044,6 +4262,26 @@ interface AuthPayload {
   };
 }
 
+export async function apiHqLogin(
+  identifier: string,
+  password: string,
+  devicePayload?: {
+    deviceId?: string;
+    macAddress?: string;
+    macId?: string;
+    userAgent?: string;
+    forceSessionTakeover?: boolean;
+  }
+) {
+  if (typeof window !== 'undefined') {
+    syncTenantDbName(null);
+  }
+  const loginKey = identifier.includes('@')
+    ? identifier.trim().toLowerCase()
+    : identifier.trim();
+  return apiLogin(loginKey, password.trim(), devicePayload);
+}
+
 export async function apiLogin(
   email: string,
   password: string,
@@ -4124,8 +4362,25 @@ export async function apiLogin(
       roleColor: res.data.user?.roleColor || '',
       permissions,
       requirePasswordReset: res.data.requirePasswordReset || false,
+      hqTeamMemberId: (res.data.user as { hqTeamMemberId?: string })?.hqTeamMemberId || undefined,
+      isHqTeamMember: Boolean(
+        (res.data.user as { isHqTeamMember?: boolean; hqTeamMemberId?: string })?.isHqTeamMember ||
+          (res.data.user as { hqTeamMemberId?: string })?.hqTeamMemberId,
+      ),
     };
     localStorage.setItem('currentUser', JSON.stringify(userData));
+
+    const hqPermissionIds = Array.isArray((res.data as { hqPermissionIds?: string[] })?.hqPermissionIds)
+      ? (res.data as { hqPermissionIds: string[] }).hqPermissionIds.filter((id) => String(id).startsWith('hq_'))
+      : userData.isHqTeamMember && Array.isArray(permissions)
+        ? permissions.filter((id) => String(id).startsWith('hq_'))
+        : [];
+
+    if (userData.isHqTeamMember) {
+      localStorage.setItem('hrayntra:hq-permission-ids', JSON.stringify(hqPermissionIds));
+    } else {
+      localStorage.removeItem('hrayntra:hq-permission-ids');
+    }
     
     // Also store permissions separately for easy access
     localStorage.setItem('userPermissions', JSON.stringify(permissions));

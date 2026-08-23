@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { comboBarClass, comboToneClasses, type CrmComboMetric, type CrmInsightCategory } from './crmInsights';
 import { dashCard } from './crmShared';
