@@ -161,6 +161,18 @@ router.post(
   courseVideoUpload.single('file'),
   hqController.uploadCourseVideo,
 );
+router.post(
+  '/courses/certificate-background',
+  authMiddleware,
+  courseThumbnailUpload.single('file'),
+  hqController.uploadCourseCertificateBackground,
+);
+router.post('/courses/certificate-preview', authMiddleware, hqController.previewCourseCertificate);
+router.post(
+  '/courses/:id/enrollments/:enrollmentId/checkpoints/:checkpointId/pass',
+  authMiddleware,
+  hqController.passCourseCheckpoint,
+);
 router.get('/courses/:id/enrollments', authMiddleware, hqController.listCourseEnrollments);
 router.put('/courses/:id', authMiddleware, hqController.updateCourse);
 router.delete('/courses/:id', authMiddleware, hqController.deleteCourse);

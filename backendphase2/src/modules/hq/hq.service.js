@@ -1259,6 +1259,21 @@ export const hqService = {
     return hqCoursesService.uploadVideo(file);
   },
 
+  async uploadCourseCertificateBackground(file, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.uploadCertificateBackground(file);
+  },
+
+  previewCourseCertificate(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.previewCertificate(data);
+  },
+
+  async passCourseCheckpoint(courseId, enrollmentId, checkpointId, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCoursesService.passManualCheckpoint(courseId, enrollmentId, checkpointId);
+  },
+
   async getBilling(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqBillingService.getBilling();

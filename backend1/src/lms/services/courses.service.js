@@ -1,4 +1,127 @@
 const { prisma } = require('../../lib/prisma');
+const fs = require('fs');
+const path = require('path');
+const { randomUUID } = require('crypto');
+const {
+  normalizeCertificateConfig,
+  normalizeCheckpoints,
+  generateCertificateId,
+  renderCertificateHtml,
+} = require('./course-certificate');
+
+async function learnerDisplayName(userId) {
+  const candidate = await prisma.candidate.findUnique({
+    where: { id: userId },
+    select: { firstName: true, lastName: true, email: true },
+  });
+  let profile = null;
+  try {
+    profile = await prisma.candidateProfile.findFirst({
+      where: { candidateId: userId },
+      select: { fullName: true, email: true },
+    });
+  } catch {
+    profile = null;
+  }
+  const fromProfile = String(profile?.fullName || '').trim();
+  if (fromProfile) return fromProfile;
+  const joined = [candidate?.firstName, candidate?.lastName].filter(Boolean).join(' ').trim();
+  if (joined) return joined;
+  return String(profile?.email || candidate?.email || 'Learner').trim() || 'Learner';
+}
+
+function readCheckpoints(course) {
+  return normalizeCheckpoints(course?.checkpoints);
+}
+
+function readCertificate(course) {
+  return normalizeCertificateConfig(course?.certificate);
+}
+
+function progressMap(enrollment) {
+  const raw = enrollment?.checkpointProgress;
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
+}
+
+function requiredCheckpointsPassed(course, progress) {
+  const required = readCheckpoints(course).filter((row) => row.required !== false);
+  if (!required.length) return true;
+  return required.every((row) => Boolean(progress[row.id]?.passed));
+}
+
+async function syncQuizCheckpoints(userId, course, progress) {
+  const quizCheckpoints = readCheckpoints(course).filter((row) => row.type === 'quiz' && row.quizId);
+  if (!quizCheckpoints.length) return progress;
+  const next = { ...progress };
+  for (const checkpoint of quizCheckpoints) {
+    if (next[checkpoint.id]?.passed) continue;
+    const attempts = await prisma.lmsQuizAttempt.findMany({
+      where: { userId, quizId: checkpoint.quizId },
+      orderBy: { score: 'desc' },
+      take: 1,
+    });
+    const best = attempts[0];
+    if (best && Number(best.score) >= Number(checkpoint.passPercent || 70)) {
+      next[checkpoint.id] = {
+        passed: true,
+        at: new Date().toISOString(),
+        source: 'quiz',
+        score: Number(best.score),
+      };
+    }
+  }
+  return next;
+}
+
+function lessonGatesPassed(course, enrollment, progress, lessonId) {
+  const lessons = [...(course.lessons || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+  const index = lessons.findIndex((row) => row.id === lessonId);
+  if (index <= 0) return true;
+  const completed = new Set(enrollment?.completedLessonIds || []);
+  const prior = lessons.slice(0, index);
+  if (!prior.every((row) => completed.has(row.id))) return false;
+  const prevId = lessons[index - 1]?.id;
+  const blocking = readCheckpoints(course).filter(
+    (row) => row.required !== false && row.afterLessonId && row.afterLessonId === prevId,
+  );
+  return blocking.every((row) => Boolean(progress[row.id]?.passed));
+}
+
+async function maybeIssueCertificate(userId, course, enrollment, progress) {
+  const certified = Boolean(course.isCertified) || String(course.accessTier || '') === 'certified';
+  if (!certified) {
+    return prisma.lmsEnrollment.update({
+      where: { id: enrollment.id },
+      data: { checkpointProgress: progress },
+    });
+  }
+  const totalLessons = Math.max(1, Number(course.totalLessons) || (course.lessons || []).length || 1);
+  const lessonDone =
+    (enrollment.completedLessonIds || []).length >= totalLessons || Number(enrollment.progressPercent) >= 100;
+  if (!lessonDone || !requiredCheckpointsPassed(course, progress)) {
+    return prisma.lmsEnrollment.update({
+      where: { id: enrollment.id },
+      data: { checkpointProgress: progress },
+    });
+  }
+  if (enrollment.certificateId && enrollment.certificateIssuedAt) {
+    return prisma.lmsEnrollment.update({
+      where: { id: enrollment.id },
+      data: { checkpointProgress: progress, completedAt: enrollment.completedAt || new Date(), progressPercent: 100 },
+    });
+  }
+  const certificateId = generateCertificateId(course.title);
+  return prisma.lmsEnrollment.update({
+    where: { id: enrollment.id },
+    data: {
+      completedAt: enrollment.completedAt || new Date(),
+      progressPercent: 100,
+      checkpointProgress: progress,
+      certificateId,
+      certificateIssuedAt: new Date(),
+    },
+  });
+}
 
 async function checkCareerPathAdvancement(userId, courseId) {
   const careerPath = await prisma.lmsCareerPath.findUnique({ where: { userId } });
@@ -131,16 +254,28 @@ async function fetchCourseDetail(userId, courseId) {
 
   const enrollment = course.enrollments[0];
   const completedIds = enrollment ? enrollment.completedLessonIds : [];
+  let progress = progressMap(enrollment);
+  if (enrollment) {
+    progress = await syncQuizCheckpoints(userId, course, progress);
+    if (JSON.stringify(progress) !== JSON.stringify(progressMap(enrollment))) {
+      await prisma.lmsEnrollment.update({
+        where: { id: enrollment.id },
+        data: { checkpointProgress: progress },
+      });
+    }
+  }
 
   let nextLessonId = null;
   const lessonsWithState = course.lessons.map(lesson => {
     const isCompleted = completedIds.includes(lesson.id);
-    if (!isCompleted && !nextLessonId) {
+    const gateOpen = !enrollment || lessonGatesPassed(course, enrollment, progress, lesson.id);
+    if (!isCompleted && gateOpen && !nextLessonId) {
       nextLessonId = lesson.id;
     }
     return {
       ...lesson,
-      isCompleted
+      isCompleted,
+      isLocked: Boolean(lesson.isLocked) || !gateOpen,
     };
   });
 
@@ -176,6 +311,15 @@ async function fetchCourseDetail(userId, courseId) {
     progressPercent: enrollment ? enrollment.progressPercent : 0,
     nextLessonId,
     lessons: lessonsWithState,
+    checkpoints: readCheckpoints(course).map((row) => ({
+      ...row,
+      passed: Boolean(progress[row.id]?.passed),
+      progress: progress[row.id] || null,
+    })),
+    certificate: readCertificate(course),
+    certificateId: enrollment?.certificateId || null,
+    certificateIssuedAt: enrollment?.certificateIssuedAt || null,
+    canDownloadCertificate: Boolean(enrollment?.certificateId),
     relatedQuizzes,
     relatedEvents
   };
@@ -266,7 +410,7 @@ async function toggleSaveCourse(userId, courseId, saved) {
 async function markLessonComplete(userId, courseId, lessonId) {
   let enrollment = await prisma.lmsEnrollment.findUnique({
     where: { userId_courseId: { userId, courseId } },
-    include: { course: true }
+    include: { course: { include: { lessons: { orderBy: { order: 'asc' } } } } }
   });
 
   if (!enrollment) {
@@ -285,25 +429,51 @@ async function markLessonComplete(userId, courseId, lessonId) {
     enrollment.course = course;
   }
 
+  const course = enrollment.course || (await prisma.lmsCourse.findUnique({
+    where: { id: courseId },
+    include: { lessons: { orderBy: { order: 'asc' } } },
+  }));
+  enrollment.course = course;
+
   const completedIds = new Set(enrollment.completedLessonIds);
   completedIds.add(lessonId);
   const newCompletedIds = Array.from(completedIds);
   
-  const totalLessons = enrollment.course.totalLessons || 1;
+  const totalLessons = course.totalLessons || course.lessons?.length || 1;
   const progressPercent = Math.min((newCompletedIds.length / totalLessons) * 100, 100);
-  const isComplete = progressPercent === 100 && !enrollment.completedAt;
+  const lessonComplete = progressPercent >= 100 && !enrollment.completedAt;
 
-  const updatedEnrollment = await prisma.lmsEnrollment.update({
+  let progress = await syncQuizCheckpoints(userId, course, progressMap(enrollment));
+  const gatesOk = lessonGatesPassed(
+    { ...course, lessons: course.lessons || [] },
+    { ...enrollment, completedLessonIds: enrollment.completedLessonIds },
+    progress,
+    lessonId,
+  );
+  if (!gatesOk && !enrollment.completedLessonIds.includes(lessonId)) {
+    const err = new Error('Complete the previous lesson and any required checkpoint first.');
+    err.status = 403;
+    throw err;
+  }
+
+  let updatedEnrollment = await prisma.lmsEnrollment.update({
     where: { id: enrollment.id },
     data: {
       completedLessonIds: newCompletedIds,
       progressPercent,
       lastAccessedAt: new Date(),
-      ...(isComplete && { completedAt: new Date() })
+      checkpointProgress: progress,
+      ...(lessonComplete && requiredCheckpointsPassed(course, progress) ? { completedAt: new Date() } : {}),
     }
   });
 
-  if (isComplete) {
+  updatedEnrollment = await maybeIssueCertificate(userId, { ...course, totalLessons }, {
+    ...updatedEnrollment,
+    completedLessonIds: newCompletedIds,
+    progressPercent,
+  }, progress);
+
+  if (updatedEnrollment.completedAt) {
     await checkCareerPathAdvancement(userId, courseId);
   }
 
@@ -331,15 +501,13 @@ async function fetchLessonDetail(userId, courseId, lessonId) {
   });
 
   const currentIndex = course.lessons.findIndex(l => l.id === lessonId);
+  const progress = progressMap(enrollment);
+  const gateOpen = lessonGatesPassed(course, enrollment, progress, lessonId);
   
-  if (lesson.isLocked) {
-    // Basic unlock logic: all prior lessons must be completed
-    const priorLessons = course.lessons.slice(0, currentIndex);
-    const completedIds = enrollment ? enrollment.completedLessonIds : [];
-    const priorCompleted = priorLessons.every(l => completedIds.includes(l.id));
-    if (!priorCompleted && priorLessons.length > 0) {
-      throw new Error('This lesson is locked until previous lessons are completed.');
-    }
+  if ((lesson.isLocked || !gateOpen) && currentIndex > 0) {
+    const err = new Error('This lesson is locked until previous lessons and checkpoints are completed.');
+    err.status = 403;
+    throw err;
   }
 
   const prevLesson = currentIndex > 0 ? course.lessons[currentIndex - 1] : null;
@@ -353,11 +521,155 @@ async function fetchLessonDetail(userId, courseId, lessonId) {
   };
 }
 
+async function completeCheckpoint(userId, courseId, checkpointId, { file, note } = {}) {
+  const course = await prisma.lmsCourse.findUnique({
+    where: { id: courseId },
+    include: { lessons: { orderBy: { order: 'asc' } } },
+  });
+  if (!course) {
+    const err = new Error('Course not found');
+    err.status = 404;
+    throw err;
+  }
+  const checkpoint = readCheckpoints(course).find((row) => row.id === String(checkpointId));
+  if (!checkpoint) {
+    const err = new Error('Checkpoint not found');
+    err.status = 404;
+    throw err;
+  }
+  if (checkpoint.type === 'manual') {
+    const err = new Error('This checkpoint must be signed off by HQ.');
+    err.status = 403;
+    throw err;
+  }
+  let enrollment = await prisma.lmsEnrollment.findUnique({
+    where: { userId_courseId: { userId, courseId } },
+  });
+  if (!enrollment) {
+    const result = await enrollUser(userId, courseId);
+    enrollment = result.enrollment;
+  }
+  let progress = await syncQuizCheckpoints(userId, course, progressMap(enrollment));
+  if (checkpoint.type === 'quiz') {
+    progress = await syncQuizCheckpoints(userId, course, progress);
+    if (!progress[checkpoint.id]?.passed) {
+      const err = new Error(`Pass the linked quiz at ${checkpoint.passPercent || 70}% first.`);
+      err.status = 400;
+      throw err;
+    }
+  }
+  if (checkpoint.type === 'assignment') {
+    let fileMeta = null;
+    if (file?.buffer?.length) {
+      const dir = path.join(__dirname, '../../../uploads/lms-assignments');
+      fs.mkdirSync(dir, { recursive: true });
+      const safe = String(file.originalname || 'assignment').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const stored = `${Date.now()}_${randomUUID().slice(0, 8)}_${safe}`;
+      fs.writeFileSync(path.join(dir, stored), file.buffer);
+      fileMeta = {
+        name: safe,
+        url: `/uploads/lms-assignments/${encodeURIComponent(stored)}`,
+      };
+    }
+    progress[checkpoint.id] = {
+      passed: true,
+      at: new Date().toISOString(),
+      source: 'assignment',
+      note: String(note || '').trim() || null,
+      file: fileMeta,
+    };
+  }
+  const updated = await maybeIssueCertificate(userId, course, {
+    ...enrollment,
+    progressPercent: enrollment.progressPercent,
+    completedLessonIds: enrollment.completedLessonIds,
+  }, progress);
+  return { checkpointId: checkpoint.id, progress: progress[checkpoint.id], enrollment: updated };
+}
+
+async function fetchCertificateHtml(userId, courseId) {
+  const course = await prisma.lmsCourse.findUnique({
+    where: { id: courseId },
+    include: { lessons: { orderBy: { order: 'asc' } } },
+  });
+  if (!course) {
+    const err = new Error('Course not found');
+    err.status = 404;
+    throw err;
+  }
+  let enrollment = await prisma.lmsEnrollment.findUnique({
+    where: { userId_courseId: { userId, courseId } },
+  });
+  if (!enrollment) {
+    const err = new Error('Enroll and complete this course to get a certificate.');
+    err.status = 403;
+    throw err;
+  }
+  const progress = await syncQuizCheckpoints(userId, course, progressMap(enrollment));
+  enrollment = await maybeIssueCertificate(userId, course, enrollment, progress);
+  if (!enrollment.certificateId) {
+    const err = new Error('Finish every lesson and required checkpoint before downloading the certificate.');
+    err.status = 403;
+    throw err;
+  }
+  const learnerName = await learnerDisplayName(userId);
+  const html = renderCertificateHtml({
+    learnerName,
+    courseTitle: course.title,
+    instructorName: course.instructorName || 'HRYantra HQ',
+    completedAt: enrollment.certificateIssuedAt || enrollment.completedAt || new Date(),
+    certificateId: enrollment.certificateId,
+    certificate: course.certificate,
+  });
+  return { html, certificateId: enrollment.certificateId };
+}
+
+async function fetchCertificatePdf(userId, courseId) {
+  const { renderCertificatePdf } = require('./course-certificate');
+  const course = await prisma.lmsCourse.findUnique({
+    where: { id: courseId },
+    include: { lessons: { orderBy: { order: 'asc' } } },
+  });
+  if (!course) {
+    const err = new Error('Course not found');
+    err.status = 404;
+    throw err;
+  }
+  let enrollment = await prisma.lmsEnrollment.findUnique({
+    where: { userId_courseId: { userId, courseId } },
+  });
+  if (!enrollment) {
+    const err = new Error('Enroll and complete this course to get a certificate.');
+    err.status = 403;
+    throw err;
+  }
+  const progress = await syncQuizCheckpoints(userId, course, progressMap(enrollment));
+  enrollment = await maybeIssueCertificate(userId, course, enrollment, progress);
+  if (!enrollment.certificateId) {
+    const err = new Error('Finish every lesson and required checkpoint before downloading the certificate.');
+    err.status = 403;
+    throw err;
+  }
+  const learnerName = await learnerDisplayName(userId);
+  const buffer = await renderCertificatePdf({
+    learnerName,
+    courseTitle: course.title,
+    instructorName: course.instructorName || 'HRYantra HQ',
+    completedAt: enrollment.certificateIssuedAt || enrollment.completedAt || new Date(),
+    certificateId: enrollment.certificateId,
+    certificate: course.certificate,
+  });
+  return { buffer, certificateId: enrollment.certificateId };
+}
+
 module.exports = {
   fetchCourses,
   fetchCourseDetail,
   enrollUser,
   toggleSaveCourse,
   markLessonComplete,
-  fetchLessonDetail
+  fetchLessonDetail,
+  completeCheckpoint,
+  fetchCertificateHtml,
+  fetchCertificatePdf,
 };
