@@ -73,6 +73,43 @@ async function completeLesson(req, res) {
   }
 }
 
+async function completeCheckpoint(req, res) {
+  try {
+    const result = await coursesService.completeCheckpoint(req.user.id, req.params.courseId, req.params.checkpointId, {
+      file: req.file,
+      note: req.body?.note,
+    });
+    return sendSuccess(res, result, 'Checkpoint completed');
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+async function getCertificate(req, res) {
+  try {
+    const result = await coursesService.fetchCertificateHtml(req.user.id, req.params.courseId);
+    return sendSuccess(res, result);
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+async function getCertificatePdf(req, res) {
+  try {
+    const result = await coursesService.fetchCertificatePdf(req.user.id, req.params.courseId);
+    const filename = `certificate-${String(result.certificateId || 'course').replace(/[^\w.-]+/g, '_')}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('X-Certificate-Id', result.certificateId || '');
+    res.setHeader(
+      'Content-Disposition',
+      `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${filename}"`,
+    );
+    return res.send(result.buffer);
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
 async function getLessonDetail(req, res) {
   try {
     const lesson = await coursesService.fetchLessonDetail(req.user.id, req.params.courseId, req.params.lessonId);
@@ -82,4 +119,4 @@ async function getLessonDetail(req, res) {
   }
 }
 
-module.exports = { getCourses, getCourseDetail, enrollCourse, saveCourse, completeLesson, getLessonDetail };
+module.exports = { getCourses, getCourseDetail, enrollCourse, saveCourse, completeLesson, completeCheckpoint, getCertificate, getCertificatePdf, getLessonDetail };
