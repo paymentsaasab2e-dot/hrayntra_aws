@@ -82,7 +82,7 @@ interface HqStats {
 
 const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
   dashboard: 'Portal and employer platform analytics, plus tenant overview.',
-  tenants: 'Phase 2 employer users and workspaces — including landing-page signups.',
+  tenants: 'Phase 2 employer users and workspaces. Trial accounts are not listed here.',
   plans: '',
   bootstrap: 'Local-only super admin credential injection.',
 };
@@ -625,7 +625,6 @@ function HQSetupPage() {
           <>
             <TenantsPanel
               tenants={tenants}
-              tenantStats={stats}
               tenantsLoading={tenantsLoading}
               tenantsError={tenantsError}
               planOptions={planOptions}
@@ -702,15 +701,28 @@ function DashboardPanel({
   tenantsError: string;
   tenantsLoading: boolean;
 }) {
-  const recent = tenants.slice(0, 5);
+  const paidTenants = useMemo(() => tenants.filter((t) => !isHqTrialAccount(t)), [tenants]);
+  const recent = paidTenants.slice(0, 5);
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <HqStatCard label="Users" value={stats?.total ?? (tenantsLoading ? '…' : 0)} active />
-        <HqStatCard label="Landing purchases" value={stats?.landingPurchases ?? tenants.filter((t) => t.signupSource === 'landing_purchase').length} />
-        <HqStatCard label="Agency" value={stats?.agency ?? 0} />
-        <HqStatCard label="Standalone" value={stats?.standalone ?? 0} />
-        <HqStatCard label="On a plan" value={tenants.filter((t) => t.subscriptionPlan?.name).length} />
+        <HqStatCard label="Users" value={stats?.total ?? (tenantsLoading ? '…' : paidTenants.length)} active />
+        <HqStatCard
+          label="Landing purchases"
+          value={stats?.landingPurchases ?? paidTenants.filter((t) => t.signupSource === 'landing_purchase').length}
+        />
+        <HqStatCard
+          label="Agency"
+          value={stats?.agency ?? paidTenants.filter((t) => t.organizationType === 'agency').length}
+        />
+        <HqStatCard
+          label="Standalone"
+          value={stats?.standalone ?? paidTenants.filter((t) => t.organizationType === 'standalone').length}
+        />
+        <HqStatCard
+          label="On a plan"
+          value={paidTenants.filter((t) => t.subscriptionPlan?.name).length}
+        />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -786,9 +798,22 @@ function isTenantPaused(tenant: HqTenantRow) {
   return String(tenant.status || 'ACTIVE').toUpperCase() === 'PAUSED';
 }
 
+function isHqTrialAccount(tenant: HqTenantRow) {
+  const source = String(tenant.signupSource || '').trim().toLowerCase();
+  if (source === 'landing_trial' || source === 'hq_grant_trial' || source.includes('trial')) {
+    return true;
+  }
+  if (tenant.subscriptionPlan?.isTrial) return true;
+  const planName = String(tenant.subscriptionPlan?.name || '').toLowerCase();
+  if (planName.includes('trial')) return true;
+  const loginId = String(tenant.loginId || '').trim().toLowerCase();
+  if (loginId.endsWith('@trial')) return true;
+  return false;
+}
+
 function tenantSignupSourceLabel(source?: string) {
   if (source === 'landing_purchase') return 'Landing purchase';
-  if (source === 'landing_trial') return 'Landing trial';
+  if (source === 'landing_trial' || source === 'hq_grant_trial') return 'Trial';
   if (source === 'hq_company') return 'From company';
   if (source === 'hq_manual') return 'HQ created';
   return 'Platform user';
@@ -796,7 +821,9 @@ function tenantSignupSourceLabel(source?: string) {
 
 function tenantSignupSourceClass(source?: string) {
   if (source === 'landing_purchase') return 'bg-violet-50 text-violet-700 ring-violet-100';
-  if (source === 'landing_trial') return 'bg-orange-50 text-orange-700 ring-orange-100';
+  if (source === 'landing_trial' || source === 'hq_grant_trial') {
+    return 'bg-orange-50 text-orange-700 ring-orange-100';
+  }
   if (source === 'hq_company') return 'bg-emerald-50 text-emerald-700 ring-emerald-100';
   if (source === 'hq_manual') return 'bg-slate-100 text-slate-600 ring-slate-200';
   return 'bg-sky-50 text-sky-700 ring-sky-100';
@@ -804,7 +831,6 @@ function tenantSignupSourceClass(source?: string) {
 
 function TenantsPanel({
   tenants,
-  tenantStats,
   tenantsLoading,
   tenantsError,
   planOptions,
@@ -818,7 +844,6 @@ function TenantsPanel({
   onCoinsUpdated,
 }: {
   tenants: HqTenantRow[];
-  tenantStats: HqStats | null;
   tenantsLoading: boolean;
   tenantsError: string;
   planOptions: HqSubscriptionPackage[];
@@ -831,8 +856,8 @@ function TenantsPanel({
   onCreateTenant: () => void;
   onCoinsUpdated: () => void;
 }) {
-  const landingPurchases = tenantStats?.landingPurchases ?? tenants.filter((t) => t.signupSource === 'landing_purchase').length;
-  const landingTrials = tenantStats?.landingTrials ?? tenants.filter((t) => t.signupSource === 'landing_trial').length;
+  const visibleTenants = useMemo(() => tenants.filter((tenant) => !isHqTrialAccount(tenant)), [tenants]);
+  const landingPurchases = visibleTenants.filter((t) => t.signupSource === 'landing_purchase').length;
   const [detailTenant, setDetailTenant] = useState<HqTenantRow | null>(null);
   const [deleteTenant, setDeleteTenant] = useState<DeleteTenantTarget | null>(null);
 
@@ -844,9 +869,10 @@ function TenantsPanel({
   const detailEmail = detailTenant?.email;
   useEffect(() => {
     if (!detailEmail) return;
-    const next = tenants.find((t) => t.email === detailEmail);
+    const next = visibleTenants.find((t) => t.email === detailEmail);
     if (next) setDetailTenant(next);
-  }, [tenants, detailEmail]);
+    else setDetailTenant(null);
+  }, [visibleTenants, detailEmail]);
 
   return (
     <HqPanel className="!p-0 overflow-hidden">
@@ -883,7 +909,7 @@ function TenantsPanel({
           title="Users"
           meta={
             <span className="text-[10px] font-medium text-slate-400">
-              {tenants.length} total · {landingPurchases} landing purchases · {landingTrials} landing trials
+              {visibleTenants.length} total · {landingPurchases} landing purchases
             </span>
           }
         />
@@ -903,7 +929,7 @@ function TenantsPanel({
       </div>
       {tenantsError ? (
         <div className="m-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700">{tenantsError}</div>
-      ) : tenants.length === 0 ? (
+      ) : visibleTenants.length === 0 ? (
         <div className="px-5 pb-5 text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No users yet.'}</div>
       ) : (
         <div className="hq-table-scroll px-1 pb-2">
@@ -928,7 +954,7 @@ function TenantsPanel({
               </tr>
             </thead>
             <tbody>
-              {tenants.map((t) => (
+              {visibleTenants.map((t) => (
                 <tr
                   key={t.id}
                   className="border-b border-slate-100 last:border-b-0 transition-colors hover:bg-slate-50/60 cursor-pointer"

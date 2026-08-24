@@ -23,6 +23,7 @@ import { hqTicketsService } from './hq-tickets.service.js';
 import { hqTrialService } from './hq-trial.service.js';
 import { hqHelpTicketsService } from './hq-help-tickets.service.js';
 import { hqBillingService } from './hq-billing.service.js';
+import { hqReportsService } from './hq-reports.service.js';
 
 async function resolvePlanInput(raw, billingCycle, planStartDate, planEndDate) {
   const plan = await hqPackagesService.resolvePlanInput(
@@ -216,6 +217,24 @@ function mapTenantForHqResponse(tenant) {
     deletedAt: tenant.deletedAt || null,
     deletedBy: tenant.deletedBy || '',
   };
+}
+
+/** HQ Tenants tab lists paid/platform workspaces only — hide try-free / trial grants. */
+function isHqTrialTenant(tenant) {
+  const source = String(tenant?.signupSource || '')
+    .trim()
+    .toLowerCase();
+  if (source === 'landing_trial' || source === 'hq_grant_trial' || source.includes('trial')) {
+    return true;
+  }
+  if (tenant?.subscriptionPlan?.isTrial) return true;
+  const planName = String(tenant?.subscriptionPlan?.name || '').toLowerCase();
+  if (planName.includes('trial')) return true;
+  const loginId = String(tenant?.loginId || '')
+    .trim()
+    .toLowerCase();
+  if (loginId.endsWith('@trial')) return true;
+  return false;
 }
 
 async function enrichTenantsFromLandingSignups(tenants) {
@@ -498,17 +517,19 @@ export const hqService = {
     tenants = await enrichTenantsFromLandingSignups(tenants);
     const packages = await hqPackagesService.listPackages();
     const landingPurchases = tenants.filter((t) => t.signupSource === 'landing_purchase').length;
-    const landingTrials = tenants.filter((t) => t.signupSource === 'landing_trial').length;
+    const landingTrials = tenants.filter((t) => isHqTrialTenant(t)).length;
+    // Tenants tab / HQ user list: never surface trial workspaces.
+    const visibleTenants = tenants.filter((t) => !isHqTrialTenant(t));
     const stats = {
-      total: tenants.length,
-      agency: tenants.filter((t) => t.organizationType === 'agency').length,
-      standalone: tenants.filter((t) => t.organizationType === 'standalone').length,
+      total: visibleTenants.length,
+      agency: visibleTenants.filter((t) => t.organizationType === 'agency').length,
+      standalone: visibleTenants.filter((t) => t.organizationType === 'standalone').length,
       landingPurchases,
       landingTrials,
-      planCounts: buildPlanCounts(tenants, packages),
+      planCounts: buildPlanCounts(visibleTenants, packages),
     };
     return {
-      tenants: tenants.map(mapTenantForHqResponse),
+      tenants: visibleTenants.map(mapTenantForHqResponse),
       stats,
       planOptions: packages,
     };
@@ -1204,6 +1225,26 @@ export const hqService = {
   async getAnalytics(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqAnalyticsService.getAnalytics();
+  },
+
+  async listCustomReports(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqReportsService.listReports();
+  },
+
+  async createCustomReport(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqReportsService.createReport(data, reqUser);
+  },
+
+  async updateCustomReport(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqReportsService.updateReport(id, data, reqUser);
+  },
+
+  async deleteCustomReport(id, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqReportsService.deleteReport(id);
   },
 
   async deletePortalJob(jobId, data, reqUser) {
