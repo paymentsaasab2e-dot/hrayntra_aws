@@ -701,6 +701,42 @@ export const hqController = {
     }
   },
 
+  async listCustomReports(req, res) {
+    try {
+      const result = await hqService.listCustomReports(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async createCustomReport(req, res) {
+    try {
+      const result = await hqService.createCustomReport(req.body || {}, req.user);
+      sendResponse(res, 201, 'Report saved', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async updateCustomReport(req, res) {
+    try {
+      const result = await hqService.updateCustomReport(req.params.id, req.body || {}, req.user);
+      sendResponse(res, 200, 'Report updated', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async deleteCustomReport(req, res) {
+    try {
+      const result = await hqService.deleteCustomReport(req.params.id, req.user);
+      sendResponse(res, 200, 'Report deleted', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
   async deletePortalJob(req, res) {
     try {
       const jobId = String(req.params?.id || '').trim();

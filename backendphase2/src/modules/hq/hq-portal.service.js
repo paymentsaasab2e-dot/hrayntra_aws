@@ -303,11 +303,13 @@ export const hqPortalService = {
       portal.candidate.findMany({
         where: notSoftDeletedWhere(),
         orderBy: { updatedAt: 'desc' },
+        take: LIST_LIMIT,
         select: CANDIDATE_SELECT,
       }),
       common
         ? common.candidateCommon.findMany({
             orderBy: { syncedAt: 'desc' },
+            take: LIST_LIMIT,
             select: {
               candidateId: true,
               firstName: true,
