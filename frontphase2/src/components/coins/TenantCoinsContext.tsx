@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Lock } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 import { TokenCoinIcon } from './TokenCoinIcon';
 import { apiGetTenantCoins, type AiCoinPack, type HqAiFeature, TENANT_COINS_REFRESH_EVENT, AI_FEATURE_COSTS_UPDATED_EVENT, AI_FEATURE_COSTS_UPDATED_STORAGE_KEY } from '@/lib/api';
 import { ApiRequestError } from '@/lib/apiNetworkErrors';
@@ -204,6 +205,9 @@ export function AiCoinLockBanner({
   featureId?: string;
   className?: string;
 }) {
+  const pathname = usePathname();
+  if (String(pathname || '').startsWith('/hq')) return null;
+
   const { coins, isFeatureLocked, getFeatureCost, openPurchase } = useTenantCoins();
   const locked = featureId ? isFeatureLocked(featureId) : coins <= 0;
   if (!locked) return null;

@@ -997,6 +997,8 @@ interface ClientDetailsDrawerProps {
     clientId: string,
     data: Record<string, unknown>,
   ) => Promise<BackendClient | undefined | null>;
+  /** HQ company page — provision a tenant from this client/company. */
+  onCreateTenant?: (clientId: string) => void;
   /**
    * Stacking class for backdrop + panel (e.g. `z-[100]` when opened above AI Job Creation).
    * Defaults to `z-50`.
@@ -1018,6 +1020,7 @@ export function ClientDetailsDrawer({
   onJobCreated,
   createClientOverride,
   updateClientOverride,
+  onCreateTenant,
   stackClassName = 'z-50',
 }: ClientDetailsDrawerProps) {
   const drawerIsOpen = Boolean(client) || propIsAddMode;
@@ -4155,6 +4158,16 @@ export function ClientDetailsDrawer({
                           <Edit2 size={18} />
                         </button>
                       )}
+                      {isHqOverrideMode && onCreateTenant && client?.id && !overviewEditMode ? (
+                        <button
+                          type="button"
+                          onClick={() => onCreateTenant(client.id)}
+                          className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+                          title="Create tenant"
+                        >
+                          Create tenant
+                        </button>
+                      ) : null}
                       {activeTab === 'overview' && overviewEditMode && (
                         <>
                           <button

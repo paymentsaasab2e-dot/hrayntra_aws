@@ -1,4 +1,4 @@
-export type HqLeadStage = 'new' | 'demo' | 'contacted' | 'qualified' | 'converted' | 'lost';
+export type HqLeadStage = 'new' | 'demo' | 'trial' | 'contacted' | 'qualified' | 'converted' | 'lost';
 
 export type HqLeadScore = 'Hot' | 'Warm' | 'Cold';
 
@@ -52,13 +52,8 @@ export type HqLeadDrawerTab = 'details' | 'followup' | 'remarks';
 
 export const HQ_LEAD_FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'] as const;
 
-export const HQ_LEAD_MODULE_OPTIONS = [
-  'Recruitment',
-  'Payroll',
-  'Time & Attendance',
-  'Employee Management',
-  'Performance',
-] as const;
+/** Same two product lines shown on HQ Add Lead (CRM / Recruitment). */
+export const HQ_LEAD_MODULE_OPTIONS = ['CRM', 'Recruitment'] as const;
 
 export const HQ_LEAD_INDUSTRY_OPTIONS = [
   'IT Services',
@@ -137,6 +132,7 @@ export function formatNextFollowUpDisplay(value?: string | null): string {
 export const HQ_LEAD_STAGE_LABELS: Record<HqLeadStage, string> = {
   new: 'New',
   demo: 'Demo',
+  trial: 'Trial',
   contacted: 'Contacted',
   qualified: 'Qualified',
   converted: 'Converted',
@@ -146,6 +142,7 @@ export const HQ_LEAD_STAGE_LABELS: Record<HqLeadStage, string> = {
 export const HQ_LEAD_STAGE_STYLES: Record<HqLeadStage, string> = {
   new: 'bg-sky-50 text-sky-700 ring-sky-200',
   demo: 'bg-orange-50 text-orange-700 ring-orange-200',
+  trial: 'bg-teal-50 text-teal-700 ring-teal-200',
   contacted: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
   qualified: 'bg-violet-50 text-violet-700 ring-violet-200',
   converted: 'bg-emerald-50 text-emerald-700 ring-emerald-200',

@@ -122,7 +122,10 @@ export function normalizeHttpError(
   message: string,
   meta: Omit<ApiRequestErrorOptions, 'status' | 'kind' | 'retryable'> = {}
 ): ApiRequestError {
-  const retryable = isRetryableHttpStatus(status);
+  const lowerMessage = String(message || '').toLowerCase();
+  const looksLikeUpstreamTimeout =
+    /etimedout|timed out|querysrv etimeout|econnrefused|connection refused|mongodb\.net/.test(lowerMessage);
+  const retryable = isRetryableHttpStatus(status) || looksLikeUpstreamTimeout;
   let friendly = message || CONNECTION_STATUS.failed.message;
 
   if (status === 429) {
@@ -131,6 +134,8 @@ export function normalizeHttpError(
     friendly = formatPortalStatusLine(CONNECTION_STATUS.timeout);
   } else if (status === 502 || status === 503) {
     friendly = formatPortalStatusLine(CONNECTION_STATUS.failed);
+  } else if (looksLikeUpstreamTimeout) {
+    friendly = formatPortalStatusLine(CONNECTION_STATUS.timeout);
   }
 
   return new ApiRequestError(friendly, {

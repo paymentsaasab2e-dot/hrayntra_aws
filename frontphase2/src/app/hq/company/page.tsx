@@ -12,8 +12,12 @@ import {
   SlidersHorizontal,
   Upload,
 } from 'lucide-react';
-import { CreateHqCompanyModal } from '@/components/hq/CreateHqCompanyModal';
-import { HqCompanyDetailDrawer } from '@/components/hq/HqCompanyDetailDrawer';
+import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
+import {
+  HqProductLineDrawerBar,
+  withHqProductLine,
+  type HqProductLine,
+} from '@/components/hq/HqProductLinePicker';
 import {
   CreateTenantModal,
   emptyProvisionTenantForm,
@@ -32,20 +36,21 @@ import {
   HQ_COMPANY_STATUS_LABELS,
   HQ_COMPANY_STATUS_STYLES,
   HQ_COMPANY_TABS,
-  type HqCompanyRow,
   type HqCompanyScore,
   type HqCompanyStatus,
 } from './hqCompaniesData';
 import {
   apiHqCreateCompany,
+  apiHqDeleteCompany,
   apiHqListCompanies,
   apiHqProvisionTenant,
   apiHqUpdateCompany,
+  type HqCompanyApiRow,
   type HqCompanyStats,
   type HqLeadStorageInfo,
+  type CreateClientData,
 } from '@/lib/api';
-import type { CreateHqCompanyFormValues } from '@/components/hq/CreateHqCompanyModal';
-import type { EditHqCompanyFormValues } from '@/components/hq/HqCompanyDetailDrawer';
+import { mapHqCompanyToBackendClient, mapHqCompanyToClient } from '@/app/hq/hqCompanyToClient';
 import { toast } from 'sonner';
 
 function ScoreBadge({ score }: { score: HqCompanyScore }) {
@@ -94,15 +99,16 @@ export default function HqCompanyPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const highlightCompanyId = searchParams.get('company');
-  const [companies, setCompanies] = useState<HqCompanyRow[]>([]);
+  const [companies, setCompanies] = useState<HqCompanyApiRow[]>([]);
   const [stats, setStats] = useState<HqCompanyStats>(EMPTY_STATS);
   const [storage, setStorage] = useState<HqLeadStorageInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | HqCompanyStatus>('all');
   const [search, setSearch] = useState('');
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedCompany, setSelectedCompany] = useState<HqCompanyRow | null>(null);
+  const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
+  const [addProductLine, setAddProductLine] = useState<HqProductLine>('crm');
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [createTenantOpen, setCreateTenantOpen] = useState(false);
   const [provisionData, setProvisionData] = useState<ProvisionTenantFormData>(emptyProvisionTenantForm());
   const [provisionLoading, setProvisionLoading] = useState(false);
@@ -132,7 +138,7 @@ export default function HqCompanyPage() {
     if (!highlightCompanyId || loading || companies.length === 0) return;
     const match = companies.find((company) => company.id === highlightCompanyId);
     if (match) {
-      setSelectedCompany(match);
+      setSelectedCompanyId(match.id);
       router.replace('/hq/company');
     }
   }, [highlightCompanyId, loading, companies, router]);
@@ -152,33 +158,67 @@ export default function HqCompanyPage() {
     });
   }, [activeTab, search, companies]);
 
-  const handleCreateCompany = async (values: CreateHqCompanyFormValues) => {
-    await apiHqCreateCompany(values);
-    await loadCompanies();
+  const handleCreateCompanyOverride = async (data: CreateClientData) => {
+    const result = await apiHqCreateCompany(
+      withHqProductLine(
+        {
+          ...data,
+          directorName: (data as CreateClientData & { directorName?: string }).directorName,
+          formSchema: 'phase2',
+        },
+        addProductLine,
+      ) as CreateClientData & {
+        directorName?: string;
+        formSchema?: string;
+        hqProductLine?: HqProductLine;
+      },
+    );
+    const created = result.data?.company;
+    if (!created) return null;
+    return mapHqCompanyToBackendClient(created);
   };
 
-  const handleUpdateCompany = async (companyId: string, values: EditHqCompanyFormValues) => {
-    const result = await apiHqUpdateCompany(companyId, values);
+  const selectedCompany = useMemo(() => {
+    if (!selectedCompanyId) return null;
+    return companies.find((company) => company.id === selectedCompanyId) || null;
+  }, [selectedCompanyId, companies]);
+
+  const selectedClient = useMemo(
+    () => (selectedCompany ? mapHqCompanyToClient(selectedCompany) : null),
+    [selectedCompany],
+  );
+
+  const handleUpdateClientOverride = async (clientId: string, data: Record<string, unknown>) => {
+    const result = await apiHqUpdateCompany(clientId, {
+      ...data,
+      formSchema: 'phase2',
+    });
     const updated = result.data?.company;
-    if (updated) {
-      handleCompanyUpdated(updated);
-    }
-    await loadCompanies();
-  };
-
-  const handleCompanyUpdated = (updated: HqCompanyRow) => {
-    setSelectedCompany(updated);
+    if (!updated) return null;
     setCompanies((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+    return mapHqCompanyToBackendClient(updated);
   };
 
-  const openCreateTenantFromCompany = (company: HqCompanyRow) => {
+  const handleDeleteCompany = async (companyId: string) => {
+    if (!window.confirm('Delete this HQ company? This cannot be undone.')) return;
+    try {
+      await apiHqDeleteCompany(companyId);
+      setSelectedCompanyId(null);
+      await loadCompanies();
+      toast.success('Company deleted');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete company');
+    }
+  };
+
+  const openCreateTenantFromCompany = (company: HqCompanyApiRow) => {
     if (company.tenantDbName) {
       toast.error(`Company already linked to tenant ${company.tenantDbName}`);
       return;
     }
     setProvisionData(provisionFormFromCompany(company));
     setLockCompanyForTenant(true);
-    setSelectedCompany(null);
+    setSelectedCompanyId(null);
     setCreateTenantOpen(true);
   };
 
@@ -262,7 +302,13 @@ export default function HqCompanyPage() {
                 <Plus className="h-4 w-4" />
                 Create tenant
               </HqSecondaryButton>
-              <HqPrimaryButton onClick={() => setCreateModalOpen(true)}>
+              <HqPrimaryButton
+                onClick={() => {
+                  setSelectedCompanyId(null);
+                  setAddProductLine('crm');
+                  setCreateDrawerOpen(true);
+                }}
+              >
                 <Plus className="h-4 w-4" />
                 Add New Company
               </HqPrimaryButton>
@@ -270,11 +316,13 @@ export default function HqCompanyPage() {
       }
       belowScroll={
         <>
-          <CreateHqCompanyModal
-            open={createModalOpen}
-            onClose={() => setCreateModalOpen(false)}
-            onCreate={handleCreateCompany}
-          />
+          {createDrawerOpen ? (
+            <HqProductLineDrawerBar
+              value={addProductLine}
+              onChange={setAddProductLine}
+              entityLabel="client"
+            />
+          ) : null}
           <CreateTenantModal
             open={createTenantOpen}
             onClose={() => {
@@ -288,14 +336,58 @@ export default function HqCompanyPage() {
             isLoading={provisionLoading}
             lockCompany={lockCompanyForTenant}
           />
-          <HqCompanyDetailDrawer
-            open={!!selectedCompany}
-            company={selectedCompany}
-            onClose={() => setSelectedCompany(null)}
-            onSave={handleUpdateCompany}
-            onCompanyUpdated={handleCompanyUpdated}
-            onCreateTenant={openCreateTenantFromCompany}
-          />
+          {(createDrawerOpen || selectedClient) ? (
+            <ClientDetailsDrawer
+              client={createDrawerOpen ? null : selectedClient}
+              isAddMode={createDrawerOpen}
+              initialMode="view"
+              createClientOverride={handleCreateCompanyOverride}
+              updateClientOverride={handleUpdateClientOverride}
+              onDelete={handleDeleteCompany}
+              onCreateTenant={
+                createDrawerOpen || selectedCompany?.tenantDbName
+                  ? undefined
+                  : (clientId) => {
+                      const company = companies.find((item) => item.id === clientId);
+                      if (company) openCreateTenantFromCompany(company);
+                    }
+              }
+              onClose={() => {
+                setCreateDrawerOpen(false);
+                setSelectedCompanyId(null);
+              }}
+              onClientCreated={async () => {
+                setCreateDrawerOpen(false);
+                await loadCompanies();
+                toast.success('Company created');
+              }}
+              onClientUpdated={(patch) => {
+                setCompanies((prev) =>
+                  prev.map((item) =>
+                    item.id === patch.id
+                      ? {
+                          ...item,
+                          name: patch.name || item.name,
+                          industry: patch.industry || item.industry,
+                          location: patch.location || item.location,
+                          servicesNeeded: patch.servicesNeeded || item.servicesNeeded,
+                          expectedBusinessValue:
+                            patch.expectedBusinessValue || item.expectedBusinessValue,
+                          leadStatus: patch.leadStatus || item.leadStatus,
+                          website: patch.website || item.website,
+                          country: patch.country || item.country,
+                          city: patch.city || item.city,
+                          state: patch.state || item.state,
+                          emails: patch.emails || item.emails,
+                          phones: patch.phones || item.phones,
+                          logo: patch.logo !== undefined ? patch.logo || '' : item.logo,
+                        }
+                      : item,
+                  ),
+                );
+              }}
+            />
+          ) : null}
         </>
       }
     >
@@ -409,10 +501,10 @@ export default function HqCompanyPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredCompanies.map((company: HqCompanyRow) => (
+                  filteredCompanies.map((company) => (
                     <tr
                       key={company.id}
-                      onClick={() => setSelectedCompany(company)}
+                      onClick={() => setSelectedCompanyId(company.id)}
                       className="cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60"
                     >
                       <td className="px-4 py-3.5 font-semibold text-slate-900">
@@ -441,7 +533,7 @@ export default function HqCompanyPage() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedCompany(company);
+                            setSelectedCompanyId(company.id);
                           }}
                           className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                           aria-label={`Actions for ${company.name}`}

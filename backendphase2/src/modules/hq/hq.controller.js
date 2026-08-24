@@ -277,6 +277,15 @@ export const hqController = {
     }
   },
 
+  async grantLeadTrial(req, res) {
+    try {
+      const result = await hqService.grantLeadTrial(req.params.id, req.body || {}, req.user);
+      sendResponse(res, 200, 'Try-free access granted', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
   async listSupportTickets(req, res) {
     try {
       const result = await hqService.listSupportTickets(req.user, {

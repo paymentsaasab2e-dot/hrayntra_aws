@@ -27,6 +27,12 @@ import { Toaster, toast } from 'sonner';
 import { LeadDetailsDrawer } from '@/components/drawers/LeadDetailsDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
 import {
+  emptyHqGrantLeadTrialValues,
+  HqGrantLeadTrialModal,
+  uniqueLeadEmails,
+  type HqGrantLeadTrialValues,
+} from '@/components/hq/HqGrantLeadTrialModal';
+import {
   HqLeadProductLineBadges,
   resolveHqLeadProductLines,
 } from '@/components/hq/HqProductLinePicker';
@@ -42,23 +48,28 @@ import { isValidFollowUpInstant, splitDateTimeForDisplay } from '@/utils/formatL
 import { AiCoinLockBadge, useAiCoinGate } from '@/components/coins/AiCoinGate';
 import {
   BOOK_A_DEMO_TAG_CLASS,
+  defaultNextFollowUpLocal,
   formatDemoTryFreeAccessLabel,
   getDemoTryFreeAccessStatus,
   HQ_DEMO_STATUS_LABELS,
   HQ_DEMO_STATUS_STYLES,
+  HQ_LEAD_FOLLOW_UP_TYPES,
   HQ_LEAD_STAGE_LABELS,
   formatHqLeadSourceDisplay,
   isBookADemoLead,
+  toDatetimeLocalValue,
   type HqDemoRequestRow,
   type HqLeadStage,
 } from './hqLeadsData';
 import type { Lead, LeadSource, LeadStatus, Priority } from '@/app/leads/types';
 import {
+  apiHqAddLeadFollowUp,
   apiHqConvertLeadToCompany,
   apiHqCreateLead,
   apiHqDeleteDemoRequest,
   apiHqDeleteLead,
   apiHqGrantDemoTrial,
+  apiHqGrantLeadTrial,
   apiHqListDemoRequests,
   apiHqListLeads,
   apiHqUpdateLead,
@@ -84,11 +95,56 @@ const STAGE_BY_FILTER: Record<Exclude<StatusFilter, 'All' | 'Demos'>, HqLeadStag
 const STAGE_TO_STATUS: Record<HqLeadStage, string> = {
   new: 'New',
   demo: 'Demo',
+  trial: 'Trial',
   contacted: 'Contacted',
   qualified: 'Qualified',
   converted: 'Converted',
   lost: 'Lost',
 };
+
+function normalizePreferredDemoTime(value?: string | null): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '10:00';
+  const match24 = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (match24 && !/[ap]m/i.test(raw)) {
+    const hours = Math.min(23, Math.max(0, Number(match24[1])));
+    const minutes = Math.min(59, Math.max(0, Number(match24[2])));
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+  const match12 = raw.match(/^(\d{1,2}):(\d{2})\s*([ap]m)$/i);
+  if (match12) {
+    let hours = Number(match12[1]);
+    const minutes = Number(match12[2]);
+    const meridiem = match12[3].toLowerCase();
+    if (meridiem === 'pm' && hours < 12) hours += 12;
+    if (meridiem === 'am' && hours === 12) hours = 0;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+  return '10:00';
+}
+
+function preferredDemoDateTimeLocal(lead: Pick<HqLeadApiRow, 'preferredDemoDate' | 'preferredDemoTime'>): string {
+  const date = String(lead.preferredDemoDate || '').trim();
+  if (date) {
+    const time = normalizePreferredDemoTime(lead.preferredDemoTime);
+    const local = date.includes('T') ? toDatetimeLocalValue(date) : toDatetimeLocalValue(`${date}T${time}`);
+    if (local) {
+      const parsed = new Date(local);
+      if (!Number.isNaN(parsed.getTime()) && parsed.getTime() > Date.now()) return local;
+    }
+  }
+  return defaultNextFollowUpLocal();
+}
+
+function isHqLeadDemoStage(lead?: Pick<HqLeadApiRow, 'stage' | 'status'> | null): boolean {
+  if (!lead) return false;
+  return String(lead.stage || '').toLowerCase() === 'demo' || String(lead.status || '').toLowerCase() === 'demo';
+}
+
+function isHqLeadTrialStage(lead?: Pick<HqLeadApiRow, 'stage' | 'status'> | null): boolean {
+  if (!lead) return false;
+  return String(lead.stage || '').toLowerCase() === 'trial' || String(lead.status || '').toLowerCase() === 'trial';
+}
 
 function pickHqNextFollowUp(row: HqLeadApiRow): string | undefined {
   const pendingDates = (row.followUps || [])
@@ -309,6 +365,16 @@ export default function HqLeadsPage() {
   const [grantNote, setGrantNote] = useState('');
   const [grantSubmitting, setGrantSubmitting] = useState(false);
 
+  const [demoScheduleLead, setDemoScheduleLead] = useState<HqLeadApiRow | null>(null);
+  const [demoScheduleType, setDemoScheduleType] = useState<string>('Meeting');
+  const [demoScheduleAt, setDemoScheduleAt] = useState('');
+  const [demoScheduleMeetLink, setDemoScheduleMeetLink] = useState('');
+  const [demoScheduleNotes, setDemoScheduleNotes] = useState('');
+  const [demoScheduling, setDemoScheduling] = useState(false);
+  const [trialGrantLead, setTrialGrantLead] = useState<HqLeadApiRow | null>(null);
+  const [trialGrantValues, setTrialGrantValues] = useState<HqGrantLeadTrialValues>(emptyHqGrantLeadTrialValues());
+  const [trialGranting, setTrialGranting] = useState(false);
+
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
   const [sourceFilter, setSourceFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -467,11 +533,45 @@ export default function HqLeadsPage() {
     return mapHqLeadToBackendLead(created);
   };
 
+  const openDemoSchedulePopup = useCallback((lead: HqLeadApiRow) => {
+    setDemoScheduleLead(lead);
+    setDemoScheduleType('Meeting');
+    setDemoScheduleAt(preferredDemoDateTimeLocal(lead));
+    setDemoScheduleMeetLink('');
+    const preferred = [lead.preferredDemoDate, lead.preferredDemoTime].filter(Boolean).join(' ');
+    setDemoScheduleNotes(preferred ? `Client preferred demo slot: ${preferred}` : '');
+  }, []);
+
+  const openTrialGrantPopup = useCallback((lead: HqLeadApiRow) => {
+    const emails = uniqueLeadEmails(lead.emails, lead.email);
+    setTrialGrantLead(lead);
+    setTrialGrantValues(emptyHqGrantLeadTrialValues(emails));
+  }, []);
+
+  const closeDemoSchedulePopup = () => {
+    if (demoScheduling) return;
+    setDemoScheduleLead(null);
+    setDemoScheduleMeetLink('');
+    setDemoScheduleNotes('');
+  };
+
+  const closeTrialGrantPopup = () => {
+    if (trialGranting) return;
+    setTrialGrantLead(null);
+  };
+
   const handleUpdateLeadOverride = async (leadId: string, data: Record<string, unknown>) => {
+    const previous = leads.find((item) => item.id === leadId);
     const result = await apiHqUpdateLead(leadId, { ...data, formSchema: 'phase2' });
     const updated = result.data?.lead;
     if (!updated) return null;
     setLeads((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+    const nextStatus = String(data.status || updated.status || '').trim();
+    const nextStage = String(data.stage || updated.stage || '').toLowerCase();
+    const selectedDemo = nextStatus.toLowerCase() === 'demo' || nextStage === 'demo';
+    if (selectedDemo && !isHqLeadDemoStage(previous)) {
+      openDemoSchedulePopup(updated);
+    }
     return mapHqLeadToBackendLead(updated);
   };
 
@@ -577,6 +677,15 @@ export default function HqLeadsPage() {
   };
 
   const handleInlineStatusChange = async (leadId: string, status: string) => {
+    const lead = leads.find((item) => item.id === leadId);
+    if (status === 'Demo' && lead && !isHqLeadDemoStage(lead)) {
+      openDemoSchedulePopup(lead);
+      return;
+    }
+    if (status === 'Trial' && lead && !isHqLeadTrialStage(lead)) {
+      openTrialGrantPopup(lead);
+      return;
+    }
     const stage = (Object.entries(STAGE_TO_STATUS).find(([, label]) => label === status)?.[0] ||
       status.toLowerCase()) as HqLeadStage;
     try {
@@ -585,6 +694,90 @@ export default function HqLeadsPage() {
       toast.success(`Status updated to ${status}`);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to update status');
+    }
+  };
+
+  const handleScheduleDemoMeeting = async () => {
+    if (!demoScheduleLead) return;
+    if (!demoScheduleAt.trim()) {
+      toast.error('Pick a date and time for the demo meeting');
+      return;
+    }
+    const when = new Date(demoScheduleAt);
+    if (Number.isNaN(when.getTime())) {
+      toast.error('Pick a valid date and time');
+      return;
+    }
+    if (when.getTime() < Date.now() - 60_000) {
+      toast.error('Pick a future date and time for the demo meeting');
+      return;
+    }
+    const meetLink = demoScheduleMeetLink.trim();
+    const noteParts = [
+      meetLink ? `Meet link: ${meetLink}` : '',
+      demoScheduleNotes.trim(),
+    ].filter(Boolean);
+    setDemoScheduling(true);
+    try {
+      await apiHqUpdateLead(demoScheduleLead.id, {
+        status: 'Demo',
+        stage: 'demo',
+        formSchema: 'phase2',
+      });
+      await apiHqAddLeadFollowUp(demoScheduleLead.id, {
+        type: demoScheduleType || 'Meeting',
+        scheduledAt: when.toISOString(),
+        notes: noteParts.join('\n') || undefined,
+      });
+      setDemoScheduleLead(null);
+      setDemoScheduleMeetLink('');
+      setDemoScheduleNotes('');
+      await loadLeads();
+      toast.success('Demo scheduled with the client');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to schedule the demo meeting');
+    } finally {
+      setDemoScheduling(false);
+    }
+  };
+
+  const handleGrantLeadTrial = async () => {
+    if (!trialGrantLead) return;
+    const emails = uniqueLeadEmails(trialGrantValues.emails, trialGrantValues.extraEmail);
+    const selectedEmail = (trialGrantValues.selectedEmail || emails[0] || trialGrantValues.extraEmail).trim();
+    if (!selectedEmail) {
+      toast.error('Select or add an email for the trial account');
+      return;
+    }
+    const notifyEmails = trialGrantValues.notifyOthers
+      ? emails.filter((email) => email.toLowerCase() !== selectedEmail.toLowerCase())
+      : [];
+    setTrialGranting(true);
+    try {
+      const result = await apiHqGrantLeadTrial(trialGrantLead.id, {
+        email: selectedEmail,
+        trialDays: trialGrantValues.trialDays,
+        note: trialGrantValues.note.trim() || undefined,
+        notifyEmails,
+      });
+      const data = result.data;
+      if (data?.credentialEmailSent === false && data?.credentialEmailError) {
+        toast.warning(data.message || 'Access granted, but credential email failed.');
+      } else if (data?.alreadyProvisioned) {
+        toast.success(data.message || 'Trial dates refreshed for existing tenant.');
+      } else {
+        toast.success(
+          data?.credentialEmailSent
+            ? `Trial account granted (${trialGrantValues.trialDays} days). Credentials emailed to ${selectedEmail}.`
+            : `Trial account granted (${trialGrantValues.trialDays} days).`,
+        );
+      }
+      setTrialGrantLead(null);
+      await loadLeads();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to grant trial account');
+    } finally {
+      setTrialGranting(false);
     }
   };
 
@@ -715,6 +908,7 @@ export default function HqLeadsPage() {
             }}
             createLeadOverride={handleCreateLeadOverride}
             updateLeadOverride={handleUpdateLeadOverride}
+            hqMode
             onAddLead={async (_data, createdLead) => {
               setAddLeadDrawerOpen(false);
               setAddLeadWithAi(false);
@@ -1394,6 +1588,113 @@ export default function HqLeadsPage() {
             </div>
           </div>
         ) : null}
+
+        {demoScheduleLead ? (
+          <div className="fixed inset-0 z-[1210] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="demo-followup-title"
+              className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-slate-200"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                  <CalendarClock className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h2 id="demo-followup-title" className="text-lg font-bold text-slate-900">
+                    Schedule demo meeting
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Set a follow-up meeting with{' '}
+                    <span className="font-medium text-slate-700">
+                      {demoScheduleLead.contactPerson || demoScheduleLead.name || 'this client'}
+                    </span>
+                    {demoScheduleLead.company ? ` · ${demoScheduleLead.company}` : ''}.
+                    Status becomes Demo after you schedule.
+                  </p>
+                </div>
+              </div>
+
+              <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Follow-up type
+                <select
+                  value={demoScheduleType}
+                  onChange={(e) => setDemoScheduleType(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                >
+                  {HQ_LEAD_FOLLOW_UP_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Date & time
+                <input
+                  type="datetime-local"
+                  value={demoScheduleAt}
+                  onChange={(e) => setDemoScheduleAt(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </label>
+
+              <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Meet link (optional)
+                <input
+                  type="url"
+                  value={demoScheduleMeetLink}
+                  onChange={(e) => setDemoScheduleMeetLink(e.target.value)}
+                  placeholder="https://meet.google.com/..."
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </label>
+
+              <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Notes (optional)
+                <textarea
+                  value={demoScheduleNotes}
+                  onChange={(e) => setDemoScheduleNotes(e.target.value)}
+                  rows={3}
+                  placeholder="What to cover on the demo call..."
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </label>
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={demoScheduling}
+                  onClick={closeDemoSchedulePopup}
+                  className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={demoScheduling || !demoScheduleAt}
+                  onClick={() => void handleScheduleDemoMeeting()}
+                  className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                >
+                  {demoScheduling ? 'Scheduling…' : 'Schedule meeting'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <HqGrantLeadTrialModal
+          open={Boolean(trialGrantLead)}
+          name={trialGrantLead?.contactPerson || trialGrantLead?.name}
+          company={trialGrantLead?.company}
+          values={trialGrantValues}
+          submitting={trialGranting}
+          onChange={(patch) => setTrialGrantValues((prev) => ({ ...prev, ...patch }))}
+          onCancel={closeTrialGrantPopup}
+          onConfirm={() => void handleGrantLeadTrial()}
+        />
       </div>
     </HqCrmEmbed>
   );

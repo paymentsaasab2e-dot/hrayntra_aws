@@ -11,6 +11,39 @@ import { sendError } from '../utils/response.js';
 export function requireCoins(featureId) {
   return async (req, res, next) => {
     try {
+      // HQ team members can use AI features without spending/deducting tenant coins.
+      // auth.middleware attaches `isHqTeamMember` when `hqTeamMemberId` exists in token payload.
+      if (req.user?.isHqTeamMember) {
+        const result = { coins: 0, spent: 0 };
+        res.setHeader('X-Coin-Balance', String(result.coins));
+        res.setHeader('X-Coins-Spent', String(result.spent));
+
+        const originalJson = res.json.bind(res);
+        res.json = (body) => {
+          if (body && typeof body === 'object') {
+            if (body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
+              body = {
+                ...body,
+                data: {
+                  ...body.data,
+                  coinBalance: result.coins,
+                  coinsSpent: result.spent,
+                },
+              };
+            } else {
+              body = {
+                ...body,
+                coinBalance: result.coins,
+                coinsSpent: result.spent,
+              };
+            }
+          }
+          return originalJson(body);
+        };
+
+        return next();
+      }
+
       const result = await spendTenantCoins(featureId, {
         user: req.user,
         meta: { path: req.originalUrl || req.path },

@@ -34,7 +34,7 @@ import {
 } from '@/lib/api';
 import { HQ_LEAD_STAGE_LABELS, type HqLeadStage } from '@/app/hq/leads/hqLeadsData';
 
-const OPEN_STAGES = new Set<HqLeadStage>(['new', 'demo', 'contacted', 'qualified']);
+const OPEN_STAGES = new Set<HqLeadStage>(['new', 'demo', 'trial', 'contacted', 'qualified']);
 const CLOSED_STAGES = new Set<HqLeadStage>(['converted', 'lost']);
 
 /** Forecast weights — documented for sales (spec §7.9). */
@@ -42,6 +42,7 @@ const STAGE_WEIGHT: Record<HqLeadStage, number> = {
   new: 0.1,
   contacted: 0.2,
   demo: 0.4,
+  trial: 0.45,
   qualified: 0.6,
   converted: 1,
   lost: 0,

@@ -11,7 +11,7 @@ import {
 
 const HQ_CRM_LEADS_COLLECTION = 'hq_crm_leads';
 const HQ_CRM_TEAM_MEMBERS_COLLECTION = 'hq_crm_team_members';
-const VALID_STAGES = ['new', 'demo', 'contacted', 'qualified', 'converted', 'lost'];
+const VALID_STAGES = ['new', 'demo', 'trial', 'contacted', 'qualified', 'converted', 'lost'];
 const FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'];
 const HQ_PRODUCT_LINES = ['crm', 'recruitment'];
 
@@ -425,6 +425,7 @@ function buildEmployerDemoLeadFields(demo) {
 const HQ_LEAD_STAGE_LABELS = {
   new: 'New',
   demo: 'Demo',
+  trial: 'Trial',
   contacted: 'Contacted',
   qualified: 'Qualified',
   converted: 'Converted',
@@ -520,6 +521,7 @@ function mapPhase2StatusToStage(status) {
   if (s.includes('convert') || s.includes('won') || s === 'client') return 'converted';
   if (s.includes('lost') || s.includes('reject')) return 'lost';
   if (s.includes('demo')) return 'demo';
+  if (s.includes('trial')) return 'trial';
   if (s.includes('qualif') || s.includes('propos') || s.includes('negot')) return 'qualified';
   if (s.includes('contact') || s.includes('progress') || s.includes('follow')) return 'contacted';
   return 'new';
@@ -703,6 +705,69 @@ function parseLeadInput(data) {
 
 export const hqLeadsService = {
   getStorageInfo,
+  toLeadRow,
+
+  async getLeadDocument(id) {
+    if (!ObjectId.isValid(id)) {
+      const err = new Error('Invalid lead id');
+      err.statusCode = 400;
+      throw err;
+    }
+    const collection = await getCollection();
+    const doc = await collection.findOne({ _id: new ObjectId(id) });
+    if (!doc) {
+      const err = new Error('Lead not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    return doc;
+  },
+
+  async markTrialGranted(id, data, reqUser) {
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) {
+      const err = new Error('Lead not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const note = String(data?.note || '').trim();
+    const remarks = Array.isArray(existing.remarks) ? [...existing.remarks] : [];
+    if (note) {
+      remarks.push({
+        id: new ObjectId().toString(),
+        text: note,
+        createdAt: new Date(),
+        createdByEmail: reqUser?.email || null,
+      });
+    }
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          stage: 'trial',
+          status: 'Trial',
+          trialDays: data?.trialDays || null,
+          trialStartsAt: data?.trialStartsAt || null,
+          trialEndsAt: data?.trialEndsAt || null,
+          trialLoginId: data?.trialLoginId || null,
+          trialLoginUrl: data?.trialLoginUrl || null,
+          trialTenantDbName: data?.trialTenantDbName || null,
+          trialEmail: data?.trialEmail || null,
+          trialGrantedAt: new Date(),
+          remarks,
+          updatedAt: new Date(),
+          updatedByEmail: reqUser?.email || null,
+        },
+      },
+    );
+    const updated = await collection.findOne({ _id: objectId });
+    return {
+      lead: toLeadRow(updated),
+      storage: getStorageInfo(),
+    };
+  },
 
   async listLeads() {
     const collection = await getCollection();
@@ -814,7 +879,10 @@ export const hqLeadsService = {
       throw new Error('Lead not found');
     }
 
-    const parsed = parseLeadInput({ ...data, stage: data?.stage || existing.stage || 'new' });
+    // Status/stage inline updates (from HQ leads table) often send only a partial payload.
+    // `parseLeadInput` enforces required fields for the "phase2 shape", so we merge the
+    // existing document to keep those validations satisfied.
+    const parsed = parseLeadInput({ ...existing, ...data, stage: data?.stage || existing.stage || 'new' });
     const assignees = await resolveHqAssignees({
       assignedToId:
         data?.assignedToId !== undefined ? data.assignedToId : existing.assignedToId,

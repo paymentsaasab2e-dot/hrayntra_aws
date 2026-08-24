@@ -55,13 +55,7 @@ const INDUSTRY_OPTIONS = [
   'Other',
 ];
 
-const MODULE_OPTIONS = [
-  'Recruitment',
-  'Payroll',
-  'Time & Attendance',
-  'Employee Management',
-  'Performance',
-];
+const MODULE_OPTIONS = ['CRM', 'Recruitment'];
 
 const INPUT_CLASS =
   'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-200';

@@ -1630,7 +1630,7 @@ export type HqLeadApiRow = {
   score: 'Hot' | 'Warm' | 'Cold';
   users: number;
   owner: string;
-  stage: 'new' | 'demo' | 'contacted' | 'qualified' | 'converted' | 'lost';
+  stage: 'new' | 'demo' | 'trial' | 'contacted' | 'qualified' | 'converted' | 'lost';
   nextFollowUp: string;
   nextFollowUpAt?: string | null;
   email?: string;
@@ -1752,6 +1752,30 @@ export async function apiHqGrantDemoTrial(
     credentialEmailError?: string | null;
     message?: string;
   }>(`/hq/demos/${encodeURIComponent(demoId)}/grant-trial`, {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqGrantLeadTrial(
+  leadId: string,
+  body: { email: string; trialDays?: number; note?: string; notifyEmails?: string[] }
+) {
+  return apiFetch<{
+    alreadyProvisioned?: boolean;
+    tenantDbName?: string;
+    loginId?: string;
+    loginUrl?: string;
+    trialEndsAt?: string | null;
+    trialStartsAt?: string | null;
+    trialDays?: number;
+    credentialEmailSent?: boolean;
+    credentialEmailError?: string | null;
+    extraEmailResults?: Array<{ email: string; sent: boolean; error?: string }>;
+    message?: string;
+    lead?: HqLeadApiRow;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/grant-trial`, {
     method: 'POST',
     auth: true,
     body,

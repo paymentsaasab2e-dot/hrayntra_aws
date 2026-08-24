@@ -99,12 +99,8 @@ export const HQ_COMPANY_SOURCE_OPTIONS = [
   'Other',
 ] as const;
 
-export const HQ_COMPANY_MODULE_OPTIONS = [
-  'CRM',
-  'ATS',
-  'Employee Management',
-  'Payroll',
-] as const;
+/** Same two product lines chosen when creating an HQ lead. */
+export const HQ_COMPANY_MODULE_OPTIONS = ['CRM', 'Recruitment'] as const;
 
 export const HQ_COMPANY_BILLING_CYCLES = [
   { id: 'monthly' as const, label: 'Monthly', hint: 'Billed every month' },

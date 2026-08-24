@@ -87,6 +87,12 @@ import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { LeadFollowUpTabPanel } from './LeadFollowUpTabPanel';
+import {
+  emptyHqGrantLeadTrialValues,
+  HqGrantLeadTrialModal,
+  uniqueLeadEmails,
+  type HqGrantLeadTrialValues,
+} from '../hq/HqGrantLeadTrialModal';
 import { ShareLeadFormMemberModal } from '../leads/ShareLeadFormMemberModal';
 import { LeadFormAccessButton } from '../leads/LeadFormAccessPopup';
 import { NotesService } from '../NotesService';
@@ -104,6 +110,7 @@ import {
   apiRemoveLeadStatus,
   apiUpdateLead,
   apiHqListTeam,
+  apiHqGrantLeadTrial,
   filesApiUpload,
   type CreateLeadData,
   type BackendActivity,
@@ -212,8 +219,8 @@ function mergeLocationFields<
 const DEFAULT_LEAD_STATUSES: DefaultLeadStatus[] = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
 const DEFAULT_LEAD_STATUS_SET = new Set(DEFAULT_LEAD_STATUSES.map((status) => status.toLowerCase()));
 /** HQ Add Lead only — not shown on tenant Phase 2. */
-const HQ_ONLY_LEAD_STATUS = 'Demo';
-const HQ_ONLY_LEAD_STATUS_SET = new Set([HQ_ONLY_LEAD_STATUS.toLowerCase()]);
+const HQ_ONLY_LEAD_STATUSES = ['Demo', 'Trial'] as const;
+const HQ_ONLY_LEAD_STATUS_SET = new Set(HQ_ONLY_LEAD_STATUSES.map((status) => status.toLowerCase()));
 
 const STATUS_STYLES: Record<DefaultLeadStatus, string> = {
   New: 'bg-blue-50 text-blue-700 border-blue-100',
@@ -227,6 +234,7 @@ function leadStatusChipClass(status: string | null | undefined): string {
   const key = String(status || '').trim();
   if (STATUS_STYLES[key as DefaultLeadStatus]) return STATUS_STYLES[key as DefaultLeadStatus];
   if (key.toLowerCase() === 'demo') return 'bg-orange-50 text-orange-800 border-orange-200';
+  if (key.toLowerCase() === 'trial') return 'bg-teal-50 text-teal-800 border-teal-200';
   return 'bg-slate-50 text-slate-700 border-slate-200';
 }
 
@@ -284,8 +292,10 @@ function isProtectedLeadStatus(status: string | null | undefined, hqMode = false
 function mergeLeadStatusOptions(
   savedStatuses: string[] | null | undefined,
   currentStatus: string | null | undefined,
-  { hqMode = false }: { hqMode?: boolean } = {},
+  { hqMode = false, includeHqOnlyStatuses }: { hqMode?: boolean; includeHqOnlyStatuses?: boolean } = {},
 ) {
+  const injectHqOnly = includeHqOnlyStatuses ?? hqMode;
+  const currentKey = String(currentStatus || '').trim().toLowerCase();
   const seen = new Set<string>();
   const merged: string[] = [];
   const push = (value: string | null | undefined) => {
@@ -293,13 +303,16 @@ function mergeLeadStatusOptions(
     if (!normalized) return;
     const key = normalized.toLowerCase();
     if (seen.has(key)) return;
-    // Never surface HQ-only "Demo" on tenant Phase 2 dropdowns.
-    if (!hqMode && HQ_ONLY_LEAD_STATUS_SET.has(key)) return;
+    // Never surface HQ-only Demo/Trial on tenant Phase 2 dropdowns (except the current value).
+    if (!hqMode && HQ_ONLY_LEAD_STATUS_SET.has(key) && key !== currentKey) return;
     seen.add(key);
     merged.push(normalized);
   };
 
-  if (hqMode) push(HQ_ONLY_LEAD_STATUS);
+  if (injectHqOnly) {
+    push('New');
+    HQ_ONLY_LEAD_STATUSES.forEach(push);
+  }
   DEFAULT_LEAD_STATUSES.forEach(push);
   (savedStatuses || []).forEach(push);
   push(currentStatus);
@@ -732,6 +745,8 @@ interface LeadDetailsDrawerProps {
     leadId: string,
     data: Record<string, unknown>,
   ) => Promise<BackendLead | undefined | null>;
+  /** HQ /hq/leads — adds Demo and Trial to the Add Lead status dropdown only. */
+  hqMode?: boolean;
   onUpdateLead?: (updatedLead?: BackendLead) => void;
   onConvert?: (id: string, form: {
     companyName: string;
@@ -1117,6 +1132,7 @@ export function LeadDetailsDrawer({
   onAddLead,
   createLeadOverride,
   updateLeadOverride,
+  hqMode = false,
   onUpdateLead,
   onConvert,
   onMarkLost,
@@ -1125,9 +1141,10 @@ export function LeadDetailsDrawer({
   onOpenExistingLead,
 }: LeadDetailsDrawerProps) {
   usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
-  // HQ uses updateLeadOverride without createLeadOverride. Public intake may supply both.
-  const isHqOverrideMode = Boolean(updateLeadOverride) && !createLeadOverride;
-  const isPublicIntakeMode = Boolean(createLeadOverride);
+  // HQ `/hq/leads` passes hqMode plus create/update overrides. Public intake passes
+  // createLeadOverride without hqMode — do not treat HQ Add Lead as an anonymous form.
+  const isHqOverrideMode = Boolean(hqMode) || (Boolean(updateLeadOverride) && !createLeadOverride);
+  const isPublicIntakeMode = Boolean(createLeadOverride) && !hqMode;
   const drawerIsOpen = Boolean(lead) || addLeadMode;
   // Same feature as /leads "Create with AI" toggle + AI chat send (keeps coin badge consistent).
   const leadAiGate = useAiCoinGate('ai.lead_chat');
@@ -1155,12 +1172,7 @@ export function LeadDetailsDrawer({
   useEffect(() => {
     if (addLeadMode) {
       setActiveTab('add');
-      if (isHqOverrideMode) {
-        setHqProductLine('crm');
-        setAddLeadForm((prev) =>
-          prev.status === HQ_ONLY_LEAD_STATUS ? prev : { ...prev, status: HQ_ONLY_LEAD_STATUS as LeadStatus },
-        );
-      }
+      if (isHqOverrideMode) setHqProductLine('crm');
     }
   }, [addLeadMode, isHqOverrideMode]);
 
@@ -1258,7 +1270,7 @@ export function LeadDetailsDrawer({
     assignedToName: '',
     assignedToId: '',
     assignedToIds: [],
-    status: updateLeadOverride ? HQ_ONLY_LEAD_STATUS : 'New',
+    status: 'New',
     priority: 'Medium',
     interestedNeeds: '',
     notes: '',
@@ -1283,6 +1295,15 @@ export function LeadDetailsDrawer({
   const [savingLeadStatus, setSavingLeadStatus] = useState(false);
   const [deletingLeadStatus, setDeletingLeadStatus] = useState(false);
   const [addLeadErrors, setAddLeadErrors] = useState<LeadRequiredFieldErrors>({});
+  const [hqTrialModalOpen, setHqTrialModalOpen] = useState(false);
+  const [hqTrialValues, setHqTrialValues] = useState<HqGrantLeadTrialValues>(emptyHqGrantLeadTrialValues());
+  const [hqTrialSubmitting, setHqTrialSubmitting] = useState(false);
+  const [pendingHqTrialGrant, setPendingHqTrialGrant] = useState<{
+    email: string;
+    trialDays?: number;
+    note?: string;
+    notifyEmails?: string[];
+  } | null>(null);
   const [addLeadDrawerWidth, setAddLeadDrawerWidth] = useState(getInitialAddLeadDrawerWidth);
   const addLeadDrawerResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const addLeadDrawerWidthRef = useRef(addLeadDrawerWidth);
@@ -1337,7 +1358,7 @@ export function LeadDetailsDrawer({
       setLoadingRecruiters(true);
       try {
         // HQ leads assign only to HQ team members (HQ Mongo), never tenant Phase 2 users.
-        if (isHqOverrideMode) {
+        if (hqMode || isHqOverrideMode) {
           const response = await apiHqListTeam();
           const members = Array.isArray(response.data?.members) ? response.data.members : [];
           setRecruiters(
@@ -1398,7 +1419,16 @@ export function LeadDetailsDrawer({
           })),
         );
       } catch (error: any) {
-        console.error('Failed to fetch recruiters:', error);
+        const msg = String(error?.message || '').toLowerCase();
+        const transientTimeout =
+          /etimedout|timed out|querysrv etimeout|mongodb\.net/.test(msg) ||
+          error?.kind === 'timeout' ||
+          error?.retryable === true;
+        if (transientTimeout) {
+          console.warn('Recruiter list temporarily unavailable. Retrying on next drawer open.');
+        } else {
+          console.error('Failed to fetch recruiters:', error);
+        }
         setRecruiters([]);
       } finally {
         setLoadingRecruiters(false);
@@ -1406,7 +1436,15 @@ export function LeadDetailsDrawer({
     };
 
     fetchRecruiters();
-  }, [addLeadMode, lead, isPublicIntakeMode, isHqOverrideMode]);
+  }, [addLeadMode, lead, hqMode, isPublicIntakeMode, isHqOverrideMode]);
+
+  const hqAssignedToPlaceholder = isHqOverrideMode
+    ? loadingRecruiters
+      ? 'Loading HQ team…'
+      : recruiters.length
+        ? 'Select HQ team members'
+        : 'No HQ team members yet — add them under Team'
+    : undefined;
 
   useEffect(() => {
     if (!addLeadMode && !lead) return;
@@ -1500,6 +1538,8 @@ export function LeadDetailsDrawer({
 
   const resetAddLeadForm = () => {
     setAddLeadStatusIsCustom(false);
+    setPendingHqTrialGrant(null);
+    setHqTrialModalOpen(false);
     setAddLeadForm({
       ...emptyAgreementTerms(),
       companyName: '',
@@ -1539,7 +1579,7 @@ export function LeadDetailsDrawer({
       assignedToName: '',
       assignedToId: '',
       assignedToIds: [],
-      status: isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New',
+      status: 'New',
       priority: 'Medium',
       interestedNeeds: '',
       notes: '',
@@ -2381,14 +2421,117 @@ export function LeadDetailsDrawer({
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
   };
 
+  const addLeadHqStatusMode = hqMode || isHqOverrideMode;
   const addLeadStatusOptions = React.useMemo(
-    () => mergeLeadStatusOptions(leadStatusCatalog, addLeadForm.status, { hqMode: isHqOverrideMode }),
-    [leadStatusCatalog, addLeadForm.status, isHqOverrideMode],
+    () =>
+      mergeLeadStatusOptions(leadStatusCatalog, addLeadForm.status, {
+        hqMode: addLeadHqStatusMode,
+        includeHqOnlyStatuses: addLeadHqStatusMode,
+      }),
+    [leadStatusCatalog, addLeadForm.status, addLeadHqStatusMode],
   );
   const overviewLeadStatusOptions = React.useMemo(
     () => mergeLeadStatusOptions(leadStatusCatalog, overviewEditForm.status, { hqMode: isHqOverrideMode }),
     [leadStatusCatalog, overviewEditForm.status, isHqOverrideMode],
   );
+
+  const resolveHqTrialGrantPayload = useCallback(() => {
+    const emails = uniqueLeadEmails(hqTrialValues.emails, hqTrialValues.extraEmail);
+    const selectedEmail = (hqTrialValues.selectedEmail || emails[0] || hqTrialValues.extraEmail).trim();
+    if (!selectedEmail) return null;
+    return {
+      email: selectedEmail,
+      trialDays: hqTrialValues.trialDays,
+      note: hqTrialValues.note.trim() || undefined,
+      notifyEmails: hqTrialValues.notifyOthers
+        ? emails.filter((email) => email.toLowerCase() !== selectedEmail.toLowerCase())
+        : undefined,
+      emails,
+    };
+  }, [hqTrialValues]);
+
+  const handleHqStatusSelect = useCallback(
+    (status: string, apply: (next: string) => void) => {
+      if (!addLeadHqStatusMode) {
+        apply(status);
+        return;
+      }
+      if (String(status).toLowerCase() === 'trial') {
+        const emails = addLeadMode
+          ? uniqueLeadEmails(addLeadForm.emails, addLeadForm.email)
+          : uniqueLeadEmails(overviewEditForm.emails, overviewEditForm.email, lead?.emails, lead?.email);
+        setHqTrialValues(emptyHqGrantLeadTrialValues(emails));
+        setHqTrialModalOpen(true);
+        return;
+      }
+      if (String(status).toLowerCase() !== 'trial') {
+        setPendingHqTrialGrant(null);
+      }
+      apply(status);
+    },
+    [
+      addLeadForm.email,
+      addLeadForm.emails,
+      addLeadHqStatusMode,
+      addLeadMode,
+      lead?.email,
+      lead?.emails,
+      overviewEditForm.email,
+      overviewEditForm.emails,
+    ],
+  );
+
+  const handleConfirmHqTrialGrant = useCallback(async () => {
+    const payload = resolveHqTrialGrantPayload();
+    if (!payload) {
+      toast.error('Select or add an email for the trial account');
+      return;
+    }
+    const { emails, ...grantBody } = payload;
+
+    if (addLeadMode) {
+      setPendingHqTrialGrant(grantBody);
+      setAddLeadForm((prev) => ({
+        ...prev,
+        status: 'Trial' as LeadStatus,
+        emails: uniqueLeadEmails(prev.emails, emails, grantBody.email),
+        email: grantBody.email,
+        emailNotAvailable: false,
+      }));
+      setHqTrialModalOpen(false);
+      toast.success('Trial details saved. Create the lead to email the account.');
+      return;
+    }
+
+    if (!lead?.id) {
+      toast.error('Save this lead before granting a trial account');
+      return;
+    }
+
+    setHqTrialSubmitting(true);
+    try {
+      const result = await apiHqGrantLeadTrial(lead.id, grantBody);
+      const data = result.data;
+      setOverviewEditForm((prev) => ({ ...prev, status: 'Trial' as LeadStatus }));
+      setHqTrialModalOpen(false);
+      if (data?.credentialEmailSent === false && data?.credentialEmailError) {
+        toast.warning(data.message || 'Access granted, but credential email failed.');
+      } else if (data?.alreadyProvisioned) {
+        toast.success(data.message || 'Trial dates refreshed for existing tenant.');
+      } else {
+        toast.success(
+          data?.credentialEmailSent
+            ? `Trial account granted (${grantBody.trialDays} days). Credentials emailed to ${grantBody.email}.`
+            : `Trial account granted (${grantBody.trialDays} days).`,
+        );
+      }
+      onUpdateLead?.();
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to grant trial account');
+    } finally {
+      setHqTrialSubmitting(false);
+    }
+  }, [addLeadMode, lead?.id, onUpdateLead, resolveHqTrialGrantPayload]);
 
   const addLeadStatusOption = async (onSelect: (status: string) => void) => {
     const status = String(newLeadStatusValue || '').trim();
@@ -2429,7 +2572,7 @@ export function LeadDetailsDrawer({
   const deleteLeadStatusOption = async (status: string, onSelect: (status: string) => void) => {
     const normalized = String(status || '').trim();
     if (!normalized) return;
-    if (isProtectedLeadStatus(normalized, isHqOverrideMode)) {
+    if (isProtectedLeadStatus(normalized, addLeadHqStatusMode)) {
       toast.error('Default statuses cannot be deleted.');
       return;
     }
@@ -2444,7 +2587,7 @@ export function LeadDetailsDrawer({
     setDeletingLeadStatus(true);
     try {
       if (isHqOverrideMode) {
-        const fallback = HQ_ONLY_LEAD_STATUS;
+        const fallback = 'New';
         const nextOptions = mergeLeadStatusOptions(
           leadStatusCatalog.filter((s) => s.toLowerCase() !== normalized.toLowerCase()),
           fallback,
@@ -2786,7 +2929,7 @@ export function LeadDetailsDrawer({
           ),
           addLeadForm.occasions || emptyLeadOccasionForm(),
         ),
-        status: addLeadForm.status || (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New'),
+        status: addLeadForm.status || 'New',
         priority: addLeadForm.priority || 'Medium',
         servicesNeeded: addLeadForm.interestedNeeds?.trim() || undefined,
         interestedNeeds: addLeadForm.interestedNeeds?.trim() || undefined,
@@ -2910,6 +3053,24 @@ export function LeadDetailsDrawer({
         }
       }
 
+      if ((hqMode || isHqOverrideMode) && pendingHqTrialGrant && createdLead?.id) {
+        try {
+          const grantResult = await apiHqGrantLeadTrial(createdLead.id, pendingHqTrialGrant);
+          const data = grantResult.data;
+          if (data?.credentialEmailSent === false && data?.credentialEmailError) {
+            toast.warning(data.message || 'Lead created. Trial access granted, but credential email failed.');
+          } else {
+            toast.success(
+              data?.credentialEmailSent
+                ? `Lead created and trial account emailed to ${pendingHqTrialGrant.email}.`
+                : 'Lead created and trial account granted.',
+            );
+          }
+        } catch (grantError: any) {
+          toast.error(grantError?.message || 'Lead created, but the trial account could not be granted.');
+        }
+      }
+
       setPendingAddLeadAgreementsFile(null);
       setPendingAddLeadKycFiles([]);
       setPendingAddLeadTeamMemberKycFiles([]);
@@ -2929,9 +3090,11 @@ export function LeadDetailsDrawer({
     createLeadOverride,
     hqProductLine,
     isHqOverrideMode,
+    hqMode,
     onAddLead,
     pendingAddLeadAgreementsFile,
     pendingAddLeadKycFiles,
+    pendingHqTrialGrant,
   ]);
 
   const tabs = addLeadMode
@@ -3847,6 +4010,7 @@ export function LeadDetailsDrawer({
                         members={recruiters}
                         value={assignLeadForm.assignTos}
                         loading={loadingRecruiters}
+                        placeholder={hqAssignedToPlaceholder}
                         onChange={(ids) => {
                           setAssignLeadForm((p) => ({
                             ...p,
@@ -4252,12 +4416,16 @@ export function LeadDetailsDrawer({
                           </button>
                         </div>
                         <LeadStatusDropdown
-                          value={addLeadForm.status ?? (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New')}
+                          value={addLeadForm.status ?? 'New'}
                           options={addLeadStatusOptions}
                           deleting={deletingLeadStatus}
                           preferUpward
-                          hqMode={isHqOverrideMode}
-                          onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
+                          hqMode={addLeadHqStatusMode}
+                          onSelect={(status) =>
+                            handleHqStatusSelect(status, (next) =>
+                              setAddLeadForm((p) => ({ ...p, status: next as LeadStatus })),
+                            )
+                          }
                           onDelete={(status) =>
                             deleteLeadStatusOption(status, (nextStatus) =>
                               setAddLeadForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
@@ -4360,15 +4528,7 @@ export function LeadDetailsDrawer({
                             (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])
                           }
                           loading={loadingRecruiters}
-                          placeholder={
-                            isHqOverrideMode
-                              ? loadingRecruiters
-                                ? 'Loading HQ team…'
-                                : recruiters.length
-                                  ? 'Select HQ team members'
-                                  : 'No HQ team members yet — add them under Team'
-                              : undefined
-                          }
+                          placeholder={hqAssignedToPlaceholder}
                           onChange={(ids) => {
                             const selected = ids
                               .map((id) => recruiters.find((r) => r.id === id))
@@ -4698,11 +4858,15 @@ export function LeadDetailsDrawer({
                               </div>
                             </div>
                             <LeadStatusDropdown
-                              value={addLeadForm.status ?? (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New')}
+                              value={addLeadForm.status ?? 'New'}
                               options={addLeadStatusOptions}
                               deleting={deletingLeadStatus}
-                              hqMode={isHqOverrideMode}
-                              onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
+                              hqMode={addLeadHqStatusMode}
+                              onSelect={(status) =>
+                                handleHqStatusSelect(status, (next) =>
+                                  setAddLeadForm((p) => ({ ...p, status: next as LeadStatus })),
+                                )
+                              }
                               onDelete={(status) =>
                                 deleteLeadStatusOption(status, (nextStatus) =>
                                   setAddLeadForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
@@ -4797,6 +4961,7 @@ export function LeadDetailsDrawer({
                             members={recruiters}
                             value={addLeadForm.assignedToIds ?? (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])}
                             loading={loadingRecruiters}
+                            placeholder={hqAssignedToPlaceholder}
                             onChange={(ids) => {
                               const selected = ids
                                 .map((id) => recruiters.find((r) => r.id === id))
@@ -5334,11 +5499,15 @@ export function LeadDetailsDrawer({
                                 </div>
                               </div>
                               <LeadStatusDropdown
-                                value={overviewEditForm.status || (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New')}
+                                value={overviewEditForm.status || 'New'}
                                 options={overviewLeadStatusOptions}
                                 deleting={deletingLeadStatus}
                                 hqMode={isHqOverrideMode}
-                                onSelect={(status) => setOverviewEditForm((p) => ({ ...p, status: status as LeadStatus }))}
+                                onSelect={(status) =>
+                                  handleHqStatusSelect(status, (next) =>
+                                    setOverviewEditForm((p) => ({ ...p, status: next as LeadStatus })),
+                                  )
+                                }
                                 onDelete={(status) =>
                                   deleteLeadStatusOption(status, (nextStatus) =>
                                     setOverviewEditForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
@@ -5420,6 +5589,7 @@ export function LeadDetailsDrawer({
                                 members={recruiters}
                                 value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
                                 loading={loadingRecruiters}
+                                placeholder={hqAssignedToPlaceholder}
                                 onChange={(ids) => {
                                   const selected = ids
                                     .map((id) => recruiters.find((r) => r.id === id))
@@ -5940,11 +6110,15 @@ export function LeadDetailsDrawer({
                                 </div>
                               </div>
                               <LeadStatusDropdown
-                                value={overviewEditForm.status || (isHqOverrideMode ? HQ_ONLY_LEAD_STATUS : 'New')}
+                                value={overviewEditForm.status || 'New'}
                                 options={overviewLeadStatusOptions}
                                 deleting={deletingLeadStatus}
                                 hqMode={isHqOverrideMode}
-                                onSelect={(status) => setOverviewEditForm((p) => ({ ...p, status: status as LeadStatus }))}
+                                onSelect={(status) =>
+                                  handleHqStatusSelect(status, (next) =>
+                                    setOverviewEditForm((p) => ({ ...p, status: next as LeadStatus })),
+                                  )
+                                }
                                 onDelete={(status) =>
                                   deleteLeadStatusOption(status, (nextStatus) =>
                                     setOverviewEditForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
@@ -6644,6 +6818,20 @@ export function LeadDetailsDrawer({
           isOpen={shareLeadFormMemberOpen}
           onClose={() => setShareLeadFormMemberOpen(false)}
           formUrl={publicLeadFormLink}
+        />
+        <HqGrantLeadTrialModal
+          open={hqTrialModalOpen}
+          name={addLeadMode ? addLeadForm.contactPerson : lead?.contactPerson}
+          company={addLeadMode ? addLeadForm.companyName : lead?.companyName}
+          values={hqTrialValues}
+          submitting={hqTrialSubmitting}
+          confirmLabel={addLeadMode ? 'Save trial details' : 'Grant trial account'}
+          onChange={(patch) => setHqTrialValues((prev) => ({ ...prev, ...patch }))}
+          onCancel={() => {
+            if (hqTrialSubmitting) return;
+            setHqTrialModalOpen(false);
+          }}
+          onConfirm={() => void handleConfirmHqTrialGrant()}
         />
         </>
       )}
