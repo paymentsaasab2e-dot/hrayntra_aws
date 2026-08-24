@@ -2678,6 +2678,39 @@ export async function apiHqRejectKycInterviewer(candidateId: string, reviewNotes
   });
 }
 
+export type HqCourseLessonSummary = {
+  id: string;
+  title: string;
+  order: number;
+};
+
+export type HqCertificateSlot = {
+  x: number;
+  y: number;
+  fontSize: number;
+  color: string;
+  align: 'left' | 'center' | 'right' | string;
+  fontFamily?: string;
+};
+
+export type HqCourseCertificate = {
+  mode: 'preset' | 'uploaded' | string;
+  presetId: string;
+  backgroundUrl?: string | null;
+  slots?: Record<string, HqCertificateSlot>;
+};
+
+export type HqCourseCheckpoint = {
+  id: string;
+  type: 'quiz' | 'assignment' | 'manual' | string;
+  title: string;
+  order: number;
+  required: boolean;
+  afterLessonId?: string | null;
+  quizId?: string | null;
+  passPercent?: number;
+};
+
 export type HqCourseRow = {
   id: string;
   title: string;
@@ -2695,6 +2728,9 @@ export type HqCourseRow = {
   accessTier: string;
   tokenCost: number;
   isCertified: boolean;
+  certificate?: HqCourseCertificate | null;
+  checkpoints?: HqCourseCheckpoint[];
+  lessons?: HqCourseLessonSummary[];
   enrolledCount?: number;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -2723,6 +2759,9 @@ export type HqCourseLearner = {
   startedAt?: string | null;
   lastAccessedAt?: string | null;
   savedAt?: string | null;
+  certificateId?: string | null;
+  certificateIssuedAt?: string | null;
+  checkpointProgress?: Record<string, { passed?: boolean; at?: string; source?: string }>;
   status: 'joined' | 'in_progress' | 'completed' | string;
 };
 
@@ -2752,6 +2791,8 @@ export type HqCoursePayload = {
   accessTier?: string;
   tokenCost?: number;
   isCertified?: boolean;
+  certificate?: HqCourseCertificate | null;
+  checkpoints?: HqCourseCheckpoint[];
 };
 
 export async function apiHqListCourses() {
@@ -2816,6 +2857,36 @@ export async function apiHqUploadCourseVideo(file: File) {
   return apiFetchFormData<{ video: { url: string; name?: string; size?: number } }>(
     '/hq/courses/video',
     formData,
+    { method: 'POST', auth: true },
+  );
+}
+
+export async function apiHqUploadCourseCertificateBackground(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetchFormData<{ background: { url: string; name?: string; size?: number } }>(
+    '/hq/courses/certificate-background',
+    formData,
+    { method: 'POST', auth: true },
+  );
+}
+
+export async function apiHqPreviewCourseCertificate(body: {
+  learnerName?: string;
+  courseTitle?: string;
+  instructorName?: string;
+  certificate?: HqCourseCertificate | null;
+}) {
+  return apiFetch<{ html: string; certificate: HqCourseCertificate }>('/hq/courses/certificate-preview', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqPassCourseCheckpoint(courseId: string, enrollmentId: string, checkpointId: string) {
+  return apiFetch<{ passed: boolean; checkpointId: string }>(
+    `/hq/courses/${encodeURIComponent(courseId)}/enrollments/${encodeURIComponent(enrollmentId)}/checkpoints/${encodeURIComponent(checkpointId)}/pass`,
     { method: 'POST', auth: true },
   );
 }

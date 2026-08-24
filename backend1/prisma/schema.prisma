@@ -1246,6 +1246,8 @@ model LmsCourse {
   /// Tokens required to unlock (0 = free)
   tokenCost       Int      @default(0)
   isCertified     Boolean  @default(false)
+  certificate     Json?
+  checkpoints     Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1284,6 +1286,9 @@ model LmsEnrollment {
   completedAt        DateTime?
   lastAccessedAt     DateTime @default(now())
   savedAt            DateTime?
+  checkpointProgress Json?
+  certificateId      String?
+  certificateIssuedAt DateTime?
 
   user               Candidate @relation("LmsEnrollments", fields: [userId], references: [id], onDelete: Cascade)
   course             LmsCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)

@@ -15,15 +15,19 @@ import {
   apiHqDeleteCourse,
   apiHqListCourseEnrollments,
   apiHqListCourses,
+  apiHqPassCourseCheckpoint,
   apiHqUpdateCourse,
   apiHqUploadCourseThumbnail,
   apiHqUploadCourseVideo,
+  type HqCourseCertificate,
+  type HqCourseCheckpoint,
   type HqCourseLearner,
   type HqCoursePayload,
   type HqCourseRow,
   type HqCourseStats,
 } from '@/lib/api';
-import { requestConfirm, requestError, requestSuccess, requestWarning } from '@/lib/appDialog';
+import { HqCourseCertificateAndJourney, defaultHqCourseCertificate } from '@/components/hq/HqCourseCertificateAndJourney';
+import { requestError, requestSuccess, requestWarning } from '@/lib/appDialog';
 
 const EMPTY_STATS: HqCourseStats = {
   total: 0,
@@ -51,6 +55,8 @@ type CourseFormState = {
   isCertified: boolean;
   thumbnailUrl: string;
   videoUrl: string;
+  certificate: HqCourseCertificate;
+  checkpoints: HqCourseCheckpoint[];
 };
 
 const EMPTY_FORM: CourseFormState = {
@@ -68,6 +74,8 @@ const EMPTY_FORM: CourseFormState = {
   isCertified: false,
   thumbnailUrl: '',
   videoUrl: '',
+  certificate: defaultHqCourseCertificate(),
+  checkpoints: [],
 };
 
 function formatDate(value?: string | null) {
@@ -95,6 +103,8 @@ function toPayload(form: CourseFormState): HqCoursePayload {
     isCertified: form.isCertified || accessTier === 'certified',
     thumbnailUrl: form.thumbnailUrl.trim(),
     videoUrl: form.videoUrl.trim(),
+    certificate: form.certificate,
+    checkpoints: form.checkpoints,
   };
 }
 
@@ -114,6 +124,8 @@ function formFromCourse(course: HqCourseRow): CourseFormState {
     isCertified: Boolean(course.isCertified),
     thumbnailUrl: course.thumbnailUrl || '',
     videoUrl: course.videoUrl || '',
+    certificate: course.certificate || defaultHqCourseCertificate(),
+    checkpoints: Array.isArray(course.checkpoints) ? course.checkpoints : [],
   };
 }
 
@@ -167,6 +179,8 @@ export default function HqCoursesPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [uploadingThumbnail, setUploadingThumbnail] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [journeyLessons, setJourneyLessons] = useState<HqCourseRow['lessons']>([]);
+  const [passingCheckpointId, setPassingCheckpointId] = useState<string | null>(null);
   const [learnersOpen, setLearnersOpen] = useState(false);
   const [learnersCourse, setLearnersCourse] = useState<HqCourseRow | null>(null);
   const [learners, setLearners] = useState<HqCourseLearner[]>([]);
@@ -245,12 +259,14 @@ export default function HqCoursesPage() {
   const openCreate = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setJourneyLessons([]);
     setModalOpen(true);
   };
 
   const openEdit = (course: HqCourseRow) => {
     setEditing(course);
     setForm(formFromCourse(course));
+    setJourneyLessons(course.lessons || []);
     setModalOpen(true);
   };
 
@@ -259,6 +275,7 @@ export default function HqCoursesPage() {
     setModalOpen(false);
     setEditing(null);
     setForm(EMPTY_FORM);
+    setJourneyLessons([]);
   };
 
   const openLearners = async (course: HqCourseRow) => {
@@ -791,6 +808,18 @@ export default function HqCoursesPage() {
                     Certified
                   </label>
                 </div>
+
+                <HqCourseCertificateAndJourney
+                  courseTitle={form.title}
+                  instructorName={form.instructorName}
+                  isCertified={form.isCertified || form.accessTier === 'certified'}
+                  certificate={form.certificate}
+                  checkpoints={form.checkpoints}
+                  lessons={journeyLessons || []}
+                  disabled={saving}
+                  onCertificateChange={(certificate) => setForm((p) => ({ ...p, certificate }))}
+                  onCheckpointsChange={(checkpoints) => setForm((p) => ({ ...p, checkpoints }))}
+                />
               </div>
 
               <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
@@ -889,6 +918,37 @@ export default function HqCoursesPage() {
                           <p className="mt-0.5">
                             Joined {formatDate(learner.startedAt || learner.lastAccessedAt)}
                           </p>
+                          {learner.certificateId ? (
+                            <p className="mt-0.5 font-medium text-violet-700">Cert {learner.certificateId}</p>
+                          ) : null}
+                          {(learnersCourse?.checkpoints || [])
+                            .filter((cp) => cp.type === 'manual')
+                            .map((cp) => {
+                              const passed = Boolean(learner.checkpointProgress?.[cp.id]?.passed);
+                              return (
+                                <button
+                                  key={cp.id}
+                                  type="button"
+                                  disabled={passed || passingCheckpointId === `${learner.id}:${cp.id}` || !learnersCourse?.id}
+                                  onClick={async () => {
+                                    if (!learnersCourse?.id) return;
+                                    setPassingCheckpointId(`${learner.id}:${cp.id}`);
+                                    try {
+                                      await apiHqPassCourseCheckpoint(learnersCourse.id, learner.id, cp.id);
+                                      void requestSuccess(`Signed off: ${cp.title || 'checkpoint'}`);
+                                      await openLearners(learnersCourse);
+                                    } catch (error: any) {
+                                      void requestError(error?.message || 'Failed to sign off checkpoint');
+                                    } finally {
+                                      setPassingCheckpointId(null);
+                                    }
+                                  }}
+                                  className="mt-1 inline-flex rounded-lg border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-800 disabled:opacity-50"
+                                >
+                                  {passed ? `Signed: ${cp.title || 'HQ'}` : `Sign off: ${cp.title || 'HQ'}`}
+                                </button>
+                              );
+                            })}
                         </div>
                       </li>
                     ))}

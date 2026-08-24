@@ -6,6 +6,12 @@ import { MongoClient, ObjectId } from 'mongodb';
 import { env } from '../../config/env.js';
 import { uploadBufferToS3 } from '../../utils/s3.js';
 import { isS3Configured } from '../../utils/publicUploads.util.js';
+import {
+  generateCertificateId,
+  normalizeCertificateConfig,
+  normalizeCheckpoints,
+  renderCertificateHtml,
+} from './hq-course-certificate.js';
 
 const COLLECTION = 'lms_courses';
 const LESSONS_COLLECTION = 'lms_lessons';
@@ -286,6 +292,9 @@ function toCourseRow(doc, extras = {}) {
     accessTier,
     tokenCost,
     isCertified: isCertified || accessTier === 'certified',
+    certificate: normalizeCertificateConfig(doc.certificate),
+    checkpoints: normalizeCheckpoints(doc.checkpoints),
+    lessons: Array.isArray(extras.lessons) ? extras.lessons : [],
     enrolledCount: Number(extras.enrolledCount) || 0,
     createdAt: toIso(doc.createdAt),
     updatedAt: toIso(doc.updatedAt),
@@ -341,6 +350,8 @@ function buildCourseDoc(data, { isUpdate = false } = {}) {
     accessTier,
     tokenCost: accessTier === 'free' ? 0 : tokenCost,
     isCertified: isCertified || accessTier === 'certified',
+    certificate: normalizeCertificateConfig(data?.certificate),
+    checkpoints: normalizeCheckpoints(data?.checkpoints),
     source: 'hq',
     updatedAt: now,
   };
@@ -383,8 +394,33 @@ export const hqCoursesService = {
       }
     }
 
+    const lessonsByCourse = new Map();
+    if (courseIds.length) {
+      const lessonRows = await db
+        .collection(LESSONS_COLLECTION)
+        .find({ courseId: { $in: courseIds } })
+        .project({ title: 1, order: 1, courseId: 1 })
+        .sort({ order: 1 })
+        .toArray();
+      for (const lesson of lessonRows) {
+        const key = String(lesson.courseId);
+        const list = lessonsByCourse.get(key) || [];
+        list.push({
+          id: String(lesson._id),
+          title: String(lesson.title || 'Lesson'),
+          order: Number(lesson.order) || list.length + 1,
+        });
+        lessonsByCourse.set(key, list);
+      }
+    }
+
     const courses = rows
-      .map((doc) => toCourseRow(doc, { enrolledCount: enrollmentCounts.get(String(doc._id)) || 0 }))
+      .map((doc) =>
+        toCourseRow(doc, {
+          enrolledCount: enrollmentCounts.get(String(doc._id)) || 0,
+          lessons: lessonsByCourse.get(String(doc._id)) || [],
+        }),
+      )
       .filter(Boolean);
     const published = courses.filter((c) => c.isPublished).length;
     const draft = courses.length - published;
@@ -422,7 +458,7 @@ export const hqCoursesService = {
       throw err;
     }
 
-    const enrollments = await db
+    let enrollments = await db
       .collection(ENROLLMENTS_COLLECTION)
       .find({
         $or: [{ courseId: objectId }, { courseId: String(objectId) }],
@@ -430,6 +466,20 @@ export const hqCoursesService = {
       .sort({ startedAt: -1, lastAccessedAt: -1 })
       .limit(500)
       .toArray();
+
+    if (!enrollments.length) {
+      const portalDb = await getPortalDb();
+      if (portalDb) {
+        enrollments = await portalDb
+          .collection(ENROLLMENTS_COLLECTION)
+          .find({
+            $or: [{ courseId: objectId }, { courseId: String(objectId) }],
+          })
+          .sort({ startedAt: -1, lastAccessedAt: -1 })
+          .limit(500)
+          .toArray();
+      }
+    }
 
     const userIds = [
       ...new Set(
@@ -506,12 +556,27 @@ export const hqCoursesService = {
         startedAt: toIso(row.startedAt),
         lastAccessedAt: toIso(row.lastAccessedAt),
         savedAt: toIso(row.savedAt),
+        certificateId: row.certificateId ? String(row.certificateId) : null,
+        certificateIssuedAt: toIso(row.certificateIssuedAt),
+        checkpointProgress: row.checkpointProgress && typeof row.checkpointProgress === 'object' ? row.checkpointProgress : {},
         status: row.completedAt ? 'completed' : progressPercent > 0 ? 'in_progress' : 'joined',
       };
     });
 
+    const lessonRows = await db
+      .collection(LESSONS_COLLECTION)
+      .find({ $or: [{ courseId: objectId }, { courseId: String(objectId) }] })
+      .project({ title: 1, order: 1 })
+      .sort({ order: 1 })
+      .toArray();
+    const lessons = lessonRows.map((lesson, index) => ({
+      id: String(lesson._id),
+      title: String(lesson.title || 'Lesson'),
+      order: Number(lesson.order) || index + 1,
+    }));
+
     return {
-      course: toCourseRow(course, { enrolledCount: learners.length }),
+      course: toCourseRow(course, { enrolledCount: learners.length, lessons }),
       learners,
       stats: {
         total: learners.length,
@@ -587,6 +652,8 @@ export const hqCoursesService = {
         instructorName: data?.instructorName ?? existing.instructorName,
         estimatedHours: data?.estimatedHours ?? existing.estimatedHours,
         totalLessons: data?.totalLessons ?? existing.totalLessons,
+        certificate: data?.certificate ?? existing.certificate,
+        checkpoints: data?.checkpoints ?? existing.checkpoints,
       },
       { isUpdate: true },
     );
@@ -681,5 +748,75 @@ export const hqCoursesService = {
   async uploadVideo(file) {
     const uploaded = await storeCourseVideoFile(file);
     return { video: uploaded };
+  },
+
+  async uploadCertificateBackground(file) {
+    const uploaded = await storeCourseThumbnailFile(file);
+    return { background: uploaded };
+  },
+
+  previewCertificate(data) {
+    const certificate = normalizeCertificateConfig(data?.certificate);
+    const html = renderCertificateHtml({
+      learnerName: data?.learnerName || 'Alex Rivera',
+      courseTitle: data?.courseTitle || 'Sample certified course',
+      instructorName: data?.instructorName || 'HRYantra HQ',
+      completedAt: data?.completedAt || new Date().toISOString(),
+      certificateId: data?.certificateId || generateCertificateId(data?.courseTitle || 'SAMPLE'),
+      certificate,
+      printHint: true,
+    });
+    return { html, certificate };
+  },
+
+  async passManualCheckpoint(courseId, enrollmentId, checkpointId) {
+    const db = await getHqDb();
+    let courseObjectId;
+    let enrollmentObjectId;
+    try {
+      courseObjectId = new ObjectId(String(courseId));
+      enrollmentObjectId = new ObjectId(String(enrollmentId));
+    } catch {
+      const err = new Error('Invalid id');
+      err.statusCode = 400;
+      throw err;
+    }
+    const course = await db.collection(COLLECTION).findOne({ _id: courseObjectId });
+    if (!course) {
+      const err = new Error('Course not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const checkpoints = normalizeCheckpoints(course.checkpoints);
+    const checkpoint = checkpoints.find((row) => row.id === String(checkpointId));
+    if (!checkpoint || checkpoint.type !== 'manual') {
+      const err = new Error('Manual checkpoint not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const enrollment =
+      (await db.collection(ENROLLMENTS_COLLECTION).findOne({ _id: enrollmentObjectId })) ||
+      (await (async () => {
+        const portalDb = await getPortalDb();
+        return portalDb
+          ? portalDb.collection(ENROLLMENTS_COLLECTION).findOne({ _id: enrollmentObjectId })
+          : null;
+      })());
+    if (!enrollment) {
+      const err = new Error('Enrollment not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const progress =
+      enrollment.checkpointProgress && typeof enrollment.checkpointProgress === 'object'
+        ? { ...enrollment.checkpointProgress }
+        : {};
+    progress[checkpoint.id] = { passed: true, at: new Date().toISOString(), source: 'hq' };
+    const patch = { checkpointProgress: progress, lastAccessedAt: new Date() };
+    await db.collection(ENROLLMENTS_COLLECTION).updateOne({ _id: enrollmentObjectId }, { $set: patch }).catch(() => undefined);
+    await mirrorCourseToPortal(async (portalDb) => {
+      await portalDb.collection(ENROLLMENTS_COLLECTION).updateOne({ _id: enrollmentObjectId }, { $set: patch }, { upsert: false });
+    });
+    return { passed: true, checkpointId: checkpoint.id };
   },
 };

@@ -938,4 +938,40 @@ export const hqController = {
       sendError(res, error.statusCode || 400, error.message, error);
     }
   },
+
+  async uploadCourseCertificateBackground(req, res) {
+    try {
+      const file = req.file;
+      if (!file) {
+        return sendError(res, 400, 'No image file provided');
+      }
+      const result = await hqService.uploadCourseCertificateBackground(file, req.user);
+      sendResponse(res, 201, 'Certificate background uploaded', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async previewCourseCertificate(req, res) {
+    try {
+      const result = hqService.previewCourseCertificate(req.body || {}, req.user);
+      sendResponse(res, 200, 'Certificate preview', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async passCourseCheckpoint(req, res) {
+    try {
+      const result = await hqService.passCourseCheckpoint(
+        req.params.id,
+        req.params.enrollmentId,
+        req.params.checkpointId,
+        req.user,
+      );
+      sendResponse(res, 200, 'Checkpoint signed off', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
 };
