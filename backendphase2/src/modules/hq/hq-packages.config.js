@@ -58,7 +58,9 @@ const SLUG_ALIASES = {
 export function resolvePackageSlug(slug, name) {
   const raw = String(slug || name || '')
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\s*trial\s*$/i, '')
+    .trim();
   return SLUG_ALIASES[raw] || raw;
 }
 

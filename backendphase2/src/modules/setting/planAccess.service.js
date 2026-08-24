@@ -25,14 +25,43 @@ function planRecordsMatch(local, target) {
     (local.maxJobs ?? null) === (target.maxJobs ?? null) &&
     String(local.planStartDate || '') === String(target.planStartDate || '') &&
     String(local.planEndDate || '') === String(target.planEndDate || '') &&
+    Boolean(local.isTrial) === Boolean(target.isTrial) &&
+    (Number(local.trialDays) || 0) === (Number(target.trialDays) || 0) &&
     (Number(local.coins) || 0) === (Number(target.coins) || 0)
   );
 }
 
+/** Strip trailing "Trial" so package lookup still finds Starter/Basic/etc. */
+function packageLookupName(name) {
+  return String(name || '')
+    .replace(/\s*trial\s*$/i, '')
+    .trim();
+}
+
+/**
+ * Prefer HQ trial window / labels over package defaults.
+ * syncSubscriptionPlanFromHq used to re-resolve monthly packages and wipe 5-day
+ * trial end dates back to +30 days.
+ */
 function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
-  if (!resolvedPlan) return null;
+  if (!resolvedPlan && !hqPlan) return null;
+  if (!resolvedPlan) {
+    return {
+      ...hqPlan,
+      ...(hqPlan?.isTrial ? { isTrial: true } : {}),
+    };
+  }
   return {
     ...resolvedPlan,
+    // Keep HQ trial display name (e.g. "Starter Trial") instead of bare package name.
+    ...(hqPlan?.isTrial && hqPlan?.name ? { name: String(hqPlan.name).trim() } : {}),
+    ...(hqPlan?.planStartDate
+      ? { planStartDate: String(hqPlan.planStartDate).trim().slice(0, 10) }
+      : {}),
+    // HQ end date wins — never replace a 5-day trial with monthly +30.
+    ...(hqPlan?.planEndDate
+      ? { planEndDate: String(hqPlan.planEndDate).trim().slice(0, 10) }
+      : {}),
     ...(hqPlan?.upgradedAt ? { upgradedAt: String(hqPlan.upgradedAt) } : {}),
     ...(hqPlan?.upgradedFrom ? { upgradedFrom: String(hqPlan.upgradedFrom) } : {}),
     ...(hqPlan?.upgradedBy ? { upgradedBy: String(hqPlan.upgradedBy) } : {}),
@@ -46,6 +75,8 @@ function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
       ? { coins: Math.max(0, Number(hqPlan.coins) || 0) }
       : {}),
     ...(hqPlan?.price ? { price: String(hqPlan.price) } : {}),
+    ...(hqPlan?.maxUsers !== undefined ? { maxUsers: hqPlan.maxUsers } : {}),
+    ...(hqPlan?.maxJobs !== undefined ? { maxJobs: hqPlan.maxJobs } : {}),
   };
 }
 
@@ -82,10 +113,18 @@ export async function syncSubscriptionPlanFromHq() {
 
   let resolvedPlan = null;
   try {
+    // Pass the full HQ plan object so planEndDate / trial fields are not dropped.
+    // For trials, look up the base package (without "Trial" suffix) for limits only.
+    const lookupRaw = hqPlan.isTrial
+      ? {
+          ...hqPlan,
+          name: packageLookupName(hqPlan.name) || hqPlan.name,
+        }
+      : hqPlan;
     resolvedPlan = await hqPackagesService.resolvePlanInput(
-      hqPlan.id || hqPlan.name,
+      lookupRaw,
       hqPlan.billingCycle,
-      hqPlan.planStartDate
+      hqPlan.planStartDate,
     );
   } catch (err) {
     console.warn('[planAccess] failed to resolve HQ plan:', err?.message || err);
