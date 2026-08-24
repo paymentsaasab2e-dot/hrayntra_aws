@@ -24,6 +24,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
+import { requestConfirm } from '@/lib/appDialog';
 import { LeadDetailsDrawer } from '@/components/drawers/LeadDetailsDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
 import {
@@ -629,7 +630,13 @@ export default function HqLeadsPage() {
   };
 
   const handleDeleteLead = async (id: string) => {
-    if (!window.confirm('Delete this HQ lead? This cannot be undone.')) return;
+    const ok = await requestConfirm('Delete this HQ lead? This cannot be undone.', {
+      tone: 'warning',
+      title: 'Delete lead',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
     try {
       await apiHqDeleteLead(id);
       setSelectedLeadId(null);
@@ -782,7 +789,13 @@ export default function HqLeadsPage() {
   };
 
   const handleDeleteDemo = async (demoId: string) => {
-    if (!window.confirm('Delete this landing signup?')) return;
+    const ok = await requestConfirm('Delete this landing signup?', {
+      tone: 'warning',
+      title: 'Delete signup',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
     await apiHqDeleteDemoRequest(demoId);
       await loadDemos();
   };
@@ -1207,7 +1220,16 @@ export default function HqLeadsPage() {
                       <button
                         type="button"
                         onClick={async () => {
-                          if (!window.confirm(`Delete all ${filteredDemos.length} landing signups? This cannot be undone.`)) return;
+                          const ok = await requestConfirm(
+                            `Delete all ${filteredDemos.length} landing signups? This cannot be undone.`,
+                            {
+                              tone: 'warning',
+                              title: 'Delete all signups',
+                              confirmLabel: 'Delete all',
+                              cancelLabel: 'Cancel',
+                            },
+                          );
+                          if (!ok) return;
                           for (const d of filteredDemos) {
                             try { await apiHqDeleteDemoRequest(d.id); } catch {}
                           }

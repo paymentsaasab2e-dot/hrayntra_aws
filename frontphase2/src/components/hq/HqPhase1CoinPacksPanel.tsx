@@ -7,6 +7,7 @@ import {
   apiHqSavePhase1TokenPacks,
   type HqPhase1TokenPack,
 } from '@/lib/api';
+import { requestConfirm } from '@/lib/appDialog';
 import { HqPanel, HqPanelTitle, HqPrimaryButton, HqSecondaryButton } from './hqUi';
 
 const inputClass =
@@ -231,7 +232,16 @@ export function HqPhase1CoinPacksPanel() {
 
   const removePack = async (index: number) => {
     const pack = packs[index];
-    if (!window.confirm(`Remove pack “${pack.name}”? Candidates will no longer see it.`)) return;
+    const ok = await requestConfirm(
+      `Remove pack “${pack.name}”? Candidates will no longer see it.`,
+      {
+        tone: 'warning',
+        title: 'Remove pack',
+        confirmLabel: 'Remove',
+        cancelLabel: 'Cancel',
+      },
+    );
+    if (!ok) return;
     const nextList = packs.filter((_, i) => i !== index);
     setPacks(nextList);
     await persistPacks(nextList, `Removed “${pack.name}”. Phase 1 catalog updated.`);

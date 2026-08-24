@@ -7,6 +7,7 @@ import {
   apiHqSaveAiCoinPacks,
   type HqAiCoinPack,
 } from '@/lib/api';
+import { requestConfirm } from '@/lib/appDialog';
 import { HqPanel, HqPanelTitle, HqPrimaryButton, HqSecondaryButton } from './hqUi';
 
 const inputClass =
@@ -145,9 +146,18 @@ export function HqAiCoinPacksPanel() {
     setEditingIndex(null);
   };
 
-  const removePack = (index: number) => {
+  const removePack = async (index: number) => {
     const pack = packs[index];
-    if (!window.confirm(`Remove pack “${pack.name}”? Phase 2 tenants will no longer see it.`)) return;
+    const ok = await requestConfirm(
+      `Remove pack “${pack.name}”? Phase 2 tenants will no longer see it.`,
+      {
+        tone: 'warning',
+        title: 'Remove pack',
+        confirmLabel: 'Remove',
+        cancelLabel: 'Cancel',
+      },
+    );
+    if (!ok) return;
     setPacks((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -323,7 +333,7 @@ export function HqAiCoinPacksPanel() {
                         <button
                           type="button"
                           title="Remove"
-                          onClick={() => removePack(index)}
+                          onClick={() => void removePack(index)}
                           className="rounded-lg p-2 text-rose-500 hover:bg-rose-50"
                         >
                           <Trash2 className="h-4 w-4" />

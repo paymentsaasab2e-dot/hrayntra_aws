@@ -11,6 +11,7 @@ import {
   type HqSubscriptionPackage,
   type HqTenantRow,
 } from '@/lib/api';
+import { requestConfirm } from '@/lib/appDialog';
 import {
   HQ_SELECT_CLASS,
   HqPanel,
@@ -460,7 +461,12 @@ export function HqPackagesPanel({
 
   const handleDelete = async (pkg: HqSubscriptionPackage) => {
     if (pkg.isSystem) return;
-    const proceed = window.confirm(`Delete plan "${pkg.name}"? This cannot be undone.`);
+    const proceed = await requestConfirm(`Delete plan "${pkg.name}"? This cannot be undone.`, {
+      tone: 'warning',
+      title: 'Delete plan',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
     if (!proceed) return;
     setError(null);
     setSubmitting(true);

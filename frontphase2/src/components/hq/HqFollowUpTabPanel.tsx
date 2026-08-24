@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Check, ChevronDown, Pencil, Trash2 } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
+import { requestConfirm } from '@/lib/appDialog';
 import {
   defaultNextFollowUpLocal,
   formatNextFollowUpDisplay,
@@ -123,7 +124,13 @@ export function HqFollowUpTabPanel({
 
   const handleDelete = async (followUpId: string) => {
     onClearError();
-    if (!window.confirm('Delete this follow-up?')) return;
+    const ok = await requestConfirm('Delete this follow-up?', {
+      tone: 'warning',
+      title: 'Delete follow-up',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
     setActionId(followUpId);
     try {
       await onDelete(followUpId);
