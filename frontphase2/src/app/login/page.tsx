@@ -37,6 +37,28 @@ const BRAND_ORANGE_DEEP = '#E8770E';
 const BRAND_BLUE = '#28A8E1';
 const BRAND_BLUE_DEEP = '#08428C';
 
+/**
+ * Safe post-login destination. Broken try-free handoffs used to produce
+ * `/leads/login` (404). Always prefer the module-aware Phase 2 dashboard.
+ */
+function resolvePostLoginPath(raw: string | null | undefined): string {
+  const path = String(raw || '').trim();
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('://')) {
+    return '/dashboard';
+  }
+  const lower = path.toLowerCase();
+  if (
+    lower === '/leads' ||
+    lower === '/login' ||
+    lower.startsWith('/leads/login') ||
+    lower.includes('/login') ||
+    lower.startsWith('/hq')
+  ) {
+    return '/dashboard';
+  }
+  return path;
+}
+
 export default function LoginPage() {
   const router = useRouter();
 
@@ -148,7 +170,7 @@ export default function LoginPage() {
     const goToAppIfAuthenticated = () => {
       if (!getAccessToken()) return;
       const redirectParam = new URLSearchParams(window.location.search).get('redirect');
-      const target = redirectParam && redirectParam !== '/leads' ? redirectParam : '/dashboard';
+      const target = resolvePostLoginPath(redirectParam);
       router.replace(target);
     };
 
@@ -179,7 +201,7 @@ export default function LoginPage() {
         }
       }
       const redirectParam = new URLSearchParams(window.location.search).get('redirect');
-      const redirectTo = redirectParam && redirectParam !== '/leads' ? redirectParam : '/dashboard';
+      const redirectTo = resolvePostLoginPath(redirectParam);
       window.location.href = redirectTo;
     }, 800);
   };

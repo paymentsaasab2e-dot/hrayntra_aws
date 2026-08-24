@@ -35,11 +35,21 @@ export function middleware(request: NextRequest) {
       }
       return NextResponse.redirect(new URL('/hq/login', request.url));
     }
+    // Broken try-free URLs used to create /leads/login — send to real login → dashboard.
+    if (pathname === '/leads/login' || pathname.startsWith('/leads/login/')) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', '/dashboard');
+      return NextResponse.redirect(loginUrl);
+    }
     // Preserve the original destination so login can redirect back
     const loginUrl = new URL('/login', request.url);
     const returnPath = `${pathname}${request.nextUrl.search}`;
     loginUrl.searchParams.set('redirect', returnPath);
     return NextResponse.redirect(loginUrl);
+  }
+
+  if (pathname === '/leads/login' || pathname.startsWith('/leads/login/')) {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
   return NextResponse.next();
