@@ -1585,7 +1585,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           onScroll={persistScrollPosition}
           className="sidenav-scrollbar flex-1 overflow-y-auto overflow-x-hidden py-2"
         >
-          {/* CRM — hover flyout on the right with Leads, Clients, Dashboard */}
+          {/* CRM — hover flyout: Dashboard → Leads → Clients */}
           {mounted && (canViewLeads || canViewClients || canViewDashboard) && (
             <NavGroupFlyout
               icon={Building2}
@@ -1595,20 +1595,20 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               active={isCrmRouteActive}
               onNavigate={persistScrollPosition}
               items={[
+                ...(canViewDashboard
+                  ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard', accent: 'sky' as const }]
+                  : []),
                 ...(canViewLeads
                   ? [{ icon: Target, label: 'Leads', href: '/leads', accent: 'rose' as const }]
                   : []),
                 ...(canViewClients
                   ? [{ icon: Users, label: 'Clients', href: '/client', accent: 'blue' as const }]
                   : []),
-                ...(canViewDashboard
-                  ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard', accent: 'sky' as const }]
-                  : []),
               ]}
             />
           )}
 
-          {/* Recruitment — hover flyout (Jobs, Candidates, Pipeline, Matches, …) */}
+          {/* Recruitment — hover flyout: Dashboard first, then Jobs → … */}
           {mounted && canViewRecruitmentNav && (
             <NavGroupFlyout
               icon={Briefcase}
@@ -1618,6 +1618,9 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               active={isRecruitmentRouteActive}
               onNavigate={persistScrollPosition}
               items={[
+                ...(canViewRecruitmentDashboard
+                  ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/recruitment', accent: 'indigo' as const }]
+                  : []),
                 ...(canViewJobs
                   ? [{ icon: Briefcase, label: 'Jobs', href: '/job', accent: 'amber' as const }]
                   : []),
@@ -1635,9 +1638,6 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                   : []),
                 ...(canViewPlacements
                   ? [{ icon: Award, label: 'Placements', href: '/placement', accent: 'emerald' as const }]
-                  : []),
-                ...(canViewRecruitmentDashboard
-                  ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/recruitment', accent: 'indigo' as const }]
                   : []),
               ]}
             />
