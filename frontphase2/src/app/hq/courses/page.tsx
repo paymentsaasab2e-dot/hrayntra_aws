@@ -27,7 +27,7 @@ import {
   type HqCourseStats,
 } from '@/lib/api';
 import { HqCourseCertificateAndJourney, defaultHqCourseCertificate } from '@/components/hq/HqCourseCertificateAndJourney';
-import { requestError, requestSuccess, requestWarning } from '@/lib/appDialog';
+import { requestConfirm, requestError, requestSuccess, requestWarning } from '@/lib/appDialog';
 
 const EMPTY_STATS: HqCourseStats = {
   total: 0,
