@@ -1441,40 +1441,21 @@ export default function HqLeadsPage() {
                             </td>
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex items-center justify-end gap-1">
-                                {lead.employerDemoRequestId ? (
-                          <button
-                            type="button"
-                                    title="Grant try-free access"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                                      openGrantTrialModal({
-                                        id: lead.employerDemoRequestId as string,
-                                        fullName: lead.contactPerson || lead.name || 'Lead',
-                                        email: lead.email || '',
-                                        organizationName: lead.company || '—',
-                                        countryCode: '',
-                                        dialCode: '',
-                                        phoneNumber: lead.phone || '',
-                                        companySize: '—',
-                                        outcome: '',
-                                        requestKind: 'demo',
-                                        trialProvisioned: false,
-                                        trialTenantDbName: '',
-                                        trialLoginId: '',
-                                        trialStartsAt: null,
-                                        trialEndsAt: null,
-                                        trialLoginUrl: '',
-                                        status: 'VERIFIED',
-                                        emailVerifiedAt: null,
-                                        createdAt: null,
-                                        submittedAt: '',
-                                      });
-                                    }}
-                                    className="rounded-lg p-1.5 text-emerald-600 transition hover:bg-emerald-50"
-                                  >
-                                    <KeyRound className="h-4 w-4" />
-                          </button>
-                                ) : null}
+                                <button
+                                  type="button"
+                                  title={
+                                    isHqLeadTrialStage(lead)
+                                      ? 'Resend / refresh trial account'
+                                      : 'Grant trial account'
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openTrialGrantPopup(lead);
+                                  }}
+                                  className="rounded-lg p-1.5 text-teal-600 transition hover:bg-teal-50"
+                                >
+                                  <KeyRound className="h-4 w-4" />
+                                </button>
                                 {lead.stage !== 'converted' && lead.stage !== 'lost' ? (
                           <button
                             type="button"
