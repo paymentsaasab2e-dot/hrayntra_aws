@@ -50,6 +50,7 @@ import {
   type HqLeadStorageInfo,
 } from '@/lib/api';
 import { mapHqCompanyToBackendClient, mapHqCompanyToClient } from '@/app/hq/hqCompanyToClient';
+import { requestConfirm } from '@/lib/appDialog';
 
 type ClientTab = 'all' | 'active' | 'on-hold' | 'inactive' | 'hot';
 
@@ -252,7 +253,13 @@ export default function HqClientsPage() {
   };
 
   const handleDeleteClient = async (clientId: string) => {
-    if (!window.confirm('Delete this HQ client? This cannot be undone.')) return;
+    const ok = await requestConfirm('Delete this HQ client? This cannot be undone.', {
+      tone: 'warning',
+      title: 'Delete client',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
     try {
       await apiHqDeleteCompany(clientId);
       setSelectedClientId(null);

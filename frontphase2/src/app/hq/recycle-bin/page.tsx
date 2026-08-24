@@ -12,6 +12,7 @@ import {
   type HqTenantRow,
 } from '@/lib/api';
 import { formatDateDMY } from '@/utils/dateDisplay';
+import { requestConfirm } from '@/lib/appDialog';
 
 function tenantDisplayName(t: HqTenantRow) {
   return t.organizationName || t.name || t.email;
@@ -57,10 +58,16 @@ export default function HqRecycleBinPage() {
   };
 
   const purge = async (row: HqTenantRow) => {
-    const ok = window.confirm(
+    const ok = await requestConfirm(
       `Permanently delete ${row.email}? This cannot be undone${
         row.tenantDbName ? ` and will drop database ${row.tenantDbName}` : ''
       }.`,
+      {
+        tone: 'error',
+        title: 'Delete forever',
+        confirmLabel: 'Delete forever',
+        cancelLabel: 'Cancel',
+      },
     );
     if (!ok) return;
     setBusyEmail(row.email);

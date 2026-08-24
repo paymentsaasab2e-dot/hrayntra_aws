@@ -34,6 +34,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { requestConfirm } from '@/lib/appDialog';
 import {
   apiHqAddLeadFollowUp,
   apiHqAddLeadRemark,
@@ -303,7 +304,13 @@ export function HqLeadDetailView({
   };
 
   const deleteFollowUp = async (fuId: string) => {
-    if (!window.confirm('Delete this follow-up?')) return;
+    const ok = await requestConfirm('Delete this follow-up?', {
+      tone: 'warning',
+      title: 'Delete follow-up',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
     try {
       const result = await apiHqDeleteLeadFollowUp(lead.id, fuId);
       if (result.data?.lead) onLeadUpdated(result.data.lead);

@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { requestConfirm } from '@/lib/appDialog';
 import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
@@ -518,7 +519,13 @@ export default function HqTeamPage() {
   }
 
   async function deleteMember(member: HqTeamMemberRow) {
-    if (!window.confirm(`Delete ${member.name}? This cannot be undone.`)) return;
+    const ok = await requestConfirm(`Delete ${member.name}? This cannot be undone.`, {
+      tone: 'warning',
+      title: 'Delete team member',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
     try {
       await apiHqDeleteTeamMember(member.id);
       toast.success('Team member deleted.');
@@ -533,7 +540,13 @@ export default function HqTeamPage() {
       toast.error('System roles cannot be deleted.');
       return;
     }
-    if (!window.confirm(`Delete the ${role.roleName} role? This cannot be undone.`)) return;
+    const ok = await requestConfirm(`Delete the ${role.roleName} role? This cannot be undone.`, {
+      tone: 'warning',
+      title: 'Delete role',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
     try {
       await apiHqDeleteRole(role.id);
       toast.success('Role deleted.');

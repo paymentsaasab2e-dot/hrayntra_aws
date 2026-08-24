@@ -52,6 +52,7 @@ import {
 } from '@/lib/api';
 import { mapHqCompanyToBackendClient, mapHqCompanyToClient } from '@/app/hq/hqCompanyToClient';
 import { toast } from 'sonner';
+import { requestConfirm } from '@/lib/appDialog';
 
 function ScoreBadge({ score }: { score: HqCompanyScore }) {
   if (score === 'Hot') {
@@ -200,7 +201,13 @@ export default function HqCompanyPage() {
   };
 
   const handleDeleteCompany = async (companyId: string) => {
-    if (!window.confirm('Delete this HQ company? This cannot be undone.')) return;
+    const ok = await requestConfirm('Delete this HQ company? This cannot be undone.', {
+      tone: 'warning',
+      title: 'Delete company',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
     try {
       await apiHqDeleteCompany(companyId);
       setSelectedCompanyId(null);

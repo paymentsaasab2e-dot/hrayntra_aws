@@ -348,7 +348,12 @@ export default function HqCoursesPage() {
   };
 
   const handleDelete = async (course: HqCourseRow) => {
-    const ok = window.confirm(`Delete course "${course.title}"? This cannot be undone.`);
+    const ok = await requestConfirm(`Delete course "${course.title}"? This cannot be undone.`, {
+      tone: 'warning',
+      title: 'Delete course',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
     if (!ok) return;
     setDeletingId(course.id);
     try {
@@ -369,8 +374,14 @@ export default function HqCoursesPage() {
       void requestWarning('Select at least one course to delete.');
       return;
     }
-    const ok = window.confirm(
+    const ok = await requestConfirm(
       `Delete ${ids.length} selected course${ids.length === 1 ? '' : 's'}? This cannot be undone.`,
+      {
+        tone: 'warning',
+        title: 'Delete courses',
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+      },
     );
     if (!ok) return;
     setBulkDeleting(true);

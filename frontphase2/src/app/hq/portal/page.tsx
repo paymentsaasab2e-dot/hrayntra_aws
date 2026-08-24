@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Globe, Loader2, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { requestConfirm } from '@/lib/appDialog';
 import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
@@ -122,8 +123,14 @@ export default function HqPortalPage() {
       ? `tenant ${row.tenantDbName}, Phase 1 portal, and Phase 2 CRM`
       : 'Phase 1 portal';
 
-    const confirmed = window.confirm(
+    const confirmed = await requestConfirm(
       `Delete "${label}" permanently?\n\nThis removes the job from ${scope}. This cannot be undone.`,
+      {
+        tone: 'warning',
+        title: 'Delete portal job',
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+      },
     );
     if (!confirmed) return;
 

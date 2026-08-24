@@ -178,6 +178,11 @@ router.get('/courses/:id/enrollments', authMiddleware, hqController.listCourseEn
 router.put('/courses/:id', authMiddleware, hqController.updateCourse);
 router.delete('/courses/:id', authMiddleware, hqController.deleteCourse);
 
+router.get('/reports', authMiddleware, hqController.listCustomReports);
+router.post('/reports', authMiddleware, hqController.createCustomReport);
+router.put('/reports/:id', authMiddleware, hqController.updateCustomReport);
+router.delete('/reports/:id', authMiddleware, hqController.deleteCustomReport);
+
 router.get('/analytics', authMiddleware, hqController.getAnalytics);
 
 router.get('/events', authMiddleware, portalEventsController.listHqEvents);

@@ -3810,6 +3810,76 @@ export async function apiHqGetAnalytics() {
   return apiFetch<HqAnalyticsPayload>(`/hq/analytics?_=${bust}`, { auth: true });
 }
 
+export type HqCustomReportRow = {
+  id: string;
+  name: string;
+  dataset:
+    | 'leads'
+    | 'clients'
+    | 'demos'
+    | 'tenants'
+    | 'tickets'
+    | 'team'
+    | 'candidates'
+    | 'kyc'
+    | 'courses'
+    | 'jobs'
+    | 'events'
+    | 'helpTickets'
+    | 'companies';
+  groupBy: string;
+  metric: 'count' | 'pipeline';
+  dateFrom?: string;
+  dateTo?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  createdByEmail?: string | null;
+};
+
+export async function apiHqListCustomReports() {
+  return apiFetch<{ reports: HqCustomReportRow[] }>('/hq/reports', { auth: true });
+}
+
+export async function apiHqCreateCustomReport(body: {
+  name: string;
+  dataset: HqCustomReportRow['dataset'];
+  groupBy: string;
+  metric?: HqCustomReportRow['metric'];
+  dateFrom?: string;
+  dateTo?: string;
+}) {
+  return apiFetch<{ report: HqCustomReportRow }>('/hq/reports', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqUpdateCustomReport(
+  reportId: string,
+  body: {
+    name: string;
+    dataset: HqCustomReportRow['dataset'];
+    groupBy: string;
+    metric?: HqCustomReportRow['metric'];
+    dateFrom?: string;
+    dateTo?: string;
+  },
+) {
+  return apiFetch<{ report: HqCustomReportRow }>(`/hq/reports/${encodeURIComponent(reportId)}`, {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqDeleteCustomReport(reportId: string) {
+  return apiFetch<{ deleted: boolean; id: string }>(`/hq/reports/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+}
+
 export async function apiHqDeletePortalJob(
   jobId: string,
   body: { tenantDbName?: string } = {},
