@@ -54,6 +54,17 @@ const VALUE_CLASS =
 const INPUT_CLASS =
   'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-200';
 
+function normalizeHqModules(values: string[] | null | undefined, productLine?: string | null): string[] {
+  const allowed = HQ_COMPANY_MODULE_OPTIONS;
+  const keys = new Set(
+    (values || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean),
+  );
+  const line = String(productLine || '').toLowerCase();
+  if (line.includes('crm')) keys.add('crm');
+  if (line.includes('recruitment')) keys.add('recruitment');
+  return allowed.filter((module) => keys.has(module.toLowerCase()));
+}
+
 function companyToFormValues(company: HqCompanyRow): EditHqCompanyFormValues {
   return {
     companyName: company.name,
@@ -68,7 +79,7 @@ function companyToFormValues(company: HqCompanyRow): EditHqCompanyFormValues {
     accountOwner: company.owner,
     companySource: company.companySource || '',
     nextFollowUpAt: toDatetimeLocalValue(company.nextFollowUpAt) || defaultNextFollowUpLocal(),
-    interestedModules: [...(company.interestedModules ?? [])],
+    interestedModules: normalizeHqModules(company.interestedModules, company.hqProductLine),
     initialNotes: company.initialNotes || '',
     status: company.status,
   };
@@ -213,7 +224,11 @@ export function HqCompanyDetailDrawer({
 
   if (!mounted || !open || !company || !form) return null;
 
-  const selectedModules = new Set(isEditing ? form.interestedModules : (company.interestedModules ?? []));
+  const selectedModules = new Set(
+    isEditing
+      ? form.interestedModules
+      : normalizeHqModules(company.interestedModules, company.hqProductLine),
+  );
 
   const toggleModule = (module: string) => {
     setForm((prev) => {

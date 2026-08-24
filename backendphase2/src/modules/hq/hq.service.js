@@ -983,6 +983,16 @@ export const hqService = {
     });
   },
 
+  async grantLeadTrial(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTrialService.grantTrialFromLead(id, {
+      email: data?.email,
+      trialDays: data?.trialDays,
+      note: data?.note,
+      notifyEmails: data?.notifyEmails,
+    }, reqUser);
+  },
+
   async listSupportTickets(reqUser, filters = {}) {
     assertPlatformProvisioner(reqUser);
     return hqTicketsService.listTickets(filters);

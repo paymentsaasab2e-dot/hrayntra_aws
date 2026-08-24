@@ -89,6 +89,7 @@ router.post('/leads/:id/follow-ups/:followUpId/complete', authMiddleware, hqCont
 router.delete('/leads/:id/follow-ups/:followUpId', authMiddleware, hqController.deleteLeadFollowUp);
 router.post('/leads/:id/remarks', authMiddleware, hqController.addLeadRemark);
 router.post('/leads/:id/convert-to-company', authMiddleware, hqController.convertLeadToCompany);
+router.post('/leads/:id/grant-trial', authMiddleware, hqController.grantLeadTrial);
 
 router.get('/demos', authMiddleware, hqController.listDemoRequests);
 router.delete('/demos/:id', authMiddleware, hqController.deleteDemoRequest);

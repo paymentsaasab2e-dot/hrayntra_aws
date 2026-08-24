@@ -2,6 +2,7 @@
 
 import React, { useCallback } from 'react';
 import { Lock, Unlock } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 import { notifyTenantCoinsChanged } from '@/lib/api';
 import { useTenantCoins } from './TenantCoinsContext';
 import { openAiCoinPurchaseModal } from './AiCoinPurchaseModal';
@@ -25,6 +26,21 @@ export type AiCoinGateResult = {
  * When coins are spent, opens the demo purchase modal.
  */
 export function useAiCoinGate(featureId: string): AiCoinGateResult {
+  // HQ users should be able to use AI/features without paying tenant coins.
+  // We treat any `/hq/*` route as HQ context for UI gating purposes.
+  const pathname = usePathname();
+  if (String(pathname || '').startsWith('/hq')) {
+    return {
+      cost: 0,
+      coins: 0,
+      locked: false,
+      refresh: async () => undefined,
+      confirmAndUnlock: () => true,
+      runWithUnlock: async <T,>(fn: () => T | Promise<T>) => fn(),
+      openPurchase: () => {},
+    };
+  }
+
   const { coins, getFeatureCost, isFeatureLocked, refresh, openPurchase } = useTenantCoins();
   const cost = getFeatureCost(featureId);
   const locked = isFeatureLocked(featureId);

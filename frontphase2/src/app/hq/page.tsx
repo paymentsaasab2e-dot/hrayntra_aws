@@ -14,8 +14,6 @@ import {
   Plus,
   Eye,
   Trash2,
-  LogIn,
-  Copy,
 } from 'lucide-react';
 import {
   buildApiUrl,
@@ -25,7 +23,6 @@ import {
   apiHqDeleteTenant,
   apiHqSetTenantPause,
   apiHqGetAnalytics,
-  apiHqCreateTenantImpersonation,
   type HqTenantRow,
   type HqSubscriptionPackage,
   type HqAnalyticsPayload,
@@ -838,44 +835,9 @@ function TenantsPanel({
   const landingTrials = tenantStats?.landingTrials ?? tenants.filter((t) => t.signupSource === 'landing_trial').length;
   const [detailTenant, setDetailTenant] = useState<HqTenantRow | null>(null);
   const [deleteTenant, setDeleteTenant] = useState<DeleteTenantTarget | null>(null);
-  const [pendingAccessEmail, setPendingAccessEmail] = useState('');
-  const [accessNotice, setAccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const openDetail = (tenant: HqTenantRow) => {
     setDetailTenant(tenant);
-  };
-
-  const openTenantAccount = async (tenant: HqTenantRow) => {
-    if (!tenant.email || tenant.isLandingSignupOnly || !tenant.tenantDbName) return;
-    setPendingAccessEmail(tenant.email);
-    setAccessNotice(null);
-    try {
-      const response = await apiHqCreateTenantImpersonation({ email: tenant.email });
-      const data = response.data;
-      if (!data?.token) {
-        throw new Error('Unable to create tenant access link');
-      }
-      const loginUrl = `${window.location.origin}/login#hqImpersonation=${encodeURIComponent(data.token)}`;
-      window.open(loginUrl, '_blank', 'noopener,noreferrer');
-      setAccessNotice({
-        type: 'success',
-        message: `Opened ${tenant.name || tenant.email}. Login ID: ${data.loginId || tenant.loginId || tenant.email}. Link expires in 5 minutes.`,
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to open tenant account';
-      setAccessNotice({ type: 'error', message });
-    } finally {
-      setPendingAccessEmail('');
-    }
-  };
-
-  const copyTenantLoginId = async (loginId: string) => {
-    try {
-      await navigator.clipboard.writeText(loginId);
-      setAccessNotice({ type: 'success', message: `Copied login ID: ${loginId}` });
-    } catch {
-      setAccessNotice({ type: 'error', message: 'Unable to copy login ID' });
-    }
   };
 
   // Keep detail drawer in sync after list refresh (plan/coins/tabs/pause).
@@ -939,17 +901,6 @@ function TenantsPanel({
           </HqPrimaryButton>
         </div>
       </div>
-      {accessNotice ? (
-        <div
-          className={`mx-5 mt-4 rounded-xl border px-4 py-3 text-xs ${
-            accessNotice.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-              : 'border-rose-200 bg-rose-50 text-rose-700'
-          }`}
-        >
-          {accessNotice.message}
-        </div>
-      ) : null}
       {tenantsError ? (
         <div className="m-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700">{tenantsError}</div>
       ) : tenants.length === 0 ? (
@@ -961,7 +912,6 @@ function TenantsPanel({
               <tr>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Login ID</th>
                 <th>Source</th>
                 <th>Type</th>
                 <th>Product</th>
@@ -992,25 +942,6 @@ function TenantsPanel({
                     ) : null}
                   </td>
                   <td className="py-3 pr-3 text-slate-600">{t.email}</td>
-                  <td className="py-3 pr-3">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-xs text-slate-700">{t.loginId || '—'}</span>
-                      {t.loginId ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void copyTenantLoginId(t.loginId);
-                          }}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
-                          title="Copy login ID"
-                          aria-label={`Copy login ID for ${t.name || t.email}`}
-                        >
-                          <Copy size={12} />
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
                   <td className="py-3 pr-3">
                     <span
                       className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${tenantSignupSourceClass(t.signupSource)}`}
@@ -1103,24 +1034,6 @@ function TenantsPanel({
                   </td>
                   <td className="py-3 pl-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="inline-flex items-center justify-end gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => void openTenantAccount(t)}
-                        disabled={
-                          pendingAccessEmail === t.email ||
-                          t.isLandingSignupOnly ||
-                          !t.tenantDbName
-                        }
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
-                        title={
-                          t.isLandingSignupOnly || !t.tenantDbName
-                            ? 'Tenant database not ready'
-                            : 'Open tenant account'
-                        }
-                        aria-label={`Open tenant account for ${t.name || t.email}`}
-                      >
-                        <LogIn size={15} strokeWidth={2.25} />
-                      </button>
                       <button
                         type="button"
                         onClick={() => openDetail(t)}

@@ -60,6 +60,30 @@ function normalizeTrialDays(raw) {
   return Math.max(1, Math.min(365, Math.round(n)));
 }
 
+async function sendTrialCopies({ emails, loginId, password, trialDays, trialEndsAt, tenantDbName, tryFreeUrl }) {
+  const results = [];
+  for (const extra of emails || []) {
+    try {
+      await sendCredentialInvite({
+        email: extra,
+        loginId,
+        tempPassword: password,
+        roleName: `Try-free access (${trialDays} days)`,
+        inviteToken: password,
+        tenantDbName,
+        loginBaseUrl: tryFreeUrl,
+        trialDays,
+        trialEndsAt,
+      });
+      results.push({ email: extra, sent: true });
+    } catch (err) {
+      results.push({ email: extra, sent: false, error: err?.message || String(err) });
+      console.warn('[hq-trial] extra credential email failed:', extra, err?.message || err);
+    }
+  }
+  return results;
+}
+
 async function resolveStarterTrialPlan(trialDays) {
   const packages = await hqPackagesService.listPackages();
   const starter =
@@ -123,6 +147,10 @@ export const hqTrialService = {
     const organizationName = String(demo?.organizationName || '').trim();
     const trialDays = normalizeTrialDays(options.trialDays ?? demo?.trialDays);
     const note = String(options.note || '').trim();
+    const skipLeadSync = Boolean(options.skipLeadSync);
+    const notifyEmails = Array.isArray(options.notifyEmails)
+      ? [...new Set(options.notifyEmails.map((item) => normalizeEmail(item)).filter((item) => item && item !== email))]
+      : [];
     const tryFreeUrl = resolveTryFreeLoginUrl();
 
     if (!name || !email || !organizationName) {
@@ -210,6 +238,16 @@ export const hqTrialService = {
         console.warn('[hq-trial] credential email failed (re-grant):', credentialEmailError);
       }
 
+      const extraEmailResults = await sendTrialCopies({
+        emails: notifyEmails,
+        loginId,
+        password,
+        trialDays,
+        trialEndsAt: subscriptionPlan?.planEndDate || null,
+        tenantDbName: existing.tenantDbName,
+        tryFreeUrl,
+      });
+
       await markDemoRequestProvisioned(requestId, {
         requestKind: 'trial',
         trialProvisioned: true,
@@ -234,6 +272,7 @@ export const hqTrialService = {
         subscriptionPlan,
         credentialEmailSent,
         credentialEmailError,
+        extraEmailResults,
         message: credentialEmailSent
           ? 'Existing tenant trial refreshed and credentials emailed.'
           : 'Existing tenant trial refreshed. Credential email could not be sent.',
@@ -292,15 +331,27 @@ export const hqTrialService = {
       console.warn('[hq-trial] credential email failed:', credentialEmailError);
     }
 
-    try {
-      await hqLeadsService.createLeadFromEmployerDemoRequest({
-        ...demo,
-        outcome:
-          note ||
-          `${trialDays}-day try-free access — granted by HQ`,
-      });
-    } catch (leadErr) {
-      console.warn('[hq-trial] HQ lead sync failed:', leadErr?.message || leadErr);
+    const extraEmailResults = await sendTrialCopies({
+      emails: notifyEmails,
+      loginId,
+      password,
+      trialDays,
+      trialEndsAt: subscriptionPlan?.planEndDate || null,
+      tenantDbName: hqUser.tenantDbName,
+      tryFreeUrl,
+    });
+
+    if (!skipLeadSync) {
+      try {
+        await hqLeadsService.createLeadFromEmployerDemoRequest({
+          ...demo,
+          outcome:
+            note ||
+            `${trialDays}-day try-free access — granted by HQ`,
+        });
+      } catch (leadErr) {
+        console.warn('[hq-trial] HQ lead sync failed:', leadErr?.message || leadErr);
+      }
     }
 
     await markDemoRequestProvisioned(requestId, {
@@ -327,6 +378,7 @@ export const hqTrialService = {
       subscriptionPlan,
       credentialEmailSent,
       credentialEmailError,
+      extraEmailResults,
       devPassword: process.env.NODE_ENV === 'development' ? password : undefined,
     };
   },
@@ -340,5 +392,63 @@ export const hqTrialService = {
       throw err;
     }
     return this.provisionEmployerTrialRequest(demoPayloadFromDoc(doc), options);
+  },
+
+  async grantTrialFromLead(leadId, options = {}, reqUser) {
+    const leadDoc = await hqLeadsService.getLeadDocument(leadId);
+    const lead = hqLeadsService.toLeadRow(leadDoc);
+    const selectedEmail = normalizeEmail(options.email || lead.email || (Array.isArray(lead.emails) ? lead.emails[0] : ''));
+    const extraFromLead = [
+      lead.email,
+      ...(Array.isArray(lead.emails) ? lead.emails : []),
+    ]
+      .map((item) => normalizeEmail(item))
+      .filter((item) => item && item !== selectedEmail);
+    const notifyEmails = [
+      ...extraFromLead.filter((item) => (options.notifyEmails || []).map((e) => normalizeEmail(e)).includes(item)),
+      ...(Array.isArray(options.notifyEmails) ? options.notifyEmails : []),
+    ];
+
+    if (!selectedEmail) {
+      const err = new Error('Select an email to send the trial account');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const payload = {
+      requestId: lead.employerDemoRequestId || '',
+      fullName: lead.contactPerson || lead.name || selectedEmail.split('@')[0],
+      email: selectedEmail,
+      organizationName: lead.company || 'Trial company',
+      organizationType: 'agency',
+      countryCode: '',
+      dialCode: '',
+      phoneNumber: lead.phone || '',
+      companySize: '',
+      outcome: options.note || '',
+    };
+
+    const result = await this.provisionEmployerTrialRequest(payload, {
+      trialDays: options.trialDays,
+      note: options.note,
+      skipLeadSync: true,
+      notifyEmails,
+    });
+
+    const updated = await hqLeadsService.markTrialGranted(leadId, {
+      trialDays: result.trialDays,
+      trialStartsAt: result.trialStartsAt,
+      trialEndsAt: result.trialEndsAt,
+      trialLoginId: result.loginId,
+      trialLoginUrl: result.loginUrl,
+      trialTenantDbName: result.tenantDbName,
+      trialEmail: selectedEmail,
+      note: options.note,
+    }, reqUser);
+
+    return {
+      ...result,
+      lead: updated?.lead || lead,
+    };
   },
 };

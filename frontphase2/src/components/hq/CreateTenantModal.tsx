@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { apiHqListCompanies, type HqCompanyApiRow } from '@/lib/api';
 import {
+  ALL_TENANT_MODULES,
   CRM_TENANT_MODULES,
   RECRUITMENT_TENANT_MODULES,
   defaultModulesForProductLine,
@@ -164,10 +165,48 @@ export function ProvisionTenantFormFields({
   companiesLoading = false,
   lockCompany = false,
 }: ProvisionTenantFormFieldsProps) {
-  const moduleCatalog = useMemo(
-    () => (data.productLine === 'recruitment' ? RECRUITMENT_TENANT_MODULES : CRM_TENANT_MODULES),
-    [data.productLine],
+  const crmModuleIds = useMemo(() => new Set(CRM_TENANT_MODULES.map((m) => m.id)), []);
+  const recruitmentModuleIds = useMemo(
+    () => new Set(RECRUITMENT_TENANT_MODULES.map((m) => m.id)),
+    [],
   );
+
+  const crmOnlyModuleIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const id of crmModuleIds) {
+      if (!recruitmentModuleIds.has(id)) s.add(id);
+    }
+    return s;
+  }, [crmModuleIds, recruitmentModuleIds]);
+
+  const recruitmentOnlyModuleIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const id of recruitmentModuleIds) {
+      if (!crmModuleIds.has(id)) s.add(id);
+    }
+    return s;
+  }, [crmModuleIds, recruitmentModuleIds]);
+
+  const isBothProductLinesSelected = useMemo(() => {
+    const hasCrmOnly = data.enabledModules.some((id) => crmOnlyModuleIds.has(id));
+    const hasRecruitmentOnly = data.enabledModules.some((id) => recruitmentOnlyModuleIds.has(id));
+    return hasCrmOnly && hasRecruitmentOnly;
+  }, [data.enabledModules, crmOnlyModuleIds, recruitmentOnlyModuleIds]);
+
+  const bothModuleIds = useMemo(() => {
+    return Array.from(
+      new Set([
+        ...CRM_TENANT_MODULES.map((m) => m.id),
+        ...RECRUITMENT_TENANT_MODULES.map((m) => m.id),
+      ]),
+    );
+  }, []);
+
+  const moduleCatalog = isBothProductLinesSelected
+    ? ALL_TENANT_MODULES
+    : data.productLine === 'recruitment'
+      ? RECRUITMENT_TENANT_MODULES
+      : CRM_TENANT_MODULES;
 
   const availableCompanies = useMemo(
     () => companies.filter((c) => !c.tenantDbName),
@@ -368,7 +407,11 @@ export function ProvisionTenantFormFields({
         <div className="relative">
           <Building2
             className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${
-              data.productLine === 'recruitment' ? 'text-amber-500' : 'text-sky-500'
+              isBothProductLinesSelected
+                ? 'text-violet-500'
+                : data.productLine === 'recruitment'
+                  ? 'text-amber-500'
+                  : 'text-sky-500'
             }`}
           />
           <select
@@ -382,12 +425,12 @@ export function ProvisionTenantFormFields({
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <button
             type="button"
             onClick={() => setProductLine('crm')}
             className={`rounded-xl border px-3 py-3 text-left transition ${
-              data.productLine === 'crm'
+              data.productLine === 'crm' && !isBothProductLinesSelected
                 ? 'border-sky-300 bg-sky-50 ring-2 ring-sky-400/20'
                 : 'border-slate-200 bg-white hover:border-sky-200'
             }`}
@@ -399,7 +442,7 @@ export function ProvisionTenantFormFields({
             type="button"
             onClick={() => setProductLine('recruitment')}
             className={`rounded-xl border px-3 py-3 text-left transition ${
-              data.productLine === 'recruitment'
+              data.productLine === 'recruitment' && !isBothProductLinesSelected
                 ? 'border-amber-300 bg-amber-50 ring-2 ring-amber-400/20'
                 : 'border-slate-200 bg-white hover:border-amber-200'
             }`}
@@ -407,11 +450,34 @@ export function ProvisionTenantFormFields({
             <p className="text-sm font-bold text-slate-900">Recruitment</p>
             <p className="mt-0.5 text-[11px] text-slate-500">Jobs, candidates, placements…</p>
           </button>
+          <button
+            type="button"
+            onClick={() =>
+              onChange({
+                ...data,
+                // backend only stores a single productLine, but the enabledModules decide real access
+                productLine: 'crm',
+                enabledModules: bothModuleIds,
+              })
+            }
+            className={`rounded-xl border px-3 py-3 text-left transition ${
+              isBothProductLinesSelected
+                ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-400/20'
+                : 'border-slate-200 bg-white hover:border-slate-200'
+            }`}
+          >
+            <p className="text-sm font-bold text-slate-900">CRM + Recruitment</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">Enable access for both modules</p>
+          </button>
         </div>
 
         <div className="flex items-center justify-between gap-2 pt-1">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            {data.productLine === 'recruitment' ? 'Recruitment tabs' : 'CRM tabs'}
+            {isBothProductLinesSelected
+              ? 'CRM + Recruitment tabs'
+              : data.productLine === 'recruitment'
+                ? 'Recruitment tabs'
+                : 'CRM tabs'}
           </p>
           <div className="flex gap-2">
             <button
@@ -467,7 +533,7 @@ export function ProvisionTenantFormFields({
         ) : (
           <p className="text-[11px] text-slate-500">
             {data.enabledModules.length} tab{data.enabledModules.length === 1 ? '' : 's'} selected
-            for {data.productLine === 'recruitment' ? 'Recruitment' : 'CRM'}.
+            for {isBothProductLinesSelected ? 'CRM + Recruitment' : data.productLine === 'recruitment' ? 'Recruitment' : 'CRM'}.
           </p>
         )}
 
