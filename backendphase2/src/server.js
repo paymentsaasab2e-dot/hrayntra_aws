@@ -1,3 +1,4 @@
+import './prefer-ipv4.mjs';
 import http from 'http';
 import { Server } from 'socket.io';
 import app from './app.js';
