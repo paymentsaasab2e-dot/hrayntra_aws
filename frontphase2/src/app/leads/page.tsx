@@ -51,12 +51,13 @@ import { formatContactListDisplay, normalizeContactList } from '../../lib/contac
 import { AssigneeAvatars } from './AssigneeAvatars';
 import { SourceCell } from './SourceCell';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
+import { isLeadSource, LEAD_SOURCE_OPTIONS } from '../../components/drawers/LeadSourceFields';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import { ShareLeadFormMemberModal } from '../../components/leads/ShareLeadFormMemberModal';
 import { LeadFormAccessButton } from '../../components/leads/LeadFormAccessPopup';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import PaginationAll from '../../components/PaginationAll';
-import type { Lead, LeadSource, LeadStatus, Priority } from './types';
+import type { Lead, LeadStatus, Priority } from './types';
 import {
   apiGetLeads,
   apiGetLead,
@@ -334,9 +335,6 @@ const SelectionCheckbox = ({
   </div>
 );
 
-// Helper function to map backend lead to frontend format
-const VALID_LEAD_SOURCES: LeadSource[] = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'];
-
 function readIntakeAddedByName(row: Record<string, unknown> | BackendLead): string | undefined {
   const details = Array.isArray((row as { otherDetails?: unknown }).otherDetails)
     ? ((row as { otherDetails: Array<{ label?: string; value?: string }> }).otherDetails)
@@ -352,13 +350,7 @@ function readIntakeAddedByName(row: Record<string, unknown> | BackendLead): stri
 }
 
 function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
-  const rawSrc = backendLead.source;
-  const source =
-    rawSrc != null &&
-    rawSrc !== '' &&
-    VALID_LEAD_SOURCES.includes(rawSrc as LeadSource)
-      ? (rawSrc as LeadSource)
-      : undefined;
+  const source = isLeadSource(backendLead.source) ? backendLead.source : undefined;
 
   return {
     id: backendLead.id,
@@ -420,6 +412,7 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     sourceWebsiteUrl: backendLead.sourceWebsiteUrl || undefined,
     sourceLinkedInUrl: backendLead.sourceLinkedInUrl || undefined,
     sourceEmail: backendLead.sourceEmail || undefined,
+    sourceOther: backendLead.sourceOther || undefined,
     otherDetails: Array.isArray(backendLead.otherDetails) ? backendLead.otherDetails : undefined,
     createdDate: backendLead.createdAt ? formatDateDMY(backendLead.createdAt) : undefined,
     agreementsFileName: backendLead.agreementsFileName || undefined,
@@ -1809,9 +1802,7 @@ export default function RecruitmentAgencyDashboard() {
 
   const mapUiLeadToFrontend = (raw: any): Lead => {
     const base = raw && typeof raw === 'object' ? raw : {};
-    const source = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(base.source)
-      ? base.source
-      : undefined;
+    const source = isLeadSource(base.source) ? base.source : undefined;
     const type = ['Company', 'Individual', 'Referral'].includes(base.type)
       ? base.type
       : 'Company';
@@ -1850,6 +1841,7 @@ export default function RecruitmentAgencyDashboard() {
       country: base.country || undefined,
       city: base.city || undefined,
       campaignName: base.campaignName || undefined,
+      sourceOther: base.sourceOther || undefined,
       createdDate: base.createdAt ? formatDateDMY(base.createdAt) : undefined,
     };
   };
@@ -2207,11 +2199,11 @@ export default function RecruitmentAgencyDashboard() {
                   }}
                 >
                   <option value="">All Sources</option>
-                  <option value="Website">Website</option>
-                  <option value="LinkedIn">LinkedIn</option>
-                  <option value="Email">Email</option>
-                  <option value="Referral">Referral</option>
-                  <option value="Campaign">Campaign</option>
+                  {LEAD_SOURCE_OPTIONS.map((source) => (
+                    <option key={source} value={source}>
+                      {source}
+                    </option>
+                  ))}
                 </select>
 
                 <SearchableToolbarFilterSelect
@@ -2933,21 +2925,21 @@ export default function RecruitmentAgencyDashboard() {
             }}
           >
             <div
-              className="w-full max-w-md rounded-2xl border border-rose-300/40 bg-[#221218] p-5 shadow-2xl"
+              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <p className="text-sm font-medium text-white mb-6">
+              <p className="mb-6 text-sm font-medium text-slate-900">
                 {deleteConfirmState.mode === 'single'
                   ? `Are you sure you want to delete ${deleteConfirmState.companyName}?`
                   : `Are you sure you want to delete ${deleteConfirmState.count} selected lead${deleteConfirmState.count === 1 ? '' : 's'}?`}{' '}
-                <span className="text-slate-300">This action cannot be undone.</span>
+                <span className="font-normal text-slate-500">This action cannot be undone.</span>
               </p>
               <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setDeleteConfirmState(null)}
                   disabled={deleteConfirmLoading}
-                  className="rounded-full border border-rose-300/70 px-5 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-300/10 disabled:opacity-60"
+                  className="rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                 >
                   Cancel
                 </button>
@@ -2955,7 +2947,7 @@ export default function RecruitmentAgencyDashboard() {
                   type="button"
                   onClick={handleConfirmDelete}
                   disabled={deleteConfirmLoading}
-                  className="rounded-full bg-rose-300 px-6 py-2 text-sm font-bold text-rose-900 hover:bg-rose-200 disabled:opacity-60"
+                  className="rounded-full bg-red-600 px-6 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-60"
                 >
                   {deleteConfirmLoading ? 'Deleting...' : 'OK'}
                 </button>

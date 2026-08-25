@@ -25,6 +25,12 @@ function initials(first?: string, last?: string): string {
   return `${(first?.[0] ?? '').toUpperCase()}${(last?.[0] ?? '').toUpperCase()}` || '?';
 }
 
+function displayName(member: TeamMember): string {
+  const full = `${member.firstName || ''} ${member.lastName || ''}`.trim();
+  const named = (member as TeamMember & { name?: string }).name;
+  return full || named || member.email || 'Team member';
+}
+
 function colorForMember(member: TeamMember): string {
   const m = member as TeamMember & { systemRole?: TeamMember['role'] };
   const colorKey = (m.role?.color || m.systemRole?.color || '').toLowerCase();
@@ -92,8 +98,10 @@ export function LeadAssigneesMultiSelect({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return members;
-                return members.filter((m) => {
-      const haystack = `${m.firstName ?? ''} ${m.lastName ?? ''} ${m.email ?? ''} ${m.role?.roleName ?? ''}`.toLowerCase();
+    return members.filter((m) => {
+      const named = (m as TeamMember & { name?: string }).name || '';
+      const haystack =
+        `${m.firstName ?? ''} ${m.lastName ?? ''} ${named} ${m.email ?? ''} ${m.role?.roleName ?? ''}`.toLowerCase();
       return haystack.includes(q);
     });
   }, [members, query]);
@@ -178,7 +186,7 @@ export function LeadAssigneesMultiSelect({
             ref={menuRef}
             role="listbox"
             aria-label={ariaLabel}
-            className="fixed z-[80] flex max-h-72 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            className="fixed z-[1200] flex max-h-72 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
             style={{
               left: menuPosition.left,
               width: menuPosition.width,
@@ -201,11 +209,16 @@ export function LeadAssigneesMultiSelect({
                 <li className="px-4 py-3 text-xs text-slate-500">Loading team members…</li>
               )}
               {!loading && filtered.length === 0 && (
-                <li className="px-4 py-3 text-xs text-slate-500">No team members match your search.</li>
+                <li className="px-4 py-3 text-xs text-slate-500">
+                  {members.length === 0
+                    ? 'No team members found. Create members under Team first.'
+                    : 'No team members match your search.'}
+                </li>
               )}
               {!loading &&
                 filtered.map((member) => {
                   const checked = value.includes(member.id);
+                  const label = displayName(member);
                   return (
                     <li key={member.id}>
                       <button
@@ -219,12 +232,10 @@ export function LeadAssigneesMultiSelect({
                         <span
                           className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${colorForMember(member)}`}
                         >
-                          {initials(member.firstName, member.lastName)}
+                          {initials(member.firstName, member.lastName) || label.slice(0, 1).toUpperCase()}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-slate-900">
-                            {member.firstName} {member.lastName}
-                          </span>
+                          <span className="block truncate text-slate-900">{label}</span>
                           <span className="block truncate text-[11px] text-slate-500">
                             {[member.role?.roleName, member.email].filter(Boolean).join(' · ')}
                           </span>
@@ -265,9 +276,7 @@ export function LeadAssigneesMultiSelect({
               >
                 {initials(member.firstName, member.lastName)}
               </span>
-              <span className="font-medium">
-                {member.firstName} {member.lastName}
-              </span>
+              <span className="font-medium">{displayName(member)}</span>
               {idx === 0 && (
                 <span className="text-[9px] font-semibold uppercase tracking-wider text-blue-700">
                   Primary
@@ -278,7 +287,7 @@ export function LeadAssigneesMultiSelect({
                   type="button"
                   onClick={() => removeChip(member.id)}
                   className="rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-                  aria-label={`Remove ${member.firstName} ${member.lastName}`}
+                  aria-label={`Remove ${displayName(member)}`}
                 >
                   <X size={11} strokeWidth={2.5} />
                 </button>
@@ -292,14 +301,16 @@ export function LeadAssigneesMultiSelect({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        disabled={disabled || loading}
+        disabled={disabled}
         aria-label={ariaLabel}
         aria-expanded={open}
         className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-700 hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="flex items-center gap-2 text-slate-600">
           <Users size={14} className="shrink-0 text-slate-400" />
-          {selected.length > 0 ? (
+          {loading ? (
+            <span className="text-slate-400">Loading team members…</span>
+          ) : selected.length > 0 ? (
             <span className="font-medium text-slate-900">
               {selected.length} {selected.length === 1 ? 'member selected' : 'members selected'}
             </span>

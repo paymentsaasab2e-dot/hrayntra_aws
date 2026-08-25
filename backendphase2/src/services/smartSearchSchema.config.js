@@ -11,7 +11,7 @@ export const SEARCH_STOP_WORDS = new Set([
 
 /** Prisma enum values from schema.prisma */
 export const SCHEMA_ENUMS = {
-  LeadSource: ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'],
+  LeadSource: ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign', 'Other'],
   LeadType: ['Company', 'Individual', 'Referral'],
   Priority: ['High', 'Medium', 'Low'],
   ClientStatus: ['ACTIVE', 'PROSPECT', 'ON_HOLD', 'INACTIVE'],

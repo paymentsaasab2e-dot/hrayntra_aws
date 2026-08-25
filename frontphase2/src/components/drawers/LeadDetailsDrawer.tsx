@@ -130,6 +130,7 @@ import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/docum
 import { filterKycFiles, uploadKycDocuments } from '../../lib/kycDocuments';
 import { useFiles } from '../../hooks/useFiles';
 import { apiGetLeadAssignableMembers } from '../../lib/api';
+import { getTeamMembers } from '../../lib/api/teamApi';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
@@ -184,7 +185,7 @@ import {
   ADD_LEAD_INPUT_WITH_ICON,
   useDrawerPortalDropdownPosition,
 } from './drawerFormUi';
-import { LeadSourceFields } from './LeadSourceFields';
+import { LeadSourceFields, formatLeadSourceDisplay } from './LeadSourceFields';
 import type { LocationSelection } from '../LocationAutocomplete';
 import { LeadLocationFields } from '../location/LeadLocationFields';
 import { getCountryByCodeOrName, inferLocationFromCityName } from '../../lib/cscData';
@@ -193,6 +194,12 @@ import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { HqProductLineSelectBoxes, hqProductLineLabels, type HqProductLine } from '../hq/HqProductLinePicker';
 
 const CALL_OUTCOMES = ['Interested', 'Follow-up Required', 'No Answer', 'Wrong Number', 'Not Interested'];
+
+function preferLeadSearchLocation(previous: string | undefined, incoming: string | undefined): string {
+  const next = String(incoming || '').trim();
+  const prev = String(previous || '').trim();
+  return next || prev;
+}
 
 function mergeLocationFields<
   T extends {
@@ -206,7 +213,7 @@ function mergeLocationFields<
 >(prev: T, selection: LocationSelection): T {
   return {
     ...prev,
-    location: selection.location ?? '',
+    location: preferLeadSearchLocation(prev.location, selection.location),
     city: selection.city ?? '',
     country: selection.country ?? '',
     countryCode: selection.countryCode ?? '',
@@ -432,21 +439,21 @@ function validateLeadRequiredFields(form: {
   if (!companyName) errors.companyName = 'Company is required';
   if (!contactPerson) errors.contactPerson = 'Director name is required';
 
-  // Email and mobile are not both required — at least one contact channel must be present.
   if (form.emailNotAvailable && form.phoneNotAvailable) {
     errors.email = 'Email and mobile cannot both be marked not available';
     errors.phone = 'Provide email or mobile number (at least one)';
-  } else if (!email && !phone) {
-    errors.email = 'Provide email or mobile number (at least one)';
-    errors.phone = 'Provide email or mobile number (at least one)';
   } else {
-    if (email) {
+    if (!form.emailNotAvailable && !email) {
+      errors.email = 'Enter an email or mark Not available';
+    } else if (email) {
       const result = validateEmail(email);
       if (!result.valid) {
         errors.email = result.message;
       }
     }
-    if (phone && !options?.skipPhoneValidation) {
+    if (!form.phoneNotAvailable && !phone) {
+      errors.phone = 'Enter a mobile number or mark Not available';
+    } else if (phone && !options?.skipPhoneValidation) {
       const phoneResult = validatePhoneForCountry(phone, form.countryCode, form.country);
       if (!phoneResult.valid) {
         errors.phone = phoneResult.message || 'Enter a valid mobile number';
@@ -664,6 +671,7 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   sourceWebsiteUrl?: string;
   sourceLinkedInUrl?: string;
   sourceEmail?: string;
+  sourceOther?: string;
   otherDetails?: Array<{ label: string; value: string }>;
   teamMemberDesignation?: string;
   teamMemberEmail?: string;
@@ -717,6 +725,8 @@ const getSourceFieldLabel = (source?: LeadSource) => {
       return 'Referral Name';
     case 'Campaign':
       return 'Campaign Name / Link';
+    case 'Other':
+      return 'Custom source';
     default:
       return 'Source Detail';
   }
@@ -992,6 +1002,8 @@ function getLeadSourceDetailValue(lead: Lead | null | undefined): string {
       return lead.referralName ?? '';
     case 'Campaign':
       return [lead.campaignName, lead.campaignLink].filter(Boolean).join(' · ');
+    case 'Other':
+      return lead.sourceOther ?? '';
     default:
       return '';
   }
@@ -1262,6 +1274,7 @@ export function LeadDetailsDrawer({
     sourceWebsiteUrl: '',
     sourceLinkedInUrl: '',
     sourceEmail: '',
+    sourceOther: '',
     otherDetails: [],
     teamMemberDesignation: '',
     teamMemberEmail: '',
@@ -1392,31 +1405,90 @@ export function LeadDetailsDrawer({
           return;
         }
 
-        const response = await apiGetLeadAssignableMembers();
-        const members = Array.isArray(response.data) ? response.data : [];
+        // Tenant Assigned To = same members as Team → Members (never HQ platform users).
+        const teamRes = await getTeamMembers({ status: 'ACTIVE', limit: 100 });
+        let members: Array<{
+          id: string;
+          firstName?: string;
+          lastName?: string;
+          name?: string;
+          email?: string;
+          role?: { id?: string; roleName?: string; color?: string };
+          department?: { id?: string; name?: string };
+        }> = (teamRes.data || []).map((member) => ({
+          id: member.id,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          name:
+            `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
+            (member as TeamMember & { name?: string }).name ||
+            member.email,
+          email: member.email,
+          role: member.role
+            ? {
+                id: member.role.id,
+                roleName: member.role.roleName,
+                color: member.role.color,
+              }
+            : undefined,
+          department: member.department
+            ? { id: member.department.id, name: member.department.name }
+            : undefined,
+        }));
+
+        // Secondary: assignable-members API (now tenant-scoped on backend).
+        if (members.length === 0) {
+          try {
+            const response = await apiGetLeadAssignableMembers();
+            const raw = response?.data as unknown;
+            members = Array.isArray(raw)
+              ? raw
+              : Array.isArray((raw as { data?: unknown })?.data)
+                ? ((raw as { data: typeof members }).data as typeof members)
+                : [];
+          } catch (assignableError) {
+            console.warn('Assignable members fallback failed:', assignableError);
+          }
+        }
+
+        // Never show HQ platform roles in tenant Add Lead Assigned To.
+        members = members.filter((member) => {
+          const roleName = String(member.role?.roleName || '').trim().toLowerCase();
+          if (!roleName) return true;
+          return !(
+            roleName.startsWith('hq ') ||
+            roleName.includes('hq platform') ||
+            roleName.includes('hq team')
+          );
+        });
+
         setRecruiters(
-          members.map((member) => ({
-            id: member.id,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            name:
+          members.map((member) => {
+            const name =
               member.name ||
               `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
               member.email ||
-              'User',
-            email: member.email || '',
-            role: member.role
-              ? {
-                  id: member.role.id,
-                  roleName: member.role.roleName || '',
-                  color: member.role.color,
-                }
-              : undefined,
-            department: member.department
-              ? { id: member.department.id, name: member.department.name || '' }
-              : undefined,
-            status: 'ACTIVE' as const,
-          })),
+              'User';
+            const parts = name.split(/\s+/).filter(Boolean);
+            return {
+              id: member.id,
+              firstName: member.firstName || parts[0] || '',
+              lastName: member.lastName || parts.slice(1).join(' ') || '',
+              name,
+              email: member.email || '',
+              role: member.role
+                ? {
+                    id: member.role.id || 'role',
+                    roleName: member.role.roleName || '',
+                    color: member.role.color,
+                  }
+                : undefined,
+              department: member.department
+                ? { id: member.department.id || 'dept', name: member.department.name || '' }
+                : undefined,
+              status: 'ACTIVE' as const,
+            };
+          }),
         );
       } catch (error: any) {
         const msg = String(error?.message || '').toLowerCase();
@@ -1571,6 +1643,7 @@ export function LeadDetailsDrawer({
     sourceWebsiteUrl: '',
     sourceLinkedInUrl: '',
     sourceEmail: '',
+    sourceOther: '',
     otherDetails: [],
     teamMemberDesignation: '',
     teamMemberEmail: '',
@@ -1680,6 +1753,7 @@ export function LeadDetailsDrawer({
     sourceWebsiteUrl: sourceFields.sourceWebsiteUrl,
     sourceLinkedInUrl: sourceFields.sourceLinkedInUrl,
     sourceEmail: sourceFields.sourceEmail,
+    sourceOther: sourceFields.sourceOther || generated.sourceOther || form.sourceOther,
     otherDetails: Array.isArray(generated.otherDetails) ? generated.otherDetails : form.otherDetails,
     lastFollowUp: normalizeLeadDateTimeInput(generated.lastFollowUp || form.lastFollowUp),
     nextFollowUp: normalizeLeadDateTimeInput(generated.nextFollowUp || form.nextFollowUp),
@@ -1822,22 +1896,6 @@ export function LeadDetailsDrawer({
       enabled: true,
     });
 
-  useEffect(() => {
-    if (!drawerIsOpen) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !leadAiChatOpen) {
-        void requestLeadDrawerClose();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [drawerIsOpen, leadAiChatOpen, requestLeadDrawerClose]);
-
   // Tenant drawer engine: alert on missing mandatory fields / overdue follow-ups.
   useEffect(() => {
     if (!drawerIsOpen || !lead?.id || addLeadMode || isHqOverrideMode || isPublicIntakeMode) return;
@@ -1895,6 +1953,7 @@ export function LeadDetailsDrawer({
     sourceWebsiteUrl: '',
     sourceLinkedInUrl: '',
     sourceEmail: '',
+    sourceOther: '',
     dynamicOtherDetails: [] as Array<{ label: string; value: string }>,
     leadOwner: '',
     assignedToId: '',
@@ -2004,7 +2063,7 @@ export function LeadDetailsDrawer({
   const [accountManagerDropdownOpen, setAccountManagerDropdownOpen] = useState(false);
 
   const WHATSAPP_TEMPLATES = ['Introduction', 'Meeting Request', 'Follow-up Reminder', 'Proposal Shared'];
-  const FOLLOW_UP_TYPES = ['Call', 'WhatsApp', 'Email', 'Meet', 'Other'];
+  const FOLLOW_UP_TYPES = ['Call', 'WhatsApp', 'Email', 'Online Meeting', 'Personal Meeting', 'Other'];
   const REMINDER_OPTIONS = ['10 minutes before', '30 minutes before', '1 hour before', '1 day before'];
   const INDUSTRIES = ['Technology', 'Healthcare', 'Finance', 'Manufacturing', 'Retail', 'Other'];
   const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '500+'];
@@ -2037,6 +2096,37 @@ export function LeadDetailsDrawer({
   const [showMarkLostForm, setShowMarkLostForm] = useState(false);
   const [markLostForm, setMarkLostForm] = useState<MarkLostFormData>({ lostReason: '', notes: '' });
   const [lostReasonDropdownOpen, setLostReasonDropdownOpen] = useState(false);
+  const closeLeadDrawerDropdowns = useCallback(() => {
+    setOutcomeDropdownOpen(false);
+    setTemplateDropdownOpen(false);
+    setFollowUpTypeDropdownOpen(false);
+    setReminderDropdownOpen(false);
+    setIndustryDropdownOpen(false);
+    setCompanySizeDropdownOpen(false);
+    setAccountManagerDropdownOpen(false);
+    setLostReasonDropdownOpen(false);
+  }, []);
+  const handleLeadDrawerClose = useCallback(() => {
+    closeLeadDrawerDropdowns();
+    void requestLeadDrawerClose();
+  }, [closeLeadDrawerDropdowns, requestLeadDrawerClose]);
+
+  useEffect(() => {
+    if (!drawerIsOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !leadAiChatOpen) {
+        handleLeadDrawerClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [drawerIsOpen, leadAiChatOpen, handleLeadDrawerClose]);
+
   const [showDuplicateNotification, setShowDuplicateNotification] = useState(false);
   const [showMergeLeadsForm, setShowMergeLeadsForm] = useState(false);
   const MERGE_FIELDS = ['company', 'phone', 'email', 'notes', 'leadOwner'] as const;
@@ -2088,19 +2178,49 @@ export function LeadDetailsDrawer({
         
         // Map backend activities to frontend format
         const mappedActivities: LeadActivity[] = backendActivities.map((activity: BackendActivity) => {
-          // Determine activity type based on action
+          // Determine activity type based on action / follow-up channel
           let type: 'Call' | 'Email' | 'Meeting' | 'Message' = 'Message';
           const actionLower = activity.action.toLowerCase();
           const descLower = (activity.description || '').toLowerCase();
-          
-          if (actionLower.includes('call') || descLower.includes('call')) {
+          const metaType = String(
+            (activity.metadata as { type?: string; followUpType?: string } | null)?.type ||
+              (activity.metadata as { type?: string; followUpType?: string } | null)?.followUpType ||
+              '',
+          ).trim();
+          const scheduledTypeMatch =
+            String(activity.description || '').match(
+              /Follow-up\s+(?:scheduled|postponed):\s*([^.\n]+)/i,
+            ) || null;
+          const followUpTypeLabel = (scheduledTypeMatch?.[1] || metaType || '').trim();
+          const followUpTypeLower = followUpTypeLabel.toLowerCase();
+
+          if (
+            followUpTypeLower.includes('whatsapp') ||
+            actionLower.includes('whatsapp') ||
+            descLower.includes('whatsapp')
+          ) {
+            type = 'Message';
+          } else if (
+            followUpTypeLower === 'call' ||
+            actionLower.includes('call') ||
+            (descLower.includes('call') && !descLower.includes('meeting'))
+          ) {
             type = 'Call';
-          } else if (actionLower.includes('email') || descLower.includes('email')) {
+          } else if (
+            followUpTypeLower === 'email' ||
+            actionLower.includes('email') ||
+            descLower.includes('email')
+          ) {
             type = 'Email';
-          } else if (actionLower.includes('meeting') || descLower.includes('meeting')) {
-            type = 'Meeting';
-          } else if (actionLower.includes('follow-up') || descLower.includes('follow-up') || descLower.includes('follow up')) {
-            // Follow-ups are displayed as Meeting type with calendar icon
+          } else if (
+            followUpTypeLower.includes('meeting') ||
+            followUpTypeLower === 'meet' ||
+            actionLower.includes('meeting') ||
+            descLower.includes('meeting') ||
+            actionLower.includes('follow-up') ||
+            descLower.includes('follow-up') ||
+            descLower.includes('follow up')
+          ) {
             type = 'Meeting';
           }
 
@@ -2111,9 +2231,14 @@ export function LeadDetailsDrawer({
           let description = activity.description || activity.action;
           let title = activity.action;
           
-          // If this is a follow-up activity, enhance the display
-          if (description.toLowerCase().includes('follow-up') || description.toLowerCase().includes('follow up')) {
-            title = 'Follow-up Scheduled';
+          // If this is a follow-up activity, enhance the display with the stored channel type
+          if (
+            description.toLowerCase().includes('follow-up') ||
+            description.toLowerCase().includes('follow up')
+          ) {
+            title = followUpTypeLabel
+              ? `Follow-up · ${followUpTypeLabel}`
+              : 'Follow-up Scheduled';
             // Keep the full description which includes type, date, time, and notes
           }
 
@@ -2358,6 +2483,7 @@ export function LeadDetailsDrawer({
       sourceWebsiteUrl: lead.sourceWebsiteUrl ?? '',
       sourceLinkedInUrl: lead.sourceLinkedInUrl ?? '',
       sourceEmail: lead.sourceEmail ?? '',
+      sourceOther: lead.sourceOther ?? '',
       ...(() => {
         const teamMembers = resolveTeamMemberList(lead);
         const occasions = readLeadOccasionFromOtherDetails(lead.otherDetails);
@@ -2658,7 +2784,7 @@ export function LeadDetailsDrawer({
         industry: overviewEditForm.industry || undefined,
         website: overviewEditForm.website || undefined,
         linkedIn: overviewEditForm.linkedIn || undefined,
-        location: overviewEditForm.location || undefined,
+        location: overviewEditForm.location?.trim() || undefined,
         state: overviewEditForm.state || undefined,
         latitude: typeof overviewEditForm.latitude === 'number' ? overviewEditForm.latitude : undefined,
         longitude: typeof overviewEditForm.longitude === 'number' ? overviewEditForm.longitude : undefined,
@@ -2672,6 +2798,7 @@ export function LeadDetailsDrawer({
         sourceWebsiteUrl: overviewEditForm.sourceWebsiteUrl || undefined,
         sourceLinkedInUrl: overviewEditForm.sourceLinkedInUrl || undefined,
         sourceEmail: overviewEditForm.sourceEmail || undefined,
+        sourceOther: overviewEditForm.source === 'Other' ? overviewEditForm.sourceOther?.trim() || undefined : undefined,
         ...teamMemberPayloadFromForm(
           primaryTeamMemberFromList(overviewEditForm.teamMembers),
         ),
@@ -2798,25 +2925,22 @@ export function LeadDetailsDrawer({
   };
 
   const isCreateLeadDisabled = useMemo(() => {
-    const primaryEmail = addLeadForm.emailNotAvailable
-      ? ''
-      : primaryContactValue(normalizeContactList(addLeadForm.emails, addLeadForm.email));
-    const primaryPhone = addLeadForm.phoneNotAvailable
-      ? ''
-      : primaryContactValue(normalizeContactList(addLeadForm.phones, addLeadForm.phone));
-    const hasValidEmail = Boolean(primaryEmail && validateEmail(primaryEmail).valid);
-    const hasPhone = Boolean(primaryPhone);
-    const bothUnavailable = Boolean(addLeadForm.emailNotAvailable && addLeadForm.phoneNotAvailable);
+    const required = validateLeadRequiredFields(addLeadForm);
     return (
-      !addLeadForm.companyName.trim() ||
-      !addLeadForm.contactPerson.trim() ||
+      Object.keys(required).length > 0 ||
       !String(addLeadForm.country || '').trim() ||
-      !String(addLeadForm.state || '').trim() ||
-      bothUnavailable ||
-      (!hasValidEmail && !hasPhone) ||
-      (Boolean(primaryEmail) && !validateEmail(primaryEmail).valid)
+      !String(addLeadForm.state || '').trim()
     );
   }, [addLeadForm]);
+
+  const addLeadWizardStepErrors = useMemo(
+    () => validateAddLeadWizardStep(addLeadWizardStep, addLeadForm),
+    [addLeadWizardStep, addLeadForm],
+  );
+
+  const isAddLeadWizardContinueDisabled =
+    (addLeadWizardStep === 'workspace' && hqProductLine.length === 0) ||
+    Object.keys(addLeadWizardStepErrors).length > 0;
 
   const goAddLeadWizardNext = useCallback(() => {
     if (addLeadWizardStep === 'workspace' && hqProductLine.length === 0) {
@@ -2895,7 +3019,13 @@ export function LeadDetailsDrawer({
         website: addLeadForm.website?.trim() || undefined,
         companyLinks: companyLinks.length ? companyLinks : undefined,
         linkedIn: addLeadForm.linkedIn?.trim() || undefined,
-        location: addLeadForm.location?.trim() || undefined,
+        location:
+          addLeadForm.location?.trim() ||
+          [addLeadForm.city, addLeadForm.state, addLeadForm.country]
+            .map((part) => String(part || '').trim())
+            .filter(Boolean)
+            .join(', ') ||
+          undefined,
         directorName: addLeadForm.contactPerson.trim(),
         contactPerson: addLeadForm.contactPerson.trim(),
         directorSalutation: addLeadForm.directorSalutation?.trim() || undefined,
@@ -2919,6 +3049,7 @@ export function LeadDetailsDrawer({
         sourceWebsiteUrl: addLeadForm.sourceWebsiteUrl?.trim() || undefined,
         sourceLinkedInUrl: addLeadForm.sourceLinkedInUrl?.trim() || undefined,
         sourceEmail: addLeadForm.sourceEmail?.trim() || undefined,
+        sourceOther: addLeadForm.source === 'Other' ? addLeadForm.sourceOther?.trim() || undefined : undefined,
         ...teamMemberPayloadFromForm(
           primaryTeamMemberFromList(addLeadForm.teamMembers),
         ),
@@ -3117,7 +3248,7 @@ export function LeadDetailsDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => void requestLeadDrawerClose()}
+            onClick={() => void handleLeadDrawerClose()}
             className="fixed inset-0 z-[500] pointer-events-auto bg-slate-950/55 backdrop-blur-md"
             data-drawer-skip-dirty="true"
           />
@@ -3134,7 +3265,7 @@ export function LeadDetailsDrawer({
           <div className="relative flex h-full min-h-0 flex-col">
           {/* Header */}
           <div
-            className={`flex shrink-0 items-start justify-between gap-3 px-6 py-5 ${
+            className={`relative z-30 flex shrink-0 items-start justify-between gap-3 px-6 py-5 ${
               addLeadMode && addLeadAiFlowStage
                 ? 'border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/95 via-violet-50/50 to-white'
                 : addLeadMode
@@ -3276,17 +3407,17 @@ export function LeadDetailsDrawer({
                   {addLeadAiFlowStage ? (
                     <button
                       type="button"
-                      onClick={() => void requestLeadDrawerClose()}
+                      onClick={() => void handleLeadDrawerClose()}
                       className="rounded-full border border-slate-200/90 bg-white/80 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-slate-900"
                     >
                       Cancel
                     </button>
                   ) : (
-                    <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
+                    <DrawerCloseButton onClick={() => void handleLeadDrawerClose()} />
                   )}
                 </>
               ) : (
-                <DrawerCloseButton onClick={() => void requestLeadDrawerClose()} />
+                <DrawerCloseButton onClick={() => void handleLeadDrawerClose()} />
               )}
             </div>
           </div>
@@ -3304,7 +3435,7 @@ export function LeadDetailsDrawer({
               <LeadAiChatDrawer
                 stageMode
                 isOpen
-                onClose={() => void requestLeadDrawerClose()}
+                onClose={() => void handleLeadDrawerClose()}
                 form={addLeadForm}
                 onApplyGenerated={handleApplyLeadAiGenerated}
                 onExpandSections={() =>
@@ -4359,9 +4490,9 @@ export function LeadDetailsDrawer({
                               setAddLeadErrors((prev) => ({ ...prev, phone: undefined }));
                             }
                           }}
-                          contactPersonError={addLeadErrors.contactPerson}
-                          emailError={addLeadErrors.email}
-                          phoneError={addLeadErrors.phone}
+                          contactPersonError={addLeadWizardStepErrors.contactPerson || addLeadErrors.contactPerson}
+                          emailError={addLeadWizardStepErrors.email || addLeadErrors.email}
+                          phoneError={addLeadWizardStepErrors.phone || addLeadErrors.phone}
                           onContactPersonBlur={() => {
                             const nextErrors = validateLeadRequiredFields(addLeadForm);
                             setAddLeadErrors((prev) => ({
@@ -4517,6 +4648,7 @@ export function LeadDetailsDrawer({
                         emailOptions={[...(addLeadForm.emails || []), addLeadForm.email]}
                         teamMembers={recruiters}
                         loadingMembers={loadingRecruiters}
+                        showPostpone={false}
                         inputClassName={ADD_LEAD_INPUT}
                       />
                       <div>
@@ -4953,6 +5085,7 @@ export function LeadDetailsDrawer({
                             emailOptions={[...(addLeadForm.emails || []), addLeadForm.email]}
                             teamMembers={recruiters}
                             loadingMembers={loadingRecruiters}
+                            showPostpone={false}
                           />
                         </div>
                         <div>
@@ -5147,13 +5280,17 @@ export function LeadDetailsDrawer({
                             accent="amber"
                           >
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                              <OverviewField label="Source" icon={Megaphone} iconClassName="text-amber-500" value={lead?.source ?? ''} />
+                              <OverviewField label="Source" icon={Megaphone} iconClassName="text-amber-500" value={formatLeadSourceDisplay(lead?.source, lead?.sourceOther)} />
                               <OverviewField
                                 label={getSourceFieldLabel(lead?.source)}
                                 icon={Globe}
                                 iconClassName="text-amber-500"
                                 value={getLeadSourceDetailValue(lead)}
-                                href={Boolean(getLeadSourceDetailValue(lead))}
+                                href={
+                                  Boolean(getLeadSourceDetailValue(lead)) &&
+                                  lead?.source !== 'Other' &&
+                                  lead?.source !== 'Referral'
+                                }
                               />
                               <OverviewField label="Status" icon={Flag} iconClassName="text-amber-500" value={lead?.status ?? ''} />
                               <OverviewField label="Interest Level" icon={Target} iconClassName="text-amber-500" value={lead?.priority ?? ''} />
@@ -6049,20 +6186,10 @@ export function LeadDetailsDrawer({
                       <div className="px-5 pb-5 pt-0 border-t border-slate-100 space-y-0">
                         {!overviewEditMode ? (
                           <>
-                            <FieldRow label="Lead Source" value={lead?.source ?? ''} />
+                            <FieldRow label="Lead Source" value={formatLeadSourceDisplay(lead?.source, lead?.sourceOther)} />
                             <FieldRow
                               label={getSourceFieldLabel(lead?.source)}
-                              value={
-                                lead?.source === 'Website'
-                                  ? lead?.sourceWebsiteUrl ?? ''
-                                  : lead?.source === 'LinkedIn'
-                                    ? lead?.sourceLinkedInUrl ?? ''
-                                    : lead?.source === 'Email'
-                                      ? lead?.sourceEmail ?? ''
-                                      : lead?.source === 'Referral'
-                                        ? lead?.referralName ?? ''
-                                        : `${lead?.campaignName ?? ''}${lead?.campaignLink ? ` (${lead.campaignLink})` : ''}`
-                              }
+                              value={getLeadSourceDetailValue(lead)}
                             />
                             <FieldRow label="Campaign Name" value={lead?.campaignName ?? ''} />
                             <FieldRow
@@ -6669,7 +6796,7 @@ export function LeadDetailsDrawer({
           ) : null}
 
           {addLeadMode && addLeadAiFlowStage !== 'chat' ? (
-            <div className="relative shrink-0 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-sm">
+            <div className="relative z-30 shrink-0 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-sm">
               <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent" />
               <div className="flex items-center justify-between gap-3">
                 <button
@@ -6684,7 +6811,7 @@ export function LeadDetailsDrawer({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => void requestLeadDrawerClose()}
+                    onClick={() => void handleLeadDrawerClose()}
                     className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                   >
                     Cancel
@@ -6703,7 +6830,8 @@ export function LeadDetailsDrawer({
                     <button
                       type="button"
                       onClick={goAddLeadWizardNext}
-                      className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                      disabled={isAddLeadWizardContinueDisabled}
+                      className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Continue
                       <ArrowRight className="h-4 w-4" />

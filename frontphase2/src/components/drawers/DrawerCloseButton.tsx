@@ -13,7 +13,7 @@ export type DrawerCloseButtonProps = {
 };
 
 const BASE_CLASS =
-  'p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors shrink-0';
+  'relative z-10 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors shrink-0';
 
 /** Standard X control for right-side drawer headers. */
 export function DrawerCloseButton({
@@ -27,7 +27,11 @@ export function DrawerCloseButton({
   return (
     <button
       type="button"
-      onClick={() => {
+      onMouseDown={(event) => {
+        event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.stopPropagation();
         void onClick();
       }}
       disabled={disabled}

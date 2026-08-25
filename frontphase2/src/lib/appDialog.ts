@@ -16,6 +16,8 @@ export type AppDialogOptions = {
   placement?: AppDialogPlacement;
   /** Auto-dismiss corner alerts after ms (alert kind only). */
   autoCloseMs?: number;
+  /** high = show immediately, even if corner toasts are already queued. */
+  priority?: 'normal' | 'high';
 };
 
 export type AppDialogRequestDetail = {
@@ -27,6 +29,7 @@ export type AppDialogRequestDetail = {
   cancelLabel?: string;
   placement: AppDialogPlacement;
   autoCloseMs?: number;
+  priority?: 'normal' | 'high';
   resolve: (result: boolean) => void;
 };
 
@@ -55,6 +58,7 @@ function requestDialog(kind: AppDialogKind, message: unknown, options: AppDialog
       cancelLabel: options.cancelLabel,
       placement: options.placement || 'modal',
       autoCloseMs: options.autoCloseMs,
+      priority: options.priority || 'normal',
       resolve,
     };
 

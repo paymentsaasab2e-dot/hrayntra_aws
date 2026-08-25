@@ -1669,6 +1669,7 @@ export type HqLeadApiRow = {
   sourceWebsiteUrl?: string | null;
   sourceLinkedInUrl?: string | null;
   sourceEmail?: string | null;
+  sourceOther?: string | null;
   teamMemberDesignation?: string | null;
   teamMemberEmail?: string | null;
   teamMemberPhone?: string | null;
@@ -7330,6 +7331,7 @@ export const apiSubmitMatch = async (
     notifyClient: boolean;
     submissionType?: string;
     cvShareMode?: 'edited' | 'original' | 'saasa';
+    toEmail?: string;
     additionalClients?: Array<{ clientId: string; toEmail?: string }>;
     batchMatchIds?: string[];
   }
@@ -7407,7 +7409,7 @@ export interface BackendLead {
   emails?: string[];
   phones?: string[];
   type: 'Company' | 'Individual' | 'Referral';
-  source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | null;
+  source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | 'Other' | null;
   status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
   convertedToClientId?: string | null;
   client?: {
@@ -7438,6 +7440,7 @@ export interface BackendLead {
   sourceWebsiteUrl?: string | null;
   sourceLinkedInUrl?: string | null;
   sourceEmail?: string | null;
+  sourceOther?: string | null;
   otherDetails?: Array<{ label: string; value: string }> | null;
   lastFollowUp?: string | null;
   nextFollowUp?: string | null;
@@ -7485,7 +7488,7 @@ export interface CreateLeadData {
   emails?: string[];
   phones?: string[];
   type?: 'Company' | 'Individual' | 'Referral';
-  source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
+  source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | 'Other';
   status?: string;
   priority?: 'High' | 'Medium' | 'Low';
   interestedNeeds?: string;
@@ -7516,6 +7519,7 @@ export interface CreateLeadData {
   sourceWebsiteUrl?: string;
   sourceLinkedInUrl?: string;
   sourceEmail?: string;
+  sourceOther?: string;
   otherDetails?: Array<{ label: string; value: string }>;
   lastFollowUp?: string;
   nextFollowUp?: string;
@@ -10593,7 +10597,7 @@ export type LeadAiGeneratedDetails = {
   emails?: string[];
   phones?: string[];
   type: 'Company' | 'Individual' | 'Referral';
-  source: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
+  source: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | 'Other';
   status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
   priority: 'High' | 'Medium' | 'Low';
   interestedNeeds: string;
@@ -10613,6 +10617,7 @@ export type LeadAiGeneratedDetails = {
   sourceWebsiteUrl: string;
   sourceLinkedInUrl: string;
   sourceEmail: string;
+  sourceOther?: string;
   otherDetails: Array<{ label: string; value: string }>;
   lastFollowUp: string;
   nextFollowUp: string;

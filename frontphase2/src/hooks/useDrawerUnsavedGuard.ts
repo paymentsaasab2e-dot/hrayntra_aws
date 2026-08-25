@@ -14,6 +14,8 @@ export async function confirmDiscardUnsavedChanges(
     tone: 'warning',
     confirmLabel: 'Yes',
     cancelLabel: 'No',
+    placement: 'modal',
+    priority: 'high',
   });
 }
 
@@ -110,15 +112,22 @@ export function useDrawerUnsavedGuard<T extends HTMLElement = HTMLElement>(
 
   const markDirty = useCallback(() => setInteractionDirty(true), []);
   const markClean = useCallback(() => setInteractionDirty(false), []);
+  const pendingCloseRef = useRef(false);
 
   const requestClose = useCallback(async () => {
-    if (enabledRef.current && isDirtyRef.current) {
-      const confirmed = await confirmDiscardUnsavedChanges(messageRef.current);
-      if (!confirmed) return false;
+    if (pendingCloseRef.current) return false;
+    pendingCloseRef.current = true;
+    try {
+      if (enabledRef.current && isDirtyRef.current) {
+        const confirmed = await confirmDiscardUnsavedChanges(messageRef.current);
+        if (!confirmed) return false;
+      }
+      setInteractionDirty(false);
+      onCloseRef.current();
+      return true;
+    } finally {
+      pendingCloseRef.current = false;
     }
-    setInteractionDirty(false);
-    onCloseRef.current();
-    return true;
   }, []);
 
   useEffect(() => {

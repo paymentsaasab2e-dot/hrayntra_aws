@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma.js';
+import { LeadSource } from '@prisma/client';
 import { formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import { sendLeadFollowUpEmail } from '../../emails/email.service.js';
@@ -172,7 +173,9 @@ async function assertCanDirectConvertLead(req, userId) {
 }
 
 async function persistMeetScheduleAndNotify(leadId, leadSnapshot, schedule) {
-  if (!schedule || String(schedule.type || '').toLowerCase() !== 'meet') return leadSnapshot;
+  const scheduleType = String(schedule?.type || '').trim().toLowerCase();
+  const isOnlineMeet = scheduleType === 'meet' || scheduleType === 'online meeting';
+  if (!schedule || !isOnlineMeet) return leadSnapshot;
   try {
     const withInvite = await sendLeadMeetScheduleInvites({
       lead: leadSnapshot,
@@ -273,6 +276,26 @@ function normalizeImportType(value) {
   return undefined;
 }
 
+const LEAD_SOURCE_VALUES = Array.from(
+  new Set([
+    ...Object.values(LeadSource || {}),
+    'Website',
+    'LinkedIn',
+    'Email',
+    'Referral',
+    'Campaign',
+    'Other',
+  ]),
+);
+
+function normalizeLeadSourceValue(value) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  if (LEAD_SOURCE_VALUES.includes(raw)) return raw;
+  const mapped = normalizeImportSource(raw);
+  return mapped && LEAD_SOURCE_VALUES.includes(mapped) ? mapped : null;
+}
+
 function normalizeImportSource(value) {
   const normalized = stripNbsp(value).trim().toLowerCase();
   if (!normalized) return undefined;
@@ -281,7 +304,8 @@ function normalizeImportSource(value) {
   if (normalized === 'email') return 'Email';
   if (normalized === 'referral') return 'Referral';
   if (normalized === 'campaign') return 'Campaign';
-  return undefined;
+  if (normalized === 'other') return 'Other';
+  return 'Other';
 }
 
 function parseImportDateValue(value) {
@@ -492,6 +516,14 @@ function buildLeadImportPayload(row = {}, mapping = {}, { performedById } = {}) 
     phone,
     type: normalizeImportType(cleanMapped('type')) || 'Company',
     source: normalizeImportSource(cleanMapped('source')) ?? null,
+    sourceOther: (() => {
+      const raw = cleanMapped('source');
+      const mapped = normalizeImportSource(raw);
+      if (mapped !== 'Other') return null;
+      const trimmed = stripNbsp(raw).trim();
+      if (!trimmed || trimmed.toLowerCase() === 'other') return null;
+      return trimmed;
+    })(),
     status: normalizeImportStatus(cleanMapped('status')) || 'New',
     priority: normalizeImportPriority(cleanMapped('priority') || ''),
     interestedNeeds: servicesVal,
@@ -826,9 +858,11 @@ export const leadService = {
       emails: contactChannels.emails,
       phones: contactChannels.phones,
       type: data.type || 'Company',
-      source: ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(data.source)
-        ? data.source
-        : null,
+      source: normalizeLeadSourceValue(data.source),
+      sourceOther:
+        normalizeLeadSourceValue(data.source) === 'Other'
+          ? normalizeNullableString(data.sourceOther)
+          : null,
       status: data.status || 'New',
       priority: data.priority || 'Medium',
       interestedNeeds: normalizedInterestedNeeds || null,
@@ -843,7 +877,13 @@ export const leadService = {
       website: websiteClean || (normalizedCompanyLinks.length ? normalizedCompanyLinks[0] : null),
       companyLinks: normalizedCompanyLinks,
       linkedIn: linkedInClean,
-      location: normalizeNullableString(data.location),
+      location:
+        normalizeNullableString(data.location) ||
+        normalizeNullableString(data.searchLocation) ||
+        [normalizeNullableString(data.city), normalizeNullableString(data.state), normalizeNullableString(data.country)]
+          .filter(Boolean)
+          .join(', ') ||
+        null,
       // Extended contact fields
       designation: normalizeNullableString(data.designation),
       teamMemberDesignation: normalizeNullableString(data.teamMemberDesignation),
@@ -1041,11 +1081,16 @@ export const leadService = {
     if (data.source !== undefined) {
       const s = data.source;
       updateData.source =
-        s == null || s === ''
-          ? null
-          : ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(s)
-            ? s
-            : null;
+        s == null || s === '' ? null : normalizeLeadSourceValue(s);
+      if (updateData.source !== 'Other') {
+        updateData.sourceOther = null;
+      }
+    }
+    if (data.sourceOther !== undefined) {
+      updateData.sourceOther =
+        (data.source !== undefined ? updateData.source : currentLead.source) === 'Other'
+          ? (typeof data.sourceOther === 'string' ? data.sourceOther.trim() : '') || null
+          : null;
     }
     if (data.status !== undefined) updateData.status = data.status;
     if (data.priority !== undefined) updateData.priority = data.priority;
@@ -1069,7 +1114,12 @@ export const leadService = {
       }
     }
     if (data.linkedIn !== undefined) updateData.linkedIn = data.linkedIn || null;
-    if (data.location !== undefined) updateData.location = data.location || null;
+    if (data.location !== undefined || data.searchLocation !== undefined) {
+      updateData.location =
+        (data.location !== undefined ? data.location : null) ||
+        (data.searchLocation !== undefined ? data.searchLocation : null) ||
+        null;
+    }
     // Extended contact fields
     if (data.designation !== undefined) updateData.designation = data.designation || null;
     if (data.teamMemberDesignation !== undefined) {
@@ -1384,11 +1434,14 @@ export const leadService = {
 
           changes.push(followUpDescription);
 
-          // Non-meet: notify lead contact via email. Meet invites use persistMeetScheduleAndNotify.
+          // Non-meet: notify lead contact via email. Online meeting invites use persistMeetScheduleAndNotify.
           const resolvedType = String(
             updateFollowUpSchedule?.type || followUpType || 'Follow-up',
           ).trim();
-          if (resolvedType.toLowerCase() !== 'meet') {
+          const resolvedTypeLower = resolvedType.toLowerCase();
+          const isOnlineMeet =
+            resolvedTypeLower === 'meet' || resolvedTypeLower === 'online meeting';
+          if (!isOnlineMeet) {
             try {
               const tz = updateFollowUpSchedule?.timezone || 'UTC';
               const whenLabel = updateFollowUpSchedule

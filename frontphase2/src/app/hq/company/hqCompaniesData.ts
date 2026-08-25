@@ -119,7 +119,14 @@ export function computeHqCompanyFinalPrice(
   return Math.round(users * unit * 100) / 100;
 }
 
-export const HQ_COMPANY_FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'] as const;
+export const HQ_COMPANY_FOLLOW_UP_TYPES = [
+  'Call',
+  'WhatsApp',
+  'Email',
+  'Online Meeting',
+  'Personal Meeting',
+  'Other',
+] as const;
 
 export function toDatetimeLocalValue(value?: string | Date | null): string {
   if (!value) return '';

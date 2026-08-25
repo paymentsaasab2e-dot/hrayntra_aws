@@ -2,7 +2,21 @@
 
 import type { LeadSource } from '@/app/leads/types';
 
-export const LEAD_SOURCE_OPTIONS: LeadSource[] = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'];
+export const LEAD_SOURCE_OPTIONS: LeadSource[] = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign', 'Other'];
+
+export function isLeadSource(value: string | null | undefined): value is LeadSource {
+  return Boolean(value) && LEAD_SOURCE_OPTIONS.includes(value as LeadSource);
+}
+
+export function formatLeadSourceDisplay(
+  source?: string | null,
+  sourceOther?: string | null,
+): string {
+  if (source === 'Other') {
+    return String(sourceOther || '').trim() || 'Other';
+  }
+  return String(source || '').trim();
+}
 
 const inputClass =
   'w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500';
@@ -16,6 +30,7 @@ export type LeadSourceFormSlice = {
   referralName?: string;
   campaignName?: string;
   campaignLink?: string;
+  sourceOther?: string;
 };
 
 type LeadSourceFieldsProps<T extends LeadSourceFormSlice> = {
@@ -40,6 +55,7 @@ export function LeadSourceFields<T extends LeadSourceFormSlice>({
       sourceWebsiteUrl: next === 'Website' ? form.sourceWebsiteUrl : '',
       sourceLinkedInUrl: next === 'LinkedIn' ? form.sourceLinkedInUrl : '',
       sourceEmail: next === 'Email' ? form.sourceEmail : '',
+      sourceOther: next === 'Other' ? form.sourceOther : '',
     } as Partial<T>);
   };
 
@@ -130,6 +146,18 @@ export function LeadSourceFields<T extends LeadSourceFormSlice>({
             />
           </div>
         </>
+      )}
+
+      {source === 'Other' && (
+        <div>
+          <label className={labelClass}>Custom source</label>
+          <input
+            value={form.sourceOther ?? ''}
+            onChange={(e) => onChange({ sourceOther: e.target.value } as Partial<T>)}
+            className={inputClass}
+            placeholder="Type the source (e.g. WhatsApp, event, partner)"
+          />
+        </div>
       )}
     </div>
   );

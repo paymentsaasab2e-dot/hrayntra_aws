@@ -50,7 +50,14 @@ export type HqLeadRemark = {
 
 export type HqLeadDrawerTab = 'details' | 'followup' | 'remarks';
 
-export const HQ_LEAD_FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'] as const;
+export const HQ_LEAD_FOLLOW_UP_TYPES = [
+  'Call',
+  'WhatsApp',
+  'Email',
+  'Online Meeting',
+  'Personal Meeting',
+  'Other',
+] as const;
 
 /** Same two product lines shown on HQ Add Lead (CRM / Recruitment). */
 export const HQ_LEAD_MODULE_OPTIONS = ['CRM', 'Recruitment'] as const;

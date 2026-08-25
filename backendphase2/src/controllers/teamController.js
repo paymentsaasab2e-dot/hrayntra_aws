@@ -157,7 +157,7 @@ export async function getAllTeamMembers(req, res) {
 
     const isAssignableList = req.teamListMode === 'assignable';
     if (isAssignableList && req.user?.id) {
-      const candidates = await listCrmAssigneeCandidates(req.user.id);
+      const candidates = await listCrmAssigneeCandidates(req.user.id, { req });
       const allowedIds = candidates.map((member) => member.id).filter(Boolean);
       const existingAnd = Array.isArray(where.AND) ? where.AND : [];
       where.AND = [...existingAnd, { id: { in: allowedIds.length ? allowedIds : ['__none__'] } }];

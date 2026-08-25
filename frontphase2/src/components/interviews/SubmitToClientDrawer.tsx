@@ -1388,6 +1388,7 @@ export function SubmitToClientDrawer({
             notifyClient: index === 0,
             submissionType,
             cvShareMode: item.entryCvShareMode || undefined,
+            toEmail: index === 0 ? primaryRecipient?.toEmail : undefined,
             additionalClients: index === 0 ? additionalClients : undefined,
             batchMatchIds: batchMatchIds.length > 1 ? batchMatchIds : undefined,
           });
@@ -1496,6 +1497,7 @@ export function SubmitToClientDrawer({
           notifyClient: true,
           submissionType,
           cvShareMode: cvShareMode || undefined,
+          toEmail: primaryRecipient?.toEmail,
           additionalClients,
         });
         onToast(

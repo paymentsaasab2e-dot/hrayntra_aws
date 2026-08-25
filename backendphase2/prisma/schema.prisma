@@ -910,6 +910,7 @@ enum LeadSource {
   Email
   Referral
   Campaign
+  Other
 }
 
 enum LeadType {
@@ -976,6 +977,8 @@ model Lead {
   sourceWebsiteUrl       String?
   sourceLinkedInUrl      String?
   sourceEmail            String?
+  /// Custom source label when `source` is Other.
+  sourceOther            String?
   otherDetails           Json?
   lastFollowUp           DateTime?
   nextFollowUp           DateTime?

@@ -332,7 +332,7 @@ export const clientController = {
 
   async getAssignableMembers(req, res) {
     try {
-      const members = await listCrmAssigneeCandidates(req.user.id);
+      const members = await listCrmAssigneeCandidates(req.user.id, { req });
       sendResponse(res, 200, 'Assignable members retrieved', members);
     } catch (error) {
       sendError(res, 500, error.message, error);
