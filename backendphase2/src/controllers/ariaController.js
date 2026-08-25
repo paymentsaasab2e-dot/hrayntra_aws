@@ -296,6 +296,7 @@ function normalizeLeadSource(value) {
   if (v === 'referral') return 'Referral';
   if (v === 'campaign') return 'Campaign';
   if (v === 'website') return 'Website';
+  if (v === 'other') return 'Other';
   return '';
 }
 
@@ -412,7 +413,7 @@ function inferContactNameFromReply(userMessage) {
 function sanitizeExtractedLeadData(userMessage, extracted = {}, pendingData = null) {
   const next = { ...(extracted || {}) };
   const msg = String(userMessage || '').toLowerCase();
-  const mentionsSource = /(linkedin|website|web site|referral|referred|email|campaign)/i.test(msg);
+  const mentionsSource = /(linkedin|website|web site|referral|referred|email|campaign|other)/i.test(msg);
   const mentionsType = /\b(company|individual|referral)\b/i.test(msg);
 
   // Parser defaults should not override known pending values during clarification replies.

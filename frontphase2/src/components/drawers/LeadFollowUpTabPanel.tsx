@@ -140,8 +140,8 @@ export function LeadFollowUpTabPanel({
     ? pendingHqFollowUp?.scheduledAt || ''
     : nextFollowUp || '';
   const scheduledType =
-    String((hqMode ? pendingHqFollowUp?.type : scheduleInfo?.type) || scheduleInfo?.type || 'Meet').trim() ||
-    'Meet';
+    String((hqMode ? pendingHqFollowUp?.type : scheduleInfo?.type) || scheduleInfo?.type || 'Online Meeting').trim() ||
+    'Online Meeting';
   const hasScheduledMeet = hqMode
     ? Boolean(pendingHqFollowUp && isValidFollowUpInstant(pendingHqFollowUp.scheduledAt))
     : isValidFollowUpInstant(nextFollowUp);
@@ -200,7 +200,7 @@ export function LeadFollowUpTabPanel({
         for (const activity of all) {
           if (isCompletedActivity(activity)) {
             const remarkText = String((activity.metadata as any)?.remark || '').trim();
-            const typeLabel = String((activity.metadata as any)?.type || 'Meet').trim();
+            const typeLabel = String((activity.metadata as any)?.type || 'Online Meeting').trim();
             completed.push({
               id: activity.id,
               title: `${typeLabel} Completed`,

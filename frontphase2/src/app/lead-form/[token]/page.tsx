@@ -34,6 +34,7 @@ import {
 import { buildLoginDevicePayload } from '../../../lib/sessionAuth';
 import { LeadDetailsDrawer } from '../../../components/drawers/LeadDetailsDrawer';
 import type { Lead, LeadSource, LeadStatus, LeadType, Priority } from '../../leads/types';
+import { isLeadSource, LEAD_SOURCE_OPTIONS } from '../../../components/drawers/LeadSourceFields';
 import { formatDateDMY } from '../../../utils/dateDisplay';
 import { formatContactListDisplay } from '../../../lib/contact-channels';
 import { SummaryCard, type SummaryCardColor } from '../../../components/ui/SummaryCard';
@@ -41,7 +42,6 @@ import { TableBrandAvatar } from '../../../components/ui/TableBrandAvatar';
 import { SourceCell } from '../../leads/SourceCell';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
 
-const VALID_SOURCES: LeadSource[] = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'];
 const SESSION_IDS_KEY_PREFIX = 'ph2.publicLeadForm.myLeadIds.';
 const LEAD_FORM_GATE_PREFIX = 'ph2.leadForm.unlocked.';
 
@@ -68,11 +68,7 @@ function unlockLeadForm(token: string) {
 }
 
 function mapPublicLeadToFrontend(row: Record<string, unknown>): Lead {
-  const rawSrc = row.source;
-  const source =
-    typeof rawSrc === 'string' && VALID_SOURCES.includes(rawSrc as LeadSource)
-      ? (rawSrc as LeadSource)
-      : undefined;
+  const source = isLeadSource(String(row.source || '')) ? (row.source as LeadSource) : undefined;
   const email = String(row.email || '');
   const phone = String(row.phone || '');
   const emails = Array.isArray(row.emails)
@@ -117,6 +113,7 @@ function mapPublicLeadToFrontend(row: Record<string, unknown>): Lead {
     state: row.state ? String(row.state) : undefined,
     campaignName: row.campaignName ? String(row.campaignName) : undefined,
     campaignLink: row.campaignLink ? String(row.campaignLink) : undefined,
+    sourceOther: row.sourceOther ? String(row.sourceOther) : undefined,
     otherDetails: Array.isArray(row.otherDetails)
       ? (row.otherDetails as Array<{ label: string; value: string }>)
       : undefined,
@@ -367,6 +364,7 @@ export default function PublicLeadFormPage() {
           state: data.state,
           type: data.type === 'Individual' ? 'Individual' : 'Company',
           source: data.source || 'Website',
+          sourceOther: data.source === 'Other' ? String(data.sourceOther || '').trim() || undefined : undefined,
           interestedNeeds: data.interestedNeeds || data.servicesNeeded,
           notes: data.notes,
           addedByName,
@@ -699,7 +697,7 @@ export default function PublicLeadFormPage() {
               className="h-9 rounded-lg border border-indigo-100 bg-white px-3 text-xs font-semibold text-slate-700"
             >
               <option value="">All Sources</option>
-              {VALID_SOURCES.map((source) => (
+              {LEAD_SOURCE_OPTIONS.map((source) => (
                 <option key={source} value={source}>
                   {source}
                 </option>

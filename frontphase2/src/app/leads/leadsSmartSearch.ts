@@ -3,7 +3,7 @@ import type { LeadStatus } from './types';
 import { formatDirectorDisplay } from '../../constants/salutations';
 import { normalizeContactList } from '../../lib/contact-channels';
 
-const LEAD_SOURCE_OPTIONS = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'] as const;
+const LEAD_SOURCE_OPTIONS = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign', 'Other'] as const;
 
 const STOP_WORDS = new Set([
   'a',
@@ -127,6 +127,7 @@ export function normalizeLeadSourceValue(value: string): (typeof LEAD_SOURCE_OPT
   if (token === 'email') return 'Email';
   if (token === 'referral') return 'Referral';
   if (token === 'campaign') return 'Campaign';
+  if (token === 'other') return 'Other';
   const exact = LEAD_SOURCE_OPTIONS.find((source) => source.toLowerCase() === token);
   return exact ?? null;
 }
@@ -161,7 +162,7 @@ function matchSource(query: string): string | null {
     if (normalized) return normalized;
   }
 
-  const fromMatch = query.match(/\bfrom\s+(website|linkedin|linked\s*in|email|referral|campaign)\b/i);
+  const fromMatch = query.match(/\bfrom\s+(website|linkedin|linked\s*in|email|referral|campaign|other)\b/i);
   if (fromMatch?.[1]) {
     const normalized = normalizeLeadSourceValue(fromMatch[1].replace(/\s+/g, ''));
     if (normalized) return normalized;
@@ -539,6 +540,7 @@ export function buildLeadSearchHaystack(
     lead.sourceWebsiteUrl,
     lead.sourceLinkedInUrl,
     lead.sourceEmail,
+    lead.sourceOther,
     lead.source,
     lead.status,
     lead.priority,

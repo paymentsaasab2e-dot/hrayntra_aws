@@ -250,7 +250,7 @@ function normalizePublicLeadPayload(body = {}, submitter = null) {
     throw Object.assign(new Error('Email or phone is required'), { statusCode: 400 });
   }
 
-  const source = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(body.source)
+  const source = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign', 'Other'].includes(body.source)
     ? body.source
     : 'Website';
 
@@ -284,6 +284,7 @@ function normalizePublicLeadPayload(body = {}, submitter = null) {
     state: String(body.state || '').trim() || undefined,
     type: body.type === 'Individual' ? 'Individual' : 'Company',
     source,
+    sourceOther: source === 'Other' ? String(body.sourceOther || '').trim() || undefined : undefined,
     status: 'New',
     priority: 'Medium',
     interestedNeeds: String(body.interestedNeeds || body.notes || '').trim() || undefined,

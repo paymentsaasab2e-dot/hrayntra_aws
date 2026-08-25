@@ -40,6 +40,7 @@ export type LeadAiGeneratedPayload = {
   sourceWebsiteUrl?: string;
   sourceLinkedInUrl?: string;
   sourceEmail?: string;
+  sourceOther?: string;
   otherDetails?: Array<{ label: string; value: string }>;
   lastFollowUp?: string;
   nextFollowUp?: string;
@@ -170,6 +171,7 @@ export function mergeAiSourceFields(
     | 'referralName'
     | 'campaignName'
     | 'campaignLink'
+    | 'sourceOther'
   >,
   existing: {
     source?: string;
@@ -179,6 +181,7 @@ export function mergeAiSourceFields(
     referralName?: string;
     campaignName?: string;
     campaignLink?: string;
+    sourceOther?: string;
   },
   linkFields: { website: string; linkedIn: string },
 ): {
@@ -188,6 +191,7 @@ export function mergeAiSourceFields(
   referralName: string;
   campaignName: string;
   campaignLink: string;
+  sourceOther: string;
 } {
   const allUrls = [
     ...(Array.isArray(generated.companyLinks) ? generated.companyLinks : []),
@@ -224,6 +228,8 @@ export function mergeAiSourceFields(
       String(generated.campaignName || '').trim() || String(existing.campaignName || '').trim(),
     campaignLink:
       String(generated.campaignLink || '').trim() || String(existing.campaignLink || '').trim(),
+    sourceOther:
+      String(generated.sourceOther || '').trim() || String(existing.sourceOther || '').trim(),
   };
 }
 

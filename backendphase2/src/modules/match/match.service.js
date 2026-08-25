@@ -339,11 +339,26 @@ function mapSubmittedHistory(activities, jobId) {
   };
 }
 
-function getClientRecipients(client) {
+function usableEmail(value) {
+  const email = String(value || '').trim();
+  if (!email || !email.includes('@') || /@placeholder\.local$/i.test(email)) return '';
+  return email;
+}
+
+function getClientRecipients(client, explicitEmail) {
+  const explicit = usableEmail(explicitEmail);
+  if (explicit) return [explicit];
+
   const contacts = Array.isArray(client?.contacts) ? client.contacts : [];
-  const contactsWithEmail = contacts.filter((contact) => contact?.email);
-  const recipients = contactsWithEmail.map((contact) => contact.email);
-  return [...new Set(recipients)];
+  const fromContacts = contacts
+    .filter((contact) => String(contact?.contactType || '').toUpperCase() !== 'CANDIDATE')
+    .map((contact) => usableEmail(contact?.email))
+    .filter(Boolean);
+  const fromEmails = Array.isArray(client?.emails)
+    ? client.emails.map((email) => usableEmail(email)).filter(Boolean)
+    : [];
+  const fromTeam = usableEmail(client?.teamMemberEmail);
+  return [...new Set([...fromContacts, ...fromEmails, ...(fromTeam ? [fromTeam] : [])])];
 }
 
 function mapEmailCandidate(candidate) {
@@ -999,12 +1014,13 @@ export const matchService = {
               include: {
                 contacts: {
                   where: {
-                    contactType: 'CLIENT',
+                    contactType: { in: ['CLIENT', 'HIRING_MANAGER'] },
                   },
                   select: {
                     email: true,
                     firstName: true,
                     lastName: true,
+                    contactType: true,
                   },
                   orderBy: [{ createdAt: 'asc' }],
                 },
@@ -1024,7 +1040,7 @@ export const matchService = {
 
     const message = String(data?.message || '').trim();
     const notifyClient = Boolean(data?.notifyClient);
-    const recipients = notifyClient ? getClientRecipients(match.job.client) : [];
+    const recipients = notifyClient ? getClientRecipients(match.job.client, data?.toEmail) : [];
 
     if (notifyClient && !recipients.length) {
       throw new Error('No client contact email found for this job');
@@ -1187,17 +1203,15 @@ export const matchService = {
           where: { id: String(extra.clientId) },
           include: {
             contacts: {
-              where: { contactType: 'CLIENT' },
-              select: { email: true, firstName: true, lastName: true },
+              where: { contactType: { in: ['CLIENT', 'HIRING_MANAGER'] } },
+              select: { email: true, firstName: true, lastName: true, contactType: true },
               orderBy: [{ createdAt: 'asc' }],
             },
           },
         });
         if (!extraClient) continue;
 
-        const extraRecipients = extra.toEmail
-          ? [String(extra.toEmail).trim()].filter(Boolean)
-          : getClientRecipients(extraClient);
+        const extraRecipients = getClientRecipients(extraClient, extra.toEmail);
         if (!extraRecipients.length) continue;
 
         const extraEmailResult = await sendMatchSubmissionEmail({
@@ -1411,12 +1425,13 @@ export const matchService = {
               include: {
                 contacts: {
                   where: {
-                    contactType: 'CLIENT',
+                    contactType: { in: ['CLIENT', 'HIRING_MANAGER'] },
                   },
                   select: {
                     email: true,
                     firstName: true,
                     lastName: true,
+                    contactType: true,
                   },
                   orderBy: [{ createdAt: 'asc' }],
                 },
@@ -1442,7 +1457,7 @@ export const matchService = {
       select: { name: true, email: true },
     });
 
-    const recipients = getClientRecipients(firstJob.client);
+    const recipients = getClientRecipients(firstJob.client, data?.toEmail);
     if (!recipients.length) {
       throw new Error('No client contact email found for this job');
     }

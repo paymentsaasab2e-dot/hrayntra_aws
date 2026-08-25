@@ -2,8 +2,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ExternalLink, Globe, Linkedin, Mail, Users, Megaphone, Link2 } from 'lucide-react';
+import { ExternalLink, Globe, Linkedin, Mail, Users, Megaphone, Link2, Pencil } from 'lucide-react';
 import type { Lead, LeadSource } from './types';
+import { formatLeadSourceDisplay, isLeadSource } from '../../components/drawers/LeadSourceFields';
 
 /** Light visual style per source — keeps existing violet for fallback. */
 const SOURCE_STYLES: Record<LeadSource, { className: string; Icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }> }> = {
@@ -26,6 +27,10 @@ const SOURCE_STYLES: Record<LeadSource, { className: string; Icon: React.Compone
   Campaign: {
     className: 'text-fuchsia-700 bg-gradient-to-r from-fuchsia-50 to-pink-50/80 border-fuchsia-100 hover:from-fuchsia-100 hover:to-pink-100',
     Icon: Megaphone,
+  },
+  Other: {
+    className: 'text-slate-700 bg-gradient-to-r from-slate-50 to-zinc-50/80 border-slate-200 hover:from-slate-100 hover:to-zinc-100',
+    Icon: Pencil,
   },
 };
 
@@ -74,6 +79,10 @@ function resolveTarget(lead: Lead): SourceTarget {
     case 'Campaign': {
       const href = normalizeUrl(lead.campaignLink, 'http');
       return { href, newTab: true, title: lead.campaignName || undefined, detail: href || undefined };
+    }
+    case 'Other': {
+      const custom = String(lead.sourceOther || '').trim();
+      return { href: null, newTab: false, title: custom || 'Other', detail: custom ? 'Custom source' : 'No custom source recorded' };
     }
     default:
       return { href: null, newTab: false };
@@ -150,10 +159,7 @@ export function SourceCell({ lead }: SourceCellProps) {
         ? lead.auditMeta?.createdBy?.name || lead.referralName || ''
         : '')
   ).trim();
-  const isValid =
-    raw != null &&
-    raw !== '' &&
-    (['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'] as const).includes(raw as LeadSource);
+  const isValid = isLeadSource(raw);
 
   if (!isValid && !addedBy) {
     return <span className="inline-block min-h-[1.25rem] min-w-[1px]" aria-hidden="true" />;
@@ -161,7 +167,7 @@ export function SourceCell({ lead }: SourceCellProps) {
 
   const source = (isValid ? raw : 'Referral') as LeadSource;
   const leadForTarget = { ...lead, source };
-  const displayLabel = addedBy || source;
+  const displayLabel = addedBy || formatLeadSourceDisplay(source, lead.sourceOther);
 
   const personStyle = {
     className:
@@ -177,7 +183,7 @@ export function SourceCell({ lead }: SourceCellProps) {
   const target = addedBy
     ? { href: null, newTab: false, title: addedBy, detail: 'Filled the lead form' }
     : resolveTarget(leadForTarget);
-  const interactive = addedBy ? true : Boolean(target.href) || source === 'Referral';
+  const interactive = addedBy ? true : Boolean(target.href) || source === 'Referral' || source === 'Other';
 
   const wrapperRef = useRef<HTMLSpanElement>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -199,6 +205,14 @@ export function SourceCell({ lead }: SourceCellProps) {
         rect,
         title: target.title ? `Referred by ${target.title}` : 'Referral',
         subtitle: target.title ? undefined : 'No referral name recorded',
+      });
+      return;
+    }
+    if (source === 'Other') {
+      setTooltip({
+        rect,
+        title: target.title || 'Other',
+        subtitle: target.title && target.title !== 'Other' ? 'Custom source' : 'No custom source recorded',
       });
       return;
     }
@@ -265,6 +279,8 @@ export function SourceCell({ lead }: SourceCellProps) {
             ? target.title
               ? `Referred by ${target.title}`
               : 'Referral'
+            : source === 'Other'
+              ? target.title || 'Other'
             : target.href
               ? `${source} — opens in new tab`
               : source

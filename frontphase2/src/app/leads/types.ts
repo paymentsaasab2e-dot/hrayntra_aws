@@ -1,7 +1,7 @@
 export type DefaultLeadStatus = 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
 export type LeadStatus = DefaultLeadStatus | (string & {});
 export type LeadType = 'Company' | 'Individual' | 'Referral';
-export type LeadSource = 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
+export type LeadSource = 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | 'Other';
 export type Priority = 'High' | 'Medium' | 'Low';
 
 export interface Activity {
@@ -112,6 +112,7 @@ export interface Lead {
   sourceWebsiteUrl?: string;
   sourceLinkedInUrl?: string;
   sourceEmail?: string;
+  sourceOther?: string;
   addedByName?: string;
   otherDetails?: Array<{ label: string; value: string }>;
   createdDate?: string;

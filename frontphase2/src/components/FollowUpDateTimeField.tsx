@@ -22,7 +22,8 @@ export const FOLLOW_UP_TYPE_PRESETS = [
   { id: 'Call', label: 'Call', icon: Phone },
   { id: 'WhatsApp', label: 'WhatsApp', icon: MessageCircle },
   { id: 'Email', label: 'Email', icon: Mail },
-  { id: 'Meet', label: 'Meet', icon: Users },
+  { id: 'Online Meeting', label: 'Online Meeting', icon: Users },
+  { id: 'Personal Meeting', label: 'Personal Meeting', icon: CalendarDays },
 ] as const;
 
 export const FOLLOW_UP_TYPE_OPTIONS = [
@@ -30,7 +31,11 @@ export const FOLLOW_UP_TYPE_OPTIONS = [
   { id: 'Other', label: 'Other', icon: MoreHorizontal },
 ] as const;
 
-const PRESET_IDS = new Set<string>(FOLLOW_UP_TYPE_PRESETS.map((o) => o.id));
+const PRESET_IDS = new Set<string>([
+  ...FOLLOW_UP_TYPE_PRESETS.map((o) => o.id),
+  // Legacy alias so older saved "Meet" values are not treated as custom Other
+  'Meet',
+]);
 
 export type FollowUpTypeOption = (typeof FOLLOW_UP_TYPE_OPTIONS)[number]['id'];
 

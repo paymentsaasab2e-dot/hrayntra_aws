@@ -7,10 +7,12 @@ import {
   Globe2,
   Link2,
   Mail,
+  MapPin,
   MessageCircle,
   MoreHorizontal,
   Phone,
   Users,
+  Video,
 } from 'lucide-react';
 import { FollowUpDateTimeField, isOtherFollowUpType } from './FollowUpDateTimeField';
 import { ClientTimezoneSelect } from './clients/ClientTimezoneSelect';
@@ -32,6 +34,27 @@ export const FOLLOW_UP_POSTPONE_PRESETS = [
   { id: '7d', label: '+1 week', days: 7 },
   { id: '14d', label: '+2 weeks', days: 14 },
 ] as const;
+
+/** Canonical Add Lead / follow-up activity types (stored on the lead + activity history). */
+export const LEAD_FOLLOW_UP_ACTIVITY_TYPES = [
+  'Call',
+  'WhatsApp',
+  'Email',
+  'Online Meeting',
+  'Personal Meeting',
+  'Other',
+] as const;
+
+export type LeadFollowUpActivityType = (typeof LEAD_FOLLOW_UP_ACTIVITY_TYPES)[number];
+
+export function isOnlineMeetFollowUpType(type?: string | null): boolean {
+  const value = String(type || '').trim().toLowerCase();
+  return value === 'online meeting' || value === 'meet';
+}
+
+export function isPersonalMeetFollowUpType(type?: string | null): boolean {
+  return String(type || '').trim().toLowerCase() === 'personal meeting';
+}
 
 export type LeadFollowUpScheduleFields = {
   nextFollowUp: string;
@@ -94,7 +117,8 @@ const TYPE_BUTTONS = [
   { id: 'Call', label: 'Call', hint: 'Phone call', icon: Phone, tone: 'emerald' },
   { id: 'WhatsApp', label: 'WhatsApp', hint: 'Chat message', icon: MessageCircle, tone: 'green' },
   { id: 'Email', label: 'Email', hint: 'Send email', icon: Mail, tone: 'sky' },
-  { id: 'Meet', label: 'Meet', hint: 'Meeting link', icon: Users, tone: 'violet' },
+  { id: 'Online Meeting', label: 'Online Meeting', hint: 'Video / meet link', icon: Video, tone: 'violet' },
+  { id: 'Personal Meeting', label: 'Personal Meeting', hint: 'In-person visit', icon: MapPin, tone: 'amber' },
   { id: 'Other', label: 'Other', hint: 'Custom type', icon: MoreHorizontal, tone: 'slate' },
 ] as const;
 
@@ -103,6 +127,7 @@ const TONE_SELECTED: Record<(typeof TYPE_BUTTONS)[number]['tone'], string> = {
   green: 'border-green-500 bg-green-50 text-green-900 ring-2 ring-green-500/20 shadow-sm',
   sky: 'border-sky-500 bg-sky-50 text-sky-900 ring-2 ring-sky-500/20 shadow-sm',
   violet: 'border-violet-500 bg-violet-50 text-violet-900 ring-2 ring-violet-500/20 shadow-sm',
+  amber: 'border-amber-500 bg-amber-50 text-amber-900 ring-2 ring-amber-500/20 shadow-sm',
   slate: 'border-slate-500 bg-slate-100 text-slate-900 ring-2 ring-slate-400/20 shadow-sm',
 };
 
@@ -111,6 +136,7 @@ const TONE_ICON: Record<(typeof TYPE_BUTTONS)[number]['tone'], string> = {
   green: 'bg-green-100 text-green-700',
   sky: 'bg-sky-100 text-sky-700',
   violet: 'bg-violet-100 text-violet-700',
+  amber: 'bg-amber-100 text-amber-700',
   slate: 'bg-slate-200 text-slate-700',
 };
 
@@ -139,7 +165,11 @@ export function buildFollowUpStatusRemark(fields: LeadFollowUpScheduleFields): s
     parts.push(`Postpone reason: ${fields.followUpPostponeReason.trim()}`);
   }
   if (fields.followUpContact?.trim()) {
-    parts.push(`Contact: ${fields.followUpContact.trim()}`);
+    parts.push(
+      isPersonalMeetFollowUpType(type)
+        ? `Location: ${fields.followUpContact.trim()}`
+        : `Contact: ${fields.followUpContact.trim()}`,
+    );
   }
   if (fields.followUpMeetLink?.trim()) {
     parts.push(`Meet link: ${fields.followUpMeetLink.trim()}`);
@@ -189,14 +219,17 @@ export function LeadFollowUpScheduler({
   className = '',
   inputClassName = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20',
 }: Props) {
-  const followUpType = value.followUpType || 'Call';
-  const otherSelected = isOtherFollowUpType(followUpType);
+  const followUpTypeRaw = value.followUpType || 'Call';
+  const followUpType =
+    followUpTypeRaw === 'Meet' ? 'Online Meeting' : followUpTypeRaw;
+  const otherSelected = isOtherFollowUpType(followUpTypeRaw);
   const otherText =
     otherSelected && followUpType && followUpType !== 'Other' ? followUpType : '';
 
   const isCallLike = followUpType === 'Call' || followUpType === 'WhatsApp';
   const isEmail = followUpType === 'Email';
-  const isMeetLike = followUpType === 'Meet';
+  const isMeetLike = isOnlineMeetFollowUpType(followUpType);
+  const isPersonalMeeting = isPersonalMeetFollowUpType(followUpType);
   const isPostponed = Boolean(value.followUpPostponed);
 
   const phones = useMemo(() => uniqueNonEmpty(phoneOptions), [phoneOptions]);
@@ -245,7 +278,7 @@ export function LeadFollowUpScheduler({
                   onChange({
                     followUpType: opt.id,
                     followUpContact: '',
-                    ...(opt.id === 'Meet'
+                    ...(opt.id === 'Online Meeting'
                       ? {}
                       : { followUpMeetLink: '', followUpAttendeeIds: [] }),
                   });
@@ -278,7 +311,7 @@ export function LeadFollowUpScheduler({
             onChange={(e) =>
               onChange({ followUpType: e.target.value.trim() ? e.target.value : 'Other' })
             }
-            placeholder="e.g. LinkedIn, SMS, In-person visit…"
+            placeholder="e.g. LinkedIn, SMS…"
             className={`mt-2.5 ${inputClassName}`}
             autoFocus
           />
@@ -324,6 +357,22 @@ export function LeadFollowUpScheduler({
           />
         </div>
       )}
+
+      {isPersonalMeeting ? (
+        <div>
+          <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            <MapPin size={12} />
+            Meeting location
+          </label>
+          <input
+            type="text"
+            value={value.followUpContact || ''}
+            onChange={(e) => onChange({ followUpContact: e.target.value })}
+            placeholder="e.g. Client office, Cafe, HQ conference room…"
+            className={inputClassName}
+          />
+        </div>
+      ) : null}
 
       {isMeetLike ? (
         <div className="space-y-3 rounded-xl border border-violet-100 bg-violet-50/40 p-3.5">

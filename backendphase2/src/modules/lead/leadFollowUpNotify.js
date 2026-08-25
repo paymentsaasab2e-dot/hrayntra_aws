@@ -222,7 +222,9 @@ function buildNotesBlock(schedule, options = {}) {
  * Returns updated schedule with inviteSentAt set.
  */
 export async function sendLeadMeetScheduleInvites({ lead, schedule }) {
-  if (!schedule || String(schedule.type || '').toLowerCase() !== 'meet') {
+  const scheduleType = String(schedule?.type || '').trim().toLowerCase();
+  const isOnlineMeet = scheduleType === 'meet' || scheduleType === 'online meeting';
+  if (!schedule || !isOnlineMeet) {
     return schedule;
   }
 
@@ -239,7 +241,7 @@ export async function sendLeadMeetScheduleInvites({ lead, schedule }) {
   ]);
 
   if (!recipients.length) {
-    console.warn('[lead-follow-up] Meet scheduled but no recipient emails found');
+    console.warn('[lead-follow-up] Online meeting scheduled but no recipient emails found');
     return schedule;
   }
 
@@ -248,9 +250,10 @@ export async function sendLeadMeetScheduleInvites({ lead, schedule }) {
     scheduledLabel,
     attendees: attendeeUsers,
   });
+  const inviteType = String(schedule.type || 'Online Meeting').trim() || 'Online Meeting';
   await Promise.allSettled(
     recipients.map((to) =>
-      sendLeadFollowUpEmail(to, lead.companyName || 'Lead', scheduledLabel, 'Meet', notes),
+      sendLeadFollowUpEmail(to, lead.companyName || 'Lead', scheduledLabel, inviteType, notes),
     ),
   );
 

@@ -112,6 +112,7 @@ export function LocationAutocomplete({
   const commitSelection = useCallback(
     (suggestion: NominatimSuggestion) => {
       pickedFromListRef.current = true;
+      onChange(suggestion.displayName);
       onSelect({
         location: suggestion.displayName,
         city: suggestion.city,
@@ -124,7 +125,7 @@ export function LocationAutocomplete({
       setOpen(false);
       requestAnimationFrame(() => inputRef.current?.blur());
     },
-    [onSelect],
+    [onChange, onSelect],
   );
 
   const runAutoResolve = useCallback(
@@ -139,7 +140,11 @@ export function LocationAutocomplete({
         if (generation !== resolveGenerationRef.current) return;
         if (pickedFromListRef.current) return;
         pickedFromListRef.current = true;
-        onSelect(toSelection(resolved));
+        onChange(trimmed);
+        onSelect({
+          ...toSelection(resolved),
+          location: trimmed,
+        });
       } catch {
         // User can still fill city/country manually.
       } finally {
@@ -148,7 +153,7 @@ export function LocationAutocomplete({
         }
       }
     },
-    [minQueryLength, onSelect],
+    [minQueryLength, onChange, onSelect],
   );
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
