@@ -60,7 +60,18 @@ export async function getCompositeResponse(userId) {
   });
   const prefs = await ensurePreferences(userId, user || {});
   const oauth = await prisma.userOAuthTokens.findUnique({ where: { userId } });
-  const li = await prisma.linkedInToken.findUnique({ where: { userId } });
+  let li = null;
+  try {
+    const liRows = await prisma.linkedInToken.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      take: 1,
+    });
+    li = liRows[0] || null;
+  } catch (err) {
+    console.warn('[communication] LinkedIn token lookup skipped:', err?.message || err);
+    li = null;
+  }
   const boards = await getJobBoardRows(userId);
   const boardMap = Object.fromEntries(boards.map((b) => [b.platform, b]));
 
@@ -130,9 +141,14 @@ export async function getCompositeResponse(userId) {
     },
   };
 
-  const linkedinAppClientSecret = oauth?.linkedinAppClientSecret
-    ? dec(oauth.linkedinAppClientSecret)
-    : '';
+  const linkedinAppClientSecret = (() => {
+    try {
+      return oauth?.linkedinAppClientSecret ? dec(oauth.linkedinAppClientSecret) : '';
+    } catch (err) {
+      console.warn('[communication] LinkedIn app secret decrypt skipped:', err?.message || err);
+      return '';
+    }
+  })();
 
   return {
     settings,

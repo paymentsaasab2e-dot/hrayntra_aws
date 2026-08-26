@@ -169,7 +169,7 @@ function CandidateStageMoveDropdown({
           setOpen(next);
           if (next) void onOpen?.();
         }}
-        className={`inline-flex max-w-[12rem] items-center gap-1 rounded-full border py-1 pl-2.5 pr-1.5 text-xs font-semibold transition-shadow hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/25 disabled:cursor-wait disabled:opacity-60 ${getCandidateStageBadgeClasses(candidate.stage)}`}
+        className={`inline-flex max-w-[12rem] items-center gap-1 rounded-full border py-1 pl-2.5 pr-1.5 text-xs font-semibold shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500/25 disabled:cursor-wait disabled:opacity-60 ${getCandidateStageBadgeClasses(candidate.stage)}`}
       >
         <span className="truncate">{getCandidateStageLabel(candidate.stage)}</span>
         {moving ? (
@@ -299,65 +299,81 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   );
 
   return (
-    <div className={fillScrollParent ? 'contents' : 'overflow-hidden'}>
-      <div className={fillScrollParent ? 'contents' : 'overflow-x-auto'}>
-        <table className="w-full min-w-[760px] border-collapse text-left">
+    <div
+      className={
+        fillScrollParent
+          ? 'contents'
+          : 'overflow-hidden rounded-xl border border-indigo-100/70 bg-white shadow-[0_10px_28px_-18px_rgba(79,70,229,0.22)]'
+      }
+    >
+      <div
+        className={
+          fillScrollParent
+            ? 'contents'
+            : 'overflow-x-auto [scrollbar-width:thin] [scrollbar-color:rgba(129,140,248,0.45)_transparent]'
+        }
+      >
+        <table className="w-full min-w-[1180px] border-collapse text-left">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
-              <th className="w-10 px-3 py-2 first:pl-4 sm:px-4">
-                <input 
-                  type="checkbox" 
+            <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md">
+              <th className="w-10 px-3 py-3 first:pl-4 sm:px-4 sm:first:pl-5">
+                <input
+                  type="checkbox"
                   checked={allSelected}
                   onChange={onToggleSelectAll}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  className="h-4 w-4 cursor-pointer rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30"
                 />
               </th>
-              <th className="px-3 py-2 sm:px-4">Candidate</th>
+              <th className="px-3 py-3 sm:px-4">Candidate</th>
               {showMatchScore ? (
-                <th className="px-3 py-2 text-center sm:px-4">Match</th>
+                <th className="px-3 py-3 text-center sm:px-4">Match</th>
               ) : null}
-              <th className="px-3 py-2 sm:px-4">Role / company</th>
-              <th className="px-3 py-2 text-center sm:px-4">Exp</th>
-              <th className="px-3 py-2 sm:px-4">Location</th>
-              <th className="px-3 py-2 sm:px-4">Assigned job</th>
-              <th className="px-3 py-2 sm:px-4">Stage</th>
-              <th className="px-3 py-2 sm:px-4">Team Member</th>
+              <th className="px-3 py-3 sm:px-4">Role / company</th>
+              <th className="px-3 py-3 text-center sm:px-4">Exp</th>
+              <th className="px-3 py-3 sm:px-4">Location</th>
+              <th className="px-3 py-3 sm:px-4">Assigned job</th>
+              <th className="px-3 py-3 sm:px-4">Stage</th>
+              <th className="px-3 py-3 sm:px-4">Team Member</th>
               {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
               <TableAuditColumnHeader />
-              <th className="px-3 py-2 text-right sm:px-4">Actions</th>
+              <th className="px-3 py-3 text-right sm:px-4 sm:pr-5">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100/80">
+          <tbody className="divide-y divide-indigo-50/80">
             {candidates.map((candidate) => (
-              <tr 
+              <tr
                 key={candidate.id}
                 onClick={() => onViewProfile?.(candidate)}
-                className={`transition-colors duration-200 hover:bg-indigo-50/45 ${
+                className={`group transition-colors duration-150 hover:bg-indigo-50/50 ${
                   onViewProfile ? 'cursor-pointer' : ''
-                } ${selectedIds.includes(candidate.id) ? 'bg-indigo-50/90' : 'even:bg-slate-50/35'}`}
+                } ${
+                  selectedIds.includes(candidate.id)
+                    ? 'bg-indigo-50/80 shadow-[inset_3px_0_0_0_rgb(99,102,241)]'
+                    : 'even:bg-slate-50/40'
+                }`}
               >
                 <td
-                  className="px-3 py-2.5 first:pl-4 sm:px-4 sm:py-3"
+                  className="px-3 py-3 first:pl-4 sm:px-4 sm:py-3.5 sm:first:pl-5"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={selectedIds.includes(candidate.id)}
                     onChange={() => onToggleSelect(candidate.id)}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    className="h-4 w-4 cursor-pointer rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30"
                   />
                 </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <ImageWithFallback 
-                        src={candidate.avatar || ''} 
+                      <ImageWithFallback
+                        src={candidate.avatar || ''}
                         fallbackInitials={initialsFromDisplayName(candidate.name)}
-                        className="w-10 h-10 rounded-full object-cover ring-2 ring-white"
+                        className="h-10 w-10 rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10"
                         alt={candidate.name}
                       />
                       <div
-                        className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-white"
+                        className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-indigo-100"
                         title={getCandidateStageLabel(candidate.stage)}
                       >
                         <span
@@ -369,13 +385,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       <button
                         type="button"
                         onClick={() => onViewProfile?.(candidate)}
-                        className="text-left text-sm font-semibold text-slate-900 hover:text-blue-600"
+                        className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
                       >
                         {candidate.name}
                       </button>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         {candidate.isPhase1Candidate ? (
-                          <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-700">
+                          <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
                             Phase 1
                           </span>
                         ) : null}
@@ -384,32 +400,38 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   </div>
                 </td>
                 {showMatchScore ? (
-                  <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
+                  <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
                     {(candidate.matchScore ?? 0) > 0 ? (
-                      <div className="flex flex-col items-center gap-0.5">
+                      <div className="flex flex-col items-center gap-1">
                         <span
-                          className={`inline-flex min-w-[2.75rem] items-center justify-center rounded-lg px-2 py-1 text-xs font-bold tabular-nums ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
+                          className={`inline-flex min-w-[2.85rem] items-center justify-center rounded-full px-2.5 py-1 text-xs font-bold tabular-nums shadow-sm ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
                         >
                           {candidate.matchScore}%
                         </span>
-                        <span className="max-w-[5.5rem] truncate text-[10px] font-medium text-slate-500">
+                        <span className="max-w-[5.5rem] truncate text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                           {candidate.matchScoreBand ||
                             displayMatchBand(candidate.matchScore ?? 0)}
                         </span>
                       </div>
                     ) : (
-                      <span className="text-xs font-medium text-slate-400">Not scored</span>
+                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        Not scored
+                      </span>
                     )}
                   </td>
                 ) : null}
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                   <div>
-                    <p className="text-sm text-slate-700 font-medium truncate max-w-[130px]">{candidate.designation}</p>
-                    <p className="text-xs text-slate-500 truncate max-w-[130px]">{candidate.company}</p>
+                    <p className="max-w-[140px] truncate text-sm font-semibold text-slate-800">
+                      {candidate.designation}
+                    </p>
+                    <p className="mt-0.5 max-w-[140px] truncate text-xs text-slate-500">
+                      {candidate.company}
+                    </p>
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
-                  <span className="text-sm font-medium text-slate-600">
+                <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
+                  <span className="inline-flex min-w-[2.25rem] items-center justify-center rounded-lg bg-slate-100/90 px-2 py-1 text-xs font-bold tabular-nums text-slate-700 ring-1 ring-slate-200/70">
                     {candidate.experienceLabel ??
                       (() => {
                         const exp = Number(candidate.experience);
@@ -418,22 +440,22 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       })()}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
-                  <div className="flex items-center gap-1.5 text-slate-500">
-                    <MapPin size={14} className="shrink-0" />
-                    <span className="text-sm truncate max-w-[100px]">{candidate.location}</span>
+                <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                  <div className="inline-flex max-w-[140px] items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1 text-slate-600 ring-1 ring-slate-200/70">
+                    <MapPin size={13} className="shrink-0 text-indigo-400" />
+                    <span className="truncate text-xs font-medium">{candidate.location}</span>
                   </div>
                 </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
-                  <div className="flex items-center gap-2">
-                    <Briefcase size={14} className="text-slate-400 shrink-0" />
-                    <p className="text-sm text-slate-600 truncate max-w-[120px] font-medium">
-                      {candidate.assignedJobs?.[0] || '--'}
+                <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                  <div className="inline-flex max-w-[150px] items-center gap-1.5 rounded-lg bg-indigo-50/70 px-2 py-1 text-indigo-800 ring-1 ring-indigo-100">
+                    <Briefcase size={13} className="shrink-0 text-indigo-500" />
+                    <p className="truncate text-xs font-semibold">
+                      {candidate.assignedJobs?.[0] || '—'}
                     </p>
                   </div>
                 </td>
                 <td
-                  className="px-3 py-2.5 sm:px-4 sm:py-3"
+                  className="px-3 py-3 sm:px-4 sm:py-3.5"
                   onClick={(event) => event.stopPropagation()}
                 >
                   {onChangeCandidateStage && candidate.pipelineJobId ? (
@@ -464,30 +486,32 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     </span>
                   )}
                 </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                   <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold">
-                      {(candidate.owner || 'U').split(' ').filter(Boolean).map((n) => n[0]).join('')}
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-[10px] font-bold text-white shadow-sm shadow-indigo-500/25">
+                      {(candidate.owner || 'U')
+                        .split(' ')
+                        .filter(Boolean)
+                        .map((n) => n[0])
+                        .join('')}
                     </div>
-                    <span className="text-sm text-slate-600 truncate max-w-[80px]">{candidate.owner}</span>
+                    <span className="max-w-[80px] truncate text-sm font-medium text-slate-700">
+                      {candidate.owner}
+                    </span>
                   </div>
                 </td>
                 {showAiAlertColumn ? (
-                  <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                     <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[candidate.id]} />
                   </td>
                 ) : null}
                 <TableAuditCell audit={candidate.auditMeta} />
-                <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">
-                  {/* Colored action icons — matches the design used on the
-                      Leads / Clients tabs so each verb has its own hue:
-                      view = blue, message = emerald, edit = amber,
-                      delete = rose. */}
+                <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5 sm:pr-5">
                   <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
-                    <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
+                    <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-indigo-50/60 p-1 opacity-90 ring-1 ring-indigo-100/80 transition group-hover:opacity-100">
                       <button
                         type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 transition-all hover:bg-white hover:text-emerald-800 hover:shadow-sm"
                         title="WhatsApp"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -531,7 +555,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       {SHOW_TABLE_ROW_EDIT_ICON ? (
                         <button
                           type="button"
-                          className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 transition-all hover:bg-white hover:text-amber-800 hover:shadow-sm"
                           title="Edit candidate"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -544,7 +568,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       {onDeleteCandidate && (
                         <button
                           type="button"
-                          className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 hover:bg-white hover:text-rose-700 hover:shadow-sm transition-all disabled:opacity-50 disabled:pointer-events-none"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 transition-all hover:bg-white hover:text-rose-700 hover:shadow-sm disabled:pointer-events-none disabled:opacity-50"
                           title="Delete candidate"
                           disabled={deletingCandidateId === candidate.id}
                           onClick={(e) => {

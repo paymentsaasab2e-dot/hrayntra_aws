@@ -31,8 +31,8 @@ function badgeNode(badge: DrawerTabBarItem['badge'], active: boolean) {
       <span
         className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
           active
-            ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
-            : 'bg-white text-slate-600 ring-1 ring-slate-200/90'
+            ? 'bg-white/20 text-white ring-1 ring-white/30'
+            : 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
         }`}
       >
         {badge}
@@ -44,8 +44,8 @@ function badgeNode(badge: DrawerTabBarItem['badge'], active: boolean) {
       <span
         className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
           active
-            ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
-            : 'bg-white text-slate-600 ring-1 ring-slate-200/90'
+            ? 'bg-white/20 text-white ring-1 ring-white/30'
+            : 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
         }`}
       >
         {badge}
@@ -68,7 +68,7 @@ export function DrawerTabBar<T extends string>({
     <div
       role="tablist"
       aria-label={ariaLabel}
-      className={`flex gap-1 overflow-x-auto rounded-2xl bg-slate-100/95 p-1.5 ring-1 ring-slate-200/80 [scrollbar-width:thin] ${trackClassName}`}
+      className={`flex gap-1 overflow-x-auto rounded-2xl border border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-violet-50/30 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${trackClassName}`}
     >
       {tabs.map((tab) => {
         const active = tab.id === activeId;
@@ -82,14 +82,18 @@ export function DrawerTabBar<T extends string>({
             onClick={() => onChange(tab.id)}
             className={`inline-flex min-w-max flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
               active
-                ? 'bg-white text-indigo-700 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-100'
-                : 'bg-white/70 text-slate-700 hover:bg-white hover:text-slate-900'
+                ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30'
+                : 'text-slate-600 hover:bg-white/90 hover:text-indigo-800 hover:shadow-sm'
             }`}
           >
             {Icon ? (
               <Icon
                 size={15}
-                className={active ? 'h-[15px] w-[15px] shrink-0 text-indigo-600' : 'h-[15px] w-[15px] shrink-0 text-slate-500'}
+                className={
+                  active
+                    ? 'h-[15px] w-[15px] shrink-0 text-white'
+                    : 'h-[15px] w-[15px] shrink-0 text-indigo-400'
+                }
               />
             ) : null}
             {tab.label}
@@ -105,7 +109,9 @@ export function DrawerTabBar<T extends string>({
   }
 
   return (
-    <div className={`shrink-0 border-b border-slate-200/80 bg-white px-4 py-3 sm:px-6 ${className}`}>
+    <div
+      className={`shrink-0 border-b border-indigo-100/50 bg-white/90 px-4 py-3 backdrop-blur-sm sm:px-6 ${className}`}
+    >
       {track}
     </div>
   );

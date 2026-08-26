@@ -117,7 +117,16 @@ function hasAttachment(payload) {
   return false;
 }
 
-async function fetchGoogleJson(url, accessToken, init = {}) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isGoogleRateLimited(status, bodyText = '') {
+  if (status === 429 || status === 503) return true;
+  return /rateLimitExceeded|userRateLimitExceeded|Too many concurrent/i.test(String(bodyText));
+}
+
+async function fetchGoogleJson(url, accessToken, init = {}, attempt = 0) {
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -128,10 +137,42 @@ async function fetchGoogleJson(url, accessToken, init = {}) {
   });
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(`Google API failed: ${message}`);
+    if (isGoogleRateLimited(response.status, message) && attempt < 4) {
+      const retryAfter = Number(response.headers.get('retry-after'));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : Math.min(8000, 400 * 2 ** attempt) + Math.floor(Math.random() * 250);
+      await sleep(waitMs);
+      return fetchGoogleJson(url, accessToken, init, attempt + 1);
+    }
+    const error = new Error(
+      isGoogleRateLimited(response.status, message)
+        ? 'Gmail is busy right now. Please wait a moment and try again.'
+        : `Google API failed: ${message}`
+    );
+    error.status = response.status;
+    throw error;
   }
   if (response.status === 204) return null;
   return response.json();
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 async function fetchGmailJson(accessToken, path, init = {}) {
@@ -157,7 +198,12 @@ function canModifyGmail(scopes = []) {
 
 function canCreateCalendarEvents(scopes = []) {
   const normalized = Array.isArray(scopes) ? scopes.map((scope) => String(scope)) : [];
-  return normalized.includes('https://www.googleapis.com/auth/calendar.events');
+  return normalized.some(
+    (scope) =>
+      scope === 'https://www.googleapis.com/auth/calendar.events' ||
+      // Legacy tokens from older connect flow (full calendar). Prefer calendar.events on reconnect.
+      scope === 'https://www.googleapis.com/auth/calendar'
+  );
 }
 
 async function getGoogleOauthForUser(userId) {
@@ -405,7 +451,7 @@ export const inboxService = {
       };
     }
 
-    const maxResults = Math.min(Math.max(Number(params.maxResults) || 25, 1), 100);
+    const maxResults = Math.min(Math.max(Number(params.maxResults) || 25, 1), 50);
     const labelId = String(params.labelId || 'INBOX').trim() || 'INBOX';
     const query = new URLSearchParams({
       maxResults: String(maxResults),
@@ -434,13 +480,24 @@ export const inboxService = {
       throw error;
     }
     const messages = Array.isArray(list.messages) ? list.messages : [];
+    const metadataQuery = new URLSearchParams({ format: 'metadata' });
+    for (const header of ['From', 'To', 'Subject', 'Cc']) {
+      metadataQuery.append('metadataHeaders', header);
+    }
 
-    const detailedMessages = await Promise.all(
-      messages.map(async (item) => {
-        const message = await fetchGmailJson(accessToken, `messages/${item.id}?format=full`);
-        return toMessageListItem(message, oauth.googleEmail || '');
+    const detailedMessages = (
+      await mapWithConcurrency(messages, 4, async (item) => {
+        try {
+          const message = await fetchGmailJson(
+            accessToken,
+            `messages/${item.id}?${metadataQuery.toString()}`
+          );
+          return toMessageListItem(message, oauth.googleEmail || '');
+        } catch {
+          return null;
+        }
       })
-    );
+    ).filter(Boolean);
 
     return {
       connected: true,

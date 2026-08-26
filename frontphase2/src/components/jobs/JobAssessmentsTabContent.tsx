@@ -4,7 +4,16 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardList, Loader2 } from 'lucide-react';
 import { getApplicationAssessmentResults } from '../../lib/api';
 import type { JobApplicationSubmission, JobForDrawer } from '../drawers/JobDetailsDrawer';
-import { DrawerSectionCard } from '../drawers/drawerFormUi';
+import {
+  DrawerSectionCard,
+  DRAWER_TABLE_BODY,
+  DRAWER_TABLE_HEAD_ROW,
+  DRAWER_TABLE_SCROLL,
+  DRAWER_TABLE_SHELL,
+  DRAWER_TABLE_TD,
+  DRAWER_TABLE_TH,
+  DRAWER_TABLE_TR,
+} from '../drawers/drawerFormUi';
 import {
   AssessmentReviewRow,
   AssessmentStatusSummary,
@@ -135,96 +144,99 @@ export function JobAssessmentsTabContent({ job }: { job: JobForDrawer }) {
       ) : candidates.length === 0 ? (
         <div className="p-8 text-center text-sm text-slate-500">No applications yet.</div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/80">
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Candidate
-                </th>
-                {columns.map((col) => (
-                  <th
-                    key={col.key}
-                    className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500"
-                  >
-                    <span className="block">{col.title}</span>
-                    {col.type ? (
-                      <span className="mt-0.5 block font-normal normal-case text-slate-400">{col.type}</span>
-                    ) : null}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {candidates.map((app) => {
-                const appResults = resultsByApp[app.id] || [];
-                const isRowExpanded =
-                  expanded?.applicationId === app.id &&
-                  columns.some((c) => c.key === expanded.columnKey);
-                const expandedCol = columns.find((c) => c.key === expanded?.columnKey);
-                const expandedResult =
-                  expandedCol && expanded?.applicationId === app.id
-                    ? appResults.find((r) => matchResultToColumn(r, expandedCol)) || null
-                    : null;
+        <div className={DRAWER_TABLE_SHELL}>
+          <div className={DRAWER_TABLE_SCROLL}>
+            <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+              <thead>
+                <tr className={DRAWER_TABLE_HEAD_ROW}>
+                  <th className={`${DRAWER_TABLE_TH} first:pl-4 sm:first:pl-5`}>Candidate</th>
+                  {columns.map((col) => (
+                    <th key={col.key} className={DRAWER_TABLE_TH}>
+                      <span className="block">{col.title}</span>
+                      {col.type ? (
+                        <span className="mt-0.5 block font-normal normal-case tracking-normal text-indigo-900/40">
+                          {col.type}
+                        </span>
+                      ) : null}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className={DRAWER_TABLE_BODY}>
+                {candidates.map((app) => {
+                  const appResults = resultsByApp[app.id] || [];
+                  const isRowExpanded =
+                    expanded?.applicationId === app.id &&
+                    columns.some((c) => c.key === expanded.columnKey);
+                  const expandedCol = columns.find((c) => c.key === expanded?.columnKey);
+                  const expandedResult =
+                    expandedCol && expanded?.applicationId === app.id
+                      ? appResults.find((r) => matchResultToColumn(r, expandedCol)) || null
+                      : null;
 
-                return (
-                  <Fragment key={app.id}>
-                    <tr className="border-b border-slate-100 hover:bg-slate-50/50">
-                      <td className="px-4 py-3 font-medium text-slate-800">{candidateLabel(app)}</td>
-                      {columns.map((col) => {
-                        const result = appResults.find((r) => matchResultToColumn(r, col)) || null;
-                        const isActive =
-                          expanded?.applicationId === app.id && expanded?.columnKey === col.key;
-                        return (
-                          <td key={col.key} className="px-4 py-3 align-top">
-                            <button
-                              type="button"
-                              disabled={!result}
-                              onClick={() => toggleCell(app.id, col.key, result)}
-                              className={`flex w-full items-start gap-1 text-left text-xs ${
-                                result ? 'cursor-pointer hover:text-violet-800' : 'cursor-default'
-                              } ${isActive ? 'text-violet-800' : 'text-slate-700'}`}
-                            >
-                              {result ? (
-                                isActive ? (
-                                  <ChevronDown className="size-3.5 shrink-0 mt-0.5" />
-                                ) : (
-                                  <ChevronRight className="size-3.5 shrink-0 mt-0.5" />
-                                )
-                              ) : null}
-                              <AssessmentStatusSummary row={result} />
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    {isRowExpanded && expandedResult ? (
-                      <tr className="border-b border-slate-100 bg-violet-50/30">
-                        <td colSpan={columns.length + 1} className="px-4 py-3">
-                          <p className="mb-2 text-xs font-semibold text-slate-700">
-                            {candidateLabel(app)} — {expandedCol?.title}
-                          </p>
-                          <ul className="space-y-1.5">
-                            <AssessmentReviewRow
-                              row={expandedResult}
-                              onGraded={(updated) => {
-                                setResultsByApp((prev) => ({
-                                  ...prev,
-                                  [app.id]: (prev[app.id] || []).map((r) =>
-                                    r.sessionId === updated.sessionId ? { ...r, ...updated } : r,
-                                  ),
-                                }));
-                              }}
-                            />
-                          </ul>
+                  return (
+                    <Fragment key={app.id}>
+                      <tr className={DRAWER_TABLE_TR}>
+                        <td
+                          className={`${DRAWER_TABLE_TD} first:pl-4 font-medium text-slate-800 sm:first:pl-5`}
+                        >
+                          {candidateLabel(app)}
                         </td>
+                        {columns.map((col) => {
+                          const result = appResults.find((r) => matchResultToColumn(r, col)) || null;
+                          const isActive =
+                            expanded?.applicationId === app.id && expanded?.columnKey === col.key;
+                          return (
+                            <td key={col.key} className={`${DRAWER_TABLE_TD} align-top`}>
+                              <button
+                                type="button"
+                                disabled={!result}
+                                onClick={() => toggleCell(app.id, col.key, result)}
+                                className={`flex w-full items-start gap-1 text-left text-xs ${
+                                  result ? 'cursor-pointer hover:text-violet-800' : 'cursor-default'
+                                } ${isActive ? 'text-violet-800' : 'text-slate-700'}`}
+                              >
+                                {result ? (
+                                  isActive ? (
+                                    <ChevronDown className="mt-0.5 size-3.5 shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="mt-0.5 size-3.5 shrink-0" />
+                                  )
+                                ) : null}
+                                <AssessmentStatusSummary row={result} />
+                              </button>
+                            </td>
+                          );
+                        })}
                       </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                      {isRowExpanded && expandedResult ? (
+                        <tr className="bg-violet-50/40">
+                          <td colSpan={columns.length + 1} className={`${DRAWER_TABLE_TD} sm:px-5`}>
+                            <p className="mb-2 text-xs font-semibold text-slate-700">
+                              {candidateLabel(app)} — {expandedCol?.title}
+                            </p>
+                            <ul className="space-y-1.5">
+                              <AssessmentReviewRow
+                                row={expandedResult}
+                                onGraded={(updated) => {
+                                  setResultsByApp((prev) => ({
+                                    ...prev,
+                                    [app.id]: (prev[app.id] || []).map((r) =>
+                                      r.sessionId === updated.sessionId ? { ...r, ...updated } : r,
+                                    ),
+                                  }));
+                                }}
+                              />
+                            </ul>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </DrawerSectionCard>

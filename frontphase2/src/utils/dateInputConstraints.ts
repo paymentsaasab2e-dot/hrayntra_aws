@@ -4,6 +4,8 @@
  * employment, visa issue dates, filter ranges, etc.).
  */
 
+import { zonedWallClockToUtcIso } from './zonedDateTime';
+
 /** `YYYY-MM-DD` for today's calendar date in the user's local timezone. */
 export function getLocalDateInputMinToday(): string {
   const d = new Date();
@@ -83,21 +85,39 @@ export function generateStandardInterviewSlotDescriptors(): Array<{
   return out;
 }
 
+function getTodayYmd(timeZone?: string): string {
+  const tz = String(timeZone || '').trim();
+  if (!tz) return getLocalDateInputMinToday();
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return getLocalDateInputMinToday();
+  }
+}
+
 export function filterInterviewSlotsForLocalDate(
   slots: Array<{ label: string; hour: number; minute: number }>,
   dateYmd: string,
-  slackMs = 60_000
+  slackMs = 60_000,
+  timeZone?: string,
 ): Array<{ label: string; hour: number; minute: number }> {
   if (!dateYmd || !String(dateYmd).trim()) return slots;
-  const cmp = compareLocalYmdToToday(dateYmd);
-  if (cmp > 0) return slots;
-  if (cmp < 0) return [];
+  const todayYmd = getTodayYmd(timeZone);
+  if (dateYmd > todayYmd) return slots;
+  if (dateYmd < todayYmd) return [];
   const now = Date.now();
   return slots.filter(({ hour, minute }) => {
     const parts = dateYmd.split('-').map((x) => Number.parseInt(x, 10));
     if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return true;
     const [y, mo, d] = parts;
-    const slotTime = new Date(y, mo - 1, d, hour, minute, 0, 0).getTime();
+    const slotTime = timeZone
+      ? new Date(zonedWallClockToUtcIso(y, mo, d, hour, minute, timeZone)).getTime()
+      : new Date(y, mo - 1, d, hour, minute, 0, 0).getTime();
     return slotTime >= now - slackMs;
   });
 }

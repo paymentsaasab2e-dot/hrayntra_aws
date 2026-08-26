@@ -566,7 +566,7 @@ export default function App() {
         const [jobsRes, clientsRes, ownersRes, meRes] = await Promise.all([
           apiGetJobs({ limit: 200 }),
           apiGetClients({ limit: 200 }),
-          apiGetUsers({ isActive: true, limit: 500 }),
+          apiGetUsers({ assignable: true, isActive: true, limit: 500 }),
           apiGetMe().catch(() => null),
         ]);
 

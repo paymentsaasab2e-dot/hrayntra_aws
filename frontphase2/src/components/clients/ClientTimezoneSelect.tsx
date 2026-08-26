@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { buildClientTimezoneSelectOptions } from '../../utils/inferTimezone';
+import {
+  buildClientTimezoneSelectOptions,
+  buildIanaTimezoneSelectOptions,
+  resolveIanaFromTimezoneValue,
+} from '../../utils/inferTimezone';
 
 const SELECT_CLASS =
   'w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 ' +
@@ -13,6 +17,8 @@ type ClientTimezoneSelectProps = {
   onManualChange?: () => void;
   className?: string;
   placeholder?: string;
+  /** When true, option values are IANA ids (for interview scheduling). */
+  valueAsIana?: boolean;
 };
 
 export function ClientTimezoneSelect({
@@ -21,12 +27,17 @@ export function ClientTimezoneSelect({
   onManualChange,
   className,
   placeholder = 'Select timezone…',
+  valueAsIana = false,
 }: ClientTimezoneSelectProps) {
-  const options = useMemo(() => buildClientTimezoneSelectOptions(value), [value]);
+  const options = useMemo(
+    () => (valueAsIana ? buildIanaTimezoneSelectOptions(value) : buildClientTimezoneSelectOptions(value)),
+    [value, valueAsIana],
+  );
+  const selectValue = valueAsIana ? resolveIanaFromTimezoneValue(value, '') : value;
 
   return (
     <select
-      value={value}
+      value={selectValue}
       onChange={(e) => {
         onManualChange?.();
         onChange(e.target.value);

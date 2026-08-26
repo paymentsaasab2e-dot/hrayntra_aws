@@ -23,9 +23,15 @@ import {
   type BackendJob,
   type BackendUser,
 } from '../lib/api';
-import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../utils/dateDisplay';
+import { formatDateDMY, formatDateTimeDMY } from '../utils/dateDisplay';
 import { MY_JOBS_LIST_PARAMS } from '../lib/myJobsListParams';
-import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend, buildInterviewRoundNumberById } from '../lib/interview-schedule-helpers';
+import {
+  combineInterviewDateAndTimeToIso,
+  formatInterviewDateInTimezone,
+  formatInterviewTimeInTimezone,
+  mapInterviewUiTypeToBackend,
+  buildInterviewRoundNumberById,
+} from '../lib/interview-schedule-helpers';
 import type {
     CancelInterviewPayload,
     FeedbackPayload,
@@ -121,9 +127,11 @@ const toTitle = (value: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 
-const formatDatePart = (value: string) => formatDateDMY(value);
+const formatDatePart = (value: string, timezone?: string | null) =>
+  formatInterviewDateInTimezone(value, timezone) || formatDateDMY(value);
 
-const formatTimePart = (value: string) => formatTime12hEnGb(value);
+const formatTimePart = (value: string, timezone?: string | null) =>
+  formatInterviewTimeInTimezone(value, timezone);
 
 const isLikelyUrl = (value?: string | null) => /^https?:\/\//i.test(String(value || '').trim());
 
@@ -198,10 +206,10 @@ const mapInterview = (item: BackendInterviewListItem): Interview => ({
   round: (toTitle(item.round || 'Screening') as Interview['round']) || 'Screening',
   type: (toTitle(item.type) as Interview['type']) || 'Video',
   mode: item.mode === 'OFFLINE' ? 'Offline' : 'Online',
-  date: formatDatePart(item.scheduledAt),
-  time: formatTimePart(item.scheduledAt),
+  date: formatDatePart(item.scheduledAt, item.timezone),
+  time: formatTimePart(item.scheduledAt, item.timezone),
   duration: item.duration,
-  timezone: item.timezone || 'UTC',
+  timezone: item.timezone || 'Asia/Kolkata',
   meetingLink: item.meetingLink || undefined,
   meetingPlatform:
     item.platform === 'GOOGLE_MEET'
@@ -427,7 +435,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     const settled = await Promise.allSettled([
       apiGetCandidates({ limit: 100 }),
       apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
-      apiGetUsers({ isActive: true, limit: 100 }),
+      apiGetUsers({ assignable: true, isActive: true, limit: 100 }),
       apiGetInterviews({ limit: 500 }),
     ]);
 
@@ -567,7 +575,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
           round: payload.round.toUpperCase(),
           type: mapInterviewUiTypeToBackend(payload.type),
           mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
-          date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
+          date: combineInterviewDateAndTimeToIso(payload.date, payload.time, payload.timezone),
           duration: payload.duration,
           timezone: payload.timezone,
           meetingPlatform:

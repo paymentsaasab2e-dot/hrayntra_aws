@@ -5,9 +5,11 @@ import {
   Briefcase,
   Calendar,
   Facebook,
+  Inbox,
   Mail,
   MessageSquareShare,
   MessagesSquare,
+  PlugZap,
   Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -34,6 +36,7 @@ type IntegrationSection = {
     scopes: string[];
     icon: React.ReactNode;
     iconBgClass: string;
+    accentClass: string;
   }>;
 };
 
@@ -41,112 +44,120 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
   {
     id: 'email-calendar',
     title: 'Email & Calendar',
-    description: 'Connect personal mailboxes and calendars for messaging, scheduling, and follow-ups.',
+    description: 'Mailboxes and calendars for messaging, scheduling, and follow-ups.',
     items: [
       {
         provider: 'gmail',
-        serviceName: 'Connect Gmail',
-        description: 'Use your own Gmail account for recruiter email communication.',
+        serviceName: 'Gmail',
+        description: 'Send and read recruiter email from your own Gmail account.',
         consentSummary:
           'Approve access only if you want this app to send emails and read your inbox on your behalf.',
         scopes: ['Send email', 'Read inbox', 'Profile'],
-        icon: <Mail className="h-5 w-5 text-red-500" />,
+        icon: <Mail className="h-5 w-5 text-red-600" />,
         iconBgClass: 'bg-red-50',
+        accentClass: 'from-red-500/12 via-transparent to-transparent',
       },
       {
         provider: 'outlook',
-        serviceName: 'Connect Outlook',
+        serviceName: 'Outlook',
         description: 'Connect Microsoft 365 / Outlook for personal recruiter email.',
         consentSummary:
           'Approve access only if you want this app to send and read mail from your Microsoft account.',
         scopes: ['Mail.Send', 'Mail.Read', 'User.Read'],
         icon: <Mail className="h-5 w-5 text-sky-600" />,
         iconBgClass: 'bg-sky-50',
+        accentClass: 'from-sky-500/12 via-transparent to-transparent',
       },
       {
         provider: 'google-calendar',
-        serviceName: 'Connect Google Calendar',
-        description: 'Sync interviews, follow-ups, and scheduling from your Google Calendar.',
+        serviceName: 'Google Calendar',
+        description: 'Sync interviews, follow-ups, and scheduling from Google Calendar.',
         consentSummary:
           'Approve access only if you want this app to manage calendar scheduling from your Google account.',
-        scopes: ['Calendar access', 'Profile', 'Email'],
+        scopes: ['Calendar events', 'Profile', 'Email'],
         icon: <Calendar className="h-5 w-5 text-emerald-600" />,
         iconBgClass: 'bg-emerald-50',
+        accentClass: 'from-emerald-500/12 via-transparent to-transparent',
       },
     ],
   },
   {
     id: 'meetings',
     title: 'Meetings',
-    description:
-      'Authorize meeting providers so interviews and follow-ups can be scheduled from your own account.',
+    description: 'Create interview and client meetings from your own accounts.',
     items: [
       {
         provider: 'zoom',
-        serviceName: 'Connect Zoom',
-        description: 'Create recruiter-owned Zoom meetings for interviews and client calls.',
+        serviceName: 'Zoom',
+        description: 'Create recruiter-owned Zoom meetings for interviews and calls.',
         consentSummary:
           'Approve access only if you want this app to create and manage Zoom meetings for you.',
         scopes: ['Meeting write', 'Meeting read', 'User read'],
         icon: <Video className="h-5 w-5 text-blue-600" />,
         iconBgClass: 'bg-blue-50',
+        accentClass: 'from-blue-500/12 via-transparent to-transparent',
       },
       {
         provider: 'google-meet',
-        serviceName: 'Connect Google Meet',
-        description: 'Use Google OAuth to prepare Google Meet scheduling from your calendar account.',
+        serviceName: 'Google Meet',
+        description: 'Attach Google Meet links when booking interviews on your calendar.',
         consentSummary:
           'Approve access only if you want this app to prepare Google Meet scheduling through your Google account.',
-        scopes: ['Calendar access', 'Meet scheduling prep'],
-        icon: <Video className="h-5 w-5 text-emerald-600" />,
-        iconBgClass: 'bg-emerald-50',
+        scopes: ['Calendar events', 'Meet links'],
+        icon: <Video className="h-5 w-5 text-teal-600" />,
+        iconBgClass: 'bg-teal-50',
+        accentClass: 'from-teal-500/12 via-transparent to-transparent',
       },
       {
         provider: 'microsoft-teams',
-        serviceName: 'Connect Microsoft Teams',
-        description: 'Create Teams meetings and calendar events from your Microsoft account.',
+        serviceName: 'Microsoft Teams',
+        description: 'Create Teams meetings and calendar events from Microsoft.',
         consentSummary:
           'Approve access only if you want this app to create Teams meetings and calendar events on your behalf.',
         scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite'],
         icon: <MessagesSquare className="h-5 w-5 text-indigo-600" />,
         iconBgClass: 'bg-indigo-50',
+        accentClass: 'from-indigo-500/12 via-transparent to-transparent',
       },
     ],
   },
   {
     id: 'social-media',
-    title: 'Social Media Job Posting',
-    description: 'Connect your own social channels for outbound job posting and employer-brand updates.',
+    title: 'Social job posting',
+    description: 'Publish hiring updates from your own social channels.',
     items: [
       {
         provider: 'linkedin',
-        serviceName: 'Connect LinkedIn',
-        description: 'Post jobs and social announcements through your LinkedIn identity.',
+        serviceName: 'LinkedIn',
+        description: 'Post jobs and announcements with your LinkedIn identity.',
         consentSummary:
           'Approve access only if you want this app to post content using your LinkedIn identity.',
         scopes: ['Profile', 'Email', 'Post content'],
         icon: <Briefcase className="h-5 w-5 text-blue-700" />,
         iconBgClass: 'bg-blue-50',
+        accentClass: 'from-blue-600/12 via-transparent to-transparent',
       },
       {
         provider: 'twitter',
-        serviceName: 'Connect Twitter / X',
-        description: 'Publish hiring announcements and short updates from your X account.',
+        serviceName: 'X (Twitter)',
+        description: 'Publish short hiring announcements from your X account.',
         consentSummary:
           'Approve access only if you want this app to publish posts from your X account.',
         scopes: ['Read profile', 'Write posts', 'Offline access'],
         icon: <MessageSquareShare className="h-5 w-5 text-slate-700" />,
         iconBgClass: 'bg-slate-100',
+        accentClass: 'from-slate-500/12 via-transparent to-transparent',
       },
       {
         provider: 'facebook',
-        serviceName: 'Connect Facebook',
-        description: 'Connect a Facebook identity to prepare posting to business pages.',
+        serviceName: 'Facebook',
+        description: 'Prepare posting to business pages with your Facebook identity.',
         consentSummary:
           'Approve access only if you want this app to manage Facebook posting permissions for pages.',
         scopes: ['Public profile', 'Email', 'Page post permissions'],
         icon: <Facebook className="h-5 w-5 text-blue-700" />,
         iconBgClass: 'bg-blue-50',
+        accentClass: 'from-blue-500/12 via-transparent to-transparent',
       },
     ],
   },
@@ -183,42 +194,54 @@ function mergeStatuses(
       provider: 'gmail',
       label: 'Gmail',
       connected: gmailConnected,
-      accountEmail: connections.gmail?.email,
+      accountEmail: connections.gmail?.email || integrationStatuses.gmail?.accountEmail,
     };
     merged['google-calendar'] = {
       provider: 'google-calendar',
       label: 'Google Calendar',
       connected: googleCalendarConnected,
-      accountEmail: connections.googleCalendar?.email,
+      accountEmail:
+        connections.googleCalendar?.email || integrationStatuses['google-calendar']?.accountEmail,
     };
     merged['google-meet'] = {
       provider: 'google-meet',
       label: 'Google Meet',
       connected: googleMeetConnected,
-      accountEmail: connections.googleCalendar?.email || connections.gmail?.email,
+      accountEmail:
+        connections.googleCalendar?.email ||
+        connections.gmail?.email ||
+        integrationStatuses['google-meet']?.accountEmail,
     };
     merged.outlook = {
       provider: 'outlook',
       label: 'Outlook',
       connected: outlookConnected,
-      accountEmail: connections.outlook?.email,
+      accountEmail: connections.outlook?.email || integrationStatuses.outlook?.accountEmail,
     };
     merged['microsoft-teams'] = {
       provider: 'microsoft-teams',
       label: 'Microsoft Teams',
       connected: teamsConnected,
-      accountEmail: connections.teams?.email,
+      accountEmail: connections.teams?.email || integrationStatuses['microsoft-teams']?.accountEmail,
     };
     merged.linkedin = {
       provider: 'linkedin',
       label: 'LinkedIn',
       connected: linkedinConnected,
-      accountEmail: connections.linkedin?.email,
-      accountName: connections.linkedin?.pageName,
+      accountEmail: connections.linkedin?.email || integrationStatuses.linkedin?.accountEmail,
+      accountName: connections.linkedin?.pageName || integrationStatuses.linkedin?.accountName,
     };
   }
 
   return merged;
+}
+
+function humanizeScope(scope: string) {
+  const value = String(scope || '').trim();
+  if (!value) return value;
+  if (!value.includes('/') && !value.includes('.')) return value;
+  const short = value.split('/').pop() || value;
+  return short.replace(/^auth\./, '').replace(/\./g, ' ');
 }
 
 export function CommunicationSettings() {
@@ -227,13 +250,18 @@ export function CommunicationSettings() {
   const [busyProvider, setBusyProvider] = useState<IntegrationProvider | null>(null);
 
   const reload = useCallback(async () => {
-    const [integrationResponse, communicationResponse] = await Promise.all([
+    const [integrationResult, communicationResult] = await Promise.allSettled([
       apiGetIntegrationStatuses(),
       apiGetUserCommunication(),
     ]);
-    setStatuses(
-      mergeStatuses(integrationResponse.data || {}, communicationResponse.data || null)
-    );
+    const integrationData =
+      integrationResult.status === 'fulfilled' ? integrationResult.value.data || {} : {};
+    const communicationData =
+      communicationResult.status === 'fulfilled' ? communicationResult.value.data || null : null;
+    setStatuses(mergeStatuses(integrationData, communicationData));
+    if (integrationResult.status === 'rejected' && communicationResult.status === 'rejected') {
+      throw integrationResult.reason;
+    }
   }, []);
 
   useEffect(() => {
@@ -265,7 +293,14 @@ export function CommunicationSettings() {
     const email = params.get('email');
 
     if (connected) {
+      const provider = String(connected).toLowerCase();
       toast.success(`${connected} connected${email ? ` as ${email}` : ''}`);
+      if (provider === 'gmail' || provider === 'google') {
+        window.location.replace(
+          `/inbox?gmail_connected=1${email ? `&email=${encodeURIComponent(email)}` : ''}`,
+        );
+        return;
+      }
       window.history.replaceState({}, '', '/setting?section=communication');
       void reload();
     }
@@ -281,10 +316,21 @@ export function CommunicationSettings() {
     [statuses]
   );
 
+  const totalCount = useMemo(
+    () => INTEGRATION_SECTIONS.reduce((sum, section) => sum + section.items.length, 0),
+    []
+  );
+
+  const gmailConnected = !!statuses.gmail?.connected;
+
   const handleConnect = async (provider: IntegrationProvider) => {
     try {
       setBusyProvider(provider);
-      await apiConnectIntegration(provider);
+      const returnUrl =
+        provider === 'gmail' && typeof window !== 'undefined'
+          ? `${window.location.origin}/inbox`
+          : undefined;
+      await apiConnectIntegration(provider, returnUrl);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Connect failed');
       setBusyProvider(null);
@@ -307,71 +353,106 @@ export function CommunicationSettings() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="h-32 animate-pulse rounded-2xl bg-slate-200" />
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="h-64 animate-pulse rounded-2xl bg-slate-200" />
-          <div className="h-64 animate-pulse rounded-2xl bg-slate-200" />
-          <div className="h-64 animate-pulse rounded-2xl bg-slate-200" />
+        <div className="h-40 animate-pulse rounded-3xl bg-slate-200/80" />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="h-72 animate-pulse rounded-2xl bg-slate-200/70" />
+          <div className="h-72 animate-pulse rounded-2xl bg-slate-200/70" />
+          <div className="h-72 animate-pulse rounded-2xl bg-slate-200/70" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
-              Communication & Integrations
-            </p>
-            <h2 className="mt-2 text-2xl font-bold text-slate-900">Connect your own work accounts</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              OAuth runs against each user&apos;s own account. Tokens stay encrypted in the database
-              and are never exposed to the frontend. These connections are used later for email
-              sending, calendars, meetings, job posting, and social announcements.
-            </p>
-            <p className="mt-3 max-w-3xl rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
-              Before connecting any service, you must review the requested permissions and confirm
-              consent. The next step will redirect you to the provider&apos;s own OAuth screen.
+    <div className="space-y-8">
+      <section className="relative overflow-hidden rounded-xl border border-indigo-100/60 bg-white/80 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm">
+        <div
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white via-indigo-50/40 to-violet-50/30"
+          aria-hidden
+        />
+        <div className="relative flex flex-col gap-6 p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-md shadow-indigo-500/25">
+              <PlugZap className="h-3.5 w-3.5 text-indigo-200" />
+              Communication &amp; Integrations
+            </div>
+            <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-900">
+              Connect your work accounts
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Link Gmail, calendar, meetings, and social channels you already use. Each connection
+              uses your own OAuth consent, and tokens stay encrypted on the server.
             </p>
           </div>
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            <span className="font-semibold">{connectedCount}</span> integrations connected
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-2xl border border-indigo-100/70 bg-white/90 px-4 py-3 backdrop-blur">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-400">
+                Connected
+              </p>
+              <p className="mt-0.5 text-lg font-semibold text-slate-900">
+                {connectedCount}
+                <span className="text-sm font-medium text-slate-400"> / {totalCount}</span>
+              </p>
+            </div>
+            {gmailConnected ? (
+              <a
+                href="/inbox"
+                className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:brightness-110"
+              >
+                <Inbox className="h-4 w-4" />
+                Open Inbox
+              </a>
+            ) : null}
           </div>
         </div>
       </section>
 
-      {INTEGRATION_SECTIONS.map((section) => (
-        <section key={section.id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5">
-            <h3 className="text-lg font-semibold text-slate-900">{section.title}</h3>
-            <p className="mt-1 text-sm text-slate-500">{section.description}</p>
-          </div>
+      {INTEGRATION_SECTIONS.map((section) => {
+        const sectionConnected = section.items.filter((item) => statuses[item.provider]?.connected)
+          .length;
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            {section.items.map((item) => {
-              const status = statuses[item.provider];
-              return (
-                <ServiceConnectionCard
-                  key={item.provider}
-                  serviceName={item.serviceName}
-                  icon={item.icon}
-                  iconBgClass={item.iconBgClass}
-                  description={item.description}
-                  connected={!!status?.connected}
-                  connectedEmail={status?.accountEmail || status?.accountName || undefined}
-                  onConnect={() => handleConnect(item.provider)}
-                  onDisconnect={() => handleDisconnect(item.provider)}
-                  connecting={busyProvider === item.provider}
-                  scopes={status?.scope?.length ? status.scope : item.scopes}
-                  consentSummary={item.consentSummary}
-                />
-              );
-            })}
-          </div>
-        </section>
-      ))}
+        return (
+          <section key={section.id} className="space-y-4">
+            <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+              <div>
+                <h3 className="text-lg font-semibold tracking-tight text-slate-900">
+                  {section.title}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">{section.description}</p>
+              </div>
+              <p className="text-xs font-medium text-slate-400">
+                {sectionConnected} of {section.items.length} connected
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {section.items.map((item) => {
+                const status = statuses[item.provider];
+                const rawScopes = status?.scope?.length ? status.scope : item.scopes;
+                const scopes = rawScopes.map(humanizeScope);
+                return (
+                  <ServiceConnectionCard
+                    key={item.provider}
+                    serviceName={item.serviceName}
+                    icon={item.icon}
+                    iconBgClass={item.iconBgClass}
+                    accentClass={item.accentClass}
+                    description={item.description}
+                    connected={!!status?.connected}
+                    connectedEmail={status?.accountEmail || status?.accountName || undefined}
+                    onConnect={() => handleConnect(item.provider)}
+                    onDisconnect={() => handleDisconnect(item.provider)}
+                    connecting={busyProvider === item.provider}
+                    scopes={scopes}
+                    consentSummary={item.consentSummary}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

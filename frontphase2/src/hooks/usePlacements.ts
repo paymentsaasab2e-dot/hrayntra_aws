@@ -12,7 +12,6 @@ import {
   apiGetJobs,
   apiGetPlacementStats,
   apiGetPlacements,
-  apiGetUsers,
   apiMarkPlacementFailed,
   apiMarkPlacementJoined,
   apiRequestPlacementReplacement,
@@ -20,6 +19,7 @@ import {
   apiSchedulePlacementJoining,
   apiUndoPlacement,
 } from '../lib/api';
+import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../lib/api/teamApi';
 import { PLACEMENT_FORM_JOBS_PARAMS } from '../lib/myJobsListParams';
 import type {
   CreatePlacementPayload,
@@ -103,17 +103,17 @@ export function usePlacements(filters: PlacementFilters) {
 
   const fetchOptions = useCallback(async () => {
     try {
-      const [candidatesRes, jobsRes, clientsRes, usersRes] = await Promise.all([
+      const [candidatesRes, jobsRes, clientsRes, teamMembers] = await Promise.all([
         apiGetCandidates({ page: 1, limit: 500 }),
         apiGetJobs(PLACEMENT_FORM_JOBS_PARAMS),
         apiGetClients({ page: 1, limit: 500 }),
-        apiGetUsers({ page: 1, limit: 500, isActive: true }),
+        getAllTeamMembersForAssign(),
       ]);
 
       const candidates = unwrapCollection(candidatesRes.data as any);
       const jobs = unwrapCollection(jobsRes.data as any);
       const clients = unwrapCollection(clientsRes.data as any);
-      const users = unwrapCollection(usersRes.data as any);
+      const users = teamMembersToBackendUsers(teamMembers);
 
       setCandidateOptions(
         candidates.map((candidate: any) => ({

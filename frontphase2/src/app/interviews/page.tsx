@@ -999,6 +999,7 @@ export default function InterviewsPage() {
             date: interviewData.date,
             time: interviewData.time,
             duration: interviewData.duration,
+            timezone: interviewData.timezone,
             mode: interviewData.mode,
             platform:
               interviewData.platform === 'Google Meet'

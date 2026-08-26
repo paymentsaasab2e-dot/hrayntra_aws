@@ -36,7 +36,7 @@ export function usePlacementInvoiceModal(isOpen: boolean) {
         apiGetPlacements({ page: 1, limit: 500, sortBy: 'offerDate', sortOrder: 'desc' }),
         apiGetCandidates({ page: 1, limit: 100 }),
         apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
-        apiGetUsers({ page: 1, limit: 100, role: 'RECRUITER' }),
+        apiGetUsers({ assignable: true, page: 1, limit: 100, role: 'RECRUITER' }),
       ]);
 
       const payload = placementRes?.data;

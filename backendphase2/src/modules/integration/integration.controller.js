@@ -19,14 +19,16 @@ async function readReturnUrlFromState(provider, state) {
   }
 }
 
-function buildFrontendRedirect(params, returnUrl = '') {
+function buildFrontendRedirect(params, returnUrl = '', provider = '') {
   const frontendBase = env.FRONTEND_URL || 'http://localhost:3001';
   const safeReturn =
     returnUrl && String(returnUrl).startsWith(frontendBase) ? String(returnUrl) : '';
-  const url = safeReturn
-    ? new URL(safeReturn)
-    : new URL(`${frontendBase}/setting`);
-  if (!safeReturn) {
+  const defaultPath =
+    String(provider || params.integration_connected || '').toLowerCase() === 'gmail'
+      ? `${frontendBase}/inbox`
+      : `${frontendBase}/setting`;
+  const url = safeReturn ? new URL(safeReturn) : new URL(defaultPath);
+  if (!safeReturn && !String(url.pathname || '').includes('/inbox')) {
     url.searchParams.set('section', 'communication');
   }
   Object.entries(params).forEach(([key, value]) => {
@@ -34,6 +36,9 @@ function buildFrontendRedirect(params, returnUrl = '') {
       url.searchParams.set(key, String(value));
     }
   });
+  if (String(url.pathname || '').includes('/inbox') && params.integration_connected === 'gmail') {
+    url.searchParams.set('gmail_connected', '1');
+  }
   return url.toString();
 }
 
@@ -83,12 +88,13 @@ export const integrationController = {
             integration_connected: result.provider,
             email: result.accountEmail || '',
           },
-          returnUrl
+          returnUrl,
+          result.provider
         )
       );
     } catch (error) {
       console.error(`[integration] OAuth callback failed for ${provider}:`, error?.message || error);
-      return res.redirect(buildFrontendRedirect({ integration_error: provider }, returnUrl));
+      return res.redirect(buildFrontendRedirect({ integration_error: provider }, returnUrl, provider));
     }
   },
 

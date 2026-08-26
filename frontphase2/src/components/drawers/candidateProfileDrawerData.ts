@@ -16,6 +16,7 @@ export interface CandidateScheduledInterview {
   date: string;
   time: string;
   duration: string;
+  timezone?: string;
   mode: 'video' | 'in-person' | 'phone';
   platform?: 'Google Meet' | 'Zoom' | null;
   meetingLink?: string | null;

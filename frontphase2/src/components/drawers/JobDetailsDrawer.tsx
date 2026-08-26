@@ -20,6 +20,10 @@ import { DetailsModalShell } from './DetailsModalShell';
 import { DrawerTabBar } from './DrawerTabBar';
 import { requestError, requestInfo } from '../../lib/appDialog';
 import {
+  isInterviewPipelineStage,
+  isOfferPipelineStage,
+} from '../../lib/candidateSubmitToClient';
+import {
   X,
   Pencil,
   LayoutGrid,
@@ -125,6 +129,11 @@ import {
 import { useFiles } from '../../hooks/useFiles';
 import { DocumentUploadButton } from '../import/documentUploadUi';
 import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
+import {
+  formatInterviewDateInTimezone,
+  formatInterviewTimeInTimezone,
+} from '../../lib/interview-schedule-helpers';
+import { formatTimezoneDisplay, resolveIanaFromTimezoneValue } from '../../utils/inferTimezone';
 import type { AuditMeta } from '../../types/audit';
 import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
@@ -132,7 +141,19 @@ import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
-import { DrawerSectionCard, DRAWER_FORM_SCROLL_BG } from './drawerFormUi';
+import {
+  DrawerSectionCard,
+  DRAWER_FORM_SCROLL_BG,
+  DRAWER_LIST_SHELL,
+  DRAWER_TABLE_ACTIONS,
+  DRAWER_TABLE_BODY,
+  DRAWER_TABLE_HEAD_ROW,
+  DRAWER_TABLE_SCROLL,
+  DRAWER_TABLE_SHELL,
+  DRAWER_TABLE_TD,
+  DRAWER_TABLE_TH,
+  DRAWER_TABLE_TR,
+} from './drawerFormUi';
 
 /** Render salary as `currency min - max` (or single number when only one bound). */
 function formatJobSalaryRange(job: {
@@ -429,7 +450,17 @@ export interface JobDetailsDrawerProps {
   }) => void | Promise<void>;
   onRemoveFromPipeline?: (payload: { candidateId: string; jobId: string }) => void | Promise<void>;
   pipelineRecruiters?: CandidatePipelineRecruiterOption[];
-  onScheduleInterview?: (candidateId: string, jobId: string) => void;
+  onScheduleInterview?: (
+    candidateId: string,
+    jobId: string,
+    pendingStage?: { stageId: string; stageName: string },
+  ) => void;
+  /** Open create-placement flow when Offer stage is selected in the candidates table. */
+  onCreatePlacement?: (
+    candidateId: string,
+    jobId: string,
+    pendingStage?: { stageId: string; stageName: string },
+  ) => void;
   onRejectCandidate?: (candidateId: string, jobId: string) => void;
   onViewCandidateProfile?: (candidate: JobDrawerTableCandidate) => void;
   onEditCandidate?: (candidate: JobDrawerTableCandidate) => void;
@@ -816,6 +847,7 @@ export function JobDetailsDrawer({
   onRemoveFromPipeline,
   pipelineRecruiters = [],
   onScheduleInterview,
+  onCreatePlacement,
   onRejectCandidate,
   onViewCandidateProfile,
   onEditCandidate,
@@ -891,6 +923,7 @@ export function JobDetailsDrawer({
   const {
     openFromJobDrawerRow,
     openSubmit,
+    openBulkSubmit,
     submitModalElement: submitToClientModal,
   } = useSubmitToClientModal({
     onClosed: () => setSubmitClientRowId(null),
@@ -969,6 +1002,26 @@ export function JobDetailsDrawer({
     },
     [displayJobCandidates, job, onAddToPipeline],
   );
+
+  const openBulkSubmitToClient = useCallback(() => {
+    if (!job?.id || selectedCandidateIds.length === 0) return;
+    const rows = displayJobCandidates.filter((row) => selectedCandidateIds.includes(row.id));
+    if (!rows.length) {
+      void requestError('Select at least one candidate to submit to the client.');
+      return;
+    }
+    openBulkSubmit(
+      rows.map((row) => ({
+        candidateId: row.id,
+        jobId: job.id,
+        candidateName: row.candidateName,
+        jobTitle: job.title,
+        clientId: job.clientId ?? undefined,
+        matchScore: parseJobCandidateScore(row.score),
+      })),
+    );
+    setSelectedCandidateIds([]);
+  }, [displayJobCandidates, job, openBulkSubmit, selectedCandidateIds]);
 
   const stageOptionsFromJobPipeline = useMemo(() => {
     if (!job?.id) return {} as Record<string, Array<{ id: string; name: string }>>;
@@ -1081,16 +1134,42 @@ export function JobDetailsDrawer({
         return;
       }
 
+      const nextStageName =
+        inlineStageOptionsMerged[jobId]?.find((stage) => stage.id === stageId)?.name ||
+        candidate.stage;
+
+      // Interviewing: open Schedule Interview popup only — stage updates after schedule succeeds.
+      if (isInterviewPipelineStage(nextStageName)) {
+        if (onScheduleInterview) {
+          onScheduleInterview(candidate.id, jobId, {
+            stageId,
+            stageName: nextStageName,
+          });
+        } else {
+          toast.error('Schedule Interview is not available');
+        }
+        return;
+      }
+
+      // Offer: open placement flow only — stage updates after placement is created.
+      if (isOfferPipelineStage(nextStageName)) {
+        if (onCreatePlacement) {
+          onCreatePlacement(candidate.id, jobId, {
+            stageId,
+            stageName: nextStageName,
+          });
+        } else {
+          toast.error('Create Placement is not available');
+        }
+        return;
+      }
+
       try {
         setInlineStageUpdatingCandidateId(candidate.id);
         await apiMoveCandidateStage(jobId, {
           candidateId: candidate.id,
           stageId,
         });
-
-        const nextStageName =
-          inlineStageOptionsMerged[jobId]?.find((stage) => stage.id === stageId)?.name ||
-          candidate.stage;
 
         setDisplayJobCandidates((prev) =>
           prev.map((item) =>
@@ -1115,7 +1194,13 @@ export function JobDetailsDrawer({
         setInlineStageUpdatingCandidateId((prev) => (prev === candidate.id ? null : prev));
       }
     },
-    [inlineStageOptionsMerged, job?.id, refreshAppliedJobCandidates],
+    [
+      inlineStageOptionsMerged,
+      job?.id,
+      onCreatePlacement,
+      onScheduleInterview,
+      refreshAppliedJobCandidates,
+    ],
   );
 
   const handleRunAppliedMatches = useCallback(async () => {
@@ -1811,26 +1896,42 @@ export function JobDetailsDrawer({
         dialogTitleId="job-detail-modal-title"
       >
         {/* Header */}
-        <div className="shrink-0 border-b border-slate-200 px-5 pt-5 pb-3">
-          <div className="flex items-start justify-between gap-3">
+        <div className="relative shrink-0 overflow-hidden border-b border-indigo-100/60 bg-gradient-to-br from-white via-indigo-50/45 to-violet-50/35 px-5 pb-4 pt-5 sm:px-6">
+          <div
+            className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(99,102,241,0.12),_transparent_55%)]"
+            aria-hidden
+          />
+          <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               {job ? (
                 <>
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">JOB DETAILS</p>
-                  <h2 id="job-detail-modal-title" className="text-lg font-bold text-slate-900 mt-0.5 truncate">{job.title}</h2>
-                  <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-slate-600">
-                    <span className="flex items-center gap-1">
-                      <Briefcase size={14} className="text-slate-400" />
+                  <div className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white shadow-md shadow-indigo-500/25">
+                    <Briefcase className="h-3 w-3 text-indigo-100" />
+                    Job details
+                  </div>
+                  <h2
+                    id="job-detail-modal-title"
+                    className="mt-2.5 truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl"
+                  >
+                    {job.title}
+                  </h2>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-slate-600">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                        <Briefcase size={12} />
+                      </span>
                       {job.client}
                     </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin size={14} className="text-slate-400" />
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                        <MapPin size={12} />
+                      </span>
                       {job.location}
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     {job.employmentType && (
-                      <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                      <span className="rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
                         {job.employmentType}
                       </span>
                     )}
@@ -1838,13 +1939,13 @@ export function JobDetailsDrawer({
                       <button
                         type="button"
                         onClick={() => setShowStatusChange(true)}
-                        className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${statusStyleFor(localJobStatus || job.status)} hover:opacity-80 transition-opacity`}
+                        className={`inline-block rounded-full border px-2.5 py-1 text-[11px] font-bold transition-opacity hover:opacity-80 ${statusStyleFor(localJobStatus || job.status)}`}
                         title="Change status"
                       >
                         {localJobStatus || job.status}
                       </button>
                     ) : (
-                      <div className="flex flex-col gap-2 min-w-[12rem]">
+                      <div className="flex min-w-[12rem] flex-col gap-2">
                         <div className="flex items-center gap-2">
                           <JobDrawerStatusDropdown
                             value={localJobStatus || job.status}
@@ -1886,7 +1987,7 @@ export function JobDetailsDrawer({
                             <input
                               value={newJobStatusValue}
                               onChange={(e) => setNewJobStatusValue(e.target.value)}
-                              className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              className="rounded-lg border border-indigo-200 px-2 py-1 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                               placeholder="Enter new status"
                               autoFocus
                             />
@@ -1894,7 +1995,7 @@ export function JobDetailsDrawer({
                               type="button"
                               onClick={() => void addJobStatusOption()}
                               disabled={savingJobStatus}
-                              className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                              className="rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-60"
                             >
                               {savingJobStatus ? 'Adding…' : 'Add'}
                             </button>
@@ -1903,19 +2004,19 @@ export function JobDetailsDrawer({
                       </div>
                     )}
                     {job.jobLocationType && (
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
                         <UserCheck size={12} />
                         {job.jobLocationType}
                       </span>
                     )}
                     {job.salaryRange && (
-                      <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
                         <DollarSign size={12} />
                         {job.salaryRange}
                       </span>
                     )}
-                    <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                      {job.postedDate ?? job.createdDate}
+                    <span className="rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
+                      {formatDateDMY(job.postedDate ?? job.createdDate) || '—'}
                     </span>
                   </div>
                 </>
@@ -1923,43 +2024,47 @@ export function JobDetailsDrawer({
                 <h2 className="text-lg font-bold text-slate-900">Job Details</h2>
               )}
             </div>
-            {job && (
+            <div className="flex shrink-0 items-center gap-2">
+              {job && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('analytics')}
+                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-100 bg-white/90 px-3 py-2 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50"
+                  aria-label="View analytics"
+                >
+                  <BarChart2 size={16} /> Analytics
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setActiveTab('analytics')}
-                className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors shrink-0"
-                aria-label="View analytics"
+                onClick={() => void requestJobDrawerClose()}
+                className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+                aria-label="Close"
               >
-                <BarChart2 size={16} /> Analytics
+                <X size={20} />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void requestJobDrawerClose()}
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
-              aria-label="Close"
-            >
-              <X size={20} />
-            </button>
+            </div>
           </div>
 
           {job?.id ? (
-            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+            <div className="relative mt-4 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white/80 px-4 py-3 shadow-[0_10px_28px_-18px_rgba(79,70,229,0.35)] backdrop-blur-sm">
               <div className="flex flex-wrap items-center gap-2">
-                <Link2 size={16} className="text-emerald-700 shrink-0" />
-                <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25">
+                  <Link2 size={15} />
+                </span>
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-indigo-700">
                   Candidate apply link
                 </p>
               </div>
               {applyLinkLoading ? (
                 <p className="mt-2 text-sm text-slate-600">Loading apply link…</p>
               ) : applyUrl ? (
-                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     type="text"
                     readOnly
                     value={applyUrl}
-                    className="flex-1 min-w-0 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-800 font-mono"
+                    className="min-w-0 flex-1 rounded-xl border border-indigo-100 bg-slate-50/80 px-3 py-2 font-mono text-xs text-slate-800 focus:outline-none"
                     aria-label="Apply link URL"
                   />
                   <div className="flex shrink-0 items-center gap-2">
@@ -1971,7 +2076,7 @@ export function JobDetailsDrawer({
                           window.setTimeout(() => setApplyLinkCopied(false), 2000);
                         });
                       }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-50"
                     >
                       <Copy size={14} />
                       {applyLinkCopied ? 'Copied' : 'Copy'}
@@ -1980,14 +2085,14 @@ export function JobDetailsDrawer({
                       <button
                         type="button"
                         onClick={() => void shareApplyLink()}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-50"
                       >
                         <Share2 size={14} />
                         Share
                       </button>
                       {applyShareOpen ? (
-                        <div className="absolute right-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        <div className="absolute right-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border border-indigo-100 bg-white py-1 shadow-xl shadow-indigo-500/10">
+                          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-400">
                             Share via
                           </p>
                           {(
@@ -2004,7 +2109,7 @@ export function JobDetailsDrawer({
                               key={item.id}
                               type="button"
                               onClick={() => openApplyShareTarget(item.id)}
-                              className="flex w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-900"
+                              className="flex w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
                             >
                               {item.label}
                             </button>
@@ -2019,7 +2124,7 @@ export function JobDetailsDrawer({
                                 requestInfo('Apply link copied');
                               });
                             }}
-                            className="flex w-full border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            className="flex w-full border-t border-indigo-50 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
                           >
                             Copy link
                           </button>
@@ -2030,7 +2135,7 @@ export function JobDetailsDrawer({
                       href={applyUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:brightness-110"
                     >
                       <ExternalLink size={14} />
                       Open
@@ -2057,7 +2162,7 @@ export function JobDetailsDrawer({
 
             {/* Tab content */}
             <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`}>
-              <div className="space-y-5 p-5">
+              <div className="space-y-5 p-5 sm:p-6">
               {activeTab === 'overview' && job && (
                 <div className="space-y-5">
                   <EntityWorkspaceAlertsPanel
@@ -2078,14 +2183,14 @@ export function JobDetailsDrawer({
                   title="Candidates"
                   subtitle="Applied, assigned, or in this job's pipeline — scores from AI Applied Matches"
                   icon={Users}
-                  accent="blue"
+                  accent="indigo"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
                     {canAddCandidate && job?.id ? (
                       <button
                         type="button"
                         onClick={() => setUploadCvDrawerOpen(true)}
-                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50"
                         title="Upload a CV to create a candidate and assign them to this job"
                       >
                         <Upload size={16} strokeWidth={2.25} />
@@ -2096,7 +2201,7 @@ export function JobDetailsDrawer({
                       type="button"
                       onClick={() => void handleRunAppliedMatches()}
                       disabled={!job?.id || appliedPipelineRunning || appliedCandidatesLoading}
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                       title="Score tenant candidates assigned or applied to this job"
                     >
                       <Users
@@ -2107,6 +2212,32 @@ export function JobDetailsDrawer({
                       {appliedPipelineRunning ? 'Running applied matches…' : 'Run AI Applied Matches'}
                     </button>
                   </div>
+                  {selectedCandidateIds.length > 0 && job?.id ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2.5">
+                      <p className="text-sm font-semibold text-indigo-900">
+                        {selectedCandidateIds.length} candidate
+                        {selectedCandidateIds.length === 1 ? '' : 's'} selected
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={openBulkSubmitToClient}
+                          className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+                        >
+                          <Send size={14} strokeWidth={2.25} />
+                          Send to Client
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCandidateIds([])}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                        >
+                          <X size={14} />
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   {appliedCandidatesLoading || appliedPipelineRunning ? (
                     <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500">
                       <Loader2 size={18} className="animate-spin text-emerald-600" />
@@ -2132,8 +2263,7 @@ export function JobDetailsDrawer({
                       ) : null}
                     </div>
                   ) : (
-                    <div className="no-scrollbar overflow-x-auto">
-                      <CandidateTable
+                    <CandidateTable
                         candidates={jobTableCandidates}
                         showMatchScore={showMatchScores}
                         selectedIds={selectedCandidateIds}
@@ -2180,7 +2310,6 @@ export function JobDetailsDrawer({
                         }
                         submittingToClientCandidateId={submitClientRowId}
                       />
-                    </div>
                   )}
                 </DrawerSectionCard>
               )}
@@ -2400,7 +2529,7 @@ export function JobDetailsDrawer({
                       {pipelineValidationError ? (
                         <p className="mt-3 text-xs font-medium text-red-600">{pipelineValidationError}</p>
                       ) : null}
-                    <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
+                    <div className={`mt-4 ${DRAWER_LIST_SHELL}`}>
                       {pipelineStages.length === 0 ? (
                         <div className="px-4 py-8 text-center text-sm text-slate-500">
                           No stages yet. Click &quot;+ Add stage&quot; to build your pipeline, then &quot;Save pipeline&quot; when done.
@@ -2428,7 +2557,7 @@ export function JobDetailsDrawer({
                               setDraggedStageId(null);
                             }}
                             onDragEnd={() => setDraggedStageId(null)}
-                            className={`flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-slate-50/50 transition-colors ${
+                            className={`flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-indigo-50/50 ${
                               draggedStageId === stage.id ? 'opacity-50' : ''
                             }`}
                           >
@@ -2585,7 +2714,7 @@ export function JobDetailsDrawer({
                   icon={Calendar}
                   accent="amber"
                 >
-                    <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
+                    <div className={DRAWER_LIST_SHELL}>
                       {loadingJobInterviews ? (
                         <div className="flex items-center justify-center gap-2 p-8 text-sm text-slate-500">
                           <Loader2 size={18} className="animate-spin text-indigo-500" />
@@ -2601,14 +2730,22 @@ export function JobDetailsDrawer({
                           const statusLabel = formatInterviewListStatus(item.status);
                           const isCompleted = statusLabel === 'Completed';
                           return (
-                            <div key={item.id} className="px-4 py-3 flex flex-wrap items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                            <div
+                              key={item.id}
+                              className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-indigo-50/50"
+                            >
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 ring-2 ring-white shadow-sm shadow-indigo-500/10">
                                 <Calendar size={16} />
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-slate-900">{candidateNameFromInterview(item)}</p>
                                 <p className="text-[11px] text-slate-500">
-                                  {formatDateDMY(item.scheduledAt)} · {formatTime12hEnGb(item.scheduledAt)} · {item.type || item.mode || 'Interview'}
+                                  {formatInterviewDateInTimezone(item.scheduledAt, item.timezone)} ·{' '}
+                                  {formatInterviewTimeInTimezone(item.scheduledAt, item.timezone)}
+                                  {item.timezone
+                                    ? ` · ${formatTimezoneDisplay(resolveIanaFromTimezoneValue(item.timezone))}`
+                                    : ''}{' '}
+                                  · {item.type || item.mode || 'Interview'}
                                 </p>
                               </div>
                               <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
@@ -2646,7 +2783,7 @@ export function JobDetailsDrawer({
                         <p className="text-sm text-slate-500">No placements yet for this job.</p>
                       </div>
                     ) : (
-                      <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
+                      <div className={DRAWER_LIST_SHELL}>
                         {jobPlacements.map((placement) => {
                           const joinedDate =
                             placement.actualJoiningDate ||
@@ -2656,8 +2793,11 @@ export function JobDetailsDrawer({
                           const statusLabel = formatPlacementStatusLabel(placement.status);
                           const isJoined = placement.status === 'JOINED';
                           return (
-                            <div key={placement.id} className="px-4 py-3 flex flex-wrap items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                            <div
+                              key={placement.id}
+                              className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-indigo-50/50"
+                            >
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 ring-2 ring-white shadow-sm shadow-emerald-500/10">
                                 <UserCheck size={16} />
                               </div>
                               <div className="min-w-0 flex-1">
@@ -2896,58 +3036,102 @@ export function JobDetailsDrawer({
                       </div>
                     </div>
                     {filesError && <p className="text-sm text-red-600">{filesError}</p>}
-                    <div className="overflow-x-auto custom-scrollbar rounded-xl border border-slate-200">
-                        <table className="w-full text-left border-collapse min-w-[640px]">
+                    <div className={DRAWER_TABLE_SHELL}>
+                      <div className={DRAWER_TABLE_SCROLL}>
+                        <table className="w-full min-w-[640px] border-collapse text-left">
                           <thead>
-                            <tr className="bg-slate-50 border-b border-slate-200">
-                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">File name</th>
-                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Type</th>
-                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Uploaded by</th>
-                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Upload date</th>
-                              <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right w-32">Actions</th>
+                            <tr className={DRAWER_TABLE_HEAD_ROW}>
+                              <th className={`${DRAWER_TABLE_TH} first:pl-4 sm:first:pl-5`}>File name</th>
+                              <th className={DRAWER_TABLE_TH}>Type</th>
+                              <th className={DRAWER_TABLE_TH}>Uploaded by</th>
+                              <th className={DRAWER_TABLE_TH}>Upload date</th>
+                              <th className={`${DRAWER_TABLE_TH} w-32 text-right sm:pr-5`}>Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100">
+                          <tbody className={DRAWER_TABLE_BODY}>
                             {filesLoading ? (
                               <tr>
-                                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">Loading files…</td>
+                                <td colSpan={5} className={`${DRAWER_TABLE_TD} py-12 text-center text-sm text-slate-500`}>
+                                  Loading files…
+                                </td>
                               </tr>
                             ) : filteredFiles.length === 0 ? (
                               <tr>
-                                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">No files for this type.</td>
+                                <td colSpan={5} className={`${DRAWER_TABLE_TD} py-12 text-center text-sm text-slate-500`}>
+                                  No files for this type.
+                                </td>
                               </tr>
                             ) : (
                               filteredFiles.map((file) => (
-                                <tr key={file.id} className="hover:bg-slate-50/80 transition-colors">
-                                  <td className="px-4 py-3">
-                                    <p className="text-sm font-medium text-slate-900 truncate max-w-[200px]">{file.fileName}</p>
+                                <tr key={file.id} className={DRAWER_TABLE_TR}>
+                                  <td className={`${DRAWER_TABLE_TD} first:pl-4 sm:first:pl-5`}>
+                                    <p className="max-w-[200px] truncate text-sm font-semibold text-slate-900">
+                                      {file.fileName}
+                                    </p>
                                   </td>
-                                  <td className="px-4 py-3">
-                                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${JOB_FILE_TYPE_BADGE_STYLES[file.fileType as JobFileType] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                  <td className={DRAWER_TABLE_TD}>
+                                    <span
+                                      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold shadow-sm ${JOB_FILE_TYPE_BADGE_STYLES[file.fileType as JobFileType] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}
+                                    >
                                       <FileTypeIcon type={file.fileType} />
                                       {file.fileType}
                                     </span>
                                   </td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2 min-w-0">
+                                  <td className={DRAWER_TABLE_TD}>
+                                    <div className="flex min-w-0 items-center gap-2">
                                       {file.uploadedBy?.avatar ? (
-                                        <ImageWithFallback src={file.uploadedBy.avatar} alt={file.uploadedBy.name} className="w-6 h-6 rounded-full border border-slate-200 shrink-0" />
+                                        <ImageWithFallback
+                                          src={file.uploadedBy.avatar}
+                                          alt={file.uploadedBy.name}
+                                          className="h-6 w-6 shrink-0 rounded-full border border-indigo-100 shadow-sm"
+                                        />
                                       ) : (
-                                        <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center shrink-0"><User size={12} className="text-slate-500" /></div>
+                                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 ring-1 ring-indigo-100">
+                                          <User size={12} className="text-indigo-500" />
+                                        </div>
                                       )}
-                                      <span className="text-sm text-slate-600 truncate">{file.uploadedBy?.name ?? '—'}</span>
+                                      <span className="truncate text-sm text-slate-600">
+                                        {file.uploadedBy?.name ?? '—'}
+                                      </span>
                                     </div>
                                   </td>
-                                  <td className="px-4 py-3 text-sm text-slate-600">{formatUploadDate(file.uploadDate)}</td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center justify-end gap-1">
-                                      {file.fileUrl && (
-                                        <a href={toFileHref(file.fileUrl)} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Download"><Download size={14} /></a>
-                                      )}
-                                      {file.fileUrl && (
-                                        <a href={toFileHref(file.fileUrl)} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Preview"><Eye size={14} /></a>
-                                      )}
-                                      <button type="button" onClick={() => deleteFile(file.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={14} /></button>
+                                  <td className={`${DRAWER_TABLE_TD} text-sm text-slate-600`}>
+                                    {formatUploadDate(file.uploadDate)}
+                                  </td>
+                                  <td className={`${DRAWER_TABLE_TD} text-right sm:pr-5`}>
+                                    <div className="flex items-center justify-end">
+                                      <div className={DRAWER_TABLE_ACTIONS}>
+                                        {file.fileUrl ? (
+                                          <a
+                                            href={toFileHref(file.fileUrl)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex h-8 w-8 items-center justify-center rounded-xl text-indigo-600 transition-all hover:bg-white hover:text-indigo-800 hover:shadow-sm"
+                                            title="Download"
+                                          >
+                                            <Download size={14} />
+                                          </a>
+                                        ) : null}
+                                        {file.fileUrl ? (
+                                          <a
+                                            href={toFileHref(file.fileUrl)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 transition-all hover:bg-white hover:text-emerald-800 hover:shadow-sm"
+                                            title="Preview"
+                                          >
+                                            <Eye size={14} />
+                                          </a>
+                                        ) : null}
+                                        <button
+                                          type="button"
+                                          onClick={() => deleteFile(file.id)}
+                                          className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 transition-all hover:bg-white hover:text-rose-700 hover:shadow-sm"
+                                          title="Delete"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </div>
                                     </div>
                                   </td>
                                 </tr>
@@ -2956,6 +3140,7 @@ export function JobDetailsDrawer({
                           </tbody>
                         </table>
                       </div>
+                    </div>
                   </DrawerSectionCard>
                 );
               })()}
@@ -2979,12 +3164,12 @@ export function JobDetailsDrawer({
             </div>
 
             {/* Footer */}
-            <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex flex-wrap items-center justify-end gap-3">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-indigo-100/50 bg-gradient-to-r from-white via-slate-50/80 to-indigo-50/30 px-5 py-4 sm:px-6">
               {onEdit && (
                 <button
                   type="button"
                   onClick={() => onEdit(job)}
-                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
                 >
                   <Pencil size={14} /> Edit Job
                 </button>
@@ -2993,7 +3178,7 @@ export function JobDetailsDrawer({
                 <button
                   type="button"
                   onClick={() => onPublish(job)}
-                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700"
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-110"
                 >
                   <Send size={14} /> Publish Job
                 </button>
@@ -3002,7 +3187,7 @@ export function JobDetailsDrawer({
                 <button
                   type="button"
                   onClick={() => onClone(job)}
-                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
                 >
                   <Copy size={14} /> Clone Job
                 </button>
@@ -3011,7 +3196,7 @@ export function JobDetailsDrawer({
                 <button
                   type="button"
                   onClick={() => onCloseJob(job)}
-                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100"
+                  className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
                 >
                   <Archive size={14} /> Close Job
                 </button>

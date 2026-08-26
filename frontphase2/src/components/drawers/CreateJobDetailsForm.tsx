@@ -14,6 +14,7 @@ import {
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/LanguageProficiencySuggestInput';
 import { JobLocationFields } from '../location/JobLocationFields';
+import { EditDateField } from '../candidates/EditDateField';
 import type { BackendClient, BackendUser } from '../../lib/api';
 import { JOB_SALARY_CURRENCY_OPTIONS } from '../../constants/jobSalary';
 import {
@@ -628,11 +629,13 @@ export function CreateJobDetailsForm({
           required
           labelAction={visibilityAction('targetHireDate')}
         />
-        <input
-          type="date"
+        <EditDateField
+          label="Target Hire Date"
+          hideLabel
+          outputIso
+          placeholder="DD/MM/YYYY"
           value={formData.targetHireDate}
-          onChange={(e) => patchForm({ targetHireDate: e.target.value })}
-          className={inputClass}
+          onChange={(targetHireDate) => patchForm({ targetHireDate })}
         />
       </div>
 

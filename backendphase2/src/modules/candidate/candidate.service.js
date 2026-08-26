@@ -38,6 +38,7 @@ import {
   attachAuditMetaToEntity,
 } from '../../utils/listAuditMeta.js';
 import { assertNoInterviewerScheduleConflicts } from '../../utils/interviewConflict.util.js';
+import { resolveInterviewTimeZone, zonedWallClockToDate } from '../../utils/zonedDateTime.js';
 import activityService, { ENTITY_TYPES } from '../../services/activityService.js';
 import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
 import { dbLogger } from '../../utils/db-logger.js';
@@ -1293,7 +1294,7 @@ function normalizeInterviewTimeInput(time) {
     .replace(/\s+/g, ' ');
 }
 
-function buildScheduledAt(date, time) {
+function buildScheduledAt(date, time, timezone) {
   if (!date || !time) {
     throw new Error('Interview date and time are required');
   }
@@ -1325,8 +1326,28 @@ function buildScheduledAt(date, time) {
     throw new Error('Invalid interview time');
   }
 
-  const scheduledAt = new Date(`${date}T00:00:00`);
-  scheduledAt.setHours(hours, minutes, 0, 0);
+  const dateValue = String(date || '').trim();
+  if (/T/.test(dateValue)) {
+    const fromIso = new Date(dateValue);
+    if (Number.isNaN(fromIso.getTime())) {
+      throw new Error('Invalid interview schedule');
+    }
+    return fromIso;
+  }
+
+  const ymd = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!ymd) {
+    throw new Error('Invalid interview date');
+  }
+
+  const scheduledAt = zonedWallClockToDate(
+    Number(ymd[1]),
+    Number(ymd[2]),
+    Number(ymd[3]),
+    hours,
+    minutes,
+    timezone
+  );
 
   if (Number.isNaN(scheduledAt.getTime())) {
     throw new Error('Invalid interview schedule');
@@ -1354,14 +1375,7 @@ function resolveScheduleInterviewers(data, userId) {
   const interviewers = Array.isArray(data?.interviewers)
     ? data.interviewers.filter((item) => item && String(item.id || '').trim())
     : [];
-  if (interviewers.length) return interviewers;
-
-  const uid = String(userId || '').trim();
-  if (uid) {
-    return [{ id: uid, name: 'You', role: 'Lead Interviewer' }];
-  }
-
-  throw new Error('Select at least one interviewer');
+  return interviewers;
 }
 
 async function generateCandidateMeetingLink({ candidate, job, data, interviewers, userId }) {
@@ -1370,7 +1384,7 @@ async function generateCandidateMeetingLink({ candidate, job, data, interviewers
     return { meetingLink: null, platform: null, error: null };
   }
 
-  const scheduledAt = buildScheduledAt(data?.date, data?.time);
+  const scheduledAt = buildScheduledAt(data?.date, data?.time, data?.timezone);
   const interviewerIds = Array.isArray(interviewers) ? interviewers.map((item) => item.id).filter(Boolean) : [];
   const panelUsers = interviewerIds.length
     ? await prisma.user.findMany({
@@ -1383,7 +1397,7 @@ async function generateCandidateMeetingLink({ candidate, job, data, interviewers
     id: `candidate-preview-${candidate.id}-${Date.now()}`,
     date: scheduledAt,
     duration: parseDurationToMinutes(data?.duration),
-    timezone: String(data?.timezone || 'Asia/Kolkata').trim() || 'Asia/Kolkata',
+    timezone: resolveInterviewTimeZone(data?.timezone),
     candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email || 'Candidate',
     jobTitle: job.title,
     panelEmails: panelUsers.map((item) => item.email).filter(Boolean),
@@ -4621,7 +4635,7 @@ export const candidateService = {
 
     const leadInterviewer =
       interviewers.find((item) => item.role === 'Lead Interviewer') || interviewers[0];
-    const scheduledAt = buildScheduledAt(data?.date, data?.time);
+    const scheduledAt = buildScheduledAt(data?.date, data?.time, data?.timezone);
     const notes = String(data?.notes || '').trim();
     let generatedMeetingLink = data?.mode === 'video' ? String(data?.meetingLink || '').trim() || null : null;
     const resolvedPlatform = mapMeetingPlatform(data?.platform, data?.mode);
@@ -4679,7 +4693,7 @@ export const candidateService = {
           round: String(data?.type || data?.round || 1),
           mode: mapInterviewMode(data?.mode),
           platform: resolvedPlatform,
-          timezone: String(data?.timezone || '').trim() || null,
+          timezone: resolveInterviewTimeZone(data?.timezone),
           instructions: data?.mode === 'phone' ? String(data?.phoneNumber || '').trim() || null : null,
           panelIds: interviewers.map((item) => item.id).filter(Boolean),
         },
@@ -4742,7 +4756,7 @@ export const candidateService = {
         jobTitle: job.title,
         companyName: client?.companyName || 'Company',
         scheduledAt,
-        timezone: String(data?.timezone || 'Asia/Kolkata').trim() || 'Asia/Kolkata',
+        timezone: resolveInterviewTimeZone(data?.timezone),
         interviewType: String(data?.type || '').trim() || null,
         roundLabel: String(data?.round || '').trim() || null,
         durationLabel: String(data?.duration || '').trim() || null,
@@ -4780,7 +4794,7 @@ export const candidateService = {
           jobTitle: job.title,
           companyName: client?.companyName || 'Company',
           scheduledAt,
-          timezone: String(data?.timezone || 'Asia/Kolkata').trim() || 'Asia/Kolkata',
+          timezone: resolveInterviewTimeZone(data?.timezone),
           interviewType: String(data?.type || '').trim() || null,
           roundLabel: String(data?.round || '').trim() || null,
           durationLabel: String(data?.duration || '').trim() || null,
@@ -4942,7 +4956,7 @@ export const candidateService = {
             : undefined;
 
     const scheduledAt =
-      data?.date && data?.time ? buildScheduledAt(data?.date, data?.time) : undefined;
+      data?.date && data?.time ? buildScheduledAt(data?.date, data?.time, data?.timezone) : undefined;
 
     const interviewers = Array.isArray(data?.interviewers) ? data.interviewers.filter(Boolean) : [];
     const leadInterviewer =
@@ -4985,6 +4999,8 @@ export const candidateService = {
           meetingLink: data?.mode === 'video' ? String(data?.meetingLink || '').trim() || null : undefined,
           instructions: data?.mode === 'phone' ? String(data?.phoneNumber || '').trim() || null : undefined,
           notes: typeof data?.notes === 'string' ? data.notes.trim() || null : undefined,
+          timezone:
+            data?.timezone !== undefined ? resolveInterviewTimeZone(data.timezone) : undefined,
           interviewerId: leadInterviewer?.id ? leadInterviewer.id : undefined,
           panelIds: interviewers.length ? interviewers.map((i) => i.id).filter(Boolean) : undefined,
           status: nextStatus || undefined,

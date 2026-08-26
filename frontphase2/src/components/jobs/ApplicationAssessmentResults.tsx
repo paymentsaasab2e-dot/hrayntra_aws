@@ -20,6 +20,17 @@ export type ReviewContent =
       }>;
     }
   | {
+      kind: 'QUESTIONNAIRE';
+      items: Array<{
+        id: string;
+        index: number;
+        kind: 'TEXT' | 'MCQ';
+        prompt: string;
+        options?: Array<{ id: string; text: string; correct?: boolean }>;
+        correctOptionId?: string;
+      }>;
+    }
+  | {
       kind: 'CODING';
       multi?: boolean;
       prompt?: string;
@@ -94,6 +105,51 @@ function ReviewQuestionAnswer({ row }: { row: AssessmentResult }) {
               {!isCorrect && correct ? (
                 <p className="mt-1 text-xs text-slate-500">Correct: {correct.text}</p>
               ) : null}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (type === 'QUESTIONNAIRE' && content?.kind === 'QUESTIONNAIRE') {
+    return (
+      <div className="space-y-3">
+        {content.items.map((q) => {
+          if (q.kind === 'MCQ') {
+            const options = q.options || [];
+            const pickedId = String(answers[q.id] ?? '');
+            const picked = options.find((o) => o.id === pickedId);
+            const correct = options.find((o) => o.correct);
+            const isCorrect = pickedId && pickedId === q.correctOptionId;
+            return (
+              <div key={q.id} className="rounded-md border border-slate-200 bg-white p-2">
+                <p className="text-xs font-medium text-slate-800">
+                  {q.index}. {q.prompt}{' '}
+                  <span className="text-[10px] font-normal text-slate-500">(MCQ)</span>
+                </p>
+                <p className="mt-1.5 text-[10px] font-semibold uppercase text-slate-500">
+                  Candidate answer
+                </p>
+                <p className={`text-xs ${isCorrect ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {picked?.text || '(No answer)'}
+                  {pickedId ? (isCorrect ? ' ✓' : ' ✗') : ''}
+                </p>
+                {!isCorrect && correct ? (
+                  <p className="mt-1 text-xs text-slate-500">Correct: {correct.text}</p>
+                ) : null}
+              </div>
+            );
+          }
+          return (
+            <div key={q.id} className="rounded-md border border-slate-200 bg-white p-2">
+              <p className="text-xs font-medium text-slate-800">
+                {q.index}. {q.prompt}{' '}
+                <span className="text-[10px] font-normal text-slate-500">(Text)</span>
+              </p>
+              <AnswerBlock label="Candidate answer">
+                {String(answers[q.id] ?? '').trim() || '(No answer)'}
+              </AnswerBlock>
             </div>
           );
         })}
@@ -215,6 +271,7 @@ function extractAnswerText(row: AssessmentResult): string {
 export function isPendingReview(row: AssessmentResult): boolean {
   const type = String(row.type || '').toUpperCase();
   if (type === 'MCQ') return false;
+  if (type === 'QUESTIONNAIRE' && row.scorePercent != null) return false;
   return row.scorePercent == null && row.status === 'SUBMITTED';
 }
 

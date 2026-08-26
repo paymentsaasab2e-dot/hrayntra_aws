@@ -151,12 +151,13 @@ export function displayMatchBand(score: number, apiBand?: string | null): string
 }
 
 export function scoreBadgeClass(score: number): string {
-  if (score >= 90) return 'bg-violet-600 text-white';
-  if (score >= 80) return 'bg-emerald-600 text-white';
-  if (score >= 70) return 'bg-sky-600 text-white';
-  if (score >= 60) return 'bg-teal-600 text-white';
-  if (score >= 50) return 'bg-amber-500 text-white';
-  return 'bg-slate-500 text-white';
+  if (score >= 90) return 'bg-violet-600 text-white shadow-violet-500/25';
+  if (score >= 80) return 'bg-emerald-600 text-white shadow-emerald-500/25';
+  if (score >= 70) return 'bg-sky-600 text-white shadow-sky-500/25';
+  if (score >= 60) return 'bg-teal-600 text-white shadow-teal-500/25';
+  if (score >= 50) return 'bg-amber-500 text-white shadow-amber-500/25';
+  if (score >= 40) return 'bg-orange-500 text-white shadow-orange-500/25';
+  return 'bg-slate-500 text-white shadow-slate-500/20';
 }
 
 export interface MatchCandidate {

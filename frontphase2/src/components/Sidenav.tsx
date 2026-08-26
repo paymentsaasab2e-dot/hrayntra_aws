@@ -1254,7 +1254,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             safe(apiGetClients({ search: query, page: 1, limit: 3, includeContacts: false, includeLeadFields: false })),
             safe(apiGetJobs({ search: query, page: 1, limit: 3 })),
             safe(apiGetContacts({ search: query, page: 1, limit: 3 })),
-            safe(apiGetUsers({ search: query, isActive: true, limit: 3 })),
+            safe(apiGetUsers({ assignable: true, search: query, isActive: true, limit: 3 })),
             safe(apiGetInterviews({ search: query, page: 1, limit: 3 })),
             safe(apiGetTasks({ page: 1, limit: 6 } as any)),
             safe(apiGetPlacements({ page: 1, limit: 6 } as any)),

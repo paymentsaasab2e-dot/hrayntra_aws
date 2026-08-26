@@ -12,6 +12,7 @@ import {
   type NotificationTriggerSettingsPayload,
 } from '@/lib/api';
 import { NotificationTriggerTemplatePanel } from './NotificationTriggerTemplatePanel';
+import { SettingsPageHero, SettingsPanel } from './SettingsPageHero';
 
 type TriggerDefinition = {
   id: string;
@@ -131,10 +132,10 @@ function TriggerToggleRow({
   rightSlot?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
+    <div className="flex items-start justify-between gap-3 rounded-2xl border border-indigo-100/70 bg-white p-4 shadow-[0_8px_20px_-18px_rgba(59,130,246,0.2)] transition hover:border-indigo-200 hover:bg-indigo-50/20">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-slate-900">{trigger.label}</p>
-        <p className="mt-1 text-xs text-slate-500">{trigger.description}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{trigger.description}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {rightSlot}
@@ -144,7 +145,7 @@ function TriggerToggleRow({
           aria-checked={checked}
           onClick={() => onChange(!checked)}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            checked ? 'bg-blue-600' : 'bg-slate-300'
+            checked ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600' : 'bg-slate-300'
           }`}
         >
           <span
@@ -323,32 +324,26 @@ export function NotificationTriggerSettings() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
-              Notifications Trigger Points
-            </p>
-            <h2 className="mt-2 text-2xl font-bold text-slate-900">Control email trigger points</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Toggle email trigger events used in Phase 2. Active triggers are built-in system events.
-              Additional triggers are custom events your team can define.
-            </p>
+      <SettingsPageHero
+        eyebrow="Notifications"
+        title="Control email trigger points"
+        description="Toggle which system emails fire for hiring events. Edit templates per trigger when you need custom subject lines or copy."
+        icon={<BellRing className="h-3.5 w-3.5 text-indigo-200" />}
+        stats={
+          <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-600">
+            {saving ? 'Saving…' : 'All changes auto-saved'}
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            {saving ? 'Saving…' : 'Saved'}
-          </div>
-        </div>
-      </section>
+        }
+      />
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <BellRing className="h-4 w-4 text-blue-600" />
-          <h3 className="text-lg font-semibold text-slate-900">Active</h3>
-        </div>
-        <div className="space-y-3">
+      <SettingsPanel
+        title="Active triggers"
+        description="Built-in events plus any additional triggers you have enabled."
+        icon={<BellRing className="h-4 w-4 text-indigo-600" />}
+      >
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           {ACTIVE_TRIGGERS.map((trigger) => (
-            <div key={trigger.id}>
+            <div key={trigger.id} className="xl:col-span-1">
               <TriggerToggleRow
                 trigger={trigger}
                 checked={Boolean(activeStates[trigger.id])}
@@ -391,7 +386,7 @@ export function NotificationTriggerSettings() {
                   )
                 }
                 rightSlot={
-                  <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                  <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 ring-1 ring-indigo-100">
                     Additional
                   </span>
                 }
@@ -417,40 +412,36 @@ export function NotificationTriggerSettings() {
             </div>
           ))}
         </div>
-      </section>
+      </SettingsPanel>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <Mail className="h-4 w-4 text-indigo-600" />
-          <h3 className="text-lg font-semibold text-slate-900">Additional</h3>
-        </div>
-        <p className="mb-4 text-sm text-slate-600">
-          Enable suggested trigger points or add your own. Once enabled, additional triggers appear in Active.
-        </p>
-
+      <SettingsPanel
+        title="Additional triggers"
+        description="Enable suggested trigger points or add your own. Once enabled, they appear under Active."
+        icon={<Mail className="h-4 w-4 text-emerald-600" />}
+      >
         <div className="mb-4 space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
             Suggested trigger points
           </p>
           {suggestedAvailable.length === 0 ? (
             <p className="text-xs text-slate-500">All suggested triggers are already configured.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {suggestedAvailable.map((trigger) => (
                 <div
                   key={trigger.id}
-                  className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+                  className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
                 >
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{trigger.label}</p>
-                    <p className="mt-1 text-xs text-slate-500">{trigger.description}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">{trigger.description}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => enableSuggestedTrigger(trigger)}
-                    className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                    className="self-start rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110"
                   >
-                    Turn On
+                    Turn on
                   </button>
                 </div>
               ))}
@@ -459,7 +450,7 @@ export function NotificationTriggerSettings() {
         </div>
 
         {additional.filter((item) => !item.enabled).length > 0 && (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {additional
               .filter((item) => !item.enabled)
               .map((item) => (
@@ -494,7 +485,7 @@ export function NotificationTriggerSettings() {
             ))}
           </div>
         )}
-      </section>
+      </SettingsPanel>
     </div>
   );
 }

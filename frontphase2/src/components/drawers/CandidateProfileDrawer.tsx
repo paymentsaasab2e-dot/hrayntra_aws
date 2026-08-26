@@ -91,13 +91,21 @@ import {
   clampDateToMinLocal,
   filterInterviewSlotsForLocalDate,
   generateStandardInterviewSlotDescriptors,
-  getLocalDateInputMinToday,
 } from '../../utils/dateInputConstraints';
 import {
   computeNextInterviewRound,
   extractEditableInterviewNotes,
+  formatInterviewTimeInTimezone,
+  getInterviewDateInputYmd,
   mergeEditableInterviewNotesWithAudit,
 } from '../../lib/interview-schedule-helpers';
+import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
+import {
+  DEFAULT_INTERVIEW_TIMEZONE,
+  formatTimezoneDisplay,
+  resolveIanaFromTimezoneValue,
+} from '../../utils/inferTimezone';
+import { getYmdInTimeZone } from '../../utils/zonedDateTime';
 import {
   profileCanSubmitToClient,
   isSubmitToClientStageOption,
@@ -647,6 +655,7 @@ function mapInterviewListItemToScheduled(
   roundIndex: number,
 ): CandidateScheduledInterview {
   const scheduledAt = String(item.scheduledAt || '');
+  const timezone = item.timezone || DEFAULT_INTERVIEW_TIMEZONE;
   const status = String(item.status || '').toUpperCase();
   return {
     id: item.id,
@@ -655,14 +664,10 @@ function mapInterviewListItemToScheduled(
     jobTitle: item.job?.title || null,
     type: item.round || item.type || 'Interview',
     round: roundIndex,
-    date: scheduledAt.split('T')[0] || '',
-    time: scheduledAt
-      ? new Date(scheduledAt).toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-        })
-      : '',
+    date: scheduledAt ? getInterviewDateInputYmd(scheduledAt, timezone) : '',
+    time: scheduledAt ? formatInterviewTimeInTimezone(scheduledAt, timezone) : '',
     duration: item.duration ? `${item.duration} mins` : '1 hour',
+    timezone,
     mode:
       item.mode === 'OFFLINE'
         ? 'in-person'
@@ -746,6 +751,7 @@ export function ScheduleInterviewModal({
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [duration, setDuration] = useState('');
+  const [timezone, setTimezone] = useState(DEFAULT_INTERVIEW_TIMEZONE);
   const [mode, setMode] = useState<'video' | 'in-person' | 'phone' | ''>('');
   const [meetingPlatform, setMeetingPlatform] = useState<'Google Meet' | 'Zoom' | null>(null);
   const [meetingLink, setMeetingLink] = useState('');
@@ -818,11 +824,14 @@ export function ScheduleInterviewModal({
 
   const interviewSlotDescriptors = useMemo(() => generateStandardInterviewSlotDescriptors(), []);
   const visibleTimeSlots = useMemo(
-    () => filterInterviewSlotsForLocalDate(interviewSlotDescriptors, date).map((s) => s.label),
-    [interviewSlotDescriptors, date]
+    () =>
+      filterInterviewSlotsForLocalDate(interviewSlotDescriptors, date, 60_000, timezone).map(
+        (s) => s.label,
+      ),
+    [interviewSlotDescriptors, date, timezone],
   );
   const isEditingInterview = Boolean(editInterview);
-  const minimumDate = getLocalDateInputMinToday();
+  const minimumDate = getYmdInTimeZone(timezone);
 
   const relevantExistingInterviews = useMemo(() => {
     const merged = new Map<string, CandidateScheduledInterview>();
@@ -876,6 +885,7 @@ export function ScheduleInterviewModal({
       setDate('');
       setTime('');
       setDuration('');
+      setTimezone(DEFAULT_INTERVIEW_TIMEZONE);
       setMode('');
       setMeetingPlatform(null);
       setMeetingLink('');
@@ -1233,6 +1243,7 @@ export function ScheduleInterviewModal({
     setDate(editInterview.date || '');
     setTime(editInterview.time || '');
     setDuration(editInterview.duration || '');
+    setTimezone(resolveIanaFromTimezoneValue(editInterview.timezone));
     setMode((editInterview.mode as any) || '');
     setMeetingPlatform(editInterview.platform || null);
     setMeetingLink(editInterview.meetingLink || '');
@@ -1366,14 +1377,10 @@ export function ScheduleInterviewModal({
     if (!date) nextErrors.date = 'Date is required';
     if (!time) nextErrors.time = 'Time is required';
     if (!duration) nextErrors.duration = 'Duration is required';
+    if (!timezone) nextErrors.timezone = 'Timezone is required';
     if (!mode) nextErrors.mode = 'Interview mode is required';
     if (!selectedJobId) {
       nextErrors.linkedJob = 'Linked job is required';
-    }
-    if (selectedInterviewers.length === 0) {
-      nextErrors.interviewers = isStandaloneMode
-        ? 'Select at least one panel member'
-        : 'Select at least one internal interviewer';
     }
     if (mode === 'video' && !meetingPlatform) nextErrors.modeField = 'Select Google Meet or Zoom';
     if (mode === 'video' && !meetingLink.trim()) nextErrors.modeField = 'Meeting link is required';
@@ -1385,9 +1392,8 @@ export function ScheduleInterviewModal({
 
   const isFormValid =
     (!allowCandidatePick || Boolean(standaloneCandidateId)) &&
-    Boolean(status && interviewType && roundNumber >= 1 && date && time && duration && mode) &&
+    Boolean(status && interviewType && roundNumber >= 1 && date && time && duration && timezone && mode) &&
     Boolean(selectedJobId) &&
-    selectedInterviewers.length > 0 &&
     (mode !== 'video' || Boolean(meetingPlatform)) &&
     (mode !== 'video' || Boolean(meetingLink.trim())) &&
     (mode !== 'in-person' || Boolean(location.trim())) &&
@@ -1411,6 +1417,7 @@ export function ScheduleInterviewModal({
         date,
         time,
         duration,
+        timezone,
         mode: 'video',
         platform: platform === 'Google Meet' ? 'GOOGLE_MEET' : 'ZOOM',
         interviewers: selectedInterviewers,
@@ -1470,6 +1477,7 @@ export function ScheduleInterviewModal({
       date,
       time,
       duration,
+      timezone,
       mode: mode as 'video' | 'in-person' | 'phone',
       platform: mode === 'video' ? meetingPlatform : null,
       meetingLink: mode === 'video' ? meetingLink.trim() : null,
@@ -1510,7 +1518,12 @@ export function ScheduleInterviewModal({
         await Promise.resolve(onSchedule?.(payload));
       }
       const prettyDate = formatDateDMY(new Date(`${date}T00:00:00`));
-      onScheduledSuccess?.(editInterview?.id ? `Interview updated (${status})` : `Interview scheduled for ${prettyDate} at ${time}`);
+      const tzLabel = formatTimezoneDisplay(resolveIanaFromTimezoneValue(timezone));
+      onScheduledSuccess?.(
+        editInterview?.id
+          ? `Interview updated (${status})`
+          : `Interview scheduled for ${prettyDate} at ${time} (${tzLabel})`,
+      );
       onClose();
     } catch (error: unknown) {
       const message =
@@ -1671,9 +1684,12 @@ export function ScheduleInterviewModal({
                           const raw = e.target.value;
                           const next = isEditingInterview ? raw : clampDateToMinLocal(raw, minimumDate);
                           setDate(next);
-                          const allowed = filterInterviewSlotsForLocalDate(interviewSlotDescriptors, next).map(
-                            (s) => s.label
-                          );
+                          const allowed = filterInterviewSlotsForLocalDate(
+                            interviewSlotDescriptors,
+                            next,
+                            60_000,
+                            timezone,
+                          ).map((s) => s.label);
                           setTime((prev) => (prev && allowed.includes(prev) ? prev : ''));
                           if (mode === 'video') {
                             setMeetingLink('');
@@ -1769,6 +1785,41 @@ export function ScheduleInterviewModal({
                         ) : null}
                       </div>
                       {errors.duration ? <p className="mt-1 text-xs text-red-600">{errors.duration}</p> : null}
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Timezone <span className="text-red-500">*</span>
+                      </label>
+                      <ClientTimezoneSelect
+                        value={timezone}
+                        valueAsIana
+                        placeholder="Select timezone…"
+                        className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
+                          errors.timezone ? 'border-red-300' : 'border-slate-200'
+                        } focus:border-blue-400 focus:ring-2 focus:ring-blue-100`}
+                        onChange={(nextTimezone) => {
+                          setTimezone(nextTimezone);
+                          const allowed = filterInterviewSlotsForLocalDate(
+                            interviewSlotDescriptors,
+                            date,
+                            60_000,
+                            nextTimezone,
+                          ).map((s) => s.label);
+                          setTime((prev) => (prev && allowed.includes(prev) ? prev : ''));
+                          if (mode === 'video') {
+                            setMeetingLink('');
+                          }
+                          setErrors((prev) => ({ ...prev, timezone: undefined }));
+                        }}
+                      />
+                      {errors.timezone ? (
+                        <p className="mt-1 text-xs text-red-600">{errors.timezone}</p>
+                      ) : timezone ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Interview will be scheduled in {formatTimezoneDisplay(resolveIanaFromTimezoneValue(timezone))}.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="sm:col-span-2">
@@ -1947,13 +1998,11 @@ export function ScheduleInterviewModal({
                 </section>
 
                 <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <h4 className="text-sm font-semibold text-slate-900">
-                    Interview Panel <span className="text-red-500">*</span>
-                  </h4>
+                  <h4 className="text-sm font-semibold text-slate-900">Interview Panel</h4>
                   <p className="mt-1 text-sm text-slate-500">
                     {isStandaloneMode
-                      ? "The job's line manager is selected by default. Search below to add more team members."
-                      : 'Assign internal interviewers and/or client contacts from the selected company.'}
+                      ? "Optional. The job's line manager is selected by default. Search below to add or remove team members."
+                      : 'Optional. Assign internal interviewers and/or client contacts from the selected company.'}
                   </p>
                   <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     {isStandaloneMode ? 'Panel members' : 'Internal panel'}
@@ -4905,7 +4954,10 @@ export function CandidateProfileDrawer({
                                   </div>
                                   <h4 className="mt-3 text-sm font-semibold text-slate-900">{it.type}</h4>
                                   <p className="mt-1 text-sm text-slate-600">
-                                    {it.date} · {it.time} · {it.duration}
+                                    {formatDateDMY(it.date) || it.date} · {it.time} · {it.duration}
+                                    {it.timezone
+                                      ? ` · ${formatTimezoneDisplay(resolveIanaFromTimezoneValue(it.timezone))}`
+                                      : ''}
                                   </p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">

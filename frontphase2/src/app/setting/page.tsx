@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Settings as SettingsIcon } from 'lucide-react';
 import { SettingsSidebar } from '../../components/SettingsSidebar';
 import { CommunicationSettings } from '../../components/settings/CommunicationSettings';
 import { NotificationTriggerSettings } from '../../components/settings/NotificationTriggerSettings';
@@ -153,7 +154,7 @@ export default function SettingsPage() {
     <>
       <Toaster position="top-right" richColors />
 
-      <div className="flex min-h-[calc(100dvh-3.5rem)] bg-slate-50">
+      <div className="flex min-h-[calc(100dvh-3.5rem)] bg-gradient-to-br from-slate-50 via-indigo-50/20 to-violet-50/15">
         <SettingsSidebar
           activeSection={activeSection}
           setActiveSection={(id) => {
@@ -163,41 +164,50 @@ export default function SettingsPage() {
         />
 
         <div className="min-w-0 flex-1 overflow-y-auto">
-          <div
-            className={`mx-auto px-6 py-8 lg:px-10 ${
-              activeSection === 'activity-log' || activeSection === 'alerts-management'
-                ? 'max-w-[90rem]'
-                : 'max-w-5xl'
-            }`}
-          >
-            <header className="mb-8 border-b border-slate-200 pb-6">
-              <nav className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-400">
+          <div className="mx-auto w-full max-w-[90rem] px-5 py-7 sm:px-8 lg:px-10">
+            <header className="mb-7">
+              <nav className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
                 <span>Dashboard</span>
                 <span aria-hidden>/</span>
                 <span>Settings</span>
                 <span aria-hidden>/</span>
-                <span className="text-slate-900">{sectionTitle}</span>
+                <span className="font-semibold text-indigo-700">{sectionTitle}</span>
               </nav>
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900">{sectionTitle}</h2>
-              {activeSection !== 'alerts-management' ? (
-                <p className="mt-1 text-sm text-slate-500">
-                  Configure {sectionTitle.toLowerCase()} for your workspace.
-                </p>
-              ) : null}
+              <div className="rounded-xl border border-indigo-100/60 bg-white/80 px-5 py-4 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.16)] backdrop-blur-sm sm:px-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+                    <SettingsIcon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                      {sectionTitle}
+                    </h2>
+                    {activeSection !== 'alerts-management' ? (
+                      <p className="mt-0.5 text-sm text-slate-500">
+                        Configure {sectionTitle.toLowerCase()} for your workspace.
+                      </p>
+                    ) : (
+                      <p className="mt-0.5 text-sm text-slate-500">
+                        Choose which alerts reach email and the portal for your team.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </header>
 
             {renderContent()}
 
-            <footer className="mt-12 flex flex-col gap-3 border-t border-slate-200 py-8 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <footer className="mt-12 flex flex-col gap-3 border-t border-indigo-100/50 py-8 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
               <p>© 2026 HRYANTRA Recruitment Agency Platform. All rights reserved.</p>
               <div className="flex flex-wrap gap-4">
-                <button type="button" className="hover:text-slate-600">
+                <button type="button" className="hover:text-indigo-600">
                   Privacy Policy
                 </button>
-                <button type="button" className="hover:text-slate-600">
+                <button type="button" className="hover:text-indigo-600">
                   Terms of Service
                 </button>
-                <button type="button" className="hover:text-slate-600">
+                <button type="button" className="hover:text-indigo-600">
                   API Documentation
                 </button>
               </div>

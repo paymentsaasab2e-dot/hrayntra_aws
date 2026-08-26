@@ -26,7 +26,7 @@ export function BulkActionsBar({
   React.useEffect(() => {
     const fetchOwners = async () => {
       try {
-        const response = await apiGetUsers({ role: 'RECRUITER' });
+        const response = await apiGetUsers({ assignable: true, role: 'RECRUITER' });
         if (response.data) {
           const ownersData = Array.isArray(response.data) ? response.data : response.data.data || [];
           setOwners(ownersData.map((u: any) => ({ id: u.id, name: u.name })));

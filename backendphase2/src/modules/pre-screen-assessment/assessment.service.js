@@ -2,8 +2,10 @@ import { getJobPortalPrismaClient, prisma } from '../../config/prisma.js';
 import { withMongoWriteConflictRetry } from '../../utils/mongoWriteRetry.js';
 import {
   gradeMcqSession,
+  gradeQuestionnaireSession,
   normalizeAssessmentPayload,
   normalizeJobAssessmentLinks,
+  resolveQuestionnairePassCorrectCount,
   sanitizeConfigForCandidate,
   generateSessionToken,
 } from './assessment.schema.js';
@@ -14,6 +16,15 @@ function resolveDurationMinutes(link, assessment) {
 
 function resolvePassScore(link, assessment) {
   return link?.passScoreOverridePercent ?? assessment?.passScorePercent ?? 60;
+}
+
+function resolveQuestionnairePassed(link, assessment, graded) {
+  if (!graded?.graded || graded.total <= 0 || graded.correct == null) return null;
+  const required = resolveQuestionnairePassCorrectCount(
+    assessment?.config,
+    resolvePassScore(link, assessment),
+  );
+  return graded.correct >= required;
 }
 
 const COMPLETED_SESSION_STATUSES = ['SUBMITTED', 'EXPIRED'];
@@ -61,6 +72,36 @@ function formatReviewContent(assessment) {
         })),
         correctOptionId: q.correctOptionId,
       })),
+    };
+  }
+
+  if (type === 'QUESTIONNAIRE') {
+    const questions = Array.isArray(config.questions) ? config.questions : [];
+    return {
+      kind: 'QUESTIONNAIRE',
+      items: questions.map((q, index) => {
+        const kind = String(q?.kind || '').toUpperCase() === 'MCQ' ? 'MCQ' : 'TEXT';
+        if (kind === 'MCQ') {
+          return {
+            id: q.id,
+            index: index + 1,
+            kind: 'MCQ',
+            prompt: String(q.prompt || ''),
+            options: (Array.isArray(q.options) ? q.options : []).map((o) => ({
+              id: o.id,
+              text: String(o.text || ''),
+              correct: o.id === q.correctOptionId,
+            })),
+            correctOptionId: q.correctOptionId,
+          };
+        }
+        return {
+          id: q.id,
+          index: index + 1,
+          kind: 'TEXT',
+          prompt: String(q.prompt || ''),
+        };
+      }),
     };
   }
 
@@ -227,7 +268,9 @@ export const preScreenAssessmentService = {
       include: { assessment: true },
       orderBy: { sortOrder: 'asc' },
     });
-    return rows.filter((r) => r.assessment && !r.assessment.isDeleted);
+    return rows
+      .filter((r) => r.assessment && !r.assessment.isDeleted)
+      .map((r) => ({ ...r, timing: 'BEFORE_SUBMIT' }));
   },
 
   async replaceJobLinks(jobId, links = []) {
@@ -456,9 +499,13 @@ export const preScreenAssessmentService = {
       const now = new Date();
       const assessment = session.jobAssessment?.assessment;
       let scorePercent = null;
+      let questionnaireGrade = null;
       if (assessment?.type === 'MCQ') {
         const graded = gradeMcqSession(assessment.config, answers);
         scorePercent = graded.scorePercent;
+      } else if (assessment?.type === 'QUESTIONNAIRE') {
+        questionnaireGrade = gradeQuestionnaireSession(assessment.config, answers);
+        scorePercent = questionnaireGrade.scorePercent;
       }
 
       const updated = await prisma.assessmentSession.update({
@@ -472,12 +519,24 @@ export const preScreenAssessmentService = {
       });
 
       const passScore = resolvePassScore(session.jobAssessment, assessment);
+      const passed =
+        assessment?.type === 'QUESTIONNAIRE'
+          ? resolveQuestionnairePassed(session.jobAssessment, assessment, questionnaireGrade)
+          : scorePercent != null
+            ? scorePercent >= passScore
+            : null;
       return {
         sessionId: updated.id,
         status: updated.status,
         scorePercent,
-        passed: scorePercent != null ? scorePercent >= passScore : null,
+        passed,
         passScorePercent: passScore,
+        correctCount: questionnaireGrade?.correct ?? undefined,
+        totalScored: questionnaireGrade?.total ?? undefined,
+        passCorrectCount:
+          assessment?.type === 'QUESTIONNAIRE'
+            ? resolveQuestionnairePassCorrectCount(assessment.config, passScore)
+            : undefined,
         tabSwitchCount: updated.tabSwitchCount,
         flagged: updated.flagged,
       };

@@ -15,14 +15,12 @@ import {
   Linkedin,
   Loader2,
   LogIn,
-  MapPin,
   Plus,
   Search,
   Share2,
   Sparkles,
   Upload,
   X,
-  Lock,
 } from 'lucide-react';
 import {
   apiConnectIntegration,
@@ -34,7 +32,6 @@ import {
   apiGetJobApplyLink,
   apiGetSocialStatus,
   apiProcessJobCreationPipeline,
-  apiSuggestJobTitles,
   type BackendClient,
   type BackendContact,
   type BackendUser,
@@ -46,10 +43,7 @@ import {
   apiGetTenantCompanyPage,
   type TenantCompanyPage,
 } from '@/lib/company-page-api';
-import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
-import { AiCoinLockBanner } from '../coins/TenantCoinsContext';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api/teamApi';
-import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { RichTextEditor } from '@/components/RichTextEditor';
 import { CreateJobPhase1Preview } from '@/components/jobs/CreateJobPhase1Preview';
 import { PreScreenAssessmentSection } from '@/components/jobs/PreScreenAssessmentSection';
@@ -73,7 +67,7 @@ import {
 } from '@/lib/jobPublicFieldVisibility';
 import { stripHtml } from '@/lib/jobSocialPost';
 
-type WizardStep = 'client' | 'title' | 'location' | 'prompt' | 'review';
+type WizardStep = 'client' | 'jd' | 'review';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
 type DistributionChannel =
   | 'internal_company'
@@ -273,6 +267,13 @@ type JobAiWizardOauthDraft = {
   preScreenAssessments: JobPreScreenAssessmentLink[];
 };
 
+function normalizeWizardStep(step: unknown): WizardStep {
+  if (step === 'client' || step === 'jd' || step === 'review') return step;
+  // Legacy wizard steps (title / location / prompt) map into the new JD → form flow.
+  if (step === 'title' || step === 'location' || step === 'prompt') return 'jd';
+  return 'client';
+}
+
 function saveJobAiWizardOauthDraft(payload: JobAiWizardOauthDraft) {
   try {
     sessionStorage.setItem(JOB_AI_WIZARD_OAUTH_DRAFT_KEY, JSON.stringify(payload));
@@ -444,32 +445,24 @@ type Props = {
   mode?: 'ai' | 'manual';
 };
 
-const STEPS: WizardStep[] = ['client', 'title', 'location', 'prompt', 'review'];
+const STEPS: WizardStep[] = ['client', 'jd', 'review'];
 
 const STEP_LABELS: Record<WizardStep, string> = {
   client: 'Pick a client',
-  title: 'Name the role',
-  location: 'Set the location',
-  prompt: 'Brief the AI',
-  review: 'Preview & publish',
+  jd: 'Upload job description',
+  review: 'Review job details',
 };
 
 const STEP_HINTS: Record<WizardStep, string> = {
   client: 'Who is this job for? Select a client to continue.',
-  title: 'Start with a clear title — AI can refine suggestions as you type.',
-  location: 'Where will this role be based?',
-  prompt: 'Add extra context so AI can draft a stronger job post.',
-  review: 'Fine-tune everything, then publish when it looks right.',
+  jd: 'Upload or paste a JD — we extract fields automatically where possible.',
+  review: 'Review and edit every field, then continue to publish.',
 };
 
 export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }: Props) {
   const isManual = mode === 'manual';
-  const wizardSteps = useMemo(
-    () => (isManual ? (['client', 'title', 'location', 'review'] as WizardStep[]) : STEPS),
-    [isManual],
-  );
+  const wizardSteps = STEPS;
   const linkedIn = useLinkedIn();
-  const jobAiGate = useAiCoinGate('ai.job_from_prompt');
   const [step, setStep] = useState<WizardStep>('client');
   const [draft, setDraft] = useState<WizardDraft>({
     ...EMPTY_DRAFT,
@@ -479,11 +472,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [clientSearch, setClientSearch] = useState('');
   const [loadingClients, setLoadingClients] = useState(false);
   const [showCreateClient, setShowCreateClient] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState('');
-  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
-  const [loadingTitleSuggestions, setLoadingTitleSuggestions] = useState(false);
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [contacts, setContacts] = useState<ReturnType<typeof buildJobContactPersonOptions>>([]);
@@ -520,10 +510,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setClientSearch('');
     setShowCreateClient(false);
     setError('');
-    setGenerating(false);
     setPublishing(false);
-    setTitleSuggestions([]);
-    setLoadingTitleSuggestions(false);
     setUsers([]);
     setLoadingUsers(false);
     setContacts([]);
@@ -668,7 +655,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         if (Array.isArray(saved.preScreenAssessments)) {
           setPreScreenAssessments(saved.preScreenAssessments);
         }
-        if (saved.step) setStep(saved.step);
+        if (saved.step) setStep(normalizeWizardStep(saved.step));
       } else {
         setStep('review');
       }
@@ -679,10 +666,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       markWizardDirty();
     }
   }, [isOpen, markWizardDirty]);
-
-  useEffect(() => {
-    if (isManual && step === 'prompt') setStep('review');
-  }, [isManual, step]);
 
   useEffect(() => {
     if (!isOpen || publishFlowStep !== 'distribution') return;
@@ -848,6 +831,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         throw new Error('Could not extract enough fields from the pasted description.');
       }
       applyPipelineToDraft(data);
+      setStep('review');
     } catch (err: unknown) {
       setJdError(err instanceof Error ? err.message : 'Failed to auto-fill from pasted JD.');
     } finally {
@@ -888,6 +872,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         }
         applyPipelineToDraft(data);
         setJdAttachment({ file, status: 'ready' });
+        setStep('review');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Failed to process job description file';
         setJdAttachment({ file, status: 'error', error: message });
@@ -942,7 +927,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         if (cancelled) return;
         const client =
           clientResponse && typeof clientResponse === 'object' && 'id' in clientResponse
-            ? (clientResponse as BackendClient)
+            ? (clientResponse as unknown as BackendClient)
             : null;
         setContacts(buildJobContactPersonOptions(list as BackendContact[], client));
       } catch {
@@ -967,42 +952,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     );
   }, [clients, clientSearch]);
 
-  useEffect(() => {
-    if (!isOpen || step !== 'title' || isManual) return;
-    const query = draft.jobTitle.trim();
-    if (query.length < 2) {
-      setTitleSuggestions([]);
-      setLoadingTitleSuggestions(false);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      setLoadingTitleSuggestions(true);
-      void apiSuggestJobTitles({
-        query,
-        company: draft.clientName || undefined,
-        limit: 8,
-      })
-        .then((res) => {
-          if (cancelled) return;
-          const list = Array.isArray(res.data?.suggestions) ? res.data.suggestions : [];
-          setTitleSuggestions(list.filter(Boolean).slice(0, 8));
-        })
-        .catch(() => {
-          if (!cancelled) setTitleSuggestions([]);
-        })
-        .finally(() => {
-          if (!cancelled) setLoadingTitleSuggestions(false);
-        });
-    }, 400);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [isOpen, step, draft.jobTitle, draft.clientName, isManual]);
-
   const stepIndex = Math.max(0, wizardSteps.indexOf(step));
 
   const patchDraft = (patch: Partial<WizardDraft>) => {
@@ -1017,37 +966,54 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         setError('Select a client to continue.');
         return;
       }
-      setStep('title');
+      setStep('jd');
       return;
     }
-    if (step === 'title') {
-      if (!draft.jobTitle.trim()) {
-        setError('Enter a job title to continue.');
+    if (step === 'jd') {
+      if (jdGenerating || jdAttachment?.status === 'processing') {
+        setError('Please wait while the job description is processed.');
         return;
       }
-      setStep('location');
-      return;
-    }
-    if (step === 'location') {
-      if (!draft.country.trim() && !draft.locationQuery.trim()) {
-        setError('Add a location to continue.');
-        return;
-      }
-      setStep(isManual ? 'review' : 'prompt');
-      return;
-    }
-    if (step === 'prompt') {
-      void runAiGenerate();
+      // Prefer extracted/pasted content; allow skip so users can fill the form manually.
+      void (async () => {
+        const editorText = stripHtml(draft.jobDescriptionHtml || '');
+        const sourceText = (pastedJobDescriptionText || editorText || '').trim();
+        if (!draft.jobTitle.trim() && sourceText.length >= 50 && !jdGenerating) {
+          try {
+            setJdGenerating(true);
+            setJdError('');
+            const response = await apiGenerateJobFromPrompt({
+              prompt: sourceText,
+              currentForm: {
+                nationality: draft.nationality,
+                jobTitle: draft.jobTitle,
+                priority: draft.priority,
+                companyId: draft.clientId,
+                numberOfOpenings: draft.numberOfOpenings,
+                country: draft.country,
+                state: draft.state,
+                city: draft.city,
+                industryType: draft.industryType,
+                employmentType: draft.employmentType,
+                targetHireDate: draft.targetHireDate,
+                skills: draft.skills,
+              },
+            });
+            const data = response.data;
+            if (data?.jobTitle) applyPipelineToDraft(data);
+          } catch (err: unknown) {
+            setJdError(err instanceof Error ? err.message : 'Failed to auto-fill from JD.');
+          } finally {
+            setJdGenerating(false);
+          }
+        }
+        setStep('review');
+      })();
     }
   };
 
-  const skipAiBrief = () => {
+  const skipJdStep = () => {
     setError('');
-    setDraft((prev) => ({
-      ...prev,
-      extraPrompt: '',
-      targetHireDate: prev.targetHireDate || defaultTargetHireDate(),
-    }));
     setStep('review');
   };
 
@@ -1166,9 +1132,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       ? 'Add a screening test for applicants, or skip to choose where the job is published.'
       : publishFlowStep === 'distribution'
         ? 'Pick a category, then choose the platforms to publish on.'
-        : isManual && step === 'title'
-          ? 'Give this role a clear title, then continue.'
-          : STEP_HINTS[step];
+        : STEP_HINTS[step];
 
   const goBack = () => {
     setError('');
@@ -1182,61 +1146,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     }
     const idx = wizardSteps.indexOf(step);
     if (idx > 0) setStep(wizardSteps[idx - 1]);
-  };
-
-  const runAiGenerate = async () => {
-    if (!jobAiGate.confirmAndUnlock()) return;
-    setGenerating(true);
-    setError('');
-    try {
-      const prompt = [
-        `Create a complete job posting.`,
-        `Client / company: ${draft.clientName}`,
-        `Job title: ${draft.jobTitle}`,
-        `Location: ${[draft.city, draft.state, draft.country].filter(Boolean).join(', ') || draft.locationQuery}`,
-        draft.extraPrompt.trim() ? `Additional requirements and notes:\n${draft.extraPrompt.trim()}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
-
-      const response = await apiGenerateJobFromPrompt({
-        prompt,
-        currentForm: {
-          jobTitle: draft.jobTitle,
-          companyId: draft.clientId,
-          companyName: draft.clientName,
-          country: draft.country,
-          state: draft.state,
-          city: draft.city,
-          numberOfOpenings: draft.numberOfOpenings,
-          priority: draft.priority,
-          employmentType: draft.employmentType,
-          targetHireDate: draft.targetHireDate || defaultTargetHireDate(),
-        },
-      });
-
-      const data = response.data;
-      if (!data?.jobTitle) {
-        throw new Error('AI could not build a job from those details. Try adding more in the prompt.');
-      }
-
-      setDraft((prev) =>
-        pipelineToDraft(
-          {
-            ...prev,
-            clientId: prev.clientId,
-            clientName: prev.clientName,
-          },
-          { ...data, companyId: prev.clientId, companyName: prev.clientName },
-        ),
-      );
-      markWizardDirty();
-      setStep('review');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'AI job creation failed.');
-    } finally {
-      setGenerating(false);
-    }
   };
 
   const handlePublish = async () => {
@@ -1317,7 +1226,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           assessmentId: link.assessmentId,
           sortOrder: index,
           required: link.required !== false,
-          timing: link.timing || 'AFTER_APPLY',
+          timing: 'BEFORE_SUBMIT',
           durationOverrideMinutes: link.durationOverrideMinutes ?? null,
           passScoreOverridePercent: link.passScoreOverridePercent ?? null,
         })),
@@ -1636,168 +1545,142 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
               </motion.div>
             ) : null}
 
-            {step === 'title' ? (
+            {step === 'jd' ? (
               <motion.div
-                key="title"
+                key="jd"
                 initial={{ opacity: 0, x: 16 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -16 }}
                 transition={{ duration: 0.22 }}
                 className="space-y-4"
               >
-                <div className={sectionClass}>
-                  <label className={labelClass}>Job title *</label>
+                <div className="relative overflow-hidden rounded-[1.35rem] border border-[#2098C8]/25 bg-gradient-to-br from-[#E8F6FC] via-white to-[#E8F6FC]/70 p-4 shadow-sm sm:p-5">
+                  <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-[#2098C8]/25 blur-2xl" />
+                  <div className="relative flex items-start gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#2098C8] text-white shadow-lg shadow-[#2098C8]/30">
+                      <Upload className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="font-semibold text-slate-900">Upload job description</p>
+                      <p className="mt-0.5 text-sm text-slate-500">
+                        Attach a JD file or paste the posting below. We extract title, location, skills, and more so the next step is already filled.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`${sectionClass} space-y-4`}>
                   <input
-                    type="text"
-                    value={draft.jobTitle}
-                    onChange={(e) => patchDraft({ jobTitle: e.target.value })}
-                    placeholder="e.g. React Developer"
-                    className={fieldClass}
-                    autoFocus
+                    ref={jdFileInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      void handleJdFilePick(file);
+                    }}
                   />
-                </div>
-                {!isManual ? (
-                <div className={`${sectionClass} relative overflow-hidden`}>
-                  <div className="pointer-events-none absolute -right-8 top-0 h-24 w-24 rounded-full bg-[#D6EEF8]/60 blur-2xl" />
-                  <p className="relative mb-3 inline-flex items-center gap-1.5 text-[0.7rem] font-bold uppercase tracking-[0.14em] text-[#176F96]">
-                    <Sparkles className="h-3.5 w-3.5 text-[#2098C8]" />
-                    AI recommendations
-                    {loadingTitleSuggestions ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#2098C8]" />
-                    ) : null}
-                  </p>
-                  {draft.jobTitle.trim().length < 2 ? (
-                    <p className="relative text-sm text-slate-500">
-                      Type at least 2 characters to get AI title recommendations.
-                    </p>
-                  ) : loadingTitleSuggestions && titleSuggestions.length === 0 ? (
-                    <p className="relative text-sm text-slate-500">Finding matching titles…</p>
-                  ) : titleSuggestions.length === 0 ? (
-                    <p className="relative text-sm text-slate-500">
-                      No AI suggestions yet. Keep typing or enter your own title.
-                    </p>
-                  ) : (
-                    <div className="relative flex flex-wrap gap-2">
-                      {titleSuggestions.map((title) => (
-                        <button
-                          key={title}
-                          type="button"
-                          onClick={() => patchDraft({ jobTitle: title })}
-                          className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold transition ${
-                            draft.jobTitle === title
-                              ? 'border-[#2098C8] bg-[#E8F6FC] text-[#176F96] shadow-sm shadow-[#2098C8]/15'
-                              : 'border-slate-200 bg-slate-50/80 text-slate-700 hover:border-[#2098C8]/55 hover:bg-white hover:shadow-sm'
-                          }`}
-                        >
-                          {title}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                ) : null}
-              </motion.div>
-            ) : null}
 
-            {step === 'location' ? (
-              <motion.div
-                key="location"
-                initial={{ opacity: 0, x: 16 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -16 }}
-                transition={{ duration: 0.22 }}
-                className="space-y-4"
-              >
-                <div className={sectionClass}>
-                  <label className={labelClass}>Location</label>
-                  <LocationAutocomplete
-                    value={draft.locationQuery}
-                    onChange={(next) => patchDraft({ locationQuery: next })}
-                    onSelect={(sel) =>
-                      patchDraft({
-                        locationQuery: sel.location,
-                        country: sel.country,
-                        state: sel.state,
-                        city: sel.city,
-                      })
-                    }
-                    placeholder="Search location…"
-                    inputClassName={fieldClass}
-                  />
-                  <div className="mt-4 grid gap-3.5 sm:grid-cols-3">
+                  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[#2098C8]/35 bg-[#E8F6FC]/40 px-4 py-8 text-center">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/25">
+                      {jdGenerating ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <FileText className="h-5 w-5" />
+                      )}
+                    </span>
                     <div>
-                      <label className={labelClass}>Country *</label>
-                      <input
-                        className={fieldClass}
-                        value={draft.country}
-                        onChange={(e) => patchDraft({ country: e.target.value })}
-                      />
+                      <p className="text-sm font-semibold text-slate-900">
+                        {jdGenerating ? 'Extracting job details…' : 'Drop or choose a JD file'}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX, or TXT · max 5MB</p>
                     </div>
-                    <div>
-                      <label className={labelClass}>State</label>
-                      <input
-                        className={fieldClass}
-                        value={draft.state}
-                        onChange={(e) => patchDraft({ state: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>City</label>
-                      <input
-                        className={fieldClass}
-                        value={draft.city}
-                        onChange={(e) => patchDraft({ city: e.target.value })}
-                      />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => jdFileInputRef.current?.click()}
+                      disabled={jdGenerating}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#2098C8] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1A86B3] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Upload className="h-4 w-4" />
+                      Upload JD
+                    </button>
                   </div>
-                </div>
-              </motion.div>
-            ) : null}
 
-            {step === 'prompt' ? (
-              <motion.div
-                key="prompt"
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                className="space-y-4"
-              >
-                <div className="rounded-2xl border border-[#2098C8]/25 bg-gradient-to-br from-[#E8F6FC]/90 via-white to-[#E8F6FC]/60 p-4 shadow-sm sm:p-5">
-                  <p className="text-[0.7rem] font-bold uppercase tracking-[0.14em] text-[#176F96]">
-                    Preview so far
-                  </p>
-                  <div className="mt-3 space-y-2.5 text-sm text-slate-800">
-                    <p>
-                      <span className="font-semibold text-slate-500">Client:</span>{' '}
-                      {draft.clientName}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-slate-500">Title:</span>{' '}
-                      {draft.jobTitle}
-                    </p>
-                    <p className="inline-flex items-start gap-1.5">
-                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#2098C8]" />
-                      {[draft.city, draft.state, draft.country].filter(Boolean).join(', ') ||
-                        draft.locationQuery ||
-                        '—'}
-                    </p>
+                  {jdAttachment ? (
+                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-900 px-3 py-2.5 text-white">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#2098C8]">
+                        {jdAttachment.status === 'processing' ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-white" />
+                        ) : (
+                          <FileText className="h-4 w-4 text-white" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium">{jdAttachment.file.name}</p>
+                        <p className="text-[11px] text-slate-400">
+                          {jdAttachment.status === 'processing'
+                            ? 'Extracting job details…'
+                            : jdAttachment.status === 'error'
+                              ? jdAttachment.error || 'Processing failed'
+                              : 'Ready — fields will appear on the next step'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJdAttachment(null);
+                          setJdError('');
+                        }}
+                        className="rounded-full p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                        aria-label="Remove attached file"
+                        disabled={jdAttachment.status === 'processing'}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {jdError ? (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{jdError}</p>
+                  ) : null}
+
+                  <div className="relative flex items-center gap-3">
+                    <div className="h-px flex-1 bg-slate-200" />
+                    <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-slate-400">or paste</span>
+                    <div className="h-px flex-1 bg-slate-200" />
                   </div>
-                </div>
 
-                <div className={sectionClass}>
-                  <label className={labelClass}>Tell AI what else to include</label>
-                  <textarea
-                    value={draft.extraPrompt}
-                    onChange={(e) => patchDraft({ extraPrompt: e.target.value })}
-                    rows={6}
-                    placeholder="e.g. 3–5 years React experience, remote OK, salary 15–25 LPA, must know TypeScript, join within 30 days…"
-                    className={`${textareaClass} min-h-[140px]`}
-                  />
-                  <p className="mt-2.5 text-xs leading-relaxed text-slate-500">
-                    AI will generate description, responsibilities, skills, salary hints, and more.
-                    You can edit everything on the next screen. To fill the job manually instead, use{' '}
-                    <span className="font-semibold text-slate-600">Skip</span> below.
-                  </p>
+                  <div
+                    onPasteCapture={(event) => {
+                      const pastedText = event.clipboardData.getData('text/plain')?.trim() || '';
+                      if (pastedText.length >= 50) {
+                        setPastedJobDescriptionText(pastedText);
+                        setJdError('');
+                      }
+                    }}
+                  >
+                    <RichTextEditor
+                      value={draft.jobDescriptionHtml}
+                      onChange={(html) => {
+                        patchDraft({ jobDescriptionHtml: html });
+                        const plain = stripHtml(html).trim();
+                        if (plain.length >= 50) setPastedJobDescriptionText(plain);
+                      }}
+                      placeholder="Paste the full job description here…"
+                      minHeight={220}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleAutoFillFromPastedJd()}
+                    disabled={jdGenerating}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#2098C8]/30 bg-[#E8F6FC] px-4 py-2.5 text-sm font-semibold text-[#176F96] transition hover:bg-[#E8F6FC]/80 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {jdGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    Extract & continue from pasted JD
+                  </button>
                 </div>
               </motion.div>
             ) : null}
@@ -2153,7 +2036,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                 className="space-y-4"
               >
                 <p className="rounded-2xl border border-[#2098C8]/25 bg-gradient-to-r from-[#E8F6FC]/80 to-[#E8F6FC]/60 px-4 py-3 text-sm text-slate-600 shadow-sm">
-                  Review and edit the job details, then publish.
+                  Review and edit every field extracted from the JD, then continue to publish.
                 </p>
 
                 <div className={`${sectionClass} space-y-6`}>
@@ -2162,109 +2045,36 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       <Briefcase className="h-5 w-5" />
                     </span>
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">Job Details</p>
+                      <p className="text-sm font-semibold text-slate-900">Complete job form</p>
                       <p className="mt-0.5 text-xs text-slate-500">
-                        Description, role info, and requirements
+                        Description, role info, and requirements — edit anything before saving
                       </p>
                     </div>
                   </div>
 
                   <div>
-                    <input
-                      ref={jdFileInputRef}
-                      type="file"
-                      accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = '';
-                        void handleJdFilePick(file);
-                      }}
-                    />
-
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-sm font-bold text-slate-900">
-                        Job Description <span className="font-normal text-slate-500">(optional)</span>
-                      </h3>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <PublicVisibilityToggle
-                          visible={isJobFieldPubliclyVisible(
-                            draft.publicFieldVisibility,
-                            'jobDescription',
-                          )}
-                          onToggle={() =>
-                            patchDraft({
-                              publicFieldVisibility: toggleJobPublicFieldVisibility(
-                                parseJobPublicFieldVisibility(draft.publicFieldVisibility),
-                                'jobDescription',
-                              ),
-                            })
-                          }
-                        />
-                        <button
-                          type="button"
-                          onClick={() => jdFileInputRef.current?.click()}
-                          disabled={jdGenerating}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:border-[#2098C8]/40 hover:bg-[#E8F6FC]/50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <Upload className="h-3.5 w-3.5 text-[#2098C8]" />
-                          Upload job description
-                          <span className="font-normal text-slate-500">· PDF, DOC, DOCX, TXT</span>
-                        </button>
-                        {!isManual ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleAutoFillFromPastedJd()}
-                          disabled={jdGenerating}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#2098C8]/30 bg-[#E8F6FC] px-3 py-1.5 text-xs font-semibold text-[#176F96] hover:bg-[#E8F6FC]/80 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          Auto-fill from pasted JD
-                        </button>
-                        ) : null}
-                      </div>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-sm font-bold text-slate-900">Job Description</h3>
+                      <PublicVisibilityToggle
+                        visible={isJobFieldPubliclyVisible(
+                          draft.publicFieldVisibility,
+                          'jobDescription',
+                        )}
+                        onToggle={() =>
+                          patchDraft({
+                            publicFieldVisibility: toggleJobPublicFieldVisibility(
+                              parseJobPublicFieldVisibility(draft.publicFieldVisibility),
+                              'jobDescription',
+                            ),
+                          })
+                        }
+                      />
                     </div>
 
-                    <p className="mt-1 mb-3 text-xs text-slate-500">
-                      {isManual
-                        ? 'Upload a JD or paste and edit the full posting below.'
-                        : 'Upload a document to parse and auto-fill job fields with AI, or paste and edit the full posting below.'}
-                    </p>
-
-                    {jdAttachment ? (
-                      <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-700/30 bg-slate-900 px-2.5 py-2 text-white">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#2098C8]">
-                          {jdAttachment.status === 'processing' ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-white" />
-                          ) : (
-                            <FileText className="h-4 w-4 text-white" />
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-medium leading-tight">
-                            {jdAttachment.file.name}
-                          </p>
-                          <p className="text-[11px] leading-tight text-slate-400">
-                            {jdAttachment.status === 'processing'
-                              ? 'Extracting job details…'
-                              : jdAttachment.status === 'error'
-                                ? jdAttachment.error || 'Processing failed'
-                                : 'Ready — review the form and publish'}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setJdAttachment(null);
-                            setJdError('');
-                          }}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
-                          aria-label="Remove attached file"
-                          disabled={jdAttachment.status === 'processing'}
-                        >
-                          <X size={12} strokeWidth={2.5} />
-                        </button>
-                      </div>
+                    {jdAttachment?.status === 'ready' ? (
+                      <p className="mb-3 text-xs text-emerald-700">
+                        Filled from {jdAttachment.file.name}. You can still edit the text below.
+                      </p>
                     ) : null}
 
                     {jdError ? (
@@ -2273,22 +2083,12 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       </p>
                     ) : null}
 
-                    <div
-                      onPasteCapture={(event) => {
-                        const pastedText = event.clipboardData.getData('text/plain')?.trim() || '';
-                        if (pastedText.length >= 50) {
-                          setPastedJobDescriptionText(pastedText);
-                          setJdError('');
-                        }
-                      }}
-                    >
-                      <RichTextEditor
-                        value={draft.jobDescriptionHtml}
-                        onChange={(html) => patchDraft({ jobDescriptionHtml: html })}
-                        placeholder="Paste or enter the full job description…"
-                        minHeight={280}
-                      />
-                    </div>
+                    <RichTextEditor
+                      value={draft.jobDescriptionHtml}
+                      onChange={(html) => patchDraft({ jobDescriptionHtml: html })}
+                      placeholder="Job description…"
+                      minHeight={220}
+                    />
                   </div>
 
                   <div className="border-t border-slate-100 pt-2">
@@ -2332,7 +2132,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             type="button"
             onClick={goBack}
             disabled={
-              (step === 'client' && !publishFlowStep) || generating || publishing
+              (step === 'client' && !publishFlowStep) || jdGenerating || publishing
             }
             className="inline-flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40"
           >
@@ -2388,54 +2188,32 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
               Continue
               <ArrowRight className="h-4 w-4" />
             </button>
-          ) : step === 'prompt' ? (
-            <div className="flex flex-col items-end gap-2">
-              <AiCoinLockBanner featureId="ai.job_from_prompt" className="w-full max-w-md" />
-              <div className="flex items-center gap-2.5">
+          ) : step === 'jd' ? (
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
-                onClick={skipAiBrief}
-                disabled={generating}
-                className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-60"
+                onClick={skipJdStep}
+                disabled={jdGenerating}
+                className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
               >
                 Skip
               </button>
               <button
                 type="button"
                 onClick={goNext}
-                disabled={generating}
-                className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold text-white shadow-lg transition active:scale-[0.98] disabled:opacity-60 ${
-                  jobAiGate.locked
-                    ? 'bg-amber-600 shadow-amber-600/30 hover:bg-amber-700'
-                    : 'bg-[#2098C8] shadow-[#2098C8]/30 hover:bg-[#1A86B3] hover:shadow-xl hover:shadow-[#2098C8]/35'
-                }`}
-                title={
-                  jobAiGate.locked
-                    ? `Locked — needs ${jobAiGate.cost} coins`
-                    : `Spend ${jobAiGate.cost} coins to generate`
-                }
+                disabled={jdGenerating}
+                className="inline-flex items-center gap-2 rounded-2xl bg-[#2098C8] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#2098C8]/30 transition hover:bg-[#1A86B3] hover:shadow-xl hover:shadow-[#2098C8]/35 active:scale-[0.98] disabled:opacity-60"
               >
-                {generating ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Generating…
-                  </>
-                ) : (
-                  <>
-                    {jobAiGate.locked ? <Lock className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-                    Generate with AI
-                    <AiCoinLockBadge featureId="ai.job_from_prompt" />
-                    <ArrowRight className="h-4 w-4" />
-                  </>
-                )}
+                {jdGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Next
+                <ArrowRight className="h-4 w-4" />
               </button>
-              </div>
             </div>
           ) : (
             <button
               type="button"
               onClick={goNext}
-              disabled={generating}
+              disabled={jdGenerating}
               className="inline-flex items-center gap-2 rounded-2xl bg-[#2098C8] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#2098C8]/30 transition hover:bg-[#1A86B3] hover:shadow-xl hover:shadow-[#2098C8]/35 active:scale-[0.98] disabled:opacity-60"
             >
               Next

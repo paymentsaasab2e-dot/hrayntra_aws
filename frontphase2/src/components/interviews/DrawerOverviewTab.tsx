@@ -1,17 +1,20 @@
 import React from 'react';
 import { CalendarDays, Clock3, Link as LinkIcon, MapPin } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
+import { formatTimezoneDisplay, resolveIanaFromTimezoneValue } from '../../utils/inferTimezone';
 
 interface DrawerOverviewTabProps {
   interview: Interview;
 }
 
 export function DrawerOverviewTab({ interview }: DrawerOverviewTabProps) {
+  const timezoneLabel = formatTimezoneDisplay(resolveIanaFromTimezoneValue(interview.timezone));
   const items = [
     ['Interview Round', interview.round],
     ['Interview Type', interview.type],
     ['Date', interview.date],
     ['Time', interview.time],
+    ['Timezone', timezoneLabel],
     ['Duration', `${interview.duration} minutes`],
     ['Status', interview.status],
     ['Created By', interview.createdBy],
@@ -36,7 +39,7 @@ export function DrawerOverviewTab({ interview }: DrawerOverviewTabProps) {
         <div className="mt-3 space-y-3 text-sm text-[#374151]">
           <div className="flex items-center gap-2">
             <Clock3 className="size-4 text-[#6B7280]" />
-            {interview.date} at {interview.time} ({interview.timezone})
+            {interview.date} at {interview.time} ({timezoneLabel})
           </div>
           {interview.meetingLink ? (
             <a

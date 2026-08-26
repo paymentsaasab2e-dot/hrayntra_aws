@@ -5545,6 +5545,8 @@ export interface BackendCandidate {
     round?: string | null;
     duration?: number | null;
     mode?: string | null;
+    timezone?: string | null;
+    platform?: string | null;
     meetingLink?: string | null;
     location?: string | null;
     notes?: string | null;
@@ -6312,6 +6314,7 @@ export const apiScheduleCandidateInterview = async (
     date: string;
     time: string;
     duration: string;
+    timezone?: string;
     mode: 'video' | 'in-person' | 'phone';
     platform?: 'GOOGLE_MEET' | 'ZOOM' | null;
     meetingLink?: string | null;
@@ -6344,6 +6347,7 @@ export const apiUpdateCandidateInterview = async (
     date?: string;
     time?: string;
     duration?: string;
+    timezone?: string;
     mode?: 'video' | 'in-person' | 'phone';
     platform?: 'GOOGLE_MEET' | 'ZOOM' | null;
     meetingLink?: string | null;
@@ -6374,6 +6378,7 @@ export const apiGenerateCandidateInterviewMeetingLink = async (
     date: string;
     time: string;
     duration: string;
+    timezone?: string;
     mode: 'video';
     platform: 'GOOGLE_MEET' | 'ZOOM';
     interviewers?: Array<{
@@ -8849,6 +8854,8 @@ export const apiGetUsers = async (params?: {
   search?: string;
   page?: number;
   limit?: number;
+  /** When true, returns only this tenant’s assignable team (excludes HQ / platform accounts). */
+  assignable?: boolean;
 }) => {
   const queryParams = new URLSearchParams();
   if (params?.role) queryParams.append('role', params.role);
@@ -8856,6 +8863,7 @@ export const apiGetUsers = async (params?: {
   if (params?.search) queryParams.append('search', params.search);
   if (params?.page) queryParams.append('page', String(params.page));
   if (params?.limit) queryParams.append('limit', String(params.limit));
+  if (params?.assignable) queryParams.append('assignable', 'true');
 
   const path = `/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
   return apiFetch<BackendUser[] | { data: BackendUser[]; pagination?: any }>(path, {

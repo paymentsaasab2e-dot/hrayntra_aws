@@ -8,7 +8,9 @@ import {
   EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS,
 } from './components/CandidateTableFilters';
 import { BulkActions } from './components/BulkActions';
-import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
+import { ScheduleInterviewModal as BulkScheduleInterviewDrawer } from '../../components/interviews/ScheduleInterviewModal';
+import { CreatePlacementDrawer } from '../../components/placements/modals/CreatePlacementDrawer';
+import type { CreatePlacementPayload } from '../../types/placement';
 import {
   combineInterviewDateAndTimeToIso,
   mapInterviewUiTypeToBackend,
@@ -44,6 +46,7 @@ import {
 } from '../../lib/failedBulkResumesStore';
 import {
   CandidateProfileDrawer,
+  ScheduleInterviewModal as CandidateScheduleInterviewModal,
   type CandidateInterviewerOption,
   type CandidateProfileDrawerData,
   type CandidateScheduledInterview,
@@ -105,6 +108,7 @@ import {
   apiRejectCandidate,
   apiRemoveCandidateTag,
   apiCreateInterview,
+  apiCreatePlacement,
   apiScheduleCandidateInterview,
   emitNotificationsUpdated,
   apiUpdateCandidate,
@@ -154,6 +158,8 @@ import {
 } from '../../lib/mapCandidateProfile';
 import {
   candidateRowCanSubmitToClient,
+  isInterviewPipelineStage,
+  isOfferPipelineStage,
   isSubmitToClientStageOption,
   profileCanSubmitToClient,
   resolveSubmitJobIdForProfile,
@@ -466,7 +472,35 @@ function CandidatesPageContent() {
   const [interviewPanelMembers, setInterviewPanelMembers] = useState<CandidateInterviewerOption[]>([]);
   const [bulkScheduleInterviewOpen, setBulkScheduleInterviewOpen] = useState(false);
   const [bulkScheduleCandidateIds, setBulkScheduleCandidateIds] = useState<string[]>([]);
+  const [bulkSchedulePrefillJobId, setBulkSchedulePrefillJobId] = useState<string | null>(null);
   const [bulkScheduleJobs, setBulkScheduleJobs] = useState<InterviewJob[]>([]);
+  /** Centered Schedule Interview popup (stage → Interviewing). */
+  const [stageScheduleOpen, setStageScheduleOpen] = useState(false);
+  const [stageScheduleCandidate, setStageScheduleCandidate] = useState<{
+    id: string;
+    name: string;
+    phone: string | null;
+    stage: string | null;
+    assignedJob: string | null;
+    assignedJobId: string | null;
+  } | null>(null);
+  const [stageScheduleJobId, setStageScheduleJobId] = useState<string | null>(null);
+  /** Stage move deferred until Schedule Interview / Placement succeeds. */
+  const [pendingStageAfterWorkflow, setPendingStageAfterWorkflow] = useState<{
+    candidateIds: string[];
+    jobId: string;
+    stageId: string;
+    stageName: string;
+    kind: 'interview' | 'offer';
+  } | null>(null);
+  const [placementDrawerOpen, setPlacementDrawerOpen] = useState(false);
+  const [placementSubmitting, setPlacementSubmitting] = useState(false);
+  const [placementPrefill, setPlacementPrefill] = useState<{
+    candidateId?: string;
+    jobId?: string;
+    companyId?: string;
+    recruiterId?: string;
+  } | null>(null);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkAssignSaving, setBulkAssignSaving] = useState(false);
   const [bulkAssignRecruiterIds, setBulkAssignRecruiterIds] = useState<string[]>([]);
@@ -674,8 +708,8 @@ function CandidatesPageContent() {
     try {
       if (!silent) {
         if (isFirstLoad) {
-        setLoading(true);
-        setError(null);
+          setLoading(true);
+          setError(null);
         } else {
           setTableLoading(true);
         }
@@ -756,35 +790,42 @@ function CandidatesPageContent() {
       if (!silent) {
         if (!hasLoadedCandidatesOnceRef.current) {
           setError(message);
-        setCandidates([]);
-        setTotalEntries(0);
-      }
+          setCandidates([]);
+          setTotalEntries(0);
+        }
       }
       toast.error(message);
     } finally {
+      // Only the latest request may clear spinners. Always clear both flags so a
+      // newer silent refresh cannot leave tableLoading stuck from an older call.
       if (requestId !== loadCandidatesRequestIdRef.current) return;
-      if (!silent) {
-        if (isFirstLoad) {
-          setLoading(false);
-        } else {
-          setTableLoading(false);
-        }
-      }
+      setLoading(false);
+      setTableLoading(false);
     }
   }, [filters, debouncedColumnFilters, currentPage, pageSize, listTab, smartSearchCandidateIds]);
 
   const switchListTab = useCallback(
     (tab: CandidateListTab) => {
       const nextTab = tab === 'all' && !shouldIncludePhase1CommonPool() ? 'mine' : tab;
+      if (nextTab === listTab && currentPage === 1) return;
+
+      // Show cached rows immediately so the tab feels instant; the loadCandidates
+      // effect (driven by listTab/currentPage) performs a single network refresh.
+      const cached = readCandidatesListCache(nextTab, 1, pageSize, filters.search || '');
+      const cachedRows = cached?.data?.candidates;
+      if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+        setCandidates(cachedRows as Candidate[]);
+        setTotalEntries(cached.data?.totalEntries || cachedRows.length);
+        setTableLoading(false);
+        setLoading(false);
+      } else {
+        setTableLoading(true);
+      }
+
       setListTab(nextTab);
       setCurrentPage(1);
-      void loadCandidates({
-        tab: nextTab,
-        page: 1,
-        silent: nextTab === 'all' && hasLoadedCandidatesOnceRef.current,
-      });
     },
-    [loadCandidates],
+    [listTab, currentPage, pageSize, filters.search],
   );
 
   useEffect(() => {
@@ -984,8 +1025,10 @@ function CandidatesPageContent() {
             .map((job) => ({
               id: String(job.id),
               title: String(job.title || 'Untitled job').trim() || 'Untitled job',
-            department: job.department || job.client?.companyName || null,
-          }))
+              department: job.department || job.client?.companyName || null,
+              clientId: job.client?.id || (job as { clientId?: string }).clientId || null,
+              clientName: job.client?.companyName || null,
+            }))
             .sort((a, b) => a.title.localeCompare(b.title)),
         );
 
@@ -1239,11 +1282,169 @@ function CandidatesPageContent() {
     [inlineStageOptionsByJobId]
   );
 
+  const openScheduleInterviewForCandidate = useCallback(
+    async (
+      candidate: Candidate,
+      preferredJobId?: string,
+      pendingStage?: { stageId: string; stageName: string },
+    ) => {
+      const jobId = preferredJobId || resolveSubmitJobIdForRow(candidate) || '';
+      const job = pipelineJobs.find((row) => row.id === jobId);
+      if (pendingStage && jobId) {
+        setPendingStageAfterWorkflow({
+          candidateIds: [candidate.id],
+          jobId,
+          stageId: pendingStage.stageId,
+          stageName: pendingStage.stageName,
+          kind: 'interview',
+        });
+      } else {
+        setPendingStageAfterWorkflow(null);
+      }
+      setStageScheduleCandidate({
+        id: candidate.id,
+        name: candidate.name,
+        phone: candidate.phone || null,
+        stage: candidate.stage || null,
+        assignedJob: job?.title || candidate.assignedJobs?.[0] || null,
+        assignedJobId: jobId || null,
+      });
+      setStageScheduleJobId(jobId || null);
+      setStageScheduleOpen(true);
+    },
+    [pipelineJobs],
+  );
+
+  const closeStageScheduleInterview = useCallback(() => {
+    setStageScheduleOpen(false);
+    setStageScheduleCandidate(null);
+    setStageScheduleJobId(null);
+    setPendingStageAfterWorkflow((prev) => (prev?.kind === 'interview' ? null : prev));
+  }, []);
+
+  const openPlacementForCandidate = useCallback(
+    (
+      candidate: Candidate,
+      preferredJobId?: string,
+      pendingStage?: { stageId: string; stageName: string },
+    ) => {
+      const jobId = preferredJobId || resolveSubmitJobIdForRow(candidate) || '';
+      const job = pipelineJobs.find((row) => row.id === jobId);
+      if (pendingStage && jobId) {
+        setPendingStageAfterWorkflow({
+          candidateIds: [candidate.id],
+          jobId,
+          stageId: pendingStage.stageId,
+          stageName: pendingStage.stageName,
+          kind: 'offer',
+        });
+      } else {
+        setPendingStageAfterWorkflow(null);
+      }
+      setPlacementPrefill({
+        candidateId: candidate.id,
+        jobId: jobId || undefined,
+        companyId: job?.clientId || undefined,
+        recruiterId: currentUser?._id || undefined,
+      });
+      setPlacementDrawerOpen(true);
+    },
+    [currentUser?._id, pipelineJobs],
+  );
+
+  const applyPendingStageAfterWorkflow = useCallback(async () => {
+    const pending = pendingStageAfterWorkflow;
+    if (!pending) return;
+    try {
+      await Promise.all(
+        pending.candidateIds.map((candidateId) =>
+          apiMoveCandidateStage(pending.jobId, {
+            candidateId,
+            stageId: pending.stageId,
+          }),
+        ),
+      );
+      setCandidates((prev) =>
+        prev.map((item) =>
+          pending.candidateIds.includes(item.id)
+            ? { ...item, stage: pending.stageName }
+            : item,
+        ),
+      );
+    } catch (error: any) {
+      console.error('Failed to apply stage after workflow:', error);
+      toast.error(error?.message || 'Interview scheduled, but stage could not be updated');
+    } finally {
+      setPendingStageAfterWorkflow(null);
+    }
+  }, [pendingStageAfterWorkflow]);
+
+  const handleStageScheduleInterview = useCallback(
+    async (interviewData: CandidateScheduledInterview) => {
+      const payload = {
+        jobId: interviewData.jobId,
+        clientId: interviewData.clientId || undefined,
+        type: interviewData.type,
+        round: interviewData.round,
+        date: interviewData.date,
+        time: interviewData.time,
+        duration: interviewData.duration,
+        timezone: interviewData.timezone,
+        mode: interviewData.mode,
+        platform:
+          interviewData.platform === 'Google Meet'
+            ? 'GOOGLE_MEET'
+            : interviewData.platform === 'Zoom'
+              ? 'ZOOM'
+              : null,
+        meetingLink: interviewData.meetingLink,
+        location: interviewData.location,
+        phoneNumber: interviewData.phoneNumber,
+        interviewers: interviewData.interviewers,
+        notes: interviewData.notes,
+        sendCandidateInvite: interviewData.sendCandidateInvite,
+        sendInterviewerInvite: interviewData.sendInterviewerInvite,
+        status: interviewData.status,
+      };
+      await apiScheduleCandidateInterview(interviewData.candidateId, payload as any);
+      toast.success('Interview scheduled successfully');
+      emitNotificationsUpdated();
+      await applyPendingStageAfterWorkflow();
+      await loadCandidates({ silent: true });
+    },
+    [applyPendingStageAfterWorkflow, loadCandidates],
+  );
+
   const handleInlineCandidateStageChange = useCallback(
     async (candidate: Candidate, stageId: string) => {
       const jobId = candidate.pipelineJobId;
       if (!jobId) {
         toast.error('No applied job found for this candidate');
+        return;
+      }
+
+      const nextStageName =
+        inlineStageOptionsByJobId[jobId]?.find((stage) => stage.id === stageId)?.name || '';
+
+      // Interviewing: open Schedule Interview popup only — stage updates after schedule succeeds.
+      if (isInterviewPipelineStage(nextStageName)) {
+        if (!canScheduleInterview) {
+          toast.error('You do not have permission to schedule interviews');
+          return;
+        }
+        await openScheduleInterviewForCandidate(candidate, jobId, {
+          stageId,
+          stageName: nextStageName,
+        });
+        return;
+      }
+
+      // Offer: open placement popup only — stage updates after placement is created.
+      if (isOfferPipelineStage(nextStageName)) {
+        openPlacementForCandidate(candidate, jobId, {
+          stageId,
+          stageName: nextStageName,
+        });
         return;
       }
 
@@ -1254,15 +1455,16 @@ function CandidatesPageContent() {
           stageId,
         });
 
-        const nextStageName =
-          inlineStageOptionsByJobId[jobId]?.find((stage) => stage.id === stageId)?.name || candidate.stage;
+        const resolvedName =
+          inlineStageOptionsByJobId[jobId]?.find((stage) => stage.id === stageId)?.name ||
+          candidate.stage;
 
         setCandidates((prev) =>
           prev.map((item) =>
             item.id === candidate.id
               ? {
                   ...item,
-                  stage: nextStageName,
+                  stage: resolvedName,
                 }
               : item
           )
@@ -1273,7 +1475,7 @@ function CandidatesPageContent() {
         }
 
         await loadCandidates({ silent: true });
-        toast.success(`Stage updated to ${nextStageName}`);
+        toast.success(`Stage updated to ${resolvedName}`);
       } catch (error: any) {
         console.error('Failed to update candidate stage from table:', error);
         toast.error(error?.message || 'Failed to update candidate stage');
@@ -1281,7 +1483,15 @@ function CandidatesPageContent() {
         setInlineStageUpdatingCandidateId((prev) => (prev === candidate.id ? null : prev));
       }
     },
-    [inlineStageOptionsByJobId, loadCandidateProfile, loadCandidates, selectedCandidateProfile?.id]
+    [
+      canScheduleInterview,
+      inlineStageOptionsByJobId,
+      loadCandidateProfile,
+      loadCandidates,
+      openPlacementForCandidate,
+      openScheduleInterviewForCandidate,
+      selectedCandidateProfile?.id,
+    ]
   );
 
   const openBulkMoveStageModal = useCallback(async () => {
@@ -1502,9 +1712,40 @@ function CandidatesPageContent() {
   );
 
   const openBulkScheduleInterview = useCallback(
-    async (ids: string[]) => {
+    async (
+      ids: string[],
+      pendingStage?: { jobId: string; stageId: string; stageName: string },
+    ) => {
       if (!ids.length) return;
+
+      // Single candidate → centered Confirm Schedule popup (not the side drawer).
+      if (ids.length === 1) {
+        const row = candidates.find((item) => item.id === ids[0]);
+        if (row) {
+          await openScheduleInterviewForCandidate(
+            row,
+            pendingStage?.jobId || resolveSubmitJobIdForRow(row) || undefined,
+            pendingStage
+              ? { stageId: pendingStage.stageId, stageName: pendingStage.stageName }
+              : undefined,
+          );
+          return;
+        }
+      }
+
       setBulkScheduleCandidateIds(ids);
+      setBulkSchedulePrefillJobId(pendingStage?.jobId || null);
+      if (pendingStage) {
+        setPendingStageAfterWorkflow({
+          candidateIds: ids,
+          jobId: pendingStage.jobId,
+          stageId: pendingStage.stageId,
+          stageName: pendingStage.stageName,
+          kind: 'interview',
+        });
+      } else {
+        setPendingStageAfterWorkflow(null);
+      }
       try {
         const jobsRes = await apiGetJobs({ page: 1, limit: 500 });
         const parsed = parseJobsListFromResponse(jobsRes);
@@ -1523,18 +1764,22 @@ function CandidatesPageContent() {
           pipelineJobs.map((job) => ({
             id: job.id,
             title: job.title,
-            client: job.department || 'Client',
+            client: job.clientName || job.department || 'Client',
+            clientId: job.clientId || undefined,
           })),
         );
       }
       setBulkScheduleInterviewOpen(true);
     },
-    [pipelineJobs],
+    [candidates, openScheduleInterviewForCandidate, pipelineJobs],
   );
 
   const closeBulkScheduleInterview = useCallback(() => {
     setBulkScheduleInterviewOpen(false);
     setBulkScheduleCandidateIds([]);
+    setBulkSchedulePrefillJobId(null);
+    // Cancel without scheduling — do not change stage.
+    setPendingStageAfterWorkflow((prev) => (prev?.kind === 'interview' ? null : prev));
   }, []);
 
   const handleBulkScheduleInterview = useCallback(
@@ -1554,7 +1799,7 @@ function CandidatesPageContent() {
         round: payload.round.toUpperCase(),
         type: mapInterviewUiTypeToBackend(payload.type),
         mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
-        date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
+        date: combineInterviewDateAndTimeToIso(payload.date, payload.time, payload.timezone),
         duration: payload.duration,
         timezone: payload.timezone,
         meetingPlatform:
@@ -1591,8 +1836,10 @@ function CandidatesPageContent() {
         );
         emitNotificationsUpdated();
         setSelectedIds([]);
+        // Apply Interviewing stage only after the interview is actually scheduled.
+        await applyPendingStageAfterWorkflow();
         closeBulkScheduleInterview();
-        await loadCandidates();
+        await loadCandidates({ silent: true });
       }
       if (failed > 0) {
         toast.error(
@@ -1605,7 +1852,13 @@ function CandidatesPageContent() {
         throw new Error('Schedule failed');
       }
     },
-    [bulkScheduleCandidateIds, bulkScheduleJobs, closeBulkScheduleInterview, loadCandidates],
+    [
+      applyPendingStageAfterWorkflow,
+      bulkScheduleCandidateIds,
+      bulkScheduleJobs,
+      closeBulkScheduleInterview,
+      loadCandidates,
+    ],
   );
 
   const closeBulkAssignModal = useCallback(() => {
@@ -1652,6 +1905,44 @@ function CandidatesPageContent() {
       return;
     }
 
+    const selectedStageName =
+      bulkMoveStageOptions.find((stage) => stage.id === bulkMoveStageStageId)?.name || '';
+
+    if (isInterviewPipelineStage(selectedStageName)) {
+      if (!canScheduleInterview) {
+        toast.error('You do not have permission to schedule interviews');
+        return;
+      }
+      const ids = [...selectedIds];
+      closeBulkMoveStageModal();
+      setSelectedIds([]);
+      await openBulkScheduleInterview(ids, {
+        jobId: bulkMoveStageJobId,
+        stageId: bulkMoveStageStageId,
+        stageName: selectedStageName,
+      });
+      return;
+    }
+
+    if (isOfferPipelineStage(selectedStageName)) {
+      if (selectedIds.length !== 1) {
+        toast.error('Select a single candidate to create a placement from Offer stage');
+        return;
+      }
+      const row = candidates.find((item) => item.id === selectedIds[0]);
+      if (!row) {
+        toast.error('Candidate not found');
+        return;
+      }
+      closeBulkMoveStageModal();
+      setSelectedIds([]);
+      openPlacementForCandidate(row, bulkMoveStageJobId, {
+        stageId: bulkMoveStageStageId,
+        stageName: selectedStageName,
+      });
+      return;
+    }
+
     try {
       setBulkMoveStageSaving(true);
       await Promise.all(
@@ -1664,9 +1955,7 @@ function CandidatesPageContent() {
         )
       );
 
-      const selectedStageName =
-        bulkMoveStageOptions.find((stage) => stage.id === bulkMoveStageStageId)?.name || 'selected stage';
-      toast.success(`Moved ${selectedIds.length} candidate(s) to ${selectedStageName}`);
+      toast.success(`Moved ${selectedIds.length} candidate(s) to ${selectedStageName || 'selected stage'}`);
       setBulkMoveStageOpen(false);
       setBulkMoveStageJobId('');
       setBulkMoveStageStageId('');
@@ -1685,9 +1974,13 @@ function CandidatesPageContent() {
     bulkMoveStageNote,
     bulkMoveStageOptions,
     bulkMoveStageStageId,
+    canScheduleInterview,
+    candidates,
     closeBulkMoveStageModal,
     loadCandidates,
+    openBulkScheduleInterview,
     openBulkSubmitToClient,
+    openPlacementForCandidate,
     selectedIds,
   ]);
 
@@ -2254,7 +2547,7 @@ function CandidatesPageContent() {
                   } : undefined}
                   onDeselect={() => setSelectedIds([])}
                 />
-                    <div className={`relative min-h-0 flex-1 overflow-hidden`}>
+                    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                       {tableLoading ? (
                         <div
                           className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-[1px]"
@@ -2710,7 +3003,24 @@ function CandidatesPageContent() {
         </div>
       ) : null}
 
-      <ScheduleInterviewModal
+      <CandidateScheduleInterviewModal
+        isOpen={stageScheduleOpen}
+        candidate={stageScheduleCandidate}
+        linkedJobTitle={stageScheduleCandidate?.assignedJob || undefined}
+        initialJobId={stageScheduleJobId}
+        jobs={pipelineJobs.map((job) => ({
+          id: job.id,
+          title: job.title,
+          clientId: job.clientId || null,
+          clientName: job.clientName || job.department || null,
+        }))}
+        interviewers={interviewPanelMembers}
+        existingInterviews={[]}
+        onClose={closeStageScheduleInterview}
+        onSchedule={handleStageScheduleInterview}
+      />
+
+      <BulkScheduleInterviewDrawer
         isOpen={bulkScheduleInterviewOpen}
         candidates={bulkScheduleCandidates}
         jobs={bulkScheduleJobs}
@@ -2721,8 +3031,55 @@ function CandidatesPageContent() {
         prefillCandidateId={
           bulkScheduleCandidateIds.length === 1 ? bulkScheduleCandidateIds[0] : null
         }
+        prefillJobId={bulkSchedulePrefillJobId}
+        lockJob={Boolean(bulkSchedulePrefillJobId)}
         onClose={closeBulkScheduleInterview}
         onSchedule={handleBulkScheduleInterview}
+      />
+
+      <CreatePlacementDrawer
+        isOpen={placementDrawerOpen}
+        isSubmitting={placementSubmitting}
+        currentUserId={currentUser?._id}
+        candidates={candidates.map((row) => ({
+          id: row.id,
+          name: row.name,
+          email: row.email || '',
+        }))}
+        jobs={pipelineJobs.map((job) => ({
+          id: job.id,
+          title: job.title,
+          clientId: job.clientId || undefined,
+          clientName: job.clientName || job.department || 'No client linked',
+        }))}
+        recruiters={pipelineRecruiters.map((member) => ({
+          id: member.id,
+          name: member.name,
+          email: '',
+        }))}
+        prefill={placementPrefill || undefined}
+        onClose={() => {
+          if (placementSubmitting) return;
+          setPlacementDrawerOpen(false);
+          setPlacementPrefill(null);
+          setPendingStageAfterWorkflow((prev) => (prev?.kind === 'offer' ? null : prev));
+        }}
+        onSubmit={async (payload, offerLetter) => {
+          try {
+            setPlacementSubmitting(true);
+            await apiCreatePlacement(payload, offerLetter);
+            toast.success('Placement created');
+            await applyPendingStageAfterWorkflow();
+            setPlacementDrawerOpen(false);
+            setPlacementPrefill(null);
+            await loadCandidates({ silent: true });
+          } catch (error: any) {
+            toast.error(error?.message || 'Failed to create placement');
+            throw error;
+          } finally {
+            setPlacementSubmitting(false);
+          }
+        }}
       />
 
       <CandidateProfileDrawer
@@ -2778,6 +3135,7 @@ function CandidatesPageContent() {
             date: interviewData.date,
             time: interviewData.time,
             duration: interviewData.duration,
+            timezone: interviewData.timezone,
             mode: interviewData.mode,
             platform:
               interviewData.platform === 'Google Meet'

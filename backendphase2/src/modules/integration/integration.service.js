@@ -15,7 +15,6 @@ const PROVIDERS = {
       'https://www.googleapis.com/auth/userinfo.profile',
       'https://www.googleapis.com/auth/gmail.send',
       'https://www.googleapis.com/auth/gmail.readonly',
-      'https://www.googleapis.com/auth/calendar.events',
     ],
   },
   'google-calendar': {
@@ -25,7 +24,6 @@ const PROVIDERS = {
       'openid',
       'https://www.googleapis.com/auth/userinfo.email',
       'https://www.googleapis.com/auth/userinfo.profile',
-      'https://www.googleapis.com/auth/gmail.send',
       'https://www.googleapis.com/auth/calendar.events',
     ],
   },
@@ -36,7 +34,6 @@ const PROVIDERS = {
       'openid',
       'https://www.googleapis.com/auth/userinfo.email',
       'https://www.googleapis.com/auth/userinfo.profile',
-      'https://www.googleapis.com/auth/gmail.send',
       'https://www.googleapis.com/auth/calendar.events',
     ],
   },
@@ -634,16 +631,55 @@ export const integrationService = {
       grouped[row.provider].push(row);
     }
 
+    let legacyOauth = null;
+    try {
+      legacyOauth = await prisma.userOAuthTokens.findUnique({ where: { userId } });
+    } catch {
+      legacyOauth = null;
+    }
+
     const map = {};
     for (const provider of STATUS_PROVIDERS) {
       const providerRows = grouped[provider] || [];
       const primary = providerRows[0];
+      let connected = providerRows.length > 0;
+      let accountEmail = primary?.accountEmail || undefined;
+      let accountName = primary?.accountName || undefined;
+
+      // Fallback to legacy UserOAuthTokens when IntegrationConnection row is missing
+      if (!connected && legacyOauth) {
+        if (provider === 'gmail' && legacyOauth.gmailConnected && legacyOauth.googleAccessToken) {
+          connected = true;
+          accountEmail = legacyOauth.googleEmail || accountEmail;
+        }
+        if (
+          (provider === 'google-calendar' || provider === 'google-meet') &&
+          legacyOauth.googleCalConnected &&
+          legacyOauth.googleAccessToken
+        ) {
+          connected = true;
+          accountEmail = legacyOauth.googleEmail || accountEmail;
+        }
+        if (provider === 'outlook' && legacyOauth.outlookConnected && legacyOauth.microsoftAccessToken) {
+          connected = true;
+          accountEmail = legacyOauth.microsoftEmail || accountEmail;
+        }
+        if (
+          provider === 'microsoft-teams' &&
+          legacyOauth.teamsConnected &&
+          legacyOauth.microsoftAccessToken
+        ) {
+          connected = true;
+          accountEmail = legacyOauth.microsoftEmail || accountEmail;
+        }
+      }
+
       map[provider] = {
-        connected: providerRows.length > 0,
+        connected,
         provider,
         label: PROVIDERS[provider].label,
-        accountEmail: primary?.accountEmail || undefined,
-        accountName: primary?.accountName || undefined,
+        accountEmail,
+        accountName,
         scope: Array.isArray(primary?.scope) ? primary.scope : [],
         expiresAt: primary?.expiryDate?.toISOString() || null,
         accounts: providerRows.map((row) => ({

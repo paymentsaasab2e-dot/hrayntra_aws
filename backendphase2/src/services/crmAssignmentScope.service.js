@@ -2,6 +2,10 @@ import { prisma } from '../config/prisma.js';
 import { canViewAllAssignments, hasAnyPermission } from '../utils/permissionScope.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import {
+  hqPlatformUserEmailNotClause,
+  isHqPlatformUser,
+} from '../utils/hqPlatformUser.js';
+import {
   assertCanAssignTask,
   isSuperAdminUserId,
 } from './taskAssignmentScope.service.js';
@@ -30,17 +34,16 @@ const memberSelect = {
       name: true,
     },
   },
+  credential: {
+    select: {
+      loginId: true,
+    },
+  },
 };
-
-/** HQ platform roles must never appear in tenant CRM Assigned To. */
-function isHqPlatformRole(roleName) {
-  const n = String(roleName || '').trim().toLowerCase();
-  if (!n) return false;
-  return n.startsWith('hq ') || n.includes('hq platform') || n.includes('hq team');
-}
 
 function normalizeMember(user) {
   if (!user) return null;
+  if (isHqPlatformUser(user)) return null;
   const firstName = user.firstName || '';
   const lastName = user.lastName || '';
   const name =
@@ -50,7 +53,6 @@ function normalizeMember(user) {
     'User';
   const nameParts = String(name).split(/\s+/).filter(Boolean);
   const role = user.systemRole || null;
-  if (isHqPlatformRole(role?.roleName)) return null;
   return {
     id: user.id,
     firstName: firstName || nameParts[0] || '',
@@ -122,7 +124,11 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null } = {}
         hasAnyPermission(req, ['all', 'view_all_clients', 'view_all_leads'])));
 
   const actorDeptId = idStr(actor.departmentId);
-  const clauses = [{ OR: [{ status: 'ACTIVE' }, { status: null }] }];
+  const emailExclude = hqPlatformUserEmailNotClause();
+  const clauses = [
+    { OR: [{ status: 'ACTIVE' }, { status: null }] },
+    ...(Object.keys(emailExclude).length ? [emailExclude] : []),
+  ];
 
   // Super Admin: same scope as Team page (self + credentials they created).
   if (isSuperAdmin) {

@@ -1,5 +1,6 @@
-export type PreScreenAssessmentType = 'MCQ' | 'CODING' | 'ESSAY' | 'VIDEO';
-export type AssessmentSessionTiming = 'AFTER_APPLY' | 'BEFORE_SUBMIT';
+export type PreScreenAssessmentType = 'MCQ' | 'CODING' | 'ESSAY' | 'VIDEO' | 'QUESTIONNAIRE';
+/** Pre-screen tests always run before the candidate submits the application. */
+export type AssessmentSessionTiming = 'BEFORE_SUBMIT';
 
 export interface McqOption {
   id: string;
@@ -13,6 +14,8 @@ export interface McqQuestion {
   correctOptionId: string;
   marks?: number;
 }
+
+export type QuestionnaireQuestionKind = 'TEXT' | 'MCQ';
 
 export interface PreScreenAssessment {
   id: string;
@@ -43,4 +46,5 @@ export const ASSESSMENT_TYPE_LABELS: Record<PreScreenAssessmentType, string> = {
   CODING: 'Coding',
   ESSAY: 'Essay',
   VIDEO: 'Video',
+  QUESTIONNAIRE: 'Questionnaire',
 };

@@ -44,7 +44,6 @@ import { Toaster, toast } from 'sonner';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import { JobDetailsDrawer, type JobForDrawer, type JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
-import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import { JobAiCreateWizard } from '../../components/jobs/JobAiCreateWizard';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
@@ -82,7 +81,7 @@ import {
   apiUpdateCandidateInterview,
   apiUpdateCandidateNote,
   apiUpdateJob,
-  apiCreateInterview,
+  apiMoveCandidateStage,
   emitNotificationsUpdated,
   apiGetUsers,
   apiGetJobStatusCatalog,
@@ -113,9 +112,11 @@ import { useDrawerPortalDropdownPosition } from '../../components/drawers/drawer
 import type { Candidate } from '../candidate/components/CandidateTable';
 import {
   CandidateProfileDrawer,
+  ScheduleInterviewModal as CandidateScheduleInterviewModal,
   type CandidateInterviewerOption,
   type CandidatePipelineJobOption,
   type CandidateProfileDrawerData,
+  type CandidateScheduledInterview,
   type CandidateTagItem,
 } from '../../components/drawers/CandidateProfileDrawer';
 import {
@@ -145,13 +146,7 @@ import {
   resolveJobCandidateDisplayStage,
   resolveJobCandidateStageFromMatchRow,
 } from '../../lib/jobAppliedMatches';
-import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend } from '../../lib/interview-schedule-helpers';
-import type {
-  InterviewCandidate,
-  InterviewJob,
-  InterviewPanelMember,
-  ScheduleInterviewPayload,
-} from '../../types/interview.types';
+import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -886,7 +881,7 @@ const JobsListView = ({
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Team Member</span>
                     <span className="text-xs text-slate-700">{job.owner}</span>
-                    <span className="text-[10px] text-slate-500">{job.createdDate}</span>
+                    <span className="text-[10px] text-slate-500">{formatDateDMY(job.createdDate)}</span>
               </div>
             </td>
                 {showAiAlertColumn ? (
@@ -1307,6 +1302,12 @@ export default function JobsPage() {
   const [scheduleInterviewOpen, setScheduleInterviewOpen] = useState(false);
   const [schedulePrefill, setSchedulePrefill] = useState<{ candidateId: string; jobId: string } | null>(null);
   const [scheduleInterviewers, setScheduleInterviewers] = useState<InterviewPanelMember[]>([]);
+  const [pendingStageAfterInterview, setPendingStageAfterInterview] = useState<{
+    candidateId: string;
+    jobId: string;
+    stageId: string;
+    stageName: string;
+  } | null>(null);
   const [statusEdit, setStatusEdit] = useState<{
     jobId: string | null;
     newStatus: JobStatus | null;
@@ -2056,27 +2057,42 @@ export default function JobsPage() {
     [activeJobForCandidateDrawer, loadCandidateProfileInJobContext],
   );
 
-  const scheduleModalCandidates = useMemo<InterviewCandidate[]>(
-    () =>
-      jobCandidates.map((c) => ({
-        id: c.id,
-        name: c.candidateName,
-        email: (c.email && c.email.trim()) || '—',
-      })),
-    [jobCandidates]
-  );
-
-  const scheduleModalJobs = useMemo<InterviewJob[]>(() => {
+  const scheduleModalJobs = useMemo<CandidatePipelineJobOption[]>(() => {
     const j = jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null);
     if (!j?.id) return [];
-    return [{ id: j.id, title: j.title, client: j.client, clientId: j.clientId }];
+    return [
+      {
+        id: j.id,
+        title: j.title,
+        clientId: j.clientId || null,
+        clientName: j.client || null,
+      },
+    ];
   }, [jobDetails, selectedJob]);
 
+  const schedulePopupCandidate = useMemo(() => {
+    if (!schedulePrefill) return null;
+    const row = jobCandidates.find((c) => c.id === schedulePrefill.candidateId);
+    const job = jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null);
+    return {
+      id: schedulePrefill.candidateId,
+      name: row?.candidateName || 'Candidate',
+      phone: row?.phone || null,
+      stage: row?.currentStage || null,
+      assignedJob: job?.title || null,
+      assignedJobId: schedulePrefill.jobId,
+    };
+  }, [schedulePrefill, jobCandidates, jobDetails, selectedJob]);
+
   const openScheduleInterviewFromJob = useCallback(
-    async (candidateId: string, jobId: string) => {
+    async (
+      candidateId: string,
+      jobId: string,
+      pendingStage?: { stageId: string; stageName: string },
+    ) => {
       if (!canCreateInterview) return;
       try {
-        const response = await apiGetUsers({ isActive: true, limit: 100 });
+        const response = await apiGetUsers({ assignable: true, isActive: true, limit: 100 });
         const raw = (response as any).data;
         const users = unwrapCollection<BackendUser>(raw);
         setScheduleInterviewers(mapUsersToInterviewPanel(users));
@@ -2085,56 +2101,88 @@ export default function JobsPage() {
         setScheduleInterviewers([]);
       }
       setSchedulePrefill({ candidateId, jobId });
+      if (pendingStage) {
+        setPendingStageAfterInterview({
+          candidateId,
+          jobId,
+          stageId: pendingStage.stageId,
+          stageName: pendingStage.stageName,
+        });
+      } else {
+        setPendingStageAfterInterview(null);
+      }
       setScheduleInterviewOpen(true);
     },
     [canCreateInterview]
   );
 
+  const closeScheduleInterviewFromJob = useCallback(() => {
+    setScheduleInterviewOpen(false);
+    setSchedulePrefill(null);
+    // Cancel without scheduling — do not change stage.
+    setPendingStageAfterInterview(null);
+  }, []);
+
   const handleJobDrawerScheduleInterview = useCallback(
-    async (payload: ScheduleInterviewPayload) => {
-      const jobRow = scheduleModalJobs.find((item) => item.id === payload.jobId);
-      const clientId = jobRow?.clientId || payload.clientId;
-      if (!clientId) {
-        toast.error('This job is not linked to a client in the CRM.');
-        throw new Error('Missing client');
-      }
+    async (interviewData: CandidateScheduledInterview) => {
       try {
-        await apiCreateInterview({
-          candidateId: payload.candidateId,
-          jobId: payload.jobId,
-          clientId,
-          round: payload.round.toUpperCase(),
-          type: mapInterviewUiTypeToBackend(payload.type),
-          mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
-          date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
-          duration: payload.duration,
-          timezone: payload.timezone,
-          meetingPlatform:
-            payload.mode === 'Online'
-              ? payload.meetingPlatform === 'Google Meet'
-                ? 'GOOGLE_MEET'
-                : payload.meetingPlatform === 'MS Teams'
-                ? 'MS_TEAMS'
-                : 'ZOOM'
-              : null,
-          location: payload.mode === 'Offline' ? payload.location : undefined,
-          panelUserIds: payload.panelIds,
-          panelRoles: Object.fromEntries(payload.panelIds.map((id) => [id, 'TECHNICAL'])),
-          notes: payload.notes,
-          sendCalendarInvite: payload.sendCalendarInvite,
-          sendEmailNotification: payload.sendEmailNotification,
-          sendWhatsappReminder: payload.sendWhatsAppReminder,
-        });
+        await apiScheduleCandidateInterview(interviewData.candidateId, {
+          jobId: interviewData.jobId,
+          clientId: interviewData.clientId || undefined,
+          type: interviewData.type,
+          round: interviewData.round,
+          date: interviewData.date,
+          time: interviewData.time,
+          duration: interviewData.duration,
+          timezone: interviewData.timezone,
+          mode: interviewData.mode,
+          platform:
+            interviewData.platform === 'Google Meet'
+              ? 'GOOGLE_MEET'
+              : interviewData.platform === 'Zoom'
+                ? 'ZOOM'
+                : null,
+          meetingLink: interviewData.meetingLink,
+          location: interviewData.location,
+          phoneNumber: interviewData.phoneNumber,
+          interviewers: interviewData.interviewers,
+          notes: interviewData.notes,
+          sendCandidateInvite: interviewData.sendCandidateInvite,
+          sendInterviewerInvite: interviewData.sendInterviewerInvite,
+          status: interviewData.status,
+        } as any);
       } catch (error: any) {
         toast.error(error?.message || 'Unable to schedule interview');
         throw error;
       }
       toast.success('Interview scheduled successfully');
       emitNotificationsUpdated();
+
+      // Apply Interviewing stage only after the interview is actually scheduled.
+      const pending = pendingStageAfterInterview;
+      if (pending) {
+        try {
+          await apiMoveCandidateStage(pending.jobId, {
+            candidateId: pending.candidateId,
+            stageId: pending.stageId,
+          });
+        } catch (stageError: any) {
+          console.error('Failed to apply stage after interview schedule:', stageError);
+          toast.error(stageError?.message || 'Interview scheduled, but stage could not be updated');
+        } finally {
+          setPendingStageAfterInterview(null);
+        }
+      }
+
       const jid = jobDetails?.id || selectedJob?.id;
       if (jid) await refreshJobCandidates(jid);
     },
-    [scheduleModalJobs, jobDetails?.id, selectedJob?.id, refreshJobCandidates]
+    [
+      jobDetails?.id,
+      selectedJob?.id,
+      refreshJobCandidates,
+      pendingStageAfterInterview,
+    ]
   );
 
   useEffect(() => {
@@ -2712,6 +2760,7 @@ export default function JobsPage() {
           setJobCandidates([]);
           setScheduleInterviewOpen(false);
           setSchedulePrefill(null);
+          setPendingStageAfterInterview(null);
           if (searchParams.get('jobId')) {
             const sp = new URLSearchParams(searchParams.toString());
             sp.delete('jobId');
@@ -2771,6 +2820,18 @@ export default function JobsPage() {
         }
         pipelineRecruiters={[]}
         onScheduleInterview={canCreateInterview ? openScheduleInterviewFromJob : undefined}
+        onCreatePlacement={(candidateId, jobId, pendingStage) => {
+          const params = new URLSearchParams({
+            create: '1',
+            candidateId,
+            jobId,
+          });
+          if (pendingStage?.stageId) {
+            params.set('pendingStageId', pendingStage.stageId);
+            params.set('pendingStageName', pendingStage.stageName);
+          }
+          router.push(`/placement?${params.toString()}`);
+        }}
         onRejectCandidate={canUpdateJob ? (candidateId, jobId) => { /* TODO: reject candidate */ } : undefined}
         onViewCandidateProfile={openJobDrawerCandidateView}
         onEditCandidate={canUpdateCandidate ? openJobDrawerCandidateEdit : undefined}
@@ -2846,6 +2907,7 @@ export default function JobsPage() {
                   date: interviewData.date,
                   time: interviewData.time,
                   duration: interviewData.duration,
+                  timezone: interviewData.timezone,
                   mode: interviewData.mode,
                   platform:
                     interviewData.platform === 'Google Meet'
@@ -3026,18 +3088,15 @@ export default function JobsPage() {
 
       {submitModalElement}
 
-      <ScheduleInterviewModal
+      <CandidateScheduleInterviewModal
         isOpen={scheduleInterviewOpen}
-        candidates={scheduleModalCandidates}
+        candidate={schedulePopupCandidate}
+        linkedJobTitle={schedulePopupCandidate?.assignedJob || undefined}
+        initialJobId={schedulePrefill?.jobId ?? null}
         jobs={scheduleModalJobs}
-        interviewers={scheduleInterviewers}
-        prefillCandidateId={schedulePrefill?.candidateId ?? null}
-        prefillJobId={schedulePrefill?.jobId ?? null}
-        lockJob
-        onClose={() => {
-          setScheduleInterviewOpen(false);
-          setSchedulePrefill(null);
-        }}
+        interviewers={candidateDrawerInterviewers}
+        existingInterviews={[]}
+        onClose={closeScheduleInterviewFromJob}
         onSchedule={handleJobDrawerScheduleInterview}
       />
 

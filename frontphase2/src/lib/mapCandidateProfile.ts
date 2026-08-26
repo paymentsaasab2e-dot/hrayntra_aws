@@ -20,6 +20,11 @@ import type { CandidateProfileDrawerData } from '../components/drawers/Candidate
 import type { MatchCandidate } from '../components/matches/types';
 import { extractAuditMeta } from '../utils/auditMeta';
 import { normalizeCandidateSkillLabels } from './normalizeCandidateSkills';
+import { DEFAULT_INTERVIEW_TIMEZONE } from '../utils/inferTimezone';
+import {
+  formatInterviewTimeInTimezone,
+  getInterviewDateInputYmd,
+} from './interview-schedule-helpers';
 
 export function isValidObjectId(id: string): boolean {
   return typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id.trim());
@@ -719,7 +724,11 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     activity: c.activityFeed?.length ? c.activityFeed : fallbackActivityItems,
     scheduledInterviews: (c.interviews || [])
       .filter((interview) => Boolean(interview.scheduledAt))
-      .map((interview, index) => ({
+      .map((interview, index) => {
+        const timezone =
+          (interview as BackendCandidateInterview).timezone || DEFAULT_INTERVIEW_TIMEZONE;
+        const scheduledAt = interview.scheduledAt || '';
+        return {
         id: interview.id,
         candidateId: c.id,
         jobId: interview.job?.id || latestMatch?.job?.id || null,
@@ -728,14 +737,10 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
         // If older records stored numeric rounds, we still fall back safely.
         type: interview.round || (interview as any).type || interview.status || 'Interview',
         round: index + 1,
-        date: (interview.scheduledAt || '').split('T')[0] || '',
-        time: interview.scheduledAt
-          ? new Date(interview.scheduledAt).toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-            })
-          : '',
+        date: scheduledAt ? getInterviewDateInputYmd(scheduledAt, timezone) : '',
+        time: scheduledAt ? formatInterviewTimeInTimezone(scheduledAt, timezone) : '',
         duration: interview.duration ? `${interview.duration} mins` : '1 hour',
+        timezone,
         mode:
           interview.mode === 'in-person'
             ? 'in-person'
@@ -765,7 +770,8 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
             : String(interview.status || '').toUpperCase() === 'CANCELLED'
               ? 'cancelled'
               : 'scheduled',
-      })),
+      };
+      }),
     aiScore: {
       overall:
         typeof backendAi?.overall === 'number' && Number.isFinite(backendAi.overall)

@@ -469,7 +469,7 @@
   background-clip: padding-box;
 }
 
-/* CRM list tables — vertical scroll in-panel; hide native X bar when a dock is used */
+/* CRM list tables — vertical scroll in-panel */
 .ph2-table-body-scroll,
 .leads-table-body-scroll {
   scrollbar-width: thin;
@@ -477,7 +477,12 @@
   overscroll-behavior: contain;
 }
 
-.ph2-table-body-scroll::-webkit-scrollbar,
+.ph2-table-body-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+/* Leads hides native X bar — horizontal scroll uses `.leads-hscroll-dock` instead */
 .leads-table-body-scroll::-webkit-scrollbar {
   width: 8px;
   height: 0;

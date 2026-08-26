@@ -468,7 +468,7 @@ export default function MatchesPage() {
     try {
       const [jobsResponse, usersResponse, clientsResponse] = await Promise.all([
         apiGetJobs({ status: 'OPEN', limit: 100 }),
-        apiGetUsers({ role: 'RECRUITER', isActive: true, limit: 100 }),
+        apiGetUsers({ assignable: true, role: 'RECRUITER', isActive: true, limit: 100 }),
         apiGetClients({ page: 1, limit: 500, includeContacts: true }),
       ]);
 
