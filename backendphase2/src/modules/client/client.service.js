@@ -25,6 +25,10 @@ import {
 import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
 import { applyMemberClientScope } from '../../services/clientMemberScope.service.js';
 import {
+  mergeOrgCompanyListScope,
+  resolveWriteOrgUnitId,
+} from '../../services/orgListScope.service.js';
+import {
   buildInitialParticipantIds,
   stampVisibilityOnAssigneeChange,
 } from '../../services/memberVisibility.service.js';
@@ -491,6 +495,10 @@ export const clientService = {
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let scopedWhere = mergeWhereWithScope(where, superAdminScope);
     scopedWhere = await applyMemberClientScope(scopedWhere, req);
+    scopedWhere = await mergeOrgCompanyListScope(scopedWhere, req, {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+    });
 
     if (ids) {
       const idList = String(ids)
@@ -873,6 +881,9 @@ export const clientService = {
         delete clientData[key];
       }
     });
+
+    const writeOrgUnitId = req ? await resolveWriteOrgUnitId(req).catch(() => null) : null;
+    if (writeOrgUnitId) clientData.orgUnitId = writeOrgUnitId;
 
     // Log data being stored
     dbLogger.logCreate('CLIENT', clientData);

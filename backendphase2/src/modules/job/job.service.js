@@ -18,6 +18,7 @@ import {
   getRequestOrgScope,
   isOrgHeadPurpose,
   mergeOrgCompanyListScope,
+  resolveWriteOrgUnitId,
 } from '../../services/orgListScope.service.js';
 import {
   buildAssigneeVisibilityOr,
@@ -1433,7 +1434,7 @@ export const jobService = {
     return enrichJobWithAssessments(withAudit);
   },
 
-  async create(data, createdByUserId) {
+  async create(data, createdByUserId, req = null) {
     await assertCanCreateJob();
 
     // Utility function to remove undefined values
@@ -1528,6 +1529,9 @@ export const jobService = {
       createdByUserId,
       data.assignedToId,
     );
+
+    const writeOrgUnitId = req ? await resolveWriteOrgUnitId(req).catch(() => null) : null;
+    if (writeOrgUnitId) jobData.orgUnitId = writeOrgUnitId;
 
     // Log data being stored
     dbLogger.logCreate('JOB', jobData);

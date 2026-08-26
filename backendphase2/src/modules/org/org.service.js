@@ -255,21 +255,8 @@ export async function resolveViewerOrgScope(req) {
     if (forced && userId && !memberIds.includes(userId)) {
       memberIds = [userId, ...memberIds];
     } else if (canSwitchCompanies && userId && !memberIds.includes(userId)) {
-      // Do not inject HQ Super Admin into every company — that made an empty
-      // Company B show Company A's jobs/leads (createdBy / assignedTo HQ).
-      // If HQ never assigned themselves and exactly one company received the
-      // existing workspace people, fold HQ into that company only.
-      const root = await prisma.orgUnit.findFirst({
-        where: { parentId: null },
-        select: { id: true },
-      });
-      const viewerOnHq = !homeId || (root && homeId === String(root.id));
-      if (viewerOnHq && memberIds.length) {
-        const populated = await populatedCompanyIds();
-        if (populated.length === 1 && populated[0] === String(scopeUnitId)) {
-          memberIds = [userId, ...memberIds];
-        }
-      }
+      // Never inject HQ Super Admin into a selected company. Empty Company B must
+      // stay empty — SA rows (createdBy/assignedTo) belong to HQ / other companies.
     }
   }
 
