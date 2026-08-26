@@ -12,6 +12,7 @@ import {
   apiCreateOrgUnit,
   apiDeleteOrgUnit,
   apiOrgTree,
+  apiStampUntaggedToOrgUnit,
   type OrgUnitNode,
 } from '../../lib/org/orgApi';
 
@@ -138,6 +139,7 @@ function UnitCard({
   onAddChild,
   onDelete,
   onAdopt,
+  onStampData,
 }: {
   unit: OrgUnitNode;
   canWrite: boolean;
@@ -146,6 +148,7 @@ function UnitCard({
   onAddChild: (parentId: string) => void;
   onDelete: (id: string) => void;
   onAdopt: (id: string) => void;
+  onStampData: (id: string) => void;
 }) {
   const isHq = !unit.parentId;
   const isCompany = unit.levelOrder === 2 && !unit.isLeaf;
@@ -190,6 +193,15 @@ function UnitCard({
           {isTenantAdmin && !isHq ? (
             <button
               type="button"
+              onClick={() => onStampData(unit.id)}
+              className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px] font-medium text-emerald-800 hover:bg-emerald-100"
+            >
+              Assign existing users & data here
+            </button>
+          ) : null}
+          {isTenantAdmin && !isHq ? (
+            <button
+              type="button"
               onClick={() => onDelete(unit.id)}
               className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-[12px] font-medium text-rose-700 hover:bg-rose-50"
             >
@@ -226,6 +238,7 @@ function UnitCard({
               onAddChild={onAddChild}
               onDelete={onDelete}
               onAdopt={onAdopt}
+              onStampData={onStampData}
             />
           ))}
         </div>
@@ -377,8 +390,8 @@ export default function OrganizationPage() {
         newUserPurpose: unitKind === 'site' ? 'site_head' : 'company_head',
       });
       toast.success(
-        created?.attachedCount
-          ? `Created · ${created.attachedCount} people moved in with their work`
+        created?.attachedCount || created?.stamped
+          ? `Created · ${created?.attachedCount || 0} people and their work linked to this ${unitKind === 'site' ? 'branch' : 'company'} id`
           : unitKind === 'site'
             ? 'Branch created'
             : 'Company created',
@@ -413,17 +426,41 @@ export default function OrganizationPage() {
   const adoptInto = async (id: string) => {
     if (
       !window.confirm(
-        'Move people who are still on this tenant (not in a company) into this unit? Super Admin stays at HQ. Their leads, jobs, and clients go with them.',
+        'Move people who are still on this tenant (not in a company) into this unit? Super Admin stays at HQ. Untagged jobs, leads, clients, and candidates will also be assigned to this company id.',
       )
     ) {
       return;
     }
     try {
       const result = await apiAdoptWorkspace(id);
-      toast.success(`Moved ${result.attachedCount} people into ${result.name}`);
+      const stamped = result.stamped;
+      const stampNote = stamped
+        ? ` Also linked ${stamped.jobs} jobs, ${stamped.leads} leads, ${stamped.clients} clients, ${stamped.candidates} candidates.`
+        : '';
+      toast.success(`Moved ${result.attachedCount} people into ${result.name}.${stampNote}`);
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not move workspace');
+    }
+  };
+
+  const stampDataInto = async (id: string) => {
+    if (
+      !window.confirm(
+        'Assign leftover team members and all untagged jobs, leads, clients, and candidates to this company/branch id? Both users and data get the same id so switching companies shows separate sets. Super Admin stays at HQ.',
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await apiStampUntaggedToOrgUnit(id);
+      const s = result.stamped;
+      toast.success(
+        `${result.name}: ${result.attachedCount || 0} people · ${s.jobs} jobs · ${s.leads} leads · ${s.clients} clients · ${s.candidates} candidates`,
+      );
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not assign users and data');
     }
   };
 
@@ -562,6 +599,7 @@ export default function OrganizationPage() {
                 onAddChild={promptAddChild}
                 onDelete={(id) => void removeUnit(id)}
                 onAdopt={(id) => void adoptInto(id)}
+                onStampData={(id) => void stampDataInto(id)}
               />
             ) : (
               <p className="text-sm text-slate-500">Nothing here yet.</p>

@@ -56,6 +56,7 @@ import {
   applyOrgCompanyAssigneeWhere,
   getRequestOrgScope,
   isOrgHeadPurpose,
+  resolveWriteOrgUnitId,
 } from '../../services/orgListScope.service.js';
 import {
   buildAssigneeVisibilityOr,
@@ -3476,7 +3477,7 @@ export const candidateService = {
     );
   },
 
-  async create(data, createdByUserId) {
+  async create(data, createdByUserId, req = null) {
     const candidateData = {
       firstName: data.firstName,
       lastName: data.lastName,
@@ -3521,6 +3522,9 @@ export const candidateService = {
       createdById: createdByUserId || undefined,
       participantIds: buildInitialParticipantIds(createdByUserId, data.assignedToId),
     };
+
+    const writeOrgUnitId = await resolveWriteOrgUnitId(req);
+    if (writeOrgUnitId) candidateData.orgUnitId = writeOrgUnitId;
 
     // Log data being stored
     dbLogger.logCreate('CANDIDATE', candidateData);

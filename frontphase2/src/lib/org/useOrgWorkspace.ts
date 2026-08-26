@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { apiDashboardAccess } from '@/lib/dashboard/api';
 import type { OrgCompanyOption } from '@/lib/dashboard/api';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
+  clearActiveOrgUnit,
   getActiveOrgUnitId,
   getActiveOrgUnitName,
   ORG_WORKSPACE_EVENT,
@@ -11,11 +13,16 @@ import {
 } from './orgWorkspaceStorage';
 
 export function useOrgWorkspace() {
+  const { isSuperAdmin, hasPermission } = usePermissions();
   const [orgUnitId, setOrgUnitId] = useState('');
   const [orgUnitName, setOrgUnitName] = useState('');
   const [companies, setCompanies] = useState<OrgCompanyOption[]>([]);
   const [canSwitchCompanies, setCanSwitchCompanies] = useState(false);
   const [purpose, setPurpose] = useState('member');
+  const [accessLoaded, setAccessLoaded] = useState(false);
+
+  const localMaySwitch =
+    isSuperAdmin() || hasPermission('switch_companies') || hasPermission('all');
 
   useEffect(() => {
     const sync = () => {
@@ -33,26 +40,46 @@ export function useOrgWorkspace() {
       .then((data) => {
         if (cancelled) return;
         const org = data?.org;
-        setCanSwitchCompanies(Boolean(org?.canSwitchCompanies));
-        setCompanies(org?.companies || []);
+        const serverAllows = Boolean(org?.canSwitchCompanies);
+        const allowed = Boolean(serverAllows && localMaySwitch);
+        setCanSwitchCompanies(allowed);
+        setCompanies(allowed ? org?.companies || [] : []);
         setPurpose(String(org?.hierarchyPurpose || 'member'));
+        setAccessLoaded(true);
+
+        if (!allowed) {
+          if (getActiveOrgUnitId()) clearActiveOrgUnit({ reload: false });
+          setOrgUnitId('');
+          const homeLabel =
+            String(org?.homeOrgUnitName || '').trim() ||
+            getActiveOrgUnitName();
+          setOrgUnitName(homeLabel);
+          return;
+        }
+
         const saved = getActiveOrgUnitId();
         if (saved) {
           const match = (org?.companies || []).find((c) => c.id === saved);
           if (match?.name) setOrgUnitName(match.name);
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) {
+          setCanSwitchCompanies(false);
+          setCompanies([]);
+          setAccessLoaded(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [localMaySwitch]);
 
   return {
     orgUnitId,
     orgUnitName,
     companies,
-    canSwitchCompanies,
+    canSwitchCompanies: accessLoaded ? canSwitchCompanies : false,
     purpose,
     setActiveOrgUnit,
   };

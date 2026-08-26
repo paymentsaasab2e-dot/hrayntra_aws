@@ -45,6 +45,7 @@ export async function apiOrgTree() {
 
 export type OrgUnitCreateResult = OrgUnitNode & {
   attachedCount?: number;
+  stamped?: { jobs: number; leads: number; clients: number; candidates: number };
   createdUser?: { id: string; email?: string; name?: string } | null;
   credentialData?: { loginId?: string; tempPassword?: string } | null;
 };
@@ -94,10 +95,29 @@ export async function apiDeleteOrgUnit(id: string) {
 }
 
 export async function apiAdoptWorkspace(orgUnitId: string) {
-  const res = await apiFetch<{ id: string; name: string; attachedCount: number }>(
-    `/org-units/${encodeURIComponent(orgUnitId)}/adopt-workspace`,
-    { auth: true, method: 'POST' },
-  );
+  const res = await apiFetch<{
+    id: string;
+    name: string;
+    attachedCount: number;
+    stamped?: { jobs: number; leads: number; clients: number; candidates: number };
+  }>(`/org-units/${encodeURIComponent(orgUnitId)}/adopt-workspace`, {
+    auth: true,
+    method: 'POST',
+  });
+  return res.data;
+}
+
+/** Attach existing untagged jobs/leads/clients/candidates AND leftover users to this company id. */
+export async function apiStampUntaggedToOrgUnit(orgUnitId: string) {
+  const res = await apiFetch<{
+    id: string;
+    name: string;
+    attachedCount?: number;
+    stamped: { jobs: number; leads: number; clients: number; candidates: number };
+  }>(`/org-units/${encodeURIComponent(orgUnitId)}/stamp-untagged`, {
+    auth: true,
+    method: 'POST',
+  });
   return res.data;
 }
 

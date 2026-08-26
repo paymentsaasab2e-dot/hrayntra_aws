@@ -22,14 +22,16 @@ export function isOrgCompanyScoped(scope) {
 }
 
 /**
- * Restrict lists to people in the active company/site (and descendants).
- * Super Admin keeps full module rights; only the record set is filtered.
+ * Company / site id to stamp on new CRM/recruitment rows when Super Admin (or a
+ * company head) is operating inside a selected org unit.
  */
-export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
+export async function resolveWriteOrgUnitId(req) {
   const scope = await getRequestOrgScope(req);
   if (!isOrgCompanyScoped(scope)) return null;
+  return String(scope.orgUnitId);
+}
 
-  const ids = scope.memberIds?.length ? scope.memberIds.map(String) : [NONE];
+function buildPeopleOr(ids, options) {
   const {
     assignedToIdField = 'assignedToId',
     assignedToIdsField = null,
@@ -37,7 +39,6 @@ export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
     extraHasField = null,
     extraIdField = null,
   } = options;
-
   const or = [];
   if (assignedToIdField) or.push({ [assignedToIdField]: { in: ids } });
   if (extraIdField) or.push({ [extraIdField]: { in: ids } });
@@ -48,7 +49,61 @@ export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
   if (extraHasField) {
     for (const id of ids) or.push({ [extraHasField]: { has: id } });
   }
-  return or.length ? { OR: or } : null;
+  return or;
+}
+
+/**
+ * Restrict lists to the active company/site tree.
+ * Primary filter: record.orgUnitId in selected unit + descendants.
+ * Legacy fallback: untagged rows (null orgUnitId) still owned by people in that company.
+ * Empty companies with no stamped rows stay empty.
+ */
+export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
+  const scope = await getRequestOrgScope(req);
+  if (!isOrgCompanyScoped(scope)) return null;
+
+  const {
+    orgUnitField = 'orgUnitId',
+    ...peopleOptions
+  } = options;
+
+  const unitIds = scope.unitIds?.length ? scope.unitIds.map(String) : [NONE];
+  const memberIds = scope.memberIds?.length ? scope.memberIds.map(String) : [];
+
+  const or = [];
+
+  if (orgUnitField) {
+    or.push({ [orgUnitField]: { in: unitIds } });
+  }
+
+  // Untagged legacy rows: only when this company has assigned people.
+  if (orgUnitField && memberIds.length) {
+    const peopleOr = buildPeopleOr(memberIds, peopleOptions);
+    if (peopleOr.length) {
+      or.push({
+        AND: [
+          {
+            OR: [
+              { [orgUnitField]: null },
+              { [orgUnitField]: { isSet: false } },
+            ],
+          },
+          { OR: peopleOr },
+        ],
+      });
+    }
+  } else if (!orgUnitField && memberIds.length) {
+    const peopleOr = buildPeopleOr(memberIds, peopleOptions);
+    if (peopleOr.length) or.push(...peopleOr);
+  }
+
+  if (!or.length) {
+    return orgUnitField
+      ? { [orgUnitField]: { in: [NONE] } }
+      : { OR: [{ [peopleOptions.assignedToIdField || 'assignedToId']: { in: [NONE] } }] };
+  }
+
+  return { OR: or };
 }
 
 export async function mergeOrgCompanyListScope(where, req, options) {

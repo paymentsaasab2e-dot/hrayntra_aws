@@ -26,7 +26,7 @@ export const candidateController = {
 
   async create(req, res) {
     try {
-      const candidate = await candidateService.create(req.body, req.user?.id);
+      const candidate = await candidateService.create(req.body, req.user?.id, req);
       sendResponse(res, 201, 'Candidate created successfully', candidate);
     } catch (error) {
       sendError(res, 400, error.message, error);

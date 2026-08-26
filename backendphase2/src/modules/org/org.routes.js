@@ -15,6 +15,7 @@ router.get('/tree', orgRead, orgController.tree);
 router.post('/', orgWrite, orgController.create);
 router.post('/assign', orgWrite, orgController.assign);
 router.post('/:id/adopt-workspace', orgWrite, orgController.adopt);
+router.post('/:id/stamp-untagged', orgWrite, orgController.stampUntagged);
 router.patch('/:id', orgWrite, orgController.update);
 router.delete('/:id', requireAnyPermission(['org_structure']), orgController.remove);
 

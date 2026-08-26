@@ -14,6 +14,7 @@ import {
   Bell,
   History,
   Percent,
+  FileText,
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
 
@@ -73,6 +74,13 @@ const baseSettingsNav: SettingsNavItem[] = [
     id: 'billing',
     label: 'Subscription & Plan',
     icon: CreditCard,
+  },
+  {
+    id: 'invoice-template',
+    label: 'Invoice template',
+    icon: FileText,
+    anyPermissions: ['manage_billing_settings', 'access_billing', 'create_invoice', 'manage_settings'],
+    requiresBillingNav: true,
   },
   {
     id: 'security',

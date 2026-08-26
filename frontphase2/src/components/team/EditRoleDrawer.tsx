@@ -7,6 +7,7 @@ import { updateRole } from '../../lib/api/teamApi';
 import type { SystemRole, Permission } from '../../types/team';
 import {
   buildFallbackPermissionsMap,
+  isDashboardHiddenTickPermission,
   mergePermissionMaps,
   RBAC_CATALOG_TOTAL,
 } from './permissionCatalog';
@@ -118,16 +119,18 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
 
   const handleModuleSelectAll = (module: string) => {
     if (isSuperAdmin) return; // Prevent changes for Super Admin
-    const modulePermissions = effectivePermissions[module] || [];
-    const allSelected = modulePermissions.length > 0 && modulePermissions.every((p) => formData.selectedPermissions.has(p.id));
+    const modulePermissions = (effectivePermissions[module] || []).filter(
+      (p) => !isDashboardHiddenTickPermission(p.permissionName),
+    );
+    const allSelected =
+      modulePermissions.length > 0 &&
+      modulePermissions.every((p) => formData.selectedPermissions.has(p.id));
 
     setFormData((prev) => {
       const newSet = new Set(prev.selectedPermissions);
       if (allSelected) {
-        // Deselect all
         modulePermissions.forEach((p) => newSet.delete(p.id));
       } else {
-        // Select all
         modulePermissions.forEach((p) => newSet.add(p.id));
       }
       return { ...prev, selectedPermissions: newSet };
@@ -278,6 +281,9 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
             selectedIds={formData.selectedPermissions}
             onToggle={handlePermissionToggle}
             onModuleSelectAll={handleModuleSelectAll}
+            onSelectionChange={(next) =>
+              setFormData((prev) => ({ ...prev, selectedPermissions: next }))
+            }
             disabled={isSuperAdmin}
           />
         </div>

@@ -309,9 +309,19 @@ export type DashboardOrgScope = {
   memberIds?: string[];
 };
 
+export type DashboardLevel = 'self' | 'department' | 'company' | 'tenant';
+
 export type DashboardStatsAccess = {
+  /** Data scope for CRM/Rec numbers (separate from which tabs are visible). */
+  dashboardLevel?: DashboardLevel;
   statsScope: 'full' | 'self';
   canFullStats: boolean;
+  /** Human label for banner, e.g. "Sales department" / "all companies". */
+  scopeLabel?: string;
+  /** User ids included for this level; omit/null means whole tenant. */
+  scopeUserIds?: string[] | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
   showMineTab: boolean;
   showMineApprovals?: boolean;
   isSuperAdmin?: boolean;

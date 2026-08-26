@@ -53,7 +53,9 @@ export function sortModules(modules: string[]): string[] {
 
 export function formatPermissionLabel(name: string): string {
   const special: Record<string, string> = {
-    dash_full_scope: 'Complete dashboard stats',
+    dash_dept_scope: 'Dashboard level: My department',
+    dash_company_scope: 'Dashboard level: This company',
+    dash_full_scope: 'Dashboard level: Whole tenant',
     dash_mine_approvals: 'My work: approvals',
   };
   if (special[name]) return special[name];
@@ -65,4 +67,95 @@ export function formatPermissionLabel(name: string): string {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+/** Scope permissions controlled by the Dashboard level dropdown (hidden from tick list). */
+export const DASHBOARD_LEVEL_PERMISSIONS = [
+  'dash_dept_scope',
+  'dash_company_scope',
+  'dash_full_scope',
+] as const;
+
+/** Hours & scores tabs follow Team tab — hidden; auto-synced when Team is ticked. */
+export const DASHBOARD_PEOPLE_FOLLOW_TEAM: Record<string, string> = {
+  dash_crm_team: 'dash_crm_people',
+  dash_rec_team: 'dash_rec_people',
+};
+
+export const DASHBOARD_HIDDEN_TICK_PERMISSIONS = [
+  ...DASHBOARD_LEVEL_PERMISSIONS,
+  'dash_crm_people',
+  'dash_rec_people',
+] as const;
+
+/** @deprecated use DASHBOARD_LEVEL_PERMISSIONS */
+export const DASHBOARD_LEVEL_PERMISSION = 'dash_full_scope';
+
+export type RoleDashboardLevelChoice = 'self' | 'department' | 'company' | 'tenant';
+
+export function isDashboardLevelPermissionName(name: string | undefined | null): boolean {
+  return Boolean(name && (DASHBOARD_LEVEL_PERMISSIONS as readonly string[]).includes(name));
+}
+
+export function isDashboardHiddenTickPermission(name: string | undefined | null): boolean {
+  return Boolean(name && (DASHBOARD_HIDDEN_TICK_PERMISSIONS as readonly string[]).includes(name));
+}
+
+export function findPermissionIdsByNames(
+  permissionsByModule: Record<string, { id?: string; permissionName?: string }[]>,
+  names: readonly string[],
+): Record<string, string> {
+  const wanted = new Set(names);
+  const out: Record<string, string> = {};
+  for (const list of Object.values(permissionsByModule || {})) {
+    for (const p of list || []) {
+      const n = String(p.permissionName || '').trim();
+      if (!wanted.has(n)) continue;
+      out[n] = String(p.id || p.permissionName || n);
+    }
+  }
+  for (const n of names) {
+    if (!out[n]) out[n] = n;
+  }
+  return out;
+}
+
+export function dashboardLevelFromSelectedIds(
+  selectedIds: Set<string>,
+  idByName?: Record<string, string>,
+): RoleDashboardLevelChoice {
+  const ids = idByName || {
+    dash_dept_scope: 'dash_dept_scope',
+    dash_company_scope: 'dash_company_scope',
+    dash_full_scope: 'dash_full_scope',
+  };
+  if (selectedIds.has(ids.dash_full_scope) || selectedIds.has('dash_full_scope')) return 'tenant';
+  if (selectedIds.has(ids.dash_company_scope) || selectedIds.has('dash_company_scope')) {
+    return 'company';
+  }
+  if (selectedIds.has(ids.dash_dept_scope) || selectedIds.has('dash_dept_scope')) {
+    return 'department';
+  }
+  return 'self';
+}
+
+export function applyDashboardLevelToSelectedIds(
+  selectedIds: Set<string>,
+  level: RoleDashboardLevelChoice,
+  idByName?: Record<string, string>,
+): Set<string> {
+  const ids = idByName || {
+    dash_dept_scope: 'dash_dept_scope',
+    dash_company_scope: 'dash_company_scope',
+    dash_full_scope: 'dash_full_scope',
+  };
+  const next = new Set(selectedIds);
+  for (const name of DASHBOARD_LEVEL_PERMISSIONS) {
+    next.delete(ids[name] || name);
+    next.delete(name);
+  }
+  if (level === 'department') next.add(ids.dash_dept_scope || 'dash_dept_scope');
+  if (level === 'company') next.add(ids.dash_company_scope || 'dash_company_scope');
+  if (level === 'tenant') next.add(ids.dash_full_scope || 'dash_full_scope');
+  return next;
 }

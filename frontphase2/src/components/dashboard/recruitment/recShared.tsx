@@ -51,7 +51,7 @@ export const REC_CATEGORY_TABS: Array<{
   {
     id: 'people',
     label: 'Hours & scores',
-    blurb: 'Each person’s hours, utilization and scores vs the standard week (unlock with coins)',
+    blurb: 'Shown with Team tab — hours & scores by dashboard level (unlock with coins)',
   },
 ];
 

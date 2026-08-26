@@ -7,6 +7,7 @@ import { NotificationTriggerSettings } from '../../components/settings/Notificat
 import { AlertsManagementSettings } from '../../components/settings/AlertsManagementSettings';
 import { RecruitmentWorkflowSettings } from '../../components/settings/RecruitmentWorkflowSettings';
 import { BillingSettings } from '../../components/BillingSettings';
+import { InvoiceTemplateSettings } from '../../components/settings/InvoiceTemplateSettings';
 import { SecuritySettings } from '../../components/SecuritySettings';
 import { CustomizationSettings } from '../../components/CustomizationSettings';
 import { ProfileSettings } from '../../components/ProfileSettings';
@@ -56,13 +57,23 @@ export default function SettingsPage() {
           return isAgencyMode && hasAnyPermission(['manage_settings']);
         case 'billing':
           return true;
+        case 'invoice-template':
+          return (
+            showBillingSection &&
+            hasAnyPermission([
+              'manage_billing_settings',
+              'access_billing',
+              'create_invoice',
+              'manage_settings',
+            ])
+          );
         case 'activity-log':
           return isSuperAdmin();
         default:
           return true;
       }
     },
-    [hasAnyPermission, isSuperAdmin, isAgencyMode],
+    [hasAnyPermission, isSuperAdmin, isAgencyMode, showBillingSection],
   );
 
   useEffect(() => {
@@ -134,6 +145,8 @@ export default function SettingsPage() {
         return <CommissionSlabSettings />;
       case 'billing':
         return <BillingSettings />;
+      case 'invoice-template':
+        return <InvoiceTemplateSettings />;
       case 'security':
         return <SecuritySettings />;
       case 'customization':
@@ -153,6 +166,7 @@ export default function SettingsPage() {
     recruitment: 'Recruitment workflow',
     'commission-slabs': 'Commission slabs',
     billing: 'Subscription & Plan',
+    'invoice-template': 'Invoice template',
     security: 'Data & Security',
     'activity-log': 'Activity Log',
     customization: 'Customization',
@@ -177,7 +191,9 @@ export default function SettingsPage() {
         <div className="min-w-0 flex-1 overflow-y-auto">
           <div
             className={`mx-auto px-6 py-8 lg:px-10 ${
-              activeSection === 'activity-log' || activeSection === 'alerts-management'
+              activeSection === 'activity-log' ||
+              activeSection === 'alerts-management' ||
+              activeSection === 'invoice-template'
                 ? 'max-w-[90rem]'
                 : 'max-w-5xl'
             }`}
@@ -200,7 +216,11 @@ export default function SettingsPage() {
 
             {renderContent()}
 
-            <footer className="mt-12 flex flex-col gap-3 border-t border-slate-200 py-8 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <footer
+              className={`flex flex-col gap-3 border-t border-slate-200 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between ${
+                activeSection === 'invoice-template' ? 'mt-4 py-4' : 'mt-12 py-8'
+              }`}
+            >
               <p>© 2026 HRYANTRA Recruitment Agency Platform. All rights reserved.</p>
               <div className="flex flex-wrap gap-4">
                 <button type="button" className="hover:text-slate-600">

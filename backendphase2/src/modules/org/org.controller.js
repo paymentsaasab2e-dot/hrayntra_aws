@@ -5,6 +5,7 @@ import {
   deleteOrgUnit,
   assignOrgMember,
   adoptWorkspaceIntoUnit,
+  stampUntaggedRecordsForUnit,
   getOrgTreeStats,
 } from './org.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
@@ -68,6 +69,15 @@ export const orgController = {
     try {
       const result = await adoptWorkspaceIntoUnit(req, req.params.id);
       sendResponse(res, 200, 'Moved tenant workspace', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async stampUntagged(req, res) {
+    try {
+      const result = await stampUntaggedRecordsForUnit(req, req.params.id);
+      sendResponse(res, 200, 'Assigned existing users and data to company', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

@@ -4,7 +4,11 @@ import React, { useEffect, useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { DepartmentRoleInput, Permission, Role } from '../../types/team';
 import { PermissionPicker } from './PermissionPicker';
-import { buildFallbackPermissionsMap, mergePermissionMaps } from './permissionCatalog';
+import {
+  buildFallbackPermissionsMap,
+  isDashboardHiddenTickPermission,
+  mergePermissionMaps,
+} from './permissionCatalog';
 
 export type DepartmentRoleDraft = {
   key: string;
@@ -503,7 +507,9 @@ function DepartmentRolePermissionsPanel({
         selectedIds={draft.permissionIds}
         onToggle={togglePermission}
         onModuleSelectAll={(module) => {
-          const modulePermissions = effectivePermissions[module] || [];
+          const modulePermissions = (effectivePermissions[module] || []).filter(
+            (p) => !isDashboardHiddenTickPermission(p.permissionName),
+          );
           const allSelected = modulePermissions.every((p) => draft.permissionIds.has(p.id));
           const next = new Set(draft.permissionIds);
           modulePermissions.forEach((p) => {
@@ -512,6 +518,7 @@ function DepartmentRolePermissionsPanel({
           });
           onUpdate({ permissionIds: next });
         }}
+        onSelectionChange={(next) => onUpdate({ permissionIds: next })}
         maxHeightClass="max-h-[min(36rem,calc(100vh-14rem))]"
       />
     </div>

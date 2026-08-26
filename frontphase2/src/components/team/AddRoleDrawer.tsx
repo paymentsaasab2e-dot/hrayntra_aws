@@ -5,7 +5,11 @@ import { Shield, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { createRole } from '../../lib/api/teamApi';
 import type { Permission } from '../../types/team';
-import { buildFallbackPermissionsMap, mergePermissionMaps } from './permissionCatalog';
+import {
+  buildFallbackPermissionsMap,
+  isDashboardHiddenTickPermission,
+  mergePermissionMaps,
+} from './permissionCatalog';
 import { PermissionPicker } from './PermissionPicker';
 import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
@@ -96,16 +100,16 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
   };
 
   const handleModuleSelectAll = (module: string) => {
-    const modulePermissions = effectivePermissions[module] || [];
+    const modulePermissions = (effectivePermissions[module] || []).filter(
+      (p) => !isDashboardHiddenTickPermission(p.permissionName),
+    );
     const allSelected = modulePermissions.every((p) => formData.selectedPermissions.has(p.id));
 
     setFormData((prev) => {
       const newSet = new Set(prev.selectedPermissions);
       if (allSelected) {
-        // Deselect all
         modulePermissions.forEach((p) => newSet.delete(p.id));
       } else {
-        // Select all
         modulePermissions.forEach((p) => newSet.add(p.id));
       }
       return { ...prev, selectedPermissions: newSet };
@@ -251,6 +255,9 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
             selectedIds={formData.selectedPermissions}
             onToggle={handlePermissionToggle}
             onModuleSelectAll={handleModuleSelectAll}
+            onSelectionChange={(next) =>
+              setFormData((prev) => ({ ...prev, selectedPermissions: next }))
+            }
           />
         </div>
       </DrawerSectionCard>

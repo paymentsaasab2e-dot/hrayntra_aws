@@ -192,6 +192,8 @@ model Client {
   status       ClientStatus @default(PROSPECT) // ACTIVE, PROSPECT, ON_HOLD, INACTIVE
   assignedToId String?      @db.ObjectId // User ID of assigned account manager/recruiter
   createdById  String?      @db.ObjectId // CRM user who created / sourced the client (still visible to them after reassignment)
+  /// Company / site (OrgUnit) this client belongs to — set from active company switcher.
+  orgUnitId    String?      @db.ObjectId
   /// Users who assigned or were previously assigned — both keep list visibility after handoff.
   participantIds String[]   @default([]) @db.ObjectId
 
@@ -296,6 +298,7 @@ model Client {
   @@index([status])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([orgUnitId])
   @@index([isDeleted])
   @@map("clients")
 }
@@ -522,6 +525,8 @@ model Candidate {
   assignedToId            String?         @db.ObjectId
   // Recruiter who created this profile (used for "my candidates" on /candidate)
   createdById             String?         @db.ObjectId
+  /// Company / site (OrgUnit) this candidate belongs to — set from active company switcher.
+  orgUnitId               String?         @db.ObjectId
   /// Prior assigners/assignees who should retain visibility after reassignment.
   participantIds          String[]        @default([]) @db.ObjectId
   rating                  Int?
@@ -582,6 +587,7 @@ model Candidate {
   @@index([status])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([orgUnitId])
   @@index([isDeleted])
   @@map("candidates")
 }
@@ -649,6 +655,8 @@ model Job {
   assignedToId             String?   @db.ObjectId
   // User who created this job (used for "my jobs" on /job)
   createdById              String?   @db.ObjectId
+  /// Company / site (OrgUnit) this job belongs to — set from active company switcher.
+  orgUnitId                String?   @db.ObjectId
   /// Prior assigners/assignees who should retain visibility after reassignment.
   participantIds         String[]  @default([]) @db.ObjectId
   openings                 Int       @default(1)
@@ -743,6 +751,7 @@ model Job {
   @@index([clientId])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([orgUnitId])
   @@index([isDeleted])
   @@index([applyLinkToken])
   @@map("jobs")
@@ -1019,6 +1028,8 @@ model Lead {
   deletedAt              DateTime?
   deletedBy              String?
   orgId                  String?
+  /// Company / site (OrgUnit) this lead belongs to — set from active company switcher.
+  orgUnitId              String?    @db.ObjectId
   createdBy              String?
   createdAt              DateTime   @default(now())
   updatedAt              DateTime   @updatedAt
@@ -1034,6 +1045,7 @@ model Lead {
   @@index([orgId, isDeleted])
   @@index([orgId, email])
   @@index([assignedToId])
+  @@index([orgUnitId])
   @@index([source])
   @@index([type])
   @@map("leads")

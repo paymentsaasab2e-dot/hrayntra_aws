@@ -28,6 +28,20 @@ const DEFAULT_SETTINGS = {
   authorizedSignatoryName: '',
   authorizedSignatoryDesignation: '',
   agencySignatureUrl: '',
+  agencyLogoUrl: '',
+  agencyStampUrl: '',
+  companyTagline: '',
+  companyLocationLine: '',
+  companyFooterLine: '',
+  companyWebsite: '',
+  showLogo: true,
+  showStamp: true,
+  showSignature: true,
+  defaultTermsAndConditions:
+    '1. Payment to be made within 30 days from DOJ.\n2. Payment to be made through bank transfer only.',
+  invoiceTemplateStyle: 'saasa',
+  invoiceTemplates: [],
+  activeInvoiceTemplateId: null,
 };
 
 function ensureExportDir() {
@@ -800,6 +814,8 @@ export const billingService = {
       ...(data.buyerBank ? { buyerBank: data.buyerBank } : {}),
       ...(data.clientSignatory ? { clientSignatory: data.clientSignatory } : {}),
       ...(data.agencySignatory ? { agencySignatory: data.agencySignatory } : {}),
+      ...(data.templateId != null ? { templateId: data.templateId } : {}),
+      ...(Array.isArray(data.customColumns) ? { customColumns: data.customColumns } : {}),
     };
 
     await prisma.$transaction(async (tx) => {

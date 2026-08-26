@@ -7,7 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { useUser } from '../hooks/useUser';
-import { OrgWorkspaceBanner, OrgWorkspaceSwitcher } from './org/OrgWorkspaceSwitcher';
+import { OrgWorkspaceSwitcher } from './org/OrgWorkspaceSwitcher';
 import {
   apiGetUnifiedCalendar,
   apiLogout,
@@ -1840,7 +1840,6 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
         className="ph2-main-surface min-h-screen pt-14 overflow-y-auto"
       >
-        {mounted ? <OrgWorkspaceBanner /> : null}
         {children || (
           <div className="p-6">
             <div className="mb-6">

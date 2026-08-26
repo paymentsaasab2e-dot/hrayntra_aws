@@ -1,6 +1,7 @@
 import React from 'react';
 import { apiGetBillingRecord, apiGetBillingSettings } from './api';
 import { invoiceFromBillingRecord } from './invoiceFromBillingRecord';
+import { settingsFromTemplate, normalizeInvoiceTemplates } from './invoiceTemplates';
 import { RecruitmentInvoicePreview } from '../components/billing/RecruitmentInvoicePreview';
 import { generateInvoicePdfBlobFromComponent } from '../utils/generateInvoicePdf';
 import { buildFileHref } from '../utils/cloudinaryUrls';
@@ -89,8 +90,14 @@ export async function openBillingInvoiceInNewTab(
     }
 
     const invoice = invoiceFromBillingRecord(record, settings);
+    const normalized = normalizeInvoiceTemplates(settings);
+    const tpl =
+      (invoice.templateId &&
+        normalized.invoiceTemplates?.find((t) => t.id === invoice.templateId)) ||
+      null;
+    const previewSettings = settingsFromTemplate(normalized, tpl);
     const blob = await generateInvoicePdfBlobFromComponent(
-      React.createElement(RecruitmentInvoicePreview, { invoice, settings }),
+      React.createElement(RecruitmentInvoicePreview, { invoice, settings: previewSettings }),
     );
     const objectUrl = URL.createObjectURL(blob);
     navigatePreviewTab(win, objectUrl);

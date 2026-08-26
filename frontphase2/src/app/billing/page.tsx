@@ -23,8 +23,11 @@ import {
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { toast } from 'sonner';
 import { CreatePlacementInvoiceModal } from '../../components/placements/modals/CreatePlacementInvoiceModal';
+import { InvoiceTemplateSettingsPanel } from '../../components/billing/InvoiceTemplateSettingsPanel';
 import { usePlacementInvoiceModal } from '../../hooks/usePlacementInvoiceModal';
 import type { Placement } from '../../types/placement';
+import type { BillingSettingsSnapshot } from '../../types/recruitmentInvoice';
+import { normalizeInvoiceTemplates } from '../../lib/invoiceTemplates';
 import {
   apiDeleteBillingRecord,
   apiFetch,
@@ -77,6 +80,19 @@ type BillingSettings = {
   authorizedSignatoryName?: string;
   authorizedSignatoryDesignation?: string;
   agencySignatureUrl?: string;
+  agencyLogoUrl?: string;
+  agencyStampUrl?: string;
+  companyTagline?: string;
+  companyLocationLine?: string;
+  companyFooterLine?: string;
+  companyWebsite?: string;
+  showLogo?: boolean;
+  showStamp?: boolean;
+  showSignature?: boolean;
+  defaultTermsAndConditions?: string;
+  invoiceTemplateStyle?: 'saasa' | 'classic';
+  invoiceTemplates?: BillingSettingsSnapshot['invoiceTemplates'];
+  activeInvoiceTemplateId?: string | null;
 };
 
 type SummaryResponse = {
@@ -512,6 +528,14 @@ export default function BillingPage() {
     router.replace('/billing');
   }, [canCreateInvoice, router, searchParams]);
   const [activeTab, setActiveTab] = useState<BillingTab>('Invoices');
+
+  useEffect(() => {
+    const tab = String(searchParams.get('tab') || '').trim().toLowerCase();
+    if (tab === 'billing-settings' || tab === 'settings') {
+      setActiveTab('Billing Settings');
+    }
+  }, [searchParams]);
+
   const [filters, setFilters] = useState<FiltersState>(DEFAULT_FILTERS);
   const [data, setData] = useState<SummaryResponse | null>(null);
   const [settingsForm, setSettingsForm] = useState<BillingSettings | null>(null);
@@ -950,10 +974,27 @@ export default function BillingPage() {
           </div>
         ) : activeTab === 'Billing Settings' ? (
           <div className="min-h-0 flex-1 overflow-auto">
-          <Card className="p-6 space-y-6">
-            <p className="text-sm text-slate-600">
-              Defaults for new placement invoices: agency bank details, authorized signatory, and signature image.
-            </p>
+          <Card className="space-y-8 p-6">
+            <div>
+              <p className="text-sm text-slate-600">
+                Defaults for new placement invoices: agency bank details, authorized signatory, and
+                the printable invoice template (logo, stamp, signature).
+              </p>
+            </div>
+
+            <InvoiceTemplateSettingsPanel
+              settings={normalizeInvoiceTemplates((settingsForm || {}) as BillingSettingsSnapshot)}
+              onChange={(next) => setSettingsForm(next as BillingSettings)}
+              persistAction={{
+                label: 'Save billing settings',
+                savingLabel: 'Saving…',
+                onSave: () => void saveSettings(),
+                saving: savingSettings,
+              }}
+            />
+
+            <div className="border-t border-slate-200 pt-6">
+              <h3 className="mb-4 text-sm font-bold text-slate-900">Bank &amp; tax defaults</h3>
             <div className="grid gap-4 md:grid-cols-2">
               {[
                 ['invoicePrefix', 'Invoice Prefix'],
@@ -963,7 +1004,7 @@ export default function BillingPage() {
                 ['bankName', 'Bank Name'],
                 ['accountHolderName', 'Account holder name'],
                 ['accountNumber', 'Account Number'],
-                ['swiftCode', 'SWIFT / IFSC'],
+                ['swiftCode', 'SWIFT / IFSC / BIC'],
                 ['iban', 'IBAN (optional)'],
                 ['taxLabel', 'Tax Label'],
               ].map(([key, label]) => (
@@ -1041,37 +1082,7 @@ export default function BillingPage() {
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Agency signature image
-                </label>
-                {settingsForm?.agencySignatureUrl ? (
-                  <img
-                    src={settingsForm.agencySignatureUrl}
-                    alt="Agency signature"
-                    className="mb-2 max-h-20 object-contain border border-slate-200 rounded-lg bg-white p-2"
-                  />
-                ) : null}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="text-sm w-full"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const url = typeof reader.result === 'string' ? reader.result : '';
-                      if (url) {
-                        setSettingsForm((current) =>
-                          current ? { ...current, agencySignatureUrl: url } : current,
-                        );
-                      }
-                    };
-                    reader.readAsDataURL(file);
-                  }}
-                />
-              </div>
+            </div>
             </div>
             <div className="flex justify-end">
               <button

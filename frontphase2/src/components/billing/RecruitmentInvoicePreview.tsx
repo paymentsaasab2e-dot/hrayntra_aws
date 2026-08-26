@@ -6,17 +6,17 @@ import { INVOICE_FIELD_NOT_AVAILABLE } from '../../lib/placementInvoiceDisplay';
 import { convertAmount, formatCurrencyAmount } from '../../utils/currency';
 import { amountToWords } from '../../utils/amountToWords';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { resolveCustomColumnValue } from '../../lib/invoiceTemplates';
 
-function formatMoney(amount: number, currency: string, fractionDigits = 2) {
+function formatMoney(amount: number, currency: string, fractionDigits = 0) {
   try {
     return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency || 'USD',
+      style: 'decimal',
       minimumFractionDigits: fractionDigits,
       maximumFractionDigits: fractionDigits,
     }).format(amount || 0);
   } catch {
-    return `${currency || 'USD'} ${(amount || 0).toFixed(fractionDigits)}`;
+    return `${(amount || 0).toFixed(fractionDigits)}`;
   }
 }
 
@@ -26,84 +26,10 @@ function formatDateDisplay(iso?: string | null) {
   return formatted || iso;
 }
 
-function TermLine({ label, value }: { label: string; value: string }) {
-  const missing = value === INVOICE_FIELD_NOT_AVAILABLE;
-  return (
-    <p className="font-sans text-xs">
-      <span className="text-slate-500">{label}: </span>
-      <span className={missing ? 'italic text-slate-400' : 'font-medium text-slate-800'}>{value}</span>
-    </p>
-  );
-}
-
-function BankBlock({
-  title,
-  bank,
-}: {
-  title: string;
-  bank?: RecruitmentInvoiceData['sellerBank'] | null;
-}) {
-  const rows = bank
-    ? [
-        { label: 'Account name', value: bank.accountHolderName || INVOICE_FIELD_NOT_AVAILABLE },
-        { label: 'Bank', value: bank.bankName || INVOICE_FIELD_NOT_AVAILABLE },
-        { label: 'Account number', value: bank.accountNumber || INVOICE_FIELD_NOT_AVAILABLE },
-        { label: 'SWIFT / IFSC', value: bank.swiftCode || INVOICE_FIELD_NOT_AVAILABLE },
-      ]
-    : [
-        { label: 'Account name', value: INVOICE_FIELD_NOT_AVAILABLE },
-        { label: 'Bank', value: INVOICE_FIELD_NOT_AVAILABLE },
-        { label: 'Account number', value: INVOICE_FIELD_NOT_AVAILABLE },
-        { label: 'SWIFT / IFSC', value: INVOICE_FIELD_NOT_AVAILABLE },
-      ];
-
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 font-sans space-y-1">
-      <p className="font-bold text-slate-800 uppercase tracking-wider text-[10px] mb-1">{title}</p>
-      {rows.map((row) => (
-        <TermLine key={row.label} label={row.label} value={row.value} />
-      ))}
-      {bank?.bankAddress ? (
-        <p className="text-xs text-slate-600 whitespace-pre-line pt-1">{bank.bankAddress}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function SignatureBlock({
-  block,
-}: {
-  block: NonNullable<RecruitmentInvoiceData['clientSignatory']>;
-}) {
-  return (
-    <div className="flex-1 min-w-[200px]">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 font-sans mb-1">
-        {block.label}
-      </p>
-      <p
-        className={`text-sm font-semibold ${
-          block.name === INVOICE_FIELD_NOT_AVAILABLE ? 'italic text-slate-400' : 'text-slate-900'
-        }`}
-      >
-        {block.name}
-      </p>
-      {block.designation ? (
-        <p className="text-xs text-slate-600 mt-0.5">{block.designation}</p>
-      ) : block.name !== INVOICE_FIELD_NOT_AVAILABLE ? (
-        <p className="text-xs text-slate-400 italic mt-0.5">{INVOICE_FIELD_NOT_AVAILABLE}</p>
-      ) : null}
-      {block.signatureImageUrl ? (
-        <img
-          src={block.signatureImageUrl}
-          alt={`${block.label} signature`}
-          className="mt-3 max-h-14 object-contain object-left"
-        />
-      ) : (
-        <div className="mt-8 h-14 border-b border-slate-400" />
-      )}
-      <p className="text-[10px] text-slate-500 font-sans mt-1">Authorized signature</p>
-    </div>
-  );
+function formatRate(value?: number | null) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const n = Number(value);
+  return `${n % 1 === 0 ? n.toFixed(0) : n.toFixed(2)}%`;
 }
 
 type RecruitmentInvoicePreviewProps = {
@@ -114,247 +40,362 @@ type RecruitmentInvoicePreviewProps = {
   displayCurrency?: string;
 };
 
+/**
+ * SAASA-style recruitment invoice: logo left, firm name right, client + terms,
+ * Description | Qty | Monthly Salary | Rate | Total, bank + stamp/sign, footer.
+ */
 export const RecruitmentInvoicePreview = forwardRef<HTMLDivElement, RecruitmentInvoicePreviewProps>(
   function RecruitmentInvoicePreview({ invoice, settings, compact, displayCurrency }, ref) {
-    const taxLabel = settings?.taxLabel || 'Tax';
-    const baseCurrency = (invoice.currency || 'USD').toUpperCase();
+    const baseCurrency = (invoice.currency || settings?.defaultCurrency || 'USD').toUpperCase();
     const showCurrency = (displayCurrency || baseCurrency).toUpperCase();
     const isConvertedPreview = showCurrency !== baseCurrency;
+    const style = settings?.invoiceTemplateStyle === 'classic' ? 'classic' : 'saasa';
 
     const displayAmount = (amount: number) =>
       isConvertedPreview
         ? convertAmount(amount, baseCurrency, showCurrency)
         : Number(amount || 0);
 
-    const money = (amount: number) => formatMoney(displayAmount(amount), showCurrency);
+    const money = (amount: number, digits = 0) => formatMoney(displayAmount(amount), showCurrency, digits);
     const sellerBank =
       invoice.sellerBank ||
       (settings?.bankName
         ? {
             bankName: settings.bankName,
-            accountHolderName: settings.companyName,
+            accountHolderName: settings.accountHolderName || settings.companyName,
             accountNumber: settings.accountNumber,
+            iban: settings.iban,
             swiftCode: settings.swiftCode,
+            bankAddress: settings.bankAddress,
           }
         : null);
-    const clientSignatory = invoice.clientSignatory || {
-      label: 'Client',
-      name: INVOICE_FIELD_NOT_AVAILABLE,
-    };
+
     const agencySignatory = invoice.agencySignatory || {
       label: 'Agency',
-      name: settings?.companyName || INVOICE_FIELD_NOT_AVAILABLE,
-      designation: 'For and on behalf of the agency',
+      name: settings?.authorizedSignatoryName || settings?.companyName || INVOICE_FIELD_NOT_AVAILABLE,
+      designation: settings?.authorizedSignatoryDesignation || 'Authorized Signatory',
+      signatureImageUrl: settings?.agencySignatureUrl || undefined,
     };
+
+    const showLogo = settings?.showLogo !== false && Boolean(settings?.agencyLogoUrl);
+    const showStamp = settings?.showStamp !== false && Boolean(settings?.agencyStampUrl);
+    const showSignature =
+      settings?.showSignature !== false && Boolean(agencySignatory.signatureImageUrl);
+
+    const companyName = invoice.seller.name || settings?.companyName || 'Invoice';
+    const locationLine =
+      settings?.companyLocationLine ||
+      [invoice.seller.city, invoice.seller.country].filter(Boolean).join(', ') ||
+      '';
+    const termsText =
+      invoice.termsAndConditions?.trim() ||
+      settings?.defaultTermsAndConditions?.trim() ||
+      '';
+    const footerLine =
+      settings?.companyFooterLine ||
+      [
+        invoice.seller.address,
+        invoice.seller.email,
+        settings?.companyWebsite,
+        invoice.seller.phone,
+      ]
+        .filter(Boolean)
+        .join(' | ');
+
+    const rateFallback = invoice.legalTerms?.serviceChargePercent ?? null;
+    const joiningDate = invoice.placementSummary?.joiningDate;
+    const customColumns = invoice.customColumns || [];
+
+    if (style === 'classic') {
+      return (
+        <div
+          ref={ref}
+          className={`bg-white text-slate-800 font-sans ${compact ? 'text-[11px] p-4' : 'text-sm p-8'}`}
+        >
+          <h1 className="text-2xl font-bold">{companyName}</h1>
+          <p className="text-slate-500">Invoice {invoice.invoiceNo}</p>
+          <p className="mt-4 font-semibold">{invoice.buyer.name}</p>
+          <table className="mt-6 w-full border-collapse">
+            <thead>
+              <tr className="border-b border-slate-300 text-left text-xs uppercase text-slate-500">
+                <th className="py-2">Description</th>
+                <th className="py-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.lineItems.map((item, idx) => (
+                <tr key={idx} className="border-b border-slate-100">
+                  <td className="py-2">{item.name}</td>
+                  <td className="py-2 text-right">{money(item.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-4 font-bold text-right">
+            Total {showCurrency} {money(invoice.total)}
+          </p>
+        </div>
+      );
+    }
 
     return (
       <div
         ref={ref}
-        className={`bg-white text-slate-800 ${compact ? 'text-[11px]' : 'text-sm'}`}
-        style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}
+        className={`bg-white text-slate-900 ${compact ? 'text-[10px]' : 'text-[12px]'}`}
+        style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
       >
-        <div className="border border-slate-200 rounded-lg overflow-hidden">
-          {/* Page 1 — invoice summary */}
-          <div className={`${compact ? 'p-4' : 'p-8'} space-y-6`}>
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-6">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-sans">Recruitment invoice</p>
-                <h1 className={`${compact ? 'text-2xl' : 'text-3xl'} font-bold text-slate-900 mt-1`}>
-                  {invoice.seller.name || 'Invoice'}
-                </h1>
-                {invoice.seller.address ? (
-                  <p className="mt-2 text-slate-600 max-w-xs font-sans text-xs leading-relaxed whitespace-pre-line">
-                    {invoice.seller.address}
-                    {[invoice.seller.city, invoice.seller.state, invoice.seller.country].filter(Boolean).length
-                      ? `\n${[invoice.seller.city, invoice.seller.state, invoice.seller.country].filter(Boolean).join(', ')}`
-                      : ''}
-                  </p>
-                ) : null}
-                {(invoice.seller.email || invoice.seller.phone) && (
-                  <p className="mt-1 text-xs text-slate-500 font-sans">
-                    {[invoice.seller.email, invoice.seller.phone].filter(Boolean).join(' · ')}
-                  </p>
-                )}
+        <div className={`${compact ? 'p-4' : 'px-10 py-8'} space-y-5`}>
+          <div className="flex items-start justify-between gap-6">
+            <div className="min-w-0 flex-1">
+              {showLogo ? (
+                <img
+                  src={settings!.agencyLogoUrl!}
+                  alt="Company logo"
+                  className={`${compact ? 'max-h-14' : 'max-h-20'} max-w-[220px] object-contain object-left`}
+                />
+              ) : (
+                <p
+                  className={`${compact ? 'text-xl' : 'text-2xl'} font-black tracking-tight text-slate-900`}
+                >
+                  {companyName.split(/\s+/)[0] || 'LOGO'}
+                </p>
+              )}
+              {settings?.companyTagline ? (
+                <p className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-orange-600">
+                  {settings.companyTagline}
+                </p>
+              ) : null}
+              <div className="mt-3 space-y-0.5">
+                <p className="font-bold text-slate-800">{companyName}</p>
+                {locationLine ? <p className="text-slate-600">{locationLine}</p> : null}
               </div>
-              <div className="text-right font-sans">
-                <p className="text-xs uppercase tracking-wider text-slate-400">Invoice</p>
-                <p className="text-lg font-bold text-slate-900">{invoice.invoiceNo}</p>
+            </div>
+
+            <div className="shrink-0 text-right">
+              <p
+                className={`${compact ? 'text-sm' : 'text-base'} font-bold uppercase tracking-wide text-slate-900`}
+              >
+                {companyName}
+              </p>
+              <p
+                className={`${compact ? 'text-xl' : 'text-2xl'} mt-1 font-black tracking-wide text-slate-900`}
+              >
+                INVOICE
+              </p>
+              <div className="mt-3 space-y-1 text-left sm:text-right">
+                <p>
+                  <span className="font-bold">INVOICE NO.</span>{' '}
+                  <span className="font-semibold">{invoice.invoiceNo}</span>
+                </p>
+                <p>
+                  <span className="font-bold">DATE</span>{' '}
+                  <span>{formatDateDisplay(invoice.invoiceDate)}</span>
+                </p>
                 {isConvertedPreview ? (
-                  <p className="mt-1 text-[10px] text-indigo-600">
+                  <p className="text-[9px] text-indigo-600">
                     Preview in {showCurrency} · stored as {baseCurrency}
                   </p>
                 ) : null}
-                <p className="mt-2 text-xs text-slate-500">
-                  Date: <span className="text-slate-800">{formatDateDisplay(invoice.invoiceDate)}</span>
-                </p>
-                <p className="text-xs text-slate-500">
-                  Due: <span className="text-slate-800">{formatDateDisplay(invoice.dueDate)}</span>
-                </p>
-                <span
-                  className={`inline-block mt-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                    invoice.status === 'SENT'
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  {invoice.status}
-                </span>
               </div>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 font-sans">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Bill to</p>
-                <p className="font-semibold text-slate-900">{invoice.buyer.name || '—'}</p>
-                {invoice.buyer.address ? (
-                  <p className="text-xs text-slate-600 mt-1 whitespace-pre-line">{invoice.buyer.address}</p>
-                ) : null}
-                {(invoice.buyer.email || invoice.buyer.phone) && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    {[invoice.buyer.email, invoice.buyer.phone].filter(Boolean).join(' · ')}
-                  </p>
-                )}
-              </div>
-              {invoice.placementSummary ? (
-                <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Placement</p>
-                  {invoice.placementSummary.candidateName ? (
-                    <p className="text-xs">
-                      <span className="text-slate-500">Candidate:</span>{' '}
-                      <span className="font-medium">{invoice.placementSummary.candidateName}</span>
-                    </p>
-                  ) : null}
-                  {invoice.placementSummary.jobTitle ? (
-                    <p className="text-xs mt-1">
-                      <span className="text-slate-500">Role:</span>{' '}
-                      <span className="font-medium">{invoice.placementSummary.jobTitle}</span>
-                    </p>
-                  ) : null}
-                  {invoice.placementSummary.clientName ? (
-                    <p className="text-xs mt-1">
-                      <span className="text-slate-500">Client:</span>{' '}
-                      <span className="font-medium">{invoice.placementSummary.clientName}</span>
-                    </p>
-                  ) : null}
-                  {invoice.legalTerms?.agreementLevel ? (
-                    <p className="text-xs mt-1">
-                      <span className="text-slate-500">Agreement level:</span>{' '}
-                      <span className="font-medium">{invoice.legalTerms.agreementLevel}</span>
-                    </p>
-                  ) : null}
-                </div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div>
+              <p className="font-bold text-slate-900">Client Name</p>
+              <p className="mt-1 font-semibold text-slate-800">{invoice.buyer.name || '—'}</p>
+              {invoice.buyer.address ? (
+                <p className="mt-1 whitespace-pre-line text-slate-600">{invoice.buyer.address}</p>
+              ) : null}
+              {[invoice.buyer.city, invoice.buyer.state, invoice.buyer.country].filter(Boolean).length ? (
+                <p className="text-slate-600">
+                  {[invoice.buyer.city, invoice.buyer.state, invoice.buyer.country]
+                    .filter(Boolean)
+                    .join(', ')}
+                </p>
               ) : null}
             </div>
+            <div>
+              <p className="font-bold text-slate-900">Terms &amp; Conditions</p>
+              {termsText ? (
+                <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-slate-700">
+                  {termsText
+                    .split(/\n+/)
+                    .map((line) => line.replace(/^\d+\.\s*/, '').trim())
+                    .filter(Boolean)
+                    .map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                </ol>
+              ) : (
+                <p className="mt-1 italic text-slate-400">{INVOICE_FIELD_NOT_AVAILABLE}</p>
+              )}
+            </div>
+          </div>
 
-            <table className="w-full font-sans border-collapse">
+          <div>
+            <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b-2 border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
-                  <th className="py-2 pr-2">Description</th>
-                  <th className="py-2 px-2 text-right w-16">Qty</th>
-                  <th className="py-2 px-2 text-right w-24">Rate</th>
-                  <th className="py-2 pl-2 text-right w-28">Amount</th>
+                <tr className="border-y border-slate-800 text-left text-[11px] font-bold uppercase tracking-wide">
+                  <th className="py-2 pr-2 font-bold">Description</th>
+                  <th className="w-12 py-2 px-1 text-center font-bold">Qty</th>
+                  <th className="w-28 py-2 px-1 text-right font-bold">
+                    Monthly Salary
+                    <span className="block text-[9px] font-semibold normal-case tracking-normal text-slate-500">
+                      in {showCurrency}
+                    </span>
+                  </th>
+                  <th className="w-16 py-2 px-1 text-right font-bold">Rate</th>
+                  {customColumns.map((col) => (
+                    <th key={col.id} className="w-20 py-2 px-1 text-right font-bold">
+                      {col.name}
+                    </th>
+                  ))}
+                  <th className="w-28 py-2 pl-1 text-right font-bold">
+                    Total
+                    <span className="block text-[9px] font-semibold normal-case tracking-normal text-slate-500">
+                      in {showCurrency}
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {invoice.lineItems.map((item, idx) => (
-                  <tr key={idx} className="border-b border-slate-100">
-                    <td className="py-2.5 pr-2 text-slate-800">{item.name || '—'}</td>
-                    <td className="py-2.5 px-2 text-right text-slate-600">{item.quantity}</td>
-                    <td className="py-2.5 px-2 text-right text-slate-600">{money(item.price)}</td>
-                    <td className="py-2.5 pl-2 text-right font-medium text-slate-900">{money(item.total)}</td>
-                  </tr>
-                ))}
+                {invoice.lineItems.map((item, idx) => {
+                  const rate = item.ratePercent ?? rateFallback;
+                  const salary = item.monthlySalary;
+                  return (
+                    <tr key={idx} className="align-top">
+                      <td className="py-3 pr-2 leading-snug text-slate-800">
+                        {item.name || '—'}
+                        {joiningDate && !String(item.name || '').toLowerCase().includes('doj') ? (
+                          <span className="block text-slate-500">
+                            DOJ- {formatDateDisplay(joiningDate)}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="py-3 px-1 text-center text-slate-700">{item.quantity || 1}</td>
+                      <td className="py-3 px-1 text-right text-slate-700">
+                        {salary != null && Number.isFinite(Number(salary))
+                          ? money(Number(salary))
+                          : '—'}
+                      </td>
+                      <td className="py-3 px-1 text-right text-slate-700">{formatRate(rate)}</td>
+                      {customColumns.map((col) => {
+                        const resolved = resolveCustomColumnValue(
+                          col,
+                          item,
+                          item.extraValues?.[col.id],
+                        );
+                        return (
+                          <td key={col.id} className="py-3 px-1 text-right text-slate-700">
+                            {col.formula === 'text' || col.formula === 'manual'
+                              ? resolved.display
+                              : resolved.numeric != null
+                                ? money(resolved.numeric, 2)
+                                : resolved.display}
+                          </td>
+                        );
+                      })}
+                      <td className="py-3 pl-1 text-right font-semibold text-slate-900">
+                        {money(item.total)}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {invoice.additionalCharges.map((charge, idx) => (
-                  <tr key={`charge-${idx}`} className="border-b border-slate-100">
-                    <td className="py-2.5 pr-2 text-slate-800">{charge.name}</td>
-                    <td className="py-2.5 px-2 text-right text-slate-400">—</td>
-                    <td className="py-2.5 px-2 text-right text-slate-400">—</td>
-                    <td className="py-2.5 pl-2 text-right font-medium text-slate-900">
-                      {formatMoney(charge.amount, invoice.currency)}
-                    </td>
+                  <tr key={`c-${idx}`} className="align-top">
+                    <td className="py-2 pr-2 text-slate-800">{charge.name}</td>
+                    <td className="py-2 px-1 text-center text-slate-400">—</td>
+                    <td className="py-2 px-1 text-right text-slate-400">—</td>
+                    <td className="py-2 px-1 text-right text-slate-400">—</td>
+                    {customColumns.map((col) => (
+                      <td key={col.id} className="py-2 px-1 text-right text-slate-400">
+                        —
+                      </td>
+                    ))}
+                    <td className="py-2 pl-1 text-right font-semibold">{money(charge.amount)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-
-            <div className="flex justify-end font-sans">
-              <div className="w-full max-w-xs space-y-1.5 text-sm">
-                <div className="flex justify-between text-slate-600">
-                  <span>Subtotal</span>
-                  <span>{money(invoice.subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>
-                    {taxLabel} ({invoice.taxRate}%)
-                  </span>
-                  <span>{money(invoice.taxAmount)}</span>
-                </div>
-                <div className="flex justify-between border-t-2 border-slate-800 pt-2 text-base font-bold text-slate-900">
-                  <span>Total due</span>
-                  <span>{money(invoice.total)}</span>
-                </div>
-              </div>
-            </div>
-
-            <p className="text-xs italic text-slate-600 border-t border-slate-100 pt-4">
-              Amount in words:{' '}
-              {amountToWords(displayAmount(invoice.total), showCurrency)}
-              {isConvertedPreview ? (
-                <span className="text-slate-400 not-italic">
-                  {' '}
-                  (invoice stored: {formatCurrencyAmount(invoice.total, baseCurrency)})
-                </span>
-              ) : null}
-            </p>
-
-            {invoice.notes ? (
-              <div className="font-sans">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Notes</p>
-                <p className="text-xs text-slate-600 whitespace-pre-line">{invoice.notes}</p>
-              </div>
-            ) : null}
-
-            <p className="text-[10px] text-indigo-600 font-sans border-t border-dashed border-indigo-200 pt-3">
-              Scroll down in preview for terms &amp; conditions, bank details, and signatures (page 2).
-            </p>
+            <div className="border-t border-slate-800" />
           </div>
 
-          {/* Page 2 — always shown for placement invoices */}
-          <div
-            className={`${compact ? 'p-4' : 'p-8'} space-y-6 border-t-2 border-slate-300 bg-slate-50/40`}
-            style={{ breakBefore: 'page', pageBreakBefore: 'always' } as React.CSSProperties}
-          >
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-sans">
-              Terms, payment &amp; authorization
+          <div className="space-y-1 text-right">
+            <p className="font-bold text-slate-900">
+              Total amount in {showCurrency} {money(invoice.total)}
             </p>
-
-            <div className="rounded-lg border border-slate-200 bg-white p-4 font-sans">
-              <p className="font-bold text-slate-900 uppercase tracking-wider text-[10px] mb-2">
-                Terms &amp; conditions
+            <p className="text-slate-700">
+              Amount in Words - {amountToWords(displayAmount(invoice.total), showCurrency)}
+            </p>
+            {invoice.taxAmount > 0 ? (
+              <p className="text-[10px] text-slate-500">
+                Includes {settings?.taxLabel || 'Tax'} ({invoice.taxRate}%):{' '}
+                {money(invoice.taxAmount, 2)}
               </p>
-              {invoice.termsAndConditions?.trim() ? (
-                <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">
-                  {invoice.termsAndConditions}
-                </p>
-              ) : (
-                <p className="text-xs text-slate-400 italic">{INVOICE_FIELD_NOT_AVAILABLE}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              <BankBlock title="Agency bank account" bank={sellerBank} />
-            </div>
-
-            <div className="flex flex-wrap gap-8 pt-4 border-t border-slate-200">
-              <SignatureBlock block={clientSignatory} />
-              <SignatureBlock block={agencySignatory} />
-            </div>
-
-            <p className="text-[10px] text-slate-500 font-sans italic">
-              This invoice is issued under the recruitment services agreement between the parties. Retain a signed
-              copy for your records.
-            </p>
+            ) : null}
           </div>
+
+          <div className="grid grid-cols-1 gap-8 pt-2 sm:grid-cols-2">
+            <div>
+              <p className="font-bold text-slate-900">Bank Details</p>
+              <div className="mt-2 space-y-1 text-slate-700">
+                <p>
+                  <span className="font-semibold">Bank Name -</span>{' '}
+                  {sellerBank?.bankName || INVOICE_FIELD_NOT_AVAILABLE}
+                </p>
+                <p>
+                  <span className="font-semibold">Account Name -</span>{' '}
+                  {sellerBank?.accountHolderName ||
+                    settings?.companyName ||
+                    INVOICE_FIELD_NOT_AVAILABLE}
+                </p>
+                <p>
+                  <span className="font-semibold">Account Number -</span>{' '}
+                  {sellerBank?.accountNumber || INVOICE_FIELD_NOT_AVAILABLE}
+                </p>
+                <p>
+                  <span className="font-semibold">IBAN -</span>{' '}
+                  {sellerBank?.iban || INVOICE_FIELD_NOT_AVAILABLE}
+                </p>
+                <p>
+                  <span className="font-semibold">BIC CODE -</span>{' '}
+                  {sellerBank?.swiftCode || INVOICE_FIELD_NOT_AVAILABLE}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center justify-end text-center">
+              <div className="relative flex min-h-[100px] w-full max-w-[200px] flex-col items-center justify-center">
+                {showStamp ? (
+                  <img
+                    src={settings!.agencyStampUrl!}
+                    alt="Company stamp"
+                    className="absolute inset-0 m-auto max-h-28 max-w-[180px] object-contain opacity-90"
+                  />
+                ) : null}
+                {showSignature ? (
+                  <img
+                    src={agencySignatory.signatureImageUrl!}
+                    alt="Authorized signature"
+                    className="relative z-10 max-h-16 max-w-[160px] object-contain"
+                  />
+                ) : !showStamp ? (
+                  <div className="h-16 w-40 border-b border-slate-400" />
+                ) : null}
+              </div>
+              <p className="mt-2 font-semibold text-slate-800">Authorized Signatory</p>
+              {agencySignatory.name && agencySignatory.name !== INVOICE_FIELD_NOT_AVAILABLE ? (
+                <p className="text-[10px] text-slate-500">{agencySignatory.name}</p>
+              ) : null}
+            </div>
+          </div>
+
+          {footerLine ? (
+            <p className="border-t border-slate-200 pt-4 text-center text-[9px] leading-relaxed text-slate-500">
+              {footerLine}
+            </p>
+          ) : null}
         </div>
       </div>
     );

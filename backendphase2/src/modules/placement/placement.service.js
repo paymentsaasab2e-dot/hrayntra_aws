@@ -1969,6 +1969,8 @@ export const placementService = {
       ...(data.buyerBank ? { buyerBank: data.buyerBank } : {}),
       ...(data.clientSignatory ? { clientSignatory: data.clientSignatory } : {}),
       ...(data.agencySignatory ? { agencySignatory: data.agencySignatory } : {}),
+      ...(data.templateId != null ? { templateId: data.templateId } : {}),
+      ...(Array.isArray(data.customColumns) ? { customColumns: data.customColumns } : {}),
     };
 
     let createdBillingRecordId = null;

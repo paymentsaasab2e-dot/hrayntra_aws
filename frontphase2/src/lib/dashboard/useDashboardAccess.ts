@@ -21,15 +21,17 @@ export const DASH_REC_TAB_PERMS: Record<Exclude<RecCategoryTabId, 'mine'>, strin
 };
 
 const EMPTY_RANK: DashboardStatsAccess = {
+  dashboardLevel: 'self',
   statsScope: 'self',
   canFullStats: false,
+  scopeLabel: 'your assigned records',
   showMineTab: false,
   showMineApprovals: false,
   org: { canSwitchCompanies: false, companies: [] },
 };
 
 export function useDashboardAccess() {
-  const { canAccess, hasPermission, hasAnyPermission, isAdmin, isSuperAdmin } = usePermissions();
+  const { canAccess, hasPermission, hasAnyPermission, isSuperAdmin } = usePermissions();
   const [rankAccess, setRankAccess] = useState<DashboardStatsAccess>(EMPTY_RANK);
 
   useEffect(() => {
@@ -45,64 +47,76 @@ export function useDashboardAccess() {
   }, []);
 
   return useMemo(() => {
-    const full = isAdmin() || isSuperAdmin();
+    // Only Super Admin auto-sees all dashboard tabs. Admin role follows permission ticks.
+    const sa = isSuperAdmin();
     const modules = {
-      leads: full || canAccess('Leads'),
-      clients: full || canAccess('Clients'),
-      jobs: full || canAccess('Jobs'),
-      candidates: full || canAccess('Candidates'),
-      interviews: full || canAccess('Interviews'),
-      placements: full || canAccess('Placements'),
-      tasks: full || canAccess('Tasks'),
-      team: full || canAccess('Team'),
+      leads: sa || canAccess('Leads'),
+      clients: sa || canAccess('Clients'),
+      jobs: sa || canAccess('Jobs'),
+      candidates: sa || canAccess('Candidates'),
+      interviews: sa || canAccess('Interviews'),
+      placements: sa || canAccess('Placements'),
+      tasks: sa || canAccess('Tasks'),
+      team: sa || canAccess('Team'),
     };
 
     const crmAssigned = hasAnyPermission(Object.values(DASH_CRM_TAB_PERMS));
     const recAssigned = hasAnyPermission(Object.values(DASH_REC_TAB_PERMS));
-    const canOpenDash = full || hasPermission('view_dashboard');
+    const canOpenDash = sa || hasPermission('view_dashboard');
     const showMineApprovals =
-      rankAccess.showMineApprovals || isSuperAdmin() || hasPermission('dash_mine_approvals');
-    const showMineTab = rankAccess.showMineTab || isSuperAdmin() || showMineApprovals;
-    const canFullStats = rankAccess.canFullStats || isSuperAdmin();
+      rankAccess.showMineApprovals || sa || hasPermission('dash_mine_approvals');
+    const showMineTab = rankAccess.showMineTab || sa || showMineApprovals;
+    const canFullStats = rankAccess.canFullStats || sa;
+    const dashboardLevel =
+      sa ? 'tenant' : rankAccess.dashboardLevel || (canFullStats ? 'tenant' : 'self');
 
     const crmTab = (id: Exclude<CrmCategoryTabId, 'mine'>, fallback: boolean) => {
-      if (full) return true;
+      if (sa) return true;
       if (crmAssigned) return hasPermission(DASH_CRM_TAB_PERMS[id]);
       return canOpenDash && fallback;
     };
 
     const recTab = (id: Exclude<RecCategoryTabId, 'mine'>, fallback: boolean) => {
-      if (full) return true;
+      if (sa) return true;
       if (recAssigned) return hasPermission(DASH_REC_TAB_PERMS[id]);
       return canOpenDash && fallback;
     };
 
+    const crmTeam = crmTab('team', modules.team);
+    const recTeam = recTab('team', modules.team);
+
+    // Hours & scores (4th tab) follows Team tab — paid unlock still applies inside the panel.
+    // People listed there follow dashboard level (self / department / company / tenant).
     const crmTabs: Record<CrmCategoryTabId, boolean> = {
-      mine: showMineTab && (full || crmAssigned || canOpenDash),
+      mine: showMineTab && (sa || crmAssigned || canOpenDash),
       insights: crmTab('insights', modules.leads || modules.clients || modules.tasks),
       portfolio: crmTab('portfolio', modules.leads || modules.clients),
-      team: crmTab('team', modules.team),
-      people: crmTab('people', modules.team),
+      team: crmTeam,
+      people: crmTeam,
     };
 
     const recTabs: Record<RecCategoryTabId, boolean> = {
-      mine: showMineTab && (full || recAssigned || canOpenDash),
+      mine: showMineTab && (sa || recAssigned || canOpenDash),
       insights: recTab('insights', modules.jobs || modules.candidates || modules.interviews),
       pipeline: recTab('pipeline', modules.jobs || modules.candidates),
-      team: recTab('team', modules.team),
-      people: recTab('people', modules.team),
+      team: recTeam,
+      people: recTeam,
     };
 
     return {
-      full,
+      full: sa,
       modules,
       crmTabs,
       recTabs,
       showMineTab,
       showMineApprovals,
       canFullStats,
-      statsScope: canFullStats ? rankAccess.statsScope : 'self',
+      dashboardLevel,
+      scopeLabel: rankAccess.scopeLabel,
+      departmentName: rankAccess.departmentName,
+      statsScope: canFullStats ? rankAccess.statsScope || 'full' : 'self',
       org: rankAccess.org,
+      rankAccess,
     };
-  }, [canAccess, hasPermission, hasAnyPermission, isAdmin, isSuperAdmin, rankAccess]);
+  }, [canAccess, hasPermission, hasAnyPermission, isSuperAdmin, rankAccess]);
 }

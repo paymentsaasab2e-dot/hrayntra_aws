@@ -37,7 +37,15 @@ import {
   resolveAgencySignatory,
   resolveSellerBankDetails,
 } from '../../../lib/placementInvoiceClientContext';
-import type { InvoiceBankDetails } from '../../../types/recruitmentInvoice';
+import {
+  getActiveTemplate,
+  normalizeInvoiceTemplates,
+  settingsFromTemplate,
+  formulaLabel,
+  newColumnId,
+  resolveCustomColumnValue,
+} from '../../../lib/invoiceTemplates';
+import type { InvoiceBankDetails, InvoiceCustomColumn } from '../../../types/recruitmentInvoice';
 import { invoiceFromBillingRecord } from '../../../lib/invoiceFromBillingRecord';
 import { MY_JOBS_LIST_PARAMS } from '../../../lib/myJobsListParams';
 import { addDaysIso, recalcInvoiceTotals, recalcLineItem } from '../../../lib/invoiceCalculations';
@@ -83,11 +91,19 @@ function buildInitialInvoice(
 ): RecruitmentInvoiceData {
   const fee = placement.placementFee ?? 0;
   const candidateName = `${placement.candidate.firstName} ${placement.candidate.lastName}`.trim();
+  const salary = Number(placement.salaryOffered || 0);
+  const dojPart = placement.joiningDate
+    ? `- DOJ- ${String(placement.joiningDate).slice(0, 10)}`
+    : '';
   const lineItem = recalcLineItem({
-    name: `Placement fee — ${placement.job.title}`,
+    name: `Recruitment Fee for- ${candidateName || 'Candidate'}${
+      placement.job.title ? `, ${placement.job.title}` : ''
+    }${dojPart}`,
     quantity: 1,
     price: fee,
     total: fee,
+    monthlySalary: salary > 0 ? salary : null,
+    ratePercent: null,
   });
   const taxRate = settings.taxRate ?? 0;
   const totals = recalcInvoiceTotals([lineItem], [], taxRate);
@@ -105,7 +121,7 @@ function buildInitialInvoice(
       name: settings.companyName || orgNameFromStorage() || 'Your agency',
       email: '',
       phone: '',
-      address: '',
+      address: settings.companyFooterLine || '',
     },
     buyer: {
       name: placement.client.companyName,
@@ -117,6 +133,7 @@ function buildInitialInvoice(
     additionalCharges: [],
     taxRate,
     notes: `Placement invoice for ${candidateName || placement.job.title}.`,
+    termsAndConditions: settings.defaultTermsAndConditions || '',
     placementSummary: {
       candidateName,
       jobTitle: placement.job.title,
@@ -126,6 +143,8 @@ function buildInitialInvoice(
     },
     sellerBank: resolveSellerBankDetails(settings),
     agencySignatory: resolveAgencySignatory(settings),
+    templateId: getActiveTemplate(settings)?.id || null,
+    customColumns: getActiveTemplate(settings)?.customColumns || [],
     ...totals,
   };
 }
@@ -193,6 +212,8 @@ function buildInvoiceFromManual(
     },
     sellerBank: resolveSellerBankDetails(settings),
     agencySignatory: resolveAgencySignatory(settings),
+    templateId: getActiveTemplate(settings)?.id || null,
+    customColumns: getActiveTemplate(settings)?.customColumns || [],
     ...totals,
   };
 }
@@ -225,6 +246,8 @@ function buildBlankInvoice(settings: BillingSettingsSnapshot, invoiceNo: string)
     notes: '',
     sellerBank: resolveSellerBankDetails(settings),
     agencySignatory: resolveAgencySignatory(settings),
+    templateId: getActiveTemplate(settings)?.id || null,
+    customColumns: getActiveTemplate(settings)?.customColumns || [],
     ...totals,
   };
 }
@@ -355,6 +378,21 @@ export function CreatePlacementInvoiceModal({
       ? showManualMode
       : eligible.length > 0;
 
+  const templateOptions = useMemo(() => {
+    if (!settings) return [];
+    return normalizeInvoiceTemplates(settings).invoiceTemplates || [];
+  }, [settings]);
+
+  const previewSettings = useMemo(() => {
+    if (!settings) return null;
+    const normalized = normalizeInvoiceTemplates(settings);
+    const selectedTpl =
+      (invoice?.templateId &&
+        normalized.invoiceTemplates?.find((t) => t.id === invoice.templateId)) ||
+      getActiveTemplate(normalized);
+    return settingsFromTemplate(normalized, selectedTpl);
+  }, [settings, invoice?.templateId]);
+
   useEffect(() => {
     setCandidateOptions(candidatesProp);
     setJobOptions(jobsProp);
@@ -390,7 +428,9 @@ export function CreatePlacementInvoiceModal({
           apiGetBillingRecord(initialBillingRecordId),
         ]);
         if (cancelled) return;
-        const billingSettings = settingsRes.data as BillingSettingsSnapshot;
+        const billingSettings = normalizeInvoiceTemplates(
+          settingsRes.data as BillingSettingsSnapshot,
+        );
         const record = recordRes.data;
         if (!record?.placementId) {
           throw new Error('This draft is not linked to a placement');
@@ -474,7 +514,9 @@ export function CreatePlacementInvoiceModal({
 
         const settingsRes = results[0] as Awaited<ReturnType<typeof apiGetBillingSettings>>;
         const numberRes = results[1] as Awaited<ReturnType<typeof apiGetNextInvoiceNumber>>;
-        const billingSettings = settingsRes.data as BillingSettingsSnapshot;
+        const billingSettings = normalizeInvoiceTemplates(
+          settingsRes.data as BillingSettingsSnapshot,
+        );
         const nextNo = numberRes.data?.nextInvoiceNo || `INV-${new Date().getFullYear()}-0001`;
         setSettings(billingSettings);
 
@@ -931,7 +973,81 @@ export function CreatePlacementInvoiceModal({
       sellerBank: invoice.sellerBank,
       clientSignatory: invoice.clientSignatory,
       agencySignatory: invoice.agencySignatory,
+      templateId: invoice.templateId ?? null,
+      customColumns: invoice.customColumns || [],
     };
+  };
+
+  const applyInvoiceTemplate = (templateId: string) => {
+    if (!settings) return;
+    const normalized = normalizeInvoiceTemplates(settings);
+    const template = (normalized.invoiceTemplates || []).find((t) => t.id === templateId);
+    if (!template) return;
+    const nextSettings = settingsFromTemplate(normalized, template);
+    setSettings(nextSettings);
+    setInvoice((prev) => {
+      if (!prev) return prev;
+      return refreshTotals({
+        ...prev,
+        templateId: template.id,
+        customColumns: [...(template.customColumns || [])],
+        seller: {
+          ...prev.seller,
+          name: template.companyName || prev.seller.name,
+          address: template.companyFooterLine || prev.seller.address,
+        },
+        sellerBank: resolveSellerBankDetails(nextSettings),
+        agencySignatory: resolveAgencySignatory(nextSettings),
+        termsAndConditions: termsEditedRef.current
+          ? prev.termsAndConditions
+          : template.defaultTermsAndConditions || prev.termsAndConditions,
+        currency: template.defaultCurrency || prev.currency,
+        taxRate: template.taxRate ?? prev.taxRate,
+      });
+    });
+    if (template.defaultCurrency) {
+      setPreviewCurrency(String(template.defaultCurrency).toUpperCase());
+    }
+  };
+
+  const addCustomColumn = () => {
+    setInvoice((prev) => {
+      if (!prev) return prev;
+      const col: InvoiceCustomColumn = {
+        id: newColumnId(),
+        name: 'New column',
+        formula: 'manual',
+        defaultValue: 0,
+      };
+      return { ...prev, customColumns: [...(prev.customColumns || []), col] };
+    });
+  };
+
+  const updateCustomColumn = (id: string, patch: Partial<InvoiceCustomColumn>) => {
+    setInvoice((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        customColumns: (prev.customColumns || []).map((c) =>
+          c.id === id ? { ...c, ...patch } : c,
+        ),
+      };
+    });
+  };
+
+  const removeCustomColumn = (id: string) => {
+    setInvoice((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        customColumns: (prev.customColumns || []).filter((c) => c.id !== id),
+        lineItems: (prev.lineItems || []).map((item) => {
+          if (!item.extraValues || !(id in item.extraValues)) return item;
+          const { [id]: _removed, ...rest } = item.extraValues;
+          return { ...item, extraValues: rest };
+        }),
+      };
+    });
   };
 
   const updateSellerBank = (patch: Partial<InvoiceBankDetails>) => {
@@ -1093,7 +1209,7 @@ export function CreatePlacementInvoiceModal({
       const safeNo = invoice.invoiceNo.replace(/[^\w-]+/g, '_') || 'invoice';
       const pdfFilename = `${safeNo}.pdf`;
       const pdfBlob = await generateInvoicePdfBlobFromComponent(
-        <RecruitmentInvoicePreview invoice={invoice} settings={settings} />,
+        <RecruitmentInvoicePreview invoice={invoice} settings={previewSettings || settings} />,
       );
       const pdfBase64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -1266,6 +1382,29 @@ export function CreatePlacementInvoiceModal({
                           ) : null}
                         </>
                       ) : null}
+
+                      <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
+                        <label className={labelClass}>Invoice template</label>
+                        <select
+                          className={inputClass}
+                          value={invoice.templateId || templateOptions[0]?.id || ''}
+                          onChange={(e) => applyInvoiceTemplate(e.target.value)}
+                        >
+                          {templateOptions.length === 0 ? (
+                            <option value="">Default branding</option>
+                          ) : (
+                            templateOptions.map((tpl) => (
+                              <option key={tpl.id} value={tpl.id}>
+                                {tpl.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        <p className="mt-1.5 text-[10px] text-slate-600">
+                          Choose which saved layout to use (logo, stamp, columns). Manage templates in
+                          Settings → Invoice template.
+                        </p>
+                      </div>
 
                       {sourceMode === 'existing' && !editingDraft ? (
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1541,6 +1680,107 @@ export function CreatePlacementInvoiceModal({
 
                       <div>
                         <div className="mb-2 flex items-center justify-between">
+                          <label className={labelClass}>Extra columns</label>
+                          <button
+                            type="button"
+                            onClick={addCustomColumn}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                          >
+                            <Plus size={14} /> Add column
+                          </button>
+                        </div>
+                        <p className="mb-2 text-[10px] text-slate-500">
+                          Name a column, then pick a value type: fixed number, % of salary, % of fee,
+                          manual entry, or text.
+                        </p>
+                        {(invoice.customColumns || []).length === 0 ? (
+                          <p className="text-xs text-slate-400">No extra columns yet.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {(invoice.customColumns || []).map((col) => (
+                              <div
+                                key={col.id}
+                                className="grid grid-cols-[1fr_1fr_72px_auto] gap-2 rounded-xl border border-slate-200 bg-slate-50/50 p-2"
+                              >
+                                <input
+                                  className={inputClass}
+                                  placeholder="Column name"
+                                  value={col.name}
+                                  onChange={(e) =>
+                                    updateCustomColumn(col.id, { name: e.target.value })
+                                  }
+                                />
+                                <select
+                                  className={inputClass}
+                                  value={col.formula}
+                                  onChange={(e) =>
+                                    updateCustomColumn(col.id, {
+                                      formula: e.target.value as InvoiceCustomColumn['formula'],
+                                    })
+                                  }
+                                >
+                                  {(
+                                    [
+                                      'fixed',
+                                      'percent_salary',
+                                      'percent_fee',
+                                      'manual',
+                                      'text',
+                                    ] as const
+                                  ).map((f) => (
+                                    <option key={f} value={f}>
+                                      {formulaLabel(f)}
+                                    </option>
+                                  ))}
+                                </select>
+                                {col.formula === 'text' ? (
+                                  <input
+                                    className={inputClass}
+                                    placeholder="Default"
+                                    value={String(col.defaultValue ?? '')}
+                                    onChange={(e) =>
+                                      updateCustomColumn(col.id, { defaultValue: e.target.value })
+                                    }
+                                  />
+                                ) : col.formula === 'manual' ? (
+                                  <span className="flex items-center text-[10px] text-slate-400">
+                                    Per line
+                                  </span>
+                                ) : (
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    className={inputClass}
+                                    placeholder={
+                                      col.formula.startsWith('percent') ? '%' : 'Value'
+                                    }
+                                    value={col.defaultValue ?? ''}
+                                    onChange={(e) =>
+                                      updateCustomColumn(col.id, {
+                                        defaultValue:
+                                          e.target.value === ''
+                                            ? 0
+                                            : Number(e.target.value),
+                                      })
+                                    }
+                                  />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => removeCustomColumn(col.id)}
+                                  className="rounded-lg p-2 text-red-500 hover:bg-red-50"
+                                  aria-label="Remove column"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
                           <label className={labelClass}>Line items</label>
                           <button
                             type="button"
@@ -1606,6 +1846,111 @@ export function CreatePlacementInvoiceModal({
                                   ) : null}
                                 </div>
                               </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <span className="text-[10px] text-slate-400">
+                                    Monthly salary (for % columns)
+                                  </span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    className={inputClass}
+                                    value={item.monthlySalary ?? ''}
+                                    onChange={(e) =>
+                                      updateLineItem(idx, {
+                                        monthlySalary:
+                                          e.target.value === ''
+                                            ? null
+                                            : Number(e.target.value),
+                                      })
+                                    }
+                                  />
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-slate-400">Rate %</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    className={inputClass}
+                                    value={item.ratePercent ?? ''}
+                                    onChange={(e) =>
+                                      updateLineItem(idx, {
+                                        ratePercent:
+                                          e.target.value === ''
+                                            ? null
+                                            : Number(e.target.value),
+                                      })
+                                    }
+                                  />
+                                </div>
+                              </div>
+                              {(invoice.customColumns || []).some(
+                                (c) => c.formula === 'manual' || c.formula === 'text',
+                              ) ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                  {(invoice.customColumns || [])
+                                    .filter(
+                                      (c) => c.formula === 'manual' || c.formula === 'text',
+                                    )
+                                    .map((col) => (
+                                      <div key={col.id}>
+                                        <span className="text-[10px] text-slate-400">
+                                          {col.name || 'Column'}
+                                        </span>
+                                        <input
+                                          type={col.formula === 'text' ? 'text' : 'number'}
+                                          step="0.01"
+                                          className={inputClass}
+                                          value={item.extraValues?.[col.id] ?? ''}
+                                          onChange={(e) => {
+                                            const raw = e.target.value;
+                                            const nextVal =
+                                              col.formula === 'text'
+                                                ? raw
+                                                : raw === ''
+                                                  ? null
+                                                  : Number(raw);
+                                            updateLineItem(idx, {
+                                              extraValues: {
+                                                ...(item.extraValues || {}),
+                                                [col.id]: nextVal,
+                                              },
+                                            });
+                                          }}
+                                        />
+                                      </div>
+                                    ))}
+                                </div>
+                              ) : null}
+                              {(invoice.customColumns || []).filter(
+                                (c) =>
+                                  c.formula === 'fixed' ||
+                                  c.formula === 'percent_salary' ||
+                                  c.formula === 'percent_fee',
+                              ).length > 0 ? (
+                                <div className="flex flex-wrap gap-2 text-[10px] text-slate-500">
+                                  {(invoice.customColumns || [])
+                                    .filter(
+                                      (c) =>
+                                        c.formula === 'fixed' ||
+                                        c.formula === 'percent_salary' ||
+                                        c.formula === 'percent_fee',
+                                    )
+                                    .map((col) => {
+                                      const resolved = resolveCustomColumnValue(col, item);
+                                      return (
+                                        <span
+                                          key={col.id}
+                                          className="rounded-md bg-white px-2 py-1 border border-slate-200"
+                                        >
+                                          {col.name}: {resolved.display}
+                                        </span>
+                                      );
+                                    })}
+                                </div>
+                              ) : null}
                             </div>
                           ))}
                         </div>
@@ -1673,7 +2018,7 @@ export function CreatePlacementInvoiceModal({
 
                       <PlacementInvoiceEditableSidePanel
                         invoice={invoice}
-                        settings={settings}
+                        settings={previewSettings || settings}
                         loadingClient={loadingClientContext}
                         hasClient={Boolean(resolvedClientId)}
                         clientName={clientDisplayName}
@@ -1774,11 +2119,29 @@ export function CreatePlacementInvoiceModal({
                     } min-h-0 flex-1 flex-col bg-slate-50`}
                   >
                     <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-3 flex flex-wrap items-center justify-between gap-3">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Live preview</p>
                         <p className="text-[10px] text-slate-500 mt-0.5">
                           Scroll for page 2 — terms, banks &amp; signatures
                         </p>
+                        {templateOptions.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                              Template
+                            </label>
+                            <select
+                              className="max-w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800"
+                              value={invoice.templateId || templateOptions[0]?.id || ''}
+                              onChange={(e) => applyInvoiceTemplate(e.target.value)}
+                            >
+                              {templateOptions.map((tpl) => (
+                                <option key={tpl.id} value={tpl.id}>
+                                  {tpl.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : null}
                       </div>
                       <button
                         type="button"
@@ -1791,10 +2154,10 @@ export function CreatePlacementInvoiceModal({
                     </div>
                     <div className="flex-1 overflow-y-auto p-5">
                       <RecruitmentInvoicePreview
-                        key={`${invoice.subtotal}-${invoice.taxAmount}-${invoice.total}-${previewCurrency}-${invoice.lineItems.map((l) => l.total).join('-')}`}
+                        key={`${invoice.subtotal}-${invoice.taxAmount}-${invoice.total}-${previewCurrency}-${invoice.templateId}-${(invoice.customColumns || []).map((c) => c.id).join('-')}-${invoice.lineItems.map((l) => `${l.total}-${l.monthlySalary}`).join('-')}`}
                         ref={previewRef}
                         invoice={invoice}
-                        settings={settings}
+                        settings={previewSettings || settings}
                         displayCurrency={previewCurrency}
                       />
                     </div>
