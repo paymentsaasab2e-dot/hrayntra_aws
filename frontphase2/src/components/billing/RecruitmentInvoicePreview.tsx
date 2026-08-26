@@ -341,8 +341,7 @@ export const RecruitmentInvoicePreview = forwardRef<HTMLDivElement, RecruitmentI
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <BankBlock title="Client bank account (from KYC)" bank={invoice.buyerBank} />
+            <div className="grid grid-cols-1 gap-4">
               <BankBlock title="Agency bank account" bank={sellerBank} />
             </div>
 

@@ -355,7 +355,6 @@ export function applyClientContextToInvoice(
       preserveUserEdits && invoice.sellerBank
         ? invoice.sellerBank
         : resolveSellerBankDetails(settings),
-    buyerBank: resolveBuyerBankDetails(client) || invoice.buyerBank || undefined,
     clientSignatory: resolveClientSignatory(client),
     agencySignatory:
       preserveUserEdits && invoice.agencySignatory

@@ -11,7 +11,8 @@ import { SecuritySettings } from '../../components/SecuritySettings';
 import { CustomizationSettings } from '../../components/CustomizationSettings';
 import { ProfileSettings } from '../../components/ProfileSettings';
 import { Toaster } from 'sonner';
-import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
+import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT, getCachedOrgRecruitmentMode } from '../../lib/api';
+import { CommissionSlabSettings } from '../../components/settings/CommissionSlabSettings';
 import { usePermissions } from '../../hooks/usePermissions';
 import { ActivityLogSettings } from '../../components/settings/ActivityLogSettings';
 import { confirmDiscardUnsavedChanges } from '../../hooks/useDrawerUnsavedGuard';
@@ -23,6 +24,7 @@ const UNSAVED_SETTINGS_MESSAGE =
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('profile');
   const [showBillingSection, setShowBillingSection] = useState(true);
+  const [isAgencyMode, setIsAgencyMode] = useState(true);
   const [profileDirty, setProfileDirty] = useState(false);
   const { hasAnyPermission, isSuperAdmin } = usePermissions();
 
@@ -50,6 +52,8 @@ export default function SettingsPage() {
         case 'recruitment':
         case 'security':
           return hasAnyPermission(['manage_settings']);
+        case 'commission-slabs':
+          return isAgencyMode && hasAnyPermission(['manage_settings']);
         case 'billing':
           return true;
         case 'activity-log':
@@ -58,12 +62,15 @@ export default function SettingsPage() {
           return true;
       }
     },
-    [hasAnyPermission, isSuperAdmin],
+    [hasAnyPermission, isSuperAdmin, isAgencyMode],
   );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const refreshBilling = () => setShowBillingSection(isOrgBillingNavEnabled());
+    const refreshBilling = () => {
+      setShowBillingSection(isOrgBillingNavEnabled());
+      setIsAgencyMode(getCachedOrgRecruitmentMode() !== 'standalone');
+    };
     refreshBilling();
     window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, refreshBilling);
     return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, refreshBilling);
@@ -78,6 +85,7 @@ export default function SettingsPage() {
       'notifications-triggers',
       'alerts-management',
       'recruitment',
+      'commission-slabs',
       'billing',
       'security',
       'customization',
@@ -122,6 +130,8 @@ export default function SettingsPage() {
         return <AlertsManagementSettings />;
       case 'recruitment':
         return <RecruitmentWorkflowSettings />;
+      case 'commission-slabs':
+        return <CommissionSlabSettings />;
       case 'billing':
         return <BillingSettings />;
       case 'security':
@@ -141,6 +151,7 @@ export default function SettingsPage() {
     'notifications-triggers': 'Notifications Trigger Points',
     'alerts-management': 'Alerts Management',
     recruitment: 'Recruitment workflow',
+    'commission-slabs': 'Commission slabs',
     billing: 'Subscription & Plan',
     security: 'Data & Security',
     'activity-log': 'Activity Log',
@@ -160,6 +171,7 @@ export default function SettingsPage() {
             void requestSectionChange(id);
           }}
           showBillingSection={showBillingSection}
+          isAgencyMode={isAgencyMode}
         />
 
         <div className="min-w-0 flex-1 overflow-y-auto">

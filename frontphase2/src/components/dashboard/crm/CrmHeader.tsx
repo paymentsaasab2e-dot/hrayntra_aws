@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Download, RefreshCw, Settings2 } from 'lucide-react';
 import type { CrmOverview } from '@/lib/dashboard/api';
 import { CRM_SECTIONS, crmCard, useCrmDashboard } from './crmShared';
+import { OrgCompanySwitcher } from '@/components/dashboard/OrgCompanySwitcher';
 
 export const CRM_DATE_OPTIONS = [
   { value: 'today', label: 'Today' },
@@ -88,6 +89,7 @@ export function CrmHeader({ overview, onRefresh }: Props) {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <OrgCompanySwitcher />
           <button
             type="button"
             onClick={onRefresh}

@@ -27,6 +27,7 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
   Request: [
     'requests_create', 'requests_read', 'requests_update', 'requests_delete', 'view_all_requests',
   ],
+  Organization: ['org_structure', 'node_org_structure', 'view_team'],
   System: [
     'manage_settings', 'access_integrations', 'export_data', 'view_activity_log',
     'recycle_bin_manage', 'view_dashboard',
@@ -51,6 +52,7 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/reports': MODULE_ACCESS_MAP.Reports,
   '/billing': MODULE_ACCESS_MAP.Billing,
   '/team': MODULE_ACCESS_MAP.Team,
+  '/organization': MODULE_ACCESS_MAP.Organization,
   '/request': MODULE_ACCESS_MAP.Request,
   '/request/approval': MODULE_ACCESS_MAP.Request,
   '/inbox': MODULE_ACCESS_MAP.Inbox,

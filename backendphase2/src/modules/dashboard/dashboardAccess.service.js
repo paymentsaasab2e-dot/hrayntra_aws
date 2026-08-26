@@ -2,6 +2,7 @@ import { prisma } from '../../config/prisma.js';
 import { hasPermission } from '../../utils/permissionScope.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { isDepartmentHeadUser } from '../../services/departmentRole.service.js';
+import { resolveViewerOrgScope } from '../org/org.service.js';
 
 function userIdFrom(req) {
   return String(req?.user?.id || req?.user?._id || '').trim();
@@ -37,7 +38,25 @@ export async function resolveDashboardAccess(req) {
   const isDepartmentHead = userId ? await isDepartmentHeadUser(userId) : false;
   const hasOverride = hasPermission(req, 'dash_full_scope');
   const hasMineApprovalsPerm = hasPermission(req, 'dash_mine_approvals');
-  const canFullStats = Boolean(isSuperAdmin || isDepartmentHead || hasOverride);
+
+  let org = {
+    isTenantAdmin: Boolean(isSuperAdmin),
+    isTenantWide: Boolean(isSuperAdmin),
+    canSwitchCompanies: Boolean(isSuperAdmin),
+    companies: [],
+    orgUnitId: null,
+    hierarchyPurpose: 'member',
+    memberIds: [],
+  };
+  try {
+    org = await resolveViewerOrgScope(req);
+  } catch {
+    // Org collections may not exist until first visit to Organization.
+  }
+
+  const isOrgHead =
+    org.hierarchyPurpose === 'company_head' || org.hierarchyPurpose === 'site_head';
+  const canFullStats = Boolean(isSuperAdmin || isDepartmentHead || hasOverride || isOrgHead);
   const showMineApprovals = Boolean(isSuperAdmin || isDepartmentHead || hasMineApprovalsPerm);
   const forceSelf = wantsSelfScope(req);
   const statsScope = forceSelf || !canFullStats ? 'self' : 'full';
@@ -49,6 +68,7 @@ export async function resolveDashboardAccess(req) {
     showMineApprovals,
     isSuperAdmin,
     isDepartmentHead,
+    org,
   };
 }
 
@@ -56,11 +76,18 @@ export async function applyDashboardAssignedScope(req) {
   const access = await resolveDashboardAccess(req);
   const uid = userIdFrom(req);
   if (!req.query || typeof req.query !== 'object') req.query = {};
+  const noneId = '000000000000000000000000';
 
   if (access.statsScope === 'self' && uid) {
     req.query.assignedTo = uid;
+    delete req.query.assignedToIds;
   } else if (!access.canFullStats && uid) {
     req.query.assignedTo = uid;
+    delete req.query.assignedToIds;
+  } else if (access.org && !access.org.isTenantWide) {
+    const ids = access.org.memberIds?.length ? access.org.memberIds : [noneId];
+    req.query.assignedToIds = ids.join(',');
+    delete req.query.assignedTo;
   }
 
   return access;

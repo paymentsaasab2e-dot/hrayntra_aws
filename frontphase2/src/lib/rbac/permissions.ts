@@ -87,6 +87,8 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'view_activity_log', module: 'System', description: 'View company activity feed' },
   { permissionName: 'recycle_bin_manage', module: 'System', description: 'Restore or purge recycle bin items' },
   { permissionName: 'view_dashboard', module: 'System', description: 'View main dashboard' },
+  { permissionName: 'org_structure', module: 'Organization', description: 'Create and edit the company tree (HQ, companies, sites)' },
+  { permissionName: 'node_org_structure', module: 'Organization', description: 'Manage sites and people under your own company node' },
   {
     permissionName: 'dash_full_scope',
     module: 'System',
@@ -128,6 +130,7 @@ export const RBAC_MODULE_ORDER = [
   'Team',
   'Request',
   'System',
+  'Organization',
   'CRM Dashboard',
   'Recruitment Dashboard',
 ] as const;

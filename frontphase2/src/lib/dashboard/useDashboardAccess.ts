@@ -25,6 +25,7 @@ const EMPTY_RANK: DashboardStatsAccess = {
   canFullStats: false,
   showMineTab: false,
   showMineApprovals: false,
+  org: { canSwitchCompanies: false, companies: [] },
 };
 
 export function useDashboardAccess() {
@@ -101,6 +102,7 @@ export function useDashboardAccess() {
       showMineApprovals,
       canFullStats,
       statsScope: canFullStats ? rankAccess.statsScope : 'self',
+      org: rankAccess.org,
     };
   }, [canAccess, hasPermission, hasAnyPermission, isAdmin, isSuperAdmin, rankAccess]);
 }

@@ -291,6 +291,24 @@ export type CrmOverview = {
   generatedAt?: string;
 };
 
+export type OrgCompanyOption = {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  levelOrder?: number;
+};
+
+export type DashboardOrgScope = {
+  isTenantAdmin?: boolean;
+  isTenantWide?: boolean;
+  canSwitchCompanies?: boolean;
+  hierarchyPurpose?: string;
+  orgUnitId?: string | null;
+  homeOrgUnitId?: string | null;
+  companies?: OrgCompanyOption[];
+  memberIds?: string[];
+};
+
 export type DashboardStatsAccess = {
   statsScope: 'full' | 'self';
   canFullStats: boolean;
@@ -298,6 +316,7 @@ export type DashboardStatsAccess = {
   showMineApprovals?: boolean;
   isSuperAdmin?: boolean;
   isDepartmentHead?: boolean;
+  org?: DashboardOrgScope;
 };
 
 export type DashboardMyWorkApproval = {
@@ -328,6 +347,7 @@ export type CrmDashboardFilters = {
   startDate?: string;
   endDate?: string;
   scope?: 'self' | 'full';
+  orgUnitId?: string;
 };
 
 export async function apiDashboardAccess() {
@@ -459,6 +479,7 @@ export type RecruitmentDashboardFilters = {
   startDate?: string;
   endDate?: string;
   scope?: 'self' | 'full';
+  orgUnitId?: string;
 };
 
 export async function apiRecruitmentDashboardOverview(filters?: RecruitmentDashboardFilters) {

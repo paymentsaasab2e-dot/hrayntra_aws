@@ -60,6 +60,10 @@ model User {
   departmentId String?     @db.ObjectId
   roleId       String?     @db.ObjectId
   managerId    String?     @db.ObjectId
+  /// Company / site node this person belongs to (HQ → Company → Site).
+  orgUnitId String? @db.ObjectId
+  /// Internal purpose on that node — not a SystemRole. member | company_head | site_head
+  hierarchyPurpose String? @default("member")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -67,6 +71,7 @@ model User {
   // Relations
   departmentRelation     Department?            @relation(fields: [departmentId], references: [id])
   systemRole             SystemRole?            @relation(fields: [roleId], references: [id])
+  orgUnit                OrgUnit?               @relation(fields: [orgUnitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   managerRelation        User?                  @relation("UserManager", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   subordinates           User[]                 @relation("UserManager")
   credential             UserCredential?
@@ -2656,4 +2661,39 @@ model TenantBehaviorSnapshot {
 
   @@map("tenant_behavior_snapshots")
   @@index([capturedAt])
+}
+
+/// Template names for the tenant company tree (HQ / Company / Site).
+model OrgLevel {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  code        String
+  displayName String
+  levelOrder  Int
+  isLeaf      Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([code])
+  @@unique([levelOrder])
+  @@map("org_levels")
+}
+
+/// Actual HQ → Company (sub-company) → Site nodes. One root per tenant.
+model OrgUnit {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  parentId   String?  @db.ObjectId
+  name       String
+  levelOrder Int
+  isLeaf     Boolean  @default(false)
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  parent   OrgUnit?  @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children OrgUnit[] @relation("OrgUnitTree")
+  members  User[]
+
+  @@index([parentId])
+  @@index([status])
+  @@map("org_units")
 }

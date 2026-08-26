@@ -27,6 +27,8 @@ import {
   type BackendClient,
 } from '../../../lib/api';
 import { PlacementInvoiceEditableSidePanel } from '../PlacementInvoiceEditableSidePanel';
+import { useOrgCommissionSlabs } from '../../../lib/useOrgCommissionSlabs';
+import { resolveCommissionPercent } from '../../../lib/commissionSlabs';
 // Replaced PlacementInvoiceLegalDetailsPanel — use PlacementInvoiceEditableSidePanel only.
 import {
   applyClientContextToInvoice,
@@ -135,6 +137,9 @@ type JobOption = {
   clientId?: string;
   clientName: string;
   clientEmail?: string;
+  minSalary?: number | null;
+  maxSalary?: number | null;
+  salaryAmount?: number | null;
 };
 
 function buildInvoiceFromManual(
@@ -295,6 +300,8 @@ export function CreatePlacementInvoiceModal({
   const [placementId, setPlacementId] = useState('');
   const [manual, setManual] = useState(manualInitial);
   const [feeEditedManually, setFeeEditedManually] = useState(false);
+  const [pctEditedManually, setPctEditedManually] = useState(false);
+  const { settings: commissionSlabs } = useOrgCommissionSlabs();
   const [candidateOptions, setCandidateOptions] = useState<SelectOption[]>(candidatesProp);
   const [jobOptions, setJobOptions] = useState<JobOption[]>(jobsProp);
   const [recruiterOptions, setRecruiterOptions] = useState<SelectOption[]>(recruitersProp);
@@ -434,7 +441,7 @@ export function CreatePlacementInvoiceModal({
       offerDate: new Date().toISOString().slice(0, 10),
     });
     setFeeEditedManually(false);
-    setError('');
+    setPctEditedManually(false);
     setActiveTab('edit');
     setSendingEmail(false);
     setPreviewCurrency(resolveOrgDefaultCurrency());
@@ -492,6 +499,9 @@ export function CreatePlacementInvoiceModal({
               clientId: j.client?.id,
               clientName: j.client?.companyName || 'Unknown Client',
               clientEmail: resolveClientEmail(j.client),
+              minSalary: j.salary?.min ?? j.minSalary ?? null,
+              maxSalary: j.salary?.max ?? j.maxSalary ?? null,
+              salaryAmount: j.salary?.amount ?? null,
             })),
           );
           setRecruiterOptions(
@@ -562,16 +572,64 @@ export function CreatePlacementInvoiceModal({
     [loadedClient?.agreementServiceChargePercent],
   );
 
+  const slabCommission = useMemo(() => {
+    if (!commissionSlabs.enabled) return null;
+    return resolveCommissionPercent(commissionSlabs, {
+      offerSalary: manual.offerSalary,
+      offerCurrency: commissionSlabs.salaryCurrency,
+      jobSalary: {
+        min: selectedJob?.minSalary,
+        max: selectedJob?.maxSalary,
+        amount: selectedJob?.salaryAmount,
+      },
+    });
+  }, [
+    commissionSlabs,
+    manual.offerSalary,
+    selectedJob?.minSalary,
+    selectedJob?.maxSalary,
+    selectedJob?.salaryAmount,
+  ]);
+
+  const slabCommissionPct = slabCommission?.percent ?? null;
+
+  const effectiveCommissionPct = agreementCommissionPct ?? slabCommissionPct;
+
   useEffect(() => {
+    if (feeEditedManually) return;
+    if (agreementCommissionPct != null) {
+      const salary = Number(manual.offerSalary || 0);
+      const pct = agreementCommissionPct;
+      if (salary > 0 && pct > 0) {
+        setManual((current) => ({
+          ...current,
+          placementFee: String(Math.round(calculatePlacementFee(salary, pct))),
+        }));
+      }
+      return;
+    }
+    if (commissionSlabs.enabled && !pctEditedManually && slabCommission) {
+      const nextFee = String(Math.round(slabCommission.fee || 0));
+      setManual((current) => (current.placementFee === nextFee ? current : { ...current, placementFee: nextFee }));
+      return;
+    }
     const salary = Number(manual.offerSalary || 0);
-    const pct = agreementCommissionPct ?? (Number(manual.commissionPercentage) || 0);
-    if (salary > 0 && pct > 0 && !feeEditedManually) {
+    const pct = Number(manual.commissionPercentage || 0);
+    if (salary > 0 && pct > 0) {
       setManual((current) => ({
         ...current,
         placementFee: String(Math.round(calculatePlacementFee(salary, pct))),
       }));
     }
-  }, [manual.offerSalary, manual.commissionPercentage, agreementCommissionPct, feeEditedManually]);
+  }, [
+    manual.offerSalary,
+    manual.commissionPercentage,
+    agreementCommissionPct,
+    feeEditedManually,
+    commissionSlabs.enabled,
+    pctEditedManually,
+    slabCommission,
+  ]);
 
   useEffect(() => {
     termsEditedRef.current = false;
@@ -598,7 +656,6 @@ export function CreatePlacementInvoiceModal({
         next.notes = migrated.notes || prev.notes || next.notes;
         if (prev.legalTerms) next.legalTerms = prev.legalTerms;
         if (prev.sellerBank) next.sellerBank = prev.sellerBank;
-        if (prev.buyerBank) next.buyerBank = prev.buyerBank;
         if (prev.clientSignatory) next.clientSignatory = prev.clientSignatory;
         if (prev.agencySignatory) next.agencySignatory = prev.agencySignatory;
         if (prev.buyer.address) next.buyer.address = prev.buyer.address;
@@ -708,7 +765,7 @@ export function CreatePlacementInvoiceModal({
         : selected?.job.title || '';
 
     const agreementPct = agreementCommissionPct;
-    const commissionPercent = agreementPct ?? undefined;
+    const commissionPercent = agreementPct ?? (commissionSlabs.enabled ? slabCommissionPct ?? undefined : undefined);
 
     if (sourceMode === 'manual' && agreementPct != null) {
       setManual((m) =>
@@ -719,6 +776,18 @@ export function CreatePlacementInvoiceModal({
       if (!isSameClientContext) {
         setFeeEditedManually(false);
       }
+    } else if (
+      sourceMode === 'manual' &&
+      !pctEditedManually &&
+      commissionSlabs.enabled &&
+      slabCommissionPct != null
+    ) {
+      setManual((m) => {
+        const nextPct = String(slabCommissionPct);
+        const nextFee = String(Math.round(slabCommission?.fee || 0));
+        if (m.commissionPercentage === nextPct && m.placementFee === nextFee) return m;
+        return { ...m, commissionPercentage: nextPct, placementFee: nextFee };
+      });
     }
 
     setInvoice((prev) => {
@@ -747,7 +816,8 @@ export function CreatePlacementInvoiceModal({
       !feeEditedManually &&
       offerSalary > 0 &&
       commissionPercent != null &&
-      commissionPercent > 0
+      commissionPercent > 0 &&
+      !(commissionSlabs.enabled && agreementPct == null)
     ) {
       const computedFee = String(Math.round(calculatePlacementFee(offerSalary, commissionPercent)));
       setManual((m) =>
@@ -773,6 +843,10 @@ export function CreatePlacementInvoiceModal({
     clientDisplayName,
     placementRow?.salaryOffered,
     placementRow?.placementFee,
+    agreementCommissionPct,
+    slabCommissionPct,
+    pctEditedManually,
+    commissionSlabs.enabled,
   ]);
 
   const updateLineItem = (index: number, patch: Partial<RecruitmentInvoiceData['lineItems'][0]>) => {
@@ -855,7 +929,6 @@ export function CreatePlacementInvoiceModal({
       termsAndConditions: invoice.termsAndConditions,
       legalTerms: invoice.legalTerms,
       sellerBank: invoice.sellerBank,
-      buyerBank: invoice.buyerBank,
       clientSignatory: invoice.clientSignatory,
       agencySignatory: invoice.agencySignatory,
     };
@@ -907,7 +980,12 @@ export function CreatePlacementInvoiceModal({
         agreementCommissionPct != null
           ? String(agreementCommissionPct)
           : manual.commissionPercentage,
-      currency: invoice?.currency || resolveOrgDefaultCurrency(settings),
+      currency:
+        commissionSlabs.enabled && !pctEditedManually
+          ? commissionSlabs.commissionCurrency
+          : invoice?.currency || resolveOrgDefaultCurrency(settings),
+      commissionSource:
+        agreementCommissionPct != null || pctEditedManually || !commissionSlabs.enabled ? 'manual' : 'slab',
       offerDate: manual.offerDate,
       employmentType: manual.employmentType,
       notes: invoice?.notes,
@@ -1354,6 +1432,10 @@ export function CreatePlacementInvoiceModal({
                                   <span className="font-normal normal-case text-slate-500">
                                     (from client agreement)
                                   </span>
+                                ) : commissionSlabs.enabled && !pctEditedManually ? (
+                                  <span className="font-normal normal-case text-slate-500">
+                                    (from commission slabs)
+                                  </span>
                                 ) : null}
                               </label>
                               <input
@@ -1372,6 +1454,7 @@ export function CreatePlacementInvoiceModal({
                                 }
                                 onChange={(e) => {
                                   if (agreementCommissionPct != null) return;
+                                  setPctEditedManually(true);
                                   setFeeEditedManually(false);
                                   setManual((m) => ({
                                     ...m,
