@@ -16,6 +16,8 @@ import {
   DrawerSelectDropdown,
   DRAWER_FORM_INPUT,
 } from '../../drawers/drawerFormUi';
+import { useOrgCommissionSlabs } from '../../../lib/useOrgCommissionSlabs';
+import { resolveCommissionPercent } from '../../../lib/commissionSlabs';
 
 interface CreatePlacementDrawerProps {
   isOpen: boolean;
@@ -23,7 +25,15 @@ interface CreatePlacementDrawerProps {
   mode?: 'create' | 'edit' | 'resend';
   currentUserId?: string;
   candidates: Array<{ id: string; name: string; email: string }>;
-  jobs: Array<{ id: string; title: string; clientId?: string; clientName: string }>;
+  jobs: Array<{
+    id: string;
+    title: string;
+    clientId?: string;
+    clientName: string;
+    minSalary?: number | null;
+    maxSalary?: number | null;
+    salaryAmount?: number | null;
+  }>;
   recruiters: Array<{ id: string; name: string; email: string }>;
   prefill?: Partial<Pick<CreatePlacementPayload, 'candidateId' | 'jobId' | 'companyId' | 'recruiterId'>>;
   initialValues?: Partial<CreatePlacementPayload>;
@@ -67,6 +77,8 @@ export function CreatePlacementDrawer({
   const [offerLetter, setOfferLetter] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [feeEditedManually, setFeeEditedManually] = useState(false);
+  const [pctEditedManually, setPctEditedManually] = useState(false);
+  const { settings: commissionSlabs } = useOrgCommissionSlabs();
 
   useEffect(() => {
     if (isOpen) {
@@ -97,6 +109,7 @@ export function CreatePlacementDrawer({
       setOfferLetter(null);
       setErrors({});
       setFeeEditedManually(initialValues?.placementFee !== undefined && initialValues?.placementFee !== null);
+      setPctEditedManually(initialValues?.commissionPercentage !== undefined && initialValues?.commissionPercentage !== null);
     }
   }, [isOpen, currentUserId, initialValues, prefill?.candidateId, prefill?.jobId, prefill?.recruiterId]);
 
@@ -109,6 +122,47 @@ export function CreatePlacementDrawer({
   const lockJob = Boolean(prefill?.jobId || initialValues?.jobId);
 
   useEffect(() => {
+    if (pctEditedManually || !commissionSlabs.enabled) return;
+    const resolved = resolveCommissionPercent(commissionSlabs, {
+      offerSalary: form.offerSalary,
+      offerCurrency: commissionSlabs.salaryCurrency,
+      jobSalary: {
+        min: selectedJob?.minSalary,
+        max: selectedJob?.maxSalary,
+        amount: selectedJob?.salaryAmount,
+      },
+    });
+    setForm((current) => {
+      const nextPct = String(resolved.percent);
+      const nextFee = feeEditedManually ? current.placementFee : String(Math.round(resolved.fee || 0));
+      const nextCcy = resolved.commissionCurrency || current.currency;
+      if (
+        current.commissionPercentage === nextPct &&
+        current.placementFee === nextFee &&
+        current.currency === nextCcy
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        commissionPercentage: nextPct,
+        placementFee: nextFee,
+        currency: nextCcy,
+      };
+    });
+  }, [
+    commissionSlabs,
+    form.offerSalary,
+    form.jobId,
+    pctEditedManually,
+    feeEditedManually,
+    selectedJob?.minSalary,
+    selectedJob?.maxSalary,
+    selectedJob?.salaryAmount,
+  ]);
+
+  useEffect(() => {
+    if (commissionSlabs.enabled && !pctEditedManually) return;
     const salary = Number(form.offerSalary || 0);
     const pct = Number(form.commissionPercentage || 0);
     if (salary > 0 && pct > 0 && !feeEditedManually) {
@@ -117,7 +171,7 @@ export function CreatePlacementDrawer({
         placementFee: String(Math.round(calculatePlacementFee(salary, pct))),
       }));
     }
-  }, [form.offerSalary, form.commissionPercentage, feeEditedManually]);
+  }, [form.offerSalary, form.commissionPercentage, feeEditedManually, commissionSlabs.enabled, pctEditedManually]);
 
   const validate = () => {
     const nextErrors: Record<string, string> = {};
@@ -174,6 +228,7 @@ export function CreatePlacementDrawer({
         placementFee: form.placementFee,
         commissionPercentage: form.commissionPercentage,
         currency: form.currency,
+        commissionSource: pctEditedManually || !commissionSlabs.enabled ? 'manual' : 'slab',
         offerDate: form.offerDate,
         expectedJoiningDate: form.expectedJoiningDate || undefined,
         employmentType: form.employmentType,
@@ -319,7 +374,7 @@ export function CreatePlacementDrawer({
             />
           </div>
           <div>
-            <DrawerFieldLabel label="Offer Salary" required />
+            <DrawerFieldLabel label={commissionSlabs.enabled ? `Offer Salary (${commissionSlabs.salaryCurrency})` : 'Offer Salary'} required />
             <input
               type="number"
               value={form.offerSalary}
@@ -328,7 +383,10 @@ export function CreatePlacementDrawer({
             />
             {Number(form.offerSalary) > 0 ? (
               <p className="mt-1 text-xs text-slate-500">
-                {formatCurrencyAmount(Number(form.offerSalary), form.currency)}
+                {formatCurrencyAmount(
+                  Number(form.offerSalary),
+                  commissionSlabs.enabled ? commissionSlabs.salaryCurrency : form.currency,
+                )}
               </p>
             ) : null}
             {errors.offerSalary ? <p className="mt-1 text-xs text-red-600">{errors.offerSalary}</p> : null}
@@ -339,12 +397,17 @@ export function CreatePlacementDrawer({
               type="number"
               value={form.commissionPercentage}
               onChange={(event) => {
+                setPctEditedManually(true);
                 setFeeEditedManually(false);
                 setForm((current) => ({ ...current, commissionPercentage: event.target.value }));
               }}
               className={DRAWER_FORM_INPUT}
             />
-            <p className="mt-1 text-xs text-slate-500">Drives placement fee. Edit fee directly to override.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {commissionSlabs.enabled && !pctEditedManually
+                ? `From org commission slabs (${commissionSlabs.basis === 'job_salary' ? 'job salary range' : 'offer salary'}). Change the % to override.`
+                : 'Drives placement fee. Edit fee directly to override.'}
+            </p>
           </div>
           <div>
             <DrawerFieldLabel label="Placement Fee" required />

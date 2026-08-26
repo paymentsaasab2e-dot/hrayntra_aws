@@ -2,6 +2,11 @@ import { prisma } from '../config/prisma.js';
 import { canViewAllLeads } from '../utils/permissionScope.js';
 import { mergeWhereWithScope } from '../utils/superAdminScope.js';
 import { isDepartmentHeadUser } from './departmentRole.service.js';
+import {
+  getRequestOrgScope,
+  isOrgHeadPurpose,
+  mergeOrgCompanyListScope,
+} from './orgListScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -53,7 +58,19 @@ export async function applyMemberLeadScope(scopedWhere, req) {
   if (req?._bypassLeadScope) {
     return scopedWhere;
   }
+
+  scopedWhere = await mergeOrgCompanyListScope(scopedWhere, req, {
+    assignedToIdField: 'assignedToId',
+    assignedToIdsField: 'assignedToIds',
+    createdByField: 'createdBy',
+  });
+
   if (canViewAllLeads(req) || !req?.user?.id) {
+    return scopedWhere;
+  }
+
+  const org = await getRequestOrgScope(req);
+  if (isOrgHeadPurpose(org)) {
     return scopedWhere;
   }
 
@@ -74,9 +91,5 @@ export async function applyMemberLeadScope(scopedWhere, req) {
 }
 
 export async function buildLeadAccessWhere(id, req) {
-  if (canViewAllLeads(req) || !req?.user?.id) {
-    return { id };
-  }
-  const scope = await applyMemberLeadScope({}, req);
-  return { AND: [{ id }, scope] };
+  return applyMemberLeadScope({ id }, req);
 }

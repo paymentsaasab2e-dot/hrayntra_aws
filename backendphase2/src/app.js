@@ -73,6 +73,7 @@ import portalEventsRoutes from './modules/portal-events/portal-events.routes.js'
 import companyPageRoutes from './modules/company-page/company-page.routes.js';
 import tenantBehaviorRoutes from './modules/tenant-behavior/tenant-behavior.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
+import orgRoutes from './modules/org/org.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
 import notificationRoutes from './modules/notification/notification.routes.js';
@@ -320,6 +321,7 @@ app.use('/api/v1/ai/aria', ariaRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/brain', brainRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/org-units', orgRoutes);
 // (portalSyncRoutes is mounted near the top — before any
 // router-level-auth `/api/v1` handlers — see comment above.)
 // Removing re-mounts from here as they are now at the top

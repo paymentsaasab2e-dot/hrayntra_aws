@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Download, RefreshCw, Settings2 } from 'lucide-react';
 import type { RecruitmentOverview } from '@/lib/dashboard/api';
 import { REC_SECTIONS, recCard, useRecDashboard } from './recShared';
+import { OrgCompanySwitcher } from '@/components/dashboard/OrgCompanySwitcher';
 
 export const REC_DATE_OPTIONS = [
   { value: 'today', label: 'Today' },
@@ -88,6 +89,7 @@ export function RecHeader({ overview, onRefresh }: Props) {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <OrgCompanySwitcher />
           <button
             type="button"
             onClick={onRefresh}

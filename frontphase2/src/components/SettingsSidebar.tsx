@@ -13,6 +13,7 @@ import {
   BellRing,
   Bell,
   History,
+  Percent,
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
 
@@ -31,6 +32,8 @@ type SettingsNavItem = {
   requiresBillingNav?: boolean;
   /** When true, only Super Admin users see this section. */
   superAdminOnly?: boolean;
+  /** When true, only agency-mode tenants see this section. */
+  agencyOnly?: boolean;
 };
 
 const baseSettingsNav: SettingsNavItem[] = [
@@ -60,6 +63,13 @@ const baseSettingsNav: SettingsNavItem[] = [
     anyPermissions: ['manage_settings'],
   },
   {
+    id: 'commission-slabs',
+    label: 'Commission slabs',
+    icon: Percent,
+    anyPermissions: ['manage_settings'],
+    agencyOnly: true,
+  },
+  {
     id: 'billing',
     label: 'Subscription & Plan',
     icon: CreditCard,
@@ -83,17 +93,20 @@ interface SettingsSidebarProps {
   activeSection: string;
   setActiveSection: (id: string) => void;
   showBillingSection?: boolean;
+  isAgencyMode?: boolean;
 }
 
 export function SettingsSidebar({
   activeSection,
   setActiveSection,
   showBillingSection = true,
+  isAgencyMode = true,
 }: SettingsSidebarProps) {
   const { hasAnyPermission, isSuperAdmin } = usePermissions();
 
   const settingsNav = baseSettingsNav.filter((item) => {
     if (item.requiresBillingNav && !showBillingSection) return false;
+    if (item.agencyOnly && !isAgencyMode) return false;
     if (item.superAdminOnly && !isSuperAdmin()) return false;
     if (item.anyPermissions && !hasAnyPermission(item.anyPermissions)) return false;
     return true;

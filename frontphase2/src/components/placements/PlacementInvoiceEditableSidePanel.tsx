@@ -61,7 +61,6 @@ export function PlacementInvoiceEditableSidePanel({
   onPreviewCurrencyChange,
 }: PlacementInvoiceEditableSidePanelProps) {
   const legal = invoice.legalTerms;
-  const buyerBank = invoice.buyerBank;
   const sellerBank = invoice.sellerBank;
 
   return (
@@ -129,19 +128,6 @@ export function PlacementInvoiceEditableSidePanel({
           </div>
         </div>
       ) : null}
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-        <p className="text-xs font-semibold text-slate-800">Client bank (from KYC)</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <ReadOnlyRow
-            label="Account name"
-            value={buyerBank?.accountHolderName || ''}
-          />
-          <ReadOnlyRow label="Bank" value={buyerBank?.bankName || ''} />
-          <ReadOnlyRow label="Account number" value={buyerBank?.accountNumber || ''} />
-          <ReadOnlyRow label="SWIFT / IFSC" value={buyerBank?.swiftCode || ''} />
-        </div>
-      </div>
 
       <div className="rounded-xl border border-emerald-100 bg-emerald-50/20 p-4 space-y-3">
         <div>

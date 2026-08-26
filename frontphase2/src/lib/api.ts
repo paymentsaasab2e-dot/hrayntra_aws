@@ -249,6 +249,15 @@ export function getTenantDbName() {
   }
 }
 
+function getActiveOrgUnitIdFromStorage() {
+  if (typeof window === 'undefined') return '';
+  try {
+    return String(localStorage.getItem('activeOrgUnitId') || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 /** Persist workspace DB name so API calls (including login) send `x-tenant-db-name`. */
 export function syncTenantDbName(value: string | null | undefined) {
   if (typeof window === 'undefined') return;
@@ -378,6 +387,10 @@ export async function apiFetch<T>(
   const tenantDbName = getTenantDbName();
   if (tenantDbName && (options.auth || options.includeTenantHeader)) {
     headers['x-tenant-db-name'] = tenantDbName;
+  }
+  const orgUnitId = getActiveOrgUnitIdFromStorage();
+  if (orgUnitId && (options.auth || options.includeTenantHeader)) {
+    headers['x-org-unit-id'] = orgUnitId;
   }
 
   // Debug: Log request headers (only when debug enabled)
@@ -983,6 +996,22 @@ export async function apiGetOrgDefaultCurrency() {
   return apiFetch<{ code: string; supportedCurrencies: string[]; fallback: string }>(
     '/settings/org/default-currency',
     { auth: true }
+  );
+}
+
+export async function apiGetOrgCommissionSlabs() {
+  return apiFetch<{
+    commissionSlabs: import('./commissionSlabs').CommissionSlabSettings;
+    defaults: import('./commissionSlabs').CommissionSlabSettings;
+  }>('/settings/org/commission-slabs', { auth: true });
+}
+
+export async function apiSetOrgCommissionSlabs(
+  commissionSlabs: import('./commissionSlabs').CommissionSlabSettings,
+) {
+  return apiFetch<{ commissionSlabs: import('./commissionSlabs').CommissionSlabSettings }>(
+    '/settings/org/commission-slabs',
+    { method: 'PUT', auth: true, body: { commissionSlabs } },
   );
 }
 
@@ -4255,6 +4284,10 @@ export async function apiFetchFormData<T>(
   if (tenantDbName && (options.auth || options.includeTenantHeader)) {
     headers['x-tenant-db-name'] = tenantDbName;
   }
+  const orgUnitId = getActiveOrgUnitIdFromStorage();
+  if (orgUnitId && (options.auth || options.includeTenantHeader)) {
+    headers['x-org-unit-id'] = orgUnitId;
+  }
 
   const longRunning = isLongRunningApiPath(path);
   const fetchSignal = mergeAbortSignals(
@@ -4743,6 +4776,8 @@ export async function apiLogout() {
     localStorage.removeItem('requirePasswordReset');
     localStorage.removeItem('lastLoginId');
     localStorage.removeItem('tenantDbName');
+    localStorage.removeItem('activeOrgUnitId');
+    localStorage.removeItem('activeOrgUnitName');
     localStorage.removeItem('orgRecruitmentMode');
     localStorage.removeItem('orgBillingEnabled');
     localStorage.removeItem('orgSubscriptionPlan');
