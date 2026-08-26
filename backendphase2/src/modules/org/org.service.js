@@ -61,13 +61,15 @@ function mapPerson(user) {
   };
 }
 
+/**
+ * People still on the tenant (no company) or sitting on HQ root.
+ * Mongo often stores missing orgUnitId as unset — `null` queries miss them,
+ * so load + filter in JS (same rule as the Structure tree “Not in a company yet”).
+ */
 async function listWorkspacePeopleToAdopt() {
   const root = await prisma.orgUnit.findFirst({ where: { parentId: null } });
   const rootId = root ? String(root.id) : '';
   const users = await prisma.user.findMany({
-    where: {
-      OR: [{ orgUnitId: null }, ...(rootId ? [{ orgUnitId: rootId }] : [])],
-    },
     select: {
       id: true,
       name: true,
@@ -75,11 +77,16 @@ async function listWorkspacePeopleToAdopt() {
       lastName: true,
       email: true,
       role: true,
+      orgUnitId: true,
       hierarchyPurpose: true,
       systemRole: { select: { id: true, roleName: true } },
     },
   });
-  return users.filter((user) => !isSuperAdminRow(user));
+  return users.filter((user) => {
+    if (isSuperAdminRow(user)) return false;
+    const unitId = user.orgUnitId ? String(user.orgUnitId) : '';
+    return !unitId || (rootId && unitId === rootId);
+  });
 }
 
 export async function ensureOrgDefaults() {

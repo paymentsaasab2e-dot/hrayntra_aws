@@ -100,9 +100,10 @@ export async function apiAdoptWorkspace(orgUnitId: string) {
     name: string;
     attachedCount: number;
     stamped?: { jobs: number; leads: number; clients: number; candidates: number };
-  }>(`/org-units/${encodeURIComponent(orgUnitId)}/adopt-workspace`, {
+  }>('/org-units/adopt-workspace', {
     auth: true,
     method: 'POST',
+    body: { orgUnitId },
   });
   return res.data;
 }
@@ -114,9 +115,10 @@ export async function apiStampUntaggedToOrgUnit(orgUnitId: string) {
     name: string;
     attachedCount?: number;
     stamped: { jobs: number; leads: number; clients: number; candidates: number };
-  }>(`/org-units/${encodeURIComponent(orgUnitId)}/stamp-untagged`, {
+  }>('/org-units/stamp-untagged', {
     auth: true,
     method: 'POST',
+    body: { orgUnitId },
   });
   return res.data;
 }

@@ -437,7 +437,11 @@ export default function OrganizationPage() {
       const stampNote = stamped
         ? ` Also linked ${stamped.jobs} jobs, ${stamped.leads} leads, ${stamped.clients} clients, ${stamped.candidates} candidates.`
         : '';
-      toast.success(`Moved ${result.attachedCount} people into ${result.name}.${stampNote}`);
+      toast.success(
+        result.attachedCount
+          ? `Moved ${result.attachedCount} people into ${result.name}.${stampNote}`
+          : `No leftover people to move into ${result.name}.${stampNote || ' They may already be in a company, or only Super Admin is left at HQ.'}`,
+      );
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not move workspace');

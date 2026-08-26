@@ -14,6 +14,9 @@ router.get('/', orgRead, orgController.list);
 router.get('/tree', orgRead, orgController.tree);
 router.post('/', orgWrite, orgController.create);
 router.post('/assign', orgWrite, orgController.assign);
+// Body-based aliases (avoid nested-path 404s behind some proxies).
+router.post('/adopt-workspace', orgWrite, orgController.adoptByBody);
+router.post('/stamp-untagged', orgWrite, orgController.stampUntaggedByBody);
 router.post('/:id/adopt-workspace', orgWrite, orgController.adopt);
 router.post('/:id/stamp-untagged', orgWrite, orgController.stampUntagged);
 router.patch('/:id', orgWrite, orgController.update);

@@ -74,9 +74,31 @@ export const orgController = {
     }
   },
 
+  async adoptByBody(req, res) {
+    try {
+      const id = String(req.body?.orgUnitId || req.body?.id || '').trim();
+      if (!id) return sendError(res, 400, 'orgUnitId is required');
+      const result = await adoptWorkspaceIntoUnit(req, id);
+      sendResponse(res, 200, 'Moved tenant workspace', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async stampUntagged(req, res) {
     try {
       const result = await stampUntaggedRecordsForUnit(req, req.params.id);
+      sendResponse(res, 200, 'Assigned existing users and data to company', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async stampUntaggedByBody(req, res) {
+    try {
+      const id = String(req.body?.orgUnitId || req.body?.id || '').trim();
+      if (!id) return sendError(res, 400, 'orgUnitId is required');
+      const result = await stampUntaggedRecordsForUnit(req, id);
       sendResponse(res, 200, 'Assigned existing users and data to company', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
