@@ -94,7 +94,7 @@ export async function apiDeleteOrgUnit(id: string) {
   return res.data;
 }
 
-export async function apiAdoptWorkspace(orgUnitId: string) {
+export async function apiAdoptWorkspace(orgUnitId: string, userIds?: string[]) {
   const res = await apiFetch<{
     id: string;
     name: string;
@@ -103,13 +103,13 @@ export async function apiAdoptWorkspace(orgUnitId: string) {
   }>('/org-units/adopt-workspace', {
     auth: true,
     method: 'POST',
-    body: { orgUnitId },
+    body: { orgUnitId, userIds: userIds?.length ? userIds : undefined },
   });
   return res.data;
 }
 
 /** Attach existing untagged jobs/leads/clients/candidates AND leftover users to this company id. */
-export async function apiStampUntaggedToOrgUnit(orgUnitId: string) {
+export async function apiStampUntaggedToOrgUnit(orgUnitId: string, userIds?: string[]) {
   const res = await apiFetch<{
     id: string;
     name: string;
@@ -118,7 +118,7 @@ export async function apiStampUntaggedToOrgUnit(orgUnitId: string) {
   }>('/org-units/stamp-untagged', {
     auth: true,
     method: 'POST',
-    body: { orgUnitId },
+    body: { orgUnitId, userIds: userIds?.length ? userIds : undefined },
   });
   return res.data;
 }

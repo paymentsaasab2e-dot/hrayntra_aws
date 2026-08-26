@@ -259,6 +259,7 @@ export default function OrganizationPage() {
 
   const [unitKind, setUnitKind] = useState<'company' | 'site'>('company');
   const [unassignedCount, setUnassignedCount] = useState(0);
+  const [unassignedPeopleIds, setUnassignedPeopleIds] = useState<string[]>([]);
   const [source, setSource] = useState<'workspace' | 'blank' | 'department' | 'people'>('workspace');
   const [showMoreSource, setShowMoreSource] = useState(false);
   const [unitName, setUnitName] = useState('');
@@ -293,6 +294,14 @@ export default function OrganizationPage() {
       setTree(data.tree);
       setIsTenantAdmin(Boolean(data.scope?.isTenantAdmin));
       setUnassignedCount(Number(data.unassignedCount || 0));
+      const leftoverIds = (data.unassignedPeople || []).map((p) => String(p.id)).filter(Boolean);
+      // Also collect anyone marked unassigned on the HQ card (same people, belt-and-suspenders).
+      for (const p of data.tree?.people || []) {
+        if (p.unassigned && p.id && !leftoverIds.includes(String(p.id))) {
+          leftoverIds.push(String(p.id));
+        }
+      }
+      setUnassignedPeopleIds(leftoverIds);
       const firstCompany = (data.tree?.children || []).find((c) => !c.isLeaf);
       setSiteParentId((prev) => prev || firstCompany?.id || '');
       setAssignUnitId((prev) => prev || firstCompany?.id || data.tree?.id || '');
@@ -432,16 +441,18 @@ export default function OrganizationPage() {
       return;
     }
     try {
-      const result = await apiAdoptWorkspace(id);
+      const result = await apiAdoptWorkspace(id, unassignedPeopleIds);
       const stamped = result.stamped;
       const stampNote = stamped
         ? ` Also linked ${stamped.jobs} jobs, ${stamped.leads} leads, ${stamped.clients} clients, ${stamped.candidates} candidates.`
         : '';
-      toast.success(
-        result.attachedCount
-          ? `Moved ${result.attachedCount} people into ${result.name}.${stampNote}`
-          : `No leftover people to move into ${result.name}.${stampNote || ' They may already be in a company, or only Super Admin is left at HQ.'}`,
-      );
+      if (!result.attachedCount) {
+        toast.error(
+          `Could not move anyone into ${result.name}. Try People accounts → assign each person, or restart the API and try again.`,
+        );
+      } else {
+        toast.success(`Moved ${result.attachedCount} people into ${result.name}.${stampNote}`);
+      }
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not move workspace');
@@ -457,11 +468,17 @@ export default function OrganizationPage() {
       return;
     }
     try {
-      const result = await apiStampUntaggedToOrgUnit(id);
+      const result = await apiStampUntaggedToOrgUnit(id, unassignedPeopleIds);
       const s = result.stamped;
-      toast.success(
-        `${result.name}: ${result.attachedCount || 0} people · ${s.jobs} jobs · ${s.leads} leads · ${s.clients} clients · ${s.candidates} candidates`,
-      );
+      if (!result.attachedCount) {
+        toast.error(
+          `${result.name}: 0 people moved. Data stamped: ${s.jobs} jobs · ${s.leads} leads · ${s.clients} clients · ${s.candidates} candidates. Use People accounts to assign members manually.`,
+        );
+      } else {
+        toast.success(
+          `${result.name}: ${result.attachedCount} people · ${s.jobs} jobs · ${s.leads} leads · ${s.clients} clients · ${s.candidates} candidates`,
+        );
+      }
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not assign users and data');

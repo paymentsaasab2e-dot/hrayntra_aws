@@ -67,7 +67,7 @@ export const orgController = {
 
   async adopt(req, res) {
     try {
-      const result = await adoptWorkspaceIntoUnit(req, req.params.id);
+      const result = await adoptWorkspaceIntoUnit(req, req.params.id, req.body || {});
       sendResponse(res, 200, 'Moved tenant workspace', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -78,7 +78,7 @@ export const orgController = {
     try {
       const id = String(req.body?.orgUnitId || req.body?.id || '').trim();
       if (!id) return sendError(res, 400, 'orgUnitId is required');
-      const result = await adoptWorkspaceIntoUnit(req, id);
+      const result = await adoptWorkspaceIntoUnit(req, id, req.body || {});
       sendResponse(res, 200, 'Moved tenant workspace', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -87,7 +87,7 @@ export const orgController = {
 
   async stampUntagged(req, res) {
     try {
-      const result = await stampUntaggedRecordsForUnit(req, req.params.id);
+      const result = await stampUntaggedRecordsForUnit(req, req.params.id, req.body || {});
       sendResponse(res, 200, 'Assigned existing users and data to company', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -98,7 +98,7 @@ export const orgController = {
     try {
       const id = String(req.body?.orgUnitId || req.body?.id || '').trim();
       if (!id) return sendError(res, 400, 'orgUnitId is required');
-      const result = await stampUntaggedRecordsForUnit(req, id);
+      const result = await stampUntaggedRecordsForUnit(req, id, req.body || {});
       sendResponse(res, 200, 'Assigned existing users and data to company', result);
     } catch (error) {
       sendError(res, 400, error.message, error);

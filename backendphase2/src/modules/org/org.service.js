@@ -62,30 +62,39 @@ function mapPerson(user) {
 }
 
 /**
- * People still on the tenant (no company) or sitting on HQ root.
- * Mongo often stores missing orgUnitId as unset — `null` queries miss them,
- * so load + filter in JS (same rule as the Structure tree “Not in a company yet”).
+ * People still on the tenant (no company) or sitting on HQ / orphan units.
+ * Anyone not already on a real company or branch is eligible (except Super Admin).
  */
 async function listWorkspacePeopleToAdopt() {
-  const root = await prisma.orgUnit.findFirst({ where: { parentId: null } });
-  const rootId = root ? String(root.id) : '';
-  const users = await prisma.user.findMany({
-    select: {
-      id: true,
-      name: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      role: true,
-      orgUnitId: true,
-      hierarchyPurpose: true,
-      systemRole: { select: { id: true, roleName: true } },
-    },
-  });
+  const [users, units] = await Promise.all([
+    prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        orgUnitId: true,
+        hierarchyPurpose: true,
+        systemRole: { select: { id: true, roleName: true } },
+      },
+    }),
+    prisma.orgUnit.findMany({
+      select: { id: true, parentId: true, levelOrder: true, isLeaf: true },
+    }),
+  ]);
+
+  // Real companies/branches = anything under HQ (has a parent).
+  const companyOrBranchIds = new Set(
+    units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)),
+  );
+
   return users.filter((user) => {
     if (isSuperAdminRow(user)) return false;
     const unitId = user.orgUnitId ? String(user.orgUnitId) : '';
-    return !unitId || (rootId && unitId === rootId);
+    // Missing / HQ / deleted-or-orphan unit → still “not in a company”
+    return !unitId || !companyOrBranchIds.has(unitId);
   });
 }
 
@@ -362,28 +371,72 @@ async function attachExistingPeopleToUnit(unit, body) {
   if (body?.departmentId) {
     const deptUsers = await prisma.user.findMany({
       where: { departmentId: oid(body.departmentId) },
-      select: { id: true },
+      select: { id: true, role: true, systemRole: { select: { roleName: true } } },
     });
-    ids.push(...deptUsers.map((row) => String(row.id)));
+    for (const row of deptUsers) {
+      if (!isSuperAdminRow(row)) ids.push(String(row.id));
+    }
   }
-  if (body?.adoptWorkspace === true) {
+  // Fold in leftover workspace people when adopting / stamping.
+  if (body?.adoptWorkspace === true || body?.stampAllUntagged === true) {
     const workspace = await listWorkspacePeopleToAdopt();
     ids.push(...workspace.map((row) => String(row.id)));
   }
-  const unique = [...new Set(ids)];
+
+  // Never move Super Admin onto a company via bulk adopt.
+  const candidates = await prisma.user.findMany({
+    where: { id: { in: [...new Set(ids)].filter(Boolean) } },
+    select: { id: true, role: true, systemRole: { select: { roleName: true } } },
+  });
+  const unique = candidates.filter((u) => !isSuperAdminRow(u)).map((u) => String(u.id));
   if (!unique.length) return { attachedCount: 0, userIds: [] };
+
   const headId = oid(body?.headUserId);
   const headPurpose = unit.isLeaf ? 'site_head' : unit.levelOrder === 2 ? 'company_head' : 'member';
-  for (const id of unique) {
-    await prisma.user.update({
-      where: { id },
+  const unitId = String(unit.id);
+
+  // Bulk assign first (reliable on Mongo), then set company/site head if requested.
+  let attached = 0;
+  try {
+    const updated = await prisma.user.updateMany({
+      where: { id: { in: unique } },
       data: {
-        orgUnitId: unit.id,
-        hierarchyPurpose: id === headId ? headPurpose : 'member',
+        orgUnitId: unitId,
+        hierarchyPurpose: 'member',
       },
     });
+    attached = Number(updated?.count || 0);
+  } catch {
+    attached = 0;
   }
-  return { attachedCount: unique.length, userIds: unique };
+
+  // Fallback: some Prisma/Mongo builds skip relation scalars on updateMany.
+  if (attached === 0 && unique.length) {
+    for (const id of unique) {
+      try {
+        await prisma.user.update({
+          where: { id },
+          data: {
+            orgUnitId: unitId,
+            hierarchyPurpose: id === headId ? headPurpose : 'member',
+          },
+        });
+        attached += 1;
+      } catch {
+        // skip bad id
+      }
+    }
+  } else if (headId && unique.includes(headId)) {
+    await prisma.user.update({
+      where: { id: headId },
+      data: { orgUnitId: unitId, hierarchyPurpose: headPurpose },
+    });
+  }
+
+  return {
+    attachedCount: attached,
+    userIds: unique,
+  };
 }
 
 /** Untagged jobs/leads/clients/candidates → this company/branch id. */
@@ -619,7 +672,7 @@ export async function deleteOrgUnit(req, id) {
   return { deleted: true };
 }
 
-export async function adoptWorkspaceIntoUnit(req, id) {
+export async function adoptWorkspaceIntoUnit(req, id, body = {}) {
   const scope = await resolveViewerOrgScope(req);
   if (!scope.isTenantAdmin) {
     throw new Error('Only HQ can move the current tenant workspace into a company or branch.');
@@ -631,6 +684,8 @@ export async function adoptWorkspaceIntoUnit(req, id) {
   const setup = await assignExistingSetupToUnit(unit, {
     adoptWorkspace: true,
     stampAllUntagged: true,
+    userIds: Array.isArray(body?.userIds) ? body.userIds : undefined,
+    headUserId: body?.headUserId,
   });
   return {
     id: String(unit.id),
@@ -644,7 +699,7 @@ export async function adoptWorkspaceIntoUnit(req, id) {
  * Assign leftover users + untagged CRM/recruitment data to this company/branch.
  * Both get the same orgUnitId so switching companies separates people and records.
  */
-export async function stampUntaggedRecordsForUnit(req, id) {
+export async function stampUntaggedRecordsForUnit(req, id, body = {}) {
   const scope = await resolveViewerOrgScope(req);
   if (!scope.isTenantAdmin) {
     throw new Error('Only HQ can assign existing users and data to a company.');
@@ -656,6 +711,8 @@ export async function stampUntaggedRecordsForUnit(req, id) {
   const setup = await assignExistingSetupToUnit(unit, {
     adoptWorkspace: true,
     stampAllUntagged: true,
+    userIds: Array.isArray(body?.userIds) ? body.userIds : undefined,
+    headUserId: body?.headUserId,
   });
   return {
     id: String(unit.id),
