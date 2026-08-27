@@ -75,6 +75,12 @@ import { useLinkedIn } from '../../hooks/useLinkedIn';
 import { requestError, requestInfo, requestWarning } from '../../lib/appDialog';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { CreateJobDetailsForm, type CreateJobDetailsFormData } from './CreateJobDetailsForm';
+import {
+  customJdSectionsToHtml,
+  extractAdditionalJdSectionsFromHtml,
+  mergeCustomJdSections,
+  type JobCustomJdSection,
+} from '../../lib/jobCustomJdSections';
 import { CreateJobPhase1Preview } from '../jobs/CreateJobPhase1Preview';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
@@ -267,6 +273,7 @@ function hydrateJobListFieldsFromPipelineResult(data: JobCreationPipelineResult)
   qualificationsExperienceText: string;
   candidateRequirementsText: string;
   compensationBenefitsText: string;
+  customJdSections: JobCustomJdSection[];
 } {
   const html = String(data.jobDescriptionHtml || '').trim();
   const pick = (value: string | undefined, ...sectionTitles: string[]) => {
@@ -307,6 +314,16 @@ function hydrateJobListFieldsFromPipelineResult(data: JobCreationPipelineResult)
     candidateRequirementsText = fallbackLines.join('\n');
   }
 
+  const pipelineAdditional = Array.isArray((data as { additionalSections?: unknown }).additionalSections)
+    ? ((data as { additionalSections: Array<{ title?: string; bodyText?: string; body?: string }> }).additionalSections || [])
+        .map((section) => ({
+          id: `pipe_${Math.random().toString(36).slice(2, 9)}`,
+          title: String(section.title || '').trim(),
+          body: String(section.bodyText || section.body || '').trim(),
+        }))
+        .filter((section) => section.title || section.body)
+    : [];
+
   return {
     keyResponsibilitiesText: pick(
       data.keyResponsibilitiesText,
@@ -323,6 +340,10 @@ function hydrateJobListFieldsFromPipelineResult(data: JobCreationPipelineResult)
       'benefits',
       'compensation',
       'perks',
+    ),
+    customJdSections: mergeCustomJdSections(
+      pipelineAdditional,
+      extractAdditionalJdSectionsFromHtml(html),
     ),
   };
 }
@@ -1016,6 +1037,7 @@ export function CreateJobDrawer({
     qualificationsExperienceText: '',
     candidateRequirementsText: '',
     compensationBenefitsText: '',
+    customJdSections: [] as JobCustomJdSection[],
     minExperience: '',
     maxExperience: '',
     payRangeMin: '',
@@ -1181,6 +1203,7 @@ export function CreateJobDrawer({
         qualificationsExperienceText: '',
         candidateRequirementsText: '',
         compensationBenefitsText: '',
+        customJdSections: [],
         minExperience: '',
         maxExperience: '',
         payRangeMin: '',
@@ -2044,6 +2067,7 @@ export function CreateJobDrawer({
         qualificationsExperienceText: qualificationsText,
         candidateRequirementsText,
         compensationBenefitsText: benefitsText,
+        customJdSections: extractAdditionalJdSectionsFromHtml(job.description || ''),
         minExperience,
         maxExperience,
         payRangeMin: minSalary,
@@ -2725,6 +2749,10 @@ export function CreateJobDrawer({
           listFields.candidateRequirementsText || prev.candidateRequirementsText,
         compensationBenefitsText:
           listFields.compensationBenefitsText || prev.compensationBenefitsText,
+        customJdSections: mergeCustomJdSections(
+          prev.customJdSections,
+          listFields.customJdSections,
+        ),
         educationalQualification: data.educationalQualification || prev.educationalQualification,
         educationalSpecialization:
           data.educationalSpecialization || prev.educationalSpecialization,
@@ -3185,6 +3213,7 @@ export function CreateJobDrawer({
       const qualifications = toList(formData.qualificationsExperienceText);
       const candidateRequirements = toList(formData.candidateRequirementsText);
       const benefits = toList(formData.compensationBenefitsText);
+      const customSectionsHtml = customJdSectionsToHtml(formData.customJdSections || []);
       const composedDescription = [
         `<h2>${formData.jobTitle.trim()}</h2>`,
         formData.jobSummary.trim() ? `<p>${formData.jobSummary.trim()}</p>` : '',
@@ -3200,9 +3229,28 @@ export function CreateJobDrawer({
         benefits.length
           ? `<h3>Compensation & Benefits</h3><ul>${benefits.map((item) => `<li>${item}</li>`).join('')}</ul>`
           : '',
+        customSectionsHtml,
       ]
         .filter(Boolean)
         .join('');
+
+      const descriptionWithCustomSections = (() => {
+        const base = formData.jobDescriptionHtml.trim();
+        if (!base) return composedDescription;
+        if (!customSectionsHtml) return base;
+        // Prefer full HTML JD; append any custom sections not already present as headings.
+        const existingTitles = new Set(
+          extractAdditionalJdSectionsFromHtml(base).map((s) => s.title.trim().toLowerCase()),
+        );
+        const missing = (formData.customJdSections || []).filter(
+          (section) =>
+            section.title.trim() &&
+            !existingTitles.has(section.title.trim().toLowerCase()) &&
+            section.body.trim(),
+        );
+        if (!missing.length) return base;
+        return `${base}${customJdSectionsToHtml(missing)}`;
+      })();
 
       const applicationFormLogoStored =
         formData.logoOption === 'custom' && formData.applicationLogoUrl.trim()
@@ -3215,7 +3263,7 @@ export function CreateJobDrawer({
 
       const jobData: CreateJobData = {
         title: formData.jobTitle,
-        description: formData.jobDescriptionHtml.trim() || composedDescription,
+        description: descriptionWithCustomSections,
         overview: formData.jobSummary || undefined,
         clientId: resolvedCompanyId,
         openings: parseInt(formData.numberOfOpenings) || 1,
@@ -3328,17 +3376,37 @@ export function CreateJobDrawer({
 
       // Post to social media if enabled
       const socialPosts: string[] = [];
+      const connectedLinkedInKeys = getConnectedAccountKeys(linkedinAccounts);
+      const linkedInTargetsForPublish =
+        selectedLinkedInTargets.length > 0
+          ? selectedLinkedInTargets
+          : connectedLinkedInKeys.filter((key) => key.startsWith('personal:'));
+      const linkedInAccountConnected =
+        linkedIn.isConnected ||
+        linkedinAccounts.some((account) => account.connected !== false);
       const platformsToPublish = {
         linkedin:
           formData.linkedInEnabled &&
-          linkedIn.isConnected &&
-          selectedLinkedInTargets.length > 0,
+          linkedInAccountConnected &&
+          linkedInTargetsForPublish.length > 0,
         twitter:
           formData.twitterEnabled &&
           formData.twitterConnected &&
           selectedTwitterTargets.length > 0,
         facebook: formData.facebookEnabled && formData.facebookConnected,
       };
+
+      if (
+        formData.linkedInEnabled &&
+        !platformsToPublish.linkedin &&
+        createdJobId
+      ) {
+        void requestWarning(
+          linkedInAccountConnected
+            ? 'Job saved, but LinkedIn was skipped because no LinkedIn account/page was selected.'
+            : 'Job saved, but LinkedIn was skipped because LinkedIn is not connected. Reconnect LinkedIn and try again.',
+        );
+      }
 
       if (Object.values(platformsToPublish).some(Boolean) && createdJobId) {
         try {
@@ -3410,16 +3478,25 @@ export function CreateJobDrawer({
             linkedinPostText: linkedInPublishText,
             twitterPostText: twitterPublishText,
             facebookPostText: resolvedFacebookPostText,
-            linkedinTargets: selectedLinkedInTargets,
+            linkedinTargets: linkedInTargetsForPublish,
             twitterTargets: selectedTwitterTargets,
             linkedinImageUrl: linkedInImageUrl.trim() || undefined,
           });
 
-          if (platformsToPublish.linkedin && (result as any).data?.linkedin?.success) {
-            socialPosts.push('LinkedIn');
-            setLinkedInPostUrl((result as any).data.linkedin.linkedinPostUrl);
-            setShowLinkedInSuccess(true);
-            setTimeout(() => setShowLinkedInSuccess(false), 5000);
+          if (platformsToPublish.linkedin) {
+            const linkedInResult = (result as any).data?.linkedin;
+            if (linkedInResult?.success) {
+              socialPosts.push('LinkedIn');
+              setLinkedInPostUrl(linkedInResult.linkedinPostUrl);
+              setShowLinkedInSuccess(true);
+              setTimeout(() => setShowLinkedInSuccess(false), 5000);
+            } else if (linkedInResult?.error) {
+              void requestWarning(`Job saved, but LinkedIn posting failed: ${linkedInResult.error}`);
+            } else {
+              void requestWarning(
+                'Job saved, but LinkedIn posting failed. Reconnect LinkedIn and try posting again.',
+              );
+            }
           }
           if (platformsToPublish.twitter) {
             const twitterResult = (result as any).data?.twitter;
@@ -3432,6 +3509,9 @@ export function CreateJobDrawer({
           if (platformsToPublish.facebook) socialPosts.push('Facebook');
         } catch (error: any) {
           console.error('Social publishing failed:', error);
+          void requestWarning(
+            `Job saved, but social publishing failed: ${error?.message || 'Unknown error'}`,
+          );
         }
       }
 
@@ -3597,6 +3677,7 @@ export function CreateJobDrawer({
           keyResponsibilitiesText: prev.keyResponsibilitiesText,
           qualificationsExperienceText: prev.qualificationsExperienceText,
           candidateRequirementsText: prev.candidateRequirementsText,
+          customJdSections: prev.customJdSections || [],
           videoMediaLink: prev.videoMediaLink,
           forecastRevenue: prev.forecastRevenue,
           managerId: prev.managerId,
@@ -3650,6 +3731,7 @@ export function CreateJobDrawer({
     keyResponsibilitiesText: formData.keyResponsibilitiesText,
     qualificationsExperienceText: formData.qualificationsExperienceText,
     candidateRequirementsText: formData.candidateRequirementsText,
+    customJdSections: formData.customJdSections || [],
     videoMediaLink: formData.videoMediaLink,
     forecastRevenue: formData.forecastRevenue,
     managerId: formData.managerId,
@@ -4472,7 +4554,7 @@ export function CreateJobDrawer({
                           </div>
                           <div>
                             <h4 className="text-sm font-bold text-slate-900">LinkedIn</h4>
-                            <p className="text-xs text-slate-500">Post to LinkedIn Jobs</p>
+                            <p className="text-xs text-slate-500">Share a hiring post to your LinkedIn feed</p>
                           </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">

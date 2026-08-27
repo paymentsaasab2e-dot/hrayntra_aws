@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Loader2, Sparkles, X } from 'lucide-react';
 import { apiSuggestIndustries, type IndustrySuggestion } from '../../lib/api';
 import { parseIndustries, serializeIndustries } from '../../lib/industryOptions';
@@ -21,9 +22,13 @@ const SOURCE_HINT: Record<IndustrySuggestion['source'], string> = {
   ai: 'AI suggestion',
 };
 
+const DROPDOWN_MAX_HEIGHT = 240;
+const DROPDOWN_GAP = 6;
+
 /**
  * Type-to-search industry multiselect backed by `/industries/suggest`.
  * Uses local history + catalog first; AI only when matches are sparse (low token use).
+ * Dropdown is portaled so it is not clipped by drawer overflow.
  */
 export function IndustryMultiSelect({
   value,
@@ -39,12 +44,48 @@ export function IndustryMultiSelect({
   const [suggestions, setSuggestions] = useState<IndustrySuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{
+    left: number;
+    width: number;
+    top?: number;
+    bottom?: number;
+    placement: 'top' | 'bottom';
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
 
   const selected = useMemo(() => parseIndustries(value), [value]);
+  const closeMenu = useCallback(() => setOpen(false), []);
+
+  const updateMenuPosition = useCallback(() => {
+    const trigger = containerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const openUpward =
+      spaceBelow < DROPDOWN_MAX_HEIGHT + DROPDOWN_GAP && spaceAbove > spaceBelow;
+
+    if (openUpward) {
+      setMenuPosition({
+        left: rect.left,
+        width: rect.width,
+        placement: 'top',
+        bottom: window.innerHeight - rect.top + DROPDOWN_GAP,
+      });
+      return;
+    }
+
+    setMenuPosition({
+      left: rect.left,
+      width: rect.width,
+      placement: 'bottom',
+      top: rect.bottom + DROPDOWN_GAP,
+    });
+  }, []);
 
   const fetchSuggestions = useCallback(
     async (q: string) => {
@@ -82,11 +123,30 @@ export function IndustryMultiSelect({
   }, [query, open, disabled, fetchSuggestions]);
 
   useEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return;
+    }
+    updateMenuPosition();
+    const onReposition = () => updateMenuPosition();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [open, updateMenuPosition, suggestions.length, loadingSuggestions]);
+
+  useEffect(() => {
+    if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      closeMenu();
     };
     const escHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') closeMenu();
     };
     document.addEventListener('mousedown', handler);
     document.addEventListener('keydown', escHandler);
@@ -94,7 +154,7 @@ export function IndustryMultiSelect({
       document.removeEventListener('mousedown', handler);
       document.removeEventListener('keydown', escHandler);
     };
-  }, []);
+  }, [open, closeMenu]);
 
   const trimmedQuery = query.trim();
   const suggestionLabels = suggestions.map((s) => s.label);
@@ -140,7 +200,83 @@ export function IndustryMultiSelect({
     }
   };
 
-  const showDropdown = open && !disabled;
+  const showDropdown = open && !disabled && menuPosition && typeof document !== 'undefined';
+
+  const dropdown =
+    showDropdown
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[1300] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{
+              left: menuPosition.left,
+              width: Math.max(menuPosition.width, 220),
+              maxHeight: DROPDOWN_MAX_HEIGHT,
+              ...(menuPosition.placement === 'top'
+                ? { bottom: menuPosition.bottom }
+                : { top: menuPosition.top }),
+            }}
+          >
+            <div className="border-b border-slate-100 px-3 py-2">
+              <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                {loadingSuggestions ? (
+                  <>
+                    <Loader2 size={11} className="animate-spin text-blue-500" />
+                    Searching…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={11} className="text-amber-500" />
+                    {trimmedQuery
+                      ? `Industries for “${trimmedQuery}”`
+                      : aiEnabled
+                        ? 'Suggested industries'
+                        : 'Suggested industries'}
+                  </>
+                )}
+              </p>
+            </div>
+            <ul className="max-h-52 overflow-y-auto py-1" role="listbox">
+              {!loadingSuggestions && suggestions.length === 0 && !showAddCustom && (
+                <li className="px-4 py-2.5 text-sm text-slate-500">
+                  {trimmedQuery
+                    ? 'No matches — press Enter to add as custom industry'
+                    : 'Type to search (e.g. tech, healthcare, finance)'}
+                </li>
+              )}
+              {suggestions.map((item) => (
+                <li key={`${item.source}-${item.label}`}>
+                  <button
+                    type="button"
+                    role="option"
+                    className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-50"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => addIndustry(item.label)}
+                  >
+                    <span>{highlightMatch(item.label, trimmedQuery)}</span>
+                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      {SOURCE_HINT[item.source]}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {showAddCustom && (
+                <li>
+                  <button
+                    type="button"
+                    className="w-full px-4 py-2.5 text-left text-sm font-medium text-violet-700 hover:bg-violet-50"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => addIndustry(trimmedQuery)}
+                  >
+                    {`Add “${trimmedQuery}” as industry`}
+                  </button>
+                </li>
+              )}
+            </ul>
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
@@ -192,70 +328,10 @@ export function IndustryMultiSelect({
           className="min-w-[8rem] flex-1 border-0 bg-transparent py-0.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0"
           autoComplete="off"
           aria-autocomplete="list"
-          aria-expanded={showDropdown}
+          aria-expanded={open && !disabled}
         />
       </div>
-
-      {showDropdown && (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-          <div className="border-b border-slate-100 px-3 py-2">
-            <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              {loadingSuggestions ? (
-                <>
-                  <Loader2 size={11} className="animate-spin text-blue-500" />
-                  Searching…
-                </>
-              ) : (
-                <>
-                  <Sparkles size={11} className="text-amber-500" />
-                  {trimmedQuery
-                    ? `Industries for “${trimmedQuery}”`
-                    : aiEnabled
-                      ? 'Suggested industries'
-                      : 'Suggested industries'}
-                </>
-              )}
-            </p>
-          </div>
-          <ul className="max-h-52 overflow-y-auto py-1" role="listbox">
-            {!loadingSuggestions && suggestions.length === 0 && !showAddCustom && (
-              <li className="px-4 py-2.5 text-sm text-slate-500">
-                {trimmedQuery
-                  ? 'No matches — press Enter to add as custom industry'
-                  : 'Type to search (e.g. tech, healthcare, finance)'}
-              </li>
-            )}
-            {suggestions.map((item) => (
-              <li key={`${item.source}-${item.label}`}>
-                <button
-                  type="button"
-                  role="option"
-                  className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-50"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => addIndustry(item.label)}
-                >
-                  <span>{highlightMatch(item.label, trimmedQuery)}</span>
-                  <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                    {SOURCE_HINT[item.source]}
-                  </span>
-                </button>
-              </li>
-            ))}
-            {showAddCustom && (
-              <li>
-                <button
-                  type="button"
-                  className="w-full px-4 py-2.5 text-left text-sm font-medium text-violet-700 hover:bg-violet-50"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => addIndustry(trimmedQuery)}
-                >
-                  {`Add “${trimmedQuery}” as industry`}
-                </button>
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
+      {dropdown}
     </div>
   );
 }

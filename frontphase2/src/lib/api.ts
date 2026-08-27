@@ -10615,6 +10615,7 @@ export type JobCreationPipelineResult = {
   qualificationsExperienceText: string;
   candidateRequirementsText: string;
   compensationBenefitsText: string;
+  additionalSections?: Array<{ title: string; bodyText: string }>;
   educationalQualification: string;
   educationalSpecialization: string;
   extractedTextLength?: number;

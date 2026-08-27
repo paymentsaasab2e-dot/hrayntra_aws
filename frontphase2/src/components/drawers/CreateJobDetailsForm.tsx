@@ -18,9 +18,9 @@ import { EditDateField } from '../candidates/EditDateField';
 import type { BackendClient, BackendUser } from '../../lib/api';
 import { JOB_SALARY_CURRENCY_OPTIONS } from '../../constants/jobSalary';
 import {
-  isSyntheticJobContactId,
-  type JobContactPersonOption,
-} from '../../lib/jobClientContacts';
+  createEmptyCustomJdSection,
+  type JobCustomJdSection,
+} from '../../lib/jobCustomJdSections';
 
 export interface JobLanguageEntry {
   language: string;
@@ -52,6 +52,8 @@ export interface CreateJobDetailsFormData {
   keyResponsibilitiesText: string;
   qualificationsExperienceText: string;
   candidateRequirementsText: string;
+  /** Extra JD sections parsed from the description or added manually. */
+  customJdSections?: JobCustomJdSection[];
   videoMediaLink: string;
   forecastRevenue: string;
   managerId: string;
@@ -829,6 +831,84 @@ export function CreateJobDetailsForm({
         placeholder={'e.g. Must be available to join within 30 days\nValid work authorization required'}
         labelAction={visibilityAction('candidateRequirements')}
       />
+
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900">Additional JD sections</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Extra sections from the pasted JD (About the team, Nice to have, Tools, etc.) plus any
+              sections you add manually.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              patchForm({
+                customJdSections: [
+                  ...(formData.customJdSections || []),
+                  createEmptyCustomJdSection(),
+                ],
+              })
+            }
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add section
+          </button>
+        </div>
+
+        {(formData.customJdSections || []).length === 0 ? (
+          <p className="text-xs text-slate-400">
+            No extra sections yet. Paste a JD to auto-create them, or click Add section.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {(formData.customJdSections || []).map((section, index) => (
+              <div
+                key={section.id}
+                className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={section.title}
+                    onChange={(e) => {
+                      const next = [...(formData.customJdSections || [])];
+                      next[index] = { ...next[index], title: e.target.value };
+                      patchForm({ customJdSections: next });
+                    }}
+                    placeholder="Section title (e.g. Nice to Have)"
+                    className={inputClass}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = (formData.customJdSections || []).filter((_, i) => i !== index);
+                      patchForm({ customJdSections: next });
+                    }}
+                    className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                    aria-label="Remove section"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <textarea
+                  value={section.body}
+                  onChange={(e) => {
+                    const next = [...(formData.customJdSections || [])];
+                    next[index] = { ...next[index], body: e.target.value };
+                    patchForm({ customJdSections: next });
+                  }}
+                  rows={4}
+                  placeholder={'One item per line\ne.g. Experience with AWS\nWillingness to travel'}
+                  className={`${inputClass} min-h-[96px] resize-y`}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div>
         <FieldLabelRow label="Skills" labelAction={visibilityAction('skills')} />
