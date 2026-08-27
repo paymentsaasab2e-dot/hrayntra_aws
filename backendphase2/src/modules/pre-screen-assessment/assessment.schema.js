@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 
-export const ASSESSMENT_TYPES = ['MCQ', 'CODING', 'ESSAY', 'VIDEO'];
-export const SESSION_TIMINGS = ['AFTER_APPLY', 'BEFORE_SUBMIT'];
+export const ASSESSMENT_TYPES = ['MCQ', 'CODING', 'ESSAY', 'VIDEO', 'QUESTIONNAIRE'];
+/** Pre-screen assessments always run before the candidate applies. */
+export const SESSION_TIMINGS = ['BEFORE_SUBMIT'];
 
 export function generateAssessmentId(prefix = 'a') {
   return `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
@@ -85,6 +86,42 @@ export function defaultVideoConfig() {
   };
 }
 
+export function defaultQuestionnaireConfig() {
+  const o1 = 'o1';
+  const o2 = 'o2';
+  const o3 = 'o3';
+  const o4 = 'o4';
+  return {
+    passCorrectCount: 1,
+    questions: [
+      {
+        id: generateAssessmentId('q'),
+        kind: 'TEXT',
+        prompt: 'Briefly describe your relevant experience for this role.',
+        required: true,
+        maxLength: 1000,
+      },
+      {
+        id: generateAssessmentId('q'),
+        kind: 'MCQ',
+        prompt: 'How many years of experience do you have in this field?',
+        options: [
+          { id: o1, text: 'Less than 1 year' },
+          { id: o2, text: '1–3 years' },
+          { id: o3, text: '3–5 years' },
+          { id: o4, text: '5+ years' },
+        ],
+        correctOptionId: o3,
+      },
+    ],
+    antiCheat: defaultAntiCheat({
+      detectTabSwitch: false,
+      detectCopyPaste: false,
+      disableRightClick: false,
+    }),
+  };
+}
+
 export function defaultConfigForType(type) {
   switch (String(type || '').toUpperCase()) {
     case 'ESSAY':
@@ -93,6 +130,8 @@ export function defaultConfigForType(type) {
       return defaultCodingConfig();
     case 'VIDEO':
       return defaultVideoConfig();
+    case 'QUESTIONNAIRE':
+      return defaultQuestionnaireConfig();
     case 'MCQ':
     default:
       return defaultMcqConfig();
@@ -163,6 +202,33 @@ export function sanitizeConfigForCandidate(type, config) {
       })),
     };
   }
+  if (upper === 'QUESTIONNAIRE') {
+    const questions = Array.isArray(c.questions) ? c.questions : [];
+    return {
+      ...c,
+      passCorrectCount: c.passCorrectCount != null ? Number(c.passCorrectCount) : undefined,
+      questions: questions.map((q) => {
+        const kind = String(q?.kind || '').toUpperCase() === 'MCQ' ? 'MCQ' : 'TEXT';
+        if (kind === 'MCQ') {
+          return {
+            id: q.id,
+            kind: 'MCQ',
+            prompt: q.prompt,
+            options: Array.isArray(q.options)
+              ? q.options.map((o) => ({ id: o.id, text: o.text }))
+              : [],
+          };
+        }
+        return {
+          id: q.id,
+          kind: 'TEXT',
+          prompt: q.prompt,
+          required: q.required !== false,
+          maxLength: q.maxLength ?? 1000,
+        };
+      }),
+    };
+  }
   if (upper === 'CODING') {
     const questions = Array.isArray(c.questions) ? c.questions : [];
     if (questions.length) {
@@ -212,20 +278,43 @@ export function gradeMcqSession(config, answers) {
   return { scorePercent, graded: true, correct, total: questions.length, earned, totalMarks };
 }
 
+/** Grade questionnaire: each MCQ is worth 1 (no marks weighting). */
+export function gradeQuestionnaireSession(config, answers) {
+  const questions = Array.isArray(config?.questions) ? config.questions : [];
+  const mcqQuestions = questions.filter((q) => String(q?.kind || '').toUpperCase() === 'MCQ');
+  if (!mcqQuestions.length) return { scorePercent: null, graded: false, correct: 0, total: 0 };
+  let correct = 0;
+  for (const q of mcqQuestions) {
+    const picked = answers?.[q.id];
+    if (picked && picked === q.correctOptionId) correct += 1;
+  }
+  const total = mcqQuestions.length;
+  const scorePercent = total ? Math.round((correct / total) * 100) : 0;
+  return { scorePercent, graded: true, correct, total, earned: correct, totalMarks: total };
+}
+
+export function resolveQuestionnairePassCorrectCount(config, passScorePercentFallback = 70) {
+  const questions = Array.isArray(config?.questions) ? config.questions : [];
+  const total = questions.filter((q) => String(q?.kind || '').toUpperCase() === 'MCQ').length;
+  if (total <= 0) return 0;
+  if (config?.passCorrectCount != null && Number.isFinite(Number(config.passCorrectCount))) {
+    return Math.max(1, Math.min(total, Math.round(Number(config.passCorrectCount))));
+  }
+  const pct = Math.max(0, Math.min(100, Number(passScorePercentFallback) || 70));
+  return Math.max(1, Math.min(total, Math.ceil((pct / 100) * total)));
+}
+
 export function normalizeJobAssessmentLinks(links = []) {
   if (!Array.isArray(links)) return [];
   return links
     .map((row, index) => {
       const assessmentId = String(row?.assessmentId || '').trim();
       if (!assessmentId) return null;
-      const timing = SESSION_TIMINGS.includes(String(row?.timing || '').toUpperCase())
-        ? String(row.timing).toUpperCase()
-        : 'AFTER_APPLY';
       return {
         assessmentId,
         sortOrder: Number.isFinite(Number(row?.sortOrder)) ? Number(row.sortOrder) : index,
         required: row?.required !== false,
-        timing,
+        timing: 'BEFORE_SUBMIT',
         durationOverrideMinutes:
           row?.durationOverrideMinutes != null
             ? Math.max(1, Math.min(180, Number(row.durationOverrideMinutes)))

@@ -26,6 +26,8 @@ interface ContactsTableProps {
   pagination: { page: number; limit: number; total: number; totalPages: number };
   onPageChange: (page: number) => void;
   onPageSizeChange?: (limit: number) => void;
+  /** Persistable column visibility; locked columns (select/contact/actions) stay shown. */
+  isColumnVisible?: (id: string) => boolean;
 }
 
 export function ContactsTable({
@@ -39,7 +41,9 @@ export function ContactsTable({
   pagination,
   onPageChange,
   onPageSizeChange,
+  isColumnVisible = () => true,
 }: ContactsTableProps) {
+  const show = isColumnVisible;
   const allSelected = contacts.length > 0 && contacts.every((contact) => selectedIds.has(contact.id));
   const someSelected = contacts.some((contact) => selectedIds.has(contact.id));
 
@@ -101,6 +105,21 @@ export function ContactsTable({
     }
   };
 
+  const formatCreatedAt = (dateString?: string | null) => {
+    if (!dateString) return '—';
+    try {
+      const date = new Date(dateString);
+      if (Number.isNaN(date.getTime())) return dateString;
+      return date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -137,28 +156,87 @@ export function ContactsTable({
                 <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Contact Name
                 </th>
-                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Company
-                </th>
-                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Designation
-                </th>
-                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Contact Type
-                </th>
-                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">
-                  Jobs
-                </th>
-                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Owner
-                </th>
-                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Last Contact
-                </th>
-                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Status
-                </th>
-                <TableAuditColumnHeader className="px-3 py-2.5 sm:px-4" />
+                {show('company') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Company
+                  </th>
+                ) : null}
+                {show('designation') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Designation
+                  </th>
+                ) : null}
+                {show('contactType') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Contact Type
+                  </th>
+                ) : null}
+                {show('jobs') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">
+                    Jobs
+                  </th>
+                ) : null}
+                {show('owner') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Owner
+                  </th>
+                ) : null}
+                {show('lastContact') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Last Contact
+                  </th>
+                ) : null}
+                {show('status') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Status
+                  </th>
+                ) : null}
+                {show('email') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Email
+                  </th>
+                ) : null}
+                {show('phone') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Phone
+                  </th>
+                ) : null}
+                {show('department') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Department
+                  </th>
+                ) : null}
+                {show('location') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Location
+                  </th>
+                ) : null}
+                {show('linkedin') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    LinkedIn
+                  </th>
+                ) : null}
+                {show('preferredChannel') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Preferred channel
+                  </th>
+                ) : null}
+                {show('tags') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Tags
+                  </th>
+                ) : null}
+                {show('isPrimary') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Primary
+                  </th>
+                ) : null}
+                {show('createdAt') ? (
+                  <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Created
+                  </th>
+                ) : null}
+                {show('audit') ? <TableAuditColumnHeader className="px-3 py-2.5 sm:px-4" /> : null}
                 <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500 text-right">
                   Actions
                 </th>
@@ -198,54 +276,133 @@ export function ContactsTable({
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-2.5 sm:px-4">
-                    {contact.company ? (
-                      <a
-                        href={`/client/${contact.company.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-sm font-medium text-indigo-600 hover:underline"
-                      >
-                        {contact.company.companyName}
-                      </a>
-                    ) : (
-                      <span className="text-sm text-slate-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 sm:px-4">
-                    <span className="text-sm text-slate-700">{contact.designation || '-'}</span>
-                  </td>
-                  <td className="px-3 py-2.5 sm:px-4">
-                    <ContactTypeBadge type={contact.contactType} />
-                  </td>
-                  <td className="px-3 py-2.5 sm:px-4 text-center">
-                    <span className="text-sm font-medium text-slate-700">
-                      {contact.associatedJobIds?.length || 0}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 sm:px-4">
-                    {contact.owner ? (
-                      <OwnerAvatar owner={contact.owner} />
-                    ) : (
-                      <span className="text-sm text-slate-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 sm:px-4">
-                    <span className="text-xs text-slate-500">{formatLastContact(contact.lastContacted)}</span>
-                  </td>
-                  <td className="px-3 py-2.5 sm:px-4">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          contact.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-400'
-                        }`}
-                      />
-                      <span className="text-xs text-slate-600 capitalize">{contact.status.toLowerCase()}</span>
-                    </div>
-                  </td>
-                  <TableAuditCell
-                    audit={extractAuditMeta(contact as unknown as Record<string, unknown>)}
-                    className="px-3 py-2.5 sm:px-4"
-                  />
+                  {show('company') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      {contact.company ? (
+                        <a
+                          href={`/client/${contact.company.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-sm font-medium text-indigo-600 hover:underline"
+                        >
+                          {contact.company.companyName}
+                        </a>
+                      ) : (
+                        <span className="text-sm text-slate-400">-</span>
+                      )}
+                    </td>
+                  ) : null}
+                  {show('designation') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-sm text-slate-700">{contact.designation || '-'}</span>
+                    </td>
+                  ) : null}
+                  {show('contactType') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <ContactTypeBadge type={contact.contactType} />
+                    </td>
+                  ) : null}
+                  {show('jobs') ? (
+                    <td className="px-3 py-2.5 sm:px-4 text-center">
+                      <span className="text-sm font-medium text-slate-700">
+                        {contact.associatedJobIds?.length || 0}
+                      </span>
+                    </td>
+                  ) : null}
+                  {show('owner') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      {contact.owner ? (
+                        <OwnerAvatar owner={contact.owner} />
+                      ) : (
+                        <span className="text-sm text-slate-400">-</span>
+                      )}
+                    </td>
+                  ) : null}
+                  {show('lastContact') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-xs text-slate-500">{formatLastContact(contact.lastContacted)}</span>
+                    </td>
+                  ) : null}
+                  {show('status') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            contact.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-400'
+                          }`}
+                        />
+                        <span className="text-xs text-slate-600 capitalize">{contact.status.toLowerCase()}</span>
+                      </div>
+                    </td>
+                  ) : null}
+                  {show('email') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-sm text-slate-700">{contact.email || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('phone') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-sm text-slate-700">{contact.phone || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('department') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-sm text-slate-700">{contact.department || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('location') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-sm text-slate-700">{contact.location || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('linkedin') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      {contact.linkedinUrl ? (
+                        <a
+                          href={contact.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="block max-w-[10rem] truncate text-sm font-medium text-indigo-600 hover:underline"
+                          title={contact.linkedinUrl}
+                        >
+                          {contact.linkedinUrl.replace(/^https?:\/\/(www\.)?linkedin\.com\/?/i, '') ||
+                            contact.linkedinUrl}
+                        </a>
+                      ) : (
+                        <span className="text-sm text-slate-400">—</span>
+                      )}
+                    </td>
+                  ) : null}
+                  {show('preferredChannel') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-sm text-slate-700">{contact.preferredChannel || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('tags') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-sm text-slate-700">
+                        {Array.isArray(contact.tags) && contact.tags.length > 0
+                          ? contact.tags.join(', ')
+                          : '—'}
+                      </span>
+                    </td>
+                  ) : null}
+                  {show('isPrimary') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-sm text-slate-700">{contact.isPrimary ? 'Yes' : 'No'}</span>
+                    </td>
+                  ) : null}
+                  {show('createdAt') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-xs text-slate-500">{formatCreatedAt(contact.createdAt)}</span>
+                    </td>
+                  ) : null}
+                  {show('audit') ? (
+                    <TableAuditCell
+                      audit={extractAuditMeta(contact as unknown as Record<string, unknown>)}
+                      className="px-3 py-2.5 sm:px-4"
+                    />
+                  ) : null}
                   <td className="px-3 py-2.5 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
                     {/* Colored action icons — keeps the row actions visually
                         identical to the Leads / Clients / Candidates tables. */}

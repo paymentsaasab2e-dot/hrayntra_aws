@@ -1,5 +1,10 @@
 import { prisma } from '../config/prisma.js';
 import { getDepartmentRoleRank, isDepartmentHeadUser } from './departmentRole.service.js';
+import {
+  excludeHqPlatformUsers,
+  hqPlatformUserEmailNotClause,
+  isHqPlatformUser,
+} from '../utils/hqPlatformUser.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -25,10 +30,15 @@ const memberSelect = {
       name: true,
     },
   },
+  credential: {
+    select: {
+      loginId: true,
+    },
+  },
 };
 
 function normalizeMember(user) {
-  if (!user) return null;
+  if (!user || isHqPlatformUser(user)) return null;
   return {
     id: user.id,
     firstName: user.firstName,
@@ -75,11 +85,15 @@ export async function listTaskAssigneeCandidates(actorUserId) {
 
   if (await isSuperAdminUserId(actorUserId)) {
     const all = await prisma.user.findMany({
-      where: { status: 'ACTIVE', isActive: true },
+      where: {
+        status: 'ACTIVE',
+        isActive: true,
+        ...hqPlatformUserEmailNotClause(),
+      },
       select: memberSelect,
       orderBy: { firstName: 'asc' },
     });
-    return all.map(normalizeMember).filter(Boolean);
+    return excludeHqPlatformUsers(all).map(normalizeMember).filter(Boolean);
   }
 
   const actorDeptId = idStr(actor.departmentId);

@@ -61,7 +61,7 @@ export const inboxController = {
       const result = await inboxService.getGmailMessages(req.user.id, req.query || {});
       sendResponse(res, 200, 'Gmail messages retrieved successfully', result);
     } catch (error) {
-      sendError(res, 500, error.message, error);
+      sendError(res, error.status === 429 ? 429 : 500, error.message, error);
     }
   },
 
@@ -70,7 +70,7 @@ export const inboxController = {
       const result = await inboxService.getGmailMessage(req.user.id, req.params.messageId);
       sendResponse(res, 200, 'Gmail message retrieved successfully', result);
     } catch (error) {
-      sendError(res, 500, error.message, error);
+      sendError(res, error.status === 429 ? 429 : 500, error.message, error);
     }
   },
 

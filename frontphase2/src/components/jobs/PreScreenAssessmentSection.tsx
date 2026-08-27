@@ -25,7 +25,7 @@ import {
   type AssessmentDraft,
 } from './AssessmentEditorPanel';
 
-const TYPE_OPTIONS: PreScreenAssessmentType[] = ['MCQ', 'CODING', 'ESSAY', 'VIDEO'];
+const TYPE_OPTIONS: PreScreenAssessmentType[] = ['MCQ', 'QUESTIONNAIRE', 'CODING', 'ESSAY', 'VIDEO'];
 
 interface PreScreenAssessmentSectionProps {
   links: JobPreScreenAssessmentLink[];
@@ -44,7 +44,7 @@ function mapLinksForApi(links: JobPreScreenAssessmentLink[]) {
     assessmentId: link.assessmentId,
     sortOrder: index,
     required: link.required !== false,
-    timing: link.timing || 'AFTER_APPLY',
+    timing: 'BEFORE_SUBMIT',
     durationOverrideMinutes: link.durationOverrideMinutes ?? null,
     passScoreOverridePercent: link.passScoreOverridePercent ?? null,
   }));
@@ -64,7 +64,7 @@ function mapApiRowsToLinks(rows: unknown[]): JobPreScreenAssessmentLink[] {
         assessmentId,
         sortOrder: typeof r.sortOrder === 'number' ? r.sortOrder : index,
         required: r.required !== false,
-        timing: (r.timing as JobPreScreenAssessmentLink['timing']) || 'AFTER_APPLY',
+        timing: 'BEFORE_SUBMIT',
         durationOverrideMinutes:
           typeof r.durationOverrideMinutes === 'number' ? r.durationOverrideMinutes : null,
         passScoreOverridePercent:
@@ -148,7 +148,7 @@ export function PreScreenAssessmentSection({
         assessmentId: assessment.id,
         sortOrder: links.length,
         required: true,
-        timing: 'AFTER_APPLY',
+        timing: 'BEFORE_SUBMIT',
         assessment,
       },
     ];
@@ -276,7 +276,8 @@ export function PreScreenAssessmentSection({
       <div>
         <p className="text-sm font-semibold text-slate-900">Pre-screen assessments</p>
         <p className="text-xs text-slate-600 mt-0.5">
-          Configure MCQ, coding, essay, or video tests.{' '}
+          Configure MCQ, questionnaire, coding, essay, or video tests. Candidates complete these before they can
+          apply.{' '}
           {jobId
             ? 'Changes are saved to this job when you attach or remove a test.'
             : 'Save the job to persist attached tests.'}
@@ -355,19 +356,9 @@ export function PreScreenAssessmentSection({
                     />
                     Required
                   </label>
-                  <select
-                    className="rounded border border-slate-200 px-2 py-1 text-xs"
-                    value={link.timing || 'AFTER_APPLY'}
-                    disabled={disabled || persistingLinks}
-                    onChange={(e) =>
-                      void updateLink(index, {
-                        timing: e.target.value as JobPreScreenAssessmentLink['timing'],
-                      })
-                    }
-                  >
-                    <option value="AFTER_APPLY">After apply</option>
-                    <option value="BEFORE_SUBMIT">Before submit</option>
-                  </select>
+                  <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800">
+                    Before apply
+                  </span>
                   <button
                     type="button"
                     disabled={disabled || !assessment}

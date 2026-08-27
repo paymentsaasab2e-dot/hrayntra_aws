@@ -64,7 +64,8 @@ const jobsMetricsCache = createSessionCache<Record<string, unknown>>({
 });
 
 const candidatesCache = createSessionCache<EmployerCandidatesSnapshot>({
-  prefix: `${PREFIX}candidates:`,
+  // v2: stage dropdown needs pipelineJobId from applications/matches, not only assignedJobs
+  prefix: `${PREFIX}candidates:v2:`,
   staleMs: EMPLOYER_LIST_STALE_MS,
   isValid: isCandidatesSnap,
 });

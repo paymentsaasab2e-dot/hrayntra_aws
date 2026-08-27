@@ -18,6 +18,7 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import type { Placement, PlacementStatus } from '../../types/placement';
 import {
   formatPlacementDate,
+  formatCurrency,
   getEmploymentTypeBadgeStyle,
   getPlacementStatusLabel,
   getStatusBadgeStyle,
@@ -57,6 +58,8 @@ interface PlacementsTableProps {
   /** Parent provides frosted card + footer pagination (Leads-style). */
   embedded?: boolean;
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
+  /** Persistable column visibility; locked columns (candidate/actions) stay shown. */
+  isColumnVisible?: (columnId: string) => boolean;
 }
 
 function SortableHeader({
@@ -305,7 +308,9 @@ export function PlacementsTable({
   onPageChange,
   embedded = false,
   workspaceAlertsByEntityId,
+  isColumnVisible = () => true,
 }: PlacementsTableProps) {
+  const show = isColumnVisible;
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
@@ -383,18 +388,31 @@ export function PlacementsTable({
           <thead className={embedded ? 'sticky top-0 z-10' : undefined}>
             <tr className={theadRow}>
               <th className={thPad}>Candidate</th>
-              <th className={thPad}>Client / Job</th>
-              <th className={thPad}>Team Member</th>
-              <th className={thPad}>
-                <SortableHeader label="Offer Date" column="offerDate" sortBy={sortBy} onSort={onSort} />
-              </th>
-              <th className={thPad}>
-                <SortableHeader label="Joining Date" column="joiningDate" sortBy={sortBy} onSort={onSort} />
-              </th>
-              <th className={thPad}>Type</th>
-              <th className={thPad}>Status</th>
+              {show('clientJob') ? <th className={thPad}>Client / Job</th> : null}
+              {show('recruiter') ? <th className={thPad}>Team Member</th> : null}
+              {show('offerDate') ? (
+                <th className={thPad}>
+                  <SortableHeader label="Offer Date" column="offerDate" sortBy={sortBy} onSort={onSort} />
+                </th>
+              ) : null}
+              {show('joiningDate') ? (
+                <th className={thPad}>
+                  <SortableHeader label="Joining Date" column="joiningDate" sortBy={sortBy} onSort={onSort} />
+                </th>
+              ) : null}
+              {show('type') ? <th className={thPad}>Type</th> : null}
+              {show('status') ? <th className={thPad}>Status</th> : null}
+              {show('salary') ? <th className={thPad}>Salary offered</th> : null}
+              {show('fee') ? <th className={thPad}>Placement fee</th> : null}
+              {show('commission') ? <th className={thPad}>Commission %</th> : null}
+              {show('revenue') ? <th className={thPad}>Revenue</th> : null}
+              {show('paymentStatus') ? <th className={thPad}>Payment</th> : null}
+              {show('invoiceNumber') ? <th className={thPad}>Invoice #</th> : null}
+              {show('actualJoiningDate') ? <th className={thPad}>Actual join</th> : null}
+              {show('candidateEmail') ? <th className={thPad}>Candidate email</th> : null}
+              {show('reportingTo') ? <th className={thPad}>Reporting to</th> : null}
               {showAiAlertColumn ? <WorkspaceAlertTableHeader className={thPad} /> : null}
-              <TableAuditColumnHeader className={thPad} />
+              {show('audit') ? <TableAuditColumnHeader className={thPad} /> : null}
               <th className={`${thPad} text-right`}>Actions</th>
             </tr>
           </thead>
@@ -443,39 +461,111 @@ export function PlacementsTable({
                     </div>
                   </td>
 
-                  <td className={tdPad}>
-                    <div>
-                      <p className="font-medium text-[#111827]">{placement.client.companyName}</p>
-                      <p className="text-sm text-[#6B7280]">{placement.job.title}</p>
-                    </div>
-                  </td>
+                  {show('clientJob') ? (
+                    <td className={tdPad}>
+                      <div>
+                        <p className="font-medium text-[#111827]">{placement.client.companyName}</p>
+                        <p className="text-sm text-[#6B7280]">{placement.job.title}</p>
+                      </div>
+                    </td>
+                  ) : null}
 
-                  <td className={`${tdPad} text-sm text-[#111827]`}>{placement.recruiter?.name || '—'}</td>
-                  <td className={`${tdPad} text-sm text-[#111827]`}>{formatPlacementDate(placement.offerDate)}</td>
-                  <td className={`${tdPad} text-sm text-[#111827]`}>{formatPlacementDate(placement.joiningDate)}</td>
+                  {show('recruiter') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>{placement.recruiter?.name || '—'}</td>
+                  ) : null}
+                  {show('offerDate') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>{formatPlacementDate(placement.offerDate)}</td>
+                  ) : null}
+                  {show('joiningDate') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>{formatPlacementDate(placement.joiningDate)}</td>
+                  ) : null}
 
-                  <td className={tdPad}>
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${typeStyle.bg} ${typeStyle.text}`}>
-                      {placement.employmentType || '—'}
-                    </span>
-                  </td>
-
-                  <td className={tdPad} onClick={(event) => event.stopPropagation()}>
-                    {onStatusChange ? (
-                      <PlacementStatusDropdown
-                        placement={placement}
-                        disabled={statusUpdatingId === placement.id}
-                        updating={statusUpdatingId === placement.id}
-                        onStatusChange={handleStatusChange}
-                      />
-                    ) : (
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle.bg} ${statusStyle.text}`}
-                      >
-                        {getPlacementStatusLabel(placement.status)}
+                  {show('type') ? (
+                    <td className={tdPad}>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${typeStyle.bg} ${typeStyle.text}`}>
+                        {placement.employmentType || '—'}
                       </span>
-                    )}
-                  </td>
+                    </td>
+                  ) : null}
+
+                  {show('status') ? (
+                    <td className={tdPad} onClick={(event) => event.stopPropagation()}>
+                      {onStatusChange ? (
+                        <PlacementStatusDropdown
+                          placement={placement}
+                          disabled={statusUpdatingId === placement.id}
+                          updating={statusUpdatingId === placement.id}
+                          onStatusChange={handleStatusChange}
+                        />
+                      ) : (
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle.bg} ${statusStyle.text}`}
+                        >
+                          {getPlacementStatusLabel(placement.status)}
+                        </span>
+                      )}
+                    </td>
+                  ) : null}
+
+                  {show('salary') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {placement.salaryOffered != null
+                        ? placement.currency
+                          ? `${placement.currency} ${Number(placement.salaryOffered).toLocaleString()}`
+                          : formatCurrency(placement.salaryOffered)
+                        : '—'}
+                    </td>
+                  ) : null}
+                  {show('fee') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {placement.placementFee != null
+                        ? placement.currency
+                          ? `${placement.currency} ${Number(placement.placementFee).toLocaleString()}`
+                          : formatCurrency(placement.placementFee)
+                        : '—'}
+                    </td>
+                  ) : null}
+                  {show('commission') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {placement.commissionPercentage != null
+                        ? `${placement.commissionPercentage}%`
+                        : '—'}
+                    </td>
+                  ) : null}
+                  {show('revenue') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {placement.revenue != null
+                        ? placement.currency
+                          ? `${placement.currency} ${Number(placement.revenue).toLocaleString()}`
+                          : formatCurrency(placement.revenue)
+                        : '—'}
+                    </td>
+                  ) : null}
+                  {show('paymentStatus') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {placement.paymentStatus || '—'}
+                    </td>
+                  ) : null}
+                  {show('invoiceNumber') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {placement.invoiceNumber || '—'}
+                    </td>
+                  ) : null}
+                  {show('actualJoiningDate') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {formatPlacementDate(placement.actualJoiningDate)}
+                    </td>
+                  ) : null}
+                  {show('candidateEmail') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {placement.candidate?.email || '—'}
+                    </td>
+                  ) : null}
+                  {show('reportingTo') ? (
+                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                      {placement.reportingToName || placement.reportingToTitle || '—'}
+                    </td>
+                  ) : null}
 
                   {showAiAlertColumn ? (
                     <td className={tdPad}>
@@ -483,7 +573,7 @@ export function PlacementsTable({
                     </td>
                   ) : null}
 
-                  <TableAuditCell audit={placement.auditMeta} className={tdPad} />
+                  {show('audit') ? <TableAuditCell audit={placement.auditMeta} className={tdPad} /> : null}
 
                   <td className={tdPad}>
                     <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>

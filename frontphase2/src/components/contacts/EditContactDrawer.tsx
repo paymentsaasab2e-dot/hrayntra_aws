@@ -57,7 +57,7 @@ export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditC
       try {
         const [clientsRes, ownersRes] = await Promise.all([
           apiGetClients({ type: 'client' }),
-          apiGetUsers({ role: 'RECRUITER' }),
+          apiGetUsers({ assignable: true, role: 'RECRUITER' }),
         ]);
 
         if (clientsRes.data) {

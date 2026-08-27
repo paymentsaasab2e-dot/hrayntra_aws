@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, GitBranch, Coins, LayoutList } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiFetch,
@@ -17,6 +17,7 @@ import {
   DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
   type ClientPageFieldVisibility,
 } from '../../lib/clientPageFieldVisibility';
+import { SettingsPageHero, SettingsPanel } from './SettingsPageHero';
 
 type TemplateStage = {
   name: string;
@@ -199,62 +200,72 @@ export function RecruitmentWorkflowSettings() {
 
   if (!canManage) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-        You need permission to manage settings to change organization workflow or the default pipeline template.
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+        You need permission to manage settings to change organization workflow or the default pipeline
+        template.
       </div>
     );
   }
 
   if (loading) {
-    return (
-      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-        Loading organization recruitment settings…
-      </div>
-    );
+    return <div className="h-72 animate-pulse rounded-3xl border border-slate-200 bg-slate-100" />;
   }
 
   return (
-    <div className="space-y-8">
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Default pipeline template</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Used for all new jobs in your tenant (agency and standalone) unless that job already has custom pipeline stages. Customize per job from the job drawer with “Customize pipeline”. System roles map candidate lifecycle events to the right stage.
-            </p>
+    <div className="space-y-6">
+      <SettingsPageHero
+        eyebrow="Recruitment"
+        title="Hiring workflow defaults"
+        description="Set the org pipeline template, client list fields, and default currency used across jobs and billing."
+        icon={<GitBranch className="h-3.5 w-3.5 text-indigo-200" />}
+        stats={
+          <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-600">
+            {stages.length} pipeline stage{stages.length === 1 ? '' : 's'}
           </div>
+        }
+      />
+
+      <SettingsPanel
+        title="Default pipeline template"
+        description="Used for new jobs unless a job already has custom stages. System roles map lifecycle events to the right stage."
+        icon={<GitBranch className="h-4 w-4 text-indigo-600" />}
+        actions={
           <button
             type="button"
             onClick={() => void saveTemplate()}
             disabled={savingTemplate}
-            className="shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 text-white disabled:opacity-50 hover:bg-emerald-700"
+            className="shrink-0 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
           >
             {savingTemplate ? 'Saving…' : 'Save template'}
           </button>
-        </div>
-        <div className="divide-y divide-slate-100">
+        }
+      >
+        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200">
           {stages.map((stage, index) => (
-            <div key={`${index}-${stage.order}`} className="p-4 flex flex-wrap items-center gap-3">
-              <span className="text-xs font-bold text-slate-400 w-6">{index + 1}</span>
+            <div
+              key={`${index}-${stage.order}`}
+              className="flex flex-wrap items-center gap-3 bg-white p-4"
+            >
+              <span className="w-6 text-xs font-bold text-slate-400">{index + 1}</span>
               <input
                 type="text"
                 value={stage.name}
                 onChange={(e) => updateStage(index, { name: e.target.value })}
-                className="flex-1 min-w-[140px] rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="min-w-[140px] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 placeholder="Stage name"
               />
               <input
                 type="text"
                 value={stage.color || ''}
                 onChange={(e) => updateStage(index, { color: e.target.value })}
-                className="w-28 rounded-lg border border-slate-200 px-2 py-2 text-xs font-mono"
+                className="w-28 rounded-xl border border-slate-200 px-2 py-2 font-mono text-xs"
                 placeholder="#hex"
                 title="Color (hex)"
               />
               <select
                 value={stage.systemRole || ''}
                 onChange={(e) => updateStage(index, { systemRole: e.target.value })}
-                className="rounded-lg border border-slate-200 px-2 py-2 text-xs text-slate-800 min-w-[140px]"
+                className="min-w-[140px] rounded-xl border border-slate-200 px-2 py-2 text-xs text-slate-800"
               >
                 {SYSTEM_ROLE_OPTIONS.map((o) => (
                   <option key={o.value || 'none'} value={o.value}>
@@ -265,10 +276,10 @@ export function RecruitmentWorkflowSettings() {
             </div>
           ))}
         </div>
-        <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            className="text-xs font-semibold text-blue-600 hover:underline"
+            className="text-xs font-semibold text-indigo-700 hover:underline"
             onClick={() =>
               setStages((prev) => [
                 ...prev,
@@ -282,32 +293,30 @@ export function RecruitmentWorkflowSettings() {
             type="button"
             onClick={() => void applyTemplateToEmptyJobs()}
             disabled={applyingTemplate}
-            className="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+            className="ml-auto rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50"
             title="Backfill the saved template into any job that currently has no pipeline. Customized jobs are left untouched."
           >
             {applyingTemplate ? 'Applying…' : 'Apply to jobs without a pipeline'}
           </button>
         </div>
-      </div>
+      </SettingsPanel>
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Client page fields</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Control which client fields appear on the Clients list and client drawer. Hidden by default — turn on only the fields your team needs.
-            </p>
-          </div>
+      <SettingsPanel
+        title="Client page fields"
+        description="Control which client fields appear on the Clients list and drawer. Turn on only what your team needs."
+        icon={<LayoutList className="h-4 w-4 text-indigo-600" />}
+        actions={
           <button
             type="button"
             onClick={() => void saveClientPageFields()}
             disabled={savingClientPageFields || !clientPageFieldsDirty}
-            className="shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-[#2b7fff] text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600"
+            className="shrink-0 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {savingClientPageFields ? 'Saving…' : 'Save fields'}
           </button>
-        </div>
-        <div className="divide-y divide-slate-100">
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-3">
           {(
             [
               { key: 'interestLevel' as const, label: 'Interest level', hint: 'Priority / hot clients' },
@@ -317,10 +326,13 @@ export function RecruitmentWorkflowSettings() {
           ).map((field) => {
             const visible = draftClientPageFields[field.key];
             return (
-              <div key={field.key} className="p-5 flex flex-wrap items-center justify-between gap-3">
+              <div
+                key={field.key}
+                className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
+              >
                 <div>
                   <p className="text-sm font-semibold text-slate-900">{field.label}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{field.hint}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{field.hint}</p>
                 </div>
                 <button
                   type="button"
@@ -330,35 +342,32 @@ export function RecruitmentWorkflowSettings() {
                       [field.key]: !prev[field.key],
                     }))
                   }
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
                     visible
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
                   }`}
                 >
                   {visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                  {visible ? 'Visible on client page' : 'Hidden on client page'}
+                  {visible ? 'Visible' : 'Hidden'}
                 </button>
               </div>
             );
           })}
         </div>
         {clientPageFieldsDirty ? (
-          <p className="px-5 py-3 text-[11px] text-amber-700 border-t border-slate-100 bg-amber-50/50">
+          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
             You have unsaved changes to client page field visibility.
           </p>
         ) : null}
-      </div>
+      </SettingsPanel>
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-900">Default currency</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            This is the portal-wide currency for invoices, placements, candidate pay expectations, and dashboard charts.
-            Per-row overrides on invoices still work, but every new entry defaults to this code.
-          </p>
-        </div>
-        <div className="p-5 flex flex-wrap items-center gap-2">
+      <SettingsPanel
+        title="Default currency"
+        description="Portal-wide default for invoices, placements, pay expectations, and charts. Per-row invoice overrides still work."
+        icon={<Coins className="h-4 w-4 text-indigo-600" />}
+      >
+        <div className="flex flex-wrap gap-2">
           {supportedCurrencies.map((code) => {
             const active = currency === code;
             return (
@@ -367,19 +376,19 @@ export function RecruitmentWorkflowSettings() {
                 type="button"
                 onClick={() => void saveCurrency(code)}
                 disabled={savingCurrency}
-                className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                className={`rounded-xl border px-3.5 py-2 text-xs font-bold transition-colors ${
                   active
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50/40'
+                    ? 'border-indigo-500 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm shadow-indigo-500/25'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                 } disabled:opacity-50`}
               >
                 {code}
-                {active ? ' • Active' : ''}
+                {active ? ' · Active' : ''}
               </button>
             );
           })}
         </div>
-      </div>
+      </SettingsPanel>
     </div>
   );
 }

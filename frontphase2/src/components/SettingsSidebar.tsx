@@ -121,10 +121,13 @@ export function SettingsSidebar({
   });
 
   return (
-    <aside className="flex w-[17.5rem] shrink-0 flex-col border-r border-slate-200 bg-white">
-      <div className="border-b border-slate-100 px-5 py-5">
-        <h1 className="text-lg font-bold tracking-tight text-slate-900">Settings</h1>
-        <p className="mt-1 text-sm leading-snug text-slate-500">Manage your platform preferences</p>
+    <aside className="flex w-[17.5rem] shrink-0 flex-col border-r border-indigo-100/60 bg-white/90 backdrop-blur-md">
+      <div className="border-b border-indigo-100/50 bg-gradient-to-br from-white via-indigo-50/30 to-violet-50/20 px-5 py-5">
+        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-400">
+          Workspace
+        </p>
+        <h1 className="mt-1 text-lg font-bold tracking-tight text-slate-900">Settings</h1>
+        <p className="mt-1 text-sm leading-snug text-slate-500">Manage platform preferences</p>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Settings sections">
@@ -138,26 +141,22 @@ export function SettingsSidebar({
                   type="button"
                   onClick={() => setActiveSection(item.id)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all ${
                     isActive
-                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30'
+                      : 'text-slate-600 hover:bg-indigo-50/60 hover:text-indigo-900'
                   }`}
                 >
                   <span
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                       isActive
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200 group-hover:text-slate-700'
+                        ? 'bg-white/20 text-white ring-1 ring-white/25'
+                        : 'bg-indigo-50 text-indigo-500 group-hover:bg-indigo-100 group-hover:text-indigo-700'
                     }`}
                   >
                     <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
                   </span>
-                  <span
-                    className={`min-w-0 flex-1 text-sm font-medium leading-snug ${
-                      isActive ? 'text-blue-900' : ''
-                    }`}
-                  >
+                  <span className="min-w-0 flex-1 text-sm font-medium leading-snug">
                     {item.label}
                   </span>
                 </button>
@@ -167,14 +166,16 @@ export function SettingsSidebar({
         </ul>
       </nav>
 
-      <div className="border-t border-slate-100 p-4">
-        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Support</p>
+      <div className="border-t border-indigo-100/50 p-4">
+        <div className="rounded-2xl border border-indigo-100/70 bg-gradient-to-br from-white via-indigo-50/40 to-violet-50/30 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-400">
+            Support
+          </p>
           <Link
             href="/help-center"
-            className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-blue-600 transition-colors hover:text-blue-700"
+            className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
           >
-            <LifeBuoy className="h-4 w-4 shrink-0" />
+            <LifeBuoy className="h-4 w-4 shrink-0 text-indigo-600" />
             Need help?
           </Link>
           <p className="mt-1.5 text-xs leading-relaxed text-slate-500">

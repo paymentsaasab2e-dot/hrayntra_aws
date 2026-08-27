@@ -309,7 +309,7 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
                 <li key={row.id || row.assessmentId || index} className="text-sm text-slate-700">
                   {index + 1}. {row.assessment?.title || 'Assessment'} ({row.assessment?.type || 'MCQ'})
                   {row.required === false ? ' · optional' : ' · required'}
-                  {row.timing === 'BEFORE_SUBMIT' ? ' · before submit' : ' · after apply'}
+                  {' · before apply'}
                 </li>
               ))}
             </ul>

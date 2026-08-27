@@ -6,14 +6,25 @@ import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { oauthTokenService } from './oauth-token.service.js';
 import { integrationService } from '../integration/integration.service.js';
 
-const GMAIL_SCOPES =
-  'openid email profile https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly';
-const CAL_SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar';
+const OPENID_SCOPES = 'openid email profile';
+/** Send-only — used when composing outbound mail from Hryantra. */
+const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+/** Read inbox threads so recruiters can reply in-product (restricted; required for message bodies). */
+const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+/**
+ * Events only — create/update/delete interview & meeting events.
+ * Do NOT use full `auth/calendar` (shares/deletes entire calendars); Google rejects that as non-minimal.
+ */
+const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
+const GMAIL_SCOPES = `${OPENID_SCOPES} ${GMAIL_SEND_SCOPE} ${GMAIL_READONLY_SCOPE}`;
+const CAL_SCOPES = `${OPENID_SCOPES} ${CALENDAR_EVENTS_SCOPE}`;
+const BOTH_SCOPES = `${OPENID_SCOPES} ${GMAIL_SEND_SCOPE} ${GMAIL_READONLY_SCOPE} ${CALENDAR_EVENTS_SCOPE}`;
 
 function buildScope(mode) {
   if (mode === 'gmail') return GMAIL_SCOPES;
   if (mode === 'calendar') return CAL_SCOPES;
-  return `${GMAIL_SCOPES} ${CAL_SCOPES}`;
+  return BOTH_SCOPES;
 }
 
 export const googleOAuthController = {
@@ -53,6 +64,12 @@ export const googleOAuthController = {
 
       if (service === 'gmail' || service === 'google-calendar' || service === 'google-meet') {
         const result = await integrationService.handleCallback(service, String(code), String(state || ''));
+        if (service === 'gmail') {
+          const inbox = new URL(`${frontend}/inbox`);
+          inbox.searchParams.set('gmail_connected', '1');
+          if (result.accountEmail) inbox.searchParams.set('email', result.accountEmail);
+          return res.redirect(inbox.toString());
+        }
         return res.redirect(
           `${frontend}/setting?section=communication&integration_connected=${encodeURIComponent(result.provider)}&email=${encodeURIComponent(result.accountEmail || '')}`
         );

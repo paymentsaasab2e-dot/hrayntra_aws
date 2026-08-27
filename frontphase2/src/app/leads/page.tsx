@@ -90,6 +90,12 @@ import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tab
 import { requestError } from '../../lib/appDialog';
 import type { CsvColumn } from '../../utils/csv';
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import {
+  usePersistedColumnVisibility,
+  useTenantScopedStringArray,
+} from '../../hooks/usePersistedColumnVisibility';
+import { LEAD_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 
 // Force CSR — every interactive bit on this tab is client-driven.
 export const dynamic = 'force-dynamic';
@@ -539,7 +545,10 @@ export default function RecruitmentAgencyDashboard() {
   const [recruiterFilter, setRecruiterFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [smartSearchLeadIds, setSmartSearchLeadIds] = useState<string[]>([]);
-  const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useState<string[]>([]);
+  const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useTenantScopedStringArray(
+    LEADS_DYNAMIC_COLUMNS_STORAGE_KEY,
+  );
+  const leadColumnVisibility = usePersistedColumnVisibility('leads.visibleColumns', LEAD_TABLE_COLUMNS);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null = not checked yet
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
   const [bulkStatus, setBulkStatus] = useState('');
@@ -636,34 +645,12 @@ export default function RecruitmentAgencyDashboard() {
   }, [canCreateLead, isAuthenticated]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LEADS_DYNAMIC_COLUMNS_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setSelectedDynamicColumnLabels(
-          parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-        );
-      }
-    } catch {
-      /* ignore invalid persisted dynamic columns */
-    }
-  }, []);
-
-  useEffect(() => {
     setSelectedDynamicColumnLabels((previous) =>
       previous.filter((label) =>
         availableDynamicColumnLabels.some((option) => option.toLowerCase() === label.toLowerCase())
       )
     );
-  }, [availableDynamicColumnLabels]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      LEADS_DYNAMIC_COLUMNS_STORAGE_KEY,
-      JSON.stringify(selectedDynamicColumnLabels)
-    );
-  }, [selectedDynamicColumnLabels]);
+  }, [availableDynamicColumnLabels, setSelectedDynamicColumnLabels]);
 
   useEffect(() => {
     const leadId = searchParams.get('leadId');
@@ -2224,43 +2211,31 @@ export default function RecruitmentAgencyDashboard() {
                   searchPlaceholder="Search team members…"
                 />
 
-                {availableDynamicColumnLabels.length > 0 ? (
-                  <details className="relative shrink-0">
-                    <summary className={`${LEADS_FILTER_SELECT} list-none`}>
-                      Dynamic Columns
-                      {selectedDynamicColumnLabels.length > 0 ? ` (${selectedDynamicColumnLabels.length})` : ''}
-                    </summary>
-                    <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-indigo-100/90 bg-white p-3 shadow-xl">
-                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                        Show in table
-                      </p>
-                      <div className="ph2-invisible-scrollbar max-h-56 space-y-2 overflow-y-auto pr-1">
-                        {availableDynamicColumnLabels.map((label) => {
-                          const checked = selectedDynamicColumnLabels.some(
-                            (item) => item.toLowerCase() === label.toLowerCase()
-                          );
-                          return (
-                            <label key={label} className="flex items-center gap-2 text-xs text-slate-700">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() =>
-                                  setSelectedDynamicColumnLabels((previous) =>
-                                    checked
-                                      ? previous.filter((item) => item.toLowerCase() !== label.toLowerCase())
-                                      : [...previous, label]
-                                  )
-                                }
-                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
-                              />
-                              <span className="truncate">{label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </details>
-                ) : null}
+                <TableColumnsMenu
+                  columns={LEAD_TABLE_COLUMNS}
+                  isVisible={leadColumnVisibility.isVisible}
+                  onToggle={leadColumnVisibility.toggle}
+                  onReset={leadColumnVisibility.resetToDefault}
+                  unlockedVisibleCount={leadColumnVisibility.unlockedVisibleCount}
+                  summaryClassName={LEADS_FILTER_SELECT}
+                  dynamicSection={
+                    availableDynamicColumnLabels.length > 0
+                      ? {
+                          title: 'Custom fields',
+                          labels: availableDynamicColumnLabels,
+                          selectedLabels: selectedDynamicColumnLabels,
+                          onToggleLabel: (label) => {
+                            setSelectedDynamicColumnLabels((prev) => {
+                              const exists = prev.some((item) => item.toLowerCase() === label.toLowerCase());
+                              return exists
+                                ? prev.filter((item) => item.toLowerCase() !== label.toLowerCase())
+                                : [...prev, label];
+                            });
+                          },
+                        }
+                      : undefined
+                  }
+                />
 
                 <button 
                   type="button"
@@ -2346,25 +2321,78 @@ export default function RecruitmentAgencyDashboard() {
                           />
                         </th>
                         <th className="px-3 sm:px-4 py-2 min-w-[11rem]">Lead</th>
-                        <th className="px-3 sm:px-4 py-2">Source</th>
-                        <th className="px-3 sm:px-4 py-2">Contact</th>
+                        {leadColumnVisibility.isVisible('source') ? (
+                          <th className="px-3 sm:px-4 py-2">Source</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('contact') ? (
+                          <th className="px-3 sm:px-4 py-2">Contact</th>
+                        ) : null}
                         {selectedDynamicColumnLabels.map((label) => (
                           <th key={label} className="px-3 sm:px-4 py-2">
                             {label}
                           </th>
                         ))}
-                        <th className="px-3 sm:px-4 py-2">Status</th>
-                        <th className="px-3 sm:px-4 py-2">Assigned To</th>
-                        <th className="px-3 sm:px-4 py-2">Last Follow-up</th>
+                        {leadColumnVisibility.isVisible('status') ? (
+                          <th className="px-3 sm:px-4 py-2">Status</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('assignedTo') ? (
+                          <th className="px-3 sm:px-4 py-2">Assigned To</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('followUp') ? (
+                          <th className="px-3 sm:px-4 py-2">Last Follow-up</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('type') ? (
+                          <th className="px-3 sm:px-4 py-2">Lead type</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('priority') ? (
+                          <th className="px-3 sm:px-4 py-2">Priority</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('phone') ? (
+                          <th className="px-3 sm:px-4 py-2">Phone</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('industry') ? (
+                          <th className="px-3 sm:px-4 py-2">Industry</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('companySize') ? (
+                          <th className="px-3 sm:px-4 py-2">Company size</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('location') ? (
+                          <th className="px-3 sm:px-4 py-2">Location</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('website') ? (
+                          <th className="px-3 sm:px-4 py-2">Website</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('designation') ? (
+                          <th className="px-3 sm:px-4 py-2">Designation</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('needs') ? (
+                          <th className="px-3 sm:px-4 py-2">Services needed</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('expectedValue') ? (
+                          <th className="px-3 sm:px-4 py-2">Expected value</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('createdDate') ? (
+                          <th className="px-3 sm:px-4 py-2">Created</th>
+                        ) : null}
+                        {leadColumnVisibility.isVisible('convertedClient') ? (
+                          <th className="px-3 sm:px-4 py-2">Converted client</th>
+                        ) : null}
                         {showLeadAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
-                        <TableAuditColumnHeader />
+                        {leadColumnVisibility.isVisible('audit') ? <TableAuditColumnHeader /> : null}
                         <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/80">
                       {filteredLeads.length === 0 ? (
                         <tr>
-                          <td colSpan={9 + selectedDynamicColumnLabels.length} className="px-4 py-12 text-center">
+                          <td
+                            colSpan={
+                              leadColumnVisibility.visibleCount +
+                              selectedDynamicColumnLabels.length +
+                              (showLeadAiAlertColumn ? 1 : 0)
+                            }
+                            className="px-4 py-12 text-center"
+                          >
                             <p className="text-xs font-medium text-slate-500">No leads match your filters</p>
                             <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
                           </td>
@@ -2441,19 +2469,23 @@ export default function RecruitmentAgencyDashboard() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                              <SourceCell lead={lead} />
-                            </td>
-                            <td className="px-3 sm:px-4 py-2">
-                              <div className="flex flex-col gap-0.5">
-                                <span className="text-xs font-medium text-slate-800">
-                                  {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
-                                </span>
-                                <span className="text-[10px] text-slate-500">
-                                  {formatContactListDisplay(lead.emails, lead.email)}
-                                </span>
-                              </div>
-                            </td>
+                            {leadColumnVisibility.isVisible('source') ? (
+                              <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                                <SourceCell lead={lead} />
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('contact') ? (
+                              <td className="px-3 sm:px-4 py-2">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-xs font-medium text-slate-800">
+                                    {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500">
+                                    {formatContactListDisplay(lead.emails, lead.email)}
+                                  </span>
+                                </div>
+                              </td>
+                            ) : null}
                             {selectedDynamicColumnLabels.map((label) => {
                               const value = getLeadDynamicFieldValue(lead, label);
                               return (
@@ -2464,75 +2496,161 @@ export default function RecruitmentAgencyDashboard() {
                                 </td>
                               );
                             })}
-                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex flex-col gap-1.5">
-                                {canUpdateLead ? (
-                                  <select
-                                    className="max-w-[10rem] rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
-                                    value={lead.status}
-                                    onChange={(e) =>
-                                      handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
-                                    }
-                                  >
-                                    {inlineSelectableStatuses(lead.status).map((status) => (
-                                      <option key={status} value={status}>
-                                        {status}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <StatusTag status={lead.status} />
-                                )}
-
-                                {canUpdateLead && statusEdit.leadId === lead.id && (
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="text"
-                                      placeholder="Add remark for this status change"
-                                      className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                      value={statusEdit.remark}
+                            {leadColumnVisibility.isVisible('status') ? (
+                              <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex flex-col gap-1.5">
+                                  {canUpdateLead ? (
+                                    <select
+                                      className="max-w-[10rem] rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
+                                      value={lead.status}
                                       onChange={(e) =>
-                                        setStatusEdit((prev) => ({
-                                          ...prev,
-                                          remark: e.target.value,
-                                        }))
+                                        handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
                                       }
-                                    />
-                                    <button
-                                      type="button"
-                                      className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                                      onClick={handleSaveStatusEdit}
                                     >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
-                                      onClick={handleCancelStatusEdit}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
+                                      {inlineSelectableStatuses(lead.status).map((status) => (
+                                        <option key={status} value={status}>
+                                          {status}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <StatusTag status={lead.status} />
+                                  )}
+
+                                  {canUpdateLead && statusEdit.leadId === lead.id && (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="Add remark for this status change"
+                                        className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                        value={statusEdit.remark}
+                                        onChange={(e) =>
+                                          setStatusEdit((prev) => ({
+                                            ...prev,
+                                            remark: e.target.value,
+                                          }))
+                                        }
+                                      />
+                                      <button
+                                        type="button"
+                                        className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                                        onClick={handleSaveStatusEdit}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
+                                        onClick={handleCancelStatusEdit}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('assignedTo') ? (
+                              <td className="px-3 sm:px-4 py-2">
+                                <AssigneeAvatars
+                                  lead={lead}
+                                />
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('followUp') ? (
+                              <td className="px-3 sm:px-4 py-2">
+                                <LeadFollowUpTableCell
+                                  lastFollowUp={lead.lastFollowUp}
+                                  nextFollowUp={lead.nextFollowUp}
+                                />
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('type') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {lead.type || '—'}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('priority') ? (
+                              <td className="px-3 sm:px-4 py-2">
+                                {lead.priority ? <PriorityTag priority={lead.priority} /> : (
+                                  <span className="text-xs text-slate-400">—</span>
                                 )}
-                              </div>
-                            </td>
-                            <td className="px-3 sm:px-4 py-2">
-                              <AssigneeAvatars
-                                lead={lead}
-                              />
-                            </td>
-                            <td className="px-3 sm:px-4 py-2">
-                              <LeadFollowUpTableCell
-                                lastFollowUp={lead.lastFollowUp}
-                                nextFollowUp={lead.nextFollowUp}
-                              />
-                            </td>
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('phone') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {formatContactListDisplay(lead.phones, lead.phone) || '—'}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('industry') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {lead.industry || '—'}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('companySize') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {lead.companySize || '—'}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('location') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {lead.location ||
+                                  [lead.city, lead.state].filter(Boolean).join(', ') ||
+                                  '—'}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('website') ? (
+                              <td className="px-3 sm:px-4 py-2">
+                                {lead.website ? (
+                                  <span
+                                    className="block max-w-[10rem] truncate text-xs text-slate-600"
+                                    title={lead.website}
+                                  >
+                                    {lead.website.replace(/^https?:\/\//i, '')}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400">—</span>
+                                )}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('designation') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {lead.designation || lead.teamMemberDesignation || '—'}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('needs') ? (
+                              <td className="px-3 sm:px-4 py-2">
+                                <span
+                                  className="line-clamp-2 max-w-[12rem] text-xs text-slate-700"
+                                  title={lead.interestedNeeds || lead.servicesNeeded || undefined}
+                                >
+                                  {lead.interestedNeeds || lead.servicesNeeded || '—'}
+                                </span>
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('expectedValue') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {lead.expectedBusinessValue || '—'}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('createdDate') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {lead.createdDate ? formatDateDMY(lead.createdDate) || lead.createdDate : '—'}
+                              </td>
+                            ) : null}
+                            {leadColumnVisibility.isVisible('convertedClient') ? (
+                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                                {lead.convertedClientName || '—'}
+                              </td>
+                            ) : null}
                             {showLeadAiAlertColumn ? (
                               <td className="px-3 sm:px-4 py-2">
                                 <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[lead.id]} />
                               </td>
                             ) : null}
-                            <TableAuditCell audit={lead.auditMeta} hideUnchangedUpdated />
+                            {leadColumnVisibility.isVisible('audit') ? (
+                              <TableAuditCell audit={lead.auditMeta} hideUnchangedUpdated />
+                            ) : null}
                             <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                                 {SHOW_TABLE_ROW_EDIT_ICON &&

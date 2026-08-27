@@ -7,6 +7,9 @@ import { Toaster, toast } from 'sonner';
 import { FiltersBar } from '../../components/placements/FiltersBar';
 import { KPICards } from '../../components/placements/KPICards';
 import { PlacementsTable } from '../../components/placements/PlacementsTable';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
+import { PLACEMENT_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { CreatePlacementDrawer } from '../../components/placements/modals/CreatePlacementDrawer';
 import { MarkFailedDrawer } from '../../components/placements/modals/MarkFailedDrawer';
 import { MarkJoinedDrawer } from '../../components/placements/modals/MarkJoinedDrawer';
@@ -105,6 +108,10 @@ function PlacementsPageContent() {
   const [detailPlacementId, setDetailPlacementId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
   const [smartSearchPlacementIds, setSmartSearchPlacementIds] = useState<string[]>([]);
+  const placementColumnVisibility = usePersistedColumnVisibility(
+    'placements.visibleColumns',
+    PLACEMENT_TABLE_COLUMNS,
+  );
   const apiFilters = useMemo(
     () => ({
       ...filters,
@@ -448,6 +455,15 @@ function PlacementsPageContent() {
                 />
 
                 <div className="shrink-0 border-b border-indigo-100/40 px-3 py-3 sm:px-4">
+                  <div className="mb-3 flex justify-end">
+                    <TableColumnsMenu
+                      columns={PLACEMENT_TABLE_COLUMNS}
+                      isVisible={placementColumnVisibility.isVisible}
+                      onToggle={placementColumnVisibility.toggle}
+                      onReset={placementColumnVisibility.resetToDefault}
+                      unlockedVisibleCount={placementColumnVisibility.unlockedVisibleCount}
+                    />
+                  </div>
                   <FiltersBar
                     embedded
                     totalCount={pagination.total}
@@ -473,6 +489,7 @@ function PlacementsPageContent() {
                           isLoading={loading}
                           sortBy={filters.sortBy}
                           sortOrder={filters.sortOrder}
+                          isColumnVisible={placementColumnVisibility.isVisible}
                           onSort={(column) =>
                             updateFilters({
                               sortBy: column,

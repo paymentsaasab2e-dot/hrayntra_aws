@@ -80,11 +80,44 @@ export interface VideoAssessmentConfig {
   antiCheat: AntiCheatSettings;
 }
 
+export type QuestionnaireQuestionKind = 'TEXT' | 'MCQ';
+
+export interface QuestionnaireTextQuestion {
+  id: string;
+  kind: 'TEXT';
+  prompt: string;
+  required?: boolean;
+  maxLength?: number;
+}
+
+export interface QuestionnaireMcqQuestion {
+  id: string;
+  kind: 'MCQ';
+  prompt: string;
+  options: McqOption[];
+  correctOptionId: string;
+  /** @deprecated Questionnaire uses equal weight (1 each); kept for legacy payloads. */
+  marks?: number;
+}
+
+export type QuestionnaireQuestion = QuestionnaireTextQuestion | QuestionnaireMcqQuestion;
+
+export interface QuestionnaireAssessmentConfig {
+  questions: QuestionnaireQuestion[];
+  /**
+   * How many MCQ answers must be correct to pass (e.g. 4 of 5).
+   * Text questions are not auto-scored.
+   */
+  passCorrectCount?: number;
+  antiCheat: AntiCheatSettings;
+}
+
 export type AssessmentConfig =
   | McqAssessmentConfig
   | CodingAssessmentConfig
   | EssayAssessmentConfig
-  | VideoAssessmentConfig;
+  | VideoAssessmentConfig
+  | QuestionnaireAssessmentConfig;
 
 export const CODING_LANGUAGES = [
   { value: 'javascript', label: 'JavaScript' },
@@ -173,6 +206,71 @@ export function defaultVideoConfig(): VideoAssessmentConfig {
   };
 }
 
+export function defaultQuestionnaireConfig(): QuestionnaireAssessmentConfig {
+  const o1 = newId('o');
+  const o2 = newId('o');
+  const o3 = newId('o');
+  const o4 = newId('o');
+  return {
+    passCorrectCount: 1,
+    questions: [
+      {
+        id: newId('q'),
+        kind: 'TEXT',
+        prompt: 'Briefly describe your relevant experience for this role.',
+        required: true,
+        maxLength: 1000,
+      },
+      {
+        id: newId('q'),
+        kind: 'MCQ',
+        prompt: 'How many years of experience do you have in this field?',
+        options: [
+          { id: o1, text: 'Less than 1 year' },
+          { id: o2, text: '1–3 years' },
+          { id: o3, text: '3–5 years' },
+          { id: o4, text: '5+ years' },
+        ],
+        correctOptionId: o3,
+      },
+    ],
+    antiCheat: defaultAntiCheat({
+      detectTabSwitch: false,
+      detectCopyPaste: false,
+      disableRightClick: false,
+    }),
+  };
+}
+
+/** Number of auto-scored MCQ items in a questionnaire. */
+export function countQuestionnaireMcqQuestions(config: QuestionnaireAssessmentConfig): number {
+  return (config.questions || []).filter((q) => q.kind === 'MCQ').length;
+}
+
+/**
+ * Resolve how many correct MCQ answers are required to pass.
+ * Falls back from legacy passScorePercent when passCorrectCount is missing.
+ */
+export function resolveQuestionnairePassCorrectCount(
+  config: QuestionnaireAssessmentConfig,
+  passScorePercentFallback = 70,
+): number {
+  const total = countQuestionnaireMcqQuestions(config);
+  if (total <= 0) return 0;
+  if (config.passCorrectCount != null && Number.isFinite(Number(config.passCorrectCount))) {
+    return Math.max(1, Math.min(total, Math.round(Number(config.passCorrectCount))));
+  }
+  const pct = Math.max(0, Math.min(100, Number(passScorePercentFallback) || 70));
+  return Math.max(1, Math.min(total, Math.ceil((pct / 100) * total)));
+}
+
+/** Mirror count-based pass rule into passScorePercent for legacy API fields. */
+export function questionnairePassPercentFromCount(passCorrectCount: number, mcqTotal: number): number {
+  const total = Math.max(1, mcqTotal);
+  const need = Math.max(1, Math.min(total, Math.round(passCorrectCount) || 1));
+  return Math.max(0, Math.min(100, Math.round((need / total) * 100)));
+}
+
 export function defaultConfigForType(type: PreScreenAssessmentType): AssessmentConfig {
   switch (type) {
     case 'CODING':
@@ -181,6 +279,8 @@ export function defaultConfigForType(type: PreScreenAssessmentType): AssessmentC
       return defaultEssayConfig();
     case 'VIDEO':
       return defaultVideoConfig();
+    case 'QUESTIONNAIRE':
+      return defaultQuestionnaireConfig();
     case 'MCQ':
     default:
       return defaultMcqConfig();
@@ -195,6 +295,8 @@ export function defaultDurationForType(type: PreScreenAssessmentType): number {
       return 20;
     case 'VIDEO':
       return 5;
+    case 'QUESTIONNAIRE':
+      return 20;
     case 'MCQ':
     default:
       return 30;
@@ -202,7 +304,8 @@ export function defaultDurationForType(type: PreScreenAssessmentType): number {
 }
 
 export function defaultPassScoreForType(type: PreScreenAssessmentType): number {
-  return type === 'MCQ' ? 70 : 60;
+  if (type === 'MCQ' || type === 'QUESTIONNAIRE') return 70;
+  return 60;
 }
 
 export function defaultTotalMarksForType(_type: PreScreenAssessmentType): number {
@@ -226,6 +329,10 @@ export function computeAssessmentTotalMarks(
   if (type === 'MCQ') {
     const sum = sumMcqQuestionMarks((config as McqAssessmentConfig).questions || []);
     return Math.max(1, sum || defaultTotalMarksForType(type));
+  }
+  if (type === 'QUESTIONNAIRE') {
+    const qs = (config as QuestionnaireAssessmentConfig).questions || [];
+    return Math.max(1, qs.filter((q) => q.kind === 'MCQ').length || 1);
   }
   if (type === 'CODING') {
     const coding = config as CodingAssessmentConfig;
@@ -258,6 +365,8 @@ export function defaultTitleForType(type: PreScreenAssessmentType): string {
       return 'Essay Assessment';
     case 'VIDEO':
       return 'Video Introduction';
+    case 'QUESTIONNAIRE':
+      return 'Screening Questionnaire';
     default:
       return 'Pre-screen Assessment';
   }
@@ -313,6 +422,58 @@ export function parseAssessmentConfig(
         };
       }),
     };
+  }
+
+  if (type === 'QUESTIONNAIRE') {
+    const questions = Array.isArray(c.questions) ? c.questions : [];
+    const parsed: QuestionnaireQuestion[] = questions.map((q, qi) => {
+      const row = q && typeof q === 'object' ? (q as Record<string, unknown>) : {};
+      const kind = String(row.kind || '').toUpperCase() === 'MCQ' ? 'MCQ' : 'TEXT';
+      if (kind === 'MCQ') {
+        const options = Array.isArray(row.options) ? row.options : [];
+        const parsedOptions = options.map((opt, oi) => {
+          const o = opt && typeof opt === 'object' ? (opt as Record<string, unknown>) : {};
+          return {
+            id: String(o.id || newId('o')),
+            text: String(o.text || `Option ${oi + 1}`),
+          };
+        });
+        const safeOptions = parsedOptions.length
+          ? parsedOptions
+          : [
+              { id: newId('o'), text: 'Option A' },
+              { id: newId('o'), text: 'Option B' },
+            ];
+        return {
+          id: String(row.id || newId('q')),
+          kind: 'MCQ' as const,
+          prompt: String(row.prompt || `Question ${qi + 1}`),
+          options: safeOptions,
+          correctOptionId: String(row.correctOptionId || safeOptions[0]?.id || ''),
+        };
+      }
+      return {
+        id: String(row.id || newId('q')),
+        kind: 'TEXT' as const,
+        prompt: String(row.prompt || `Question ${qi + 1}`),
+        required: row.required !== false,
+        maxLength: Math.max(50, Math.min(5000, Number(row.maxLength) || 1000)),
+      };
+    });
+    const base = {
+      antiCheat,
+      questions: parsed.length ? parsed : defaultQuestionnaireConfig().questions,
+    } as QuestionnaireAssessmentConfig;
+    const mcqTotal = countQuestionnaireMcqQuestions(base);
+    const rawPass =
+      c.passCorrectCount != null ? Number(c.passCorrectCount) : NaN;
+    base.passCorrectCount =
+      mcqTotal > 0
+        ? Number.isFinite(rawPass) && rawPass > 0
+          ? Math.max(1, Math.min(mcqTotal, Math.round(rawPass)))
+          : Math.max(1, Math.min(mcqTotal, Math.ceil(0.7 * mcqTotal)))
+        : 0;
+    return base;
   }
 
   if (type === 'CODING') {

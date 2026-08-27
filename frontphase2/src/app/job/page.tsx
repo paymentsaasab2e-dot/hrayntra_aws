@@ -28,6 +28,9 @@ import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGat
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildJobsCsvColumns, JOBS_EXPORT_COLUMNS } from '../../lib/export/jobsExportColumns';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
+import { JOB_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
@@ -44,7 +47,7 @@ import { Toaster, toast } from 'sonner';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import { JobDetailsDrawer, type JobForDrawer, type JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
-import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
+import { CreatePlacementDrawer } from '../../components/placements/modals/CreatePlacementDrawer';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import { JobAiCreateWizard } from '../../components/jobs/JobAiCreateWizard';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
@@ -82,7 +85,8 @@ import {
   apiUpdateCandidateInterview,
   apiUpdateCandidateNote,
   apiUpdateJob,
-  apiCreateInterview,
+  apiMoveCandidateStage,
+  apiCreatePlacement,
   emitNotificationsUpdated,
   apiGetUsers,
   apiGetJobStatusCatalog,
@@ -113,9 +117,11 @@ import { useDrawerPortalDropdownPosition } from '../../components/drawers/drawer
 import type { Candidate } from '../candidate/components/CandidateTable';
 import {
   CandidateProfileDrawer,
+  ScheduleInterviewModal as CandidateScheduleInterviewModal,
   type CandidateInterviewerOption,
   type CandidatePipelineJobOption,
   type CandidateProfileDrawerData,
+  type CandidateScheduledInterview,
   type CandidateTagItem,
 } from '../../components/drawers/CandidateProfileDrawer';
 import {
@@ -145,13 +151,7 @@ import {
   resolveJobCandidateDisplayStage,
   resolveJobCandidateStageFromMatchRow,
 } from '../../lib/jobAppliedMatches';
-import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend } from '../../lib/interview-schedule-helpers';
-import type {
-  InterviewCandidate,
-  InterviewJob,
-  InterviewPanelMember,
-  ScheduleInterviewPayload,
-} from '../../types/interview.types';
+import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -477,6 +477,7 @@ interface JobsListViewProps {
   onAppendStatusOption: (status: string) => Promise<string[] | void>;
   onRemoveStatusOption: (status: string) => Promise<string[] | void>;
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
+  isColumnVisible?: (columnId: string) => boolean;
 }
 
 // No fallback mock data - use empty array if API fails
@@ -770,34 +771,71 @@ const JobsListView = ({
   onAppendStatusOption,
   onRemoveStatusOption,
   workspaceAlertsByEntityId,
+  isColumnVisible = () => true,
 }: JobsListViewProps) => {
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
       Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
   );
+  const show = isColumnVisible;
+  const visibleColCount =
+    2 + // title + actions always
+    (show('select') ? 1 : 0) +
+    (show('client') ? 1 : 0) +
+    (show('status') ? 1 : 0) +
+    (show('pipeline') ? 1 : 0) +
+    (show('details') ? 1 : 0) +
+    (show('location') ? 1 : 0) +
+    (show('openings') ? 1 : 0) +
+    (show('owner') ? 1 : 0) +
+    (show('createdDate') ? 1 : 0) +
+    (show('priority') ? 1 : 0) +
+    (show('employmentType') ? 1 : 0) +
+    (show('workMode') ? 1 : 0) +
+    (show('jobLocationType') ? 1 : 0) +
+    (show('hot') ? 1 : 0) +
+    (show('aiMatch') ? 1 : 0) +
+    (show('experienceRequired') ? 1 : 0) +
+    (show('industry') ? 1 : 0) +
+    (show('audit') ? 1 : 0) +
+    (showAiAlertColumn ? 1 : 0);
 
   return (
   <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
-      <table className="w-full min-w-[760px] text-left border-collapse">
+      <table className="w-full min-w-[520px] text-left border-collapse">
         <thead className="sticky top-0 z-10">
           <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
-            <th className="px-3 py-2 sm:px-4 w-10 first:pl-4">
-              <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />
-          </th>
+            {show('select') ? (
+              <th className="px-3 py-2 sm:px-4 w-10 first:pl-4">
+                <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />
+              </th>
+            ) : null}
             <th className="min-w-[12rem] px-3 py-2 align-middle sm:min-w-[14rem] sm:px-4">Job title</th>
-            <th className="px-3 py-2 sm:px-4">Client</th>
-            <th className="px-3 py-2 sm:px-4">Status</th>
-            <th className="px-3 py-2 sm:px-4">Pipeline</th>
-            <th className="px-3 py-2 sm:px-4">Details</th>
+            {show('client') ? <th className="px-3 py-2 sm:px-4">Client</th> : null}
+            {show('status') ? <th className="px-3 py-2 sm:px-4">Status</th> : null}
+            {show('pipeline') ? <th className="px-3 py-2 sm:px-4">Pipeline</th> : null}
+            {show('details') ? <th className="px-3 py-2 sm:px-4">Details</th> : null}
+            {show('location') ? <th className="px-3 py-2 sm:px-4">Location</th> : null}
+            {show('openings') ? <th className="px-3 py-2 sm:px-4">Openings</th> : null}
+            {show('owner') ? <th className="px-3 py-2 sm:px-4">Team member</th> : null}
+            {show('createdDate') ? <th className="px-3 py-2 sm:px-4">Created</th> : null}
+            {show('priority') ? <th className="px-3 py-2 sm:px-4">Priority</th> : null}
+            {show('employmentType') ? <th className="px-3 py-2 sm:px-4">Employment type</th> : null}
+            {show('workMode') ? <th className="px-3 py-2 sm:px-4">Work mode</th> : null}
+            {show('jobLocationType') ? <th className="px-3 py-2 sm:px-4">Location type</th> : null}
+            {show('hot') ? <th className="px-3 py-2 sm:px-4">Hot</th> : null}
+            {show('aiMatch') ? <th className="px-3 py-2 sm:px-4">AI match</th> : null}
+            {show('experienceRequired') ? <th className="px-3 py-2 sm:px-4">Exp. required</th> : null}
+            {show('industry') ? <th className="px-3 py-2 sm:px-4">Category</th> : null}
             {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
-            <TableAuditColumnHeader />
+            {show('audit') ? <TableAuditColumnHeader /> : null}
             <th className="px-3 py-2 sm:px-4 text-right">Actions</th>
         </tr>
       </thead>
         <tbody className="divide-y divide-slate-100/80">
           {jobs.length === 0 ? (
             <tr>
-              <td colSpan={showAiAlertColumn ? 9 : 8} className="px-4 py-12 text-center">
+              <td colSpan={visibleColCount} className="px-4 py-12 text-center">
                 <p className="text-xs font-medium text-slate-500">No jobs match your filters</p>
                 <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
               </td>
@@ -808,9 +846,11 @@ const JobsListView = ({
             key={job.id}
                 className="group transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
           >
-                <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
-                  <input type="checkbox" className="rounded border-slate-300" aria-label={`Select ${job.title}`} />
-            </td>
+                {show('select') ? (
+                  <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" className="rounded border-slate-300" aria-label={`Select ${job.title}`} />
+                  </td>
+                ) : null}
                 <td className="min-w-[12rem] align-middle px-3 py-2 sm:min-w-[14rem] sm:px-4">
               <div className="flex flex-col justify-center">
                 <div className="flex items-center gap-2">
@@ -829,9 +869,12 @@ const JobsListView = ({
                 </div>
               </div>
             </td>
-                <td className="px-3 py-2 sm:px-4">
-                  <span className="text-xs font-medium text-slate-800 line-clamp-2">{job.client}</span>
-            </td>
+                {show('client') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs font-medium text-slate-800 line-clamp-2">{job.client}</span>
+                  </td>
+                ) : null}
+                {show('status') ? (
                 <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
               <div className="flex flex-col gap-2">
                 {canUpdateJob ? (
@@ -873,6 +916,8 @@ const JobsListView = ({
                 )}
               </div>
             </td>
+                ) : null}
+                {show('pipeline') ? (
                 <td className="px-3 py-2 sm:px-4">
               <PipelineSnapshot
                 applied={job.applied}
@@ -882,19 +927,88 @@ const JobsListView = ({
                 stages={job.pipelineStages}
               />
             </td>
+                ) : null}
+                {show('details') ? (
                 <td className="px-3 py-2 sm:px-4">
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Team Member</span>
                     <span className="text-xs text-slate-700">{job.owner}</span>
-                    <span className="text-[10px] text-slate-500">{job.createdDate}</span>
+                    <span className="text-[10px] text-slate-500">{formatDateDMY(job.createdDate)}</span>
               </div>
             </td>
+                ) : null}
+                {show('location') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="max-w-[120px] truncate text-xs text-slate-700">{job.location || '—'}</span>
+                  </td>
+                ) : null}
+                {show('openings') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs font-semibold tabular-nums text-slate-700">
+                      {job.openings != null ? job.openings : '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('owner') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="max-w-[100px] truncate text-xs text-slate-700">{job.owner || '—'}</span>
+                  </td>
+                ) : null}
+                {show('createdDate') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="whitespace-nowrap text-xs text-slate-600">
+                      {formatDateDMY(job.createdDate) || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('priority') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs text-slate-700">{job.priority || '—'}</span>
+                  </td>
+                ) : null}
+                {show('employmentType') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs text-slate-700">{job.employmentType || '—'}</span>
+                  </td>
+                ) : null}
+                {show('workMode') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs text-slate-700">{job.workMode || '—'}</span>
+                  </td>
+                ) : null}
+                {show('jobLocationType') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs text-slate-700">{job.jobLocationType || '—'}</span>
+                  </td>
+                ) : null}
+                {show('hot') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs text-slate-700">{job.hot ? 'Yes' : 'No'}</span>
+                  </td>
+                ) : null}
+                {show('aiMatch') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs tabular-nums text-slate-700">
+                      {job.aiMatchCount ?? (job.aiMatch ? 'Yes' : '—')}
+                    </span>
+                  </td>
+                ) : null}
+                {show('experienceRequired') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="text-xs text-slate-700">{job.experienceRequired || '—'}</span>
+                  </td>
+                ) : null}
+                {show('industry') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="max-w-[120px] truncate text-xs text-slate-700">{job.industry || '—'}</span>
+                  </td>
+                ) : null}
                 {showAiAlertColumn ? (
                   <td className="px-3 py-2 sm:px-4">
                     <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[job.id]} />
                   </td>
                 ) : null}
-                <TableAuditCell audit={job.auditMeta} />
+                {show('audit') ? <TableAuditCell audit={job.auditMeta} /> : null}
                 <td className="px-3 py-2 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                 {SHOW_TABLE_ROW_EDIT_ICON ? (
@@ -1256,6 +1370,7 @@ export default function JobsPage() {
   const canSubmitToClient = hasAnyPermission(['submit_candidate', 'candidates_update', 'edit_candidate']);
   const jobAiGate = useAiCoinGate('ai.job_from_prompt');
   const [searchFilter, setSearchFilter] = useState('');
+  const jobColumnVisibility = usePersistedColumnVisibility('jobs.visibleColumns', JOB_TABLE_COLUMNS);
   const [statusFilter, setStatusFilter] = useState('');
   const [clientFilterId, setClientFilterId] = useState('');
   const [recruiterFilterId, setRecruiterFilterId] = useState('');
@@ -1307,6 +1422,26 @@ export default function JobsPage() {
   const [scheduleInterviewOpen, setScheduleInterviewOpen] = useState(false);
   const [schedulePrefill, setSchedulePrefill] = useState<{ candidateId: string; jobId: string } | null>(null);
   const [scheduleInterviewers, setScheduleInterviewers] = useState<InterviewPanelMember[]>([]);
+  const [pendingStageAfterInterview, setPendingStageAfterInterview] = useState<{
+    candidateId: string;
+    jobId: string;
+    stageId: string;
+    stageName: string;
+  } | null>(null);
+  const [pendingStageAfterPlacement, setPendingStageAfterPlacement] = useState<{
+    candidateId: string;
+    jobId: string;
+    stageId: string;
+    stageName: string;
+  } | null>(null);
+  const [placementDrawerOpen, setPlacementDrawerOpen] = useState(false);
+  const [placementSubmitting, setPlacementSubmitting] = useState(false);
+  const [placementPrefill, setPlacementPrefill] = useState<{
+    candidateId?: string;
+    jobId?: string;
+    companyId?: string;
+    recruiterId?: string;
+  } | null>(null);
   const [statusEdit, setStatusEdit] = useState<{
     jobId: string | null;
     newStatus: JobStatus | null;
@@ -2056,27 +2191,42 @@ export default function JobsPage() {
     [activeJobForCandidateDrawer, loadCandidateProfileInJobContext],
   );
 
-  const scheduleModalCandidates = useMemo<InterviewCandidate[]>(
-    () =>
-      jobCandidates.map((c) => ({
-        id: c.id,
-        name: c.candidateName,
-        email: (c.email && c.email.trim()) || '—',
-      })),
-    [jobCandidates]
-  );
-
-  const scheduleModalJobs = useMemo<InterviewJob[]>(() => {
+  const scheduleModalJobs = useMemo<CandidatePipelineJobOption[]>(() => {
     const j = jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null);
     if (!j?.id) return [];
-    return [{ id: j.id, title: j.title, client: j.client, clientId: j.clientId }];
+    return [
+      {
+        id: j.id,
+        title: j.title,
+        clientId: j.clientId || null,
+        clientName: j.client || null,
+      },
+    ];
   }, [jobDetails, selectedJob]);
 
+  const schedulePopupCandidate = useMemo(() => {
+    if (!schedulePrefill) return null;
+    const row = jobCandidates.find((c) => c.id === schedulePrefill.candidateId);
+    const job = jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null);
+    return {
+      id: schedulePrefill.candidateId,
+      name: row?.candidateName || 'Candidate',
+      phone: row?.phone || null,
+      stage: row?.currentStage || null,
+      assignedJob: job?.title || null,
+      assignedJobId: schedulePrefill.jobId,
+    };
+  }, [schedulePrefill, jobCandidates, jobDetails, selectedJob]);
+
   const openScheduleInterviewFromJob = useCallback(
-    async (candidateId: string, jobId: string) => {
+    async (
+      candidateId: string,
+      jobId: string,
+      pendingStage?: { stageId: string; stageName: string },
+    ) => {
       if (!canCreateInterview) return;
       try {
-        const response = await apiGetUsers({ isActive: true, limit: 100 });
+        const response = await apiGetUsers({ assignable: true, isActive: true, limit: 100 });
         const raw = (response as any).data;
         const users = unwrapCollection<BackendUser>(raw);
         setScheduleInterviewers(mapUsersToInterviewPanel(users));
@@ -2085,56 +2235,120 @@ export default function JobsPage() {
         setScheduleInterviewers([]);
       }
       setSchedulePrefill({ candidateId, jobId });
+      if (pendingStage) {
+        setPendingStageAfterInterview({
+          candidateId,
+          jobId,
+          stageId: pendingStage.stageId,
+          stageName: pendingStage.stageName,
+        });
+      } else {
+        setPendingStageAfterInterview(null);
+      }
       setScheduleInterviewOpen(true);
     },
     [canCreateInterview]
   );
 
-  const handleJobDrawerScheduleInterview = useCallback(
-    async (payload: ScheduleInterviewPayload) => {
-      const jobRow = scheduleModalJobs.find((item) => item.id === payload.jobId);
-      const clientId = jobRow?.clientId || payload.clientId;
-      if (!clientId) {
-        toast.error('This job is not linked to a client in the CRM.');
-        throw new Error('Missing client');
-      }
-      try {
-        await apiCreateInterview({
-          candidateId: payload.candidateId,
-          jobId: payload.jobId,
-          clientId,
-          round: payload.round.toUpperCase(),
-          type: mapInterviewUiTypeToBackend(payload.type),
-          mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
-          date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
-          duration: payload.duration,
-          timezone: payload.timezone,
-          meetingPlatform:
-            payload.mode === 'Online'
-              ? payload.meetingPlatform === 'Google Meet'
-                ? 'GOOGLE_MEET'
-                : payload.meetingPlatform === 'MS Teams'
-                ? 'MS_TEAMS'
-                : 'ZOOM'
-              : null,
-          location: payload.mode === 'Offline' ? payload.location : undefined,
-          panelUserIds: payload.panelIds,
-          panelRoles: Object.fromEntries(payload.panelIds.map((id) => [id, 'TECHNICAL'])),
-          notes: payload.notes,
-          sendCalendarInvite: payload.sendCalendarInvite,
-          sendEmailNotification: payload.sendEmailNotification,
-          sendWhatsappReminder: payload.sendWhatsAppReminder,
+  const closeScheduleInterviewFromJob = useCallback(() => {
+    setScheduleInterviewOpen(false);
+    setSchedulePrefill(null);
+    // Cancel without scheduling — do not change stage.
+    setPendingStageAfterInterview(null);
+  }, []);
+
+  const openPlacementFromJob = useCallback(
+    (
+      candidateId: string,
+      jobId: string,
+      pendingStage?: { stageId: string; stageName: string },
+    ) => {
+      const job = jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null);
+      const recruiterId =
+        currentUserForCandidateDrawer?._id ||
+        currentUserForCandidateDrawer?.id ||
+        undefined;
+      if (pendingStage?.stageId) {
+        setPendingStageAfterPlacement({
+          candidateId,
+          jobId,
+          stageId: pendingStage.stageId,
+          stageName: pendingStage.stageName,
         });
+      } else {
+        setPendingStageAfterPlacement(null);
+      }
+      setPlacementPrefill({
+        candidateId,
+        jobId,
+        companyId: job?.clientId || undefined,
+        recruiterId,
+      });
+      setPlacementDrawerOpen(true);
+    },
+    [jobDetails, selectedJob, currentUserForCandidateDrawer],
+  );
+
+  const handleJobDrawerScheduleInterview = useCallback(
+    async (interviewData: CandidateScheduledInterview) => {
+      try {
+        await apiScheduleCandidateInterview(interviewData.candidateId, {
+          jobId: interviewData.jobId,
+          clientId: interviewData.clientId || undefined,
+          type: interviewData.type,
+          round: interviewData.round,
+          date: interviewData.date,
+          time: interviewData.time,
+          duration: interviewData.duration,
+          timezone: interviewData.timezone,
+          mode: interviewData.mode,
+          platform:
+            interviewData.platform === 'Google Meet'
+              ? 'GOOGLE_MEET'
+              : interviewData.platform === 'Zoom'
+                ? 'ZOOM'
+                : null,
+          meetingLink: interviewData.meetingLink,
+          location: interviewData.location,
+          phoneNumber: interviewData.phoneNumber,
+          interviewers: interviewData.interviewers,
+          notes: interviewData.notes,
+          sendCandidateInvite: interviewData.sendCandidateInvite,
+          sendInterviewerInvite: interviewData.sendInterviewerInvite,
+          status: interviewData.status,
+        } as any);
       } catch (error: any) {
         toast.error(error?.message || 'Unable to schedule interview');
         throw error;
       }
       toast.success('Interview scheduled successfully');
       emitNotificationsUpdated();
+
+      // Apply Interviewing stage only after the interview is actually scheduled.
+      const pending = pendingStageAfterInterview;
+      if (pending) {
+        try {
+          await apiMoveCandidateStage(pending.jobId, {
+            candidateId: pending.candidateId,
+            stageId: pending.stageId,
+          });
+        } catch (stageError: any) {
+          console.error('Failed to apply stage after interview schedule:', stageError);
+          toast.error(stageError?.message || 'Interview scheduled, but stage could not be updated');
+        } finally {
+          setPendingStageAfterInterview(null);
+        }
+      }
+
       const jid = jobDetails?.id || selectedJob?.id;
       if (jid) await refreshJobCandidates(jid);
     },
-    [scheduleModalJobs, jobDetails?.id, selectedJob?.id, refreshJobCandidates]
+    [
+      jobDetails?.id,
+      selectedJob?.id,
+      refreshJobCandidates,
+      pendingStageAfterInterview,
+    ]
   );
 
   useEffect(() => {
@@ -2586,6 +2800,13 @@ export default function JobsPage() {
                     ariaLabel="Filter by team member"
                     searchPlaceholder="Search team members…"
                   />
+                  <TableColumnsMenu
+                    columns={JOB_TABLE_COLUMNS}
+                    isVisible={jobColumnVisibility.isVisible}
+                    onToggle={jobColumnVisibility.toggle}
+                    onReset={jobColumnVisibility.resetToDefault}
+                    unlockedVisibleCount={jobColumnVisibility.unlockedVisibleCount}
+                  />
                   <button
                     type="button"
                     className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
@@ -2653,6 +2874,7 @@ export default function JobsPage() {
                       onAppendStatusOption={handleAppendJobStatusOption}
                       onRemoveStatusOption={handleRemoveJobStatusOption}
                       workspaceAlertsByEntityId={workspaceAlertsByEntityId}
+                      isColumnVisible={jobColumnVisibility.isVisible}
                     />
                   <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                     <PaginationAll
@@ -2712,6 +2934,7 @@ export default function JobsPage() {
           setJobCandidates([]);
           setScheduleInterviewOpen(false);
           setSchedulePrefill(null);
+          setPendingStageAfterInterview(null);
           if (searchParams.get('jobId')) {
             const sp = new URLSearchParams(searchParams.toString());
             sp.delete('jobId');
@@ -2771,6 +2994,7 @@ export default function JobsPage() {
         }
         pipelineRecruiters={[]}
         onScheduleInterview={canCreateInterview ? openScheduleInterviewFromJob : undefined}
+        onCreatePlacement={openPlacementFromJob}
         onRejectCandidate={canUpdateJob ? (candidateId, jobId) => { /* TODO: reject candidate */ } : undefined}
         onViewCandidateProfile={openJobDrawerCandidateView}
         onEditCandidate={canUpdateCandidate ? openJobDrawerCandidateEdit : undefined}
@@ -2846,6 +3070,7 @@ export default function JobsPage() {
                   date: interviewData.date,
                   time: interviewData.time,
                   duration: interviewData.duration,
+                  timezone: interviewData.timezone,
                   mode: interviewData.mode,
                   platform:
                     interviewData.platform === 'Google Meet'
@@ -3026,18 +3251,15 @@ export default function JobsPage() {
 
       {submitModalElement}
 
-      <ScheduleInterviewModal
+      <CandidateScheduleInterviewModal
         isOpen={scheduleInterviewOpen}
-        candidates={scheduleModalCandidates}
+        candidate={schedulePopupCandidate}
+        linkedJobTitle={schedulePopupCandidate?.assignedJob || undefined}
+        initialJobId={schedulePrefill?.jobId ?? null}
         jobs={scheduleModalJobs}
-        interviewers={scheduleInterviewers}
-        prefillCandidateId={schedulePrefill?.candidateId ?? null}
-        prefillJobId={schedulePrefill?.jobId ?? null}
-        lockJob
-        onClose={() => {
-          setScheduleInterviewOpen(false);
-          setSchedulePrefill(null);
-        }}
+        interviewers={candidateDrawerInterviewers}
+        existingInterviews={[]}
+        onClose={closeScheduleInterviewFromJob}
         onSchedule={handleJobDrawerScheduleInterview}
       />
 
@@ -3254,6 +3476,75 @@ export default function JobsPage() {
           </div>
         </div>
       ) : null}
+
+      <CreatePlacementDrawer
+        isOpen={placementDrawerOpen}
+        isSubmitting={placementSubmitting}
+        currentUserId={
+          currentUserForCandidateDrawer?._id || currentUserForCandidateDrawer?.id || undefined
+        }
+        candidates={jobCandidates.map((row) => ({
+          id: row.id,
+          name: row.candidateName,
+          email: row.email || '',
+        }))}
+        jobs={
+          activeJobForCandidateDrawer
+            ? [
+                {
+                  id: activeJobForCandidateDrawer.id,
+                  title: activeJobForCandidateDrawer.title,
+                  clientId: activeJobForCandidateDrawer.clientId,
+                  clientName: activeJobForCandidateDrawer.clientName || 'No client linked',
+                },
+              ]
+            : []
+        }
+        recruiters={recruiterOptions.map((member) => ({
+          id: member.id,
+          name: member.name,
+          email: '',
+        }))}
+        prefill={placementPrefill || undefined}
+        onClose={() => {
+          if (placementSubmitting) return;
+          setPlacementDrawerOpen(false);
+          setPlacementPrefill(null);
+          setPendingStageAfterPlacement(null);
+        }}
+        onSubmit={async (payload, offerLetter) => {
+          try {
+            setPlacementSubmitting(true);
+            await apiCreatePlacement(payload, offerLetter);
+            toast.success('Placement created');
+            const pending = pendingStageAfterPlacement;
+            if (pending) {
+              try {
+                await apiMoveCandidateStage(pending.jobId, {
+                  candidateId: pending.candidateId,
+                  stageId: pending.stageId,
+                });
+              } catch (stageError: any) {
+                console.error('Failed to apply stage after placement:', stageError);
+                toast.error(
+                  stageError?.message || 'Placement created, but stage could not be updated',
+                );
+              } finally {
+                setPendingStageAfterPlacement(null);
+              }
+            }
+            setPlacementDrawerOpen(false);
+            setPlacementPrefill(null);
+            const jid = jobDetails?.id || selectedJob?.id || pending?.jobId;
+            if (jid) await refreshJobCandidates(jid);
+          } catch (error: any) {
+            toast.error(error?.message || 'Failed to create placement');
+            throw error;
+          } finally {
+            setPlacementSubmitting(false);
+          }
+        }}
+      />
 
       <AddCandidateDrawer
         isOpen={canAddCandidate && addCandidateDrawerOpen}

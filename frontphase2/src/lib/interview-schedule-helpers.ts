@@ -6,6 +6,16 @@ import type {
   InterviewType,
   UpdateInterviewPayload,
 } from '../types/interview.types';
+import {
+  DEFAULT_INTERVIEW_TIMEZONE,
+  resolveIanaFromTimezoneValue,
+} from '../utils/inferTimezone';
+import {
+  formatInstantDateDMY,
+  formatInstantTime12h,
+  getYmdInTimeZone,
+  zonedWallClockToUtcIso,
+} from '../utils/zonedDateTime';
 import type { CreateInterviewPayload } from './api';
 
 const BACKEND_INTERVIEW_TYPES = new Set<string>([
@@ -36,10 +46,16 @@ export function mapInterviewUiTypeToBackend(type: string): CreateInterviewPayloa
 }
 
 /**
- * Builds an ISO instant from `YYYY-MM-DD` + `10:30 AM` using the browser's local calendar
- * (same behavior as parsing a single local `Date`). Backend accepts any ISO datetime string.
+ * Builds an ISO instant from `YYYY-MM-DD` + `10:30 AM`.
+ * When `timezone` is provided, the wall clock is interpreted in that IANA zone
+ * (or a stored display label such as "IST (UTC+5:30)"). Otherwise the browser
+ * local calendar is used.
  */
-export function combineInterviewDateAndTimeToIso(dateYmd: string, time12h: string): string {
+export function combineInterviewDateAndTimeToIso(
+  dateYmd: string,
+  time12h: string,
+  timezone?: string | null,
+): string {
   const ymd = String(dateYmd || '').trim();
   if (!ymd) {
     return new Date().toISOString();
@@ -60,7 +76,39 @@ export function combineInterviewDateAndTimeToIso(dateYmd: string, time12h: strin
     minutes = Number(m[2]);
     if (m[3].toUpperCase() === 'PM') hours += 12;
   }
+  const iana = String(timezone || '').trim()
+    ? resolveIanaFromTimezoneValue(timezone)
+    : '';
+  if (iana) {
+    return zonedWallClockToUtcIso(y, mo, d, hours, minutes, iana);
+  }
   return new Date(y, mo - 1, d, hours, minutes, 0, 0).toISOString();
+}
+
+export function formatInterviewDateInTimezone(
+  iso: string,
+  timezone?: string | null,
+): string {
+  const iana = String(timezone || '').trim() ? resolveIanaFromTimezoneValue(timezone) : undefined;
+  return formatInstantDateDMY(iso, iana);
+}
+
+export function formatInterviewTimeInTimezone(
+  iso: string,
+  timezone?: string | null,
+): string {
+  const iana = String(timezone || '').trim() ? resolveIanaFromTimezoneValue(timezone) : undefined;
+  return formatInstantTime12h(iso, iana);
+}
+
+export function getInterviewDateInputYmd(
+  iso: string,
+  timezone?: string | null,
+): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const iana = String(timezone || '').trim() ? resolveIanaFromTimezoneValue(timezone) : undefined;
+  return getYmdInTimeZone(iana, d);
 }
 
 type InterviewRoundRow = {
@@ -231,6 +279,7 @@ export function mapInterviewToCandidateScheduled(
   roundNumber: number,
 ): CandidateScheduledInterview {
   const scheduledAt = String(interview.scheduledAt || '');
+  const timezone = interview.timezone || DEFAULT_INTERVIEW_TIMEZONE;
   return {
     id: interview.id,
     candidateId: interview.candidate.id,
@@ -238,8 +287,8 @@ export function mapInterviewToCandidateScheduled(
     jobTitle: interview.job.title,
     type: INTERVIEW_ROUND_TO_POPUP_TYPE[interview.round] || interview.round,
     round: roundNumber,
-    date: scheduledAt.split('T')[0] || '',
-    time: interview.time,
+    date: scheduledAt ? getInterviewDateInputYmd(scheduledAt, timezone) : '',
+    time: scheduledAt ? formatInterviewTimeInTimezone(scheduledAt, timezone) : interview.time,
     duration: DURATION_MINUTES_TO_LABEL[interview.duration] || `${interview.duration} mins`,
     mode: interviewModeToPopupMode(interview),
     platform:
@@ -262,18 +311,20 @@ export function mapInterviewToCandidateScheduled(
     sendCandidateInvite: true,
     sendInterviewerInvite: true,
     status: interviewStatusToPopupStatus(interview.status),
+    timezone,
   };
 }
 
 /** Maps popup save payload back to the interviews-page update API shape. */
 export function mapCandidateScheduledToUpdatePayload(
   data: CandidateScheduledInterview,
-  timezone = 'UTC',
+  timezone = DEFAULT_INTERVIEW_TIMEZONE,
   originalNotes?: string | null,
 ): UpdateInterviewPayload {
   const mode: InterviewMode = data.mode === 'in-person' ? 'Offline' : 'Online';
   const type: InterviewType =
     data.mode === 'phone' ? 'Phone' : data.mode === 'in-person' ? 'In-Person' : 'Video';
+  const resolvedTimezone = resolveIanaFromTimezoneValue(data.timezone || timezone);
 
   return {
     candidateId: data.candidateId,
@@ -282,9 +333,9 @@ export function mapCandidateScheduledToUpdatePayload(
     round: POPUP_TYPE_TO_INTERVIEW_ROUND[data.type] || 'Screening',
     type,
     mode,
-    date: combineInterviewDateAndTimeToIso(data.date, data.time),
+    date: combineInterviewDateAndTimeToIso(data.date, data.time, resolvedTimezone),
     duration: DURATION_LABEL_TO_MINUTES[data.duration] || 60,
-    timezone,
+    timezone: resolvedTimezone,
     meetingPlatform:
       data.mode === 'video'
         ? data.platform === 'Google Meet'

@@ -20,6 +20,10 @@ import {
   attachDepartmentRankToMember,
 } from '../services/departmentRole.service.js';
 import { listCrmAssigneeCandidates } from '../services/crmAssignmentScope.service.js';
+import {
+  excludeHqPlatformUsers,
+  hqPlatformUserEmailNotClause,
+} from '../utils/hqPlatformUser.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -53,6 +57,7 @@ function getTeamListCacheKey(req) {
     superAdmin: Boolean(isSuperAdminUser(req)),
     userId: req.user?.id || '',
     assignableOnly: Boolean(req.teamListMode === 'assignable'),
+    hqExcluded: 1,
     page,
     limit,
   };
@@ -119,7 +124,9 @@ export async function getAllTeamMembers(req, res) {
       return res.status(200).json(parsed);
     }
 
-    const where = {};
+    const where = {
+      ...hqPlatformUserEmailNotClause(),
+    };
 
     // Search filter - match firstName, lastName, or email
     if (search && typeof search === 'string') {
@@ -212,6 +219,7 @@ export async function getAllTeamMembers(req, res) {
               isLocked: true,
               lastLoginAt: true,
               tempPasswordFlag: true,
+              createdBy: true,
             },
           },
           _count: {
@@ -229,12 +237,15 @@ export async function getAllTeamMembers(req, res) {
     ]);
 
     // Normalize the response to match frontend expectations
-    const normalizedMembers = members.map(member => ({
-      ...member,
-      role: member.systemRole || null,
-      department: member.departmentRelation || null,
-      manager: member.managerRelation || null,
-    }));
+    const normalizedMembers = excludeHqPlatformUsers(
+      members.map((member) => ({
+        ...member,
+        role: member.systemRole || null,
+        department: member.departmentRelation || null,
+        manager: member.managerRelation || null,
+        loginId: member.credential?.loginId,
+      })),
+    );
 
     const membersWithRanks = await attachDepartmentRanksToMembers(normalizedMembers);
 

@@ -25,6 +25,7 @@ import {
   Loader2,
   GripHorizontal,
   Briefcase,
+  Building2,
   Share2,
 } from 'lucide-react';
 import { RichTextEditor } from '../RichTextEditor';
@@ -733,18 +734,28 @@ const DEFAULT_JOB_DRAWER_ACCORDIONS: AccordionSection[] = [
   { id: 'publish', label: 'Publish & Share', isOpen: false },
 ];
 
-type CreateJobWizardStep = AccordionSection['id'];
+type CreateJobWizardStep = 'client' | 'jd' | 'details' | 'application' | 'publish';
 
 const CREATE_JOB_WIZARD_STEPS: { id: CreateJobWizardStep; label: string }[] = [
+  { id: 'client', label: 'Client' },
+  { id: 'jd', label: 'Upload JD' },
+  { id: 'details', label: 'Job Form' },
+  { id: 'application', label: 'Application' },
+  { id: 'publish', label: 'Publish' },
+];
+
+const CREATE_JOB_EDIT_WIZARD_STEPS: { id: CreateJobWizardStep; label: string }[] = [
   { id: 'details', label: 'Job Details' },
   { id: 'application', label: 'Application' },
   { id: 'publish', label: 'Publish' },
 ];
 
 const CREATE_JOB_WIZARD_HINTS: Record<CreateJobWizardStep, string> = {
-  details: 'Step 1 — fill job details, then continue',
-  application: 'Step 2 — application form and pre-screen',
-  publish: 'Step 3 — publish and share this job',
+  client: 'Step 1 — select the client for this job',
+  jd: 'Step 2 — upload a JD to auto-fill fields',
+  details: 'Step 3 — review and edit the complete job form',
+  application: 'Application form and pre-screen',
+  publish: 'Publish and share this job',
 };
 
 /** Survives LinkedIn / X / Facebook OAuth full-page redirects from the create-job drawer. */
@@ -1120,9 +1131,9 @@ export function CreateJobDrawer({
       return () => window.clearTimeout(clearTimer);
     }
 
-    setWizardStep('details');
+    setWizardStep(isEditMode || jobId || duplicateFromJobId ? 'details' : 'client');
     setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
-  }, [isOpen, jobId, duplicateFromJobId]);
+  }, [isOpen, jobId, duplicateFromJobId, isEditMode]);
 
   // Reset form when switching between add and edit modes
   useEffect(() => {
@@ -1659,17 +1670,40 @@ export function CreateJobDrawer({
     }
   }, [formData.jobDescriptionHtml, formData.linkedInEnabled]);
 
-  const wizardStepIndex = Math.max(0, CREATE_JOB_WIZARD_STEPS.findIndex((step) => step.id === wizardStep));
+  const wizardSteps = isEditMode ? CREATE_JOB_EDIT_WIZARD_STEPS : CREATE_JOB_WIZARD_STEPS;
+  const wizardStepIndex = Math.max(0, wizardSteps.findIndex((step) => step.id === wizardStep));
 
   const goWizardBack = () => {
     if (wizardStep === 'publish') {
       setWizardStep('application');
       return;
     }
-    if (wizardStep === 'application') setWizardStep('details');
+    if (wizardStep === 'application') {
+      setWizardStep('details');
+      return;
+    }
+    if (wizardStep === 'details' && !isEditMode) {
+      setWizardStep('jd');
+      return;
+    }
+    if (wizardStep === 'jd') {
+      setWizardStep('client');
+    }
   };
 
   const goWizardNext = () => {
+    if (wizardStep === 'client') {
+      if (!formData.companyId && !isStandaloneMode) {
+        void requestWarning('Select a client to continue');
+        return;
+      }
+      setWizardStep('jd');
+      return;
+    }
+    if (wizardStep === 'jd') {
+      setWizardStep('details');
+      return;
+    }
     if (wizardStep === 'details') {
       if (!formData.jobTitle.trim()) {
         void requestWarning('Job Title is required');
@@ -1921,7 +1955,7 @@ export function CreateJobDrawer({
             assessmentId: row.assessmentId || row.assessment?.id || '',
             sortOrder: row.sortOrder ?? index,
             required: row.required !== false,
-            timing: row.timing || 'AFTER_APPLY',
+            timing: 'BEFORE_SUBMIT',
             durationOverrideMinutes: row.durationOverrideMinutes ?? null,
             passScoreOverridePercent: row.passScoreOverridePercent ?? null,
             assessment: row.assessment,
@@ -1937,7 +1971,7 @@ export function CreateJobDrawer({
               assessmentId: String(row.assessmentId || (row.assessment as { id?: string })?.id || ''),
               sortOrder: typeof row.sortOrder === 'number' ? row.sortOrder : index,
               required: row.required !== false,
-              timing: (row.timing as JobPreScreenAssessmentLink['timing']) || 'AFTER_APPLY',
+              timing: 'BEFORE_SUBMIT',
               durationOverrideMinutes:
                 typeof row.durationOverrideMinutes === 'number' ? row.durationOverrideMinutes : null,
               passScoreOverridePercent:
@@ -2840,6 +2874,7 @@ export function CreateJobDrawer({
         );
 
         setSmartJobAttachment({ file, status: 'ready' });
+        if (!isEditMode) setWizardStep('details');
       } catch (error: any) {
         if (controller.signal.aborted) return;
         const message = error?.message || 'Failed to process job description file';
@@ -2852,7 +2887,7 @@ export function CreateJobDrawer({
         setAiGenerating(false);
       }
     },
-    [applyJobPipelineResult, formData],
+    [applyJobPipelineResult, formData, clients, isEditMode],
   );
 
   const handleSmartJobFilePick = useCallback(
@@ -3230,7 +3265,7 @@ export function CreateJobDrawer({
           assessmentId: link.assessmentId,
           sortOrder: index,
           required: link.required !== false,
-          timing: link.timing || 'AFTER_APPLY',
+          timing: 'BEFORE_SUBMIT',
           durationOverrideMinutes: link.durationOverrideMinutes ?? null,
           passScoreOverridePercent: link.passScoreOverridePercent ?? null,
         })),
@@ -3635,7 +3670,7 @@ export function CreateJobDrawer({
 
             <div className="shrink-0 border-b border-blue-100/80 bg-white/90 px-6 py-4">
               <div className="flex items-center gap-2">
-                {CREATE_JOB_WIZARD_STEPS.map((step, i) => {
+                {wizardSteps.map((step, i) => {
                   const done = i < wizardStepIndex;
                   const active = i === wizardStepIndex;
                   return (
@@ -3664,7 +3699,7 @@ export function CreateJobDrawer({
                       >
                         {step.label}
                       </span>
-                      {i < CREATE_JOB_WIZARD_STEPS.length - 1 ? (
+                      {i < wizardSteps.length - 1 ? (
                         <div
                           className={`h-1.5 min-w-[6px] flex-1 rounded-full ${
                             done
@@ -3680,13 +3715,121 @@ export function CreateJobDrawer({
                 })}
               </div>
               <p className="mt-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                Step {wizardStepIndex + 1} of {CREATE_JOB_WIZARD_STEPS.length} · {CREATE_JOB_WIZARD_STEPS[wizardStepIndex]?.label}
+                Step {wizardStepIndex + 1} of {wizardSteps.length} · {wizardSteps[wizardStepIndex]?.label}
               </p>
             </div>
 
             {/* Scrollable Content */}
             <div ref={smartJobPromptBoundsRef} className="flex min-h-0 flex-1 flex-col">
               <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG} p-6 space-y-5`}>
+              {wizardStep === 'client' ? (
+                <DrawerSectionCard
+                  title="Select client"
+                  subtitle="Who is this job for?"
+                  icon={Building2}
+                  accent="blue"
+                >
+                  <div className="space-y-3">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Client *
+                    </label>
+                    <select
+                      value={formData.companyId}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, companyId: e.target.value }))
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="">Select a client…</option>
+                      {clients.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.companyName || client.id}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500">
+                      This job will be linked to the selected client. Continue to upload a JD.
+                    </p>
+                  </div>
+                </DrawerSectionCard>
+              ) : null}
+
+              {wizardStep === 'jd' ? (
+                <DrawerSectionCard
+                  title="Upload job description"
+                  subtitle="We extract fields automatically wherever possible"
+                  icon={Upload}
+                  accent="blue"
+                >
+                  <div className="space-y-4">
+                    <input
+                      ref={smartJobFileInputRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        void handleSmartJobFilePick(file);
+                      }}
+                    />
+                    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 px-4 py-10 text-center">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md">
+                        {aiGenerating ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <FileText className="h-5 w-5" />
+                        )}
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {aiGenerating ? 'Extracting job details…' : 'Upload a JD file'}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX, or TXT</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => smartJobFileInputRef.current?.click()}
+                        disabled={aiGenerating}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Upload JD
+                      </button>
+                    </div>
+                    {smartJobAttachment ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-slate-700/30 bg-slate-900 px-2.5 py-2 text-white">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600">
+                          {smartJobAttachment.status === 'processing' ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-white" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-white" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium">{smartJobAttachment.file.name}</p>
+                          <p className="text-[11px] text-slate-400">
+                            {smartJobAttachment.status === 'processing'
+                              ? 'Extracting…'
+                              : smartJobAttachment.status === 'error'
+                                ? smartJobAttachment.error || 'Failed'
+                                : 'Ready — continue to review the form'}
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                    {smartJobError ? (
+                      <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+                        {smartJobError}
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-slate-500">
+                      Or skip and fill the job form manually on the next step.
+                    </p>
+                  </div>
+                </DrawerSectionCard>
+              ) : null}
+
               {wizardStep === 'details' ? (
               <DrawerSectionCard
                 title="Job Details"
@@ -4930,7 +5073,10 @@ export function CreateJobDrawer({
                   <button
                     type="button"
                     onClick={goWizardBack}
-                    disabled={wizardStep === 'details'}
+                    disabled={
+                      (isEditMode && wizardStep === 'details') ||
+                      (!isEditMode && wizardStep === 'client')
+                    }
                     className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <ArrowLeft className="h-4 w-4" />

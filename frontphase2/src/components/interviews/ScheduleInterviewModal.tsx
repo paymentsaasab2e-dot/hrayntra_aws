@@ -2,15 +2,21 @@ import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Plus, X } from 'lucide-react';
 import { PanelAssignmentModal } from './PanelAssignmentModal';
-import { combineInterviewDateAndTimeToIso } from '../../lib/interview-schedule-helpers';
+import { combineInterviewDateAndTimeToIso, formatInterviewTimeInTimezone, getInterviewDateInputYmd } from '../../lib/interview-schedule-helpers';
 import { requestError } from '../../lib/appDialog';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import {
   clampDateToMinLocal,
   filterInterviewSlotsForLocalDate,
   generateStandardInterviewSlotDescriptors,
-  getLocalDateInputMinToday,
 } from '../../utils/dateInputConstraints';
+import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
+import {
+  DEFAULT_INTERVIEW_TIMEZONE,
+  formatTimezoneDisplay,
+  resolveIanaFromTimezoneValue,
+} from '../../utils/inferTimezone';
+import { getYmdInTimeZone } from '../../utils/zonedDateTime';
 import type {
   Interview,
   InterviewCandidate,
@@ -54,12 +60,6 @@ const durationOptions: Array<{ label: string; value: number }> = [
   { label: '1.5 hours', value: 90 },
   { label: '2 hours', value: 120 },
 ];
-const timezoneOptions = [
-  { label: 'IST (GMT+5:30)', value: 'Asia/Kolkata' },
-  { label: 'GMT+1:00', value: 'Etc/GMT-1' },
-  { label: 'GMT+0:00', value: 'UTC' },
-  { label: 'GMT-5:00', value: 'Etc/GMT+5' },
-] as const;
 
 export function ScheduleInterviewModal({
   isOpen,
@@ -97,7 +97,7 @@ export function ScheduleInterviewModal({
     date: '',
     time: '',
     duration: 60,
-    timezone: 'Asia/Kolkata',
+    timezone: DEFAULT_INTERVIEW_TIMEZONE,
     panelIds: [],
     meetingPlatform: 'Zoom',
     panelRoles: {},
@@ -114,10 +114,10 @@ export function ScheduleInterviewModal({
     round: interview.round,
     type: interview.type,
     mode: interview.mode,
-    date: interview.date,
-    time: interview.time,
+    date: getInterviewDateInputYmd(interview.scheduledAt, interview.timezone) || interview.date,
+    time: formatInterviewTimeInTimezone(interview.scheduledAt, interview.timezone) || interview.time,
     duration: interview.duration,
-    timezone: interview.timezone || 'UTC',
+    timezone: resolveIanaFromTimezoneValue(interview.timezone),
     panelIds: interview.panel.map((member) => member.userId || member.id).filter(Boolean),
     meetingPlatform: interview.meetingPlatform || 'Zoom',
     panelRoles: Object.fromEntries(
@@ -135,8 +135,14 @@ export function ScheduleInterviewModal({
 
   const interviewSlotDescriptors = useMemo(() => generateStandardInterviewSlotDescriptors(), []);
   const visibleTimeSlotLabels = useMemo(
-    () => filterInterviewSlotsForLocalDate(interviewSlotDescriptors, form.date).map((s) => s.label),
-    [interviewSlotDescriptors, form.date]
+    () =>
+      filterInterviewSlotsForLocalDate(
+        interviewSlotDescriptors,
+        form.date,
+        60_000,
+        form.timezone,
+      ).map((s) => s.label),
+    [interviewSlotDescriptors, form.date, form.timezone],
   );
 
   React.useEffect(() => {
@@ -170,8 +176,7 @@ export function ScheduleInterviewModal({
   ]);
 
   const selectedJob = jobs.find((job) => job.id === form.jobId);
-  const selectedTimezoneLabel =
-    timezoneOptions.find((timezone) => timezone.value === form.timezone)?.label || form.timezone;
+  const selectedTimezoneLabel = formatTimezoneDisplay(resolveIanaFromTimezoneValue(form.timezone));
 
   /** Type options depend on the chosen mode — Online hides In-Person, Offline hides Video / Phone. */
   const typeOptionsForMode = useMemo<InterviewType[]>(
@@ -205,7 +210,6 @@ export function ScheduleInterviewModal({
       form.time &&
       form.mode &&
       form.duration > 0 &&
-      form.panelIds.length > 0 &&
       (form.mode === 'Online'
         ? Boolean(form.meetingPlatform)
         : Boolean((form.location || '').trim()))
@@ -399,15 +403,20 @@ export function ScheduleInterviewModal({
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Date</label>
                   <input
                     type="date"
-                    min={isEditMode ? undefined : getLocalDateInputMinToday()}
+                    min={isEditMode ? undefined : getYmdInTimeZone(form.timezone)}
                     value={form.date}
                     onChange={(event) => {
                       const raw = event.target.value;
-                      const nextDate = isEditMode ? raw : clampDateToMinLocal(raw, getLocalDateInputMinToday());
+                      const nextDate = isEditMode
+                        ? raw
+                        : clampDateToMinLocal(raw, getYmdInTimeZone(form.timezone));
                       setForm((current) => {
-                        const allowed = filterInterviewSlotsForLocalDate(interviewSlotDescriptors, nextDate).map(
-                          (s) => s.label
-                        );
+                        const allowed = filterInterviewSlotsForLocalDate(
+                          interviewSlotDescriptors,
+                          nextDate,
+                          60_000,
+                          current.timezone,
+                        ).map((s) => s.label);
                         const nextTime = current.time && allowed.includes(current.time) ? current.time : '';
                         return { ...current, date: nextDate, time: nextTime };
                       });
@@ -453,17 +462,24 @@ export function ScheduleInterviewModal({
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Timezone</label>
-                  <select
+                  <ClientTimezoneSelect
                     value={form.timezone}
-                    onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))}
-                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
-                  >
-                    {timezoneOptions.map((timezone) => (
-                      <option key={timezone.value} value={timezone.value}>
-                        {timezone.label}
-                      </option>
-                    ))}
-                  </select>
+                    valueAsIana
+                    placeholder="Select timezone…"
+                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] bg-white"
+                    onChange={(nextTimezone) =>
+                      setForm((current) => {
+                        const allowed = filterInterviewSlotsForLocalDate(
+                          interviewSlotDescriptors,
+                          current.date,
+                          60_000,
+                          nextTimezone,
+                        ).map((s) => s.label);
+                        const nextTime = current.time && allowed.includes(current.time) ? current.time : '';
+                        return { ...current, timezone: nextTimezone, time: nextTime };
+                      })
+                    }
+                  />
                 </div>
               </div>
 
@@ -488,7 +504,7 @@ export function ScheduleInterviewModal({
                       </span>
                     ))}
                   {form.panelIds.length === 0 ? (
-                    <p className="text-sm text-[#6B7280]">Add at least one panel member — required to schedule.</p>
+                    <p className="text-sm text-[#6B7280]">Optional — add panel members if needed.</p>
                   ) : null}
                 </div>
               </div>
@@ -569,7 +585,7 @@ export function ScheduleInterviewModal({
                         round: form.round,
                         type: form.type,
                         mode: form.mode,
-                        date: combineInterviewDateAndTimeToIso(form.date, form.time),
+                        date: combineInterviewDateAndTimeToIso(form.date, form.time, form.timezone),
                         duration: form.duration,
                         timezone: form.timezone,
                         meetingPlatform: form.mode === 'Online'

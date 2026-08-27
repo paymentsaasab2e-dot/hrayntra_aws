@@ -6,65 +6,66 @@ import { ChevronDown, type LucideIcon } from 'lucide-react';
 
 export type DrawerFormAccent = 'blue' | 'violet' | 'emerald' | 'amber' | 'sky' | 'rose' | 'indigo';
 
-export const DRAWER_FORM_SCROLL_BG = 'bg-gradient-to-b from-slate-50 via-[#f8fafc] to-blue-50/30';
+export const DRAWER_FORM_SCROLL_BG =
+  'bg-gradient-to-b from-slate-50 via-indigo-50/25 to-violet-50/20';
 
 export const DRAWER_FORM_CONTENT_CLASS =
   `flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`;
 
 export const DRAWER_FORM_PANEL_CLASS =
-  'pointer-events-auto relative flex h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5';
+  'pointer-events-auto relative flex h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-[1.35rem] border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10';
 
 export const DRAWER_FORM_HEADER_CLASS =
-  'flex shrink-0 items-start justify-between gap-3 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white px-6 py-5';
+  'flex shrink-0 items-start justify-between gap-3 border-b border-indigo-100/60 bg-gradient-to-br from-white via-indigo-50/40 to-violet-50/30 px-6 py-5';
 
 export const DRAWER_FORM_FOOTER_CLASS =
-  'flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4';
+  'flex shrink-0 items-center justify-end gap-3 border-t border-indigo-100/50 bg-gradient-to-r from-white via-slate-50/80 to-indigo-50/30 px-6 py-4';
 
 export const DRAWER_FORM_ACCENT_STYLES: Record<
   DrawerFormAccent,
   { card: string; headerBg: string; icon: string; bar: string }
 > = {
   blue: {
-    card: 'border-blue-100/90 bg-white shadow-sm shadow-blue-500/5 ring-1 ring-blue-50/80',
-    headerBg: 'bg-gradient-to-r from-blue-50/90 via-white to-white',
-    icon: 'bg-blue-100 text-blue-600 ring-1 ring-blue-200/80',
-    bar: 'bg-gradient-to-b from-blue-400 to-blue-600',
+    card: 'border-indigo-100/80 bg-white/90 shadow-[0_12px_32px_-18px_rgba(59,130,246,0.28)] ring-1 ring-indigo-50/80 backdrop-blur-sm',
+    headerBg: 'bg-gradient-to-r from-indigo-50/80 via-white to-violet-50/30',
+    icon: 'bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25 ring-1 ring-white/20',
+    bar: 'bg-gradient-to-b from-blue-500 via-indigo-500 to-violet-600',
   },
   violet: {
-    card: 'border-violet-100/90 bg-white shadow-sm shadow-violet-500/5 ring-1 ring-violet-50/80',
-    headerBg: 'bg-gradient-to-r from-violet-50/90 via-white to-white',
-    icon: 'bg-violet-100 text-violet-600 ring-1 ring-violet-200/80',
-    bar: 'bg-gradient-to-b from-violet-400 to-violet-600',
+    card: 'border-violet-100/90 bg-white/90 shadow-[0_12px_32px_-18px_rgba(139,92,246,0.28)] ring-1 ring-violet-50/80 backdrop-blur-sm',
+    headerBg: 'bg-gradient-to-r from-violet-50/90 via-white to-indigo-50/30',
+    icon: 'bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-md shadow-violet-500/25 ring-1 ring-white/20',
+    bar: 'bg-gradient-to-b from-violet-400 to-indigo-600',
   },
   emerald: {
-    card: 'border-emerald-100/90 bg-white shadow-sm shadow-emerald-500/5 ring-1 ring-emerald-50/80',
+    card: 'border-emerald-100/90 bg-white/90 shadow-[0_12px_32px_-18px_rgba(16,185,129,0.22)] ring-1 ring-emerald-50/80 backdrop-blur-sm',
     headerBg: 'bg-gradient-to-r from-emerald-50/90 via-white to-white',
-    icon: 'bg-emerald-100 text-emerald-600 ring-1 ring-emerald-200/80',
-    bar: 'bg-gradient-to-b from-emerald-400 to-emerald-600',
+    icon: 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/20 ring-1 ring-white/20',
+    bar: 'bg-gradient-to-b from-emerald-400 to-teal-600',
   },
   amber: {
-    card: 'border-amber-100/90 bg-white shadow-sm shadow-amber-500/5 ring-1 ring-amber-50/80',
+    card: 'border-amber-100/90 bg-white/90 shadow-[0_12px_32px_-18px_rgba(245,158,11,0.22)] ring-1 ring-amber-50/80 backdrop-blur-sm',
     headerBg: 'bg-gradient-to-r from-amber-50/90 via-white to-white',
-    icon: 'bg-amber-100 text-amber-600 ring-1 ring-amber-200/80',
-    bar: 'bg-gradient-to-b from-amber-400 to-amber-600',
+    icon: 'bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/20 ring-1 ring-white/20',
+    bar: 'bg-gradient-to-b from-amber-400 to-orange-500',
   },
   sky: {
-    card: 'border-sky-100/90 bg-white shadow-sm shadow-sky-500/5 ring-1 ring-sky-50/80',
+    card: 'border-sky-100/90 bg-white/90 shadow-[0_12px_32px_-18px_rgba(14,165,233,0.22)] ring-1 ring-sky-50/80 backdrop-blur-sm',
     headerBg: 'bg-gradient-to-r from-sky-50/90 via-white to-white',
-    icon: 'bg-sky-100 text-sky-600 ring-1 ring-sky-200/80',
-    bar: 'bg-gradient-to-b from-sky-400 to-sky-600',
+    icon: 'bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/20 ring-1 ring-white/20',
+    bar: 'bg-gradient-to-b from-sky-400 to-blue-600',
   },
   rose: {
-    card: 'border-rose-100/90 bg-white shadow-sm shadow-rose-500/5 ring-1 ring-rose-50/80',
+    card: 'border-rose-100/90 bg-white/90 shadow-[0_12px_32px_-18px_rgba(244,63,94,0.22)] ring-1 ring-rose-50/80 backdrop-blur-sm',
     headerBg: 'bg-gradient-to-r from-rose-50/90 via-white to-white',
-    icon: 'bg-rose-100 text-rose-600 ring-1 ring-rose-200/80',
-    bar: 'bg-gradient-to-b from-rose-400 to-rose-600',
+    icon: 'bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-md shadow-rose-500/20 ring-1 ring-white/20',
+    bar: 'bg-gradient-to-b from-rose-400 to-pink-600',
   },
   indigo: {
-    card: 'border-indigo-100/90 bg-white shadow-sm shadow-indigo-500/5 ring-1 ring-indigo-50/80',
-    headerBg: 'bg-gradient-to-r from-indigo-50/90 via-white to-white',
-    icon: 'bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200/80',
-    bar: 'bg-gradient-to-b from-indigo-400 to-indigo-600',
+    card: 'border-indigo-100/90 bg-white/90 shadow-[0_12px_32px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-50/80 backdrop-blur-sm',
+    headerBg: 'bg-gradient-to-r from-indigo-50/90 via-white to-violet-50/40',
+    icon: 'bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25 ring-1 ring-white/20',
+    bar: 'bg-gradient-to-b from-blue-500 via-indigo-500 to-violet-600',
   },
 };
 
@@ -75,6 +76,27 @@ export const DRAWER_FORM_INPUT_WITH_ICON =
   'w-full rounded-xl border border-slate-200 bg-white py-2.5 pr-4 pl-10 text-sm text-slate-900 transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
 
 export const DRAWER_FORM_SELECT = `${DRAWER_FORM_INPUT} appearance-none bg-white`;
+
+/** Shared Phase-2 table chrome for detail drawers / popup tabs. */
+export const DRAWER_TABLE_SHELL =
+  'overflow-hidden rounded-xl border border-indigo-100/70 bg-white shadow-[0_10px_28px_-18px_rgba(79,70,229,0.22)]';
+export const DRAWER_TABLE_SCROLL =
+  'overflow-x-auto [scrollbar-width:thin] [scrollbar-color:rgba(129,140,248,0.45)_transparent]';
+export const DRAWER_TABLE_HEAD_ROW =
+  'border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md';
+export const DRAWER_TABLE_TH = 'px-3 py-3 sm:px-4';
+export const DRAWER_TABLE_TD = 'px-3 py-3 sm:px-4 sm:py-3.5';
+export const DRAWER_TABLE_BODY = 'divide-y divide-indigo-50/80';
+export const DRAWER_TABLE_TR =
+  'group transition-colors duration-150 hover:bg-indigo-50/50 even:bg-slate-50/40';
+export const DRAWER_TABLE_TR_SELECTED =
+  'bg-indigo-50/80 shadow-[inset_3px_0_0_0_rgb(99,102,241)]';
+export const DRAWER_LIST_SHELL =
+  'overflow-hidden rounded-xl border border-indigo-100/70 bg-white shadow-[0_10px_28px_-18px_rgba(79,70,229,0.22)] divide-y divide-indigo-50/80';
+export const DRAWER_TABLE_CHECKBOX =
+  'h-4 w-4 cursor-pointer rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30';
+export const DRAWER_TABLE_ACTIONS =
+  'inline-flex items-center justify-end gap-0.5 rounded-2xl bg-indigo-50/60 p-1 opacity-90 ring-1 ring-indigo-100/80 transition group-hover:opacity-100';
 
 /** @deprecated Use DRAWER_FORM_INPUT */
 export const ADD_LEAD_INPUT = DRAWER_FORM_INPUT;
@@ -116,9 +138,9 @@ export function DrawerSectionCard({
   );
 
   return (
-    <section className={`relative overflow-visible rounded-2xl border ${styles.card}`}>
+    <section className={`relative overflow-hidden rounded-2xl border ${styles.card}`}>
       <div className={`absolute left-0 top-0 h-full w-1 ${styles.bar}`} />
-      <div className={`${isOpen ? 'border-b border-slate-100/80' : ''} ${styles.headerBg}`}>
+      <div className={`${isOpen ? 'border-b border-indigo-100/40' : ''} ${styles.headerBg}`}>
         {collapsible ? (
           <button
             type="button"

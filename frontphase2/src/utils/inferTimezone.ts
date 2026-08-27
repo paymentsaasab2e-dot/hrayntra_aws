@@ -577,6 +577,39 @@ export const CLIENT_TIMEZONE_OPTIONS: TimezoneSelectOption[] = CLIENT_TIMEZONE_I
   .filter((opt, index, list) => list.findIndex((o) => o.value === opt.value) === index)
   .sort((a, b) => a.label.localeCompare(b.label));
 
+const TIMEZONE_LABEL_TO_IANA = new Map(
+  CLIENT_TIMEZONE_IANA.map((iana) => [formatTimezoneDisplay(iana), iana]),
+);
+
+export const DEFAULT_INTERVIEW_TIMEZONE = 'Asia/Kolkata';
+
+function isValidIanaTimeZone(value: string): boolean {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Maps stored timezone values (IANA ids or client display labels like "IST (UTC+5:30)")
+ * to an IANA zone. Falls back to Asia/Kolkata for interviews.
+ */
+export function resolveIanaFromTimezoneValue(
+  value?: string | null,
+  fallback = DEFAULT_INTERVIEW_TIMEZONE,
+): string {
+  const raw = String(value || '').trim();
+  if (!raw) return fallback;
+  if (isValidIanaTimeZone(raw)) return raw;
+  const fromLabel = TIMEZONE_LABEL_TO_IANA.get(raw);
+  if (fromLabel) return fromLabel;
+  if (/ist|kolkata|india/i.test(raw)) return 'Asia/Kolkata';
+  if (/^utc$/i.test(raw) || /^gmt$/i.test(raw)) return 'UTC';
+  return fallback;
+}
+
 /** Options for timezone select — includes legacy/custom value when not in the curated list. */
 export function buildClientTimezoneSelectOptions(currentValue?: string): TimezoneSelectOption[] {
   const current = String(currentValue || '').trim();
@@ -584,4 +617,22 @@ export function buildClientTimezoneSelectOptions(currentValue?: string): Timezon
     return [{ label: current, value: current }, ...CLIENT_TIMEZONE_OPTIONS];
   }
   return CLIENT_TIMEZONE_OPTIONS;
+}
+
+/** Interview timezone select — option values are IANA ids so scheduling math stays correct. */
+export function buildIanaTimezoneSelectOptions(currentValue?: string): TimezoneSelectOption[] {
+  const options = CLIENT_TIMEZONE_IANA.map((iana) => ({
+    label: formatTimezoneDisplay(iana),
+    value: iana,
+  }))
+    .filter((opt, index, list) => list.findIndex((o) => o.value === opt.value) === index)
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const current = String(currentValue || '').trim();
+  if (!current) return options;
+  const iana = isValidIanaTimeZone(current) ? current : resolveIanaFromTimezoneValue(current);
+  if (!options.some((opt) => opt.value === iana)) {
+    return [{ label: formatTimezoneDisplay(iana) || iana, value: iana }, ...options];
+  }
+  return options;
 }

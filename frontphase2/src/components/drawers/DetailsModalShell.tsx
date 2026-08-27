@@ -47,11 +47,11 @@ export function DetailsModalShell({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onBackdropClick}
-        className={`fixed inset-0 ${zIndexClass} bg-slate-900/45 backdrop-blur-[2px] pointer-events-auto ${backdropClassName}`.trim()}
+        className={`fixed inset-0 ${zIndexClass} bg-slate-900/50 backdrop-blur-[3px] pointer-events-auto ${backdropClassName}`.trim()}
         data-drawer-skip-dirty="true"
       />
       <div
-        className={`pointer-events-none fixed inset-0 ${zIndexClass} flex items-center justify-center p-4 sm:p-6`}
+        className={`pointer-events-none fixed inset-0 ${zIndexClass} flex items-center justify-center p-3 sm:p-6`}
       >
         <motion.div
           key="details-modal-panel"
@@ -64,7 +64,7 @@ export function DetailsModalShell({
           aria-modal="true"
           aria-labelledby={dialogTitleId}
           onClick={(e) => e.stopPropagation()}
-          className={`pointer-events-auto relative flex h-[min(92vh,920px)] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5 ${panelClassName}`.trim()}
+          className={`pointer-events-auto relative flex h-[min(92vh,920px)] w-full ${maxWidth} flex-col overflow-hidden rounded-[1.35rem] border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10 ${panelClassName}`.trim()}
         >
           {children}
         </motion.div>

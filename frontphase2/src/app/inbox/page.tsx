@@ -32,6 +32,7 @@ import {
   apiConnectIntegration,
   apiCreateCalendarEventFromGmailMessage,
   apiGetGmailInbox,
+  apiGetGmailMessage,
   apiTrashGmailMessage,
   apiUpdateGmailMessageFlags,
   type GmailInboxMessage,
@@ -684,7 +685,7 @@ export default function InboxPage() {
   const loadInbox = async (query?: string, folder: GmailFolder = activeFolder) => {
     const result = await apiGetGmailInbox({
       q: query || undefined,
-      maxResults: 100,
+      maxResults: 25,
       labelId: folder,
     });
     const nextEmails = result?.messages || [];
@@ -704,7 +705,7 @@ export default function InboxPage() {
       setLoadingMore(true);
       const result = await apiGetGmailInbox({
         q: search || undefined,
-        maxResults: 100,
+        maxResults: 25,
         pageToken: nextPageToken,
         labelId: activeFolder,
       });
@@ -722,30 +723,38 @@ export default function InboxPage() {
   };
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        await loadInbox('', activeFolder);
-      } catch {
-        if (active) {
-          setConnected(false);
-          setEmails([]);
-        }
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gmail_connected') === '1') {
+      const email = params.get('email');
+      // Soft success signal after OAuth redirect
+      console.info(`[inbox] Gmail connected${email ? ` as ${email}` : ''}`);
+      window.history.replaceState({}, '', '/inbox');
+    }
   }, []);
 
   useEffect(() => {
+    let active = true;
+    const delay = search.trim() ? 350 : 0;
     const timeout = window.setTimeout(() => {
-      if (!loading) void loadInbox(search, activeFolder);
-    }, 350);
-    return () => window.clearTimeout(timeout);
-  }, [search, loading, activeFolder]);
+      void (async () => {
+        try {
+          await loadInbox(search, activeFolder);
+        } catch {
+          if (active) {
+            setConnected(false);
+            setEmails([]);
+          }
+        } finally {
+          if (active) setLoading(false);
+        }
+      })();
+    }, delay);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [search, activeFolder]);
 
   // Reusable auto-refresh — re-fetch the active folder while visible/on focus.
   usePageAutoRefresh(() => {
@@ -835,6 +844,30 @@ export default function InboxPage() {
     () => filteredEmails.find((item) => item.id === selectedId) || filteredEmails[0] || null,
     [filteredEmails, selectedId]
   );
+
+  useEffect(() => {
+    const messageId = selectedEmail?.id;
+    if (!messageId) return;
+    const alreadyHasBody = Boolean(selectedEmail.htmlBody || (selectedEmail.body && selectedEmail.body !== selectedEmail.preview));
+    if (alreadyHasBody) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const full = await apiGetGmailMessage(messageId);
+        if (cancelled || !full) return;
+        setEmails((current) =>
+          current.map((item) => (item.id === full.id ? { ...item, ...full } : item))
+        );
+      } catch {
+        // Keep the list preview if the full message cannot be loaded.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmail?.id, selectedEmail?.htmlBody, selectedEmail?.body, selectedEmail?.preview]);
 
   const handleRefresh = async () => {
     try {

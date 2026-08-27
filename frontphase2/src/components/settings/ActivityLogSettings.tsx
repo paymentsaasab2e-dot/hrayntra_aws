@@ -33,11 +33,12 @@ import {
   formatActivityLogDetails,
   formatActivityLogIp,
 } from '../../utils/authActivityDisplay';
+import { SettingsPageHero } from './SettingsPageHero';
 
 const TABLE_HEAD_ROW =
   'border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-indigo-50/30 to-violet-50/20 text-[10px] font-bold uppercase tracking-wider text-slate-500';
 const TH = 'px-3 py-2.5 text-left first:pl-4 sm:px-4 sm:first:pl-6 sm:py-3 whitespace-nowrap';
-const TR = 'transition-colors hover:bg-indigo-50/30';
+const TR = 'transition-colors hover:bg-indigo-50/40';
 
 function toYmd(d: Date) {
   const y = d.getFullYear();
@@ -223,65 +224,60 @@ export function ActivityLogSettings() {
   }
 
   return (
-    <div className="space-y-6 -mx-2 sm:mx-0 max-w-none">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <History className="h-5 w-5 text-[#2b7fff]" />
-            Team activity log
-          </h3>
-          <p className="text-sm text-slate-500 mt-1">
-            All team members for{' '}
-            <span className="font-semibold text-slate-700">{formatDateDMY(selectedDate)}</span>.
-            Click a row to view the full activity table for that member.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setSelectedDate(todayYmd)}
-            className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-              datePreset === 'today'
-                ? 'bg-[#2b7fff] text-white'
-                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedDate(yesterdayYmd)}
-            className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-              datePreset === 'yesterday'
-                ? 'bg-[#2b7fff] text-white'
-                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            Yesterday
-          </button>
-          <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
-            <Calendar className="h-4 w-4 text-slate-400" />
-            <input
-              type="date"
-              value={selectedDate}
-              max={todayYmd}
-              onChange={(e) => setSelectedDate(e.target.value || todayYmd)}
-              className="border-0 bg-transparent p-0 text-slate-800 focus:outline-none focus:ring-0"
-            />
-          </label>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <SettingsPageHero
+        eyebrow="Audit"
+        title="Team activity log"
+        description={`All team members for ${formatDateDMY(selectedDate)}. Click a row to open the full activity timeline.`}
+        icon={<History className="h-3.5 w-3.5 text-indigo-200" />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedDate(todayYmd)}
+              className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+                datePreset === 'today'
+                  ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDate(yesterdayYmd)}
+              className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+                datePreset === 'yesterday'
+                  ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              Yesterday
+            </button>
+            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+              <Calendar className="h-4 w-4 text-slate-400" />
+              <input
+                type="date"
+                value={selectedDate}
+                max={todayYmd}
+                onChange={(e) => setSelectedDate(e.target.value || todayYmd)}
+                className="border-0 bg-transparent p-0 text-slate-800 focus:outline-none focus:ring-0"
+              />
+            </label>
+          </div>
+        }
+      />
 
       <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-col`}>
         <div className={PH2_TOOLBAR_ROW_CLASS}>
           <div className="relative w-full lg:max-w-md">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="search"
               placeholder="Search name or email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+              className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
             />
           </div>
           <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap">

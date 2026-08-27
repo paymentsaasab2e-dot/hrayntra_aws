@@ -21,6 +21,9 @@ import {
 import { ContactsKPICards } from '../../components/contacts/ContactsKPICards';
 import { ContactsFilterBar } from '../../components/contacts/ContactsFilterBar';
 import { ContactsTable } from '../../components/contacts/ContactsTable';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
+import { CONTACT_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { ContactDetailDrawer } from '../../components/contacts/ContactDetailDrawer';
 import { AddContactDrawer } from '../../components/contacts/AddContactDrawer';
 import { EditContactDrawer } from '../../components/contacts/EditContactDrawer';
@@ -56,6 +59,10 @@ function ContactsPageContent() {
   const [isMergeDrawerOpen, setIsMergeDrawerOpen] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 0 });
   const pendingDeepLinkContactIdRef = useRef<string | null>(null);
+  const contactColumnVisibility = usePersistedColumnVisibility(
+    'contacts.visibleColumns',
+    CONTACT_TABLE_COLUMNS,
+  );
 
   // Get filters from URL
   const filters = useMemo<ContactFilters>(() => {
@@ -496,6 +503,15 @@ function ContactsPageContent() {
 
         <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-1 flex-col`}>
           <div className="shrink-0 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
+            <div className="mb-3 flex justify-end">
+              <TableColumnsMenu
+                columns={CONTACT_TABLE_COLUMNS}
+                isVisible={contactColumnVisibility.isVisible}
+                onToggle={contactColumnVisibility.toggle}
+                onReset={contactColumnVisibility.resetToDefault}
+                unlockedVisibleCount={contactColumnVisibility.unlockedVisibleCount}
+              />
+            </div>
             <ContactsFilterBar
               embedded
               filters={filters}
@@ -516,6 +532,7 @@ function ContactsPageContent() {
             pagination={pagination}
             onPageChange={(page) => updateFilters({ page, limit: pagination.limit })}
             onPageSizeChange={(limit) => updateFilters({ page: 1, limit })}
+            isColumnVisible={contactColumnVisibility.isVisible}
           />
         </div>
       </Ph2ModulePageLayout>

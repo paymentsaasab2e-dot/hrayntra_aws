@@ -506,7 +506,7 @@ export function CreatePlacementInvoiceModal({
           tasks.push(
             apiGetCandidates({ page: 1, limit: 100 }),
             apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
-            apiGetUsers({ page: 1, limit: 100, role: 'RECRUITER' }),
+            apiGetUsers({ assignable: true, page: 1, limit: 100, role: 'RECRUITER' }),
           );
         }
         const results = await Promise.all(tasks);

@@ -65,7 +65,7 @@ export const createInterviewSchema = z
     timezone: z.string().min(1),
     meetingPlatform: meetingPlatformEnum.optional().nullable(),
     location: z.string().optional().nullable(),
-    panelUserIds: z.array(objectId).min(1),
+    panelUserIds: z.array(objectId).default([]),
     panelRoles: z.record(objectId, panelRoleEnum).optional(),
     notes: z.string().optional().nullable(),
     sendCalendarInvite: z.boolean().default(false),
@@ -130,7 +130,7 @@ export const updateInterviewSchema = z
     location: z.string().optional().nullable(),
     notes: z.string().optional().nullable(),
     status: interviewStatusEnum.optional(),
-    panelUserIds: z.array(objectId).min(1).optional(),
+    panelUserIds: z.array(objectId).optional(),
     panelRoles: z.record(objectId, panelRoleEnum).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {

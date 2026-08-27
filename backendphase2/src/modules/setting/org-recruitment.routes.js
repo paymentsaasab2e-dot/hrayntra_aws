@@ -50,6 +50,9 @@ import {
   DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
   getClientPageFieldVisibility,
   setClientPageFieldVisibility,
+  getTableColumnVisibility,
+  setTableColumnModuleVisibility,
+  setTableColumnVisibility,
   getHqEnabledModules,
 } from './recruitmentMode.service.js';
 import { getOrCreateWorkspaceClient } from './workspace-client.service.js';
@@ -354,6 +357,35 @@ router.put('/client-page-fields', requireAnyPermission(['manage_settings']), asy
     sendResponse(res, 200, 'Client page field visibility saved', { clientPageFieldVisibility });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to save client page field visibility', error);
+  }
+});
+
+/** Any authenticated tenant user — table Columns prefs (synced across browsers for this tenant). */
+router.get('/table-columns', async (req, res) => {
+  try {
+    const columns = await getTableColumnVisibility();
+    sendResponse(res, 200, 'OK', { columns });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load table columns', error);
+  }
+});
+
+router.put('/table-columns', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const moduleKey = body.moduleKey ?? body.key;
+    if (moduleKey) {
+      const columns = await setTableColumnModuleVisibility(
+        moduleKey,
+        body.visibleIds ?? body.ids ?? body.value ?? [],
+      );
+      sendResponse(res, 200, 'Table columns saved', { columns, moduleKey: String(moduleKey) });
+      return;
+    }
+    const columns = await setTableColumnVisibility(body.columns ?? body);
+    sendResponse(res, 200, 'Table columns saved', { columns });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to save table columns', error);
   }
 });
 

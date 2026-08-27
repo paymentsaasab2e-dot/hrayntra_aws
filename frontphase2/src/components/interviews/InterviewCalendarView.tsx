@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { formatTimezoneDisplay, resolveIanaFromTimezoneValue } from '../../utils/inferTimezone';
 
 interface InterviewCalendarViewProps {
   interviews: Interview[];
@@ -251,7 +252,7 @@ export function InterviewCalendarView({ interviews, onSelectInterview }: Intervi
 
               <div className="grid gap-4 p-5 sm:grid-cols-2">
                 <DetailCard label="Date" value={formatDetailDate(selectedDate)} icon={<CalendarDays className="size-4 text-[#2563EB]" />} />
-                <DetailCard label="Time" value={`${selectedInterview.time} (${selectedInterview.timezone})`} icon={<Clock3 className="size-4 text-[#2563EB]" />} />
+                <DetailCard label="Time" value={`${selectedInterview.time} (${formatTimezoneDisplay(resolveIanaFromTimezoneValue(selectedInterview.timezone))})`} icon={<Clock3 className="size-4 text-[#2563EB]" />} />
                 <DetailCard label="Round" value={selectedInterview.round} icon={<Users className="size-4 text-[#2563EB]" />} />
                 <DetailCard label="Type" value={`${selectedInterview.type} • ${selectedInterview.mode}`} icon={iconForType(selectedInterview.type)} />
                 <DetailCard label="Job" value={selectedInterview.job.title} />

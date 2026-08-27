@@ -42,6 +42,8 @@ type EditDateFieldProps = {
   placeholder?: string;
   /** When true, onChange receives YYYY-MM-DD when the date is valid. */
   outputIso?: boolean;
+  /** Hide the built-in label when a parent already renders one. */
+  hideLabel?: boolean;
 };
 
 export function EditDateField({
@@ -53,6 +55,7 @@ export function EditDateField({
   max,
   placeholder = 'DD/MM/YYYY',
   outputIso = false,
+  hideLabel = false,
 }: EditDateFieldProps) {
   const displayFromValue = useMemo(() => toDisplayDmy(value), [value]);
   const [dateText, setDateText] = useState(displayFromValue);
@@ -113,8 +116,8 @@ export function EditDateField({
   };
 
   return (
-    <label className="block">
-      <span className={`mb-1.5 block ${labelClass}`}>{label}</span>
+    <div className="block">
+      {hideLabel ? null : <span className={`mb-1.5 block ${labelClass}`}>{label}</span>}
       <div className="relative">
         <input
           type="text"
@@ -147,6 +150,6 @@ export function EditDateField({
         </span>
       </div>
       {error ? <p className="mt-1 text-xs font-medium text-red-600">{error}</p> : null}
-    </label>
+    </div>
   );
 }

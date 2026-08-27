@@ -1,12 +1,50 @@
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import {
+  excludeHqPlatformUsers,
+  hqPlatformUserEmailNotClause,
+} from '../../utils/hqPlatformUser.js';
+import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
 
 export const userService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
     const { role, isActive, search } = req.query;
+    // Assign/recruiter pickers: tenant team only (never HQ platform accounts).
+    const assignableOnly =
+      String(req.query.assignable || req.query.forAssign || '').toLowerCase() === 'true' ||
+      String(req.query.assignable || req.query.forAssign || '') === '1';
 
-    const where = {};
+    if (assignableOnly && req.user?.id) {
+      const candidates = await listCrmAssigneeCandidates(req.user.id, { req });
+      let filtered = candidates;
+      if (search) {
+        const q = String(search).trim().toLowerCase();
+        filtered = filtered.filter((u) => {
+          const name = `${u.firstName || ''} ${u.lastName || ''} ${u.name || ''} ${u.email || ''}`.toLowerCase();
+          return name.includes(q);
+        });
+      }
+      // Legacy `role=RECRUITER` enum is ignored for assignable pickers — tenants use
+      // custom system roles. All non-HQ tenant members from the assignment scope are returned.
+      const total = filtered.length;
+      const pageRows = filtered.slice(skip, skip + limit).map((u) => ({
+        id: u.id,
+        name: u.name,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        role: u.role?.roleName || '',
+        department: u.department?.name || null,
+        isActive: String(u.status || '').toUpperCase() !== 'INACTIVE',
+        status: u.status,
+      }));
+      return formatPaginationResponse(pageRows, page, limit, total);
+    }
+
+    const where = {
+      ...hqPlatformUserEmailNotClause(),
+    };
     if (role) {
       // Normalize role to uppercase to match enum
       const roleUpper = role.toUpperCase();
@@ -27,7 +65,7 @@ export const userService = {
       prisma.user.findMany({
         where,
         skip,
-        take: limit,
+        take: Math.min(Math.max(limit * 2, limit), 500),
         select: {
           id: true,
           name: true,
@@ -44,13 +82,21 @@ export const userService = {
           isActive: true,
           lastLogin: true,
           createdAt: true,
+          systemRole: { select: { roleName: true } },
+          credential: { select: { loginId: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
       prisma.user.count({ where }),
     ]);
 
-    return formatPaginationResponse(users, page, limit, total);
+    const sanitized = excludeHqPlatformUsers(users).slice(0, limit).map((user) => {
+      const { systemRole, credential, ...rest } = user;
+      return rest;
+    });
+
+    // total may slightly over-count when HQ rows exist; assignable path is exact.
+    return formatPaginationResponse(sanitized, page, limit, Math.max(0, total - (users.length - sanitized.length)));
   },
 
   async getById(id) {

@@ -22,7 +22,7 @@ import {
   type AlertExamplePreview,
   type ScheduledAnalysisSettings,
 } from '@/lib/api';
-import { PH2_TABLE_CARD_CLASS } from '../layout/Ph2ModulePageLayout';
+import { SettingsPageHero, SettingsPanel } from './SettingsPageHero';
 
 const DEFAULT_SCHEDULED_ANALYSIS: ScheduledAnalysisSettings = {
   enabled: true,
@@ -50,31 +50,22 @@ function ScheduledAnalysisCard({
   onChange: (next: ScheduledAnalysisSettings) => void;
 }) {
   return (
-    <section className={PH2_TABLE_CARD_CLASS}>
-      <div className="border-b border-indigo-100/40 bg-gradient-to-r from-violet-50/60 via-indigo-50/40 to-white px-4 py-3.5 sm:px-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Clock className="h-4 w-4 shrink-0 text-violet-600" />
-              <h3 className="text-sm font-bold text-slate-900">Automatic Daily Analyze</h3>
-            </div>
-            <p className="mt-1 text-xs leading-relaxed text-violet-800/80">
-              Runs Analyze once per day at the time you choose. Manual Analyze on the dashboard still
-              works anytime.
-            </p>
-          </div>
-          <label className="flex shrink-0 items-center gap-2 text-[11px] font-medium text-slate-600">
-            Enabled
-            <Toggle
-              checked={schedule.enabled}
-              onChange={(enabled) => onChange({ ...schedule, enabled })}
-              label="Enable automatic daily Analyze"
-            />
-          </label>
-        </div>
-      </div>
-
-      <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 sm:px-5">
+    <SettingsPanel
+      title="Automatic daily Analyze"
+      description="Runs Analyze once per day at the time you choose. Manual Analyze on the dashboard still works anytime."
+      icon={<Clock className="h-4 w-4 text-indigo-600" />}
+      actions={
+        <label className="flex shrink-0 items-center gap-2 text-[11px] font-medium text-slate-600">
+          Enabled
+          <Toggle
+            checked={schedule.enabled}
+            onChange={(enabled) => onChange({ ...schedule, enabled })}
+            label="Enable automatic daily Analyze"
+          />
+        </label>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Run at
@@ -84,7 +75,7 @@ function ScheduledAnalysisCard({
             value={schedule.time}
             disabled={!schedule.enabled || saving}
             onChange={(e) => onChange({ ...schedule, time: e.target.value })}
-            className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-1.5 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
           />
         </label>
 
@@ -96,7 +87,7 @@ function ScheduledAnalysisCard({
             value={schedule.timezone}
             disabled={!schedule.enabled || saving}
             onChange={(e) => onChange({ ...schedule, timezone: e.target.value })}
-            className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-1.5 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {TIMEZONE_OPTIONS.map((tz) => (
               <option key={tz} value={tz}>
@@ -109,7 +100,7 @@ function ScheduledAnalysisCard({
           </select>
         </label>
       </div>
-    </section>
+    </SettingsPanel>
   );
 }
 
@@ -130,7 +121,7 @@ function Toggle({
       aria-label={label}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-        checked ? 'bg-blue-600' : 'bg-slate-300'
+        checked ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600' : 'bg-slate-300'
       }`}
     >
       <span
@@ -318,29 +309,29 @@ function AlertSection({
   const isAi = group.module === 'AI Analysis';
 
   return (
-    <section className={PH2_TABLE_CARD_CLASS}>
+    <section className="overflow-hidden rounded-xl border border-indigo-100/60 bg-white/80 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.16)] backdrop-blur-sm">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className={`flex w-full items-start justify-between gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-indigo-50/30 sm:px-5 sm:py-3.5 ${
+        className={`flex w-full items-start justify-between gap-3 border-b px-5 py-4 text-left transition-colors hover:bg-indigo-50/40 sm:px-6 ${
           expanded ? 'border-indigo-100/40' : 'border-transparent'
-        } ${isAi ? 'bg-gradient-to-r from-violet-50/50 via-indigo-50/30 to-white' : 'bg-gradient-to-r from-slate-50/80 via-white to-indigo-50/20'}`}
+        } bg-gradient-to-br from-white via-indigo-50/20 to-violet-50/15`}
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            {isAi ? <Brain className="h-4 w-4 shrink-0 text-violet-600" /> : null}
-            <h3 className="text-sm font-bold text-slate-900">{group.module}</h3>
-            <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 ring-1 ring-indigo-100">
+            {isAi ? <Brain className="h-4 w-4 shrink-0 text-indigo-600" /> : <BellRing className="h-4 w-4 shrink-0 text-indigo-600" />}
+            <h3 className="text-base font-semibold tracking-tight text-slate-900">{group.module}</h3>
+            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200">
               {group.alerts.length}
             </span>
           </div>
           {isAi ? (
-            <p className="mt-1 text-xs leading-relaxed text-violet-800/80">
+            <p className="mt-1 text-sm text-slate-500">
               AI brief, tables, drawers, email, and portal alerts from Analyze now.
             </p>
           ) : (
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-sm text-slate-500">
               {group.module} event notifications
             </p>
           )}
@@ -533,10 +524,20 @@ export function AlertsManagementSettings() {
   }
 
   return (
-    <div className="space-y-4">
-      {saving ? (
-        <p className="text-xs font-medium text-blue-600">Saving…</p>
-      ) : null}
+    <div className="space-y-5">
+      <SettingsPageHero
+        eyebrow="Alerts"
+        title="Alerts management"
+        description="Choose which hiring alerts go to email and the portal. Schedule daily AI Analyze and preview each alert type."
+        icon={<BellRing className="h-3.5 w-3.5 text-indigo-200" />}
+        stats={
+          saving ? (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700">
+              Saving…
+            </div>
+          ) : null
+        }
+      />
 
       <ScheduledAnalysisCard
         schedule={scheduledAnalysis}

@@ -775,6 +775,7 @@ enum PreScreenAssessmentType {
   CODING
   ESSAY
   VIDEO
+  QUESTIONNAIRE
 }
 
 enum AssessmentSessionTiming {
@@ -788,7 +789,7 @@ enum AssessmentSessionStatus {
   EXPIRED
 }
 
-/// Reusable pre-screen assessment templates (MCQ, coding, essay, video)
+/// Reusable pre-screen assessment templates (MCQ, coding, essay, video, questionnaire)
 model PreScreenAssessment {
   id                 String                  @id @default(auto()) @map("_id") @db.ObjectId
   title              String

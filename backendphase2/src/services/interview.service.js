@@ -266,9 +266,11 @@ const getInterviewWithInclude = async (id) =>
     include: interviewInclude,
   });
 
-const getPanelUsers = async (panelUserIds) =>
-  prisma.user.findMany({
-    where: { id: { in: panelUserIds } },
+const getPanelUsers = async (panelUserIds) => {
+  const ids = Array.isArray(panelUserIds) ? panelUserIds.filter(Boolean) : [];
+  if (!ids.length) return [];
+  return prisma.user.findMany({
+    where: { id: { in: ids } },
     select: {
       id: true,
       name: true,
@@ -279,6 +281,7 @@ const getPanelUsers = async (panelUserIds) =>
       phone: true,
     },
   });
+};
 
 const getClientRecipients = async (clientId) => {
   const contacts = await prisma.contact.findMany({
@@ -996,24 +999,25 @@ export const interviewService = {
     // The candidate picker on the CRM merges portal + tenant rows. If the chosen candidate
     // only exists on the portal side, `getCandidateOrThrow` will materialize it into the
     // tenant on demand (same path used by candidate routes) instead of failing with 400.
+    const panelUserIds = Array.isArray(payload.panelUserIds) ? payload.panelUserIds.filter(Boolean) : [];
     const [candidate, job, client, panelUsers] = await Promise.all([
       getCandidateOrThrow(payload.candidateId).catch(() => null),
       prisma.job.findUnique({ where: { id: payload.jobId } }),
       prisma.client.findUnique({ where: { id: clientId } }),
-      getPanelUsers(payload.panelUserIds),
+      getPanelUsers(panelUserIds),
     ]);
 
     if (!candidate) throw new Error('Candidate not found');
     if (!job) throw new Error('Job not found');
     if (!client) throw new Error('Client not found');
     if (job.clientId !== client.id) throw new Error('Job does not belong to the provided client');
-    if (panelUsers.length !== payload.panelUserIds.length) throw new Error('One or more panel users were not found');
+    if (panelUsers.length !== panelUserIds.length) throw new Error('One or more panel users were not found');
 
     const scheduledAt = buildInterviewDateTime(payload.date);
-    const leadInterviewerId = payload.panelUserIds[0] || null;
+    const leadInterviewerId = panelUserIds[0] || null;
 
     await assertNoInterviewerScheduleConflicts(prisma, {
-      interviewerIds: payload.panelUserIds,
+      interviewerIds: panelUserIds,
       scheduledAt,
       durationMinutes: payload.duration,
     });
@@ -1032,17 +1036,17 @@ export const interviewService = {
           type: payload.type,
           mode: normalizeMode(payload.mode),
           platform: payload.meetingPlatform || null,
-          timezone: payload.timezone,
+          timezone: payload.timezone || 'Asia/Kolkata',
           location: payload.mode === 'OFFLINE' ? payload.location || null : null,
           notes: payload.notes || null,
           status: 'SCHEDULED',
-          panelIds: payload.panelUserIds,
+          panelIds: panelUserIds,
         },
       });
 
-      if (payload.panelUserIds.length) {
+      if (panelUserIds.length) {
         await tx.interviewPanel.createMany({
-          data: payload.panelUserIds.map((userId) => ({
+          data: panelUserIds.map((userId) => ({
             interviewId: interview.id,
             userId,
             role: payload.panelRoles?.[userId] || 'TECHNICAL',

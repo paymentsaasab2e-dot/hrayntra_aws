@@ -8,6 +8,7 @@ import {
   Pencil,
   UserPlus,
   ArrowRightLeft,
+  Check,
   ChevronDown,
   ExternalLink,
   MapPin,
@@ -77,10 +78,10 @@ function CandidateStageMoveDropdown({
       ? createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[1200] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-2xl"
+            className="fixed z-[1200] overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg ring-1 ring-slate-900/5 animate-in fade-in zoom-in-95 duration-150"
             style={{
               left: menuPosition.left,
-              width: Math.max(menuPosition.width, 200),
+              width: Math.max(menuPosition.width, 168),
               ...(menuPosition.placement === 'top'
                 ? { bottom: menuPosition.bottom }
                 : { top: menuPosition.top }),
@@ -88,67 +89,83 @@ function CandidateStageMoveDropdown({
             role="listbox"
             aria-label="Move candidate stage"
           >
-            <div className="border-b border-slate-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Move stage
+            <div className="border-b border-slate-100 px-2.5 py-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Move stage
+              </p>
             </div>
-            {loadingOptions && options.length === 0 ? (
-              <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-slate-500">
-                <Loader2 size={14} className="animate-spin" />
-                Loading stages…
-              </div>
-            ) : options.length === 0 && !showSubmitToClient ? (
-              <div className="px-3 py-2.5 text-xs text-slate-500">No stages available</div>
-            ) : (
-              <>
-                {options.map((option) => {
-                  const isActive = option.id === selectedId;
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      disabled={moving}
-                      onClick={() => {
-                        setOpen(false);
-                        if (option.id === selectedId) return;
-                        void onChangeStage(option.id);
-                      }}
-                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
-                        isActive
-                          ? 'bg-blue-50 font-semibold text-blue-700'
-                          : 'text-slate-700 hover:bg-slate-50'
-                      } disabled:opacity-50`}
-                    >
-                      <span>{option.name}</span>
-                      {isActive ? (
-                        <span className="text-[10px] font-bold uppercase text-blue-500">Current</span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-                {showSubmitToClient && onSubmitToClient ? (
-                  <>
-                    <div className="my-1 border-t border-slate-100" />
-                    <button
-                      key={SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE}
-                      type="button"
-                      role="option"
-                      aria-selected={false}
-                      disabled={moving}
-                      onClick={() => {
-                        setOpen(false);
-                        onSubmitToClient();
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-50"
-                    >
-                      <Send size={14} className="shrink-0" strokeWidth={2.25} />
-                      {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
-                    </button>
-                  </>
-                ) : null}
-              </>
-            )}
+            <div className="p-1">
+              {loadingOptions && options.length === 0 ? (
+                <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-slate-500">
+                  <Loader2 size={12} className="animate-spin text-slate-400" />
+                  Loading…
+                </div>
+              ) : options.length === 0 && !showSubmitToClient ? (
+                <div className="px-2 py-1.5 text-[11px] text-slate-500">No stages available</div>
+              ) : (
+                <>
+                  {options.map((option) => {
+                    const isActive = option.id === selectedId;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        role="option"
+                        aria-selected={isActive}
+                        disabled={moving}
+                        onClick={() => {
+                          setOpen(false);
+                          if (option.id === selectedId) return;
+                          void onChangeStage(option.id);
+                        }}
+                        className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors duration-100 disabled:opacity-50 ${
+                          isActive
+                            ? 'bg-slate-900 text-white'
+                            : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${getCandidateStageDotClasses(option.name)} ${
+                            isActive ? 'ring-1 ring-white/40' : ''
+                          }`}
+                          aria-hidden
+                        />
+                        <span
+                          className={`min-w-0 flex-1 truncate text-[12px] leading-tight ${
+                            isActive ? 'font-semibold' : 'font-medium'
+                          }`}
+                        >
+                          {option.name}
+                        </span>
+                        {isActive ? (
+                          <Check size={12} strokeWidth={2.75} className="shrink-0 text-white/90" />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                  {showSubmitToClient && onSubmitToClient ? (
+                    <>
+                      <div className="my-0.5 border-t border-slate-100" />
+                      <button
+                        key={SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE}
+                        type="button"
+                        role="option"
+                        aria-selected={false}
+                        disabled={moving}
+                        onClick={() => {
+                          setOpen(false);
+                          onSubmitToClient();
+                        }}
+                        className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[12px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-50"
+                      >
+                        <Send size={12} className="shrink-0" strokeWidth={2.25} />
+                        {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
+                      </button>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
           </div>,
           document.body,
         )
@@ -169,13 +186,18 @@ function CandidateStageMoveDropdown({
           setOpen(next);
           if (next) void onOpen?.();
         }}
-        className={`inline-flex max-w-[12rem] items-center gap-1 rounded-full border py-1 pl-2.5 pr-1.5 text-xs font-semibold transition-shadow hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/25 disabled:cursor-wait disabled:opacity-60 ${getCandidateStageBadgeClasses(candidate.stage)}`}
+        className={`inline-flex max-w-[12rem] items-center gap-1 rounded-full border py-1 pl-2.5 pr-1.5 text-xs font-semibold shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-400/30 disabled:cursor-wait disabled:opacity-60 ${
+          open ? 'ring-2 ring-slate-900/15 ring-offset-1' : ''
+        } ${getCandidateStageBadgeClasses(candidate.stage)}`}
       >
         <span className="truncate">{getCandidateStageLabel(candidate.stage)}</span>
         {moving ? (
           <Loader2 size={12} className="shrink-0 animate-spin opacity-80" />
         ) : (
-          <ChevronDown size={12} className={`shrink-0 opacity-80 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            size={12}
+            className={`shrink-0 opacity-80 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          />
         )}
       </button>
       {menu}
@@ -267,6 +289,8 @@ interface CandidateTableProps {
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
   /** When true, omit overflow wrappers so a parent scroll region owns scrolling. */
   fillScrollParent?: boolean;
+  /** Show/hide optional columns; locked columns (candidate, actions) always render. */
+  isColumnVisible?: (columnId: string) => boolean;
 }
 
 export const CandidateTable: React.FC<CandidateTableProps> = ({
@@ -291,73 +315,108 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   submittingToClientCandidateId,
   workspaceAlertsByEntityId,
   fillScrollParent = false,
+  isColumnVisible = () => true,
 }) => {
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
       Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
   );
+  const show = isColumnVisible;
 
   return (
-    <div className={fillScrollParent ? 'contents' : 'overflow-hidden'}>
-      <div className={fillScrollParent ? 'contents' : 'overflow-x-auto'}>
-        <table className="w-full min-w-[760px] border-collapse text-left">
+    <div
+      className={
+        fillScrollParent
+          ? 'contents'
+          : 'overflow-hidden rounded-xl border border-indigo-100/70 bg-white shadow-[0_10px_28px_-18px_rgba(79,70,229,0.22)]'
+      }
+    >
+      <div
+        className={
+          fillScrollParent
+            ? 'contents'
+            : 'overflow-x-auto [scrollbar-width:thin] [scrollbar-color:rgba(129,140,248,0.45)_transparent]'
+        }
+      >
+        <table className="w-full min-w-[720px] border-collapse text-left">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
-              <th className="w-10 px-3 py-2 first:pl-4 sm:px-4">
-                <input 
-                  type="checkbox" 
-                  checked={allSelected}
-                  onChange={onToggleSelectAll}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                />
-              </th>
-              <th className="px-3 py-2 sm:px-4">Candidate</th>
-              {showMatchScore ? (
-                <th className="px-3 py-2 text-center sm:px-4">Match</th>
+            <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md">
+              {show('select') ? (
+                <th className="w-10 px-3 py-3 first:pl-4 sm:px-4 sm:first:pl-5">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={onToggleSelectAll}
+                    className="h-4 w-4 cursor-pointer rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30"
+                  />
+                </th>
               ) : null}
-              <th className="px-3 py-2 sm:px-4">Role / company</th>
-              <th className="px-3 py-2 text-center sm:px-4">Exp</th>
-              <th className="px-3 py-2 sm:px-4">Location</th>
-              <th className="px-3 py-2 sm:px-4">Assigned job</th>
-              <th className="px-3 py-2 sm:px-4">Stage</th>
-              <th className="px-3 py-2 sm:px-4">Team Member</th>
+              <th className="px-3 py-3 sm:px-4">Candidate</th>
+              {showMatchScore ? (
+                <th className="px-3 py-3 text-center sm:px-4">Match</th>
+              ) : null}
+              {show('roleCompany') ? <th className="px-3 py-3 sm:px-4">Role / company</th> : null}
+              {show('experience') ? <th className="px-3 py-3 text-center sm:px-4">Exp</th> : null}
+              {show('location') ? <th className="px-3 py-3 sm:px-4">Location</th> : null}
+              {show('assignedJob') ? <th className="px-3 py-3 sm:px-4">Assigned job</th> : null}
+              {show('stage') ? <th className="px-3 py-3 sm:px-4">Stage</th> : null}
+              {show('owner') ? <th className="px-3 py-3 sm:px-4">Team Member</th> : null}
+              {show('email') ? <th className="px-3 py-3 sm:px-4">Email</th> : null}
+              {show('phone') ? <th className="px-3 py-3 sm:px-4">Phone</th> : null}
+              {show('source') ? <th className="px-3 py-3 sm:px-4">Source</th> : null}
+              {show('hotlist') ? <th className="px-3 py-3 sm:px-4">Hotlist</th> : null}
+              {show('rating') ? <th className="px-3 py-3 text-center sm:px-4">Rating</th> : null}
+              {show('lastActivity') ? <th className="px-3 py-3 sm:px-4">Last activity</th> : null}
+              {show('skills') ? <th className="px-3 py-3 sm:px-4">Skills</th> : null}
+              {show('noticePeriod') ? <th className="px-3 py-3 sm:px-4">Notice period</th> : null}
+              {show('currentSalary') ? <th className="px-3 py-3 sm:px-4">Current salary</th> : null}
+              {show('expectedSalary') ? <th className="px-3 py-3 sm:px-4">Expected salary</th> : null}
+              {show('preferredLocation') ? <th className="px-3 py-3 sm:px-4">Preferred location</th> : null}
+              {show('education') ? <th className="px-3 py-3 sm:px-4">Education</th> : null}
+              {show('availability') ? <th className="px-3 py-3 sm:px-4">Availability</th> : null}
               {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
-              <TableAuditColumnHeader />
-              <th className="px-3 py-2 text-right sm:px-4">Actions</th>
+              {show('audit') ? <TableAuditColumnHeader /> : null}
+              <th className="px-3 py-3 text-right sm:px-4 sm:pr-5">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100/80">
+          <tbody className="divide-y divide-indigo-50/80">
             {candidates.map((candidate) => (
-              <tr 
+              <tr
                 key={candidate.id}
                 onClick={() => onViewProfile?.(candidate)}
-                className={`transition-colors duration-200 hover:bg-indigo-50/45 ${
+                className={`group transition-colors duration-150 hover:bg-indigo-50/50 ${
                   onViewProfile ? 'cursor-pointer' : ''
-                } ${selectedIds.includes(candidate.id) ? 'bg-indigo-50/90' : 'even:bg-slate-50/35'}`}
+                } ${
+                  selectedIds.includes(candidate.id)
+                    ? 'bg-indigo-50/80 shadow-[inset_3px_0_0_0_rgb(99,102,241)]'
+                    : 'even:bg-slate-50/40'
+                }`}
               >
-                <td
-                  className="px-3 py-2.5 first:pl-4 sm:px-4 sm:py-3"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <input 
-                    type="checkbox" 
-                    checked={selectedIds.includes(candidate.id)}
-                    onChange={() => onToggleSelect(candidate.id)}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  />
-                </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                {show('select') ? (
+                  <td
+                    className="px-3 py-3 first:pl-4 sm:px-4 sm:py-3.5 sm:first:pl-5"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(candidate.id)}
+                      onChange={() => onToggleSelect(candidate.id)}
+                      className="h-4 w-4 cursor-pointer rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30"
+                    />
+                  </td>
+                ) : null}
+                <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <ImageWithFallback 
-                        src={candidate.avatar || ''} 
+                      <ImageWithFallback
+                        src={candidate.avatar || ''}
                         fallbackInitials={initialsFromDisplayName(candidate.name)}
-                        className="w-10 h-10 rounded-full object-cover ring-2 ring-white"
+                        className="h-10 w-10 rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10"
                         alt={candidate.name}
                       />
                       <div
-                        className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-white"
+                        className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-indigo-100"
                         title={getCandidateStageLabel(candidate.stage)}
                       >
                         <span
@@ -369,13 +428,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       <button
                         type="button"
                         onClick={() => onViewProfile?.(candidate)}
-                        className="text-left text-sm font-semibold text-slate-900 hover:text-blue-600"
+                        className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
                       >
                         {candidate.name}
                       </button>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         {candidate.isPhase1Candidate ? (
-                          <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-700">
+                          <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
                             Phase 1
                           </span>
                         ) : null}
@@ -384,110 +443,236 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   </div>
                 </td>
                 {showMatchScore ? (
-                  <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
+                  <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
                     {(candidate.matchScore ?? 0) > 0 ? (
-                      <div className="flex flex-col items-center gap-0.5">
+                      <div className="flex flex-col items-center gap-1">
                         <span
-                          className={`inline-flex min-w-[2.75rem] items-center justify-center rounded-lg px-2 py-1 text-xs font-bold tabular-nums ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
+                          className={`inline-flex min-w-[2.85rem] items-center justify-center rounded-full px-2.5 py-1 text-xs font-bold tabular-nums shadow-sm ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
                         >
                           {candidate.matchScore}%
                         </span>
-                        <span className="max-w-[5.5rem] truncate text-[10px] font-medium text-slate-500">
+                        <span className="max-w-[5.5rem] truncate text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                           {candidate.matchScoreBand ||
                             displayMatchBand(candidate.matchScore ?? 0)}
                         </span>
                       </div>
                     ) : (
-                      <span className="text-xs font-medium text-slate-400">Not scored</span>
+                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        Not scored
+                      </span>
                     )}
                   </td>
                 ) : null}
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
-                  <div>
-                    <p className="text-sm text-slate-700 font-medium truncate max-w-[130px]">{candidate.designation}</p>
-                    <p className="text-xs text-slate-500 truncate max-w-[130px]">{candidate.company}</p>
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
-                  <span className="text-sm font-medium text-slate-600">
-                    {candidate.experienceLabel ??
-                      (() => {
-                        const exp = Number(candidate.experience);
-                        if (!Number.isFinite(exp) || exp <= 0) return '—';
-                        return `${Number.isInteger(exp) ? exp : exp.toFixed(1)}y`;
-                      })()}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
-                  <div className="flex items-center gap-1.5 text-slate-500">
-                    <MapPin size={14} className="shrink-0" />
-                    <span className="text-sm truncate max-w-[100px]">{candidate.location}</span>
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
-                  <div className="flex items-center gap-2">
-                    <Briefcase size={14} className="text-slate-400 shrink-0" />
-                    <p className="text-sm text-slate-600 truncate max-w-[120px] font-medium">
-                      {candidate.assignedJobs?.[0] || '--'}
-                    </p>
-                  </div>
-                </td>
-                <td
-                  className="px-3 py-2.5 sm:px-4 sm:py-3"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {onChangeCandidateStage && candidate.pipelineJobId ? (
-                    <CandidateStageMoveDropdown
-                      candidate={candidate}
-                      options={stageOptionsByJobId[candidate.pipelineJobId] || []}
-                      loadingOptions={stageOptionsLoadingJobId === candidate.pipelineJobId}
-                      moving={movingCandidateId === candidate.id}
-                      showSubmitToClient={Boolean(
-                        onSubmitToClient &&
-                          (!canSubmitToClient || canSubmitToClient(candidate)),
-                      )}
-                      onOpen={() => void onLoadStageOptions?.(candidate)}
-                      onChangeStage={(stageId) => onChangeCandidateStage(candidate, stageId)}
-                      onSubmitToClient={
-                        onSubmitToClient
-                          ? () => {
-                              onSubmitToClient(candidate);
-                            }
+                {show('roleCompany') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <div>
+                      <p className="max-w-[140px] truncate text-sm font-semibold text-slate-800">
+                        {candidate.designation}
+                      </p>
+                      <p className="mt-0.5 max-w-[140px] truncate text-xs text-slate-500">
+                        {candidate.company}
+                      </p>
+                    </div>
+                  </td>
+                ) : null}
+                {show('experience') ? (
+                  <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
+                    <span className="inline-flex min-w-[2.25rem] items-center justify-center rounded-lg bg-slate-100/90 px-2 py-1 text-xs font-bold tabular-nums text-slate-700 ring-1 ring-slate-200/70">
+                      {candidate.experienceLabel ??
+                        (() => {
+                          const exp = Number(candidate.experience);
+                          if (!Number.isFinite(exp) || exp <= 0) return '—';
+                          return `${Number.isInteger(exp) ? exp : exp.toFixed(1)}y`;
+                        })()}
+                    </span>
+                  </td>
+                ) : null}
+                {show('location') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <div className="inline-flex max-w-[140px] items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1 text-slate-600 ring-1 ring-slate-200/70">
+                      <MapPin size={13} className="shrink-0 text-indigo-400" />
+                      <span className="truncate text-xs font-medium">{candidate.location}</span>
+                    </div>
+                  </td>
+                ) : null}
+                {show('assignedJob') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <div className="inline-flex max-w-[150px] items-center gap-1.5 rounded-lg bg-indigo-50/70 px-2 py-1 text-indigo-800 ring-1 ring-indigo-100">
+                      <Briefcase size={13} className="shrink-0 text-indigo-500" />
+                      <p className="truncate text-xs font-semibold">
+                        {candidate.assignedJobs?.[0] || '—'}
+                      </p>
+                    </div>
+                  </td>
+                ) : null}
+                {show('stage') ? (
+                  <td
+                    className="px-3 py-3 sm:px-4 sm:py-3.5"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {onChangeCandidateStage && candidate.pipelineJobId ? (
+                      <CandidateStageMoveDropdown
+                        candidate={candidate}
+                        options={stageOptionsByJobId[candidate.pipelineJobId] || []}
+                        loadingOptions={stageOptionsLoadingJobId === candidate.pipelineJobId}
+                        moving={movingCandidateId === candidate.id}
+                        showSubmitToClient={Boolean(
+                          onSubmitToClient &&
+                            (!canSubmitToClient || canSubmitToClient(candidate)),
+                        )}
+                        onOpen={() => void onLoadStageOptions?.(candidate)}
+                        onChangeStage={(stageId) => onChangeCandidateStage(candidate, stageId)}
+                        onSubmitToClient={
+                          onSubmitToClient
+                            ? () => {
+                                onSubmitToClient(candidate);
+                              }
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(candidate.stage)}`}
+                      >
+                        {getCandidateStageLabel(candidate.stage)}
+                      </span>
+                    )}
+                  </td>
+                ) : null}
+                {show('owner') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-[10px] font-bold text-white shadow-sm shadow-indigo-500/25">
+                        {(candidate.owner || 'U')
+                          .split(' ')
+                          .filter(Boolean)
+                          .map((n) => n[0])
+                          .join('')}
+                      </div>
+                      <span className="max-w-[80px] truncate text-sm font-medium text-slate-700">
+                        {candidate.owner}
+                      </span>
+                    </div>
+                  </td>
+                ) : null}
+                {show('email') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="max-w-[140px] truncate text-xs text-slate-700" title={candidate.email || undefined}>
+                      {candidate.email || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('phone') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="whitespace-nowrap text-xs tabular-nums text-slate-700">
+                      {candidate.phone || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('source') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="max-w-[100px] truncate text-xs text-slate-700">
+                      {candidate.source || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('hotlist') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    {candidate.hotlist ? (
+                      <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-rose-100">
+                        Yes
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-500">No</span>
+                    )}
+                  </td>
+                ) : null}
+                {show('rating') ? (
+                  <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
+                    <span className="text-xs font-semibold tabular-nums text-slate-700">
+                      {candidate.rating != null && Number(candidate.rating) > 0
+                        ? candidate.rating
+                        : '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('lastActivity') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="max-w-[110px] truncate text-xs text-slate-600">
+                      {candidate.lastActivity || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('skills') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span
+                      className="max-w-[160px] truncate text-xs text-slate-700"
+                      title={
+                        Array.isArray(candidate.skills) && candidate.skills.length > 0
+                          ? candidate.skills.join('; ')
                           : undefined
                       }
-                    />
-                  ) : (
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(candidate.stage)}`}
                     >
-                      {getCandidateStageLabel(candidate.stage)}
+                      {Array.isArray(candidate.skills) && candidate.skills.length > 0
+                        ? candidate.skills.slice(0, 3).join('; ')
+                        : '—'}
                     </span>
-                  )}
-                </td>
-                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold">
-                      {(candidate.owner || 'U').split(' ').filter(Boolean).map((n) => n[0]).join('')}
-                    </div>
-                    <span className="text-sm text-slate-600 truncate max-w-[80px]">{candidate.owner}</span>
-                  </div>
-                </td>
+                  </td>
+                ) : null}
+                {show('noticePeriod') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="whitespace-nowrap text-xs text-slate-700">
+                      {candidate.noticePeriod || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('currentSalary') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="whitespace-nowrap text-xs tabular-nums text-slate-700">
+                      {candidate.salary?.current || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('expectedSalary') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="whitespace-nowrap text-xs tabular-nums text-slate-700">
+                      {candidate.salary?.expected || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('preferredLocation') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="max-w-[120px] truncate text-xs text-slate-700">
+                      {candidate.preferredLocation || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('education') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="max-w-[140px] truncate text-xs text-slate-700">
+                      {candidate.education || '—'}
+                    </span>
+                  </td>
+                ) : null}
+                {show('availability') ? (
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                    <span className="max-w-[100px] truncate text-xs text-slate-700">
+                      {candidate.availability || '—'}
+                    </span>
+                  </td>
+                ) : null}
                 {showAiAlertColumn ? (
-                  <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                     <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[candidate.id]} />
                   </td>
                 ) : null}
-                <TableAuditCell audit={candidate.auditMeta} />
-                <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">
-                  {/* Colored action icons — matches the design used on the
-                      Leads / Clients tabs so each verb has its own hue:
-                      view = blue, message = emerald, edit = amber,
-                      delete = rose. */}
+                {show('audit') ? <TableAuditCell audit={candidate.auditMeta} /> : null}
+                <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5 sm:pr-5">
                   <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
-                    <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
+                    <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-indigo-50/60 p-1 opacity-90 ring-1 ring-indigo-100/80 transition group-hover:opacity-100">
                       <button
                         type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 transition-all hover:bg-white hover:text-emerald-800 hover:shadow-sm"
                         title="WhatsApp"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -531,7 +716,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       {SHOW_TABLE_ROW_EDIT_ICON ? (
                         <button
                           type="button"
-                          className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 transition-all hover:bg-white hover:text-amber-800 hover:shadow-sm"
                           title="Edit candidate"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -544,7 +729,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       {onDeleteCandidate && (
                         <button
                           type="button"
-                          className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 hover:bg-white hover:text-rose-700 hover:shadow-sm transition-all disabled:opacity-50 disabled:pointer-events-none"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 transition-all hover:bg-white hover:text-rose-700 hover:shadow-sm disabled:pointer-events-none disabled:opacity-50"
                           title="Delete candidate"
                           disabled={deletingCandidateId === candidate.id}
                           onClick={(e) => {
