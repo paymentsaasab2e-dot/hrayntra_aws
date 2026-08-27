@@ -426,85 +426,167 @@ async function attachExistingPeopleToUnit(unit, body) {
   };
 }
 
-/** Untagged jobs/leads/clients/candidates → this company/branch id. */
+/** Untagged / HQ / orphan jobs·leads·clients·candidates → this company/branch id. */
 export async function stampUntaggedRecordsToOrgUnit(orgUnitId) {
   const unitId = oid(orgUnitId);
   if (!unitId) return { jobs: 0, leads: 0, clients: 0, candidates: 0 };
-  const untagged = {
-    OR: [{ orgUnitId: null }, { orgUnitId: { isSet: false } }],
-  };
+
+  const units = await prisma.orgUnit.findMany({
+    select: { id: true, parentId: true },
+  });
+  // Anything under HQ (company or branch) already has a real company home.
+  const companyBranchIds = new Set(
+    units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)),
+  );
+
+  async function stampDelegate(delegate) {
+    if (!delegate?.findMany || !delegate?.updateMany) return 0;
+    let rows = [];
+    try {
+      rows = await delegate.findMany({
+        select: { id: true, orgUnitId: true },
+      });
+    } catch {
+      return 0;
+    }
+    const ids = (rows || [])
+      .filter((row) => {
+        const current = row.orgUnitId ? String(row.orgUnitId) : '';
+        // Missing, HQ, or orphan unit → move into this company.
+        return !current || !companyBranchIds.has(current);
+      })
+      .map((row) => String(row.id))
+      .filter(Boolean);
+    if (!ids.length) return 0;
+
+    let stamped = 0;
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      try {
+        const res = await delegate.updateMany({
+          where: { id: { in: chunk } },
+          data: { orgUnitId: unitId },
+        });
+        stamped += Number(res?.count || 0);
+        // If updateMany reports 0 on Mongo, fall back per-id.
+        if (!res?.count) {
+          for (const id of chunk) {
+            try {
+              await delegate.update({
+                where: { id },
+                data: { orgUnitId: unitId },
+              });
+              stamped += 1;
+            } catch {
+              /* skip */
+            }
+          }
+        }
+      } catch {
+        for (const id of chunk) {
+          try {
+            await delegate.update({
+              where: { id },
+              data: { orgUnitId: unitId },
+            });
+            stamped += 1;
+          } catch {
+            /* skip */
+          }
+        }
+      }
+    }
+    return stamped;
+  }
+
   const [jobs, leads, clients, candidates] = await Promise.all([
-    prisma.job.updateMany({ where: untagged, data: { orgUnitId: unitId } }),
-    prisma.lead.updateMany({ where: untagged, data: { orgUnitId: unitId } }),
-    prisma.client.updateMany({ where: untagged, data: { orgUnitId: unitId } }),
-    prisma.candidate.updateMany({ where: untagged, data: { orgUnitId: unitId } }),
+    stampDelegate(prisma.job),
+    stampDelegate(prisma.lead),
+    stampDelegate(prisma.client),
+    stampDelegate(prisma.candidate),
   ]);
-  return {
-    jobs: jobs.count || 0,
-    leads: leads.count || 0,
-    clients: clients.count || 0,
-    candidates: candidates.count || 0,
-  };
+  return { jobs, leads, clients, candidates };
 }
 
-/** Untagged rows owned by these users → this company/branch id. */
+/** Untagged rows owned by these users → this company/branch id (JS filter; Mongo null queries miss unset fields). */
 async function stampUntaggedRecordsOwnedByUsers(orgUnitId, userIds) {
   const unitId = oid(orgUnitId);
-  const ids = (userIds || []).map(oid).filter(Boolean);
-  if (!unitId || !ids.length) return { jobs: 0, leads: 0, clients: 0, candidates: 0 };
+  const ownerIds = new Set((userIds || []).map(oid).filter(Boolean));
+  if (!unitId || !ownerIds.size) return { jobs: 0, leads: 0, clients: 0, candidates: 0 };
 
-  const untagged = {
-    OR: [{ orgUnitId: null }, { orgUnitId: { isSet: false } }],
-  };
-  const jobWhere = {
-    AND: [
-      untagged,
-      {
-        OR: [
-          { assignedToId: { in: ids } },
-          { createdById: { in: ids } },
-          ...ids.map((id) => ({ supportingRecruiters: { has: id } })),
-        ],
-      },
-    ],
-  };
-  const leadWhere = {
-    AND: [
-      untagged,
-      {
-        OR: [
-          { assignedToId: { in: ids } },
-          { createdBy: { in: ids } },
-          ...ids.map((id) => ({ assignedToIds: { has: id } })),
-        ],
-      },
-    ],
-  };
-  const clientWhere = {
-    AND: [
-      untagged,
-      { OR: [{ assignedToId: { in: ids } }, { createdById: { in: ids } }] },
-    ],
-  };
-  const candidateWhere = {
-    AND: [
-      untagged,
-      { OR: [{ assignedToId: { in: ids } }, { createdById: { in: ids } }] },
-    ],
-  };
+  const units = await prisma.orgUnit.findMany({ select: { id: true, parentId: true } });
+  const companyBranchIds = new Set(
+    units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)),
+  );
+
+  function needsHome(orgUnitIdValue) {
+    const current = orgUnitIdValue ? String(orgUnitIdValue) : '';
+    return !current || !companyBranchIds.has(current);
+  }
+
+  function ownedBy(row, fields) {
+    for (const field of fields) {
+      const value = row[field];
+      if (!value) continue;
+      if (Array.isArray(value)) {
+        if (value.some((id) => ownerIds.has(String(id)))) return true;
+      } else if (ownerIds.has(String(value))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function stampOwned(delegate, ownerFields) {
+    if (!delegate?.findMany) return 0;
+    let rows = [];
+    try {
+      const select = { id: true, orgUnitId: true };
+      for (const field of ownerFields) select[field] = true;
+      rows = await delegate.findMany({ select });
+    } catch {
+      return 0;
+    }
+    const ids = (rows || [])
+      .filter((row) => needsHome(row.orgUnitId) && ownedBy(row, ownerFields))
+      .map((row) => String(row.id))
+      .filter(Boolean);
+    if (!ids.length) return 0;
+    let stamped = 0;
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      try {
+        const res = await delegate.updateMany({
+          where: { id: { in: chunk } },
+          data: { orgUnitId: unitId },
+        });
+        const n = Number(res?.count || 0);
+        if (n > 0) {
+          stamped += n;
+          continue;
+        }
+      } catch {
+        /* fall through */
+      }
+      for (const id of chunk) {
+        try {
+          await delegate.update({ where: { id }, data: { orgUnitId: unitId } });
+          stamped += 1;
+        } catch {
+          /* skip */
+        }
+      }
+    }
+    return stamped;
+  }
 
   const [jobs, leads, clients, candidates] = await Promise.all([
-    prisma.job.updateMany({ where: jobWhere, data: { orgUnitId: unitId } }),
-    prisma.lead.updateMany({ where: leadWhere, data: { orgUnitId: unitId } }),
-    prisma.client.updateMany({ where: clientWhere, data: { orgUnitId: unitId } }),
-    prisma.candidate.updateMany({ where: candidateWhere, data: { orgUnitId: unitId } }),
+    stampOwned(prisma.job, ['assignedToId', 'createdById', 'supportingRecruiters']),
+    stampOwned(prisma.lead, ['assignedToId', 'createdBy', 'assignedToIds']),
+    stampOwned(prisma.client, ['assignedToId', 'createdById']),
+    stampOwned(prisma.candidate, ['assignedToId', 'createdById']),
   ]);
-  return {
-    jobs: jobs.count || 0,
-    leads: leads.count || 0,
-    clients: clients.count || 0,
-    candidates: candidates.count || 0,
-  };
+  return { jobs, leads, clients, candidates };
 }
 
 /**
@@ -515,8 +597,20 @@ async function stampUntaggedRecordsOwnedByUsers(orgUnitId, userIds) {
  */
 async function assignExistingSetupToUnit(unit, body = {}) {
   const people = await attachExistingPeopleToUnit(unit, body);
+  const companyCount = await prisma.orgUnit
+    .count({
+      where: { parentId: { not: null }, levelOrder: 2, status: 'active' },
+    })
+    .catch(() => 1);
+
+  // Stamp all leftover CRM rows when adopting, or when this is the only company and people moved in.
+  const stampAll =
+    body.adoptWorkspace === true ||
+    body.stampAllUntagged === true ||
+    (people.userIds.length > 0 && companyCount <= 1);
+
   let stamped;
-  if (body.adoptWorkspace === true || body.stampAllUntagged === true) {
+  if (stampAll) {
     stamped = await stampUntaggedRecordsToOrgUnit(String(unit.id));
   } else if (people.userIds.length) {
     stamped = await stampUntaggedRecordsOwnedByUsers(String(unit.id), people.userIds);
@@ -562,6 +656,7 @@ async function createLoginOnUnit(req, unit, newUser, purpose) {
 }
 
 export async function createOrgUnit(req, body) {
+  if (req) delete req._orgViewerScope;
   const seeded = await ensureOrgDefaults();
   const scope = await resolveViewerOrgScope(req);
   const name = String(body?.name || '').trim();
@@ -660,6 +755,7 @@ export async function deleteOrgUnit(req, id) {
 }
 
 export async function adoptWorkspaceIntoUnit(req, id, body = {}) {
+  if (req) delete req._orgViewerScope;
   const scope = await resolveViewerOrgScope(req);
   if (!scope.isTenantAdmin) {
     throw new Error('Only HQ can move the current tenant workspace into a company or branch.');
@@ -687,6 +783,7 @@ export async function adoptWorkspaceIntoUnit(req, id, body = {}) {
  * Both get the same orgUnitId so switching companies separates people and records.
  */
 export async function stampUntaggedRecordsForUnit(req, id, body = {}) {
+  if (req) delete req._orgViewerScope;
   const scope = await resolveViewerOrgScope(req);
   if (!scope.isTenantAdmin) {
     throw new Error('Only HQ can assign existing users and data to a company.');
