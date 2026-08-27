@@ -301,6 +301,19 @@ async function persistPlacementOfferFile(file) {
   return getPublicFileUrl(file.path);
 }
 
+const PLACEMENT_DOCUMENT_TYPES = new Set([
+  'OFFER_LETTER',
+  'JOINING_LETTER',
+  'INVOICE',
+  'AGREEMENT',
+  'OTHER',
+]);
+
+function normalizePlacementDocumentType(value) {
+  const normalized = String(value || 'OTHER').trim().toUpperCase();
+  return PLACEMENT_DOCUMENT_TYPES.has(normalized) ? normalized : 'OTHER';
+}
+
 function formatPlacementListItem(placement) {
   const latestBilling = placement.billing?.[0] || null;
   // The list query already filters `documents` to documentType OFFER_LETTER
@@ -2041,5 +2054,49 @@ export const placementService = {
         invoiceNumber: refreshed.billing?.[0]?.invoiceNumber || data.invoiceNo,
       },
     };
+  },
+
+  async uploadDocument(id, userId, file, documentType = 'OTHER') {
+    if (!file?.path) {
+      throw new Error('Document file is required');
+    }
+
+    const existing = await prisma.placement.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new Error('Placement not found');
+    }
+
+    const type = normalizePlacementDocumentType(documentType);
+    const fileUrl = await persistPlacementOfferFile(file);
+    if (!fileUrl) {
+      throw new Error('Unable to store document file');
+    }
+
+    await prisma.placementDocument.create({
+      data: {
+        placementId: id,
+        documentType: type,
+        fileUrl,
+        fileName: file.originalname || file.filename || 'document.pdf',
+        uploadedBy: userId,
+      },
+    });
+
+    await prisma.placementActivityLog.create({
+      data: {
+        placementId: id,
+        action: `Document uploaded (${type})`,
+        performedBy: userId,
+        details: {
+          fileName: file.originalname || file.filename || null,
+          documentType: type,
+        },
+      },
+    });
+
+    return fetchPlacementOrThrow(id);
   },
 };

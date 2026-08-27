@@ -37,6 +37,7 @@ import {
   type BackendUser,
   type CreateJobData,
   type JobCreationPipelineResult,
+  type SocialPublishingAccount,
 } from '@/lib/api';
 import {
   apiCreateTenantCompanyPost,
@@ -47,6 +48,12 @@ import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api
 import { RichTextEditor } from '@/components/RichTextEditor';
 import { CreateJobPhase1Preview } from '@/components/jobs/CreateJobPhase1Preview';
 import { PreScreenAssessmentSection } from '@/components/jobs/PreScreenAssessmentSection';
+import { LinkedInPostTemplateModal } from '@/components/jobs/LinkedInPostTemplateModal';
+import { LinkedInAccountsModal } from '@/components/jobs/LinkedInAccountsModal';
+import {
+  linkedInTemplateToPublicVisibility,
+  normalizeLinkedInPostTemplateSchema,
+} from '@/lib/jobLinkedInPostTemplate';
 import {
   CreateJobDetailsForm,
   type CreateJobDetailsFormData,
@@ -503,6 +510,16 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [connectingPlatformId, setConnectingPlatformId] = useState<string | null>(null);
   const [tenantCompanyPage, setTenantCompanyPage] = useState<TenantCompanyPage | null>(null);
   const [loadingCompanyPage, setLoadingCompanyPage] = useState(false);
+  const [showLinkedInTemplateModal, setShowLinkedInTemplateModal] = useState(false);
+  const [selectedLinkedInTemplateId, setSelectedLinkedInTemplateId] = useState<string | null>(null);
+  const [selectedLinkedInTemplateName, setSelectedLinkedInTemplateName] = useState<string | null>(
+    null,
+  );
+  const [showLinkedInAccountsModal, setShowLinkedInAccountsModal] = useState(false);
+  const [linkedinAccounts, setLinkedinAccounts] = useState<SocialPublishingAccount[]>([]);
+  const [selectedLinkedInTargets, setSelectedLinkedInTargets] = useState<string[]>([]);
+  const [disconnectingLinkedInId, setDisconnectingLinkedInId] = useState<string | null>(null);
+  const [linkedinAccountsLoading, setLinkedinAccountsLoading] = useState(false);
 
   const reset = useCallback(() => {
     setStep('client');
@@ -517,6 +534,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setLoadingContacts(false);
     setSkillInput('');
     setDropdownsOpen({});
+    setShowLinkedInTemplateModal(false);
+    setSelectedLinkedInTemplateId(null);
+    setSelectedLinkedInTemplateName(null);
+    setShowLinkedInAccountsModal(false);
+    setLinkedinAccounts([]);
+    setSelectedLinkedInTargets([]);
+    setDisconnectingLinkedInId(null);
+    setLinkedinAccountsLoading(false);
     setJdGenerating(false);
     setJdError('');
     setPastedJobDescriptionText('');
@@ -545,8 +570,24 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
 
   const linkedInRefreshStatus = linkedIn.refreshStatus;
 
+  const mapLinkedInAccounts = useCallback((accounts: SocialPublishingAccount[] = []) => {
+    return accounts.map((account) => ({
+      id: String(account.id || ''),
+      key: String(account.key || account.id || ''),
+      name: String(account.name || 'Account'),
+      type: account.type === 'page' ? ('page' as const) : ('personal' as const),
+      picture: account.picture || null,
+      accountEmail: account.accountEmail || null,
+      connected: account.connected !== false,
+      expired: !!account.expired,
+      organizationId: account.organizationId,
+      parentAccountId: account.parentAccountId,
+    }));
+  }, []);
+
   const loadSocialConnections = useCallback(async () => {
     try {
+      setLinkedinAccountsLoading(true);
       // Prefer the shared social status endpoint; LinkedIn refresh is best-effort
       // and must not block the Log in buttons if the DB is slow.
       const [socialResult] = await Promise.allSettled([
@@ -564,6 +605,16 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         };
         setSocialConnections(nextConnections);
 
+        const nextAccounts = mapLinkedInAccounts(response.data?.linkedin?.accounts || []);
+        const connectedKeys = nextAccounts
+          .filter((account) => account.connected !== false)
+          .map((account) => account.key);
+        setLinkedinAccounts(nextAccounts);
+        setSelectedLinkedInTargets((prev) => {
+          const kept = prev.filter((key) => connectedKeys.includes(key));
+          return kept.length > 0 ? kept : connectedKeys;
+        });
+
         setSelectedDistributionPlatforms((prev) => {
           const next = { ...prev };
           for (const platformId of SOCIAL_AUTH_PLATFORM_IDS) {
@@ -575,11 +626,15 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         });
       } else {
         setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
+        setLinkedinAccounts([]);
       }
     } catch {
       setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
+      setLinkedinAccounts([]);
+    } finally {
+      setLinkedinAccountsLoading(false);
     }
-  }, [linkedInRefreshStatus]);
+  }, [linkedInRefreshStatus, mapLinkedInAccounts]);
 
   useEffect(() => {
     if (!isOpen || publishFlowStep !== 'distribution') return;
@@ -1047,8 +1102,76 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     [socialConnections],
   );
 
+  const openLinkedInAccountsModal = useCallback(() => {
+    setShowLinkedInAccountsModal(true);
+    void loadSocialConnections();
+  }, [loadSocialConnections]);
+
+  const handleDisconnectLinkedInAccount = useCallback(
+    async (accountId: string) => {
+      setDisconnectingLinkedInId(accountId);
+      setError('');
+      try {
+        await linkedIn.disconnect(accountId);
+        await loadSocialConnections();
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Could not disconnect LinkedIn account.');
+      } finally {
+        setDisconnectingLinkedInId(null);
+      }
+    },
+    [linkedIn, loadSocialConnections],
+  );
+
+  const handleLinkedInAccountsDone = useCallback(() => {
+    markWizardDirty();
+    if (selectedLinkedInTargets.length > 0) {
+      setSelectedDistributionPlatforms((prev) => ({
+        ...prev,
+        linkedin: true,
+      }));
+      setSocialConnections((prev) => ({ ...prev, linkedin: true }));
+    } else {
+      setSelectedDistributionPlatforms((prev) => {
+        const next = { ...prev };
+        delete next.linkedin;
+        return next;
+      });
+    }
+  }, [markWizardDirty, selectedLinkedInTargets.length]);
+
   const toggleDistributionPlatform = (platformId: string) => {
     if (isComingSoonPlatform(platformId)) {
+      return;
+    }
+    if (platformId === 'linkedin') {
+      const currentlySelected = Boolean(selectedDistributionPlatforms.linkedin);
+      // Deselect: turn off posting without opening the accounts popup.
+      if (currentlySelected) {
+        markWizardDirty();
+        setSelectedDistributionPlatforms((prev) => {
+          const next = { ...prev };
+          delete next.linkedin;
+          return next;
+        });
+        return;
+      }
+      // Select: require at least one connected account (open picker if needed).
+      if (!isSocialPlatformConnected('linkedin') || linkedinAccounts.length === 0) {
+        openLinkedInAccountsModal();
+        return;
+      }
+      markWizardDirty();
+      setSelectedDistributionPlatforms((prev) => ({
+        ...prev,
+        linkedin: true,
+      }));
+      if (selectedLinkedInTargets.length === 0) {
+        const keys = linkedinAccounts
+          .filter((account) => account.connected !== false)
+          .map((account) => account.key);
+        setSelectedLinkedInTargets(keys);
+      }
       return;
     }
     if (activeDistributionTab === 'social_media' && !isSocialPlatformConnected(platformId)) {
@@ -1961,7 +2084,13 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => void handleConnectSocialPlatform(platform.id)}
+                                onClick={() => {
+                                  if (platform.id === 'linkedin') {
+                                    openLinkedInAccountsModal();
+                                    return;
+                                  }
+                                  void handleConnectSocialPlatform(platform.id);
+                                }}
                                 disabled={isConnecting}
                                 className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2098C8]/40 bg-[#E8F6FC]/70 px-3 py-1.5 text-xs font-semibold text-[#176F96] transition hover:border-[#2098C8] hover:bg-[#E8F6FC] disabled:cursor-wait disabled:opacity-60"
                               >
@@ -1977,7 +2106,60 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                         );
                       }
 
-                      return (
+                      return platform.id === 'linkedin' ? (
+                        <div
+                          key={platform.id}
+                          className={`flex items-center gap-2 rounded-xl border px-3 py-3 transition ${
+                            selected
+                              ? 'border-[#2098C8] bg-gradient-to-r from-[#E8F6FC]/90 to-white shadow-sm ring-1 ring-[#2098C8]/20'
+                              : 'border-slate-200/80 bg-white'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleDistributionPlatform('linkedin')}
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            aria-pressed={selected}
+                          >
+                            <span
+                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                                selected
+                                  ? 'bg-[#2098C8] text-white'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              <Linkedin className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-medium text-slate-800">
+                                LinkedIn
+                              </span>
+                              <span className="block text-[0.7rem] text-slate-500">
+                                {selected
+                                  ? 'Will post on LinkedIn'
+                                  : 'Not selected — click to post'}
+                              </span>
+                            </span>
+                            <span
+                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                                selected
+                                  ? 'border-[#2098C8] bg-[#2098C8] text-white'
+                                  : 'border-slate-200 bg-white'
+                              }`}
+                            >
+                              {selected ? <Check className="h-3 w-3" /> : null}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openLinkedInAccountsModal()}
+                            className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                            title="Manage LinkedIn accounts"
+                          >
+                            Accounts
+                          </button>
+                        </div>
+                      ) : (
                         <button
                           key={platform.id}
                           type="button"
@@ -2023,6 +2205,50 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                     })}
                   </div>
                   )}
+
+                  {activeDistributionTab === 'social_media' &&
+                  isSocialPlatformConnected('linkedin') ? (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900">
+                            LinkedIn post templates
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            Create multiple templates, edit any of them, and drag sections into the
+                            order used when posting to LinkedIn.
+                          </p>
+                          {selectedLinkedInTemplateName ? (
+                            <p className="mt-1.5 text-xs font-medium text-[#176F96]">
+                              Using: {selectedLinkedInTemplateName}
+                            </p>
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          {selectedLinkedInTemplateId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedLinkedInTemplateId(null);
+                                setSelectedLinkedInTemplateName(null);
+                              }}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                              Clear
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setShowLinkedInTemplateModal(true)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2098C8] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1A86B3]"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            Manage templates
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </motion.div>
             ) : null}
@@ -2232,6 +2458,39 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           onClientCreated={handleClientCreatedFromWizard}
         />
       ) : null}
+
+      <LinkedInAccountsModal
+        isOpen={showLinkedInAccountsModal}
+        onClose={() => setShowLinkedInAccountsModal(false)}
+        accounts={linkedinAccounts}
+        selectedKeys={selectedLinkedInTargets}
+        onSelectionChange={(keys) => {
+          markWizardDirty();
+          setSelectedLinkedInTargets(keys);
+        }}
+        onConnect={() => void handleConnectSocialPlatform('linkedin')}
+        onDisconnect={(accountId) => void handleDisconnectLinkedInAccount(accountId)}
+        connecting={connectingPlatformId === 'linkedin'}
+        disconnectingId={disconnectingLinkedInId}
+        loading={linkedinAccountsLoading || linkedIn.isLoading}
+        onDone={handleLinkedInAccountsDone}
+      />
+
+      <LinkedInPostTemplateModal
+        isOpen={showLinkedInTemplateModal}
+        onClose={() => setShowLinkedInTemplateModal(false)}
+        selectedTemplateId={selectedLinkedInTemplateId}
+        onApply={(template) => {
+          const schema = normalizeLinkedInPostTemplateSchema(template.schema);
+          const visibility = linkedInTemplateToPublicVisibility(schema);
+          setSelectedLinkedInTemplateId(template.id);
+          setSelectedLinkedInTemplateName(template.name);
+          patchDraft({
+            publicFieldVisibility: visibility,
+            showClientNamePublicly: visibility.client !== false,
+          });
+        }}
+      />
     </div>
   );
 }

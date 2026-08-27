@@ -206,18 +206,20 @@ export function FiltersBar({
         </div>
 
         <div
-          className={`flex items-center justify-between ${embedded ? 'border-t border-indigo-100/40 pt-3' : ''}`}
+          className={`flex items-center justify-between ${embedded ? 'pt-1' : ''}`}
         >
-          <div
-            className={`inline-flex items-center gap-2 font-semibold uppercase tracking-wide ${embedded ? 'text-[10px] text-indigo-950/50' : 'text-xs text-[#6B7280]'}`}
-          >
-            <Filter className={embedded ? 'h-3.5 w-3.5 text-indigo-400' : 'h-4 w-4'} />
-            Filters
-          </div>
+          {!embedded ? (
+            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
+              <Filter className="h-4 w-4" />
+              Filters
+            </div>
+          ) : (
+            <span />
+          )}
           <div className="flex flex-wrap items-center gap-2">
             {embedded && totalCount !== undefined ? (
               <span className="text-[11px] font-medium text-slate-500">
-                Total: <span className="font-semibold text-slate-800">{totalCount}</span>
+                Total: <span className="font-semibold text-slate-800">{totalCount.toLocaleString()}</span>
               </span>
             ) : null}
             {embedded && hasActiveFilters ? (
@@ -227,7 +229,7 @@ export function FiltersBar({
                 className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
               >
                 <X className="h-3.5 w-3.5 shrink-0 text-rose-500" />
-                Clear
+                Clear filters
               </button>
             ) : null}
             {!embedded ? (

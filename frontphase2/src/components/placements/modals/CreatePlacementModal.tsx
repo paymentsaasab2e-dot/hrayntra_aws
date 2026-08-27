@@ -45,7 +45,6 @@ export function CreatePlacementDrawer({
   const [form, setForm] = useState(initialState);
   const [offerLetter, setOfferLetter] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [feeEditedManually, setFeeEditedManually] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -56,7 +55,6 @@ export function CreatePlacementDrawer({
       }));
       setOfferLetter(null);
       setErrors({});
-      setFeeEditedManually(false);
     }
   }, [isOpen, currentUserId]);
 
@@ -64,20 +62,20 @@ export function CreatePlacementDrawer({
 
   useEffect(() => {
     const salary = Number(form.offerSalary || 0);
-    if (salary > 0 && !feeEditedManually) {
+    const pct = Number(form.commissionPercentage || 0);
+    if (salary > 0 && pct > 0) {
       setForm((current) => ({
         ...current,
-        placementFee: String(Math.round(calculatePlacementFee(salary, 10))),
+        placementFee: String(Math.round(calculatePlacementFee(salary, pct))),
       }));
     }
-  }, [form.offerSalary, feeEditedManually]);
+  }, [form.offerSalary, form.commissionPercentage]);
 
   const validate = () => {
     const nextErrors: Record<string, string> = {};
     if (!form.candidateId) nextErrors.candidateId = 'Candidate is required';
     if (!form.jobId) nextErrors.jobId = 'Job is required';
     if (!form.offerSalary || Number(form.offerSalary) <= 0) nextErrors.offerSalary = 'Offer salary is required';
-    if (!form.placementFee || Number(form.placementFee) <= 0) nextErrors.placementFee = 'Placement fee is required';
     if (!form.offerDate) nextErrors.offerDate = 'Offer date is required';
     if (!form.employmentType) nextErrors.employmentType = 'Employment type is required';
     setErrors(nextErrors);
@@ -182,20 +180,6 @@ export function CreatePlacementDrawer({
                   className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
                 />
                 {errors.offerSalary ? <p className="mt-1 text-xs text-red-600">{errors.offerSalary}</p> : null}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Placement Fee*</label>
-                <input
-                  type="number"
-                  value={form.placementFee}
-                  onChange={(event) => {
-                    setFeeEditedManually(true);
-                    setForm((current) => ({ ...current, placementFee: event.target.value }));
-                  }}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
-                />
-                {errors.placementFee ? <p className="mt-1 text-xs text-red-600">{errors.placementFee}</p> : null}
               </div>
 
               <div>

@@ -1525,7 +1525,7 @@ export function SubmitToClientDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => void requestClose()}
-            className="fixed inset-0 z-[115] bg-slate-900/45"
+            className="fixed inset-0 z-[155] bg-slate-900/45"
             data-drawer-skip-dirty="true"
           />
           <motion.aside
@@ -1534,7 +1534,7 @@ export function SubmitToClientDrawer({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[116] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
+            className="fixed right-0 top-0 z-[160] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>

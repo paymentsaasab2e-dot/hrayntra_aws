@@ -3247,10 +3247,31 @@ export function JobDetailsDrawer({
           ? ({ candidateId, jobId }) => {
               const source = displayJobCandidates.find((c) => c.id === candidateId);
               if (!source) return;
-              setMoveStageModalOpen(false);
-              setMoveStageCandidate(null);
+              // Keep Move stage open so Cancel on Submit to client returns here.
               setSubmitClientRowId(candidateId);
               openFromJobDrawerRow(source, jobId, job.title, job.clientId);
+            }
+          : undefined
+      }
+      onRequestScheduleInterview={
+        onScheduleInterview
+          ? ({ candidateId, jobId, stage, stageId }) => {
+              // Keep Move stage open so Cancel on Schedule Interview returns here.
+              onScheduleInterview(candidateId, jobId, {
+                stageId: stageId || '',
+                stageName: stage,
+              });
+            }
+          : undefined
+      }
+      onRequestOfferPlacement={
+        onCreatePlacement
+          ? ({ candidateId, jobId, stage, stageId }) => {
+              // Keep Move stage open so Cancel on Placement returns here.
+              onCreatePlacement(candidateId, jobId, {
+                stageId: stageId || '',
+                stageName: stage,
+              });
             }
           : undefined
       }

@@ -111,6 +111,8 @@ import {
   isSubmitToClientStageOption,
   SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
   SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
+  isInterviewPipelineStage,
+  isOfferPipelineStage,
 } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
@@ -217,6 +219,20 @@ interface CandidateProfileDrawerProps {
     jobId?: string
   ) => void | Promise<void>;
   onScheduleInterview?: (interviewData: CandidateScheduledInterview) => void | Promise<void>;
+  /** From Move stage → Interviewing: open Schedule Interview (stage after success). */
+  onMoveStageScheduleInterview?: (payload: {
+    candidateId: string;
+    jobId: string;
+    stage: string;
+    stageId?: string;
+  }) => void;
+  /** From Move stage → Offer: open Create Placement (stage after success). */
+  onMoveStageCreatePlacement?: (payload: {
+    candidateId: string;
+    jobId: string;
+    stage: string;
+    stageId?: string;
+  }) => void;
   onUpdateCandidate?: (candidateId: string, payload: UpdateCandidatePayload) => void | Promise<void>;
   /** Reload candidate after CV editor save (e.g. loadCandidateProfile). */
   onRefreshCandidate?: (candidateId: string) => void | Promise<void>;
@@ -605,6 +621,20 @@ export interface AddToPipelineModalProps {
   onRequestReject?: (payload: { candidateId: string; jobId: string }) => void;
   /** Opens Submit to client when user picks that option in the stage dropdown. */
   onRequestSubmitToClient?: (payload: { candidateId: string; jobId: string }) => void;
+  /** Opens Schedule Interview when user picks Interviewing (stage applies after schedule). */
+  onRequestScheduleInterview?: (payload: {
+    candidateId: string;
+    jobId: string;
+    stage: string;
+    stageId?: string;
+  }) => void;
+  /** Opens Create Placement when user picks Offer (stage applies after placement). */
+  onRequestOfferPlacement?: (payload: {
+    candidateId: string;
+    jobId: string;
+    stage: string;
+    stageId?: string;
+  }) => void;
 }
 
 const PIPELINE_REJECTED_STAGE = 'Rejected';
@@ -1540,14 +1570,14 @@ export function ScheduleInterviewModal({
       {isOpen ? (
         <>
           <motion.div
-            className="fixed inset-0 z-[130] bg-slate-950/45"
+            className="fixed inset-0 z-[155] bg-slate-950/45"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
           <motion.div
-            className="fixed inset-x-0 bottom-0 top-14 z-[140] md:inset-0 md:flex md:items-center md:justify-center md:p-4"
+            className="fixed inset-x-0 bottom-0 top-14 z-[160] md:inset-0 md:flex md:items-center md:justify-center md:p-4"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
@@ -2361,6 +2391,8 @@ export function AddToPipelineModal({
   onRemoveFromPipeline,
   onRequestReject,
   onRequestSubmitToClient,
+  onRequestScheduleInterview,
+  onRequestOfferPlacement,
 }: AddToPipelineModalProps) {
   const [jobSearch, setJobSearch] = useState('');
   const [recruiterSearch, setRecruiterSearch] = useState('');
@@ -2374,7 +2406,7 @@ export function AddToPipelineModal({
   const [priority, setPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<{ job?: string; stage?: string }>({});
-  const [jobStageOptions, setJobStageOptions] = useState<string[]>([]);
+  const [jobStageOptions, setJobStageOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingJobStages, setLoadingJobStages] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [jobDropdownOpen, setJobDropdownOpen] = useState(false);
@@ -2384,6 +2416,7 @@ export function AddToPipelineModal({
   const [recentlyUpdatedJobId, setRecentlyUpdatedJobId] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
   const [addNewJobMode, setAddNewJobMode] = useState(false);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
 
   const jobDropdownRef = useRef<HTMLDivElement | null>(null);
   const stageDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -2414,6 +2447,7 @@ export function AddToPipelineModal({
       setRecentlyUpdatedJobId(null);
       setRemoving(false);
       setAddNewJobMode(false);
+      setShowMoreOptions(false);
       setPipelineJobOptions(jobs);
       setLoadingJobs(false);
       return;
@@ -2556,15 +2590,18 @@ export function AddToPipelineModal({
         setLoadingJobStages(true);
         const response = await apiGetJob(selectedJobId);
         const backendJob = (response as any).data?.data || (response as any).data || response;
-        const stageNames: string[] = Array.isArray(backendJob?.pipelineStages)
+        const stages: Array<{ id: string; name: string }> = Array.isArray(backendJob?.pipelineStages)
           ? backendJob.pipelineStages
-              .map((stage: any) => String(stage?.name || '').trim())
-              .filter(Boolean)
+              .map((stage: any) => ({
+                id: String(stage?.id || '').trim(),
+                name: String(stage?.name || '').trim(),
+              }))
+              .filter((stage: { id: string; name: string }) => stage.name)
           : [];
 
-        const withRejected = stageNames.some((name) => isRejectedPipelineStage(name))
-          ? stageNames
-          : [...stageNames, PIPELINE_REJECTED_STAGE];
+        const withRejected = stages.some((stage) => isRejectedPipelineStage(stage.name))
+          ? stages
+          : [...stages, { id: '', name: PIPELINE_REJECTED_STAGE }];
         setJobStageOptions(withRejected);
       } catch (error) {
         console.error('Failed to load pipeline stages for selected job:', error);
@@ -2658,6 +2695,49 @@ export function AddToPipelineModal({
     return true;
   };
 
+  const resolveStageMeta = (stageName: string) => {
+    const normalized = stageName.trim().toLowerCase();
+    const match = jobStageOptions.find(
+      (stage) => stage.name.trim().toLowerCase() === normalized,
+    );
+    return {
+      stage: match?.name || stageName.trim(),
+      stageId: match?.id || undefined,
+    };
+  };
+
+  const openInterviewFlowForSelectedJob = (stageName: string) => {
+    if (!candidate?.id || !onRequestScheduleInterview) return false;
+    if (!selectedJobId) {
+      setErrors((prev) => ({ ...prev, job: 'Select a job before scheduling an interview' }));
+      return true;
+    }
+    const meta = resolveStageMeta(stageName);
+    onRequestScheduleInterview({
+      candidateId: candidate.id,
+      jobId: selectedJobId,
+      stage: meta.stage,
+      stageId: meta.stageId,
+    });
+    return true;
+  };
+
+  const openOfferFlowForSelectedJob = (stageName: string) => {
+    if (!candidate?.id || !onRequestOfferPlacement) return false;
+    if (!selectedJobId) {
+      setErrors((prev) => ({ ...prev, job: 'Select a job before creating a placement' }));
+      return true;
+    }
+    const meta = resolveStageMeta(stageName);
+    onRequestOfferPlacement({
+      candidateId: candidate.id,
+      jobId: selectedJobId,
+      stage: meta.stage,
+      stageId: meta.stageId,
+    });
+    return true;
+  };
+
   const handleSelectStageFromDropdown = (stageName: string) => {
     if (!stageName) return;
     const normalized = stageName.trim();
@@ -2670,8 +2750,14 @@ export function AddToPipelineModal({
       openRejectFlowForSelectedJob();
       return;
     }
-    const without = stagePath.filter((s) => s.toLowerCase() !== normalized.toLowerCase());
-    syncStageFromPath([...without, normalized]);
+    if (isInterviewPipelineStage(normalized)) {
+      if (openInterviewFlowForSelectedJob(normalized)) return;
+    }
+    if (isOfferPipelineStage(normalized)) {
+      if (openOfferFlowForSelectedJob(normalized)) return;
+    }
+    // Move mode: one target stage. Add mode: keep a simple selected stage.
+    syncStageFromPath([normalized]);
     setErrors((prev) => ({ ...prev, stage: undefined }));
   };
 
@@ -2755,6 +2841,14 @@ export function AddToPipelineModal({
       return;
     }
 
+    if (isInterviewPipelineStage(targetStage)) {
+      if (openInterviewFlowForSelectedJob(targetStage)) return;
+    }
+
+    if (isOfferPipelineStage(targetStage)) {
+      if (openOfferFlowForSelectedJob(targetStage)) return;
+    }
+
     try {
       setSubmitting(true);
       await Promise.resolve(
@@ -2762,7 +2856,6 @@ export function AddToPipelineModal({
           candidateId: candidate.id,
           jobId: selectedJobId,
           stage: targetStage,
-          recruiterId: selectedRecruiterId || undefined,
           priority,
           notes: notes.trim() || undefined,
         })
@@ -2788,12 +2881,17 @@ export function AddToPipelineModal({
     }
   };
 
+  const candidateInitials = getAvatarInitials(candidate?.name || 'Candidate');
+  const showStageSection = (isMoveMode || addNewJobMode) && Boolean(selectedJobId);
+  const canSubmitMove = !isMoveMode || Boolean(stageChanged);
+  const primaryDisabled = submitting || (isMoveMode && !stageChanged);
+
   return (
     <AnimatePresence>
       {isOpen ? (
         <>
           <motion.div
-            className="fixed inset-0 z-[130] bg-slate-950/45"
+            className="fixed inset-0 z-[130] bg-slate-950/50 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2801,120 +2899,138 @@ export function AddToPipelineModal({
           />
           <motion.div
             className="fixed inset-0 z-[140] flex items-center justify-center p-4"
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
+            initial={{ opacity: 0, y: 14, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 32 }}
           >
-            <div className="flex max-h-[min(90vh,760px)] w-full max-w-[520px] flex-col rounded-3xl border border-slate-200 bg-white shadow-2xl">
-              <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {isMoveMode ? 'Move candidate stage' : 'Add Candidate to Pipeline'}
-                  </h3>
-                  {candidate?.name ? (
-                    <p className="mt-0.5 text-sm text-slate-500">{candidate.name}</p>
-                  ) : null}
-                  <p className="mt-1 text-xs text-slate-500">
-                    {isMoveMode
-                      ? 'Select a stage for this job pipeline or update assignment.'
-                      : 'Assign this candidate to a job pipeline.'}
-                  </p>
+            <div
+              className="flex max-h-[min(90vh,620px)] w-full max-w-[460px] flex-col overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_-28px_rgba(15,23,42,0.55)] ring-1 ring-slate-200/80"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="relative shrink-0 overflow-hidden px-5 pb-4 pt-5">
+                <div
+                  className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_80%_at_0%_0%,rgba(99,102,241,0.14),transparent_55%),linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)]"
+                  aria-hidden
+                />
+                <div
+                  className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-indigo-500 via-sky-400 to-teal-400"
+                  aria-hidden
+                />
+                <div className="relative flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="relative">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-[12px] font-bold tracking-wide text-white shadow-lg shadow-indigo-500/30">
+                        {candidateInitials}
+                      </div>
+                      <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-500">
+                        Pipeline
+                      </p>
+                      <h3 className="truncate text-[17px] font-semibold tracking-tight text-slate-900">
+                        {isMoveMode ? 'Move stage' : 'Add to pipeline'}
+                      </h3>
+                      <p className="truncate text-sm text-slate-500">
+                        {candidate?.name || 'Candidate'}
+                        {selectedJob?.title ? (
+                          <span className="text-slate-400"> · {selectedJob.title}</span>
+                        ) : null}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="rounded-xl bg-white/80 p-2 text-slate-400 shadow-sm ring-1 ring-slate-200/80 transition-colors hover:bg-white hover:text-slate-700"
+                    aria-label="Close"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                >
-                  <X size={18} />
-                </button>
               </div>
 
-              <div
-                ref={formSectionRef}
-                className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5"
-              >
-                {existingPipelineEntries.length > 0 ? (
-                  <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Briefcase size={16} className="text-slate-500" />
-                        <h4 className="text-sm font-semibold text-slate-900">Assigned jobs</h4>
-                      </div>
-                      <span className="text-xs font-medium text-slate-500">
-                        {existingPipelineEntries.length}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">Click a job to move stage or update assignment.</p>
-                    <ul className="mt-3 space-y-2">
-                      {existingPipelineEntries.map((row, idx) => {
-                        const key = row.pipelineEntryId || row.id || `${row.title}-${idx}`;
-                        const stageLabel =
-                          String(row.stage || '').trim() ||
-                          getCandidateStageLabel(row.status);
-                        const badgeClasses = getCandidateStageBadgeClasses(row.stage || row.status);
-                        const rowJobId = row.id ? String(row.id) : '';
-                        const isActiveRow = editingJobId === rowJobId;
-                        return (
-                          <li key={key}>
-                            <button
-                              type="button"
-                              onClick={() => loadEntryIntoForm(row)}
-                              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-left transition-colors ${
-                                isActiveRow
-                                  ? 'border-blue-300 ring-2 ring-blue-100'
-                                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-medium text-slate-800">{row.title}</p>
-                                  {row.department ? (
-                                    <p className="mt-0.5 truncate text-xs text-slate-500">{row.department}</p>
-                                  ) : null}
-                                  {row.movedAt ? (
-                                    <p className="mt-0.5 text-xs text-slate-500">
-                                      Updated {formatDateDMY(row.movedAt)}
-                                    </p>
-                                  ) : null}
-                                  {recentlyUpdatedJobId === rowJobId ? (
-                                    <p className="mt-1 text-xs font-semibold text-emerald-700">Just updated</p>
-                                  ) : null}
-                                </div>
-                                <span
-                                  className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${badgeClasses}`}
-                                >
-                                  {stageLabel}
+              <div ref={formSectionRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-5">
+                {/* Job */}
+                <section>
+                  <div className="mb-2.5 flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                      <Briefcase size={13} />
+                    </span>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Job
+                    </label>
+                  </div>
+                  {existingPipelineEntries.length > 0 && !addNewJobMode ? (
+                    <div className="space-y-2">
+                      {existingPipelineEntries.length === 1 ? (
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 to-white px-4 py-3.5 shadow-sm">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">
+                              {existingPipelineEntries[0].title}
+                            </p>
+                            {currentStageOnEntry ? (
+                              <p className="mt-1 text-xs text-slate-500">
+                                Currently in{' '}
+                                <span className="font-semibold text-slate-700">
+                                  {currentStageOnEntry}
                                 </span>
-                              </div>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    {!addNewJobMode ? (
+                              </p>
+                            ) : null}
+                          </div>
+                          <span
+                            className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${getCandidateStageBadgeClasses(
+                              existingPipelineEntries[0].stage || existingPipelineEntries[0].status,
+                            )}`}
+                          >
+                            {String(existingPipelineEntries[0].stage || '').trim() ||
+                              getCandidateStageLabel(existingPipelineEntries[0].status)}
+                          </span>
+                        </div>
+                      ) : (
+                        <select
+                          value={selectedJobId}
+                          onChange={(e) => {
+                            const row = existingPipelineEntries.find(
+                              (item) => item.id && String(item.id) === e.target.value,
+                            );
+                            if (row) loadEntryIntoForm(row);
+                          }}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100/80"
+                        >
+                          {existingPipelineEntries.map((row, idx) => (
+                            <option key={row.pipelineEntryId || row.id || idx} value={row.id || ''}>
+                              {row.title}
+                              {row.stage ? ` (${row.stage})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       <button
                         type="button"
                         onClick={startAddNewJob}
-                        className="mt-3 text-xs font-semibold text-blue-700 hover:text-blue-800"
+                        className="inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
                       >
-                        + Add another job to pipeline
+                        <Plus size={13} />
+                        Add another job
                       </button>
-                    ) : null}
-                  </section>
-                ) : null}
+                    </div>
+                  ) : null}
 
-                {addNewJobMode && !(lockJobToInitial && initialJobId) ? (
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Select Job</label>
+                  {addNewJobMode && !(lockJobToInitial && initialJobId) ? (
                     <div className="relative" ref={jobDropdownRef}>
                       <button
                         type="button"
                         onClick={() => setJobDropdownOpen((prev) => !prev)}
-                        className={`flex w-full items-center justify-between rounded-xl border bg-white px-3 py-2.5 text-left text-sm ${
-                          errors.job ? 'border-red-300' : 'border-slate-200'
+                        className={`flex w-full items-center justify-between rounded-2xl border bg-white px-3.5 py-3 text-left text-sm shadow-sm transition-shadow ${
+                          errors.job
+                            ? 'border-red-300'
+                            : 'border-slate-200 hover:border-slate-300 focus:ring-4 focus:ring-indigo-100/80'
                         }`}
                       >
-                        <span className={selectedJob ? 'text-slate-700' : 'text-slate-400'}>
+                        <span className={selectedJob ? 'font-medium text-slate-800' : 'text-slate-400'}>
                           {selectedJob
                             ? `${selectedJob.title}${selectedJob.department ? ` · ${selectedJob.department}` : ''}`
                             : 'Search and select job'}
@@ -2922,18 +3038,18 @@ export function AddToPipelineModal({
                         <Search size={16} className="text-slate-400" />
                       </button>
                       {jobDropdownOpen ? (
-                        <div className="absolute left-0 right-0 top-12 z-10 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                        <div className="absolute left-0 right-0 top-[3.25rem] z-10 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-300/40">
                           <input
                             value={jobSearch}
                             onChange={(e) => setJobSearch(e.target.value)}
-                            placeholder="Search job title or department"
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                            placeholder="Search jobs"
+                            className="mb-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                           />
-                          <div className="mt-3 max-h-48 overflow-y-auto">
+                          <div className="max-h-40 overflow-y-auto">
                             {loadingJobs ? (
-                              <p className="px-3 py-2 text-sm text-slate-500">Loading jobs…</p>
+                              <p className="px-2 py-2 text-sm text-slate-500">Loading…</p>
                             ) : filteredJobs.length === 0 ? (
-                              <p className="px-3 py-2 text-sm text-slate-500">No jobs available</p>
+                              <p className="px-2 py-2 text-sm text-slate-500">No jobs</p>
                             ) : (
                               filteredJobs.map((job) => (
                                 <button
@@ -2941,7 +3057,7 @@ export function AddToPipelineModal({
                                   type="button"
                                   onClick={() => {
                                     const existing = existingPipelineEntries.find(
-                                      (row) => row.id && String(row.id) === job.id
+                                      (row) => row.id && String(row.id) === job.id,
                                     );
                                     setSelectedJobId(job.id);
                                     setJobSearch('');
@@ -2956,294 +3072,167 @@ export function AddToPipelineModal({
                                       setNotes('');
                                     }
                                   }}
-                                  className="flex w-full items-start justify-between rounded-xl px-3 py-2 text-left hover:bg-slate-50"
+                                  className="flex w-full rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-indigo-50"
                                 >
-                                  <div>
-                                    <p className="text-sm font-medium text-slate-800">{job.title}</p>
-                                    <p className="text-xs text-slate-500">{job.department || 'No department'}</p>
-                                  </div>
-                                  {selectedJobId === job.id ? (
-                                    <Check size={15} className="mt-1 text-blue-600" />
-                                  ) : null}
+                                  <span className="font-medium text-slate-800">{job.title}</span>
                                 </button>
                               ))
                             )}
                           </div>
                         </div>
                       ) : null}
+                      {errors.job ? <p className="mt-1 text-xs text-red-600">{errors.job}</p> : null}
                     </div>
-                    {errors.job ? <p className="mt-1 text-xs text-red-600">{errors.job}</p> : null}
-                  </div>
-                ) : null}
+                  ) : null}
 
-                {addNewJobMode && lockJobToInitial && initialJobId && selectedJob ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Job</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">{selectedJob.title}</p>
-                    {selectedJob.department ? (
-                      <p className="text-xs text-slate-500">{selectedJob.department}</p>
-                    ) : null}
-                  </div>
-                ) : null}
+                  {addNewJobMode && lockJobToInitial && initialJobId && selectedJob ? (
+                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900">
+                      {selectedJob.title}
+                    </div>
+                  ) : null}
+                </section>
 
-                {(isMoveMode || addNewJobMode) && selectedJobId ? (
-                  <div>
-                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                      {isMoveMode ? 'Move to stage' : 'Pipeline stages'}
-                    </label>
-                    {isMoveMode && currentStageOnEntry ? (
-                      <div className="mb-3 flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-slate-500">Current stage:</span>
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${getCandidateStageBadgeClasses(currentStageOnEntry)}`}
-                        >
-                          {currentStageOnEntry}
+                {/* Stage */}
+                {showStageSection ? (
+                  <section>
+                    <div className="mb-2.5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                          <LayoutGrid size={13} />
                         </span>
-                        {stageChanged && targetStage ? (
-                          <span className="text-xs font-medium text-blue-700">→ {targetStage}</span>
-                        ) : null}
-                        {stagePath.some(
-                          (stage, index) =>
-                            stage.toLowerCase() === currentStageOnEntry.toLowerCase() &&
-                            index === stagePath.length - 1
-                        ) ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const idx = stagePath.findIndex(
-                                (stage) => stage.toLowerCase() === currentStageOnEntry.toLowerCase()
-                              );
-                              if (idx >= 0) handleRemoveStageFromPath(idx);
-                            }}
-                            className="text-xs font-semibold text-red-600 hover:text-red-700"
-                          >
-                            Remove
-                          </button>
-                        ) : null}
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {isMoveMode ? 'New stage' : 'Stage'}
+                        </label>
                       </div>
-                    ) : null}
+                      {isMoveMode && currentStageOnEntry && stageChanged ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                          {currentStageOnEntry}
+                          <ArrowRightCircle size={12} />
+                          {targetStage}
+                        </span>
+                      ) : null}
+                    </div>
 
                     {loadingJobStages ? (
                       <p className="text-sm text-slate-500">Loading stages…</p>
                     ) : jobStageOptions.length === 0 && !onRequestSubmitToClient ? (
-                      <p className="text-sm text-slate-500">No pipeline configured for this job</p>
+                      <p className="text-sm text-slate-500">No pipeline stages for this job</p>
                     ) : (
-                      <div className="space-y-3">
-                        {stagePath.length > 0 ? (
-                          <ol className="space-y-2">
-                            {stagePath.map((stage, index) => {
-                              const isCurrent = index === stagePath.length - 1;
-                              return (
-                                <li key={`${stage}-${index}`} className="flex items-center gap-2">
-                                  {index > 0 ? (
-                                    <ArrowRightCircle size={14} className="shrink-0 text-slate-300" />
-                                  ) : (
-                                    <span className="w-[14px] shrink-0" />
-                                  )}
-                                  <div
-                                    className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border px-3 py-2 ${
-                                      isCurrent
-                                        ? 'border-blue-200 bg-blue-50'
-                                        : 'border-slate-200 bg-white'
-                                    }`}
-                                  >
-                                    <div className="min-w-0">
-                                      <span
-                                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${getCandidateStageBadgeClasses(stage)}`}
-                                      >
-                                        {stage}
-                                      </span>
-                                      {isCurrent ? (
-                                        <p className="mt-1 text-[10px] font-medium text-blue-700">
-                                          {isMoveMode ? 'Target stage' : 'Selected stage'}
-                                        </p>
-                                      ) : null}
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveStageFromPath(index)}
-                                      className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-red-600"
-                                      aria-label={`Remove ${stage}`}
-                                      title="Remove stage"
-                                    >
-                                      <X size={14} />
-                                    </button>
-                                  </div>
-                                </li>
-                              );
-                            })}
-                          </ol>
-                        ) : (
-                          <p className="text-sm text-slate-500">No stage selected yet. Choose one from the dropdown.</p>
-                        )}
-
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-slate-600">Select stage</label>
-                          <select
-                            value={stagePickerValue}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setStagePickerValue(value);
-                              if (value) {
-                                handleSelectStageFromDropdown(value);
-                                setStagePickerValue('');
+                      <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3">
+                        <div className="flex flex-wrap gap-2">
+                          {jobStageOptions.map((stage) => {
+                            const stageName = stage.name;
+                            const isCurrent =
+                              isMoveMode &&
+                              currentStageOnEntry.toLowerCase() === stageName.toLowerCase();
+                            const isSelected =
+                              targetStage?.toLowerCase() === stageName.toLowerCase();
+                            const isTarget = isSelected && (!isCurrent || stageChanged);
+                            return (
+                              <button
+                                key={stage.id || stageName}
+                                type="button"
+                                onClick={() => handleSelectStageFromDropdown(stageName)}
+                                className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-all ${
+                                  isTarget
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30 ring-2 ring-indigo-200'
+                                    : isCurrent
+                                      ? 'bg-white text-slate-600 ring-1 ring-slate-200'
+                                      : 'bg-white text-slate-700 ring-1 ring-slate-200/90 hover:ring-indigo-200 hover:text-indigo-700'
+                                }`}
+                              >
+                                {stageName}
+                                {isCurrent && !stageChanged ? (
+                                  <span className="ml-1 text-[10px] font-medium opacity-70">now</span>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                          {onRequestSubmitToClient ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSelectStageFromDropdown(SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE)
                               }
-                            }}
-                            disabled={
-                              loadingJobStages ||
-                              (jobStageOptions.length === 0 && !onRequestSubmitToClient)
-                            }
-                            className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
-                              errors.stage ? 'border-red-300' : 'border-slate-200'
-                            }`}
-                          >
-                            <option value="">
-                              {jobStageOptions.length === 0 && !onRequestSubmitToClient
-                                ? 'No stages available'
-                                : 'Select a stage'}
-                            </option>
-                            {jobStageOptions.map((stage) => (
-                              <option key={stage} value={stage}>
-                                {stage}
-                              </option>
-                            ))}
-                            {onRequestSubmitToClient ? (
-                              <option value={SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE}>
-                                {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
-                              </option>
-                            ) : null}
-                          </select>
+                              className="rounded-full bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 ring-1 ring-slate-200/90 transition-all hover:ring-indigo-200 hover:text-indigo-700"
+                            >
+                              {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     )}
                     {errors.stage ? <p className="mt-1 text-xs text-red-600">{errors.stage}</p> : null}
-                  </div>
+                    {isMoveMode && !stageChanged ? (
+                      <p className="mt-2 text-xs text-slate-400">
+                        Tap a stage above to continue
+                      </p>
+                    ) : null}
+                  </section>
                 ) : null}
 
+                {/* Optional note / priority */}
                 {(isMoveMode || addNewJobMode) ? (
-                  <div>
-                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Assign team member
-                    </label>
-                    {selectedRecruiter ? (
-                      <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                        <span className="flex min-w-0 items-center gap-2 text-sm text-slate-800">
-                          {selectedRecruiter.avatar ? (
-                            <img
-                              src={selectedRecruiter.avatar}
-                              alt={selectedRecruiter.name}
-                              className="h-7 w-7 rounded-full object-cover"
-                            />
-                          ) : (
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-700">
-                              {getAvatarInitials(selectedRecruiter.name)}
-                            </span>
-                          )}
-                          <span className="truncate font-medium">{selectedRecruiter.name}</span>
+                  <section>
+                    <button
+                      type="button"
+                      onClick={() => setShowMoreOptions((prev) => !prev)}
+                      className="flex w-full items-center justify-between rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-3 text-left text-sm font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <StickyNote size={16} className="text-slate-400" />
+                        {addNewJobMode ? 'Note & priority' : 'Note'}
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Optional
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedRecruiterId('')}
-                          className="shrink-0 text-xs font-semibold text-red-600 hover:text-red-700"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <p className="mb-2 text-xs text-slate-500">No team member assigned</p>
-                    )}
-                    <div className="relative" ref={recruiterDropdownRef}>
-                      <button
-                        type="button"
-                        onClick={() => setRecruiterDropdownOpen((prev) => !prev)}
-                        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm"
-                      >
-                        <span className="text-slate-600">
-                          {selectedRecruiter ? 'Change team member' : 'Search and select team member'}
-                        </span>
-                        <UserCircle2 size={16} className="text-slate-400" />
-                      </button>
-                      {recruiterDropdownOpen ? (
-                        <div className="absolute left-0 right-0 top-12 z-10 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
-                          <input
-                            value={recruiterSearch}
-                            onChange={(e) => setRecruiterSearch(e.target.value)}
-                            placeholder="Search team member"
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      </span>
+                      <ChevronDown
+                        size={16}
+                        className={`text-slate-400 transition-transform ${showMoreOptions ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+
+                    {showMoreOptions ? (
+                      <div className="mt-3 space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50/50 p-3.5">
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-500">
+                            Note
+                          </label>
+                          <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            rows={2}
+                            placeholder="Optional note"
+                            className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                           />
-                          <div className="mt-3 max-h-48 overflow-y-auto">
-                            {filteredRecruiters.map((recruiter) => (
-                              <button
-                                key={recruiter.id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedRecruiterId(recruiter.id);
-                                  setRecruiterSearch('');
-                                  setRecruiterDropdownOpen(false);
-                                }}
-                                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-slate-50"
-                              >
-                                <span className="flex items-center gap-2">
-                                  {recruiter.avatar ? (
-                                    <img
-                                      src={recruiter.avatar}
-                                      alt={recruiter.name}
-                                      className="h-7 w-7 rounded-full object-cover"
-                                    />
-                                  ) : (
-                                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-700">
-                                      {getAvatarInitials(recruiter.name)}
-                                    </span>
-                                  )}
-                                  <span className="text-sm text-slate-700">{recruiter.name}</span>
-                                </span>
-                                {selectedRecruiterId === recruiter.id ? (
-                                  <Check size={15} className="text-blue-600" />
-                                ) : null}
-                              </button>
-                            ))}
-                          </div>
                         </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
 
-                {addNewJobMode ? (
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Priority</label>
-                    <div className="flex flex-wrap gap-2">
-                      {(['High', 'Medium', 'Low'] as const).map((option) => (
-                        <button
-                          key={option}
-                          type="button"
-                          onClick={() => setPriority(option)}
-                          className={`rounded-xl border px-4 py-2 text-sm font-medium ${
-                            priority === option
-                              ? 'border-blue-200 bg-blue-50 text-blue-700'
-                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          {option}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {(isMoveMode || addNewJobMode) ? (
-                  <div>
-                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Note (optional)
-                    </label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      rows={3}
-                      placeholder="Add a short note (optional)"
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
+                        {addNewJobMode ? (
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-500">
+                              Priority
+                            </label>
+                            <div className="flex gap-2">
+                              {(['High', 'Medium', 'Low'] as const).map((option) => (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  onClick={() => setPriority(option)}
+                                  className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                                    priority === option
+                                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                                      : 'bg-white text-slate-600 ring-1 ring-slate-200'
+                                  }`}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </section>
                 ) : null}
 
                 {isMoveMode && onRemoveFromPipeline ? (
@@ -3251,39 +3240,51 @@ export function AddToPipelineModal({
                     type="button"
                     onClick={handleRemoveFromPipeline}
                     disabled={removing || submitting}
-                    className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+                    className="text-xs font-semibold text-red-500 transition-colors hover:text-red-700 disabled:opacity-60"
                   >
-                    {removing ? 'Removing...' : 'Remove from pipeline'}
+                    {removing ? 'Removing…' : 'Remove from pipeline'}
                   </button>
                 ) : null}
-
               </div>
-              <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={submitting}
-                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {submitting
-                    ? isMoveMode
-                      ? 'Moving...'
-                      : isUpdatingEntry
-                        ? 'Updating...'
-                        : 'Adding...'
-                    : isMoveMode
-                      ? 'Move stage'
-                      : isUpdatingEntry
-                        ? 'Update entry'
-                        : 'Add to Pipeline'}
-                </button>
+
+              {/* Footer */}
+              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/90 px-5 py-3.5 backdrop-blur-sm">
+                <p className="hidden min-w-0 truncate text-[11px] text-slate-400 sm:block">
+                  {isMoveMode
+                    ? stageChanged
+                      ? `Ready to move to ${targetStage}`
+                      : 'Select a new stage'
+                    : 'Complete the fields, then confirm'}
+                </p>
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={primaryDisabled}
+                    className="rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-500 hover:to-indigo-500 disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none"
+                  >
+                    {submitting
+                      ? isMoveMode
+                        ? 'Moving…'
+                        : isUpdatingEntry
+                          ? 'Updating…'
+                          : 'Adding…'
+                      : isMoveMode
+                        ? canSubmitMove
+                          ? `Move to ${targetStage}`
+                          : 'Move stage'
+                        : isUpdatingEntry
+                          ? 'Update entry'
+                          : 'Add to Pipeline'}
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -4002,6 +4003,8 @@ export function CandidateProfileDrawer({
   onRemoveFromPipeline,
   onRejectCandidate,
   onScheduleInterview,
+  onMoveStageScheduleInterview,
+  onMoveStageCreatePlacement,
   onUpdateCandidate,
   onRefreshCandidate,
   onSubmitToClient,
@@ -4543,11 +4546,27 @@ export function CandidateProfileDrawer({
             onRequestSubmitToClient={
               onSubmitToClient && showSubmitToClient
                 ? ({ jobId }) => {
-                    setShowAddToPipelineModal(false);
+                    // Keep Move stage open so Cancel on Submit to client returns here.
                     onSubmitToClient({
                       ...candidate,
                       assignedJobId: jobId,
                     });
+                  }
+                : undefined
+            }
+            onRequestScheduleInterview={
+              onMoveStageScheduleInterview
+                ? (payload) => {
+                    // Keep Move stage open so Cancel on Schedule Interview returns here.
+                    onMoveStageScheduleInterview(payload);
+                  }
+                : undefined
+            }
+            onRequestOfferPlacement={
+              onMoveStageCreatePlacement
+                ? (payload) => {
+                    // Keep Move stage open so Cancel on Placement returns here.
+                    onMoveStageCreatePlacement(payload);
                   }
                 : undefined
             }

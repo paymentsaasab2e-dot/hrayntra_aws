@@ -14,7 +14,7 @@ import {
   Undo2,
   UserX,
 } from 'lucide-react';
-import { ImageWithFallback } from '../ImageWithFallback';
+import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback';
 import type { Placement, PlacementStatus } from '../../types/placement';
 import {
   formatPlacementDate,
@@ -373,13 +373,17 @@ export function PlacementsTable({
 
   const outerWrap = embedded ? 'contents' : 'overflow-hidden rounded-xl bg-white shadow-sm';
   const theadRow = embedded
-    ? 'sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm'
+    ? 'border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md'
     : 'bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500';
-  const thPad = embedded ? 'px-3 py-2 sm:px-4' : 'px-6 py-4';
-  const tdPad = embedded ? 'px-3 py-2.5 sm:px-4' : 'px-6 py-4';
+  const thPad = embedded ? 'px-3 py-3 sm:px-4' : 'px-6 py-4';
+  const tdPad = embedded ? 'px-3 py-3 sm:px-4 sm:py-3.5' : 'px-6 py-4';
   const rowClass = embedded
-    ? 'border-b border-slate-100/90 transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45'
+    ? 'group border-b border-indigo-50/80 transition-colors duration-150 even:bg-slate-50/40 hover:bg-indigo-50/50'
     : 'border-b border-gray-100 transition-colors hover:bg-gray-50';
+  const cellText = embedded ? 'text-sm text-slate-700' : 'text-sm text-[#111827]';
+  const actionsWrap = embedded
+    ? 'inline-flex items-center justify-end gap-0.5 rounded-2xl bg-indigo-50/60 p-1 opacity-90 ring-1 ring-indigo-100/80 transition group-hover:opacity-100'
+    : 'flex items-center justify-end gap-1';
 
   return (
     <div className={outerWrap}>
@@ -416,7 +420,7 @@ export function PlacementsTable({
               <th className={`${thPad} text-right`}>Actions</th>
             </tr>
           </thead>
-          <tbody className={embedded ? 'divide-y divide-slate-100/80' : undefined}>
+          <tbody className={embedded ? 'divide-y divide-indigo-50/80' : undefined}>
             {data.map((placement) => {
               const statusStyle = getStatusBadgeStyle(placement.status);
               const typeStyle = getEmploymentTypeBadgeStyle(placement.employmentType);
@@ -426,21 +430,25 @@ export function PlacementsTable({
                 ['OFFER_ACCEPTED', 'JOINING_SCHEDULED'].includes(placement.status);
 
               return (
-                <tr key={placement.id} className={rowClass}>
-                  <td className={tdPad}>
+                <tr
+                  key={placement.id}
+                  className={`${rowClass} ${onView ? 'cursor-pointer' : ''}`}
+                  onClick={() => onView?.(placement)}
+                >                  <td className={tdPad}>
                     <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 overflow-hidden rounded-full border border-gray-200">
-                        <ImageWithFallback
-                          src={placement.candidate.avatar || ''}
-                          alt={`${placement.candidate.firstName} ${placement.candidate.lastName}`}
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-                      <div>
+                      <ImageWithFallback
+                        src={placement.candidate.avatar || ''}
+                        fallbackInitials={initialsFromDisplayName(
+                          `${placement.candidate.firstName || ''} ${placement.candidate.lastName || ''}`.trim(),
+                        )}
+                        alt={`${placement.candidate.firstName} ${placement.candidate.lastName}`}
+                        className="h-10 w-10 rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10"
+                      />
+                      <div className="min-w-0">
                         <button
                           type="button"
                           onClick={() => onView(placement)}
-                          className="font-medium text-[#2563EB] hover:underline"
+                          className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
                         >
                           {`${placement.candidate.firstName} ${placement.candidate.lastName}`.trim()}
                         </button>
@@ -463,26 +471,30 @@ export function PlacementsTable({
 
                   {show('clientJob') ? (
                     <td className={tdPad}>
-                      <div>
-                        <p className="font-medium text-[#111827]">{placement.client.companyName}</p>
-                        <p className="text-sm text-[#6B7280]">{placement.job.title}</p>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          {placement.client.companyName}
+                        </p>
+                        <p className="truncate text-xs text-slate-500">{placement.job.title}</p>
                       </div>
                     </td>
                   ) : null}
 
                   {show('recruiter') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>{placement.recruiter?.name || '—'}</td>
+                    <td className={`${tdPad} ${cellText}`}>{placement.recruiter?.name || '—'}</td>
                   ) : null}
                   {show('offerDate') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>{formatPlacementDate(placement.offerDate)}</td>
+                    <td className={`${tdPad} ${cellText}`}>{formatPlacementDate(placement.offerDate)}</td>
                   ) : null}
                   {show('joiningDate') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>{formatPlacementDate(placement.joiningDate)}</td>
+                    <td className={`${tdPad} ${cellText}`}>{formatPlacementDate(placement.joiningDate)}</td>
                   ) : null}
 
                   {show('type') ? (
                     <td className={tdPad}>
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${typeStyle.bg} ${typeStyle.text}`}>
+                      <span
+                        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
+                      >
                         {placement.employmentType || '—'}
                       </span>
                     </td>
@@ -508,7 +520,7 @@ export function PlacementsTable({
                   ) : null}
 
                   {show('salary') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {placement.salaryOffered != null
                         ? placement.currency
                           ? `${placement.currency} ${Number(placement.salaryOffered).toLocaleString()}`
@@ -517,7 +529,7 @@ export function PlacementsTable({
                     </td>
                   ) : null}
                   {show('fee') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {placement.placementFee != null
                         ? placement.currency
                           ? `${placement.currency} ${Number(placement.placementFee).toLocaleString()}`
@@ -526,14 +538,14 @@ export function PlacementsTable({
                     </td>
                   ) : null}
                   {show('commission') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {placement.commissionPercentage != null
                         ? `${placement.commissionPercentage}%`
                         : '—'}
                     </td>
                   ) : null}
                   {show('revenue') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {placement.revenue != null
                         ? placement.currency
                           ? `${placement.currency} ${Number(placement.revenue).toLocaleString()}`
@@ -542,27 +554,27 @@ export function PlacementsTable({
                     </td>
                   ) : null}
                   {show('paymentStatus') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {placement.paymentStatus || '—'}
                     </td>
                   ) : null}
                   {show('invoiceNumber') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {placement.invoiceNumber || '—'}
                     </td>
                   ) : null}
                   {show('actualJoiningDate') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {formatPlacementDate(placement.actualJoiningDate)}
                     </td>
                   ) : null}
                   {show('candidateEmail') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {placement.candidate?.email || '—'}
                     </td>
                   ) : null}
                   {show('reportingTo') ? (
-                    <td className={`${tdPad} text-sm text-[#111827]`}>
+                    <td className={`${tdPad} ${cellText}`}>
                       {placement.reportingToName || placement.reportingToTitle || '—'}
                     </td>
                   ) : null}
@@ -575,13 +587,13 @@ export function PlacementsTable({
 
                   {show('audit') ? <TableAuditCell audit={placement.auditMeta} className={tdPad} /> : null}
 
-                  <td className={tdPad}>
-                    <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+                  <td className={`${tdPad} text-right`}>
+                    <div className={actionsWrap} onClick={(event) => event.stopPropagation()}>
                       <button
                         type="button"
                         disabled={!onEdit}
                         onClick={() => onEdit?.(placement)}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
                         title="Edit placement"
                         aria-label="Edit placement"
                       >
@@ -596,7 +608,7 @@ export function PlacementsTable({
                           const href = buildFileHref(placement.offerLetterUrl, uploadsBase);
                           window.open(href, '_blank', 'noopener');
                         }}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
                         title="View offer letter"
                       >
                         <FileText className="h-4 w-4" />
@@ -607,7 +619,7 @@ export function PlacementsTable({
                           type="button"
                           disabled={!(placement.placementFee && placement.placementFee > 0)}
                           onClick={() => onCreateInvoice(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
                           title={
                             placement.invoiceNumber
                               ? `Create another invoice (latest: ${placement.invoiceNumber})`
@@ -622,7 +634,7 @@ export function PlacementsTable({
                         <button
                           type="button"
                           onClick={() => onScheduleJoining(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-700"
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-amber-700"
                           title={
                             placement.status === 'JOINING_SCHEDULED'
                               ? 'Edit joining schedule'
@@ -638,7 +650,7 @@ export function PlacementsTable({
                           type="button"
                           disabled={!canMarkJoinedStatus}
                           onClick={() => onMarkJoined(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
                           title="Mark as joined"
                         >
                           <Check className="h-4 w-4" />
@@ -649,7 +661,7 @@ export function PlacementsTable({
                         <button
                           type="button"
                           onClick={() => onResendOffer(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-indigo-50 hover:text-indigo-700"
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-700"
                           title="Resend offer letter"
                         >
                           <RefreshCw className="h-4 w-4" />
@@ -660,7 +672,7 @@ export function PlacementsTable({
                         <button
                           type="button"
                           onClick={() => onRejectOfferCandidate(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-700"
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-red-700"
                           title="Reject candidate"
                         >
                           <UserX className="h-4 w-4" />
@@ -671,7 +683,7 @@ export function PlacementsTable({
                         <button
                           type="button"
                           onClick={() => onUndo(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-sky-50 hover:text-sky-700"
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-sky-700"
                           title="Undo placement and move candidate back to Interviewing"
                         >
                           <Undo2 className="h-4 w-4" />

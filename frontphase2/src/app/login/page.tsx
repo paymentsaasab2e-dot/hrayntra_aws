@@ -443,7 +443,9 @@ export default function LoginPage() {
               </a>
             </p>
             <a
-              href="https://hryantra.com"
+              href="https://www.hryantra.com/en/privacypolicy"
+              target="_blank"
+              rel="noopener noreferrer"
               className="font-medium text-slate-500 underline underline-offset-2 hover:text-slate-800"
             >
               Terms &amp; Conditions

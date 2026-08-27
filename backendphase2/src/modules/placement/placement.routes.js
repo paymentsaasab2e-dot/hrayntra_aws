@@ -87,6 +87,13 @@ router.patch(
   authenticatedTenantAfterMulter,
   placementController.resendOffer
 );
+router.post(
+  '/:id/documents',
+  requireAnyPermission(['placements_update']),
+  upload.single('document'),
+  authenticatedTenantAfterMulter,
+  placementController.uploadDocument
+);
 router.patch('/:id/undo', requireAnyPermission(['placements_update']), placementController.undo);
 router.delete('/:id', requireAnyPermission(['placements_delete']), placementController.delete);
 

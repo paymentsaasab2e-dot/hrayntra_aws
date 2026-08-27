@@ -4,6 +4,11 @@ import {
   parseJobPublicFieldVisibility,
   type JobPublicFieldVisibility,
 } from './jobPublicFieldVisibility';
+import {
+  defaultLinkedInPostTemplateSchema,
+  type LinkedInPostSectionKey,
+  type LinkedInPostTemplateSection,
+} from './jobLinkedInPostTemplate';
 
 export type JobSocialPostInput = {
   jobTitle: string;
@@ -36,6 +41,8 @@ export type JobSocialPostInput = {
   applyUrl: string;
   showClientNamePublicly?: boolean;
   publicFieldVisibility?: JobPublicFieldVisibility | null;
+  /** Optional section order / visibility from a LinkedIn post template. */
+  linkedInPostSections?: LinkedInPostTemplateSection[] | null;
 };
 
 /** LinkedIn organic posts allow up to 3000 characters. */
@@ -144,81 +151,127 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
     : '';
   const company = showClient ? String(input.companyName || '').trim() : '';
 
-  if (title && company) {
-    lines.push(`Role: ${title} at ${company}`);
-  } else if (title) {
-    lines.push(`Role: ${title}`);
-  }
+  const templateSections =
+    Array.isArray(input.linkedInPostSections) && input.linkedInPostSections.length
+      ? [...input.linkedInPostSections].sort((a, b) => a.order - b.order)
+      : defaultLinkedInPostTemplateSchema().sections;
 
-  if (isJobFieldPubliclyVisible(visibility, 'location')) {
-    appendLine(lines, 'Location', formatLocation(input));
-  }
-  if (isJobFieldPubliclyVisible(visibility, 'openings')) {
-    appendLine(lines, 'Openings', input.numberOfOpenings);
-  }
-  if (isJobFieldPubliclyVisible(visibility, 'priority')) {
-    appendLine(lines, 'Priority', input.priority);
-  }
-  if (isJobFieldPubliclyVisible(visibility, 'employmentType')) {
-    appendLine(lines, 'Employment type', input.employmentType);
-  }
-  if (isJobFieldPubliclyVisible(visibility, 'industryType')) {
-    appendLine(lines, 'Industry', input.industryType);
-  }
-  if (isJobFieldPubliclyVisible(visibility, 'nationality')) {
-    appendLine(lines, 'Nationality', input.nationality);
-  }
-  if (isJobFieldPubliclyVisible(visibility, 'targetHireDate')) {
-    appendLine(lines, 'Target hire date', formatHireDate(input.targetHireDate));
-  }
-  if (isJobFieldPubliclyVisible(visibility, 'experience')) {
-    appendLine(lines, 'Experience', formatExperience(input));
-  }
-  if (isJobFieldPubliclyVisible(visibility, 'salary')) {
-    appendLine(lines, 'Salary', formatSalary(input));
-  }
+  const sectionVisible = (key: LinkedInPostSectionKey) => {
+    const row = templateSections.find((s) => s.key === key);
+    if (row && row.visible === false) return false;
+    return true;
+  };
 
-  if (isJobFieldPubliclyVisible(visibility, 'skills')) {
-    const skills = (input.skills || []).map((s) => String(s).trim()).filter(Boolean);
-    if (skills.length) appendLine(lines, 'Skills', skills.join(', '));
-  }
+  const appendSectionByKey = (key: LinkedInPostSectionKey) => {
+    if (!sectionVisible(key)) return;
 
-  if (isJobFieldPubliclyVisible(visibility, 'languages')) {
-    const languages = formatLanguages(input.languages);
-    if (languages) appendLine(lines, 'Languages', languages);
-  }
-
-  if (isJobFieldPubliclyVisible(visibility, 'contactPerson')) {
-    appendLine(lines, 'Contact', input.contactPersonName);
-  }
-
-  if (isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
-    const summary = String(input.jobSummary || '').trim();
-    if (summary) appendSection(lines, 'Overview', summary);
-  }
-
-  if (isJobFieldPubliclyVisible(visibility, 'keyResponsibilities')) {
-    appendSection(lines, 'Key Responsibilities', input.keyResponsibilitiesText);
-  }
-
-  if (isJobFieldPubliclyVisible(visibility, 'qualifications')) {
-    const education = formatEducation(input);
-    const qualificationBullets = toBulletLines(input.qualificationsExperienceText);
-    if (education || qualificationBullets.length) {
-      lines.push('');
-      lines.push('Preferred Education / Qualifications');
-      if (education) lines.push(education);
-      qualificationBullets.forEach((item) => lines.push(`• ${item}`));
+    switch (key) {
+      case 'role': {
+        if (title && company) lines.push(`Role: ${title} at ${company}`);
+        else if (title) lines.push(`Role: ${title}`);
+        break;
+      }
+      case 'location':
+        if (isJobFieldPubliclyVisible(visibility, 'location')) {
+          appendLine(lines, 'Location', formatLocation(input));
+        }
+        break;
+      case 'openings':
+        if (isJobFieldPubliclyVisible(visibility, 'openings')) {
+          appendLine(lines, 'Openings', input.numberOfOpenings);
+        }
+        break;
+      case 'priority':
+        if (isJobFieldPubliclyVisible(visibility, 'priority')) {
+          appendLine(lines, 'Priority', input.priority);
+        }
+        break;
+      case 'employmentType':
+        if (isJobFieldPubliclyVisible(visibility, 'employmentType')) {
+          appendLine(lines, 'Employment type', input.employmentType);
+        }
+        break;
+      case 'industryType':
+        if (isJobFieldPubliclyVisible(visibility, 'industryType')) {
+          appendLine(lines, 'Industry', input.industryType);
+        }
+        break;
+      case 'nationality':
+        if (isJobFieldPubliclyVisible(visibility, 'nationality')) {
+          appendLine(lines, 'Nationality', input.nationality);
+        }
+        break;
+      case 'targetHireDate':
+        if (isJobFieldPubliclyVisible(visibility, 'targetHireDate')) {
+          appendLine(lines, 'Target hire date', formatHireDate(input.targetHireDate));
+        }
+        break;
+      case 'experience':
+        if (isJobFieldPubliclyVisible(visibility, 'experience')) {
+          appendLine(lines, 'Experience', formatExperience(input));
+        }
+        break;
+      case 'salary':
+        if (isJobFieldPubliclyVisible(visibility, 'salary')) {
+          appendLine(lines, 'Salary', formatSalary(input));
+        }
+        break;
+      case 'skills':
+        if (isJobFieldPubliclyVisible(visibility, 'skills')) {
+          const skills = (input.skills || []).map((s) => String(s).trim()).filter(Boolean);
+          if (skills.length) appendLine(lines, 'Skills', skills.join(', '));
+        }
+        break;
+      case 'languages':
+        if (isJobFieldPubliclyVisible(visibility, 'languages')) {
+          const languages = formatLanguages(input.languages);
+          if (languages) appendLine(lines, 'Languages', languages);
+        }
+        break;
+      case 'contactPerson':
+        if (isJobFieldPubliclyVisible(visibility, 'contactPerson')) {
+          appendLine(lines, 'Contact', input.contactPersonName);
+        }
+        break;
+      case 'overview':
+        if (isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
+          const summary = String(input.jobSummary || '').trim();
+          if (summary) appendSection(lines, 'Overview', summary);
+        }
+        break;
+      case 'keyResponsibilities':
+        if (isJobFieldPubliclyVisible(visibility, 'keyResponsibilities')) {
+          appendSection(lines, 'Key Responsibilities', input.keyResponsibilitiesText);
+        }
+        break;
+      case 'qualifications':
+        if (isJobFieldPubliclyVisible(visibility, 'qualifications')) {
+          const education = formatEducation(input);
+          const qualificationBullets = toBulletLines(input.qualificationsExperienceText);
+          if (education || qualificationBullets.length) {
+            lines.push('');
+            lines.push('Preferred Education / Qualifications');
+            if (education) lines.push(education);
+            qualificationBullets.forEach((item) => lines.push(`• ${item}`));
+          }
+        }
+        break;
+      case 'candidateRequirements':
+        if (isJobFieldPubliclyVisible(visibility, 'candidateRequirements')) {
+          appendSection(lines, 'Candidate Requirements', input.candidateRequirementsText);
+        }
+        break;
+      case 'compensationBenefits':
+        if (isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
+          appendSection(lines, 'Compensation & Benefits', input.compensationBenefitsText);
+        }
+        break;
+      default:
+        break;
     }
-  }
+  };
 
-  if (isJobFieldPubliclyVisible(visibility, 'candidateRequirements')) {
-    appendSection(lines, 'Candidate Requirements', input.candidateRequirementsText);
-  }
-
-  if (isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
-    appendSection(lines, 'Compensation & Benefits', input.compensationBenefitsText);
-  }
+  templateSections.forEach((section) => appendSectionByKey(section.key));
 
   // Fallback: if structured JD sections are empty, include HTML description.
   const hasStructuredJd =
@@ -228,7 +281,11 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
     Boolean(String(input.jobSummary || '').trim()) ||
     Boolean(formatEducation(input));
 
-  if (!hasStructuredJd && isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
+  if (
+    !hasStructuredJd &&
+    sectionVisible('overview') &&
+    isJobFieldPubliclyVisible(visibility, 'jobDescription')
+  ) {
     const description = stripHtml(input.jobDescriptionHtml || '');
     if (description) {
       lines.push('');
