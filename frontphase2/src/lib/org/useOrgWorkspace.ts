@@ -60,7 +60,14 @@ export function useOrgWorkspace() {
         const saved = getActiveOrgUnitId();
         if (saved) {
           const match = (org?.companies || []).find((c) => c.id === saved);
-          if (match?.name) setOrgUnitName(match.name);
+          if (match?.name) {
+            setOrgUnitName(match.name);
+          } else {
+            // Stale company id (deleted Comp B, etc.) — drop it so Structure/lists stay consistent.
+            clearActiveOrgUnit({ reload: false });
+            setOrgUnitId('');
+            setOrgUnitName('');
+          }
         }
       })
       .catch(() => {

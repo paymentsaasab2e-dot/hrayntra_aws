@@ -382,7 +382,12 @@ export default function OrganizationPage() {
         kind: unitKind,
         parentId: unitKind === 'site' ? siteParentId : tree?.id,
         departmentId: source === 'department' ? departmentId : undefined,
-        userIds: source === 'people' ? selectedUserIds : undefined,
+        userIds:
+          source === 'people'
+            ? selectedUserIds
+            : source === 'workspace'
+              ? unassignedPeopleIds
+              : undefined,
         adoptWorkspace: source === 'workspace',
         headUserId: headUserId || undefined,
         newUser: createLogin
@@ -398,13 +403,23 @@ export default function OrganizationPage() {
           : undefined,
         newUserPurpose: unitKind === 'site' ? 'site_head' : 'company_head',
       });
-      toast.success(
-        created?.attachedCount || created?.stamped
-          ? `Created · ${created?.attachedCount || 0} people and their work linked to this ${unitKind === 'site' ? 'branch' : 'company'} id`
-          : unitKind === 'site'
-            ? 'Branch created'
-            : 'Company created',
-      );
+      const stamped = created?.stamped;
+      const peopleN = Number(created?.attachedCount || 0);
+      const dataN =
+        Number(stamped?.jobs || 0) +
+        Number(stamped?.leads || 0) +
+        Number(stamped?.clients || 0) +
+        Number(stamped?.candidates || 0);
+      if (source === 'workspace' || source === 'people' || source === 'department') {
+        toast.success(
+          `Created ${created?.name || name}: ${peopleN} people · ${stamped?.jobs || 0} jobs · ${stamped?.leads || 0} leads · ${stamped?.clients || 0} clients · ${stamped?.candidates || 0} candidates`,
+        );
+        if (peopleN === 0 && dataN === 0 && source === 'workspace') {
+          toast.message('No leftover people/data found to move. Use “Assign existing users & data here” on the company if CRM rows still show under All companies only.');
+        }
+      } else {
+        toast.success(unitKind === 'site' ? 'Branch created' : 'Company created');
+      }
       toastLogin(created?.credentialData);
       setUnitName('');
       setDepartmentId('');
@@ -470,13 +485,13 @@ export default function OrganizationPage() {
     try {
       const result = await apiStampUntaggedToOrgUnit(id, unassignedPeopleIds);
       const s = result.stamped;
-      if (!result.attachedCount) {
+      if (!result.attachedCount && !(s.jobs || s.leads || s.clients || s.candidates)) {
         toast.error(
-          `${result.name}: 0 people moved. Data stamped: ${s.jobs} jobs · ${s.leads} leads · ${s.clients} clients · ${s.candidates} candidates. Use People accounts to assign members manually.`,
+          `${result.name}: nothing linked. Try again after restarting the API, or recreate the company and use “Move current team in”.`,
         );
       } else {
         toast.success(
-          `${result.name}: ${result.attachedCount} people · ${s.jobs} jobs · ${s.leads} leads · ${s.clients} clients · ${s.candidates} candidates`,
+          `${result.name}: ${result.attachedCount || 0} people · ${s.jobs} jobs · ${s.leads} leads · ${s.clients} clients · ${s.candidates} candidates`,
         );
       }
       await load();

@@ -1,5 +1,6 @@
 import { resolveViewerOrgScope } from '../modules/org/org.service.js';
 import { mergeWhereWithScope } from '../utils/superAdminScope.js';
+import { prisma } from '../config/prisma.js';
 
 const NONE = '000000000000000000000000';
 
@@ -52,11 +53,22 @@ function buildPeopleOr(ids, options) {
   return or;
 }
 
+function untaggedOrgUnitClause(orgUnitField, hqRootId) {
+  const parts = [
+    { [orgUnitField]: null },
+    { [orgUnitField]: { isSet: false } },
+  ];
+  if (hqRootId) parts.push({ [orgUnitField]: hqRootId });
+  return { OR: parts };
+}
+
 /**
  * Restrict lists to the active company/site tree.
  * Primary filter: record.orgUnitId in selected unit + descendants.
- * Legacy fallback: untagged rows (null orgUnitId) still owned by people in that company.
- * Empty companies with no stamped rows stay empty.
+ * Legacy: untagged / HQ rows owned by people in that company.
+ * If this tenant has only one company, untagged/HQ rows belong to that company
+ * (covers Super Admin–owned leads that were never stamped).
+ * Empty second companies stay empty until data is stamped or created there.
  */
 export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
   const scope = await getRequestOrgScope(req);
@@ -69,6 +81,20 @@ export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
 
   const unitIds = scope.unitIds?.length ? scope.unitIds.map(String) : [NONE];
   const memberIds = scope.memberIds?.length ? scope.memberIds.map(String) : [];
+  const companyCount = Array.isArray(scope.companies) ? scope.companies.length : 0;
+  // Forced company/site heads don't get the companies list — they still have one home.
+  const onlyOneCompany = companyCount <= 1;
+
+  let hqRootId = null;
+  try {
+    const root = await prisma.orgUnit.findFirst({
+      where: { parentId: null },
+      select: { id: true },
+    });
+    hqRootId = root ? String(root.id) : null;
+  } catch {
+    hqRootId = null;
+  }
 
   const or = [];
 
@@ -76,20 +102,14 @@ export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
     or.push({ [orgUnitField]: { in: unitIds } });
   }
 
-  // Untagged legacy rows: only when this company has assigned people.
-  if (orgUnitField && memberIds.length) {
+  if (orgUnitField && onlyOneCompany) {
+    // Single-company tenant: all leftover HQ / untagged CRM rows show here.
+    or.push(untaggedOrgUnitClause(orgUnitField, hqRootId));
+  } else if (orgUnitField && memberIds.length) {
     const peopleOr = buildPeopleOr(memberIds, peopleOptions);
     if (peopleOr.length) {
       or.push({
-        AND: [
-          {
-            OR: [
-              { [orgUnitField]: null },
-              { [orgUnitField]: { isSet: false } },
-            ],
-          },
-          { OR: peopleOr },
-        ],
+        AND: [untaggedOrgUnitClause(orgUnitField, hqRootId), { OR: peopleOr }],
       });
     }
   } else if (!orgUnitField && memberIds.length) {
