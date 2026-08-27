@@ -32,6 +32,7 @@ import {
   apiGetJobApplyLink,
   apiGetSocialStatus,
   apiProcessJobCreationPipeline,
+  apiPublishSocialJob,
   type BackendClient,
   type BackendContact,
   type BackendUser,
@@ -59,6 +60,12 @@ import {
   type CreateJobDetailsFormData,
   type JobLanguageEntry,
 } from '@/components/drawers/CreateJobDetailsForm';
+import {
+  customJdSectionsToHtml,
+  extractAdditionalJdSectionsFromHtml,
+  mergeCustomJdSections,
+  type JobCustomJdSection,
+} from '@/lib/jobCustomJdSections';
 import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
 import { PublicVisibilityToggle } from '@/components/forms/PublicVisibilityToggle';
 import { useLinkedIn } from '@/hooks/useLinkedIn';
@@ -212,6 +219,7 @@ type WizardDraft = {
   keyResponsibilitiesText: string;
   qualificationsExperienceText: string;
   candidateRequirementsText: string;
+  customJdSections: JobCustomJdSection[];
   skills: string[];
   languages: JobLanguageEntry[];
   showClientNamePublicly: boolean;
@@ -249,6 +257,7 @@ const EMPTY_DRAFT: WizardDraft = {
   keyResponsibilitiesText: '',
   qualificationsExperienceText: '',
   candidateRequirementsText: '',
+  customJdSections: [],
   skills: [],
   languages: [],
   showClientNamePublicly: true,
@@ -361,6 +370,20 @@ function pipelineToDraft(
       data.qualificationsExperienceText || base.qualificationsExperienceText,
     candidateRequirementsText:
       data.candidateRequirementsText || base.candidateRequirementsText,
+    customJdSections: mergeCustomJdSections(
+      base.customJdSections,
+      [
+        ...(((data as { additionalSections?: Array<{ title?: string; bodyText?: string; body?: string }> })
+          .additionalSections || [])
+          .map((section) => ({
+            id: `pipe_${Math.random().toString(36).slice(2, 9)}`,
+            title: String(section.title || '').trim(),
+            body: String(section.bodyText || section.body || '').trim(),
+          }))
+          .filter((section) => section.title || section.body)),
+        ...extractAdditionalJdSectionsFromHtml(data.jobDescriptionHtml || ''),
+      ],
+    ),
     skills: data.skills?.length ? data.skills : base.skills,
     languages: data.languages?.length ? data.languages : base.languages,
   };
@@ -393,6 +416,7 @@ function draftToJobDetailsForm(draft: WizardDraft): CreateJobDetailsFormData {
     keyResponsibilitiesText: draft.keyResponsibilitiesText,
     qualificationsExperienceText: draft.qualificationsExperienceText,
     candidateRequirementsText: draft.candidateRequirementsText,
+    customJdSections: draft.customJdSections || [],
     videoMediaLink: draft.videoMediaLink,
     forecastRevenue: draft.forecastRevenue,
     managerId: draft.managerId,
@@ -436,6 +460,7 @@ function applyJobDetailsPatch(
     keyResponsibilitiesText: merged.keyResponsibilitiesText,
     qualificationsExperienceText: merged.qualificationsExperienceText,
     candidateRequirementsText: merged.candidateRequirementsText,
+    customJdSections: merged.customJdSections || [],
     videoMediaLink: merged.videoMediaLink,
     forecastRevenue: merged.forecastRevenue,
     managerId: merged.managerId,
@@ -1295,6 +1320,23 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       const candidateRequirements = toList(draft.candidateRequirementsText);
       const skills = draft.skills;
       const languages = draft.languages.filter((row) => row.language?.trim());
+      const customSectionsHtml = customJdSectionsToHtml(draft.customJdSections || []);
+      const descriptionHtml = (() => {
+        const base = draft.jobDescriptionHtml.trim();
+        if (!base) return customSectionsHtml || undefined;
+        if (!customSectionsHtml) return base;
+        const existingTitles = new Set(
+          extractAdditionalJdSectionsFromHtml(base).map((s) => s.title.trim().toLowerCase()),
+        );
+        const missing = (draft.customJdSections || []).filter(
+          (section) =>
+            section.title.trim() &&
+            !existingTitles.has(section.title.trim().toLowerCase()) &&
+            section.body.trim(),
+        );
+        if (!missing.length) return base;
+        return `${base}${customJdSectionsToHtml(missing)}`;
+      })();
 
       const locationParts = [draft.city, draft.state, draft.country]
         .map((v) => v.trim())
@@ -1306,7 +1348,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         distributionPlatforms?: Record<string, boolean>;
       } = {
         title: draft.jobTitle.trim(),
-        description: draft.jobDescriptionHtml.trim() || undefined,
+        description: descriptionHtml,
         clientId: draft.clientId,
         openings: parseInt(draft.numberOfOpenings, 10) || 1,
         type: mapJobType(draft.employmentType),
@@ -1393,6 +1435,80 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         ].filter(Boolean);
 
         await apiCreateTenantCompanyPost({ text: postLines.join('\n') });
+      }
+
+      const shouldPostLinkedIn =
+        Boolean(distributionChannels.social_media) &&
+        Boolean(selectedDistributionPlatforms.linkedin) &&
+        (selectedLinkedInTargets.length > 0 ||
+          linkedinAccounts.some((account) => account.connected !== false));
+
+      if (shouldPostLinkedIn && createdJob?.id) {
+        const linkedInTargets =
+          selectedLinkedInTargets.length > 0
+            ? selectedLinkedInTargets
+            : linkedinAccounts
+                .filter((account) => account.connected !== false && account.key.startsWith('personal:'))
+                .map((account) => account.key);
+
+        if (linkedInTargets.length === 0) {
+          setError(
+            'Job created, but LinkedIn was skipped because no LinkedIn account was selected. Connect/select LinkedIn and post again from Create Job.',
+          );
+          onJobCreated?.();
+          return;
+        } else {
+          let applyUrl = '';
+          try {
+            const linkRes = await apiGetJobApplyLink(createdJob.id);
+            applyUrl = String(linkRes.data?.applyUrl || '').trim();
+          } catch {
+            applyUrl = '';
+          }
+
+          const companyName = draft.showClientNamePublicly ? draft.clientName || '' : '';
+          const locationLine =
+            locationParts.join(', ') || draft.locationQuery.trim() || '';
+          const plainDescription = stripHtml(descriptionHtml || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 500);
+          const linkedinPostText = [
+            `We're hiring: ${draft.jobTitle.trim()}`,
+            companyName ? `Company: ${companyName}` : '',
+            locationLine ? `Location: ${locationLine}` : '',
+            plainDescription ? `\n${plainDescription}` : '',
+            applyUrl ? `\nApply: ${applyUrl}` : '',
+            '\n#hiring #jobs #careers',
+          ]
+            .filter(Boolean)
+            .join('\n');
+
+          const socialResult = await apiPublishSocialJob({
+            jobId: createdJob.id,
+            title: draft.jobTitle.trim(),
+            companyName,
+            showClientNamePublicly: draft.showClientNamePublicly,
+            description: plainDescription || undefined,
+            applyUrl: applyUrl || undefined,
+            location: locationLine || undefined,
+            platforms: { linkedin: true },
+            linkedinPostText,
+            linkedinTargets: linkedInTargets,
+          });
+
+          const linkedInResult = (socialResult as { data?: { linkedin?: { success?: boolean; error?: string } } })
+            ?.data?.linkedin;
+          if (!linkedInResult?.success) {
+            setError(
+              `Job created, but LinkedIn posting failed${
+                linkedInResult?.error ? `: ${linkedInResult.error}` : '.'
+              } Reconnect LinkedIn or post again from Create Job.`,
+            );
+            onJobCreated?.();
+            return;
+          }
+        }
       }
 
       markWizardClean();

@@ -494,6 +494,8 @@ export function hydrateListFieldsFromJobHtml(fields) {
       'key responsibilities',
       'responsibilities',
       'roles and responsibilities',
+      'what you will do',
+      "what you'll do",
     ]);
   }
 
@@ -512,6 +514,7 @@ export function hydrateListFieldsFromJobHtml(fields) {
       'candidate requirements',
       'additional requirements',
       'must have',
+      'must-have',
     ]);
     next.candidateRequirementsText = fromHtml || buildDefaultCandidateRequirements(next);
   }
@@ -522,6 +525,77 @@ export function hydrateListFieldsFromJobHtml(fields) {
       'compensation',
       'perks',
     ]);
+  }
+
+  const knownKeywords = [
+    'overview',
+    'about the role',
+    'about this role',
+    'job summary',
+    'summary',
+    'key responsibilities',
+    'responsibilities',
+    'roles and responsibilities',
+    'what you will do',
+    "what you'll do",
+    'requirements',
+    'requirement',
+    'qualifications',
+    'qualification',
+    'preferred qualifications',
+    'preferred qualification',
+    'preferred education',
+    'education',
+    'candidate requirements',
+    'additional requirements',
+    'must have',
+    'must-have',
+    'benefits',
+    'compensation',
+    'perks',
+    'skills',
+    'required skills',
+  ];
+
+  const headingRegex = /<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/gi;
+  const sections = [];
+  let match;
+  while ((match = headingRegex.exec(html)) !== null) {
+    sections.push({
+      title: stripHtmlTags(match[1]),
+      headingStart: match.index,
+      bodyStart: match.index + match[0].length,
+    });
+  }
+
+  const additionalSections = [];
+  for (let i = 0; i < sections.length; i += 1) {
+    const title = sections[i].title.trim();
+    const heading = title.toLowerCase();
+    if (!title) continue;
+    const isKnown = knownKeywords.some(
+      (kw) => heading.includes(kw) || kw.split(/\s+/).every((part) => heading.includes(part)),
+    );
+    if (isKnown) continue;
+    const bodyEnd = i + 1 < sections.length ? sections[i + 1].headingStart : html.length;
+    const bodyHtml = html.slice(sections[i].bodyStart, bodyEnd);
+    const liItems = [...bodyHtml.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)]
+      .map((m) => stripHtmlTags(m[1]))
+      .filter(Boolean);
+    const paragraphs = [...bodyHtml.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+      .map((m) => stripHtmlTags(m[1]))
+      .filter(Boolean);
+    const bodyText = liItems.length
+      ? liItems.join('\n')
+      : paragraphs.length
+        ? paragraphs.join('\n')
+        : stripHtmlTags(bodyHtml);
+    if (!bodyText) continue;
+    additionalSections.push({ title, bodyText });
+  }
+
+  if (additionalSections.length) {
+    next.additionalSections = additionalSections;
   }
 
   return next;
@@ -886,7 +960,7 @@ export function buildJobExtractionPromptInstructions(isNaturalLanguagePrompt = f
       'Example: "create job for frontend developer in Mumbai salary 10k to 20k only for India" → jobTitle=Frontend Developer, city=Mumbai, state=Maharashtra, country=India, nationality=Indian, salaryCurrency=INR, payRangeMin=10000, payRangeMax=20000, salaryInput="10k to 20k".',
       'Never substitute Bengaluru, Delhi, or any other city if the user named a different city.',
       'Default employmentType to Full Time unless the user explicitly says part-time, contract, or internship.',
-      'Generate complete jobDescriptionHtml (Overview, Key Responsibilities, Requirements, Preferred Qualifications, Benefits), 6-10 skills, and realistic min/max experience for the role.',
+      'Generate complete jobDescriptionHtml with Overview, Key Responsibilities, Requirements, Preferred Qualifications, Benefits, plus any other distinct JD sections present in the source (About the Company/Team, Nice to Have, Tools, Interview Process, etc.), 6-10 skills, and realistic min/max experience for the role.',
     );
   } else {
     lines.push(
@@ -898,7 +972,7 @@ export function buildJobExtractionPromptInstructions(isNaturalLanguagePrompt = f
     'priority: High | Medium | Low. employmentType: Full Time | Part Time | Contract | Internship.',
     'jobLocationType: Remote | Hybrid | On-site. targetHireDate: YYYY-MM-DD or empty.',
     'Copy labeled lines exactly (Role/Job Title, Company, Openings, Location, Experience, Salary, Skills).',
-    'jobDescriptionHtml: concise HTML with h3 sections Overview, Key Responsibilities, Requirements, Preferred Qualifications, Benefits.',
+    'jobDescriptionHtml: concise HTML with h3 sections. Always include Overview, Key Responsibilities, Requirements, Preferred Qualifications, Benefits when present in the source. ALSO include any other distinct JD sections found in the source as additional h3 headings (examples: About the Company, About the Team, Nice to Have, Tools & Technologies, Interview Process, What We Offer, Day to Day). Do not invent sections that are not supported by the source text.',
     'keyResponsibilitiesText: 4–8 bullet lines (one responsibility per line, no HTML).',
     'qualificationsExperienceText: requirements + preferred education/experience (one item per line, no HTML).',
     'candidateRequirementsText: eligibility items e.g. degree, years of experience, nationality/work authorization (one per line).',
