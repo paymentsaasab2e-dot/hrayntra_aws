@@ -8,11 +8,13 @@ import { NotificationTriggerSettings } from '../../components/settings/Notificat
 import { AlertsManagementSettings } from '../../components/settings/AlertsManagementSettings';
 import { RecruitmentWorkflowSettings } from '../../components/settings/RecruitmentWorkflowSettings';
 import { BillingSettings } from '../../components/BillingSettings';
+import { InvoiceTemplateSettings } from '../../components/settings/InvoiceTemplateSettings';
 import { SecuritySettings } from '../../components/SecuritySettings';
 import { CustomizationSettings } from '../../components/CustomizationSettings';
 import { ProfileSettings } from '../../components/ProfileSettings';
 import { Toaster } from 'sonner';
-import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
+import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT, getCachedOrgRecruitmentMode } from '../../lib/api';
+import { CommissionSlabSettings } from '../../components/settings/CommissionSlabSettings';
 import { usePermissions } from '../../hooks/usePermissions';
 import { ActivityLogSettings } from '../../components/settings/ActivityLogSettings';
 import { confirmDiscardUnsavedChanges } from '../../hooks/useDrawerUnsavedGuard';
@@ -24,6 +26,7 @@ const UNSAVED_SETTINGS_MESSAGE =
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('profile');
   const [showBillingSection, setShowBillingSection] = useState(true);
+  const [isAgencyMode, setIsAgencyMode] = useState(true);
   const [profileDirty, setProfileDirty] = useState(false);
   const { hasAnyPermission, isSuperAdmin } = usePermissions();
 
@@ -51,20 +54,35 @@ export default function SettingsPage() {
         case 'recruitment':
         case 'security':
           return hasAnyPermission(['manage_settings']);
+        case 'commission-slabs':
+          return isAgencyMode && hasAnyPermission(['manage_settings']);
         case 'billing':
           return true;
+        case 'invoice-template':
+          return (
+            showBillingSection &&
+            hasAnyPermission([
+              'manage_billing_settings',
+              'access_billing',
+              'create_invoice',
+              'manage_settings',
+            ])
+          );
         case 'activity-log':
           return isSuperAdmin();
         default:
           return true;
       }
     },
-    [hasAnyPermission, isSuperAdmin],
+    [hasAnyPermission, isSuperAdmin, isAgencyMode, showBillingSection],
   );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const refreshBilling = () => setShowBillingSection(isOrgBillingNavEnabled());
+    const refreshBilling = () => {
+      setShowBillingSection(isOrgBillingNavEnabled());
+      setIsAgencyMode(getCachedOrgRecruitmentMode() !== 'standalone');
+    };
     refreshBilling();
     window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, refreshBilling);
     return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, refreshBilling);
@@ -79,6 +97,7 @@ export default function SettingsPage() {
       'notifications-triggers',
       'alerts-management',
       'recruitment',
+      'commission-slabs',
       'billing',
       'security',
       'customization',
@@ -123,8 +142,12 @@ export default function SettingsPage() {
         return <AlertsManagementSettings />;
       case 'recruitment':
         return <RecruitmentWorkflowSettings />;
+      case 'commission-slabs':
+        return <CommissionSlabSettings />;
       case 'billing':
         return <BillingSettings />;
+      case 'invoice-template':
+        return <InvoiceTemplateSettings />;
       case 'security':
         return <SecuritySettings />;
       case 'customization':
@@ -142,7 +165,9 @@ export default function SettingsPage() {
     'notifications-triggers': 'Notifications Trigger Points',
     'alerts-management': 'Alerts Management',
     recruitment: 'Recruitment workflow',
+    'commission-slabs': 'Commission slabs',
     billing: 'Subscription & Plan',
+    'invoice-template': 'Invoice template',
     security: 'Data & Security',
     'activity-log': 'Activity Log',
     customization: 'Customization',
@@ -161,12 +186,21 @@ export default function SettingsPage() {
             void requestSectionChange(id);
           }}
           showBillingSection={showBillingSection}
+          isAgencyMode={isAgencyMode}
         />
 
         <div className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[90rem] px-5 py-7 sm:px-8 lg:px-10">
-            <header className="mb-7">
-              <nav className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
+          <div
+            className={`mx-auto px-6 py-8 lg:px-10 ${
+              activeSection === 'activity-log' ||
+              activeSection === 'alerts-management' ||
+              activeSection === 'invoice-template'
+                ? 'max-w-[90rem]'
+                : 'max-w-5xl'
+            }`}
+          >
+            <header className="mb-8 border-b border-slate-200 pb-6">
+              <nav className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-400">
                 <span>Dashboard</span>
                 <span aria-hidden>/</span>
                 <span>Settings</span>
@@ -198,7 +232,11 @@ export default function SettingsPage() {
 
             {renderContent()}
 
-            <footer className="mt-12 flex flex-col gap-3 border-t border-indigo-100/50 py-8 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <footer
+              className={`flex flex-col gap-3 border-t border-slate-200 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between ${
+                activeSection === 'invoice-template' ? 'mt-4 py-4' : 'mt-12 py-8'
+              }`}
+            >
               <p>© 2026 HRYANTRA Recruitment Agency Platform. All rights reserved.</p>
               <div className="flex flex-wrap gap-4">
                 <button type="button" className="hover:text-indigo-600">

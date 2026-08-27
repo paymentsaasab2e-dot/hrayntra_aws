@@ -73,6 +73,12 @@ import {
 import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
 import { suggestIndustryOptions } from './industrySuggest.service.js';
 import { suggestLanguageOptions, suggestProficiencyOptions } from './languageSuggest.service.js';
+import {
+  getCommissionSlabs,
+  setCommissionSlabs,
+  resolveCommissionFromContext,
+  DEFAULT_COMMISSION_SLABS,
+} from './commissionSlabs.service.js';
 import { hasLlmProvider } from '../../services/llmChatFallback.service.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { getActiveTenantDbName } from '../../config/prisma.js';
@@ -268,6 +274,38 @@ router.put('/default-currency', requireAnyPermission(['manage_settings']), async
     sendResponse(res, 200, 'Default currency saved', { code: saved });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to save default currency', error);
+  }
+});
+
+/** Any authenticated user — placements/invoices auto-fill from org slabs. */
+router.get('/commission-slabs', async (req, res) => {
+  try {
+    const commissionSlabs = await getCommissionSlabs();
+    sendResponse(res, 200, 'OK', { commissionSlabs, defaults: DEFAULT_COMMISSION_SLABS });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load commission slabs', error);
+  }
+});
+
+router.put('/commission-slabs', requireAnyPermission(['manage_settings']), async (req, res) => {
+  try {
+    const payload = req.body?.commissionSlabs ?? req.body ?? {};
+    const commissionSlabs = await setCommissionSlabs(payload);
+    sendResponse(res, 200, 'Commission slabs saved', { commissionSlabs });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to save commission slabs', error);
+  }
+});
+
+router.get('/commission-slabs/resolve', async (req, res) => {
+  try {
+    const resolved = await resolveCommissionFromContext({
+      offerSalary: req.query?.salary ?? req.query?.offerSalary,
+      jobId: req.query?.jobId,
+    });
+    sendResponse(res, 200, 'OK', resolved);
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to resolve commission slab', error);
   }
 });
 

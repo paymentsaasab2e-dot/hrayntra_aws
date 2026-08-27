@@ -235,10 +235,14 @@ function RecruitmentDashboardInner() {
       {category !== 'mine' ? (
         <DashScopeBanner
           access={{
+            dashboardLevel: access.dashboardLevel,
             statsScope: access.canFullStats ? 'full' : 'self',
             canFullStats: access.canFullStats,
+            scopeLabel: access.scopeLabel,
+            departmentName: access.departmentName,
             showMineTab: access.showMineTab,
             showMineApprovals: access.showMineApprovals,
+            org: access.org,
           }}
         />
       ) : null}

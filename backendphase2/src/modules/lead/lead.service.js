@@ -14,6 +14,10 @@ import {
 } from '../setting/alert-notify.helpers.js';
 import { canViewAllLeads } from '../../utils/permissionScope.js';
 import { applyMemberLeadScope, buildLeadAccessWhere } from '../../services/leadMemberScope.service.js';
+import {
+  mergeOrgCompanyListScope,
+  resolveWriteOrgUnitId,
+} from '../../services/orgListScope.service.js';
 import { stampLeadAssigneeVisibility } from '../../services/memberVisibility.service.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import {
@@ -743,12 +747,19 @@ export const leadService = {
     }
 
     const filteredParts = andParts.filter((part) => part && Object.keys(part).length > 0);
-    const where =
+    let where =
       filteredParts.length === 0
         ? {}
         : filteredParts.length === 1
           ? filteredParts[0]
           : { AND: filteredParts };
+
+    // Company switcher (x-org-unit-id): Super Admin viewing Comp B must not see Comp A leads.
+    where = await mergeOrgCompanyListScope(where, req, {
+      assignedToIdField: 'assignedToId',
+      assignedToIdsField: 'assignedToIds',
+      createdByField: 'createdBy',
+    });
 
     const [leads, total] = await Promise.all([
       prisma.lead.findMany({
@@ -929,6 +940,9 @@ export const leadService = {
       })(),
       createdBy: data.performedById ? String(data.performedById) : null,
     };
+
+    const writeOrgUnitId = req ? await resolveWriteOrgUnitId(req).catch(() => null) : null;
+    if (writeOrgUnitId) leadData.orgUnitId = writeOrgUnitId;
 
     // Log the received data in JSON format
     dbLogger.logCreate('Lead', leadData);

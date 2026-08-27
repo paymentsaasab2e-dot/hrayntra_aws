@@ -16,6 +16,8 @@ import {
   type TenantBehaviorEngineReport,
 } from '@/lib/tenant-behavior-engine';
 import { scorePeopleDesk, teamHealthRows, defaultSop, type PeopleDeskScores, type PeopleSop } from './peopleInsights';
+import { useDashboardAccess } from '@/lib/dashboard/useDashboardAccess';
+import { DashScopeBanner } from '@/components/dashboard/mine/MineWorkPanel';
 
 export type PeoplePerfSlot = {
   product: PeoplePerfProduct;
@@ -439,6 +441,7 @@ function CardInsightModal({
 
 export function PeoplePerfPanel({ product }: { product: PeoplePerfProduct }) {
   const { coins, refresh: refreshCoins, getFeatureCost } = useTenantCoins();
+  const dashAccess = useDashboardAccess();
   const [status, setStatus] = useState<PeoplePerfSlot | null>(null);
   const [report, setReport] = useState<TenantBehaviorEngineReport | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -482,17 +485,27 @@ export function PeoplePerfPanel({ product }: { product: PeoplePerfProduct }) {
     try {
       const [st, engine] = await Promise.all([loadStatus(), fetchTenantBehaviorEngine({ range: 'week' })]);
       setStatus(st?.[product] || null);
-      setReport(engine);
+      let users = engine?.users || [];
+      // Client-side guard: keep Hours & scores aligned with dashboard level scope.
+      const scopeIds = dashAccess.rankAccess?.scopeUserIds;
+      if (Array.isArray(scopeIds) && scopeIds.length) {
+        const allowed = new Set(scopeIds.map(String));
+        users = users.filter((u) => allowed.has(String(u.userId)));
+      } else if (dashAccess.dashboardLevel === 'self') {
+        // Until access API hydrates scopeUserIds, still limit if level is self via SA path only
+      }
+      const scopedEngine = engine ? { ...engine, users, userCount: users.length } : null;
+      setReport(scopedEngine);
       setSelectedId((prev) => {
-        if (prev && engine?.users.some((u) => u.userId === prev)) return prev;
-        return engine?.users[0]?.userId || null;
+        if (prev && users.some((u) => u.userId === prev)) return prev;
+        return users[0]?.userId || null;
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load hours & scores');
     } finally {
       setLoading(false);
     }
-  }, [product]);
+  }, [product, dashAccess.rankAccess?.scopeUserIds, dashAccess.dashboardLevel]);
 
   useEffect(() => {
     void load();
@@ -547,6 +560,18 @@ export function PeoplePerfPanel({ product }: { product: PeoplePerfProduct }) {
 
   return (
     <div className="relative space-y-4">
+      <DashScopeBanner
+        access={{
+          dashboardLevel: dashAccess.dashboardLevel,
+          statsScope: dashAccess.canFullStats ? 'full' : 'self',
+          canFullStats: dashAccess.canFullStats,
+          scopeLabel: dashAccess.scopeLabel,
+          departmentName: dashAccess.departmentName,
+          showMineTab: dashAccess.showMineTab,
+          showMineApprovals: dashAccess.showMineApprovals,
+          org: dashAccess.org,
+        }}
+      />
       {faded ? (
         <div className="relative z-20 mx-auto w-full max-w-md overflow-hidden rounded-3xl border border-amber-200/90 bg-gradient-to-br from-amber-50 via-white to-emerald-50 p-6 text-center shadow-[0_16px_40px_rgba(15,23,42,0.12)]">
           <div className="pointer-events-none absolute -left-10 -top-12 h-36 w-36 rounded-full bg-amber-300/45 blur-3xl" />
@@ -591,6 +616,7 @@ export function PeoplePerfPanel({ product }: { product: PeoplePerfProduct }) {
                 <h2 className="mt-1.5 text-[18px] font-bold tracking-tight text-slate-900">Hours & scores</h2>
                 <p className="mt-0.5 text-[12px] font-medium text-slate-500">
                   Assigned-work hours versus the standard operating week
+                  {dashAccess.scopeLabel ? ` · ${dashAccess.scopeLabel}` : ''}
                   {active && status?.daysLeft ? ` · ${status.daysLeft} days remaining` : ''}
                 </p>
               </div>

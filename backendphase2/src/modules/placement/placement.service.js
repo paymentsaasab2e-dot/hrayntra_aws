@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { getActiveTenantDbName } from '../../config/prisma.js';
+import { mergeOrgCompanyListScope } from '../../services/orgListScope.service.js';
 import { mirrorLocalUploadToS3 } from '../../utils/publicUploads.util.js';
 import { getCandidateOrThrow } from '../candidate/candidate.service.js';
 import {
@@ -33,6 +34,7 @@ import {
   queueAiEntryRecommendation,
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
+import { resolveCommissionFromContext } from '../setting/commissionSlabs.service.js';
 
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
 const DEFAULT_LIMIT = 20;
@@ -598,7 +600,10 @@ export const placementService = {
     const { page, limit, skip } = buildPagination(req.query);
     const sortBy = VALID_SORT_FIELDS.has(req.query.sortBy) ? req.query.sortBy : 'updatedAt';
     const sortOrder = String(req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
-    const where = await buildPlacementWhere(req.query);
+    const where = await mergeOrgCompanyListScope(await buildPlacementWhere(req.query), req, {
+      assignedToIdField: 'recruiterId',
+      createdByField: '',
+    });
 
     const [placements, total] = await Promise.all([
       prisma.placement.findMany({
@@ -679,9 +684,33 @@ export const placementService = {
     }
 
     const salaryOffered = parseNumber(data.salaryOffered ?? data.offerSalary ?? data.salary, 'Offer salary', { required: true, min: 0 });
-    const placementFee = parseNumber(data.placementFee ?? data.fee, 'Placement fee', { required: true, min: 0 });
-    const commissionPercentage = parseNumber(data.commissionPercentage, 'Commission percentage', { min: 0 }) ?? 20;
-    const currency = String(data.currency || 'USD').trim().toUpperCase() || 'USD';
+    const slabResult = await resolveCommissionFromContext({
+      offerSalary: salaryOffered,
+      offerCurrency: data.offerCurrency || data.currency,
+      jobId: data.jobId,
+    });
+    const manualCommission = String(data.commissionSource || '').toLowerCase() === 'manual';
+    const sentCommission = parseNumber(data.commissionPercentage, 'Commission percentage', { min: 0 });
+    const sentFee = parseNumber(data.placementFee ?? data.fee, 'Placement fee', { min: 0 });
+    let commissionPercentage;
+    let placementFee;
+    let currency;
+    if (slabResult.enabled && !manualCommission) {
+      commissionPercentage = slabResult.percent;
+      placementFee = sentFee != null && sentFee > 0 ? sentFee : Math.round(slabResult.fee);
+      currency = slabResult.commissionCurrency || String(data.currency || 'USD').trim().toUpperCase() || 'USD';
+    } else {
+      commissionPercentage = sentCommission ?? 20;
+      placementFee =
+        sentFee ??
+        (salaryOffered > 0 && commissionPercentage > 0
+          ? Math.round((salaryOffered * commissionPercentage) / 100)
+          : null);
+      currency = String(data.currency || slabResult.commissionCurrency || 'USD').trim().toUpperCase() || 'USD';
+    }
+    if (placementFee == null || placementFee < 0) {
+      throw new Error('Placement fee is required');
+    }
     const offerDate = parseDate(data.offerDate, 'Offer date', { required: true });
     const expectedJoining = parseDate(data.expectedJoiningDate ?? data.joiningDate, 'Expected joining date');
     const initialStatus = data.status ? normalizePlacementStatus(data.status) : 'OFFER_SENT';
@@ -700,7 +729,7 @@ export const placementService = {
       getCandidateOrThrow(data.candidateId),
       prisma.job.findUnique({
         where: { id: data.jobId },
-        select: { id: true, title: true, clientId: true },
+        select: { id: true, title: true, clientId: true, salary: true },
       }),
       prisma.user.findUnique({
         where: { id: data.recruiterId || userId },
@@ -898,7 +927,12 @@ export const placementService = {
       candidateId: candidate.id,
       jobId: job.id,
       stage: PIPELINE_STAGES.OFFER,
-      metadata: { placementId: placementResult.id, jobTitle: job.title, offerDate: offerDate?.toISOString?.() || String(offerDate) },
+      metadata: {
+        placementId: placementResult.id,
+        jobTitle: job.title,
+        offerDate: offerDate?.toISOString?.() || String(offerDate),
+        skipSlabPlacement: true,
+      },
       performedById: userId,
       skipStageActivity: true,
     });
@@ -1935,6 +1969,8 @@ export const placementService = {
       ...(data.buyerBank ? { buyerBank: data.buyerBank } : {}),
       ...(data.clientSignatory ? { clientSignatory: data.clientSignatory } : {}),
       ...(data.agencySignatory ? { agencySignatory: data.agencySignatory } : {}),
+      ...(data.templateId != null ? { templateId: data.templateId } : {}),
+      ...(Array.isArray(data.customColumns) ? { customColumns: data.customColumns } : {}),
     };
 
     let createdBillingRecordId = null;

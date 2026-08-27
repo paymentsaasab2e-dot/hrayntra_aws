@@ -7,6 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { useUser } from '../hooks/useUser';
+import { OrgWorkspaceSwitcher } from './org/OrgWorkspaceSwitcher';
 import {
   apiGetUnifiedCalendar,
   apiLogout,
@@ -1496,6 +1497,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
         {/* Right icons */}
         <div className="flex items-center gap-4 shrink-0">
+          {mounted ? <OrgWorkspaceSwitcher variant="header" /> : null}
           <div className="flex items-center gap-4 pr-4 border-r border-white/10">
             <Tooltip content="Calendar">
               <Link href="/calendar" className="text-amber-400/90 hover:text-amber-300 transition-colors">
@@ -1702,11 +1704,16 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             (isOrgModuleEnabled('team') || isOrgModuleEnabled('requests') || isOrgModuleEnabled('approvals')) &&
             (showAll ||
               hasAnyPermission(MODULE_ACCESS_MAP.Team) ||
-              hasAnyPermission(MODULE_ACCESS_MAP.Request)) && (
+              hasAnyPermission(MODULE_ACCESS_MAP.Request) ||
+              hasAnyPermission(MODULE_ACCESS_MAP.Organization)) && (
             <>
               <SectionLabel label="Team Management" collapsed={isCollapsed} />
               {(isOrgModuleEnabled('team') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Team))) && (
                 <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
+              )}
+              {(isOrgModuleEnabled('team') &&
+                (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Organization))) && (
+                <NavItem icon={GitBranch} label="Organization" href="/organization" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="teal" />
               )}
               {((isOrgModuleEnabled('requests') || isOrgModuleEnabled('approvals')) &&
                 (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request))) && (

@@ -291,13 +291,42 @@ export type CrmOverview = {
   generatedAt?: string;
 };
 
+export type OrgCompanyOption = {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  levelOrder?: number;
+};
+
+export type DashboardOrgScope = {
+  isTenantAdmin?: boolean;
+  isTenantWide?: boolean;
+  canSwitchCompanies?: boolean;
+  hierarchyPurpose?: string;
+  orgUnitId?: string | null;
+  homeOrgUnitId?: string | null;
+  companies?: OrgCompanyOption[];
+  memberIds?: string[];
+};
+
+export type DashboardLevel = 'self' | 'department' | 'company' | 'tenant';
+
 export type DashboardStatsAccess = {
+  /** Data scope for CRM/Rec numbers (separate from which tabs are visible). */
+  dashboardLevel?: DashboardLevel;
   statsScope: 'full' | 'self';
   canFullStats: boolean;
+  /** Human label for banner, e.g. "Sales department" / "all companies". */
+  scopeLabel?: string;
+  /** User ids included for this level; omit/null means whole tenant. */
+  scopeUserIds?: string[] | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
   showMineTab: boolean;
   showMineApprovals?: boolean;
   isSuperAdmin?: boolean;
   isDepartmentHead?: boolean;
+  org?: DashboardOrgScope;
 };
 
 export type DashboardMyWorkApproval = {
@@ -328,6 +357,7 @@ export type CrmDashboardFilters = {
   startDate?: string;
   endDate?: string;
   scope?: 'self' | 'full';
+  orgUnitId?: string;
 };
 
 export async function apiDashboardAccess() {
@@ -459,6 +489,7 @@ export type RecruitmentDashboardFilters = {
   startDate?: string;
   endDate?: string;
   scope?: 'self' | 'full';
+  orgUnitId?: string;
 };
 
 export async function apiRecruitmentDashboardOverview(filters?: RecruitmentDashboardFilters) {

@@ -39,6 +39,16 @@ export function invoiceFromBillingRecord(
       quantity: Math.max(Number(item?.quantity) || 0, 0) || 1,
       price: Number(item?.price) || 0,
       total: Number(item?.total) || 0,
+      monthlySalary:
+        item?.monthlySalary == null || item?.monthlySalary === ''
+          ? null
+          : Number(item.monthlySalary),
+      ratePercent:
+        item?.ratePercent == null || item?.ratePercent === ''
+          ? null
+          : Number(item.ratePercent),
+      extraValues:
+        item?.extraValues && typeof item.extraValues === 'object' ? item.extraValues : undefined,
     }),
   );
   const totals = recalcInvoiceTotals(normalizedLineItems, additionalCharges, taxRate);
@@ -84,5 +94,9 @@ export function invoiceFromBillingRecord(
     buyerBank: payload.buyerBank as RecruitmentInvoiceData['buyerBank'],
     clientSignatory: payload.clientSignatory as RecruitmentInvoiceData['clientSignatory'],
     agencySignatory: payload.agencySignatory as RecruitmentInvoiceData['agencySignatory'],
+    templateId: (payload.templateId as string | null | undefined) ?? null,
+    customColumns: Array.isArray(payload.customColumns)
+      ? (payload.customColumns as RecruitmentInvoiceData['customColumns'])
+      : [],
   });
 }

@@ -15,6 +15,12 @@ import { notifyJobClosed, personName } from '../setting/alert-notify.helpers.js'
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, canViewAllJobs } from '../../utils/permissionScope.js';
 import {
+  getRequestOrgScope,
+  isOrgHeadPurpose,
+  mergeOrgCompanyListScope,
+  resolveWriteOrgUnitId,
+} from '../../services/orgListScope.service.js';
+import {
   buildAssigneeVisibilityOr,
   buildInitialParticipantIds,
   stampVisibilityOnAssigneeChange,
@@ -1151,7 +1157,10 @@ export const jobService = {
     if (mineFilter && req.user?.id) {
       where.createdById = req.user.id;
     } else if (!canViewAllJobs(req) && req.user?.id) {
-      where.OR = buildAssigneeVisibilityOr(req.user.id);
+      const org = await getRequestOrgScope(req);
+      if (!isOrgHeadPurpose(org)) {
+        where.OR = buildAssigneeVisibilityOr(req.user.id);
+      }
     }
     if (search) {
       const escaped = escapePrismaRegex(search);
@@ -1182,6 +1191,11 @@ export const jobService = {
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     let scopedWhere = mergeWhereWithScope(where, superAdminScope);
+    scopedWhere = await mergeOrgCompanyListScope(scopedWhere, req, {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+      extraHasField: 'supportingRecruiters',
+    });
     // Recycle Bin: hide soft-deleted rows from the normal Jobs page.
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
@@ -1262,8 +1276,16 @@ export const jobService = {
     let where = { id };
     const scope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     where = mergeWhereWithScope(where, scope);
+    where = await mergeOrgCompanyListScope(where, req, {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+      extraHasField: 'supportingRecruiters',
+    });
     if (!canViewAllJobs(req) && req?.user?.id) {
-      where = mergeWhereWithScope(where, { OR: buildAssigneeVisibilityOr(req.user.id) });
+      const org = await getRequestOrgScope(req);
+      if (!isOrgHeadPurpose(org)) {
+        where = mergeWhereWithScope(where, { OR: buildAssigneeVisibilityOr(req.user.id) });
+      }
     }
 
     const job = await prisma.job.findFirst({
@@ -1412,7 +1434,7 @@ export const jobService = {
     return enrichJobWithAssessments(withAudit);
   },
 
-  async create(data, createdByUserId) {
+  async create(data, createdByUserId, req = null) {
     await assertCanCreateJob();
 
     // Utility function to remove undefined values
@@ -1507,6 +1529,9 @@ export const jobService = {
       createdByUserId,
       data.assignedToId,
     );
+
+    const writeOrgUnitId = req ? await resolveWriteOrgUnitId(req).catch(() => null) : null;
+    if (writeOrgUnitId) jobData.orgUnitId = writeOrgUnitId;
 
     // Log data being stored
     dbLogger.logCreate('JOB', jobData);
@@ -2170,7 +2195,12 @@ export const jobService = {
       };
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    const where = mergeWhereWithScope(baseWhere, superAdminScope);
+    let where = mergeWhereWithScope(baseWhere, superAdminScope);
+    where = await mergeOrgCompanyListScope(where, req, {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+      extraHasField: 'supportingRecruiters',
+    });
 
     const [jobs, total] = await Promise.all([
       prisma.job.findMany({

@@ -117,11 +117,31 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'view_activity_log', module: 'System', description: 'View company activity feed' },
   { permissionName: 'recycle_bin_manage', module: 'System', description: 'Restore or purge recycle bin items' },
   { permissionName: 'view_dashboard', module: 'System', description: 'View main dashboard' },
+  { permissionName: 'org_structure', module: 'Organization', description: 'Create and edit the company tree (HQ, companies, sites)' },
+  { permissionName: 'node_org_structure', module: 'Organization', description: 'Manage sites and people under your own company node' },
+  {
+    permissionName: 'switch_companies',
+    module: 'Organization',
+    description:
+      'Show the company/branch switcher and operate CRM/recruitment across companies. Super Admin has this by default; grant only to HQ users who may work across companies.',
+  },
+  {
+    permissionName: 'dash_dept_scope',
+    module: 'System',
+    description:
+      'Dashboard level: My department — see all records assigned to people in the user’s department. Rank 1 already has this.',
+  },
+  {
+    permissionName: 'dash_company_scope',
+    module: 'System',
+    description:
+      'Dashboard level: This company — see records for the user’s company / branch. Company and site heads already have this.',
+  },
   {
     permissionName: 'dash_full_scope',
     module: 'System',
     description:
-      'Complete dashboard stats: see all records on allowed CRM/Recruitment tabs. Rank 1 and Super Admin already have this. Tick for a Rank 2+ deputy.',
+      'Dashboard level: Whole tenant — see all companies on allowed CRM/Recruitment tabs. Super Admin already has this.',
   },
   {
     permissionName: 'dash_mine_approvals',
@@ -131,12 +151,12 @@ export const DEFAULT_PERMISSIONS = [
   },
   { permissionName: 'dash_crm_insights', module: 'CRM Dashboard', description: 'CRM dashboard tab: Insights & actions' },
   { permissionName: 'dash_crm_pipeline', module: 'CRM Dashboard', description: 'CRM dashboard tab: Pipeline & records' },
-  { permissionName: 'dash_crm_team', module: 'CRM Dashboard', description: 'CRM dashboard tab: Team & outreach' },
-  { permissionName: 'dash_crm_people', module: 'CRM Dashboard', description: 'CRM dashboard tab: People intel' },
+  { permissionName: 'dash_crm_team', module: 'CRM Dashboard', description: 'CRM dashboard tab: Team & outreach (also unlocks Hours & scores tab)' },
+  { permissionName: 'dash_crm_people', module: 'CRM Dashboard', description: 'CRM dashboard tab: Hours & scores — follows Team tab; people list uses Dashboard level' },
   { permissionName: 'dash_rec_insights', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Insights & actions' },
   { permissionName: 'dash_rec_pipeline', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Pipeline & records' },
-  { permissionName: 'dash_rec_team', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Team & performance' },
-  { permissionName: 'dash_rec_people', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: People intel' },
+  { permissionName: 'dash_rec_team', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Team & performance (also unlocks Hours & scores tab)' },
+  { permissionName: 'dash_rec_people', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Hours & scores — follows Team tab; people list uses Dashboard level' },
 ];
 
 export const DEFAULT_PERMISSION_NAMES = DEFAULT_PERMISSIONS.map((p) => p.permissionName);
@@ -160,6 +180,7 @@ export const RBAC_MODULE_ORDER = [
   'Team',
   'Request',
   'System',
+  'Organization',
   'CRM Dashboard',
   'Recruitment Dashboard',
 ];
@@ -179,7 +200,11 @@ export const DEFAULT_SYSTEM_ROLES = [
 /** Default permission sets for seeded non–Super Admin roles (by role name). */
 export const DEFAULT_ROLE_PERMISSION_PRESETS = {
   Admin: DEFAULT_PERMISSION_NAMES.filter(
-    (n) => n !== 'view_team_activity' && n !== 'dash_full_scope',
+    (n) =>
+      n !== 'view_team_activity' &&
+      n !== 'dash_full_scope' &&
+      n !== 'dash_dept_scope' &&
+      n !== 'dash_company_scope',
   ),
   'Senior Recruiter': [
     'leads_read', 'leads_create', 'leads_update',
@@ -197,8 +222,8 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'calendar_read', 'calendar_manage',
     'reports_read',
     'view_dashboard',
-    'dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team', 'dash_crm_people',
-    'dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team', 'dash_rec_people',
+    'dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team',
+    'dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team',
     'view_activity_log',
     'requests_read',
     'requests_create',
@@ -232,11 +257,13 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'view_team', 'add_team_member', 'edit_team_member', 'manage_targets', 'view_team_activity',
     'leads_read', 'clients_read', 'jobs_read',
     'reports_read', 'view_dashboard', 'view_all_candidates', 'view_all_jobs', 'view_all_clients', 'view_all_leads',
-    'dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team', 'dash_crm_people',
-    'dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team', 'dash_rec_people',
+    'dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team',
+    'dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team',
     'clients_handoff',
     'requests_read', 'requests_create', 'requests_update', 'requests_delete', 'view_all_requests',
     'dash_mine_approvals',
+    'org_structure',
+    'node_org_structure',
   ],
   'Line Manager': [
     'requests_create',

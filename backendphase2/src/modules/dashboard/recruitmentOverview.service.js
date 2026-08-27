@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
+import { assigneeIdFilter, orHasStringArray } from './assigneeFilter.js';
 
 function formatPersonName(person) {
   if (!person) return '';
@@ -145,7 +146,7 @@ function sparkBySource(rows, days = 14) {
  */
 export async function getRecruitmentOverview(req) {
   const q = req?.query || {};
-  const assignedTo = String(q.assignedTo || q.team || q.recruiterId || '').trim() || undefined;
+  const assignedTo = assigneeIdFilter(q);
   const search = String(q.search || '').trim() || undefined;
 
   const now = new Date();
@@ -168,7 +169,7 @@ export async function getRecruitmentOverview(req) {
           OR: [
             { assignedToId: assignedTo },
             { createdById: assignedTo },
-            { supportingRecruiters: { has: assignedTo } },
+            ...orHasStringArray('supportingRecruiters', assignedTo),
           ],
         }
       : {}),

@@ -42,7 +42,7 @@ export const jobController = {
 
   async create(req, res) {
     try {
-      const job = await jobService.create(req.body, req.user?.id);
+      const job = await jobService.create(req.body, req.user?.id, req);
       sendResponse(res, 201, 'Job created successfully', job);
     } catch (error) {
       sendError(res, 400, error.message, error);

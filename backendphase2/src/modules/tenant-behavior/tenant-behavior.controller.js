@@ -95,10 +95,22 @@ export const tenantBehaviorController = {
   async getBehaviorEngine(req, res) {
     try {
       const { buildEmployerBehaviorEngineReport } = await import('./tenant-behavior-engine.service.js');
+      const { resolveDashboardAccess } = await import('../dashboard/dashboardAccess.service.js');
       const rangeRaw = String(req.query?.range || 'week').trim().toLowerCase();
       const range = ['today', 'week', 'month', 'year'].includes(rangeRaw) ? rangeRaw : 'week';
       const userId = String(req.query?.userId || '').trim() || undefined;
+      const access = await resolveDashboardAccess(req).catch(() => null);
       const data = await buildEmployerBehaviorEngineReport({ range, userId });
+
+      // Hours & scores people list follows dashboard level (self / dept / company / tenant).
+      if (access?.scopeUserIds && Array.isArray(access.scopeUserIds)) {
+        const allowed = new Set(access.scopeUserIds.map(String));
+        data.users = (data.users || []).filter((u) => allowed.has(String(u.userId)));
+        data.userCount = data.users.length;
+      }
+      data.dashboardLevel = access?.dashboardLevel || 'tenant';
+      data.scopeLabel = access?.scopeLabel || 'all companies';
+
       return sendResponse(res, 200, 'OK', data);
     } catch (error) {
       return handleError(res, error, '[getBehaviorEngine]');

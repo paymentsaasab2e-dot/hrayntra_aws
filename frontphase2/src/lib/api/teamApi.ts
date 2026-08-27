@@ -63,6 +63,8 @@ function getTeamAuthHeaders(): Record<string, string> {
   if (token) headers.Authorization = `Bearer ${token}`;
   const tenant = localStorage.getItem('tenantDbName');
   if (tenant) headers['x-tenant-db-name'] = tenant;
+  const orgUnit = localStorage.getItem('activeOrgUnitId');
+  if (orgUnit) headers['x-org-unit-id'] = orgUnit;
   return headers;
 }
 

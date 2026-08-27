@@ -79,7 +79,6 @@ export function buildPlacementInvoiceAgreementRows(
     { label: 'Payment terms', ...paymentTerms },
     { label: 'Advance payment', ...advance },
     { label: 'Free replacement', ...replacement },
-    ...bankRows('Client bank (KYC)', invoice?.buyerBank),
     ...bankRows('Agency bank', invoice?.sellerBank),
     { label: 'Client authorized signatory', ...clientSignatory },
     { label: 'Client signatory designation', ...clientDesignation },

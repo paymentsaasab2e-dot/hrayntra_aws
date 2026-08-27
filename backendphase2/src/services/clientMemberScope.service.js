@@ -3,6 +3,11 @@ import { canViewAllClients } from '../utils/permissionScope.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../utils/superAdminScope.js';
 import { isDepartmentHeadUser } from './departmentRole.service.js';
 import { buildAssigneeVisibilityOr } from './memberVisibility.service.js';
+import {
+  getRequestOrgScope,
+  isOrgHeadPurpose,
+  mergeOrgCompanyListScope,
+} from './orgListScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -35,7 +40,18 @@ export async function applyMemberClientScope(scopedWhere, req) {
   if (req?._bypassClientScope) {
     return scopedWhere;
   }
+
+  scopedWhere = await mergeOrgCompanyListScope(scopedWhere, req, {
+    assignedToIdField: 'assignedToId',
+    createdByField: 'createdById',
+  });
+
   if (canViewAllClients(req) || !req?.user?.id) {
+    return scopedWhere;
+  }
+
+  const org = await getRequestOrgScope(req);
+  if (isOrgHeadPurpose(org)) {
     return scopedWhere;
   }
 

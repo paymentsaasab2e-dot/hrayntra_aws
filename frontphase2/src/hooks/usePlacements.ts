@@ -58,7 +58,15 @@ export function usePlacements(filters: PlacementFilters) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [candidateOptions, setCandidateOptions] = useState<Array<{ id: string; name: string; email: string }>>([]);
-  const [jobOptions, setJobOptions] = useState<Array<{ id: string; title: string; clientId?: string; clientName: string }>>([]);
+  const [jobOptions, setJobOptions] = useState<Array<{
+    id: string;
+    title: string;
+    clientId?: string;
+    clientName: string;
+    minSalary?: number | null;
+    maxSalary?: number | null;
+    salaryAmount?: number | null;
+  }>>([]);
   const [clientOptions, setClientOptions] = useState<Array<{ id: string; companyName: string }>>([]);
   const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string; email: string }>>([]);
 
@@ -133,6 +141,9 @@ export function usePlacements(filters: PlacementFilters) {
           title: job.title,
           clientId: job.client?.id || job.clientId || undefined,
           clientName: job.client?.companyName || 'No client linked',
+          minSalary: job.salary?.min ?? job.minSalary ?? null,
+          maxSalary: job.salary?.max ?? job.maxSalary ?? null,
+          salaryAmount: job.salary?.amount ?? null,
           clientEmail: (() => {
             const c = job.client;
             if (!c) return '';

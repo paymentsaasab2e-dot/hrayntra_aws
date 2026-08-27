@@ -54,6 +54,12 @@ import {
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
 import {
+  applyOrgCompanyAssigneeWhere,
+  getRequestOrgScope,
+  isOrgHeadPurpose,
+  resolveWriteOrgUnitId,
+} from '../../services/orgListScope.service.js';
+import {
   buildAssigneeVisibilityOr,
   buildInitialParticipantIds,
   stampVisibilityOnAssigneeChange,
@@ -3015,8 +3021,16 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
   } else if (superAdminScope) {
     andParts.push(superAdminScope);
   } else if (!canViewAllCandidates && req?.user?.id) {
-    andParts.push(await buildCandidateListVisibilityScope(req));
+    const org = await getRequestOrgScope(req);
+    if (!isOrgHeadPurpose(org)) {
+      andParts.push(await buildCandidateListVisibilityScope(req));
+    }
   }
+  const orgScope = await applyOrgCompanyAssigneeWhere(req, {
+    assignedToIdField: 'assignedToId',
+    createdByField: 'createdById',
+  });
+  if (orgScope) andParts.push(orgScope);
 
   const searchClause = buildCandidateSearchWhereClause(search);
   if (searchClause) andParts.push(searchClause);
@@ -3091,8 +3105,16 @@ export const candidateService = {
     } else if (superAdminScope) {
       andParts.push(superAdminScope);
     } else if (!canViewAllCandidates && req.user?.id) {
-      andParts.push(await buildCandidateListVisibilityScope(req));
+      const org = await getRequestOrgScope(req);
+      if (!isOrgHeadPurpose(org)) {
+        andParts.push(await buildCandidateListVisibilityScope(req));
+      }
     }
+    const orgScope = await applyOrgCompanyAssigneeWhere(req, {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+    });
+    if (orgScope) andParts.push(orgScope);
     const searchClause = buildCandidateSearchWhereClause(search);
     if (searchClause) andParts.push(searchClause);
     appendCandidateListFilterAndParts(andParts, listFilters);
@@ -3360,8 +3382,18 @@ export const candidateService = {
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
 
     if (!isSuperAdminUser(req) && !canViewAllCandidates && req?.user?.id) {
-      const assignedScope = { OR: buildAssigneeVisibilityOr(req.user.id) };
-      accessScope = accessScope ? { AND: [accessScope, assignedScope] } : assignedScope;
+      const org = await getRequestOrgScope(req);
+      if (!isOrgHeadPurpose(org)) {
+        const assignedScope = { OR: buildAssigneeVisibilityOr(req.user.id) };
+        accessScope = accessScope ? { AND: [accessScope, assignedScope] } : assignedScope;
+      }
+    }
+    const orgScope = await applyOrgCompanyAssigneeWhere(req, {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+    });
+    if (orgScope) {
+      accessScope = accessScope ? { AND: [accessScope, orgScope] } : orgScope;
     }
 
     const baseTenantWhere = { id, isDeleted: { not: true } };
@@ -3459,7 +3491,7 @@ export const candidateService = {
     );
   },
 
-  async create(data, createdByUserId) {
+  async create(data, createdByUserId, req = null) {
     const candidateData = {
       firstName: data.firstName,
       lastName: data.lastName,
@@ -3504,6 +3536,9 @@ export const candidateService = {
       createdById: createdByUserId || undefined,
       participantIds: buildInitialParticipantIds(createdByUserId, data.assignedToId),
     };
+
+    const writeOrgUnitId = await resolveWriteOrgUnitId(req);
+    if (writeOrgUnitId) candidateData.orgUnitId = writeOrgUnitId;
 
     // Log data being stored
     dbLogger.logCreate('CANDIDATE', candidateData);
@@ -3872,13 +3907,21 @@ export const candidateService = {
     const canViewAll =
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
     if (!canViewAll && req?.user?.id) {
-      andParts.push({
-        OR: [
-          ...buildAssigneeVisibilityOr(req.user.id),
-          { deletedBy: req.user.id },
-        ],
-      });
+      const org = await getRequestOrgScope(req);
+      if (!isOrgHeadPurpose(org)) {
+        andParts.push({
+          OR: [
+            ...buildAssigneeVisibilityOr(req.user.id),
+            { deletedBy: req.user.id },
+          ],
+        });
+      }
     }
+    const orgScope = await applyOrgCompanyAssigneeWhere(req, {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+    });
+    if (orgScope) andParts.push(orgScope);
     const where = { AND: andParts };
 
     const [candidates, total] = await Promise.all([

@@ -40,19 +40,60 @@ export function DashScopeBanner({
     );
   }
   if (!access) return null;
-  if (access.statsScope === 'self') {
+
+  const level = access.dashboardLevel || (access.statsScope === 'self' ? 'self' : 'tenant');
+  const label =
+    access.scopeLabel ||
+    (level === 'self'
+      ? 'your assigned records'
+      : level === 'department'
+        ? access.departmentName
+          ? `${access.departmentName} department`
+          : 'your department'
+        : level === 'company'
+          ? 'this company'
+          : 'all companies');
+
+  if (level === 'self') {
     return (
       <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-[12px] text-amber-900">
-        Showing <span className="font-semibold">your assigned records</span> only. Rank 1 / Super Admin
-        see full department stats. A deputy can get the same via Team → Roles →{' '}
-        <span className="font-semibold">Complete dashboard stats</span>.
+        Showing <span className="font-semibold">your jobs only</span>
+        {' — '}
+        numbers are limited to records assigned to you. Department Rank 1 sees the whole department;
+        company heads see their company; Super Admin (or{' '}
+        <span className="font-semibold">Dashboard level: Whole tenant</span> on a role) sees everything.
       </p>
     );
   }
+
+  if (level === 'department') {
+    return (
+      <p className="rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2 text-[12px] text-sky-950">
+        Showing <span className="font-semibold">{label}</span>
+        {' — '}
+        stats include everyone in your department. Open <span className="font-semibold">My work</span>{' '}
+        for your own tasks and approvals.
+      </p>
+    );
+  }
+
+  if (level === 'company') {
+    return (
+      <p className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[12px] text-slate-600">
+        Showing <span className="font-semibold text-slate-800">{label}</span>
+        {' — '}
+        stats for this company / branch. Open <span className="font-semibold">My work</span> for your
+        own tasks and approvals.
+      </p>
+    );
+  }
+
   return (
     <p className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[12px] text-slate-600">
-      Showing <span className="font-semibold text-slate-800">full stats</span> for the tabs on this
-      dashboard. Open <span className="font-semibold">My work</span> for your own tasks and approvals.
+      Showing <span className="font-semibold text-slate-800">{label}</span>
+      {' — '}
+      full tenant stats for the tabs on this dashboard. Open{' '}
+      <span className="font-semibold">My work</span> for your own tasks and approvals.
     </p>
   );
 }

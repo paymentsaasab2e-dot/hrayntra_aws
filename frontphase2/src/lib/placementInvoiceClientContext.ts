@@ -274,11 +274,19 @@ export function applyClientContextToInvoice(
   const clientName = options.clientName || client?.companyName || invoice.buyer.name;
 
   const lineName =
-    placementFee > 0
-      ? `Placement fee — ${jobTitle || 'role'} (${
-          effectiveCommissionPct != null ? `${effectiveCommissionPct}%` : 'per agreement'
-        })`
-      : invoice.lineItems[0]?.name || `Placement fee — ${jobTitle || 'role'}`;
+    candidateName || jobTitle
+      ? `Recruitment Fee for- ${candidateName || 'Candidate'}${
+          jobTitle ? `, ${jobTitle}` : ''
+        }${
+          invoice.placementSummary?.joiningDate
+            ? `- DOJ- ${formatDateDisplay(invoice.placementSummary.joiningDate)}`
+            : ''
+        }`
+      : placementFee > 0
+        ? `Placement fee — ${jobTitle || 'role'} (${
+            effectiveCommissionPct != null ? `${effectiveCommissionPct}%` : 'per agreement'
+          })`
+        : invoice.lineItems[0]?.name || `Placement fee — ${jobTitle || 'role'}`;
 
   const lineItems =
     placementFee > 0
@@ -288,6 +296,8 @@ export function applyClientContextToInvoice(
             quantity: 1,
             price: placementFee,
             total: placementFee,
+            monthlySalary: offerSalary > 0 ? offerSalary : null,
+            ratePercent: effectiveCommissionPct,
           }),
         ]
       : invoice.lineItems;
@@ -313,7 +323,10 @@ export function applyClientContextToInvoice(
   const migrated = migrateLegacyInvoiceNotesToTerms(invoice);
 
   let notes = shortNote;
-  let termsAndConditions = termsText;
+  let termsAndConditions =
+    termsText ||
+    String(settings.defaultTermsAndConditions || '').trim() ||
+    '';
 
   if (preserveTerms && String(invoice.termsAndConditions || '').trim()) {
     termsAndConditions = invoice.termsAndConditions!;
@@ -321,7 +334,7 @@ export function applyClientContextToInvoice(
     termsAndConditions = migrated.termsAndConditions!;
     notes = migrated.notes || shortNote;
   } else if (!preserveTerms && looksLikeAgreementNotes(String(invoice.notes || ''))) {
-    termsAndConditions = migrated.termsAndConditions || termsText;
+    termsAndConditions = migrated.termsAndConditions || termsText || termsAndConditions;
     notes = migrated.notes || shortNote;
   }
 
@@ -355,7 +368,6 @@ export function applyClientContextToInvoice(
       preserveUserEdits && invoice.sellerBank
         ? invoice.sellerBank
         : resolveSellerBankDetails(settings),
-    buyerBank: resolveBuyerBankDetails(client) || invoice.buyerBank || undefined,
     clientSignatory: resolveClientSignatory(client),
     agencySignatory:
       preserveUserEdits && invoice.agencySignatory

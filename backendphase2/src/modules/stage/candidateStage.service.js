@@ -1037,6 +1037,27 @@ export async function updateCandidateStage({
     console.warn('[updateCandidateStage] alert failed:', alertErr?.message || alertErr);
   }
 
+  if (
+    jobId &&
+    (upper === PIPELINE_STAGES.OFFER || upper === PIPELINE_STAGES.HIRED) &&
+    !metadata?.skipSlabPlacement
+  ) {
+    try {
+      const { ensureSlabBackedPlacement } = await import('../placement/ensureSlabPlacement.js');
+      await ensureSlabBackedPlacement({
+        candidateId,
+        jobId,
+        performedById,
+        stage: upper,
+      });
+    } catch (slabErr) {
+      console.warn(
+        '[updateCandidateStage] slab placement auto-apply failed:',
+        slabErr?.message || slabErr,
+      );
+    }
+  }
+
   if (!skipStageActivity && performedById) {
     const cand = await prisma.candidate.findUnique({
       where: { id: candidateId },
