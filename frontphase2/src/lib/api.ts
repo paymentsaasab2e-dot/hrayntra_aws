@@ -979,6 +979,27 @@ export async function apiSetClientPageFieldVisibility(fields: {
   return res;
 }
 
+/** Tenant-wide table Columns prefs (synced across browsers). */
+export async function apiGetTableColumnVisibility() {
+  return apiFetch<{ columns: Record<string, string[]> }>('/settings/org/table-columns', {
+    auth: true,
+  });
+}
+
+export async function apiSetTableColumnModuleVisibility(
+  moduleKey: string,
+  visibleIds: string[],
+) {
+  return apiFetch<{ columns: Record<string, string[]>; moduleKey: string }>(
+    '/settings/org/table-columns',
+    {
+      method: 'PUT',
+      auth: true,
+      body: { moduleKey, visibleIds },
+    },
+  );
+}
+
 export async function apiGetOrgDefaultCurrency() {
   return apiFetch<{ code: string; supportedCurrencies: string[]; fallback: string }>(
     '/settings/org/default-currency',

@@ -415,6 +415,8 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
   const [interviewerOptions, setInterviewerOptions] = useState<InterviewPanelMember[]>([]);
   const [totalPages, setTotalPages] = useState(1);
   const [interviewRoundById, setInterviewRoundById] = useState<Record<string, number>>({});
+  const [overviewInterviews, setOverviewInterviews] = useState<Interview[]>([]);
+  const [jobScopedInterviews, setJobScopedInterviews] = useState<Interview[]>([]);
   const interviewerOptionsRef = useRef(interviewerOptions);
   const jobOptionsRef = useRef(jobOptions);
   interviewerOptionsRef.current = interviewerOptions;
@@ -467,6 +469,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
 
     if (allInterviewsRes.status === 'fulfilled') {
       const snapshot = normalizeInterviewListResponse(allInterviewsRes.value.data);
+      setOverviewInterviews(snapshot.interviews);
       setInterviewRoundById(buildInterviewRoundNumberById(snapshot.interviews));
     }
   }, []);
@@ -506,6 +509,11 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
 
       const snapshot = normalizeInterviewListResponse(response.data);
       setInterviews(snapshot.interviews);
+      setOverviewInterviews((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]));
+        for (const item of snapshot.interviews) byId.set(item.id, item);
+        return Array.from(byId.values());
+      });
       setTotalPages(snapshot.totalPages);
       setTotalEntries(snapshot.totalEntries);
       setKpis(snapshot.kpis);
@@ -554,11 +562,54 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     [interviews, candidateNameById],
   );
 
+  const overviewInterviewsWithCanonicalNames = useMemo(
+    () =>
+      withCanonicalCandidateNames(overviewInterviews, candidateNameById).filter(
+        (interview) => !deletedInterviewIdSet.has(interview.id),
+      ),
+    [candidateNameById, deletedInterviewIdSet, overviewInterviews],
+  );
+
+  const jobScopedInterviewsWithCanonicalNames = useMemo(
+    () =>
+      withCanonicalCandidateNames(jobScopedInterviews, candidateNameById).filter(
+        (interview) => !deletedInterviewIdSet.has(interview.id),
+      ),
+    [candidateNameById, deletedInterviewIdSet, jobScopedInterviews],
+  );
+
   const filteredInterviews = useMemo(
     () => interviewsWithCanonicalNames.filter((interview) => !deletedInterviewIdSet.has(interview.id)),
     [deletedInterviewIdSet, interviewsWithCanonicalNames],
   );
   const paginatedInterviews = useMemo(() => filteredInterviews, [filteredInterviews]);
+
+  const fetchInterviewsForJob = useCallback(async (jobId: string | null) => {
+    if (!jobId) {
+      setJobScopedInterviews([]);
+      return;
+    }
+    try {
+      const response = await apiGetInterviews({ jobId, limit: 500 });
+      const snapshot = normalizeInterviewListResponse(response.data);
+      setJobScopedInterviews(snapshot.interviews);
+      setOverviewInterviews((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]));
+        for (const item of snapshot.interviews) byId.set(item.id, item);
+        return Array.from(byId.values());
+      });
+      setInterviewRoundById((currentMap) => {
+        // Rebuild from known overview + this job's rows via a second pass after state settles
+        // is handled on the page; merge job-local chronological rounds for immediate UI.
+        return {
+          ...currentMap,
+          ...buildInterviewRoundNumberById(snapshot.interviews),
+        };
+      });
+    } catch {
+      setJobScopedInterviews([]);
+    }
+  }, []);
 
   const scheduleInterview = useCallback(
     async (payload: ScheduleInterviewPayload) => {
@@ -911,6 +962,9 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
 
   return {
     interviews: interviewsWithCanonicalNames,
+    overviewInterviews: overviewInterviewsWithCanonicalNames,
+    jobScopedInterviews: jobScopedInterviewsWithCanonicalNames,
+    fetchInterviewsForJob,
     filteredInterviews,
     paginatedInterviews,
     filters,

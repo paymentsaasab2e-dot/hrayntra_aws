@@ -37,6 +37,8 @@ interface CandidateListProps {
   embedded?: boolean;
   loading?: boolean;
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
+  isColumnVisible?: (id: string) => boolean;
+  columnsMenu?: React.ReactNode;
 }
 
 export default function CandidateList(props: CandidateListProps) {
@@ -63,6 +65,8 @@ export default function CandidateList(props: CandidateListProps) {
     embedded = false,
     loading = false,
     workspaceAlertsByEntityId,
+    isColumnVisible,
+    columnsMenu,
   } = props;
 
   const heading = savedOnly
@@ -129,6 +133,7 @@ export default function CandidateList(props: CandidateListProps) {
     onOpenReject,
     onRateMatch,
     workspaceAlertsByEntityId,
+    isColumnVisible,
   };
 
   const renderTable = (list: MatchCandidate[], keyPrefix: string) => (
@@ -167,6 +172,7 @@ export default function CandidateList(props: CandidateListProps) {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {columnsMenu}
             <span className={`text-xs font-medium ${embedded ? 'text-slate-500' : 'text-sm text-[#6B7280]'}`}>
               Sort by:
             </span>

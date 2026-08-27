@@ -14,6 +14,9 @@ import {
 import { downloadCsv } from '../../../utils/csv';
 import { ExportColumnsModal } from '../../export/ExportColumnsModal';
 import { buildTeamCsvColumns, TEAM_EXPORT_COLUMNS } from '../../../lib/export/teamExportColumns';
+import { TableColumnsMenu } from '../../table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../../hooks/usePersistedColumnVisibility';
+import { TEAM_TABLE_COLUMNS } from '../../../lib/tableColumns/moduleTableColumns';
 import { toast } from 'sonner';
 import useSWR from 'swr';
 import {
@@ -48,6 +51,7 @@ import {
 } from '../../../components/layout/Ph2ModulePageLayout';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../../components/ui/SummaryCard';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
+import { formatDateDMY } from '../../../utils/dateDisplay';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -136,6 +140,10 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
   const [totalMembers, setTotalMembers] = useState(0);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [openActionsMenuMemberId, setOpenActionsMenuMemberId] = useState<string | null>(null);
+  const teamColumnVisibility = usePersistedColumnVisibility(
+    'team.visibleColumns',
+    TEAM_TABLE_COLUMNS,
+  );
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -511,6 +519,13 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
               />
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+              <TableColumnsMenu
+                columns={TEAM_TABLE_COLUMNS}
+                isVisible={teamColumnVisibility.isVisible}
+                onToggle={teamColumnVisibility.toggle}
+                onReset={teamColumnVisibility.resetToDefault}
+                unlockedVisibleCount={teamColumnVisibility.unlockedVisibleCount}
+              />
               <select
                 value={selectedDepartment}
                 onChange={(e) => setSelectedDepartment(e.target.value)}
@@ -568,17 +583,27 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                 <p className="mt-1 text-xs text-slate-400">Try adjusting search or filters.</p>
               </div>
             ) : (
+              (() => {
+                const show = teamColumnVisibility.isVisible;
+                return (
               <table className="w-full min-w-[1160px] text-left">
                 <thead>
                   <tr className={TEAM_TABLE_HEAD_ROW}>
                     <th className={TEAM_TH}>Member</th>
-                    <th className={TEAM_TH}>Role</th>
-                    <th className={TEAM_TH}>Department</th>
-                    <th className={TEAM_TH}>Rank</th>
-                    <th className={TEAM_TH}>Email</th>
-                    <th className={TEAM_TH}>Assigned leads</th>
-                    <th className={TEAM_TH}>Credential</th>
-                    <th className={TEAM_TH}>Status</th>
+                    {show('role') ? <th className={TEAM_TH}>Role</th> : null}
+                    {show('department') ? <th className={TEAM_TH}>Department</th> : null}
+                    {show('rank') ? <th className={TEAM_TH}>Rank</th> : null}
+                    {show('email') ? <th className={TEAM_TH}>Email</th> : null}
+                    {show('assignedLeads') ? <th className={TEAM_TH}>Assigned leads</th> : null}
+                    {show('credential') ? <th className={TEAM_TH}>Credential</th> : null}
+                    {show('status') ? <th className={TEAM_TH}>Status</th> : null}
+                    {show('phone') ? <th className={TEAM_TH}>Phone</th> : null}
+                    {show('location') ? <th className={TEAM_TH}>Location</th> : null}
+                    {show('designation') ? <th className={TEAM_TH}>Designation</th> : null}
+                    {show('manager') ? <th className={TEAM_TH}>Manager</th> : null}
+                    {show('tasks') ? <th className={TEAM_TH}>Tasks</th> : null}
+                    {show('lastLogin') ? <th className={TEAM_TH}>Last login</th> : null}
+                    {show('createdAt') ? <th className={TEAM_TH}>Created</th> : null}
                     {showMemberAiAlertColumn ? <WorkspaceAlertTableHeader className={TEAM_TH} /> : null}
                     <th className={`${TEAM_TH} text-right`}>Actions</th>
                   </tr>
@@ -607,50 +632,105 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${getRoleColorClass(roleColor)}`}
-                          >
-                            {roleName}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
-                          {member.department?.name || '—'}
-                        </td>
-                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                          {formatDepartmentRankLabel(member.departmentRank) ? (
+                        {show('role') ? (
+                          <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                             <span
-                              className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ${getDepartmentRankBadgeClass(member.departmentRank)}`}
+                              className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${getRoleColorClass(roleColor)}`}
                             >
-                              {formatDepartmentRankLabel(member.departmentRank)}
+                              {roleName}
                             </span>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
-                          <div className="max-w-[200px] truncate" title={member.email}>
-                            {member.email}
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 ring-1 ring-indigo-100/80">
-                            <Target size={12} />
-                            {member._count?.assignedLeads || 0}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">{getCredentialBadge(member)}</td>
-                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                          {member.status === 'ACTIVE' ? (
-                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100/80">
-                              Active
+                          </td>
+                        ) : null}
+                        {show('department') ? (
+                          <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                            {member.department?.name || '—'}
+                          </td>
+                        ) : null}
+                        {show('rank') ? (
+                          <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                            {formatDepartmentRankLabel(member.departmentRank) ? (
+                              <span
+                                className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ${getDepartmentRankBadgeClass(member.departmentRank)}`}
+                              >
+                                {formatDepartmentRankLabel(member.departmentRank)}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
+                          </td>
+                        ) : null}
+                        {show('email') ? (
+                          <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                            <div className="max-w-[200px] truncate" title={member.email}>
+                              {member.email}
+                            </div>
+                          </td>
+                        ) : null}
+                        {show('assignedLeads') ? (
+                          <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 ring-1 ring-indigo-100/80">
+                              <Target size={12} />
+                              {member._count?.assignedLeads || 0}
                             </span>
-                          ) : (
-                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-slate-200/80">
-                              Inactive
+                          </td>
+                        ) : null}
+                        {show('credential') ? (
+                          <td className="px-3 py-3 sm:px-4 sm:py-3.5">{getCredentialBadge(member)}</td>
+                        ) : null}
+                        {show('status') ? (
+                          <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                            {member.status === 'ACTIVE' ? (
+                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100/80">
+                                Active
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-slate-200/80">
+                                Inactive
+                              </span>
+                            )}
+                          </td>
+                        ) : null}
+                        {show('phone') ? (
+                          <td className="px-3 py-3 text-xs tabular-nums text-slate-600 sm:px-4 sm:py-3.5">
+                            {member.phone || '—'}
+                          </td>
+                        ) : null}
+                        {show('location') ? (
+                          <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                            {member.location || '—'}
+                          </td>
+                        ) : null}
+                        {show('designation') ? (
+                          <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                            {member.designation || '—'}
+                          </td>
+                        ) : null}
+                        {show('manager') ? (
+                          <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                            {member.manager
+                              ? `${member.manager.firstName || ''} ${member.manager.lastName || ''}`.trim() || '—'
+                              : '—'}
+                          </td>
+                        ) : null}
+                        {show('tasks') ? (
+                          <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200/80">
+                              {member._count?.tasks ?? 0}
                             </span>
-                          )}
-                        </td>
+                          </td>
+                        ) : null}
+                        {show('lastLogin') ? (
+                          <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                            {member.credential?.lastLoginAt
+                              ? formatDateDMY(member.credential.lastLoginAt)
+                              : '—'}
+                          </td>
+                        ) : null}
+                        {show('createdAt') ? (
+                          <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                            {member.createdAt ? formatDateDMY(member.createdAt) : '—'}
+                          </td>
+                        ) : null}
                         {showMemberAiAlertColumn ? (
                           <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                             <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[member.id]} />
@@ -694,6 +774,8 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                   })}
                 </tbody>
               </table>
+                );
+              })()
             )}
           </div>
         </div>

@@ -82,6 +82,12 @@ function resolveInterviewRoundLabel(
   return roundNumberByInterviewId?.[interview.id] ?? index + 1;
 }
 
+function resolveCreatedByLabel(createdBy: Interview['createdBy'] | { name?: string } | null | undefined): string {
+  if (!createdBy) return '—';
+  if (typeof createdBy === 'string') return createdBy || '—';
+  return createdBy.name || '—';
+}
+
 interface InterviewTableProps {
   interviews: Interview[];
   selectedIds: string[];
@@ -107,6 +113,10 @@ interface InterviewTableProps {
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
   /** Absolute round index per interview id (R1/R2 across full history, not just filtered rows). */
   roundNumberByInterviewId?: Record<string, number>;
+  /** Hide Job / client when the table is already scoped to one job. */
+  hideJobColumn?: boolean;
+  /** Persistable column visibility; locked columns (select/candidate/actions) stay shown. */
+  isColumnVisible?: (columnId: string) => boolean;
 }
 
 const statusClasses = {
@@ -170,7 +180,10 @@ export function InterviewTable({
   hidePagination = false,
   workspaceAlertsByEntityId,
   roundNumberByInterviewId,
+  hideJobColumn = false,
+  isColumnVisible = () => true,
 }: InterviewTableProps) {
+  const show = isColumnVisible;
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
@@ -351,19 +364,36 @@ export function InterviewTable({
                 />
               </th>
               <th className="px-3 py-2 sm:px-4">Candidate</th>
-              <th className="px-3 py-2 sm:px-4">Job / client</th>
-              <th
-                className="min-w-[7.5rem] max-w-[12rem] px-2 py-2 sm:py-2"
-                title="Click R1, R2, ... to open that round in the drawer; hover for schedule details"
-              >
-                Round
-              </th>
-              <th className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2 text-center sm:py-2" title="Interviewers">
-                INT
-              </th>
-              <th className="min-w-[16rem] border-l border-indigo-100/40 pl-10 pr-3 py-2 sm:pl-12 sm:pr-4 sm:py-2">Status</th>
+              {!hideJobColumn && show('job') ? (
+                <th className="px-3 py-2 sm:px-4">Job / client</th>
+              ) : null}
+              {show('round') ? (
+                <th
+                  className="min-w-[7.5rem] max-w-[12rem] px-2 py-2 sm:py-2"
+                  title="Click R1, R2, ... to open that round in the drawer; hover for schedule details"
+                >
+                  Round
+                </th>
+              ) : null}
+              {show('panel') ? (
+                <th className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2 text-center sm:py-2" title="Interviewers">
+                  INT
+                </th>
+              ) : null}
+              {show('status') ? (
+                <th className="min-w-[16rem] border-l border-indigo-100/40 pl-10 pr-3 py-2 sm:pl-12 sm:pr-4 sm:py-2">Status</th>
+              ) : null}
+              {show('scheduled') ? <th className="px-3 py-2 sm:px-4">Date / time</th> : null}
+              {show('duration') ? <th className="px-3 py-2 sm:px-4">Duration</th> : null}
+              {show('type') ? <th className="px-3 py-2 sm:px-4">Interview type</th> : null}
+              {show('mode') ? <th className="px-3 py-2 sm:px-4">Mode</th> : null}
+              {show('platform') ? <th className="px-3 py-2 sm:px-4">Meeting platform</th> : null}
+              {show('location') ? <th className="px-3 py-2 sm:px-4">Location</th> : null}
+              {show('feedback') ? <th className="px-3 py-2 sm:px-4">Feedback</th> : null}
+              {show('createdBy') ? <th className="px-3 py-2 sm:px-4">Created by</th> : null}
+              {show('candidateStage') ? <th className="px-3 py-2 sm:px-4">Candidate stage</th> : null}
               {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
-              <TableAuditColumnHeader />
+              {show('audit') ? <TableAuditColumnHeader /> : null}
               <th className="px-3 py-2 text-right sm:px-4">Actions</th>
             </tr>
           </thead>
@@ -438,10 +468,13 @@ export function InterviewTable({
                       </div>
                     </div>
                   </td>
+                  {!hideJobColumn && show('job') ? (
                   <td className="max-w-[10rem] px-3 py-2.5 sm:px-4">
                     <div className="truncate text-[12px] font-semibold text-[#111827]">{primary.job.title}</div>
                     <div className="truncate text-[11px] text-[#6B7280]">{primary.job.client}</div>
                   </td>
+                  ) : null}
+                  {show('round') ? (
                   <td className="min-w-[7.5rem] max-w-[12rem] px-2 py-2.5 sm:py-2.5">
                     <div className="flex flex-row flex-wrap items-center gap-1">
                       {rounds.map((interview, index) => {
@@ -468,6 +501,8 @@ export function InterviewTable({
                       })}
                     </div>
                   </td>
+                  ) : null}
+                  {show('panel') ? (
                   <td className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2.5 sm:py-2.5">
                     <div className="flex items-center justify-center">
                       {panelMerged.slice(0, 3).map((member, index) => (
@@ -487,6 +522,8 @@ export function InterviewTable({
                       ) : null}
                     </div>
                   </td>
+                  ) : null}
+                  {show('status') ? (
                   <td className="min-w-[16rem] border-l border-slate-100/90 pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-2.5">
                     <div className="flex flex-col gap-y-0.5 leading-tight">
                       {rounds.map((interview, index) => {
@@ -530,12 +567,78 @@ export function InterviewTable({
                       </div>
                     ) : null}
                   </td>
+                  ) : null}
+                  {show('scheduled') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-[12px] text-[#111827]">
+                        {[primary.date, primary.time].filter(Boolean).join(' ') || '—'}
+                      </span>
+                    </td>
+                  ) : null}
+                  {show('duration') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-[12px] text-[#111827]">
+                        {primary.duration != null ? `${primary.duration} min` : '—'}
+                      </span>
+                    </td>
+                  ) : null}
+                  {show('type') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-[12px] text-[#111827]">{primary.type || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('mode') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-[12px] text-[#111827]">{primary.mode || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('platform') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-[12px] text-[#111827]">{primary.meetingPlatform || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('location') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-[12px] text-[#111827]">{primary.location || '—'}</span>
+                    </td>
+                  ) : null}
+                  {show('feedback') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span
+                        className={`text-[12px] font-semibold ${
+                          feedbackClasses[primary.feedbackStatus] || 'text-[#9CA3AF]'
+                        }`}
+                      >
+                        {primary.feedbackStatus || '—'}
+                      </span>
+                    </td>
+                  ) : null}
+                  {show('createdBy') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <span className="text-[12px] text-[#111827]">
+                        {resolveCreatedByLabel(primary.createdBy)}
+                      </span>
+                    </td>
+                  ) : null}
+                  {show('candidateStage') ? (
+                    <td className="px-3 py-2.5 sm:px-4">
+                      {primary.candidate?.stage ? (
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getCandidateStageBadgeClasses(primary.candidate.stage)}`}
+                        >
+                          {getCandidateStageLabel(primary.candidate.stage)}
+                        </span>
+                      ) : (
+                        <span className="text-[12px] text-[#9CA3AF]">—</span>
+                      )}
+                    </td>
+                  ) : null}
                   {showAiAlertColumn ? (
                     <td className="px-3 py-2.5 sm:px-4">
                       <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[primary.id]} />
                     </td>
                   ) : null}
-                  <TableAuditCell audit={primary.auditMeta} />
+                  {show('audit') ? <TableAuditCell audit={primary.auditMeta} /> : null}
                   <td className="px-3 py-2.5 text-right sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-1">
                       {!isInterviewCompleted(primary) ? (

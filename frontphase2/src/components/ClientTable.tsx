@@ -51,6 +51,8 @@ interface ClientTableProps {
   workspaceAlertsByClientId?: Record<string, AiWorkspaceBriefAlert[]>;
   /** When true, omit overflow wrappers so a parent scroll region owns scrolling. */
   fillScrollParent?: boolean;
+  /** Persistable column visibility; locked columns (select/client/actions) stay shown. */
+  isColumnVisible?: (id: string) => boolean;
 }
 
 // Custom Checkbox Component for better design tool compatibility
@@ -92,10 +94,12 @@ export function ClientTable({
   workspaceAlertsByEntityId,
   workspaceAlertsByClientId,
   fillScrollParent = false,
+  isColumnVisible = () => true,
 }: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
   const [pendingUploadClientId, setPendingUploadClientId] = useState<string | null>(null);
+  const show = isColumnVisible;
 
   const toggleSelectAll = () => {
     if (selectedIds.length === clients.length) {
@@ -200,17 +204,30 @@ export function ClientTable({
                   ) : null}
                 </button>
               </th>
-              <th className="px-3 sm:px-4 py-2">Industry</th>
-              <th className="px-3 sm:px-4 py-2">Location</th>
+              {show('industry') ? <th className="px-3 sm:px-4 py-2">Industry</th> : null}
+              {show('location') ? <th className="px-3 sm:px-4 py-2">Location</th> : null}
               {dynamicColumnLabels.map((label) => (
                 <th key={label} className="px-3 sm:px-4 py-2">
                   {label}
                 </th>
               ))}
-              {showStatusColumn ? <th className="px-3 sm:px-4 py-2">Status</th> : null}
-              {showRecruiterColumn ? <th className="px-3 sm:px-4 py-2">Team Member</th> : null}
+              {showStatusColumn && show('status') ? <th className="px-3 sm:px-4 py-2">Status</th> : null}
+              {showRecruiterColumn && show('owner') ? (
+                <th className="px-3 sm:px-4 py-2">Team Member</th>
+              ) : null}
+              {show('openJobs') ? <th className="px-3 sm:px-4 py-2">Open jobs</th> : null}
+              {show('placements') ? <th className="px-3 sm:px-4 py-2">Placements</th> : null}
+              {show('lastActivity') ? <th className="px-3 sm:px-4 py-2">Last activity</th> : null}
+              {show('priority') ? <th className="px-3 sm:px-4 py-2">Priority</th> : null}
+              {show('companySize') ? <th className="px-3 sm:px-4 py-2">Company size</th> : null}
+              {show('revenue') ? <th className="px-3 sm:px-4 py-2">Revenue</th> : null}
+              {show('nextFollowUp') ? <th className="px-3 sm:px-4 py-2">Next follow-up</th> : null}
+              {show('clientSince') ? <th className="px-3 sm:px-4 py-2">Client since</th> : null}
+              {show('website') ? <th className="px-3 sm:px-4 py-2">Website</th> : null}
+              {show('timezone') ? <th className="px-3 sm:px-4 py-2">Timezone</th> : null}
+              {show('sla') ? <th className="px-3 sm:px-4 py-2">SLA</th> : null}
               {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
-              <TableAuditColumnHeader />
+              {show('audit') ? <TableAuditColumnHeader /> : null}
               <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
@@ -298,8 +315,12 @@ export function ClientTable({
                     </div>
                   </div>
                 </td>
-                <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.industry}</td>
-                <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.location}</td>
+                {show('industry') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.industry}</td>
+                ) : null}
+                {show('location') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.location}</td>
+                ) : null}
                 {dynamicColumnLabels.map((label) => {
                   const value = getDynamicFieldValue?.(client, label) ?? '';
                   return (
@@ -308,7 +329,7 @@ export function ClientTable({
                     </td>
                   );
                 })}
-                {showStatusColumn ? (
+                {showStatusColumn && show('status') ? (
                   <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
                     {canUpdateClientStatus && onClientStatusChange ? (
                       <select
@@ -335,7 +356,7 @@ export function ClientTable({
                     )}
                   </td>
                 ) : null}
-                {showRecruiterColumn ? (
+                {showRecruiterColumn && show('owner') ? (
                   <td className="px-3 sm:px-4 py-2">
                     <div className="flex items-center gap-2">
                       <TableBrandAvatar
@@ -349,12 +370,84 @@ export function ClientTable({
                     </div>
                   </td>
                 ) : null}
+                {show('openJobs') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.openJobs ?? '—'}
+                  </td>
+                ) : null}
+                {show('placements') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.placements ?? '—'}
+                  </td>
+                ) : null}
+                {show('lastActivity') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.lastActivity || '—'}
+                  </td>
+                ) : null}
+                {show('priority') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.priority || '—'}
+                  </td>
+                ) : null}
+                {show('companySize') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.companySize || '—'}
+                  </td>
+                ) : null}
+                {show('revenue') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.revenue || '—'}
+                  </td>
+                ) : null}
+                {show('nextFollowUp') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.nextFollowUpDue || '—'}
+                  </td>
+                ) : null}
+                {show('clientSince') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.clientSince || '—'}
+                  </td>
+                ) : null}
+                {show('website') ? (
+                  <td className="px-3 sm:px-4 py-2">
+                    {client.website ? (
+                      <a
+                        href={
+                          /^https?:\/\//i.test(client.website)
+                            ? client.website
+                            : `https://${client.website}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block max-w-[10rem] truncate text-xs text-indigo-600 hover:underline"
+                        title={client.website}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {client.website.replace(/^https?:\/\//i, '')}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </td>
+                ) : null}
+                {show('timezone') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.timezone || '—'}
+                  </td>
+                ) : null}
+                {show('sla') ? (
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {client.sla || '—'}
+                  </td>
+                ) : null}
                 {showAiAlertColumn ? (
                   <td className="px-3 sm:px-4 py-2">
                     <WorkspaceAlertTableCell alerts={resolvedWorkspaceAlerts?.[client.id]} />
                   </td>
                 ) : null}
-                <TableAuditCell audit={client.auditMeta} />
+                {show('audit') ? <TableAuditCell audit={client.auditMeta} /> : null}
                 <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                     {SHOW_TABLE_ROW_EDIT_ICON ? (

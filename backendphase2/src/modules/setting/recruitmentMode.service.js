@@ -36,6 +36,65 @@ export async function setClientPageFieldVisibility(fields) {
   return normalized;
 }
 
+/** Per-tenant table Columns menu + custom dynamic column labels (synced across browsers). */
+const KEY_TABLE_COLUMN_VISIBILITY = 'tableColumnVisibility';
+
+function normalizeTableColumnMap(raw) {
+  const source =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw.columns && typeof raw.columns === 'object' && !Array.isArray(raw.columns)
+        ? raw.columns
+        : raw
+      : {};
+  const columns = {};
+  for (const [key, value] of Object.entries(source)) {
+    const moduleKey = String(key || '').trim();
+    if (!moduleKey || moduleKey === 'updatedAt' || moduleKey === 'columns') continue;
+    if (!Array.isArray(value)) continue;
+    columns[moduleKey] = value.map((item) => String(item)).filter(Boolean);
+  }
+  return columns;
+}
+
+export async function getTableColumnVisibility() {
+  const row = await findOrgSettingRow(KEY_TABLE_COLUMN_VISIBILITY);
+  return normalizeTableColumnMap(row?.value);
+}
+
+/**
+ * Merge one module’s visible column ids into the org map.
+ * Other modules are left unchanged.
+ */
+export async function setTableColumnModuleVisibility(moduleKey, visibleIds) {
+  const key = String(moduleKey || '').trim();
+  if (!key) {
+    throw new Error('moduleKey is required');
+  }
+  const current = await getTableColumnVisibility();
+  const ids = Array.isArray(visibleIds)
+    ? visibleIds.map((item) => String(item)).filter(Boolean)
+    : [];
+  const columns = { ...current, [key]: ids };
+  await upsertOrgSettingJson(KEY_TABLE_COLUMN_VISIBILITY, {
+    columns,
+    updatedAt: new Date().toISOString(),
+  });
+  return columns;
+}
+
+export async function setTableColumnVisibility(columnsMap) {
+  const incoming = normalizeTableColumnMap(
+    columnsMap?.columns ? columnsMap : { columns: columnsMap },
+  );
+  const current = await getTableColumnVisibility();
+  const columns = { ...current, ...incoming };
+  await upsertOrgSettingJson(KEY_TABLE_COLUMN_VISIBILITY, {
+    columns,
+    updatedAt: new Date().toISOString(),
+  });
+  return columns;
+}
+
 const KEY_TENANT_MODULES = 'hqEnabledModules';
 
 function normalizeProductLine(raw) {

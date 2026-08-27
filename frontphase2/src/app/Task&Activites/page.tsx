@@ -25,6 +25,9 @@ import { toast, Toaster } from 'sonner';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildTasksCsvColumns, TASKS_EXPORT_COLUMNS } from '../../lib/export/tasksExportColumns';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
+import { TASK_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import PaginationAll from '../../components/PaginationAll';
@@ -249,6 +252,7 @@ const TasksFilterToolbar = ({
   hasActiveFilters,
   totalCount,
   viewSegmented,
+  columnsMenu,
 }: {
   todayOnly: boolean;
   priority: string;
@@ -265,6 +269,7 @@ const TasksFilterToolbar = ({
   hasActiveFilters: boolean;
   totalCount: number;
   viewSegmented: React.ReactNode;
+  columnsMenu?: React.ReactNode;
 }) => (
   <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
     <div className="relative w-full lg:max-w-md lg:flex-1">
@@ -279,6 +284,7 @@ const TasksFilterToolbar = ({
     </div>
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
       {viewSegmented}
+      {columnsMenu}
       <button
         type="button"
         onClick={onTodayToggle}
@@ -508,6 +514,10 @@ export default function App() {
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportTasks, setExportTasks] = useState<Task[]>([]);
   const [exportTasksLoading, setExportTasksLoading] = useState(false);
+  const taskColumnVisibility = usePersistedColumnVisibility(
+    'tasks.visibleColumns',
+    TASK_TABLE_COLUMNS,
+  );
   const [backendTasks, setBackendTasks] = useState<BackendTask[]>([]);
   const [jobTitleById, setJobTitleById] = useState<Record<string, string>>({});
   const [candidateNameById, setCandidateNameById] = useState<Record<string, string>>({});
@@ -1227,6 +1237,17 @@ export default function App() {
       hasActiveFilters={hasToolbarFilters}
       totalCount={filteredTasks.length}
       viewSegmented={viewSegmented}
+      columnsMenu={
+        view === 'list' ? (
+          <TableColumnsMenu
+            columns={TASK_TABLE_COLUMNS}
+            isVisible={taskColumnVisibility.isVisible}
+            onToggle={taskColumnVisibility.toggle}
+            onReset={taskColumnVisibility.resetToDefault}
+            unlockedVisibleCount={taskColumnVisibility.unlockedVisibleCount}
+          />
+        ) : null
+      }
     />
   );
 
@@ -1318,39 +1339,59 @@ export default function App() {
             <div className={PH2_TABLE_CARD_CLASS}>
               <div className={PH2_TOOLBAR_ROW_CLASS}>{tasksToolbar}</div>
               <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
+              {(() => {
+                const show = taskColumnVisibility.isVisible;
+                const taskColSpan =
+                  1 + // task
+                  (show('type') ? 1 : 0) +
+                  (show('related') ? 1 : 0) +
+                  (show('due') ? 1 : 0) +
+                  (show('priority') ? 1 : 0) +
+                  (show('status') ? 1 : 0) +
+                  (show('createdBy') ? 1 : 0) +
+                  (show('assignee') ? 1 : 0) +
+                  (show('delegated') ? 1 : 0) +
+                  (show('time') ? 1 : 0) +
+                  (show('relatedType') ? 1 : 0) +
+                  (showTaskAiAlertColumn ? 1 : 0) +
+                  (show('audit') ? 1 : 0) +
+                  1; // actions
+                return (
               <table className="w-full min-w-[1320px] text-left">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Task Title</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Type</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Related To</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Due Date</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Priority</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Created by</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Assigned to</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Delegated to</th>
+                    {show('type') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Type</th> : null}
+                    {show('related') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Related To</th> : null}
+                    {show('due') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Due Date</th> : null}
+                    {show('priority') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Priority</th> : null}
+                    {show('status') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Status</th> : null}
+                    {show('createdBy') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Created by</th> : null}
+                    {show('assignee') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Assigned to</th> : null}
+                    {show('delegated') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Delegated to</th> : null}
+                    {show('time') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Due time</th> : null}
+                    {show('relatedType') ? <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Related type</th> : null}
                     {showTaskAiAlertColumn ? <WorkspaceAlertTableHeader className="px-6 py-4" /> : null}
-                    <TableAuditColumnHeader className="px-6 py-4" />
+                    {show('audit') ? <TableAuditColumnHeader className="px-6 py-4" /> : null}
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={11} className="p-0">
-                        <TableSkeleton rows={6} columns={11} className="border-0 shadow-none rounded-none" />
+                      <td colSpan={taskColSpan} className="p-0">
+                        <TableSkeleton rows={6} columns={taskColSpan} className="border-0 shadow-none rounded-none" />
                       </td>
                     </tr>
                   ) : error ? (
                     <tr>
-                      <td colSpan={11} className="px-6 py-8 text-center text-sm text-red-500">
+                      <td colSpan={taskColSpan} className="px-6 py-8 text-center text-sm text-red-500">
                         {error}
                       </td>
                     </tr>
                   ) : filteredTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">
+                      <td colSpan={taskColSpan} className="px-6 py-8 text-center text-sm text-gray-500">
                         No tasks found. Try clearing the filters or create a new task.
                       </td>
                     </tr>
@@ -1371,53 +1412,81 @@ export default function App() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <span className="text-xs font-medium text-gray-600">{task.type}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-gray-900">
-                            {task.relatedTo.type === 'Job' && jobTitleById[task.relatedTo.id]
-                              ? jobTitleById[task.relatedTo.id]
-                              : task.relatedTo.name}
+                      {show('type') ? (
+                        <td className="px-6 py-4">
+                          <span className="text-xs font-medium text-gray-600">{task.type}</span>
+                        </td>
+                      ) : null}
+                      {show('related') ? (
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold text-gray-900">
+                              {task.relatedTo.type === 'Job' && jobTitleById[task.relatedTo.id]
+                                ? jobTitleById[task.relatedTo.id]
+                                : task.relatedTo.name}
+                            </span>
+                            <span className="text-[10px] text-gray-400 uppercase font-bold">{task.relatedTo.type}</span>
+                          </div>
+                        </td>
+                      ) : null}
+                      {show('due') ? (
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-900">{task.dueDate}</span>
+                            <span className="text-[11px] text-gray-400">{task.time}</span>
+                          </div>
+                        </td>
+                      ) : null}
+                      {show('priority') ? (
+                        <td className="px-6 py-4">
+                          <PriorityBadge priority={task.priority} />
+                        </td>
+                      ) : null}
+                      {show('status') ? (
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <StatusBadge status={task.status} />
+                            <TaskSLAAlertBadge dueDate={task.dueDate} status={task.status} variant="row" />
+                          </div>
+                        </td>
+                      ) : null}
+                      {show('createdBy') ? (
+                        <td className="px-6 py-4">
+                          <TaskAssignmentCell name={task.assignmentChain?.createdByName || task.createdByName || '—'} />
+                        </td>
+                      ) : null}
+                      {show('assignee') ? (
+                        <td className="px-6 py-4">
+                          <TaskAssignmentCell name={task.assignmentChain?.assignedToName || task.assignee?.name || task.owner?.name || '—'} />
+                        </td>
+                      ) : null}
+                      {show('delegated') ? (
+                        <td className="px-6 py-4">
+                          {task.assignmentChain?.isDelegated ? (
+                            <TaskAssignmentCell name={task.assignmentChain.delegatedToName || '—'} />
+                          ) : (
+                            <span className="text-[13px] text-gray-400">—</span>
+                          )}
+                        </td>
+                      ) : null}
+                      {show('time') ? (
+                        <td className="px-6 py-4">
+                          <span className="text-sm font-medium text-gray-900">{task.time || '—'}</span>
+                        </td>
+                      ) : null}
+                      {show('relatedType') ? (
+                        <td className="px-6 py-4">
+                          <span className="text-xs font-bold uppercase text-gray-500">
+                            {task.relatedTo?.type || '—'}
                           </span>
-                          <span className="text-[10px] text-gray-400 uppercase font-bold">{task.relatedTo.type}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium text-gray-900">{task.dueDate}</span>
-                          <span className="text-[11px] text-gray-400">{task.time}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <PriorityBadge priority={task.priority} />
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <StatusBadge status={task.status} />
-                          <TaskSLAAlertBadge dueDate={task.dueDate} status={task.status} variant="row" />
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <TaskAssignmentCell name={task.assignmentChain?.createdByName || task.createdByName || '—'} />
-                      </td>
-                      <td className="px-6 py-4">
-                        <TaskAssignmentCell name={task.assignmentChain?.assignedToName || task.assignee?.name || task.owner?.name || '—'} />
-                      </td>
-                      <td className="px-6 py-4">
-                        {task.assignmentChain?.isDelegated ? (
-                          <TaskAssignmentCell name={task.assignmentChain.delegatedToName || '—'} />
-                        ) : (
-                          <span className="text-[13px] text-gray-400">—</span>
-                        )}
-                      </td>
+                        </td>
+                      ) : null}
                       {showTaskAiAlertColumn ? (
                         <td className="px-6 py-4">
                           <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[task.id]} />
                         </td>
                       ) : null}
-                      <TableAuditCell audit={task.auditMeta} className="px-6 py-4" />
+                      {show('audit') ? <TableAuditCell audit={task.auditMeta} className="px-6 py-4" /> : null}
                       <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                         {/* Colored action icons — same design language as
                             Leads / Clients / Candidates / Contacts. */}
@@ -1457,6 +1526,8 @@ export default function App() {
                   )}
                 </tbody>
               </table>
+                );
+              })()}
               </div>
               <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                 <PaginationAll

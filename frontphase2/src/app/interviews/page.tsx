@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Calendar, Download, List, Plus, RefreshCcw, Search, XCircle } from 'lucide-react';
+import { Calendar, ChevronLeft, Download, List, Plus, RefreshCcw, Search, XCircle } from 'lucide-react';
 import { toast as sonnerToast, Toaster } from 'sonner';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
@@ -12,7 +12,12 @@ import { FeedbackModal } from '../../components/interviews/FeedbackModal';
 import { InterviewCalendarView } from '../../components/interviews/InterviewCalendarView';
 import { InterviewDrawer } from '../../components/interviews/InterviewDrawer';
 import { InterviewKPICards } from '../../components/interviews/InterviewKPICards';
+import { InterviewJobsTable } from '../../components/interviews/InterviewJobsTable';
+import { InterviewRoundTabs } from '../../components/interviews/InterviewRoundTabs';
 import { InterviewTable } from '../../components/interviews/InterviewTable';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
+import { INTERVIEW_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { NoShowModal } from '../../components/interviews/NoShowModal';
 import { PanelAssignmentModal } from '../../components/interviews/PanelAssignmentModal';
 import { RejectCandidateModal } from '../../components/interviews/RejectCandidateModal';
@@ -63,6 +68,15 @@ import { InterviewApplicationsTab } from '../../components/interviews/InterviewA
 import { InterviewerApplicationsTab } from '../../components/interviews/InterviewerApplicationsTab';
 import { InterviewApplicationReviewDrawer } from '../../components/interviews/InterviewApplicationReviewDrawer';
 import type { InterviewApplicationRow } from '../../lib/api';
+import {
+  buildInterviewJobSummaries,
+  candidateCountsByRoundForJob,
+  filterInterviewsForJobOverview,
+  interviewsForJobRound,
+  paginateInterviewCandidateGroups,
+  uniqueRoundNumbersForJob,
+} from '../../lib/interview-job-overview';
+import { buildInterviewRoundNumberById } from '../../lib/interview-schedule-helpers';
 
 // Force CSR — every interactive bit on this tab is client-driven.
 export const dynamic = 'force-dynamic';
@@ -134,19 +148,28 @@ export default function InterviewsPage() {
   const [moduleTab, setModuleTab] = useState<InterviewModuleTab>('scheduled');
   const [reviewApplicationId, setReviewApplicationId] = useState<string | null>(null);
   const [applicationsRefreshKey, setApplicationsRefreshKey] = useState(0);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedRound, setSelectedRound] = useState<number | 'all'>(1);
+  const [overviewPage, setOverviewPage] = useState(1);
+  const [jobDetailLoading, setJobDetailLoading] = useState(false);
+  const selectedJobIdRef = useRef<string | null>(null);
+  selectedJobIdRef.current = selectedJobId;
+  const interviewColumnVisibility = usePersistedColumnVisibility(
+    'interviews.visibleColumns',
+    INTERVIEW_TABLE_COLUMNS,
+  );
   const drawer = useInterviewDrawer();
   const modals = useInterviewModals();
   const {
     interviews,
-    paginatedInterviews,
-    filteredInterviews,
+    overviewInterviews,
+    jobScopedInterviews,
+    fetchInterviewsForJob,
     filters,
     setFilters,
     clearFilters,
     pagination,
     setPagination,
-    totalPages,
-    totalEntries,
     selectedIds,
     setSelectedIds,
     searchQuery,
@@ -171,15 +194,143 @@ export default function InterviewsPage() {
     markNoShow,
     fetchAllInterviewsForExport,
   } = useInterviews({ smartSearchInterviewIds });
-  const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
-    'INTERVIEW',
-    paginatedInterviews.map((interview) => interview.id),
+
+  const refreshAll = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      await retryLoad(opts);
+      const jobId = selectedJobIdRef.current;
+      if (jobId) await fetchInterviewsForJob(jobId);
+    },
+    [fetchInterviewsForJob, retryLoad],
   );
 
-  const selectedInterview = useMemo(
-    () => interviews.find((interview) => interview.id === drawer.selectedInterviewId) || null,
-    [drawer.selectedInterviewId, interviews]
+  const filteredOverviewInterviews = useMemo(
+    () =>
+      filterInterviewsForJobOverview(overviewInterviews, {
+        searchQuery: selectedJobId ? '' : searchQuery,
+        status: filters.status,
+        round: selectedJobId ? 'All Rounds' : filters.round,
+        mode: filters.mode,
+        interviewer: filters.interviewer,
+        clientJob: filters.clientJob,
+        matchingInterviewIds: smartSearchInterviewIds,
+        allStatusLabel: ALL_STATUS_LABEL,
+      }),
+    [
+      filters.clientJob,
+      filters.interviewer,
+      filters.mode,
+      filters.round,
+      filters.status,
+      overviewInterviews,
+      searchQuery,
+      selectedJobId,
+      smartSearchInterviewIds,
+    ],
   );
+
+  /** Chronological R1/R2/… from all known interviews (overview + open job). */
+  const effectiveRoundById = useMemo(() => {
+    const byId = new Map<string, (typeof overviewInterviews)[number]>();
+    for (const interview of overviewInterviews) byId.set(interview.id, interview);
+    for (const interview of jobScopedInterviews) byId.set(interview.id, interview);
+    const merged = Array.from(byId.values());
+    if (merged.length === 0) return interviewRoundById;
+    return { ...interviewRoundById, ...buildInterviewRoundNumberById(merged) };
+  }, [interviewRoundById, jobScopedInterviews, overviewInterviews]);
+
+  const jobSummaries = useMemo(
+    () => buildInterviewJobSummaries(filteredOverviewInterviews, effectiveRoundById),
+    [effectiveRoundById, filteredOverviewInterviews],
+  );
+
+  const selectedJobSummary = useMemo(
+    () => jobSummaries.find((job) => job.jobId === selectedJobId) || null,
+    [jobSummaries, selectedJobId],
+  );
+
+  const jobSourceInterviews = useMemo(() => {
+    if (!selectedJobId) return [];
+    const scopedForJob = jobScopedInterviews.filter((interview) => interview.job.id === selectedJobId);
+    const scoped = scopedForJob.length > 0 ? scopedForJob : overviewInterviews;
+    return filterInterviewsForJobOverview(scoped, {
+      searchQuery,
+      status: filters.status,
+      // Round 1 / Round 2 tabs own chronological-round filtering.
+      round: 'All Rounds',
+      mode: filters.mode,
+      interviewer: filters.interviewer,
+      clientJob: 'All Clients',
+      matchingInterviewIds: smartSearchInterviewIds,
+      allStatusLabel: ALL_STATUS_LABEL,
+    });
+  }, [
+    filters.interviewer,
+    filters.mode,
+    filters.status,
+    jobScopedInterviews,
+    overviewInterviews,
+    searchQuery,
+    selectedJobId,
+    smartSearchInterviewIds,
+  ]);
+
+  const jobRoundNumbers = useMemo(
+    () => (selectedJobId ? uniqueRoundNumbersForJob(jobSourceInterviews, selectedJobId, effectiveRoundById) : []),
+    [effectiveRoundById, jobSourceInterviews, selectedJobId],
+  );
+
+  const jobRoundCandidateCounts = useMemo(
+    () =>
+      selectedJobId
+        ? candidateCountsByRoundForJob(jobSourceInterviews, selectedJobId, effectiveRoundById)
+        : {},
+    [effectiveRoundById, jobSourceInterviews, selectedJobId],
+  );
+
+  const jobAllCandidatesCount = useMemo(() => {
+    if (!selectedJobId) return 0;
+    return new Set(jobSourceInterviews.map((interview) => interview.candidate.id)).size;
+  }, [jobSourceInterviews, selectedJobId]);
+
+  const jobRoundInterviews = useMemo(() => {
+    if (!selectedJobId) return [];
+    return interviewsForJobRound(jobSourceInterviews, selectedJobId, selectedRound, effectiveRoundById);
+  }, [effectiveRoundById, jobSourceInterviews, selectedJobId, selectedRound]);
+
+  const pagedJobs = useMemo(() => {
+    const size = Math.max(pagination.pageSize, 1);
+    const start = (overviewPage - 1) * size;
+    return jobSummaries.slice(start, start + size);
+  }, [jobSummaries, overviewPage, pagination.pageSize]);
+
+  const jobsTotalPages = Math.max(1, Math.ceil(jobSummaries.length / Math.max(pagination.pageSize, 1)) || 1);
+
+  const pagedJobCandidates = useMemo(
+    () => paginateInterviewCandidateGroups(jobRoundInterviews, overviewPage, pagination.pageSize),
+    [jobRoundInterviews, overviewPage, pagination.pageSize],
+  );
+
+  const displayedInterviewIds = useMemo(() => {
+    if (selectedJobId) return pagedJobCandidates.items.map((interview) => interview.id);
+    return filteredOverviewInterviews.map((interview) => interview.id);
+  }, [filteredOverviewInterviews, pagedJobCandidates.items, selectedJobId]);
+
+  const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
+    'INTERVIEW',
+    displayedInterviewIds,
+  );
+
+  const selectedInterview = useMemo(() => {
+    const id = drawer.selectedInterviewId;
+    if (!id) return null;
+    return (
+      jobScopedInterviews.find((interview) => interview.id === id) ||
+      overviewInterviews.find((interview) => interview.id === id) ||
+      interviews.find((interview) => interview.id === id) ||
+      null
+    );
+  }, [drawer.selectedInterviewId, interviews, jobScopedInterviews, overviewInterviews]);
 
   useEffect(() => {
     if (!toast) return;
@@ -187,10 +338,49 @@ export default function InterviewsPage() {
     return () => window.clearTimeout(timeout);
   }, [toast, setToast]);
 
+  useEffect(() => {
+    if (moduleTab !== 'scheduled') {
+      setSelectedJobId(null);
+    }
+  }, [moduleTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!selectedJobId) {
+        setJobDetailLoading(false);
+        await fetchInterviewsForJob(null);
+        return;
+      }
+      setJobDetailLoading(true);
+      try {
+        await fetchInterviewsForJob(selectedJobId);
+      } finally {
+        if (!cancelled) setJobDetailLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchInterviewsForJob, selectedJobId]);
+
+  useEffect(() => {
+    if (!selectedJobId) return;
+    if (jobRoundNumbers.length === 0) return;
+    if (selectedRound !== 'all' && !jobRoundNumbers.includes(selectedRound)) {
+      setSelectedRound(jobRoundNumbers[0]);
+    }
+  }, [jobRoundNumbers, selectedJobId, selectedRound]);
+
+  useEffect(() => {
+    setOverviewPage(1);
+  }, [searchQuery, filters.status, filters.round, filters.mode, filters.interviewer, filters.clientJob, selectedJobId, selectedRound]);
+
   // Reusable auto-refresh: poll while visible, refresh on tab focus and on
   // interview/job change events. `retryLoad` is the same function the page
   // already calls for explicit reloads.
-  usePageAutoRefresh((opts) => retryLoad(opts), {
+  usePageAutoRefresh((opts) => refreshAll(opts), {
     events: ['jobportal:interviews-changed', 'jobportal:jobs-changed'],
   });
 
@@ -204,7 +394,7 @@ export default function InterviewsPage() {
       string,
       { jobId: string; jobTitle: string; clientId?: string; scheduledAt: number }
     >();
-    for (const interview of interviews) {
+    for (const interview of overviewInterviews) {
       const candidateId = interview.candidate.id;
       const scheduledAt = new Date(interview.scheduledAt || 0).getTime();
       const existing = latestByCandidate.get(candidateId);
@@ -232,15 +422,15 @@ export default function InterviewsPage() {
         assignedClientId: fromInterview?.clientId,
       };
     });
-  }, [candidateOptions, interviews]);
+  }, [candidateOptions, overviewInterviews]);
 
   const editInterviewForPopup = useMemo(() => {
     if (!editInterview) return null;
     return mapInterviewToCandidateScheduled(
       editInterview,
-      interviewRoundById[editInterview.id] || 1,
+      effectiveRoundById[editInterview.id] || 1,
     );
-  }, [editInterview, interviewRoundById]);
+  }, [editInterview, effectiveRoundById]);
 
   const editInterviewCandidate = useMemo(() => {
     if (!editInterview) return null;
@@ -270,16 +460,18 @@ export default function InterviewsPage() {
     if (!scheduleNextRoundFrom) return [];
     const candidateId = scheduleNextRoundFrom.candidate.id;
     const jobId = scheduleNextRoundFrom.job.id;
-    return interviews
+    const source =
+      jobScopedInterviews.length > 0 ? jobScopedInterviews : overviewInterviews;
+    return source
       .filter((inv) => inv.candidate.id === candidateId && inv.job.id === jobId)
       .sort(
         (a, b) =>
           new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime(),
       )
       .map((inv, index) =>
-        mapInterviewToCandidateScheduled(inv, interviewRoundById[inv.id] || index + 1),
+        mapInterviewToCandidateScheduled(inv, effectiveRoundById[inv.id] || index + 1),
       );
-  }, [interviews, interviewRoundById, scheduleNextRoundFrom]);
+  }, [effectiveRoundById, jobScopedInterviews, overviewInterviews, scheduleNextRoundFrom]);
 
   const interviewSmartSearchOptions = useMemo(
     () => ({
@@ -359,6 +551,7 @@ export default function InterviewsPage() {
 
   const patchFilter = (field: keyof InterviewFiltersState, value: string) => {
     setPagination((p) => ({ ...p, page: 1 }));
+    setOverviewPage(1);
     setFilters((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -368,6 +561,40 @@ export default function InterviewsPage() {
     setSmartSearchInterviewIds([]);
     interviewSmartSearch.clearSmartSearch();
     setPagination((p) => ({ ...p, page: 1 }));
+    setOverviewPage(1);
+  };
+
+  const openSelectedJob = (jobId: string) => {
+    const rounds = uniqueRoundNumbersForJob(
+      filterInterviewsForJobOverview(
+        [
+          ...overviewInterviews.filter((interview) => interview.job.id === jobId),
+          ...jobScopedInterviews.filter((interview) => interview.job.id === jobId),
+        ],
+        {
+          searchQuery: '',
+          status: filters.status,
+          round: 'All Rounds',
+          mode: filters.mode,
+          interviewer: filters.interviewer,
+          clientJob: 'All Clients',
+          matchingInterviewIds: smartSearchInterviewIds,
+          allStatusLabel: ALL_STATUS_LABEL,
+        },
+      ),
+      jobId,
+      effectiveRoundById,
+    );
+    setSelectedJobId(jobId);
+    setSelectedRound(rounds[0] ?? 1);
+    setOverviewPage(1);
+    setJobDetailLoading(true);
+  };
+
+  const closeSelectedJob = () => {
+    setSelectedJobId(null);
+    setSelectedRound(1);
+    setOverviewPage(1);
   };
 
   const openInterview = (interview: Interview) => {
@@ -489,7 +716,12 @@ export default function InterviewsPage() {
       sonnerToast.message('Select at least one column to export.');
       return;
     }
-    const rowsToExport = exportInterviews.length > 0 ? exportInterviews : filteredInterviews;
+    const rowsToExport =
+      exportInterviews.length > 0
+        ? exportInterviews
+        : selectedJobId
+          ? jobRoundInterviews
+          : filteredOverviewInterviews;
     if (rowsToExport.length === 0) {
       sonnerToast.message('No interviews to export with current filters.');
       return;
@@ -537,8 +769,63 @@ export default function InterviewsPage() {
     </div>
   );
 
+  const selectedJobTitle =
+    selectedJobSummary?.jobTitle ||
+    jobSourceInterviews[0]?.job.title ||
+    jobOptions.find((job) => job.id === selectedJobId)?.title ||
+    'Job';
+  const selectedJobClient =
+    selectedJobSummary?.clientName || jobSourceInterviews[0]?.job.client || '';
+  const listTotalCount = selectedJobId ? pagedJobCandidates.totalGroups : jobSummaries.length;
+  const listTotalPages = selectedJobId ? pagedJobCandidates.totalPages : jobsTotalPages;
+  const listItemLabel = selectedJobId ? 'candidates' : 'jobs';
+  const showListPagination =
+    !loading &&
+    !error &&
+    !(selectedJobId && jobDetailLoading) &&
+    listTotalCount > 0;
+
+  const jobContextHeader = selectedJobId ? (
+    <div className="flex flex-col gap-3 border-b border-indigo-100/60 bg-gradient-to-r from-slate-50/90 via-indigo-50/45 to-violet-50/30 px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-start gap-3">
+        <button
+          type="button"
+          onClick={closeSelectedJob}
+          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200/80 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-800 shadow-sm transition-colors hover:bg-indigo-50"
+        >
+          <ChevronLeft size={14} />
+          Jobs
+        </button>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-500">Job interviews</p>
+          <h2 className="truncate text-sm font-bold text-slate-900">{selectedJobTitle}</h2>
+          {selectedJobClient ? (
+            <p className="truncate text-xs text-slate-500">{selectedJobClient}</p>
+          ) : null}
+          <p className="mt-1 text-[11px] text-slate-500">
+            Candidates are grouped by interview round (Round 1, Round 2, …) based on schedule order.
+          </p>
+        </div>
+      </div>
+      <InterviewRoundTabs
+        rounds={jobRoundNumbers}
+        active={selectedRound}
+        onChange={setSelectedRound}
+        countsByRound={jobRoundCandidateCounts}
+        allCount={jobAllCandidatesCount}
+      />
+    </div>
+  ) : (
+    <div className="border-b border-indigo-100/60 px-4 py-2.5 sm:px-5">
+      <p className="text-xs font-semibold text-slate-700">Jobs currently under interview</p>
+      <p className="text-[11px] text-slate-500">Open a job to see candidates by interview round.</p>
+    </div>
+  );
+
   const renderListTableBody = () => {
-    if (loading) {
+    const showJobDetail = Boolean(selectedJobId);
+    const tableLoading = loading || (showJobDetail && jobDetailLoading);
+    if (tableLoading) {
       return <TableSkeleton rows={8} columns={6} />;
     }
     if (error) {
@@ -547,7 +834,7 @@ export default function InterviewsPage() {
           <p className="text-sm font-medium text-rose-600">Error: {error}</p>
           <button
             type="button"
-            onClick={retryLoad}
+            onClick={() => void refreshAll()}
             className="mt-4 rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-rose-700"
           >
             Retry
@@ -555,11 +842,16 @@ export default function InterviewsPage() {
         </div>
       );
     }
-    if (!filteredInterviews.length) {
+    if (!showJobDetail) {
+      return <InterviewJobsTable jobs={pagedJobs} onSelectJob={openSelectedJob} />;
+    }
+    if (!jobRoundInterviews.length) {
       return (
         <div className="px-4 py-14 text-center">
-          <p className="text-sm font-semibold text-slate-800">No interviews match your filters</p>
-          <p className="mt-1 text-xs text-slate-500">Try adjusting search or clear filters, or schedule a new interview.</p>
+          <p className="text-sm font-semibold text-slate-800">No candidates in this round</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Schedule an interview for this job, or switch to another round tab.
+          </p>
           {canCreateInterview ? (
             <button
               type="button"
@@ -579,14 +871,16 @@ export default function InterviewsPage() {
     return (
       <InterviewTable
         hidePagination
-        interviews={paginatedInterviews}
+        hideJobColumn
+        interviews={pagedJobCandidates.items}
         workspaceAlertsByEntityId={workspaceAlertsByEntityId}
-        roundNumberByInterviewId={interviewRoundById}
+        roundNumberByInterviewId={effectiveRoundById}
         selectedIds={selectedIds}
-        page={pagination.page}
-        totalPages={totalPages}
-        totalEntries={totalEntries}
+        page={overviewPage}
+        totalPages={pagedJobCandidates.totalPages}
+        totalEntries={pagedJobCandidates.totalGroups}
         pageSize={pagination.pageSize}
+        isColumnVisible={interviewColumnVisibility.isVisible}
         onToggleSelect={(interviewId) =>
           setSelectedIds((current) =>
             current.includes(interviewId) ? current.filter((id) => id !== interviewId) : [...current, interviewId]
@@ -594,7 +888,9 @@ export default function InterviewsPage() {
         }
         onToggleSelectAll={() =>
           setSelectedIds((current) =>
-            current.length === paginatedInterviews.length ? [] : paginatedInterviews.map((interview) => interview.id)
+            current.length === pagedJobCandidates.items.length
+              ? []
+              : pagedJobCandidates.items.map((interview) => interview.id)
           )
         }
         onRowClick={openInterview}
@@ -613,7 +909,7 @@ export default function InterviewsPage() {
             : undefined
         }
         onRejectCandidate={(interview) => openRejectFlow(interview)}
-        onPageChange={(page) => setPagination((current) => ({ ...current, page }))}
+        onPageChange={(page) => setOverviewPage(page)}
       />
     );
   };
@@ -635,7 +931,7 @@ export default function InterviewsPage() {
             <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                onClick={retryLoad}
+                onClick={() => void refreshAll()}
                 disabled={loading}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
                 title="Refresh"
@@ -718,6 +1014,7 @@ export default function InterviewsPage() {
               {view === 'list' ? (
                 <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
+                    {jobContextHeader}
                     <div className={PH2_TOOLBAR_ROW_CLASS}>
                       <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div className="relative w-full lg:max-w-md lg:flex-1">
@@ -728,10 +1025,15 @@ export default function InterviewsPage() {
                           />
                           <input
                             type="text"
-                            placeholder="Search candidate, job, client, or notes…"
+                            placeholder={
+                              selectedJobId
+                                ? 'Search candidate…'
+                                : 'Search job, client, or candidate…'
+                            }
                             value={searchQuery}
                             onChange={(e) => {
                               setPagination((p) => ({ ...p, page: 1 }));
+                              setOverviewPage(1);
                               setSearchQuery(e.target.value);
                             }}
                             className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
@@ -765,17 +1067,19 @@ export default function InterviewsPage() {
                               </option>
                             ))}
                           </select>
-                          <select
-                            className={PH2_TOOLBAR_SELECT_CLASS}
-                            value={filters.round}
-                            onChange={(e) => patchFilter('round', e.target.value)}
-                          >
-                            {INTERVIEW_ROUND_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
-                              </option>
-                            ))}
-                          </select>
+                          {!selectedJobId ? (
+                            <select
+                              className={PH2_TOOLBAR_SELECT_CLASS}
+                              value={filters.round}
+                              onChange={(e) => patchFilter('round', e.target.value)}
+                            >
+                              {INTERVIEW_ROUND_OPTIONS.map((opt) => (
+                                <option key={opt} value={opt}>
+                                  {opt}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
                           <select
                             className={PH2_TOOLBAR_SELECT_CLASS}
                             value={filters.mode}
@@ -815,6 +1119,13 @@ export default function InterviewsPage() {
                               </option>
                             ))}
                           </select>
+                          <TableColumnsMenu
+                            columns={INTERVIEW_TABLE_COLUMNS}
+                            isVisible={interviewColumnVisibility.isVisible}
+                            onToggle={interviewColumnVisibility.toggle}
+                            onReset={interviewColumnVisibility.resetToDefault}
+                            unlockedVisibleCount={interviewColumnVisibility.unlockedVisibleCount}
+                          />
                           {hasToolbarFilters ? (
                             <button
                               type="button"
@@ -826,7 +1137,8 @@ export default function InterviewsPage() {
                             </button>
                           ) : null}
                           <span className="whitespace-nowrap text-[11px] font-medium text-slate-500">
-                            Total: <span className="font-semibold text-slate-800">{totalEntries}</span>
+                            Total:{' '}
+                            <span className="font-semibold text-slate-800">{listTotalCount}</span>
                           </span>
                         </div>
               </div>
@@ -849,30 +1161,31 @@ export default function InterviewsPage() {
                     <SmartSearchActiveKeywordsBar
                       chips={interviewSmartSearch.activeChips}
                       onClearAll={handleClearToolbar}
-                      resultCount={totalEntries}
+                      resultCount={listTotalCount}
                       showResultCount={!loading && !error}
                     />
 
                     <div className={PH2_TABLE_BODY_SCROLL_CLASS}>{renderListTableBody()}</div>
 
-                    {!loading && !error && filteredInterviews.length > 0 ? (
+                    {showListPagination ? (
                       <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                         <PaginationAll
-                          initialPage={pagination.page}
-                          totalPages={Math.max(totalPages, 1)}
-                          totalCount={totalEntries}
+                          initialPage={overviewPage}
+                          totalPages={listTotalPages}
+                          totalCount={listTotalCount}
                           pageSize={pagination.pageSize}
                           pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
                           onPageSizeChange={(n) => {
                             if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                            setOverviewPage(1);
                             setPagination((current) => ({
                               ...current,
                               pageSize: n as TablePageSize,
                               page: 1,
                             }));
                           }}
-                          itemLabel="interviews"
-                          onPageChange={(page) => setPagination((current) => ({ ...current, page }))}
+                          itemLabel={listItemLabel}
+                          onPageChange={(page) => setOverviewPage(page)}
                         />
                       </div>
                     ) : null}
@@ -881,6 +1194,7 @@ export default function InterviewsPage() {
             ) : (
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
+                    {jobContextHeader}
                     <div className={PH2_TOOLBAR_ROW_CLASS}>
                       <p className="max-w-xl text-xs text-slate-600">
                         Calendar view — switch to list for search, filters, and row actions.
@@ -888,7 +1202,10 @@ export default function InterviewsPage() {
                       <div className="flex shrink-0 items-center gap-2">{viewSegmented}</div>
                     </div>
                     <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} p-3 sm:p-4`}>
-                <InterviewCalendarView interviews={filteredInterviews} onSelectInterview={openInterview} />
+                <InterviewCalendarView
+                  interviews={selectedJobId ? jobRoundInterviews : filteredOverviewInterviews}
+                  onSelectInterview={openInterview}
+                />
                     </div>
                   </div>
               </motion.div>
@@ -954,7 +1271,7 @@ export default function InterviewsPage() {
           setToast(`${rejectInterview.candidate.name} rejected`);
           setRejectModalOpen(false);
           setRejectInterview(null);
-          await retryLoad();
+          await refreshAll();
         }}
       />
 
@@ -1016,7 +1333,7 @@ export default function InterviewsPage() {
             sendInterviewerInvite: interviewData.sendInterviewerInvite,
           });
           setScheduleNextRoundFrom(null);
-          await retryLoad();
+          await refreshAll();
         }}
         onUpdate={async (interviewId, interviewData) => {
           await updateInterview(
@@ -1027,7 +1344,7 @@ export default function InterviewsPage() {
               editInterview?.notes,
             ),
           );
-          await retryLoad();
+          await refreshAll();
         }}
       />
 

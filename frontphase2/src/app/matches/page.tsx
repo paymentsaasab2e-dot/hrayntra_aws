@@ -6,6 +6,9 @@ import { Download, Mail, MessageSquare, Sparkles, Trash2, UserPlus, RefreshCw, G
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildMatchesCsvColumns, MATCHES_EXPORT_COLUMNS } from '../../lib/export/matchesExportColumns';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
+import { MATCH_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { Toaster } from 'sonner';
 import AIManualToggle from '../../components/matches/AIManualToggle';
 import JobSelector from '../../components/matches/JobSelector';
@@ -364,6 +367,10 @@ export default function MatchesPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportMatches, setExportMatches] = useState<MatchCandidate[]>([]);
+  const matchColumnVisibility = usePersistedColumnVisibility(
+    'matches.visibleColumns',
+    MATCH_TABLE_COLUMNS,
+  );
   const [bulkActionLoading, setBulkActionLoading] = useState<'reject' | 'pipeline' | null>(null);
   const [bulkEmailLoading, setBulkEmailLoading] = useState(false);
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
@@ -1092,6 +1099,16 @@ export default function MatchesPage() {
         }
         onResetFilters={resetFilters}
         workspaceAlertsByEntityId={workspaceAlertsByEntityId}
+        isColumnVisible={matchColumnVisibility.isVisible}
+        columnsMenu={
+          <TableColumnsMenu
+            columns={MATCH_TABLE_COLUMNS}
+            isVisible={matchColumnVisibility.isVisible}
+            onToggle={matchColumnVisibility.toggle}
+            onReset={matchColumnVisibility.resetToDefault}
+            unlockedVisibleCount={matchColumnVisibility.unlockedVisibleCount}
+          />
+        }
       />
           </div>
         </div>

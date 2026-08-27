@@ -35,6 +35,9 @@ import AddCandidateDrawer from "../../components/candidates/AddCandidateDrawer";
 import { usePageAutoRefresh } from "../../hooks/usePageAutoRefresh";
 import { useWorkspaceEntityAlerts } from "../../hooks/useWorkspaceEntityAlerts";
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from "../../components/ai/WorkspaceAlertTableCell";
+import { TableColumnsMenu } from "../../components/table/TableColumnsMenu";
+import { usePersistedColumnVisibility } from "../../hooks/usePersistedColumnVisibility";
+import { PIPELINE_TABLE_COLUMNS } from "../../lib/tableColumns/moduleTableColumns";
 import {
   apiGetCandidates,
   apiGetClients,
@@ -549,6 +552,10 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [currentUserName, setCurrentUserName] = useState<string>('');
   const [view, setView] = useState<"Board" | "List">("Board");
+  const pipelineColumnVisibility = usePersistedColumnVisibility(
+    'pipeline.visibleColumns',
+    PIPELINE_TABLE_COLUMNS,
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState('');
@@ -852,6 +859,16 @@ export default function App() {
                   </button>
                 </div>
 
+                {view === "List" ? (
+                  <TableColumnsMenu
+                    columns={PIPELINE_TABLE_COLUMNS}
+                    isVisible={pipelineColumnVisibility.isVisible}
+                    onToggle={pipelineColumnVisibility.toggle}
+                    onReset={pipelineColumnVisibility.resetToDefault}
+                    unlockedVisibleCount={pipelineColumnVisibility.unlockedVisibleCount}
+                  />
+                ) : null}
+
                 <div className="h-8 w-px bg-slate-200 mx-1" />
                 
                 <button
@@ -993,17 +1010,28 @@ export default function App() {
                   exit={{ opacity: 0, y: -20 }}
                   className="h-full overflow-y-auto p-8 bg-white"
                 >
+                  {(() => {
+                    const show = pipelineColumnVisibility.isVisible;
+                    return (
                   <table className="w-full text-left">
                     <thead className="sticky top-0 bg-white z-10">
                       <tr className="border-b border-slate-100">
                         <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Candidate</th>
-                        <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Stage</th>
-                        <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Client & Job</th>
-                        <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                        {show('stage') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Stage</th> : null}
+                        {show('clientJob') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Client & Job</th> : null}
+                        {show('status') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th> : null}
                         {showPipelineAiAlertColumn ? (
                           <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">AI Alert</th>
                         ) : null}
-                        <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Last Activity</th>
+                        {show('lastActivity') ? (
+                          <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Last Activity</th>
+                        ) : null}
+                        {show('owner') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Team member</th> : null}
+                        {show('experience') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Experience</th> : null}
+                        {show('location') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Location</th> : null}
+                        {show('followUp') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Follow-up</th> : null}
+                        {show('job') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Job</th> : null}
+                        {show('client') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Client</th> : null}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
@@ -1020,45 +1048,89 @@ export default function App() {
                               </div>
                             </div>
                           </td>
-                          <td className="py-4 px-4">
-                            <select 
-                              value={candidate.stageId}
-                              onChange={(e) => void moveCandidate(candidate.id, e.target.value)}
-                              className="bg-slate-100 border-none rounded-lg text-xs font-medium px-2 py-1 focus:ring-2 focus:ring-blue-500/20"
-                            >
-                              {displayStages.map((stage) => (
-                                <option key={stage.id} value={stage.id}>{stage.label}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="py-4 px-4">
-                            <div className="max-w-[200px]">
-                              <p className="text-sm font-medium text-slate-800 truncate">{candidate.jobTitle}</p>
-                              <p className="text-xs text-slate-500 truncate">{candidate.clientName}</p>
-                            </div>
-                          </td>
-                          <td className="py-4 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                              candidate.status === "Approved" ? "bg-green-100 text-green-700" :
-                              candidate.status === "Stalled" ? "bg-red-100 text-red-700" :
-                              "bg-yellow-100 text-yellow-700"
-                            }`}>
-                              {candidate.status.toUpperCase()}
-                            </span>
-                          </td>
+                          {show('stage') ? (
+                            <td className="py-4 px-4">
+                              <select 
+                                value={candidate.stageId}
+                                onChange={(e) => void moveCandidate(candidate.id, e.target.value)}
+                                className="bg-slate-100 border-none rounded-lg text-xs font-medium px-2 py-1 focus:ring-2 focus:ring-blue-500/20"
+                              >
+                                {displayStages.map((stage) => (
+                                  <option key={stage.id} value={stage.id}>{stage.label}</option>
+                                ))}
+                              </select>
+                            </td>
+                          ) : null}
+                          {show('clientJob') ? (
+                            <td className="py-4 px-4">
+                              <div className="max-w-[200px]">
+                                <p className="text-sm font-medium text-slate-800 truncate">{candidate.jobTitle}</p>
+                                <p className="text-xs text-slate-500 truncate">{candidate.clientName}</p>
+                              </div>
+                            </td>
+                          ) : null}
+                          {show('status') ? (
+                            <td className="py-4 px-4">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                candidate.status === "Approved" ? "bg-green-100 text-green-700" :
+                                candidate.status === "Stalled" ? "bg-red-100 text-red-700" :
+                                "bg-yellow-100 text-yellow-700"
+                              }`}>
+                                {candidate.status.toUpperCase()}
+                              </span>
+                            </td>
+                          ) : null}
                           {showPipelineAiAlertColumn ? (
                             <td className="py-4 px-4">
                               <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[candidate.id]} />
                             </td>
                           ) : null}
-                          <td className="py-4 px-4 text-right">
-                            <p className="text-xs font-medium text-slate-600">{candidate.lastActivity}</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Updated</p>
-                          </td>
+                          {show('lastActivity') ? (
+                            <td className="py-4 px-4 text-right">
+                              <p className="text-xs font-medium text-slate-600">{candidate.lastActivity}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">Updated</p>
+                            </td>
+                          ) : null}
+                          {show('owner') ? (
+                            <td className="py-4 px-4">
+                              <span className="text-sm text-slate-700">{candidate.ownerName || '—'}</span>
+                            </td>
+                          ) : null}
+                          {show('experience') ? (
+                            <td className="py-4 px-4">
+                              <span className="text-sm text-slate-700">{candidate.experience || '—'}</span>
+                            </td>
+                          ) : null}
+                          {show('location') ? (
+                            <td className="py-4 px-4">
+                              <span className="text-sm text-slate-700">{candidate.location || '—'}</span>
+                            </td>
+                          ) : null}
+                          {show('followUp') ? (
+                            <td className="py-4 px-4">
+                              <span className="text-sm text-slate-700">{candidate.followUpStatus || '—'}</span>
+                            </td>
+                          ) : null}
+                          {show('job') ? (
+                            <td className="py-4 px-4">
+                              <span className="max-w-[160px] truncate text-sm text-slate-700" title={candidate.jobTitle}>
+                                {candidate.jobTitle || '—'}
+                              </span>
+                            </td>
+                          ) : null}
+                          {show('client') ? (
+                            <td className="py-4 px-4">
+                              <span className="max-w-[160px] truncate text-sm text-slate-700" title={candidate.clientName}>
+                                {candidate.clientName || '—'}
+                              </span>
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                    );
+                  })()}
                 </motion.div>
               )}
             </AnimatePresence>

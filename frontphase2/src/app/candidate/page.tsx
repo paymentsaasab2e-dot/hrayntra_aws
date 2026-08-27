@@ -82,6 +82,9 @@ import {
 } from '../../lib/candidateExperience';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildCandidatesCsvColumns, CANDIDATES_EXPORT_COLUMNS } from '../../lib/export/candidatesExportColumns';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
+import { CANDIDATE_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
@@ -403,6 +406,10 @@ function CandidatesPageContent() {
   const [debouncedColumnFilters, setDebouncedColumnFilters] =
     useState<CandidateTableColumnFilters>(columnFilters);
   const [smartSearchCandidateIds, setSmartSearchCandidateIds] = useState<string[]>([]);
+  const candidateColumnVisibility = usePersistedColumnVisibility(
+    'candidates.visibleColumns',
+    CANDIDATE_TABLE_COLUMNS,
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedColumnFilters(columnFilters), 400);
@@ -2388,6 +2395,13 @@ function CandidatesPageContent() {
                       jobOptions={jobFilterOptions}
                       ownerOptions={pipelineRecruiters}
                     />
+                    <TableColumnsMenu
+                      columns={CANDIDATE_TABLE_COLUMNS}
+                      isVisible={candidateColumnVisibility.isVisible}
+                      onToggle={candidateColumnVisibility.toggle}
+                      onReset={candidateColumnVisibility.resetToDefault}
+                      unlockedVisibleCount={candidateColumnVisibility.unlockedVisibleCount}
+                    />
                     <div className="flex shrink-0 items-center self-end xl:ml-auto xl:self-center">
                       {hasToolbarFilters ? (
                 <button
@@ -2572,6 +2586,7 @@ function CandidatesPageContent() {
                   movingCandidateId={inlineStageUpdatingCandidateId}
                   onLoadStageOptions={canUpdateCandidate ? loadInlineStageOptionsForCandidate : undefined}
                   onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
+                  isColumnVisible={candidateColumnVisibility.isVisible}
                   onSubmitToClient={
                     canSubmitToClient
                       ? (row) => {

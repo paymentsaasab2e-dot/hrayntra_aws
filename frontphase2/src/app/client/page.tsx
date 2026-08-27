@@ -29,6 +29,12 @@ import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildClientsCsvColumns, CLIENTS_EXPORT_COLUMNS } from '../../lib/export/clientsExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { ClientTable } from '../../components/ClientTable';
+import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
+import {
+  usePersistedColumnVisibility,
+  useTenantScopedStringArray,
+} from '../../hooks/usePersistedColumnVisibility';
+import { CLIENT_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { ClientHandoffModal } from '../../components/team/ClientHandoffModal';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
@@ -378,7 +384,13 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [smartSearchClientIds, setSmartSearchClientIds] = useState<string[]>([]);
-  const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useState<string[]>([]);
+  const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useTenantScopedStringArray(
+    CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY,
+  );
+  const clientColumnVisibility = usePersistedColumnVisibility(
+    'clients.visibleColumns',
+    CLIENT_TABLE_COLUMNS,
+  );
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
   const [teamMemberFilterId, setTeamMemberFilterId] = useState('');
   const [bulkStatus, setBulkStatus] = useState('');
@@ -425,34 +437,12 @@ export default function App() {
   }, [clients]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setSelectedDynamicColumnLabels(
-          parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-        );
-      }
-    } catch {
-      /* ignore invalid persisted dynamic columns */
-    }
-  }, []);
-
-  useEffect(() => {
     setSelectedDynamicColumnLabels((previous) =>
       previous.filter((label) =>
         availableDynamicColumnLabels.some((option) => option.toLowerCase() === label.toLowerCase())
       )
     );
-  }, [availableDynamicColumnLabels]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY,
-      JSON.stringify(selectedDynamicColumnLabels)
-    );
-  }, [selectedDynamicColumnLabels]);
+  }, [availableDynamicColumnLabels, setSelectedDynamicColumnLabels]);
 
   const filteredClients = useMemo(() => {
     let list = filterClientsByTab(clients, activeTab);
@@ -1291,43 +1281,33 @@ export default function App() {
                       searchPlaceholder="Search team members…"
                     />
                   ) : null}
-                  {availableDynamicColumnLabels.length > 0 ? (
-                    <details className="relative">
-                      <summary className={`${CLIENT_TOOLBAR_SELECT} list-none`}>
-                        Dynamic Columns
-                        {selectedDynamicColumnLabels.length > 0 ? ` (${selectedDynamicColumnLabels.length})` : ''}
-                      </summary>
-                      <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-indigo-100/90 bg-white p-3 shadow-xl">
-                        <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                          Show in table
-                        </p>
-                        <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-                          {availableDynamicColumnLabels.map((label) => {
-                            const checked = selectedDynamicColumnLabels.some(
-                              (item) => item.toLowerCase() === label.toLowerCase()
-                            );
-                            return (
-                              <label key={label} className="flex items-center gap-2 text-xs text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    setSelectedDynamicColumnLabels((previous) =>
-                                      checked
-                                        ? previous.filter((item) => item.toLowerCase() !== label.toLowerCase())
-                                        : [...previous, label]
-                                    )
-                                  }
-                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
-                                />
-                                <span className="truncate">{label}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </details>
-                  ) : null}
+                  <TableColumnsMenu
+                    columns={CLIENT_TABLE_COLUMNS}
+                    isVisible={clientColumnVisibility.isVisible}
+                    onToggle={clientColumnVisibility.toggle}
+                    onReset={clientColumnVisibility.resetToDefault}
+                    unlockedVisibleCount={clientColumnVisibility.unlockedVisibleCount}
+                    summaryClassName={CLIENT_TOOLBAR_SELECT}
+                    dynamicSection={
+                      availableDynamicColumnLabels.length > 0
+                        ? {
+                            title: 'Custom fields',
+                            labels: availableDynamicColumnLabels,
+                            selectedLabels: selectedDynamicColumnLabels,
+                            onToggleLabel: (label) => {
+                              setSelectedDynamicColumnLabels((prev) => {
+                                const exists = prev.some(
+                                  (item) => item.toLowerCase() === label.toLowerCase(),
+                                );
+                                return exists
+                                  ? prev.filter((item) => item.toLowerCase() !== label.toLowerCase())
+                                  : [...prev, label];
+                              });
+                            },
+                          }
+                        : undefined
+                    }
+                  />
                   <button
                     type="button"
                     className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
@@ -1368,6 +1348,7 @@ export default function App() {
                     clients={pagedClients}
                     dynamicColumnLabels={selectedDynamicColumnLabels}
                     getDynamicFieldValue={getClientDynamicFieldValue}
+                    isColumnVisible={clientColumnVisibility.isVisible}
                     selectedIds={selectedClients}
                     onSelectionChange={setSelectedClients}
                     onSelectClient={(client) => {
