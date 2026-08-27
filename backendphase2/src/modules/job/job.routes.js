@@ -1,6 +1,7 @@
 import express from 'express';
 import { jobController } from './job.controller.js';
 import { jobPublicApplyController } from './jobPublicApply.controller.js';
+import { jobLinkedInPostTemplateController } from './jobLinkedInPostTemplate.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { publicApplyTenantMiddleware } from '../../middleware/tenant-context.middleware.js';
 import { uploadSingleJobFile, uploadJobJdFile, publicApplyUpload } from '../../utils/upload.middleware.js';
@@ -23,6 +24,12 @@ router.get('/application-form-templates', requireAnyPermission(['jobs_read', 'vi
 router.post('/application-form-templates', requireAnyPermission(['jobs_create', 'create_job', 'jobs_update', 'edit_job']), jobPublicApplyController.createTemplate);
 router.patch('/application-form-templates/:id', requireAnyPermission(['jobs_update', 'edit_job', 'jobs_create', 'create_job']), jobPublicApplyController.updateTemplate);
 router.delete('/application-form-templates/:id', requireAnyPermission(['jobs_delete', 'delete_job', 'jobs_update', 'edit_job']), jobPublicApplyController.deleteTemplate);
+
+router.get('/linkedin-post-templates', requireAnyPermission(['jobs_read', 'view_jobs', 'jobs_create', 'create_job']), jobLinkedInPostTemplateController.list);
+router.post('/linkedin-post-templates', requireAnyPermission(['jobs_create', 'create_job', 'jobs_update', 'edit_job']), jobLinkedInPostTemplateController.create);
+router.patch('/linkedin-post-templates/:id', requireAnyPermission(['jobs_update', 'edit_job', 'jobs_create', 'create_job']), jobLinkedInPostTemplateController.update);
+router.delete('/linkedin-post-templates/:id', requireAnyPermission(['jobs_delete', 'delete_job', 'jobs_update', 'edit_job']), jobLinkedInPostTemplateController.remove);
+
 router.get('/:jobId/apply-link', requireAnyPermission(['jobs_read', 'view_jobs']), jobPublicApplyController.getApplyLink);
 
 router.post(

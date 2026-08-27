@@ -76,7 +76,6 @@ export function CreatePlacementDrawer({
   const [form, setForm] = useState(initialState);
   const [offerLetter, setOfferLetter] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [feeEditedManually, setFeeEditedManually] = useState(false);
   const [pctEditedManually, setPctEditedManually] = useState(false);
   const { settings: commissionSlabs } = useOrgCommissionSlabs();
 
@@ -108,7 +107,6 @@ export function CreatePlacementDrawer({
       });
       setOfferLetter(null);
       setErrors({});
-      setFeeEditedManually(initialValues?.placementFee !== undefined && initialValues?.placementFee !== null);
       setPctEditedManually(initialValues?.commissionPercentage !== undefined && initialValues?.commissionPercentage !== null);
     }
   }, [isOpen, currentUserId, initialValues, prefill?.candidateId, prefill?.jobId, prefill?.recruiterId]);
@@ -134,7 +132,7 @@ export function CreatePlacementDrawer({
     });
     setForm((current) => {
       const nextPct = String(resolved.percent);
-      const nextFee = feeEditedManually ? current.placementFee : String(Math.round(resolved.fee || 0));
+      const nextFee = String(Math.round(resolved.fee || 0));
       const nextCcy = resolved.commissionCurrency || current.currency;
       if (
         current.commissionPercentage === nextPct &&
@@ -155,7 +153,6 @@ export function CreatePlacementDrawer({
     form.offerSalary,
     form.jobId,
     pctEditedManually,
-    feeEditedManually,
     selectedJob?.minSalary,
     selectedJob?.maxSalary,
     selectedJob?.salaryAmount,
@@ -165,13 +162,13 @@ export function CreatePlacementDrawer({
     if (commissionSlabs.enabled && !pctEditedManually) return;
     const salary = Number(form.offerSalary || 0);
     const pct = Number(form.commissionPercentage || 0);
-    if (salary > 0 && pct > 0 && !feeEditedManually) {
+    if (salary > 0 && pct > 0) {
       setForm((current) => ({
         ...current,
         placementFee: String(Math.round(calculatePlacementFee(salary, pct))),
       }));
     }
-  }, [form.offerSalary, form.commissionPercentage, feeEditedManually, commissionSlabs.enabled, pctEditedManually]);
+  }, [form.offerSalary, form.commissionPercentage, commissionSlabs.enabled, pctEditedManually]);
 
   const validate = () => {
     const nextErrors: Record<string, string> = {};
@@ -182,7 +179,6 @@ export function CreatePlacementDrawer({
         'This job has no client company linked. Edit the job and assign a client before creating a placement.';
     }
     if (!form.offerSalary || Number(form.offerSalary) <= 0) nextErrors.offerSalary = 'Offer salary is required';
-    if (!form.placementFee || Number(form.placementFee) <= 0) nextErrors.placementFee = 'Placement fee is required';
     if (!form.offerDate) nextErrors.offerDate = 'Offer date is required';
     if (!form.employmentType) nextErrors.employmentType = 'Employment type is required';
     if (!form.status) nextErrors.status = 'Status is required';
@@ -246,6 +242,8 @@ export function CreatePlacementDrawer({
       title={drawerTitle}
       subtitle={drawerSubtitle}
       headerIcon={Award}
+      zBackdrop={155}
+      zPanel={160}
       footer={
         <>
           <DrawerFormCancelButton />
@@ -398,7 +396,6 @@ export function CreatePlacementDrawer({
               value={form.commissionPercentage}
               onChange={(event) => {
                 setPctEditedManually(true);
-                setFeeEditedManually(false);
                 setForm((current) => ({ ...current, commissionPercentage: event.target.value }));
               }}
               className={DRAWER_FORM_INPUT}
@@ -406,29 +403,8 @@ export function CreatePlacementDrawer({
             <p className="mt-1 text-xs text-slate-500">
               {commissionSlabs.enabled && !pctEditedManually
                 ? `From org commission slabs (${commissionSlabs.basis === 'job_salary' ? 'job salary range' : 'offer salary'}). Change the % to override.`
-                : 'Drives placement fee. Edit fee directly to override.'}
+                : 'Used to calculate placement fee from offer salary.'}
             </p>
-          </div>
-          <div>
-            <DrawerFieldLabel label="Placement Fee" required />
-            <input
-              type="number"
-              value={form.placementFee}
-              onChange={(event) => {
-                setFeeEditedManually(true);
-                setForm((current) => ({ ...current, placementFee: event.target.value }));
-              }}
-              className={DRAWER_FORM_INPUT}
-            />
-            {Number(form.placementFee) > 0 ? (
-              <p className="mt-1 text-xs text-slate-500">
-                {formatCurrencyAmount(Number(form.placementFee), form.currency)}
-                {!feeEditedManually && Number(form.offerSalary) > 0 && Number(form.commissionPercentage) > 0
-                  ? ` (${form.commissionPercentage}% of salary)`
-                  : ''}
-              </p>
-            ) : null}
-            {errors.placementFee ? <p className="mt-1 text-xs text-red-600">{errors.placementFee}</p> : null}
           </div>
         </div>
       </DrawerSectionCard>
@@ -504,18 +480,23 @@ export function CreatePlacementDrawer({
 
       <DrawerSectionCard title="Documents & Notes" subtitle="Offer letter and internal notes" icon={Upload} accent="sky">
         {!isEditMode || isResendMode ? (
-          <div className="mb-4">
+          <div className="mb-4 space-y-3 rounded-xl border border-dashed border-sky-200 bg-gradient-to-br from-white via-sky-50/40 to-indigo-50/20 p-4">
             <DrawerFieldLabel
               label={isResendMode ? 'Upload revised offer letter (PDF)' : 'Upload Offer Letter (PDF)'}
             />
-            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-4 transition-colors hover:bg-slate-50">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 transition-colors hover:border-sky-300 hover:bg-sky-50/40">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/20">
                 <Upload className="h-4 w-4" />
               </div>
-              <div className="text-sm">
-                <p className="font-medium text-slate-900">{offerLetter?.name || 'Choose PDF file'}</p>
-                <p className="text-slate-500">Upload offer letter as PDF</p>
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="font-semibold text-slate-900">
+                  {offerLetter?.name || 'Choose PDF file to upload'}
+                </p>
+                <p className="text-slate-500">PDF only · optional offer letter attachment</p>
               </div>
+              <span className="shrink-0 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white">
+                Browse
+              </span>
               <input
                 type="file"
                 accept="application/pdf"
@@ -533,6 +514,7 @@ export function CreatePlacementDrawer({
             value={form.notes}
             onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
             className={`${DRAWER_FORM_INPUT} resize-none`}
+            placeholder="Internal notes for this placement…"
           />
         </div>
       </DrawerSectionCard>

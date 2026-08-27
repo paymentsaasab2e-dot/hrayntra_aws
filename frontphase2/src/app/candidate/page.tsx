@@ -204,7 +204,6 @@ function readColumnFiltersFromSearchParams(
     location: searchParams.get('location') || '',
     jobId: searchParams.get('jobId') || '',
     stage: searchParams.get('tableStage') || '',
-    ownerId: searchParams.get('assignedToId') || '',
   };
 }
 
@@ -345,7 +344,6 @@ function CandidatesPageContent() {
   const canUpdateCandidate = hasAnyPermission(['candidates_update', 'edit_candidate', 'move_pipeline', 'submit_candidate']);
   const canSubmitToClient = hasAnyPermission(['submit_candidate', 'candidates_update', 'edit_candidate']);
   const canDeleteCandidate = hasAnyPermission(['candidates_delete', 'delete_candidate']);
-  const canAssignCandidate = hasAnyPermission(['candidates_update', 'move_pipeline']);
   const canScheduleInterview = hasAnyPermission([
     'interviews_create',
     'candidates_update',
@@ -508,9 +506,6 @@ function CandidatesPageContent() {
     companyId?: string;
     recruiterId?: string;
   } | null>(null);
-  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
-  const [bulkAssignSaving, setBulkAssignSaving] = useState(false);
-  const [bulkAssignRecruiterIds, setBulkAssignRecruiterIds] = useState<string[]>([]);
   const [bulkMoveStageOpen, setBulkMoveStageOpen] = useState(false);
   const [bulkMoveStageJobId, setBulkMoveStageJobId] = useState('');
   const [bulkMoveStageStageId, setBulkMoveStageStageId] = useState('');
@@ -733,7 +728,6 @@ function CandidatesPageContent() {
         location: debouncedColumnFilters.location || undefined,
         jobId: debouncedColumnFilters.jobId || undefined,
         experienceRange: debouncedColumnFilters.experienceRange || undefined,
-        assignedToId: debouncedColumnFilters.ownerId || undefined,
         stage: stageKey
           ? CANDIDATE_STAGE_API_MAP[stageKey] || debouncedColumnFilters.stage
           : undefined,
@@ -889,8 +883,7 @@ function CandidatesPageContent() {
       columnFilters.location.trim() ||
       columnFilters.experienceRange ||
       columnFilters.jobId ||
-      columnFilters.stage ||
-      columnFilters.ownerId,
+      columnFilters.stage,
   );
 
   const candidateSmartSearchOptions = useMemo(
@@ -914,7 +907,6 @@ function CandidatesPageContent() {
       setCurrentPage(1);
       const stageChip = parsed.keywords.find((chip) => chip.kind === 'stage');
       const statusChip = parsed.keywords.find((chip) => chip.kind === 'status');
-      const recruiterChip = parsed.keywords.find((chip) => chip.kind === 'recruiter');
       const jobChip = parsed.keywords.find((chip) => chip.kind === 'client');
       setFilters((prev) => ({
         ...prev,
@@ -923,7 +915,6 @@ function CandidatesPageContent() {
       }));
       setColumnFilters({
         stage: parsed.stage || stageChip?.value || '',
-        ownerId: parsed.ownerId || recruiterChip?.value || '',
         company: parsed.company || '',
         location: parsed.location || '',
         jobId: parsed.jobId || jobChip?.value || '',
@@ -942,9 +933,6 @@ function CandidatesPageContent() {
       }
       if (removed.kind === 'status') {
         setFilters((prev) => ({ ...prev, status: '' }));
-      }
-      if (removed.kind === 'recruiter') {
-        setColumnFilters((prev) => ({ ...prev, ownerId: '' }));
       }
       if (removed.kind === 'client') {
         setColumnFilters((prev) => ({ ...prev, jobId: '' }));
@@ -1002,7 +990,6 @@ function CandidatesPageContent() {
     if (columnFilters.experienceRange) params.set('experienceRange', columnFilters.experienceRange);
     if (columnFilters.jobId) params.set('jobId', columnFilters.jobId);
     if (columnFilters.stage) params.set('tableStage', columnFilters.stage);
-    if (columnFilters.ownerId) params.set('assignedToId', columnFilters.ownerId);
     router.replace(`/candidate?${params.toString()}`, { scroll: false });
   }, [listTab, filters, columnFilters, router]);
 
@@ -1126,9 +1113,6 @@ function CandidatesPageContent() {
       if (debouncedColumnFilters.jobId) queryParams.jobId = debouncedColumnFilters.jobId;
       if (debouncedColumnFilters.experienceRange) {
         queryParams.experienceRange = debouncedColumnFilters.experienceRange;
-      }
-      if (debouncedColumnFilters.ownerId) {
-        queryParams.assignedToId = debouncedColumnFilters.ownerId;
       }
       if (debouncedColumnFilters.stage) {
         const stageKey = debouncedColumnFilters.stage.toLowerCase();
@@ -1643,11 +1627,6 @@ function CandidatesPageContent() {
     selectedIds,
   ]);
 
-  const openBulkAssignModal = useCallback(() => {
-    setBulkAssignRecruiterIds([]);
-    setBulkAssignOpen(true);
-  }, []);
-
   const bulkScheduleCandidates = useMemo<InterviewCandidate[]>(() => {
     const selected = new Set(bulkScheduleCandidateIds);
     return candidates
@@ -1867,41 +1846,6 @@ function CandidatesPageContent() {
       loadCandidates,
     ],
   );
-
-  const closeBulkAssignModal = useCallback(() => {
-    if (bulkAssignSaving) return;
-    setBulkAssignOpen(false);
-    setBulkAssignRecruiterIds([]);
-  }, [bulkAssignSaving]);
-
-  const toggleBulkAssignRecruiter = useCallback((recruiterId: string) => {
-    setBulkAssignRecruiterIds((prev) =>
-      prev.includes(recruiterId)
-        ? prev.filter((id) => id !== recruiterId)
-        : [...prev, recruiterId]
-    );
-  }, []);
-
-  const submitBulkAssignRecruiter = useCallback(async () => {
-    if (!bulkAssignRecruiterIds.length || !selectedIds.length) return;
-
-    try {
-      setBulkAssignSaving(true);
-      await apiBulkActionCandidates('assign_recruiter', selectedIds, {
-        recruiterId: bulkAssignRecruiterIds[0],
-        recruiterIds: bulkAssignRecruiterIds,
-      });
-      toast.success(`Assigned ${selectedIds.length} candidate(s) to ${bulkAssignRecruiterIds.length} team member(s)`);
-      setSelectedIds([]);
-      setBulkAssignOpen(false);
-      setBulkAssignRecruiterIds([]);
-      await loadCandidates();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to assign team member');
-    } finally {
-      setBulkAssignSaving(false);
-    }
-  }, [bulkAssignRecruiterIds, loadCandidates, selectedIds]);
 
   const submitBulkMoveStage = useCallback(async () => {
     if (!bulkMoveStageJobId || !bulkMoveStageStageId || selectedIds.length === 0) return;
@@ -2393,7 +2337,6 @@ function CandidatesPageContent() {
                       companyOptions={companyFilterOptions}
                       locationOptions={locationFilterOptions}
                       jobOptions={jobFilterOptions}
-                      ownerOptions={pipelineRecruiters}
                     />
                     <TableColumnsMenu
                       columns={CANDIDATE_TABLE_COLUMNS}
@@ -2480,7 +2423,6 @@ function CandidatesPageContent() {
                   onSubmitToClient={
                     canSubmitToClient ? openBulkSubmitToClient : undefined
                   }
-                  onAssignRecruiter={canAssignCandidate ? openBulkAssignModal : undefined}
                   onSendEmail={async (ids) => {
                     toast.info(`Send email to ${ids.length} candidate(s) - Feature coming soon`);
                   }}
@@ -2929,95 +2871,6 @@ function CandidatesPageContent() {
         </div>
       ) : null}
 
-      {canAssignCandidate && bulkAssignOpen ? (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={closeBulkAssignModal} />
-          <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
-            <div className="border-b border-slate-100 p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-lg font-bold text-slate-900">Assign team members</div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    Select one or more team members. The first selected team member becomes the primary assignee, and all selected team members receive the candidate details by email.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-                  onClick={closeBulkAssignModal}
-                  disabled={bulkAssignSaving}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div className="p-5">
-              <div className="mb-3 text-xs font-bold uppercase text-slate-500">Team members</div>
-              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                {pipelineRecruiters.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                    No team members available.
-                  </div>
-                ) : (
-                  pipelineRecruiters.map((recruiter) => {
-                    const checked = bulkAssignRecruiterIds.includes(recruiter.id);
-                    return (
-                      <label
-                        key={recruiter.id}
-                        className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 transition-colors ${
-                          checked
-                            ? 'border-blue-200 bg-blue-50'
-                            : 'border-slate-200 bg-white hover:bg-slate-50'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleBulkAssignRecruiter(recruiter.id)}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          disabled={bulkAssignSaving}
-                        />
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-slate-900">{recruiter.name}</div>
-                          <div className="text-xs text-slate-500">
-                            {checked && bulkAssignRecruiterIds[0] === recruiter.id ? 'Primary assignee' : 'Will receive assignment email'}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 border-t border-slate-100 p-5">
-              <div className="text-xs text-slate-500">
-                {bulkAssignRecruiterIds.length} team member{bulkAssignRecruiterIds.length === 1 ? '' : 's'} selected for {selectedIds.length} candidate{selectedIds.length === 1 ? '' : 's'}.
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                  onClick={closeBulkAssignModal}
-                  disabled={bulkAssignSaving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
-                  onClick={submitBulkAssignRecruiter}
-                  disabled={bulkAssignSaving || bulkAssignRecruiterIds.length === 0 || selectedIds.length === 0}
-                >
-                  {bulkAssignSaving ? 'Assigning...' : 'Assign team members'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <CandidateScheduleInterviewModal
         isOpen={stageScheduleOpen}
         candidate={stageScheduleCandidate}
@@ -3179,6 +3032,102 @@ function CandidatesPageContent() {
           emitNotificationsUpdated();
           await loadCandidateProfile(interviewData.candidateId);
         } : undefined}
+        onMoveStageScheduleInterview={
+          canScheduleInterview
+            ? async ({ candidateId, jobId, stage, stageId }) => {
+                const row =
+                  candidates.find((item) => item.id === candidateId) ||
+                  (selectedCandidateProfile?.id === candidateId
+                    ? ({
+                        id: selectedCandidateProfile.id,
+                        name: selectedCandidateProfile.name,
+                        phone: selectedCandidateProfile.phone || '',
+                        stage: selectedCandidateProfile.stage || '',
+                        assignedJobs: selectedCandidateProfile.assignedJobs
+                          ?.map((j) => j.title)
+                          .filter(Boolean) as string[],
+                        pipelineJobId: jobId,
+                      } as Candidate)
+                    : null);
+                if (!row) {
+                  toast.error('Candidate not found');
+                  return;
+                }
+                let resolvedStageId = stageId || '';
+                if (!resolvedStageId && jobId) {
+                  try {
+                    const response = await apiGetPipelineStages(jobId);
+                    const payload = response.data;
+                    const stages = Array.isArray(payload)
+                      ? payload
+                      : Array.isArray((payload as any)?.data)
+                        ? (payload as any).data
+                        : [];
+                    const match = stages.find(
+                      (s: any) =>
+                        String(s?.name || '').trim().toLowerCase() ===
+                        String(stage || '').trim().toLowerCase(),
+                    );
+                    resolvedStageId = match ? String(match.id || '') : '';
+                  } catch {
+                    /* keep empty; schedule still opens */
+                  }
+                }
+                await openScheduleInterviewForCandidate(row, jobId, {
+                  stageId: resolvedStageId,
+                  stageName: stage,
+                });
+              }
+            : undefined
+        }
+        onMoveStageCreatePlacement={
+          canUpdateCandidate
+            ? async ({ candidateId, jobId, stage, stageId }) => {
+                const row =
+                  candidates.find((item) => item.id === candidateId) ||
+                  (selectedCandidateProfile?.id === candidateId
+                    ? ({
+                        id: selectedCandidateProfile.id,
+                        name: selectedCandidateProfile.name,
+                        phone: selectedCandidateProfile.phone || '',
+                        stage: selectedCandidateProfile.stage || '',
+                        assignedJobs: selectedCandidateProfile.assignedJobs
+                          ?.map((j) => j.title)
+                          .filter(Boolean) as string[],
+                        pipelineJobId: jobId,
+                      } as Candidate)
+                    : null);
+                if (!row) {
+                  toast.error('Candidate not found');
+                  return;
+                }
+                let resolvedStageId = stageId || '';
+                if (!resolvedStageId && jobId) {
+                  try {
+                    const response = await apiGetPipelineStages(jobId);
+                    const payload = response.data;
+                    const stages = Array.isArray(payload)
+                      ? payload
+                      : Array.isArray((payload as any)?.data)
+                        ? (payload as any).data
+                        : [];
+                    const match = stages.find(
+                      (s: any) =>
+                        String(s?.name || '').trim().toLowerCase() ===
+                        String(stage || '').trim().toLowerCase(),
+                    );
+                    resolvedStageId = match ? String(match.id || '') : '';
+                  } catch {
+                    /* keep empty */
+                  }
+                }
+                openPlacementForCandidate(row, jobId, {
+                  stageId: resolvedStageId,
+                  stageName: stage,
+                });
+              }
+            : undefined
+        }
         onAddNote={canUpdateCandidate ? async (candidateId, note) => {
           await apiAddCandidateNote(candidateId, note);
           await loadCandidateProfile(candidateId);

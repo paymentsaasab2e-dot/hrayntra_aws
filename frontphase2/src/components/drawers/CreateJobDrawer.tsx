@@ -82,6 +82,7 @@ import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 import { ApplicationFormBuilderModal } from '../jobs/ApplicationFormBuilderModal';
+import { LinkedInPostTemplateModal } from '../jobs/LinkedInPostTemplateModal';
 import { PreScreenAssessmentSection } from '../jobs/PreScreenAssessmentSection';
 import type { JobPreScreenAssessmentLink } from '../../lib/preScreenAssessmentTypes';
 import {
@@ -89,6 +90,12 @@ import {
   normalizeApplicationFormSchema,
   type ApplicationFormSchema,
 } from '../../lib/applicationFormTypes';
+import {
+  linkedInTemplateToPublicVisibility,
+  normalizeLinkedInPostTemplateSchema,
+  type JobLinkedInPostTemplate,
+  type LinkedInPostTemplateSection,
+} from '../../lib/jobLinkedInPostTemplate';
 import {
   buildJobContactPersonOptions,
   type JobContactPersonOption,
@@ -953,6 +960,12 @@ export function CreateJobDrawer({
   const [showLinkedInSuccess, setShowLinkedInSuccess] = useState(false);
   const [linkedInPostUrl, setLinkedInPostUrl] = useState<string | null>(null);
   const [showFormBuilder, setShowFormBuilder] = useState(false);
+  const [showLinkedInTemplateModal, setShowLinkedInTemplateModal] = useState(false);
+  const [selectedLinkedInTemplateId, setSelectedLinkedInTemplateId] = useState<string | null>(null);
+  const [selectedLinkedInTemplateName, setSelectedLinkedInTemplateName] = useState<string | null>(null);
+  const [linkedInPostSections, setLinkedInPostSections] = useState<LinkedInPostTemplateSection[] | null>(
+    null,
+  );
   const [linkedinAccounts, setLinkedinAccounts] = useState<SocialPublishingAccount[]>([]);
   const [twitterAccounts, setTwitterAccounts] = useState<SocialPublishingAccount[]>([]);
   const [selectedLinkedInTargets, setSelectedLinkedInTargets] = useState<string[]>([]);
@@ -1252,6 +1265,10 @@ export function CreateJobDrawer({
       setTwitterPostTextTouched(false);
       setApplicationApplyUrl('');
       setApplicationApplyUrlLoading(false);
+      setShowLinkedInTemplateModal(false);
+      setSelectedLinkedInTemplateId(null);
+      setSelectedLinkedInTemplateName(null);
+      setLinkedInPostSections(null);
       setLinkedinAccounts([]);
       setTwitterAccounts([]);
       setSelectedLinkedInTargets([]);
@@ -1560,8 +1577,9 @@ export function CreateJobDrawer({
       applyUrl: effectiveApplyUrl,
       showClientNamePublicly: formData.showClientNamePublicly,
       publicFieldVisibility: formData.publicFieldVisibility,
+      linkedInPostSections,
     };
-  }, [clients, effectiveApplyUrl, formData]);
+  }, [clients, effectiveApplyUrl, formData, linkedInPostSections]);
 
   const generatedLinkedInPost = useMemo(
     () => buildLinkedInJobPost(socialPostInput),
@@ -1579,8 +1597,9 @@ export function CreateJobDrawer({
       JSON.stringify({
         fields: parseJobPublicFieldVisibility(formData.publicFieldVisibility),
         showClient: formData.showClientNamePublicly !== false,
+        sections: linkedInPostSections,
       }),
-    [formData.publicFieldVisibility, formData.showClientNamePublicly],
+    [formData.publicFieldVisibility, formData.showClientNamePublicly, linkedInPostSections],
   );
 
   useEffect(() => {
@@ -3339,14 +3358,20 @@ export function CreateJobDrawer({
           }
 
           const previewApplyUrl = buildCandidatePortalApplyUrlPreview(getTenantDbName());
-          // Prefer the live preview text (kept in sync when fields are hidden from public).
-          // Fall back to a fresh visibility-aware rebuild if the textarea is empty.
+          // When a LinkedIn post template is applied, always rebuild from its section
+          // sequence so the published post matches the template order/visibility.
           const linkedInPublishText = replaceApplyUrlInSocialPostText(
-            (linkedInPostText || '').trim() ||
-              buildLinkedInJobPost({
-                ...socialPostInput,
-                applyUrl,
-              }),
+            linkedInPostSections
+              ? buildLinkedInJobPost({
+                  ...socialPostInput,
+                  applyUrl,
+                  linkedInPostSections,
+                })
+              : (linkedInPostText || '').trim() ||
+                  buildLinkedInJobPost({
+                    ...socialPostInput,
+                    applyUrl,
+                  }),
             applyUrl,
             previewApplyUrl,
           );
@@ -4475,6 +4500,51 @@ export function CreateJobDrawer({
                             loading={socialStatusLoading || linkedIn.isLoading}
                           />
 
+                          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-900">Post templates</p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  Create multiple templates, edit existing ones, and drag sections into
+                                  the order used when posting to LinkedIn.
+                                </p>
+                                {selectedLinkedInTemplateName ? (
+                                  <p className="mt-1.5 text-xs font-medium text-blue-700">
+                                    Using: {selectedLinkedInTemplateName}
+                                  </p>
+                                ) : (
+                                  <p className="mt-1.5 text-xs text-slate-400">
+                                    Default section order (all visible)
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                {selectedLinkedInTemplateId ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedLinkedInTemplateId(null);
+                                      setSelectedLinkedInTemplateName(null);
+                                      setLinkedInPostSections(null);
+                                      setLinkedInPostTextTouched(false);
+                                    }}
+                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                  >
+                                    Clear
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => setShowLinkedInTemplateModal(true)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                                >
+                                  <FileText size={13} />
+                                  Manage templates
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
                           {/* LinkedIn post preview — visible while composing; connection required to publish */}
                           {formData.jobTitle && formData.companyId ? (
                             <>
@@ -5454,6 +5524,25 @@ export function CreateJobDrawer({
             enableApplicationForm: true,
           }))
         }
+      />
+
+      <LinkedInPostTemplateModal
+        isOpen={showLinkedInTemplateModal}
+        onClose={() => setShowLinkedInTemplateModal(false)}
+        selectedTemplateId={selectedLinkedInTemplateId}
+        onApply={(template: JobLinkedInPostTemplate) => {
+          const schema = normalizeLinkedInPostTemplateSchema(template.schema);
+          const visibility = linkedInTemplateToPublicVisibility(schema);
+          setSelectedLinkedInTemplateId(template.id);
+          setSelectedLinkedInTemplateName(template.name);
+          setLinkedInPostSections(schema.sections);
+          setFormData((prev) => ({
+            ...prev,
+            publicFieldVisibility: visibility,
+            showClientNamePublicly: visibility.client !== false,
+          }));
+          setLinkedInPostTextTouched(false);
+        }}
       />
     </>
   );

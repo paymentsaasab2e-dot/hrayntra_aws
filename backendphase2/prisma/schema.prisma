@@ -770,6 +770,19 @@ model JobApplicationFormTemplate {
   @@map("job_application_form_templates")
 }
 
+/// Tenant-scoped LinkedIn / social job post templates (section order + visibility)
+model JobLinkedInPostTemplate {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  schema      Json
+  createdById String?  @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+  @@map("job_linkedin_post_templates")
+}
+
 enum PreScreenAssessmentType {
   MCQ
   CODING

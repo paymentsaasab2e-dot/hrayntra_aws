@@ -5245,6 +5245,40 @@ export const apiCreateApplicationFormTemplate = async (payload: {
   );
 };
 
+export const apiListLinkedInPostTemplates = async () => {
+  return apiFetch<Array<{ id: string; name: string; schema: unknown; createdAt?: string; updatedAt?: string }>>(
+    '/jobs/linkedin-post-templates',
+    { auth: true },
+  );
+};
+
+export const apiCreateLinkedInPostTemplate = async (payload: {
+  name: string;
+  schema: unknown;
+}) => {
+  return apiFetch<{ id: string; name: string; schema: unknown }>(
+    '/jobs/linkedin-post-templates',
+    { method: 'POST', body: payload, auth: true },
+  );
+};
+
+export const apiUpdateLinkedInPostTemplate = async (
+  id: string,
+  payload: { name?: string; schema?: unknown },
+) => {
+  return apiFetch<{ id: string; name: string; schema: unknown }>(
+    `/jobs/linkedin-post-templates/${id}`,
+    { method: 'PATCH', body: payload, auth: true },
+  );
+};
+
+export const apiDeleteLinkedInPostTemplate = async (id: string) => {
+  return apiFetch<{ deleted: boolean }>(`/jobs/linkedin-post-templates/${id}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+};
+
 export const listPreScreenAssessments = async (type?: string) => {
   const qs = type ? `?type=${encodeURIComponent(type)}` : '';
   return apiFetch<unknown[]>(`/pre-screen-assessments/library${qs}`, { auth: true });
@@ -7181,6 +7215,20 @@ export const apiResendPlacementOffer = async (id: string, offerLetter?: File | n
   }
   return apiFetchFormData<Placement>(`/placements/${id}/resend-offer`, formData, {
     method: 'PATCH',
+    auth: true,
+  });
+};
+
+export const apiUploadPlacementDocument = async (
+  id: string,
+  file: File,
+  documentType: 'OFFER_LETTER' | 'JOINING_LETTER' | 'INVOICE' | 'AGREEMENT' | 'OTHER' = 'OTHER',
+) => {
+  const formData = new FormData();
+  formData.append('document', file);
+  formData.append('documentType', documentType);
+  return apiFetchFormData<Placement>(`/placements/${id}/documents`, formData, {
+    method: 'POST',
     auth: true,
   });
 };

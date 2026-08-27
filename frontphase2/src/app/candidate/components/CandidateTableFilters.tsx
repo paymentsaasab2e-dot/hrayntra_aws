@@ -9,7 +9,6 @@ export interface CandidateTableColumnFilters {
   location: string;
   jobId: string;
   stage: string;
-  ownerId: string;
 }
 
 export const EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS: CandidateTableColumnFilters = {
@@ -18,7 +17,6 @@ export const EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS: CandidateTableColumnFilters =
   location: '',
   jobId: '',
   stage: '',
-  ownerId: '',
 };
 
 /** Width only — border/padding live on the button inside SearchableToolbarFilterSelect. */
@@ -51,7 +49,6 @@ interface CandidateTableFiltersProps {
   companyOptions?: string[];
   locationOptions?: string[];
   jobOptions?: Array<{ id: string; title: string }>;
-  ownerOptions?: Array<{ id: string; name: string }>;
   showClear?: boolean;
   onClear?: () => void;
 }
@@ -62,7 +59,6 @@ export const CandidateTableFilters: React.FC<CandidateTableFiltersProps> = ({
   companyOptions = [],
   locationOptions = [],
   jobOptions = [],
-  ownerOptions = [],
 }) => {
   const patch = (patch: Partial<CandidateTableColumnFilters>) => {
     onChange({ ...filters, ...patch });
@@ -81,18 +77,6 @@ export const CandidateTableFilters: React.FC<CandidateTableFiltersProps> = ({
   const jobFilterOptions = useMemo(
     () => jobOptions.map((job) => ({ value: job.id, label: job.title, searchText: job.id })),
     [jobOptions],
-  );
-
-  const ownerFilterOptions = useMemo(
-    () => [
-      { value: 'unassigned', label: 'Unassigned' },
-      ...ownerOptions.map((owner) => ({
-        value: owner.id,
-        label: owner.name,
-        searchText: owner.id,
-      })),
-    ],
-    [ownerOptions],
   );
 
   return (
@@ -146,16 +130,6 @@ export const CandidateTableFilters: React.FC<CandidateTableFiltersProps> = ({
         className={FILTER_WIDE_WIDTH}
         ariaLabel="Filter by stage"
         searchPlaceholder="Search stages…"
-      />
-      <SearchableToolbarFilterSelect
-        value={filters.ownerId}
-        onChange={(ownerId) => patch({ ownerId })}
-        options={ownerFilterOptions}
-        placeholder="All team members"
-        allLabel="All team members"
-        className={FILTER_WIDE_WIDTH}
-        ariaLabel="Filter by team member"
-        searchPlaceholder="Search team members…"
       />
     </div>
   );

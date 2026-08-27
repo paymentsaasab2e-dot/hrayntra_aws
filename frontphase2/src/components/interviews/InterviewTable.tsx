@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
+  ArrowRightCircle,
   CheckCircle2,
   ChevronDown,
   FilePenLine,
@@ -117,6 +118,14 @@ interface InterviewTableProps {
   hideJobColumn?: boolean;
   /** Persistable column visibility; locked columns (select/candidate/actions) stay shown. */
   isColumnVisible?: (columnId: string) => boolean;
+  /** Job candidates popup: show Edit / Complete / No show action buttons. */
+  showEditCompleteNoShowActions?: boolean;
+  /** Highest round number that exists on this job (enables move-to-next-round). */
+  jobMaxRound?: number;
+  /** Per-candidate highest round on this job (avoids wrong forward when filtered by round tab). */
+  candidateMaxRoundByCandidateId?: Record<string, number>;
+  /** Schedule / move candidate forward to the next interview round. */
+  onScheduleNextRound?: (interview: Interview) => void;
 }
 
 const statusClasses = {
@@ -182,6 +191,10 @@ export function InterviewTable({
   roundNumberByInterviewId,
   hideJobColumn = false,
   isColumnVisible = () => true,
+  showEditCompleteNoShowActions = false,
+  jobMaxRound = 1,
+  candidateMaxRoundByCandidateId,
+  onScheduleNextRound,
 }: InterviewTableProps) {
   const show = isColumnVisible;
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
@@ -426,7 +439,8 @@ export function InterviewTable({
               return (
                 <tr
                   key={group.key}
-                  className="align-top transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
+                  onClick={() => onRowClick(primary)}
+                  className="group cursor-pointer align-top transition-colors duration-150 even:bg-slate-50/40 hover:bg-indigo-50/50"
                 >
                   <td className="px-3 py-2.5 first:pl-4 sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <input
@@ -440,7 +454,7 @@ export function InterviewTable({
                       title="Select all rounds for this candidate & job"
                     />
                   </td>
-                  <td className="px-3 py-2.5 sm:px-4">
+                  <td className="px-3 py-2.5 sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <div className="flex items-center gap-2.5">
                       <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-semibold text-[#2563EB]">
                         {primary.candidate.name
@@ -453,8 +467,8 @@ export function InterviewTable({
                         <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
                           <button
                             type="button"
-                            onClick={() => onRowClick(primary)}
-                            className="text-left text-[13px] font-semibold text-[#111827] transition-colors hover:text-[#2563EB] hover:underline"
+                            onClick={() => onViewCandidate(primary)}
+                            className="text-left text-[13px] font-semibold text-slate-900 transition-colors hover:text-indigo-700"
                           >
                             {primary.candidate.name}
                           </button>
@@ -475,7 +489,10 @@ export function InterviewTable({
                   </td>
                   ) : null}
                   {show('round') ? (
-                  <td className="min-w-[7.5rem] max-w-[12rem] px-2 py-2.5 sm:py-2.5">
+                  <td
+                    className="min-w-[7.5rem] max-w-[12rem] px-2 py-2.5 sm:py-2.5"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <div className="flex flex-row flex-wrap items-center gap-1">
                       {rounds.map((interview, index) => {
                         const roundLabel = resolveInterviewRoundLabel(
@@ -640,6 +657,76 @@ export function InterviewTable({
                   ) : null}
                   {show('audit') ? <TableAuditCell audit={primary.auditMeta} /> : null}
                   <td className="px-3 py-2.5 text-right sm:px-4" onClick={(event) => event.stopPropagation()}>
+                    {showEditCompleteNoShowActions ? (
+                      <div className="inline-flex flex-nowrap items-center justify-end gap-1">
+                        {(() => {
+                          const roundsMax = Math.max(
+                            1,
+                            ...rounds.map((round, index) =>
+                              resolveInterviewRoundLabel(round, index, roundNumberByInterviewId),
+                            ),
+                          );
+                          const candidateMaxRound =
+                            candidateMaxRoundByCandidateId?.[primary.candidate.id] ?? roundsMax;
+                          const canMoveForward =
+                            Boolean(onScheduleNextRound) &&
+                            Number(jobMaxRound) > candidateMaxRound;
+                          const canAct = !isInterviewCompleted(primary);
+
+                          return (
+                            <>
+                              {canAct ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onEditInterview(primary)}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50"
+                                  title="Edit"
+                                  aria-label="Edit interview"
+                                >
+                                  <FilePenLine className="size-3.5" />
+                                </button>
+                              ) : null}
+                              {onMarkInterviewCompleted && canAct ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onMarkInterviewCompleted(primary)}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                  title="Complete"
+                                  aria-label="Mark complete"
+                                >
+                                  <CheckCircle2 className="size-3.5" />
+                                </button>
+                              ) : null}
+                              {canAct ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onNoShowInterview(primary)}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                                  title="No show"
+                                  aria-label="Mark no show"
+                                >
+                                  <FlagTriangleRight className="size-3.5" />
+                                </button>
+                              ) : null}
+                              {canMoveForward ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onScheduleNextRound?.(primary)}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                                  title={`Move to round ${candidateMaxRound + 1}`}
+                                  aria-label={`Move to round ${candidateMaxRound + 1}`}
+                                >
+                                  <ArrowRightCircle className="size-3.5" />
+                                </button>
+                              ) : null}
+                              {!canAct && !canMoveForward ? (
+                                <span className="text-[11px] font-medium text-slate-400">—</span>
+                              ) : null}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : (
                     <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-1">
                       {!isInterviewCompleted(primary) ? (
                         <button
@@ -691,6 +778,7 @@ export function InterviewTable({
                         </button>
                       ) : null}
                     </div>
+                    )}
                   </td>
                 </tr>
               );

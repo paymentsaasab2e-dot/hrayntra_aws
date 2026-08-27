@@ -15,7 +15,6 @@ export const CANDIDATE_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'location', label: 'Location' },
   { id: 'assignedJob', label: 'Assigned job' },
   { id: 'stage', label: 'Stage' },
-  { id: 'owner', label: 'Team Member' },
   extra('email', 'Email'),
   extra('phone', 'Phone'),
   extra('source', 'Source'),

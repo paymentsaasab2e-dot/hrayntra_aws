@@ -171,4 +171,18 @@ export const placementController = {
       sendError(res, getStatusCode(error), error.message, error);
     }
   },
+
+  async uploadDocument(req, res) {
+    try {
+      const placement = await placementService.uploadDocument(
+        req.params.id,
+        req.user.id,
+        req.file,
+        req.body?.documentType || 'OTHER'
+      );
+      sendResponse(res, 201, 'Document uploaded successfully', placement);
+    } catch (error) {
+      sendError(res, getStatusCode(error), error.message, error);
+    }
+  },
 };

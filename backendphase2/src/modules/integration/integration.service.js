@@ -576,14 +576,31 @@ export const integrationService = {
     }
 
     if (provider === 'gmail' || provider === 'google-calendar' || provider === 'google-meet') {
-      const { googleOAuthController } = await import('../oauth/google-oauth.controller.js');
-      const service =
-        provider === 'gmail' ? 'gmail' : provider === 'google-calendar' || provider === 'google-meet' ? 'calendar' : 'both';
+      const remainingGmail = await prisma.integrationConnection.count({
+        where: { userId, provider: 'gmail' },
+      });
+      const remainingCalendar = await prisma.integrationConnection.count({
+        where: { userId, provider: { in: ['google-calendar', 'google-meet'] } },
+      });
+
+      const gmailConnected = remainingGmail > 0;
+      const googleCalConnected = remainingCalendar > 0;
+      const clearGoogleTokens = !gmailConnected && !googleCalConnected;
+
       await prisma.userOAuthTokens.updateMany({
         where: { userId },
-        data: service === 'gmail'
-          ? { gmailConnected: false }
-          : { googleCalConnected: false },
+        data: {
+          gmailConnected,
+          googleCalConnected,
+          ...(clearGoogleTokens
+            ? {
+                googleAccessToken: null,
+                googleRefreshToken: null,
+                googleEmail: null,
+                googleScope: [],
+              }
+            : {}),
+        },
       });
     }
 

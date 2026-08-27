@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Calendar, ChevronLeft, Download, List, Plus, RefreshCcw, Search, XCircle } from 'lucide-react';
+import { Calendar, Download, List, Plus, RefreshCcw, Search, XCircle } from 'lucide-react';
 import { toast as sonnerToast, Toaster } from 'sonner';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
@@ -13,8 +13,6 @@ import { InterviewCalendarView } from '../../components/interviews/InterviewCale
 import { InterviewDrawer } from '../../components/interviews/InterviewDrawer';
 import { InterviewKPICards } from '../../components/interviews/InterviewKPICards';
 import { InterviewJobsTable } from '../../components/interviews/InterviewJobsTable';
-import { InterviewRoundTabs } from '../../components/interviews/InterviewRoundTabs';
-import { InterviewTable } from '../../components/interviews/InterviewTable';
 import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
 import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
 import { INTERVIEW_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
@@ -24,6 +22,7 @@ import { RejectCandidateModal } from '../../components/interviews/RejectCandidat
 import { RescheduleModal } from '../../components/interviews/RescheduleModal';
 import { ScheduleInterviewModal as CandidateScheduleInterviewModal } from '../../components/drawers/CandidateProfileDrawer';
 import { SubmitToClientDrawer } from '../../components/interviews/SubmitToClientDrawer';
+import { InterviewJobCandidatesModal } from '../../components/interviews/InterviewJobCandidatesModal';
 import { useInterviewDrawer } from '../../hooks/useInterviewDrawer';
 import { useInterviews } from '../../hooks/useInterviews';
 import { useInterviewModals } from '../../hooks/useInterviewModals';
@@ -151,6 +150,7 @@ export default function InterviewsPage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedRound, setSelectedRound] = useState<number | 'all'>(1);
   const [overviewPage, setOverviewPage] = useState(1);
+  const [jobCandidatesPage, setJobCandidatesPage] = useState(1);
   const [jobDetailLoading, setJobDetailLoading] = useState(false);
   const selectedJobIdRef = useRef<string | null>(null);
   selectedJobIdRef.current = selectedJobId;
@@ -293,6 +293,17 @@ export default function InterviewsPage() {
     return new Set(jobSourceInterviews.map((interview) => interview.candidate.id)).size;
   }, [jobSourceInterviews, selectedJobId]);
 
+  const jobCandidateMaxRoundById = useMemo(() => {
+    if (!selectedJobId) return {} as Record<string, number>;
+    const map: Record<string, number> = {};
+    for (const interview of jobSourceInterviews) {
+      const candidateId = interview.candidate.id;
+      const round = Number(effectiveRoundById[interview.id]) || 1;
+      map[candidateId] = Math.max(map[candidateId] || 0, round);
+    }
+    return map;
+  }, [effectiveRoundById, jobSourceInterviews, selectedJobId]);
+
   const jobRoundInterviews = useMemo(() => {
     if (!selectedJobId) return [];
     return interviewsForJobRound(jobSourceInterviews, selectedJobId, selectedRound, effectiveRoundById);
@@ -307,8 +318,8 @@ export default function InterviewsPage() {
   const jobsTotalPages = Math.max(1, Math.ceil(jobSummaries.length / Math.max(pagination.pageSize, 1)) || 1);
 
   const pagedJobCandidates = useMemo(
-    () => paginateInterviewCandidateGroups(jobRoundInterviews, overviewPage, pagination.pageSize),
-    [jobRoundInterviews, overviewPage, pagination.pageSize],
+    () => paginateInterviewCandidateGroups(jobRoundInterviews, jobCandidatesPage, pagination.pageSize),
+    [jobRoundInterviews, jobCandidatesPage, pagination.pageSize],
   );
 
   const displayedInterviewIds = useMemo(() => {
@@ -324,13 +335,22 @@ export default function InterviewsPage() {
   const selectedInterview = useMemo(() => {
     const id = drawer.selectedInterviewId;
     if (!id) return null;
+    if (drawer.selectedInterviewSnapshot?.id === id) {
+      return drawer.selectedInterviewSnapshot;
+    }
     return (
       jobScopedInterviews.find((interview) => interview.id === id) ||
       overviewInterviews.find((interview) => interview.id === id) ||
       interviews.find((interview) => interview.id === id) ||
       null
     );
-  }, [drawer.selectedInterviewId, interviews, jobScopedInterviews, overviewInterviews]);
+  }, [
+    drawer.selectedInterviewId,
+    drawer.selectedInterviewSnapshot,
+    interviews,
+    jobScopedInterviews,
+    overviewInterviews,
+  ]);
 
   useEffect(() => {
     if (!toast) return;
@@ -374,8 +394,12 @@ export default function InterviewsPage() {
   }, [jobRoundNumbers, selectedJobId, selectedRound]);
 
   useEffect(() => {
+    setJobCandidatesPage(1);
+  }, [selectedJobId, selectedRound]);
+
+  useEffect(() => {
     setOverviewPage(1);
-  }, [searchQuery, filters.status, filters.round, filters.mode, filters.interviewer, filters.clientJob, selectedJobId, selectedRound]);
+  }, [searchQuery, filters.status, filters.round, filters.mode, filters.interviewer, filters.clientJob]);
 
   // Reusable auto-refresh: poll while visible, refresh on tab focus and on
   // interview/job change events. `retryLoad` is the same function the page
@@ -587,18 +611,18 @@ export default function InterviewsPage() {
     );
     setSelectedJobId(jobId);
     setSelectedRound(rounds[0] ?? 1);
-    setOverviewPage(1);
+    setJobCandidatesPage(1);
     setJobDetailLoading(true);
   };
 
   const closeSelectedJob = () => {
     setSelectedJobId(null);
     setSelectedRound(1);
-    setOverviewPage(1);
+    setJobCandidatesPage(1);
   };
 
   const openInterview = (interview: Interview) => {
-    drawer.openDrawer(interview.id);
+    drawer.openDrawer(interview);
   };
 
   const openEditFlow = (interview: Interview) => {
@@ -616,12 +640,17 @@ export default function InterviewsPage() {
     window.setTimeout(() => setRejectModalOpen(true), 260);
   };
 
-  const openScheduleNextRoundFlow = (interview: Interview) => {
-    if (!isInterviewCompleted(interview)) return;
+  const openScheduleNextRoundFlow = (interview: Interview, opts?: { requireCompleted?: boolean }) => {
+    if (opts?.requireCompleted !== false && !isInterviewCompleted(interview)) return;
     setEditInterview(null);
     setScheduleNextRoundFrom(interview);
     drawer.closeDrawer();
     window.setTimeout(() => modals.open('schedule'), 260);
+  };
+
+  /** From job candidates table: move R1 candidate into next round when the job already has that round. */
+  const openMoveToNextRoundFromTable = (interview: Interview) => {
+    openScheduleNextRoundFlow(interview, { requireCompleted: false });
   };
 
   const handleAction = (action: InterviewAction, interview: Interview) => {
@@ -776,56 +805,25 @@ export default function InterviewsPage() {
     'Job';
   const selectedJobClient =
     selectedJobSummary?.clientName || jobSourceInterviews[0]?.job.client || '';
-  const listTotalCount = selectedJobId ? pagedJobCandidates.totalGroups : jobSummaries.length;
-  const listTotalPages = selectedJobId ? pagedJobCandidates.totalPages : jobsTotalPages;
-  const listItemLabel = selectedJobId ? 'candidates' : 'jobs';
+  const listTotalCount = jobSummaries.length;
+  const listTotalPages = jobsTotalPages;
+  const listItemLabel = 'jobs';
   const showListPagination =
     !loading &&
     !error &&
-    !(selectedJobId && jobDetailLoading) &&
     listTotalCount > 0;
 
-  const jobContextHeader = selectedJobId ? (
-    <div className="flex flex-col gap-3 border-b border-indigo-100/60 bg-gradient-to-r from-slate-50/90 via-indigo-50/45 to-violet-50/30 px-4 py-3 sm:px-5">
-      <div className="flex flex-wrap items-start gap-3">
-        <button
-          type="button"
-          onClick={closeSelectedJob}
-          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200/80 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-800 shadow-sm transition-colors hover:bg-indigo-50"
-        >
-          <ChevronLeft size={14} />
-          Jobs
-        </button>
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-500">Job interviews</p>
-          <h2 className="truncate text-sm font-bold text-slate-900">{selectedJobTitle}</h2>
-          {selectedJobClient ? (
-            <p className="truncate text-xs text-slate-500">{selectedJobClient}</p>
-          ) : null}
-          <p className="mt-1 text-[11px] text-slate-500">
-            Candidates are grouped by interview round (Round 1, Round 2, …) based on schedule order.
-          </p>
-        </div>
-      </div>
-      <InterviewRoundTabs
-        rounds={jobRoundNumbers}
-        active={selectedRound}
-        onChange={setSelectedRound}
-        countsByRound={jobRoundCandidateCounts}
-        allCount={jobAllCandidatesCount}
-      />
-    </div>
-  ) : (
+  const jobContextHeader = (
     <div className="border-b border-indigo-100/60 px-4 py-2.5 sm:px-5">
       <p className="text-xs font-semibold text-slate-700">Jobs currently under interview</p>
-      <p className="text-[11px] text-slate-500">Open a job to see candidates by interview round.</p>
+      <p className="text-[11px] text-slate-500">
+        Click a job to open candidates currently interviewing for that role.
+      </p>
     </div>
   );
 
   const renderListTableBody = () => {
-    const showJobDetail = Boolean(selectedJobId);
-    const tableLoading = loading || (showJobDetail && jobDetailLoading);
-    if (tableLoading) {
+    if (loading) {
       return <TableSkeleton rows={8} columns={6} />;
     }
     if (error) {
@@ -842,76 +840,7 @@ export default function InterviewsPage() {
         </div>
       );
     }
-    if (!showJobDetail) {
-      return <InterviewJobsTable jobs={pagedJobs} onSelectJob={openSelectedJob} />;
-    }
-    if (!jobRoundInterviews.length) {
-      return (
-        <div className="px-4 py-14 text-center">
-          <p className="text-sm font-semibold text-slate-800">No candidates in this round</p>
-          <p className="mt-1 text-xs text-slate-500">
-            Schedule an interview for this job, or switch to another round tab.
-          </p>
-          {canCreateInterview ? (
-            <button
-              type="button"
-              onClick={() => {
-                setEditInterview(null);
-                setScheduleNextRoundFrom(null);
-                modals.open('schedule');
-              }}
-              className="mt-5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700"
-            >
-              Schedule interview
-            </button>
-          ) : null}
-        </div>
-      );
-    }
-    return (
-      <InterviewTable
-        hidePagination
-        hideJobColumn
-        interviews={pagedJobCandidates.items}
-        workspaceAlertsByEntityId={workspaceAlertsByEntityId}
-        roundNumberByInterviewId={effectiveRoundById}
-        selectedIds={selectedIds}
-        page={overviewPage}
-        totalPages={pagedJobCandidates.totalPages}
-        totalEntries={pagedJobCandidates.totalGroups}
-        pageSize={pagination.pageSize}
-        isColumnVisible={interviewColumnVisibility.isVisible}
-        onToggleSelect={(interviewId) =>
-          setSelectedIds((current) =>
-            current.includes(interviewId) ? current.filter((id) => id !== interviewId) : [...current, interviewId]
-          )
-        }
-        onToggleSelectAll={() =>
-          setSelectedIds((current) =>
-            current.length === pagedJobCandidates.items.length
-              ? []
-              : pagedJobCandidates.items.map((interview) => interview.id)
-          )
-        }
-        onRowClick={openInterview}
-        onViewCandidate={(interview) => openInterview(interview)}
-        onEditInterview={(interview) => openEditFlow(interview)}
-        onNoShowInterview={(interview) => {
-          openInterview(interview);
-          modals.open('noShow');
-        }}
-        onMarkInterviewCompleted={
-          canUpdateInterview
-            ? (interview) => {
-                openInterview(interview);
-                modals.open('feedback');
-              }
-            : undefined
-        }
-        onRejectCandidate={(interview) => openRejectFlow(interview)}
-        onPageChange={(page) => setOverviewPage(page)}
-      />
-    );
+    return <InterviewJobsTable jobs={pagedJobs} onSelectJob={openSelectedJob} />;
   };
 
   return (
@@ -1025,11 +954,7 @@ export default function InterviewsPage() {
                           />
                           <input
                             type="text"
-                            placeholder={
-                              selectedJobId
-                                ? 'Search candidate…'
-                                : 'Search job, client, or candidate…'
-                            }
+                            placeholder="Search job, client, or candidate…"
                             value={searchQuery}
                             onChange={(e) => {
                               setPagination((p) => ({ ...p, page: 1 }));
@@ -1067,19 +992,17 @@ export default function InterviewsPage() {
                               </option>
                             ))}
                           </select>
-                          {!selectedJobId ? (
-                            <select
-                              className={PH2_TOOLBAR_SELECT_CLASS}
-                              value={filters.round}
-                              onChange={(e) => patchFilter('round', e.target.value)}
-                            >
-                              {INTERVIEW_ROUND_OPTIONS.map((opt) => (
-                                <option key={opt} value={opt}>
-                                  {opt}
-                                </option>
-                              ))}
-                            </select>
-                          ) : null}
+                          <select
+                            className={PH2_TOOLBAR_SELECT_CLASS}
+                            value={filters.round}
+                            onChange={(e) => patchFilter('round', e.target.value)}
+                          >
+                            {INTERVIEW_ROUND_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
                           <select
                             className={PH2_TOOLBAR_SELECT_CLASS}
                             value={filters.mode}
@@ -1203,7 +1126,7 @@ export default function InterviewsPage() {
                     </div>
                     <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} p-3 sm:p-4`}>
                 <InterviewCalendarView
-                  interviews={selectedJobId ? jobRoundInterviews : filteredOverviewInterviews}
+                  interviews={filteredOverviewInterviews}
                   onSelectInterview={openInterview}
                 />
                     </div>
@@ -1215,6 +1138,77 @@ export default function InterviewsPage() {
           </div>
         </div>
       </main>
+
+      <InterviewJobCandidatesModal
+        isOpen={Boolean(selectedJobId)}
+        loading={jobDetailLoading}
+        jobTitle={selectedJobTitle}
+        jobClient={selectedJobClient}
+        rounds={jobRoundNumbers}
+        selectedRound={selectedRound}
+        onRoundChange={setSelectedRound}
+        countsByRound={jobRoundCandidateCounts}
+        allCount={jobAllCandidatesCount}
+        interviews={pagedJobCandidates.items}
+        workspaceAlertsByEntityId={workspaceAlertsByEntityId}
+        roundNumberByInterviewId={effectiveRoundById}
+        selectedIds={selectedIds}
+        page={jobCandidatesPage}
+        totalPages={pagedJobCandidates.totalPages}
+        totalEntries={pagedJobCandidates.totalGroups}
+        pageSize={pagination.pageSize}
+        isColumnVisible={interviewColumnVisibility.isVisible}
+        onClose={closeSelectedJob}
+        onToggleSelect={(interviewId) =>
+          setSelectedIds((current) =>
+            current.includes(interviewId) ? current.filter((id) => id !== interviewId) : [...current, interviewId]
+          )
+        }
+        onToggleSelectAll={() =>
+          setSelectedIds((current) =>
+            current.length === pagedJobCandidates.items.length
+              ? []
+              : pagedJobCandidates.items.map((interview) => interview.id)
+          )
+        }
+        onRowClick={openInterview}
+        onViewCandidate={openInterview}
+        onEditInterview={openEditFlow}
+        onNoShowInterview={(interview) => {
+          openInterview(interview);
+          modals.open('noShow');
+        }}
+        onMarkInterviewCompleted={
+          canUpdateInterview
+            ? (interview) => {
+                openInterview(interview);
+                modals.open('feedback');
+              }
+            : undefined
+        }
+        onRejectCandidate={openRejectFlow}
+        jobMaxRound={jobRoundNumbers.length > 0 ? Math.max(...jobRoundNumbers) : 1}
+        candidateMaxRoundByCandidateId={jobCandidateMaxRoundById}
+        onScheduleNextRound={
+          canCreateInterview ? openMoveToNextRoundFromTable : undefined
+        }
+        onPageChange={(page) => setJobCandidatesPage(page)}
+        emptyAction={
+          canCreateInterview ? (
+            <button
+              type="button"
+              onClick={() => {
+                setEditInterview(null);
+                setScheduleNextRoundFrom(null);
+                modals.open('schedule');
+              }}
+              className="mt-5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700"
+            >
+              Schedule interview
+            </button>
+          ) : null
+        }
+      />
 
       <InterviewDrawer
         isOpen={drawer.isOpen}

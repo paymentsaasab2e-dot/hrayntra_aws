@@ -339,11 +339,13 @@ function PlacementsPageContent() {
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 text-white shadow-lg shadow-emerald-500/25 ring-1 ring-white/20">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
                 <Trophy className="h-5 w-5" strokeWidth={2.2} />
               </div>
               <div>
-                <h1 className="text-xl font-bold leading-none tracking-tight text-slate-900 sm:text-[1.35rem]">Placements</h1>
+                <h1 className="text-xl font-bold leading-none tracking-tight text-slate-900 sm:text-[1.35rem]">
+                  Placements
+                </h1>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -407,7 +409,7 @@ function PlacementsPageContent() {
               <div className="mb-5 shrink-0">
                 {loading ? (
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
-                    {(['blue', 'cyan', 'orange', 'purple', 'green'] as SummaryCardColor[]).map((c, i) => (
+                    {(['blue', 'indigo', 'orange', 'green', 'purple'] as SummaryCardColor[]).map((c, i) => (
                       <SummaryCardSkeleton key={i} color={c} />
                     ))}
                   </div>
@@ -417,15 +419,48 @@ function PlacementsPageContent() {
               </div>
 
               <div className={PH2_TABLE_CARD_CLASS}>
-                <div className={`${PH2_TOOLBAR_ROW_CLASS} flex flex-wrap items-center justify-between gap-2`}>
-                  <p className="max-w-xl text-xs text-slate-600">
-                    Filter by client, status, employment type, and offer date range. Use smart search or{' '}
-                    <span className="font-semibold text-slate-800">Clear</span> when filters are active.
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-indigo-100/50 px-4 py-2 sm:px-5">
+                  <p className="text-xs text-slate-500">
+                    {loading
+                      ? 'Loading placements…'
+                      : `Showing ${pagination.total.toLocaleString()} placement${pagination.total === 1 ? '' : 's'}`}
                   </p>
-                  <SmartSearchToggleButton
-                    open={placementSmartSearch.open}
-                    onToggle={() => placementSmartSearch.setOpen((value) => !value)}
-                  />
+                </div>
+
+                <div className={PH2_TOOLBAR_ROW_CLASS}>
+                  <div className="flex w-full flex-col gap-2 xl:flex-row xl:items-start xl:gap-3">
+                    <div className="min-w-0 flex-1">
+                      <FiltersBar
+                        embedded
+                        totalCount={pagination.total}
+                        filters={filters}
+                        searchValue={searchValue}
+                        clientOptions={clientOptions}
+                        recruiterOptions={recruiterOptions}
+                        onSearchChange={setSearchValue}
+                        onFilterChange={updateFilters}
+                        onReset={() => {
+                          setSearchValue('');
+                          setSmartSearchPlacementIds([]);
+                          placementSmartSearch.clearSmartSearch();
+                          router.replace(pathname);
+                        }}
+                      />
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2 xl:pt-0.5">
+                      <SmartSearchToggleButton
+                        open={placementSmartSearch.open}
+                        onToggle={() => placementSmartSearch.setOpen((value) => !value)}
+                      />
+                      <TableColumnsMenu
+                        columns={PLACEMENT_TABLE_COLUMNS}
+                        isVisible={placementColumnVisibility.isVisible}
+                        onToggle={placementColumnVisibility.toggle}
+                        onReset={placementColumnVisibility.resetToDefault}
+                        unlockedVisibleCount={placementColumnVisibility.unlockedVisibleCount}
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {placementSmartSearch.open ? (
@@ -453,29 +488,6 @@ function PlacementsPageContent() {
                   resultCount={pagination.total}
                   showResultCount={!loading && !error}
                 />
-
-                <div className="shrink-0 border-b border-indigo-100/40 px-3 py-3 sm:px-4">
-                  <div className="mb-3 flex justify-end">
-                    <TableColumnsMenu
-                      columns={PLACEMENT_TABLE_COLUMNS}
-                      isVisible={placementColumnVisibility.isVisible}
-                      onToggle={placementColumnVisibility.toggle}
-                      onReset={placementColumnVisibility.resetToDefault}
-                      unlockedVisibleCount={placementColumnVisibility.unlockedVisibleCount}
-                    />
-                  </div>
-                  <FiltersBar
-                    embedded
-                    totalCount={pagination.total}
-                    filters={filters}
-                    searchValue={searchValue}
-                    clientOptions={clientOptions}
-                    recruiterOptions={recruiterOptions}
-                    onSearchChange={setSearchValue}
-                    onFilterChange={updateFilters}
-                    onReset={() => router.replace(pathname)}
-                  />
-                </div>
 
                 {error ? (
                   <div className="px-4 py-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>

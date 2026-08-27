@@ -11,7 +11,6 @@ import {
   Send,
   Tag,
   Trash2,
-  User,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -22,7 +21,6 @@ interface BulkActionsProps {
   onMoveStage?: (ids: string[]) => void;
   onAssignJob?: (ids: string[]) => void;
   onDelete?: (ids: string[]) => void;
-  onAssignRecruiter?: (ids: string[]) => void;
   onSendEmail?: (ids: string[]) => void;
   onAddTag?: (ids: string[]) => void;
   onExport?: (ids: string[]) => void;
@@ -45,7 +43,6 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
   onMoveStage,
   onAssignJob,
   onDelete,
-  onAssignRecruiter,
   onSendEmail,
   onAddTag,
   onExport,
@@ -82,7 +79,6 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
     onSubmitToClient
       ? { key: 'submit-to-client', label: 'Submit to Client', icon: Send, onClick: onSubmitToClient }
       : null,
-    onAssignRecruiter ? { key: 'assign', label: 'Assign team member', icon: User, onClick: onAssignRecruiter } : null,
     onSendEmail ? { key: 'email', label: 'Send Email', icon: Mail, onClick: onSendEmail } : null,
     onAddTag ? { key: 'tag', label: 'Add Tag', icon: Tag, onClick: onAddTag } : null,
     onExport ? { key: 'export', label: 'Export', icon: Download, onClick: onExport } : null,

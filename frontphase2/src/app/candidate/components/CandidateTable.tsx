@@ -361,7 +361,6 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
               {show('location') ? <th className="px-3 py-3 sm:px-4">Location</th> : null}
               {show('assignedJob') ? <th className="px-3 py-3 sm:px-4">Assigned job</th> : null}
               {show('stage') ? <th className="px-3 py-3 sm:px-4">Stage</th> : null}
-              {show('owner') ? <th className="px-3 py-3 sm:px-4">Team Member</th> : null}
               {show('email') ? <th className="px-3 py-3 sm:px-4">Email</th> : null}
               {show('phone') ? <th className="px-3 py-3 sm:px-4">Phone</th> : null}
               {show('source') ? <th className="px-3 py-3 sm:px-4">Source</th> : null}
@@ -537,22 +536,6 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                         {getCandidateStageLabel(candidate.stage)}
                       </span>
                     )}
-                  </td>
-                ) : null}
-                {show('owner') ? (
-                  <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-[10px] font-bold text-white shadow-sm shadow-indigo-500/25">
-                        {(candidate.owner || 'U')
-                          .split(' ')
-                          .filter(Boolean)
-                          .map((n) => n[0])
-                          .join('')}
-                      </div>
-                      <span className="max-w-[80px] truncate text-sm font-medium text-slate-700">
-                        {candidate.owner}
-                      </span>
-                    </div>
                   </td>
                 ) : null}
                 {show('email') ? (
