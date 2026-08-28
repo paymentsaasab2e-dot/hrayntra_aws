@@ -24,6 +24,10 @@ import {
   excludeHqPlatformUsers,
   hqPlatformUserEmailNotClause,
 } from '../utils/hqPlatformUser.js';
+import {
+  applyOrgCompanyUserWhere,
+  resolveWriteOrgUnitId,
+} from '../services/orgListScope.service.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -58,6 +62,8 @@ function getTeamListCacheKey(req) {
     userId: req.user?.id || '',
     assignableOnly: Boolean(req.teamListMode === 'assignable'),
     hqExcluded: 1,
+    // Team follows the company selector, so cached pages must be per company.
+    orgUnitId: String(req.query.orgUnitId || req.headers?.['x-org-unit-id'] || ''),
     page,
     limit,
   };
@@ -176,6 +182,14 @@ export async function getAllTeamMembers(req, res) {
       }
     }
 
+    // Users carry the same orgUnitId as CRM rows, so the Team list splits per
+    // company/branch whenever the viewer is operating inside one.
+    const orgUserWhere = await applyOrgCompanyUserWhere(req);
+    if (orgUserWhere) {
+      const existingAnd = Array.isArray(where.AND) ? where.AND : [];
+      where.AND = [...existingAnd, orgUserWhere];
+    }
+
     const [members, total] = await Promise.all([
       prisma.user.findMany({
         where,
@@ -191,6 +205,8 @@ export async function getAllTeamMembers(req, res) {
           status: true,
           departmentId: true,
           roleId: true,
+          orgUnitId: true,
+          hierarchyPurpose: true,
           createdAt: true,
           updatedAt: true,
           systemRole: {
@@ -236,6 +252,24 @@ export async function getAllTeamMembers(req, res) {
       prisma.user.count({ where }),
     ]);
 
+    const memberUnitIds = [
+      ...new Set(members.map((m) => m.orgUnitId).filter(Boolean).map(String)),
+    ];
+    const unitById = new Map();
+    if (memberUnitIds.length) {
+      const units = await prisma.orgUnit.findMany({
+        where: { id: { in: memberUnitIds } },
+        select: { id: true, name: true, isLeaf: true },
+      });
+      for (const unit of units) {
+        unitById.set(String(unit.id), {
+          id: String(unit.id),
+          name: unit.name,
+          kind: unit.isLeaf ? 'branch' : 'company',
+        });
+      }
+    }
+
     // Normalize the response to match frontend expectations
     const normalizedMembers = excludeHqPlatformUsers(
       members.map((member) => ({
@@ -243,6 +277,7 @@ export async function getAllTeamMembers(req, res) {
         role: member.systemRole || null,
         department: member.departmentRelation || null,
         manager: member.managerRelation || null,
+        orgUnit: member.orgUnitId ? unitById.get(String(member.orgUnitId)) || null : null,
         loginId: member.credential?.loginId,
       })),
     );
@@ -477,9 +512,16 @@ export async function createTeamMember(req, res) {
       resolvedManagerId = await resolveDefaultManagerId(departmentId, roleId, managerId || null);
     }
 
+    // New members join the company/branch the creator is operating in, so Team
+    // stays segregated the same way leads, clients and jobs are.
+    const orgUnitId =
+      (req.body?.orgUnitId ? String(req.body.orgUnitId) : null) ||
+      (await resolveWriteOrgUnitId(req));
+
     // Create user
     const user = await prisma.user.create({
       data: {
+        ...(orgUnitId ? { orgUnitId } : {}),
         name: `${firstName} ${lastName}`.trim(),
         firstName,
         lastName,

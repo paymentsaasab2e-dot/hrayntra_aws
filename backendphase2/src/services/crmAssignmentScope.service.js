@@ -9,6 +9,7 @@ import {
   assertCanAssignTask,
   isSuperAdminUserId,
 } from './taskAssignmentScope.service.js';
+import { applyOrgCompanyUserWhere } from './orgListScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -136,6 +137,12 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null } = {}
     if (saScope) clauses.push(saScope);
   } else if (!viewAll && actorDeptId) {
     clauses.push({ departmentId: actorDeptId });
+  }
+
+  // When operating inside a company/branch, only that company's people can be assigned.
+  if (req) {
+    const orgWhere = await applyOrgCompanyUserWhere(req);
+    if (orgWhere) clauses.push(orgWhere);
   }
 
   const where = clauses.length === 1 ? clauses[0] : { AND: clauses };

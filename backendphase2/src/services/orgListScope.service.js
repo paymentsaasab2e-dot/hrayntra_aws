@@ -130,3 +130,40 @@ export async function mergeOrgCompanyListScope(where, req, options) {
   const orgWhere = await applyOrgCompanyAssigneeWhere(req, options);
   return mergeWhereWithScope(where, orgWhere);
 }
+
+/**
+ * Restrict a user (team member) list to the active company/site tree.
+ * Users carry the same orgUnitId that CRM rows do, so Team follows the company
+ * selector exactly like Leads/Clients/Jobs.
+ * Single-company tenants also see users who were never stamped, otherwise an
+ * empty company stays empty until people are assigned to it.
+ */
+export async function applyOrgCompanyUserWhere(req) {
+  const scope = await getRequestOrgScope(req);
+  if (!isOrgCompanyScoped(scope)) return null;
+
+  const unitIds = scope.unitIds?.length ? scope.unitIds.map(String) : [NONE];
+  const companyCount = Array.isArray(scope.companies) ? scope.companies.length : 0;
+  const or = [{ orgUnitId: { in: unitIds } }];
+
+  if (companyCount <= 1) {
+    let hqRootId = null;
+    try {
+      const root = await prisma.orgUnit.findFirst({
+        where: { parentId: null },
+        select: { id: true },
+      });
+      hqRootId = root ? String(root.id) : null;
+    } catch {
+      hqRootId = null;
+    }
+    or.push(untaggedOrgUnitClause('orgUnitId', hqRootId));
+  }
+
+  return { OR: or };
+}
+
+export async function mergeOrgCompanyUserScope(where, req) {
+  const orgWhere = await applyOrgCompanyUserWhere(req);
+  return mergeWhereWithScope(where, orgWhere);
+}

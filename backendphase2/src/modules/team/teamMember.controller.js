@@ -27,7 +27,7 @@ export const teamMemberController = {
 
   async create(req, res) {
     try {
-      const member = await teamMemberService.create(req.body, req.user.id);
+      const member = await teamMemberService.create(req.body, req.user.id, req);
       sendResponse(
         res,
         201,
