@@ -458,7 +458,7 @@ function applyVisibilityToPortalSyncPayload(jobPortalData, resolvedVisibility, r
   return out;
 }
 
-async function invalidatePortalJobsListCache() {
+export async function invalidatePortalJobsListCache() {
   const base = String(env.JOB_PORTAL_API_URL || '').trim().replace(/\/$/, '');
   if (!base) return;
   try {
@@ -621,12 +621,22 @@ async function syncJobToJobPortalDb(job, payload = {}) {
       ? job.publicFieldVisibility
       : null,
   );
-  const resolvedShowClient =
-    payload.showClientNamePublicly !== undefined
+  // HQ can force the client name hidden from the HQ Portal screen. That lock wins over
+  // whatever the tenant sends from the Create/Edit Job drawer.
+  const hqHideClientName =
+    payload.hqHideClientName !== undefined
+      ? payload.hqHideClientName === true
+      : job.hqHideClientName === true;
+  const resolvedShowClient = hqHideClientName
+    ? false
+    : payload.showClientNamePublicly !== undefined
       ? payload.showClientNamePublicly !== false
       : job.showClientNamePublicly === false || resolvedVisibility?.client === false
         ? false
         : true;
+  if (hqHideClientName && resolvedVisibility && typeof resolvedVisibility === 'object') {
+    resolvedVisibility.client = false;
+  }
 
   const jobPortalData = applyVisibilityToPortalSyncPayload(
     {
@@ -669,6 +679,7 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     slaRisk: Boolean(job.slaRisk),
     visibility: job.visibility || null,
     showClientNamePublicly: resolvedShowClient,
+    hqHideClientName,
     publicFieldVisibility: resolvedVisibility,
     distributionPlatforms: job.distributionPlatforms || null,
     supportingRecruiters: Array.isArray(job.supportingRecruiters) ? job.supportingRecruiters : [],
@@ -1688,6 +1699,7 @@ export const jobService = {
         priority: true,
         visibility: true,
         showClientNamePublicly: true,
+        hqHideClientName: true,
         publicFieldVisibility: true,
         distributionPlatforms: true,
         supportingRecruiters: true,
@@ -1795,6 +1807,14 @@ export const jobService = {
       languages: data.languages,
       managerId: data.managerId,
     });
+
+    // HQ lock wins: a tenant edit can never re-expose a client name HQ has hidden.
+    if (currentJob.hqHideClientName === true) {
+      delete updateData.showClientNamePublicly;
+      if (updateData.publicFieldVisibility && typeof updateData.publicFieldVisibility === 'object') {
+        updateData.publicFieldVisibility.client = false;
+      }
+    }
 
     // Log data being updated
     dbLogger.logUpdate('JOB', id, updateData);

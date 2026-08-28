@@ -46,6 +46,7 @@ export const TRIGGER_FROM_MAILBOX = {
   'placement.confirmed_email': 'careers',
   'match.submission_email': 'employers',
   'billing.invoice_email': 'billing',
+  'billing.invoice_reminder': 'billing',
   'alert.interview_rescheduled': 'operations',
   'alert.placement_created': 'operations',
   'alert.placement_offer_response': 'operations',

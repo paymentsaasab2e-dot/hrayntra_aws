@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Download, FileText, Plus, Send, Trash2, X } from 'lucide-react';
+import { Bell, Download, FileText, Plus, Send, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
   CreatePlacementPayload,
@@ -15,6 +15,7 @@ import type {
   RecruitmentInvoiceData,
 } from '../../../types/recruitmentInvoice';
 import { RecruitmentInvoicePreview } from '../../billing/RecruitmentInvoicePreview';
+import SendInvoiceReminderModal from '../../billing/SendInvoiceReminderModal';
 import {
   apiGetBillingRecord,
   apiGetBillingSettings,
@@ -23,8 +24,10 @@ import {
   apiGetJobs,
   apiGetNextInvoiceNumber,
   apiGetUsers,
+  apiListInvoiceReminders,
   apiSendBillingInvoice,
   type BackendClient,
+  type InvoicePaymentReminder,
 } from '../../../lib/api';
 import { PlacementInvoiceEditableSidePanel } from '../PlacementInvoiceEditableSidePanel';
 import { useOrgCommissionSlabs } from '../../../lib/useOrgCommissionSlabs';
@@ -334,6 +337,8 @@ export function CreatePlacementInvoiceModal({
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [reminderModalOpen, setReminderModalOpen] = useState(false);
+  const [invoiceReminders, setInvoiceReminders] = useState<InvoicePaymentReminder[]>([]);
   const [previewCurrency, setPreviewCurrency] = useState<string>('USD');
   const [billingClientId, setBillingClientId] = useState<string | undefined>();
   const [billingClientSnapshot, setBillingClientSnapshot] = useState<Parameters<
@@ -1238,6 +1243,21 @@ export function CreatePlacementInvoiceModal({
       setSendingEmail(false);
     }
   };
+
+  const loadInvoiceReminders = useCallback(async () => {
+    if (!initialBillingRecordId) return;
+    try {
+      const res = await apiListInvoiceReminders(initialBillingRecordId);
+      setInvoiceReminders(res.data?.reminders || []);
+    } catch {
+      setInvoiceReminders([]);
+    }
+  }, [initialBillingRecordId]);
+
+  useEffect(() => {
+    if (!reminderModalOpen) return;
+    void loadInvoiceReminders();
+  }, [reminderModalOpen, loadInvoiceReminders]);
 
   const inputClass =
     'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
@@ -2180,6 +2200,16 @@ export function CreatePlacementInvoiceModal({
               </button>
               {invoice && canSubmit ? (
                 <>
+                  {initialBillingRecordId ? (
+                    <button
+                      type="button"
+                      onClick={() => setReminderModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-800 hover:bg-amber-50"
+                    >
+                      <Bell size={16} />
+                      Send reminder
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     disabled={isSubmitting || loadingMeta || sendingEmail}
@@ -2201,6 +2231,23 @@ export function CreatePlacementInvoiceModal({
               ) : null}
             </div>
           </motion.div>
+
+          <SendInvoiceReminderModal
+            open={reminderModalOpen}
+            invoiceId={initialBillingRecordId || null}
+            invoiceNumber={invoice?.invoiceNo}
+            outstandingLabel={
+              invoice
+                ? formatCurrencyAmount(Number(invoice.total || 0), invoice.currency)
+                : undefined
+            }
+            dueDateLabel={invoice?.dueDate || null}
+            clientName={invoice?.buyer?.companyName || invoice?.buyer?.name || null}
+            defaultEmail={invoice?.buyer?.email || ''}
+            reminders={invoiceReminders}
+            onClose={() => setReminderModalOpen(false)}
+            onSaved={() => void loadInvoiceReminders()}
+          />
         </>
       ) : null}
     </AnimatePresence>

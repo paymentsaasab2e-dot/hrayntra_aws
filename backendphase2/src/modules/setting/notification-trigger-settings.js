@@ -19,6 +19,7 @@ const DEFAULT_ACTIVE_TRIGGER_STATE = {
   'placement.joining_scheduled_candidate': true,
   'placement.joining_scheduled_reporting': true,
   'billing.invoice_email': true,
+  'billing.invoice_reminder': true,
 };
 
 function normalizeLabel(value) {

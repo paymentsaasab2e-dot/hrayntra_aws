@@ -750,6 +750,30 @@ export const hqController = {
     }
   },
 
+  async setPortalJobClientVisibility(req, res) {
+    try {
+      const jobId = String(req.params?.id || '').trim();
+      if (!jobId) {
+        return sendError(res, 400, 'Job ID is required');
+      }
+      const result = await hqService.setPortalJobClientVisibility(
+        jobId,
+        req.body || {},
+        req.user,
+      );
+      sendResponse(
+        res,
+        200,
+        result.showClientNamePublicly
+          ? 'Client name is now visible on Phase 1'
+          : 'Client name hidden on Phase 1',
+        result,
+      );
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async deleteTenant(req, res) {
     try {
       // Accept email via body, URL params, or query — the HQ UI uses the

@@ -170,7 +170,7 @@ export function ProfileSettings({ onDirtyChange }: ProfileSettingsProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <DrawerFieldLabel label="Full Name" icon={UserIcon} iconClassName="text-indigo-500" required />
               <DrawerIconInput

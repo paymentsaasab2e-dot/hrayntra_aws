@@ -195,6 +195,38 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
 <p>{{invoiceNote}}</p>`,
     ),
   },
+  'billing.invoice_reminder': {
+    subject: 'Payment Reminder: Invoice {{invoiceNumber}} ({{outstandingAmount}} due)',
+    variables: [
+      'recipientName',
+      'invoiceNumber',
+      'outstandingAmount',
+      'dueDate',
+      'dueStatus',
+      'companyName',
+      'sellerName',
+      'reminderNote',
+    ],
+    bodyHtml: emailShell(
+      'Payment reminder',
+      `<h1 style="color: #b45309; font-size: 22px; margin: 0 0 16px;">Payment Reminder</h1>
+<p>Hello {{recipientName}},</p>
+<p>This is a friendly reminder that invoice <strong>{{invoiceNumber}}</strong> issued to {{companyName}} is currently <strong>{{dueStatus}}</strong>.</p>
+<table role="presentation" style="border-collapse: collapse; margin: 16px 0;">
+  <tr>
+    <td style="padding: 6px 16px 6px 0; color: #6b7280;">Outstanding amount</td>
+    <td style="padding: 6px 0; font-weight: 700; color: #111827;">{{outstandingAmount}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 6px 16px 6px 0; color: #6b7280;">Payment due date</td>
+    <td style="padding: 6px 0; font-weight: 700; color: #111827;">{{dueDate}}</td>
+  </tr>
+</table>
+<p>{{reminderNote}}</p>
+<p>If the payment has already been made, please share the payment reference so we can reconcile it.</p>
+<p>Regards,<br>{{sellerName}}</p>`,
+    ),
+  },
   'offer.released_email': {
     subject: 'Offer Released: {{jobTitle}}',
     variables: ['candidateName', 'jobTitle', 'companyName', 'offerDetails'],

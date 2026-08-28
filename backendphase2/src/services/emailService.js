@@ -854,6 +854,63 @@ export async function sendPlacementInvoiceEmail(payload) {
   }
 }
 
+/**
+ * Payment reminder for an unpaid invoice. Always states the outstanding amount
+ * and the payment due information so the client can act without opening the PDF.
+ */
+export async function sendInvoicePaymentReminderEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('billing.invoice_reminder', {
+      userId: payload?.senderUserId || null,
+      aliases: ['invoice reminder', 'payment reminder'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const toEmail = String(payload?.toEmail || '').trim();
+    if (!toEmail) {
+      return { success: false, error: 'Client email is required' };
+    }
+
+    const invoiceNumber = String(payload?.invoiceNumber || 'Invoice').trim();
+    const sellerName = String(payload?.sellerName || 'Your agency').trim();
+    const companyName = String(payload?.companyName || sellerName).trim();
+    const outstandingAmount = String(payload?.outstandingAmount || 'N/A');
+    const dueDate = String(payload?.dueDate || 'N/A');
+    const dueStatus = String(payload?.dueStatus || 'pending');
+    const reminderNote =
+      String(payload?.reminderNote || '').trim() ||
+      'Please arrange the payment at your earliest convenience.';
+
+    const rendered = await renderNotificationTriggerEmail(
+      'billing.invoice_reminder',
+      payload?.senderUserId || null,
+      {
+        recipientName: payload?.recipientName || 'there',
+        invoiceNumber,
+        outstandingAmount,
+        dueDate,
+        dueStatus,
+        companyName,
+        sellerName,
+        reminderNote,
+      },
+    );
+
+    await sendEmail({
+      senderUserId: payload?.senderUserId,
+      toEmail,
+      subject: rendered.subject,
+      html: rendered.html,
+      triggerId: 'billing.invoice_reminder',
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending invoice payment reminder email:', error);
+    return { success: false, error: error.message || 'Failed to send payment reminder email' };
+  }
+}
+
 export async function sendJoiningScheduledCandidateEmail(payload) {
   try {
     const triggerEnabled = await isNotificationTriggerEnabled('placement.joining_scheduled_candidate', {

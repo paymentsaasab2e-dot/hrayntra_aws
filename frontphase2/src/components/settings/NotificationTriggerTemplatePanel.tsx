@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Eye, FileText, Pencil, RotateCcw, Save } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Code2, Eye, FileText, RotateCcw, Save, X } from 'lucide-react';
 import type { NotificationTriggerEffectiveTemplate } from '@/lib/api';
 import { getSystemDefaultTemplate } from '@/lib/notificationTriggerDefaults';
 import {
@@ -11,6 +12,9 @@ import {
 
 type Props = {
   triggerId: string;
+  /** Human label of the owning trigger, shown as the modal heading. */
+  triggerLabel?: string;
+  /** Controls the modal. Kept as `expanded` so the parent contract is unchanged. */
   expanded: boolean;
   onToggle: () => void;
   effective: NotificationTriggerEffectiveTemplate | undefined;
@@ -19,8 +23,11 @@ type Props = {
   saving?: boolean;
 };
 
+type Tab = 'preview' | 'html';
+
 export function NotificationTriggerTemplatePanel({
   triggerId,
+  triggerLabel,
   expanded,
   onToggle,
   effective,
@@ -28,9 +35,14 @@ export function NotificationTriggerTemplatePanel({
   onReset,
   saving = false,
 }: Props) {
-  const [mode, setMode] = useState<'preview' | 'edit'>('preview');
+  const [tab, setTab] = useState<Tab>('preview');
   const [subject, setSubject] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const resolved =
     effective ||
@@ -53,28 +65,36 @@ export function NotificationTriggerTemplatePanel({
 
   useEffect(() => {
     if (!expanded) {
-      setMode('preview');
+      setTab('preview');
       return;
     }
     syncFromResolved();
   }, [expanded, triggerId, resolved.subject, resolved.bodyHtml, resolved.customized]);
 
+  // Escape closes the modal; body scroll is locked while it is open.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onToggle();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [expanded, onToggle]);
+
+  const dirty = subject !== (resolved.subject || '') || bodyHtml !== (resolved.bodyHtml || '');
+
   const previewSubject = useMemo(
-    () => interpolateNotificationTemplate(resolved.subject, previewVars),
-    [resolved.subject, previewVars],
+    () => interpolateNotificationTemplate(dirty ? subject : resolved.subject, previewVars),
+    [dirty, subject, resolved.subject, previewVars],
   );
   const previewHtml = useMemo(
-    () => interpolateNotificationTemplate(resolved.bodyHtml, previewVars),
-    [resolved.bodyHtml, previewVars],
-  );
-
-  const editPreviewSubject = useMemo(
-    () => interpolateNotificationTemplate(subject, previewVars),
-    [subject, previewVars],
-  );
-  const editPreviewHtml = useMemo(
-    () => interpolateNotificationTemplate(bodyHtml, previewVars),
-    [bodyHtml, previewVars],
+    () => interpolateNotificationTemplate(dirty ? bodyHtml : resolved.bodyHtml, previewVars),
+    [dirty, bodyHtml, resolved.bodyHtml, previewVars],
   );
 
   const insertVariable = (name: string) => {
@@ -82,112 +102,119 @@ export function NotificationTriggerTemplatePanel({
     setBodyHtml((prev) => `${prev}${prev.endsWith('\n') || !prev ? '' : '\n'}${token}`);
   };
 
-  const startCustomize = () => {
-    syncFromResolved();
-    setMode('edit');
-  };
-
   const handleSave = () => {
     onSave(subject.trim(), bodyHtml.trim());
-    setMode('preview');
   };
 
   const handleReset = () => {
-    setMode('preview');
     onReset();
   };
 
   const hasContent = Boolean(resolved.subject?.trim() && resolved.bodyHtml?.trim());
 
-  return (
-    <div className="mt-2 border-t border-slate-100 pt-3">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1.5 text-left text-xs font-semibold text-blue-700 hover:bg-blue-50"
+  const modal = (
+    <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" onClick={onToggle} aria-hidden />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Email template — ${triggerLabel || triggerId}`}
+        className="relative z-10 flex h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
       >
-        <span className="inline-flex items-center gap-1.5">
-          <FileText className="h-3.5 w-3.5" />
-          Email template
-          <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-              customized
-                ? 'bg-violet-100 text-violet-700'
-                : 'bg-emerald-100 text-emerald-700'
+        <header className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">
+              <FileText className="h-3.5 w-3.5" />
+              Email template
+            </p>
+            <h2 className="mt-1 flex items-center gap-2 truncate text-lg font-bold text-slate-900">
+              {triggerLabel || triggerId}
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                  customized ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'
+                }`}
+              >
+                {customized ? 'Custom' : 'System default'}
+              </span>
+            </h2>
+            <p className="mt-0.5 text-[12px] text-slate-500">
+              {customized
+                ? 'You are using a customized template. Reset to restore the HRYANTRA system default.'
+                : 'This is the HRYANTRA system default email. Edit the HTML tab to customize it.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+            aria-label="Close email template"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="flex shrink-0 items-center gap-1 border-b border-slate-100 bg-slate-50/70 px-5 py-2">
+          <button
+            type="button"
+            onClick={() => setTab('preview')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+              tab === 'preview'
+                ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
+                : 'text-slate-600 hover:bg-white/70'
             }`}
           >
-            {customized ? 'Custom' : 'System default'}
-          </span>
-        </span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
-        />
-      </button>
+            <Eye className="h-3.5 w-3.5" />
+            Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('html')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+              tab === 'html'
+                ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
+                : 'text-slate-600 hover:bg-white/70'
+            }`}
+          >
+            <Code2 className="h-3.5 w-3.5" />
+            HTML
+          </button>
+          {dirty ? (
+            <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+              Unsaved changes
+            </span>
+          ) : null}
+        </div>
 
-      {expanded ? (
-        <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-          <p className="text-xs leading-5 text-slate-600">
-            {customized
-              ? 'You are using a customized template. Reset to restore the HRYANTRA system default below.'
-              : 'This is the HRYANTRA system default email. Recipients see real data when the email is sent. Click Customize to change the template.'}
-          </p>
-
+        <div className="flex-1 overflow-y-auto px-5 py-4">
           {!hasContent ? (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Loading template… If this stays empty, refresh the page.
+            <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Loading template… If this stays empty, close and refresh the page.
             </p>
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setMode('preview')}
-              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                mode === 'preview' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              <Eye className="h-3.5 w-3.5" />
-              System template (sample data)
-            </button>
-            <button
-              type="button"
-              onClick={startCustomize}
-              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                mode === 'edit' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Customize
-            </button>
-          </div>
-
-          {mode === 'preview' ? (
+          {tab === 'preview' ? (
             <div className="space-y-3">
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   Subject (with sample data)
                 </p>
                 <p className="mt-1 text-sm font-medium text-slate-900">{previewSubject || '—'}</p>
               </div>
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                 <p className="border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   Email body preview
                 </p>
                 <iframe
                   title={`Preview ${triggerId}`}
                   srcDoc={previewHtml}
-                  className="h-80 w-full border-0 bg-white"
+                  className="h-[52vh] w-full border-0 bg-white"
                   sandbox=""
                 />
               </div>
-              <details className="rounded-lg border border-slate-200 bg-white">
-                <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-600">
-                  View raw HTML template (placeholders)
-                </summary>
-                <pre className="max-h-48 overflow-auto border-t border-slate-100 p-3 font-mono text-[10px] leading-relaxed text-slate-700">
-                  {`Subject: ${resolved.subject}\n\n${resolved.bodyHtml}`}
-                </pre>
-              </details>
+              <p className="text-[11px] text-slate-500">
+                Placeholders are filled with sample data here. Recipients see real values when the
+                email is sent.
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -222,79 +249,79 @@ export function NotificationTriggerTemplatePanel({
                   placeholder="Email subject"
                 />
               </label>
+
               <label className="block">
                 <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  HTML body
+                  HTML code
                 </span>
                 <textarea
                   value={bodyHtml}
                   onChange={(e) => setBodyHtml(e.target.value)}
-                  rows={14}
+                  rows={20}
                   spellCheck={false}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-900 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-slate-100 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </label>
-
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                <p className="border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  Live preview while editing
-                </p>
-                <iframe
-                  title={`Edit preview ${triggerId}`}
-                  srcDoc={editPreviewHtml}
-                  className="h-56 w-full border-0 bg-white"
-                  sandbox=""
-                />
-                <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-600">
-                  Subject: {editPreviewSubject || '—'}
-                </p>
-              </div>
+              <p className="text-[11px] text-slate-500">
+                Switch to the Preview tab to see your edits rendered with sample data before saving.
+              </p>
             </div>
-          )}
-
-          {mode === 'edit' ? (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button
-                type="button"
-                disabled={saving || !subject.trim() || !bodyHtml.trim()}
-                onClick={handleSave}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                <Save className="h-3.5 w-3.5" />
-                Save custom template
-              </button>
-              <button
-                type="button"
-                disabled={saving || !customized}
-                onClick={handleReset}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Reset to system default
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  syncFromResolved();
-                  setMode('preview');
-                }}
-                className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={startCustomize}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Customize this template
-            </button>
           )}
         </div>
-      ) : null}
+
+        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-3.5">
+          <button
+            type="button"
+            disabled={saving || !customized}
+            onClick={handleReset}
+            className="mr-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset to system default
+          </button>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-lg border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            disabled={saving || !dirty || !subject.trim() || !bodyHtml.trim()}
+            onClick={handleSave}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Save className="h-3.5 w-3.5" />
+            {saving ? 'Saving…' : 'Save custom template'}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="mt-2 border-t border-slate-100 pt-3">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1.5 text-left text-xs font-semibold text-blue-700 hover:bg-blue-50"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <FileText className="h-3.5 w-3.5" />
+          Email template
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+              customized ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'
+            }`}
+          >
+            {customized ? 'Custom' : 'System default'}
+          </span>
+        </span>
+        <span className="text-[11px] font-semibold text-slate-400">Open</span>
+      </button>
+
+      {expanded && mounted ? createPortal(modal, document.body) : null}
     </div>
   );
 }

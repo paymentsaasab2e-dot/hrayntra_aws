@@ -695,6 +695,8 @@ model Job {
   visibility               String? // Internal, Public
   /// When false, client/company name is hidden on Phase 1 portal listings and social job posts.
   showClientNamePublicly   Boolean?  @default(true)
+  /// HQ-enforced hide of the client name. When true it overrides tenant edits of showClientNamePublicly.
+  hqHideClientName         Boolean?
   /// Per-field public visibility for candidate portal, apply page, and social posts.
   publicFieldVisibility    Json?
   /// Short company description shown on the public job page.

@@ -2595,6 +2595,12 @@ export type HqPortalJobRow = {
   id: string;
   title: string;
   company: string;
+  /** Real client name, always visible inside HQ even when hidden on Phase 1. */
+  clientName?: string;
+  /** Whether the client name is shown on the Phase 1 job cards / job pages. */
+  showClientNamePublicly?: boolean;
+  /** True when HQ has locked the client name hidden — tenant edits cannot re-expose it. */
+  hqHideClientName?: boolean;
   location: string;
   status: string;
   workMode: string;
@@ -3947,6 +3953,23 @@ export async function apiHqDeletePortalJob(
   });
 }
 
+export async function apiHqSetPortalJobClientVisibility(
+  jobId: string,
+  body: { showClientNamePublicly: boolean; tenantDbName?: string },
+) {
+  return apiFetch<{
+    jobId: string;
+    tenantDbName: string;
+    showClientNamePublicly: boolean;
+    updatedTenant: boolean;
+    updatedPortal: boolean;
+  }>(`/hq/portal/jobs/${encodeURIComponent(jobId)}/client-visibility`, {
+    method: 'PATCH',
+    auth: true,
+    body,
+  });
+}
+
 export async function apiHqAssignTenantPlan(body: {
   email: string;
   billingCycle?: 'monthly' | 'annual';
@@ -4133,6 +4156,54 @@ export async function apiHqUpdateTenantModules(body: {
   }>('/hq/tenants/modules', { method: 'PUT', auth: true, body });
 }
 
+export interface InvoicePaymentReminder {
+  id: string;
+  mode: 'now' | 'schedule';
+  status: 'PENDING' | 'SENT' | 'FAILED' | 'CANCELLED';
+  toEmail: string;
+  note?: string | null;
+  scheduledAt: string;
+  timezone?: string | null;
+  createdAt?: string;
+  sentAt?: string | null;
+  error?: string | null;
+}
+
+export interface SendInvoiceReminderPayload {
+  mode: 'now' | 'schedule';
+  /** Wall-clock date `YYYY-MM-DD` — required when mode is `schedule`. */
+  scheduledDate?: string;
+  /** Wall-clock time `HH:mm` — required when mode is `schedule`. */
+  scheduledTime?: string;
+  /** IANA timezone the date/time is expressed in. */
+  timezone?: string;
+  toEmail?: string;
+  note?: string;
+}
+
+export async function apiSendInvoiceReminder(invoiceId: string, payload: SendInvoiceReminderPayload) {
+  return apiFetch<{ billingRecordId: string; reminder: InvoicePaymentReminder }>(
+    `/billing/${encodeURIComponent(invoiceId)}/reminders`,
+    { method: 'POST', auth: true, body: payload },
+  );
+}
+
+export async function apiListInvoiceReminders(invoiceId: string) {
+  return apiFetch<{
+    billingRecordId: string;
+    canRemind: boolean;
+    status: string;
+    reminders: InvoicePaymentReminder[];
+  }>(`/billing/${encodeURIComponent(invoiceId)}/reminders`, { auth: true });
+}
+
+export async function apiCancelInvoiceReminder(invoiceId: string, reminderId: string) {
+  return apiFetch<{ billingRecordId: string; reminderId: string; status: string }>(
+    `/billing/${encodeURIComponent(invoiceId)}/reminders/${encodeURIComponent(reminderId)}`,
+    { method: 'DELETE', auth: true },
+  );
+}
+
 export interface InvoiceActivityEvent {
   kind:
     | 'lead'
@@ -4144,6 +4215,7 @@ export interface InvoiceActivityEvent {
     | 'placement'
     | 'invoice'
     | 'payment'
+    | 'reminder'
     | 'activity';
   title: string;
   description: string | null;
@@ -4163,6 +4235,8 @@ export interface InvoiceActivityResponse {
     paidAt: string | null;
     invoiceUrl?: string | null;
     hasInvoiceDocument?: boolean;
+    canSendReminder?: boolean;
+    reminders?: InvoicePaymentReminder[];
   };
   lead: { id: string; companyName: string | null; contactName: string | null; status: string | null; source: string | null } | null;
   client: { id: string; companyName: string | null; status: string | null; industry: string | null } | null;
