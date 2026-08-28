@@ -110,6 +110,50 @@ export const billingController = {
     }
   },
 
+  async sendInvoiceReminder(req, res) {
+    try {
+      const result = await billingService.sendInvoiceReminder(
+        req.params.id,
+        req.body || {},
+        req.user?.id,
+      );
+      sendResponse(
+        res,
+        200,
+        result.reminder?.mode === 'schedule'
+          ? 'Payment reminder scheduled successfully'
+          : 'Payment reminder sent to client successfully',
+        result,
+      );
+    } catch (error) {
+      const message = String(error?.message || '');
+      const status = message.includes('not found') ? 404 : 400;
+      sendError(res, status, message, error);
+    }
+  },
+
+  async listInvoiceReminders(req, res) {
+    try {
+      const result = await billingService.listInvoiceReminders(req.params.id);
+      sendResponse(res, 200, 'Payment reminders retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 404, error.message, error);
+    }
+  },
+
+  async cancelInvoiceReminder(req, res) {
+    try {
+      const result = await billingService.cancelInvoiceReminder(
+        req.params.id,
+        req.params.reminderId,
+      );
+      sendResponse(res, 200, 'Payment reminder cancelled', result);
+    } catch (error) {
+      const message = String(error?.message || '');
+      sendError(res, message.includes('not found') ? 404 : 400, message, error);
+    }
+  },
+
   async delete(req, res) {
     try {
       const result = await billingService.delete(req.params.id);

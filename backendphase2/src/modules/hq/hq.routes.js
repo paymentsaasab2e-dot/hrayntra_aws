@@ -146,6 +146,11 @@ router.get('/tenants/:tenantDbName/behavior', authMiddleware, hqController.getTe
 router.get('/tenants/:tenantDbName/behavior-engine', authMiddleware, hqController.getTenantBehaviorEngine);
 router.get('/candidates/:id/behavior', authMiddleware, hqController.getCandidateBehavior);
 router.delete('/portal/jobs/:id', authMiddleware, hqController.deletePortalJob);
+router.patch(
+  '/portal/jobs/:id/client-visibility',
+  authMiddleware,
+  hqController.setPortalJobClientVisibility,
+);
 
 router.get('/courses', authMiddleware, hqController.listCourses);
 router.post('/courses', authMiddleware, hqController.createCourse);

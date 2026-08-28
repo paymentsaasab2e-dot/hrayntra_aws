@@ -351,6 +351,7 @@ export function NotificationTriggerSettings() {
               />
               <NotificationTriggerTemplatePanel
                 triggerId={trigger.id}
+                triggerLabel={trigger.label}
                 expanded={Boolean(templateExpanded[trigger.id])}
                 onToggle={() =>
                   setTemplateExpanded((prev) => ({
@@ -393,6 +394,7 @@ export function NotificationTriggerSettings() {
               />
               <NotificationTriggerTemplatePanel
                 triggerId={item.id}
+                triggerLabel={item.label}
                 expanded={Boolean(templateExpanded[item.id])}
                 onToggle={() =>
                   setTemplateExpanded((prev) => ({

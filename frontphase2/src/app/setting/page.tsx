@@ -190,15 +190,9 @@ export default function SettingsPage() {
         />
 
         <div className="min-w-0 flex-1 overflow-y-auto">
-          <div
-            className={`mx-auto px-6 py-8 lg:px-10 ${
-              activeSection === 'activity-log' ||
-              activeSection === 'alerts-management' ||
-              activeSection === 'invoice-template'
-                ? 'max-w-[90rem]'
-                : 'max-w-5xl'
-            }`}
-          >
+          {/* Full-bleed: settings panels use the whole area next to the sidebar
+              instead of being capped to a narrow centred column. */}
+          <div className="w-full px-6 py-8 lg:px-10">
             <header className="mb-8 border-b border-slate-200 pb-6">
               <nav className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-400">
                 <span>Dashboard</span>

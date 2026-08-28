@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Globe, Loader2, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Globe, Loader2, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { requestConfirm } from '@/lib/appDialog';
 import {
@@ -15,6 +15,7 @@ import { HqPhase1ConnectionBar } from '@/components/hq/HqPhase1ConnectionBar';
 import {
   apiHqDeletePortalJob,
   apiHqListPortal,
+  apiHqSetPortalJobClientVisibility,
   type HqPortalJobRow,
   type HqPortalStats,
   type HqPortalStorageInfo,
@@ -66,6 +67,17 @@ function StatusPill({ value }: { value: string }) {
 const DELETE_BTN_CLASS =
   'inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700 transition hover:bg-rose-100 disabled:opacity-50';
 
+const VISIBILITY_BTN_CLASS =
+  'inline-flex items-center justify-center rounded-lg border p-2 transition disabled:opacity-50';
+
+function jobRowKey(row: HqPortalJobRow) {
+  return `${row.origin}-${row.tenantDbName || 'none'}-${row.id}`;
+}
+
+function isClientNameVisible(row: HqPortalJobRow) {
+  return row.showClientNamePublicly !== false;
+}
+
 export default function HqPortalPage() {
   const [jobs, setJobs] = useState<HqPortalJobRow[]>([]);
   const [stats, setStats] = useState<HqPortalStats>(EMPTY_STATS);
@@ -74,6 +86,8 @@ export default function HqPortalPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [deletingJobKey, setDeletingJobKey] = useState<string | null>(null);
+  const [visibilityJobKey, setVisibilityJobKey] = useState<string | null>(null);
+  const [bulkHiding, setBulkHiding] = useState(false);
 
   const loadPortal = useCallback(async () => {
     setLoading(true);
@@ -116,6 +130,93 @@ export default function HqPortalPage() {
       return hay.includes(needle);
     });
   }, [jobs, needle]);
+
+  const hiddenClientCount = useMemo(
+    () => filteredJobs.filter((row) => !isClientNameVisible(row)).length,
+    [filteredJobs],
+  );
+  const visibleClientCount = filteredJobs.length - hiddenClientCount;
+
+  const applyClientVisibilityToRow = (row: HqPortalJobRow, show: boolean) => {
+    setJobs((prev) =>
+      prev.map((job) =>
+        job.id === row.id &&
+        job.tenantDbName === row.tenantDbName &&
+        job.origin === row.origin
+          ? { ...job, showClientNamePublicly: show, hqHideClientName: !show }
+          : job,
+      ),
+    );
+  };
+
+  const handleToggleClientName = async (row: HqPortalJobRow) => {
+    const nextShow = !isClientNameVisible(row);
+    setVisibilityJobKey(jobRowKey(row));
+    try {
+      await apiHqSetPortalJobClientVisibility(row.id, {
+        showClientNamePublicly: nextShow,
+        tenantDbName: row.tenantDbName || undefined,
+      });
+      applyClientVisibilityToRow(row, nextShow);
+      toast.success(
+        nextShow
+          ? 'Client name is now visible on Phase 1'
+          : 'Client name hidden on Phase 1 job cards',
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to update client name visibility',
+      );
+    } finally {
+      setVisibilityJobKey(null);
+    }
+  };
+
+  const handleBulkHideClientNames = async (show: boolean) => {
+    const targets = filteredJobs.filter((row) => isClientNameVisible(row) !== show);
+    if (targets.length === 0) {
+      toast.info(show ? 'All shown jobs already display the client name.' : 'All shown jobs already hide the client name.');
+      return;
+    }
+
+    const confirmed = await requestConfirm(
+      `${show ? 'Show' : 'Hide'} the client name on Phase 1 for ${targets.length} job${
+        targets.length === 1 ? '' : 's'
+      }?\n\nThis affects the Phase 1 job cards and job detail pages.`,
+      {
+        tone: show ? 'info' : 'warning',
+        title: show ? 'Show client names' : 'Hide client names',
+        confirmLabel: show ? 'Show all' : 'Hide all',
+        cancelLabel: 'Cancel',
+      },
+    );
+    if (!confirmed) return;
+
+    setBulkHiding(true);
+    let failed = 0;
+    for (const row of targets) {
+      try {
+        await apiHqSetPortalJobClientVisibility(row.id, {
+          showClientNamePublicly: show,
+          tenantDbName: row.tenantDbName || undefined,
+        });
+        applyClientVisibilityToRow(row, show);
+      } catch {
+        failed += 1;
+      }
+    }
+    setBulkHiding(false);
+
+    if (failed === 0) {
+      toast.success(
+        show
+          ? `Client name shown on Phase 1 for ${targets.length} job(s)`
+          : `Client name hidden on Phase 1 for ${targets.length} job(s)`,
+      );
+    } else {
+      toast.error(`${failed} of ${targets.length} job(s) could not be updated`);
+    }
+  };
 
   const handleDeleteJob = async (row: HqPortalJobRow) => {
     const label = row.title || 'this job';
@@ -165,10 +266,30 @@ export default function HqPortalPage() {
       subtitle="Phase 1 job portal — open jobs posted across tenants and the public portal."
       icon={<Globe className="h-5 w-5" />}
       actions={
-        <HqSecondaryButton onClick={() => void loadPortal()} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </HqSecondaryButton>
+        <>
+          <HqSecondaryButton
+            onClick={() => void handleBulkHideClientNames(true)}
+            disabled={loading || bulkHiding || hiddenClientCount === 0}
+          >
+            <Eye className="h-4 w-4" />
+            Show client names
+          </HqSecondaryButton>
+          <HqSecondaryButton
+            onClick={() => void handleBulkHideClientNames(false)}
+            disabled={loading || bulkHiding || visibleClientCount === 0}
+          >
+            {bulkHiding ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <EyeOff className="h-4 w-4" />
+            )}
+            Hide client names
+          </HqSecondaryButton>
+          <HqSecondaryButton onClick={() => void loadPortal()} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </HqSecondaryButton>
+        </>
       }
     >
 
@@ -266,7 +387,15 @@ export default function HqPortalPage() {
                           <div className="mt-1 text-xs text-slate-500">{row.workMode}</div>
                         ) : null}
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{row.company}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        <div>{row.clientName || row.company}</div>
+                        {!isClientNameVisible(row) ? (
+                          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
+                            <EyeOff className="h-3 w-3" />
+                            {row.hqHideClientName ? 'Hidden by HQ' : 'Hidden on Phase 1'}
+                          </div>
+                        ) : null}
+                      </td>
                       <td className="px-4 py-3 text-slate-700">{row.location || '—'}</td>
                       <td className="px-4 py-3">
                         <StatusPill value={row.status} />
@@ -283,6 +412,35 @@ export default function HqPortalPage() {
                       <td className="px-4 py-3 text-slate-700">{row.openings}</td>
                       <td className="px-4 py-3 text-slate-500">{formatDate(row.postedDate)}</td>
                       <td className="px-4 py-3 text-right">
+                        <div className="inline-flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          title={
+                            isClientNameVisible(row)
+                              ? 'Hide client name on Phase 1 job cards'
+                              : 'Show client name on Phase 1 job cards'
+                          }
+                          aria-label={
+                            isClientNameVisible(row)
+                              ? 'Hide client name on Phase 1'
+                              : 'Show client name on Phase 1'
+                          }
+                          disabled={visibilityJobKey === jobRowKey(row) || bulkHiding}
+                          onClick={() => void handleToggleClientName(row)}
+                          className={`${VISIBILITY_BTN_CLASS} ${
+                            isClientNameVisible(row)
+                              ? 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                          }`}
+                        >
+                          {visibilityJobKey === jobRowKey(row) ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : isClientNameVisible(row) ? (
+                            <Eye className="h-4 w-4" />
+                          ) : (
+                            <EyeOff className="h-4 w-4" />
+                          )}
+                        </button>
                         <button
                           type="button"
                           title="Delete job from tenant and portal"
@@ -300,6 +458,7 @@ export default function HqPortalPage() {
                             <Trash2 className="h-4 w-4" />
                           )}
                         </button>
+                        </div>
                       </td>
                     </tr>
                   ))

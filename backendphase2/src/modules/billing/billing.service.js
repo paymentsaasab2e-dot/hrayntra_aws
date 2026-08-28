@@ -1,10 +1,15 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { clientBillingEmailSelect, resolveClientBillingEmail } from '../../utils/resolveClientBillingEmail.js';
-import { sendPlacementInvoiceEmail } from '../../services/emailService.js';
+import {
+  sendPlacementInvoiceEmail,
+  sendInvoicePaymentReminderEmail,
+} from '../../services/emailService.js';
+import { resolveInterviewTimeZone, zonedWallClockToDate } from '../../utils/zonedDateTime.js';
 import {
   notifyDraftInvoiceReady,
   notifyInvoiceSent,
@@ -310,6 +315,101 @@ function deriveInvoiceStatus(record) {
   if (record.status === 'OVERDUE') return 'Overdue';
   if (dueDate && dueDate.getTime() < Date.now() && record.status !== 'PAID') return 'Overdue';
   return 'Pending';
+}
+
+/**
+ * Payment reminders are only meaningful while money is still owed: drafts have
+ * not reached the client yet, and paid/cancelled invoices have nothing due.
+ */
+const REMINDER_ELIGIBLE_STATUSES = new Set(['Sent', 'Pending', 'Overdue']);
+
+function isReminderEligible(record) {
+  return REMINDER_ELIGIBLE_STATUSES.has(deriveInvoiceStatus(record));
+}
+
+function invoicePayloadObject(record) {
+  const payload = record?.invoicePayload;
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+}
+
+function readInvoiceReminders(record) {
+  const list = invoicePayloadObject(record).paymentReminders;
+  return Array.isArray(list) ? list : [];
+}
+
+function formatCurrencyAmount(amount, currency) {
+  const code = String(currency || 'USD').toUpperCase();
+  const value = Number(amount || 0);
+  return `${code} ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function describeDueStatus(record) {
+  const dueDate = record?.dueDate ? new Date(record.dueDate) : null;
+  if (!dueDate || Number.isNaN(dueDate.getTime())) return 'pending payment';
+  const diffDays = Math.round((dueDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  if (diffDays < 0) return `overdue by ${Math.abs(diffDays)} day(s)`;
+  if (diffDays === 0) return 'due today';
+  return `due in ${diffDays} day(s)`;
+}
+
+/**
+ * Resolve the reminder send time. `now` sends immediately; `schedule` combines
+ * the wall-clock date/time with the caller's timezone into a UTC instant.
+ */
+function resolveReminderSchedule(data = {}) {
+  const mode = String(data.mode || 'now').toLowerCase() === 'schedule' ? 'schedule' : 'now';
+  if (mode === 'now') return { mode, scheduledAt: new Date(), timezone: null };
+
+  const timezone = resolveInterviewTimeZone(data.timezone);
+  let scheduledAt = null;
+
+  const date = String(data.scheduledDate || '').trim();
+  const time = String(data.scheduledTime || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(time)) {
+    const [year, month, day] = date.split('-').map(Number);
+    const [hours, minutes] = time.split(':').map(Number);
+    scheduledAt = zonedWallClockToDate(year, month, day, hours, minutes, timezone);
+  } else if (data.scheduledAt) {
+    const parsed = new Date(data.scheduledAt);
+    if (!Number.isNaN(parsed.getTime())) scheduledAt = parsed;
+  }
+
+  if (!scheduledAt) {
+    throw new Error('A valid reminder date and time is required to schedule a reminder');
+  }
+  if (scheduledAt.getTime() <= Date.now()) {
+    throw new Error('Scheduled reminder time must be in the future');
+  }
+  return { mode, scheduledAt, timezone };
+}
+
+async function dispatchInvoiceReminderEmail(record, reminder, senderUserId) {
+  const payload = invoicePayloadObject(record);
+  const buyer = payload.buyer || {};
+  const seller = payload.seller || {};
+  const outstanding = payload.total ?? record.amount;
+
+  return sendInvoicePaymentReminderEmail({
+    senderUserId: senderUserId || reminder?.createdById || null,
+    toEmail: reminder.toEmail,
+    recipientName: buyer.contactName || buyer.name || 'there',
+    invoiceNumber: record.invoiceNumber || `INV-${String(record.id).slice(-6).toUpperCase()}`,
+    outstandingAmount: formatCurrencyAmount(outstanding, record.currency),
+    dueDate: record.dueDate ? displayDate(record.dueDate) : 'N/A',
+    dueStatus: describeDueStatus(record),
+    companyName: buyer.companyName || record.client?.companyName || 'your organisation',
+    sellerName: seller.name || 'Your agency',
+    reminderNote: reminder.note || null,
+  });
+}
+
+async function appendInvoiceReminder(record, reminder) {
+  const payload = invoicePayloadObject(record);
+  const reminders = readInvoiceReminders(record);
+  await prisma.billingRecord.update({
+    where: { id: record.id },
+    data: { invoicePayload: { ...payload, paymentReminders: [...reminders, reminder] } },
+  });
 }
 
 function isDraftBillingRecord(record) {
@@ -980,6 +1080,202 @@ export const billingService = {
     };
   },
 
+  /**
+   * Queue or immediately send a payment reminder for an unpaid invoice.
+   * Reminders live on `invoicePayload.paymentReminders` so they surface in the
+   * invoice activity timeline without a schema migration.
+   */
+  async sendInvoiceReminder(id, data = {}, senderUserId) {
+    const existing = await prisma.billingRecord.findUnique({
+      where: { id },
+      include: {
+        client: { select: clientBillingEmailSelect },
+        placement: {
+          include: { client: { select: clientBillingEmailSelect } },
+        },
+      },
+    });
+    if (!existing) throw new Error('Invoice not found');
+    if (!isReminderEligible(existing)) {
+      throw new Error(
+        `Payment reminders can only be sent for pending, sent or overdue invoices (this invoice is ${deriveInvoiceStatus(existing)})`,
+      );
+    }
+
+    const buyer = invoicePayloadObject(existing).buyer || {};
+    const toEmail =
+      String(data.toEmail || buyer.email || '').trim() ||
+      resolveClientBillingEmail(existing.client, existing.client?.contacts) ||
+      resolveClientBillingEmail(existing.placement?.client, existing.placement?.client?.contacts);
+    if (!toEmail) {
+      throw new Error('Client billing email is required before sending a payment reminder');
+    }
+
+    const { mode, scheduledAt, timezone } = resolveReminderSchedule(data);
+
+    const reminder = {
+      id: randomUUID(),
+      mode,
+      status: mode === 'now' ? 'SENT' : 'PENDING',
+      toEmail,
+      note: String(data.note || '').trim() || null,
+      scheduledAt: scheduledAt.toISOString(),
+      timezone: timezone || null,
+      createdAt: new Date().toISOString(),
+      createdById: senderUserId || null,
+      sentAt: null,
+      error: null,
+    };
+
+    if (mode === 'now') {
+      const result = await dispatchInvoiceReminderEmail(existing, reminder, senderUserId);
+      if (!result.success) throw new Error(result.error || 'Failed to send payment reminder');
+      reminder.sentAt = new Date().toISOString();
+      reminder.skipped = Boolean(result.skipped) || undefined;
+    }
+
+    await appendInvoiceReminder(existing, reminder);
+
+    if (existing.placementId) {
+      try {
+        await prisma.placementActivityLog.create({
+          data: {
+            placementId: existing.placementId,
+            action: mode === 'now' ? 'Payment reminder sent to client' : 'Payment reminder scheduled',
+            performedBy: senderUserId || null,
+            details: {
+              billingRecordId: id,
+              invoiceNumber: existing.invoiceNumber,
+              toEmail,
+              scheduledAt: reminder.scheduledAt,
+              timezone: reminder.timezone,
+            },
+          },
+        });
+      } catch (logErr) {
+        console.warn('[billing.sendInvoiceReminder] activity log failed:', logErr?.message || logErr);
+      }
+    }
+
+    return { billingRecordId: id, reminder };
+  },
+
+  async listInvoiceReminders(id) {
+    const existing = await prisma.billingRecord.findUnique({
+      where: { id },
+      select: { id: true, invoicePayload: true, status: true, paidAt: true, dueDate: true },
+    });
+    if (!existing) throw new Error('Invoice not found');
+    return {
+      billingRecordId: id,
+      canRemind: isReminderEligible(existing),
+      status: deriveInvoiceStatus(existing),
+      reminders: readInvoiceReminders(existing).slice().sort((a, b) =>
+        String(a.scheduledAt) < String(b.scheduledAt) ? 1 : -1,
+      ),
+    };
+  },
+
+  async cancelInvoiceReminder(id, reminderId) {
+    const existing = await prisma.billingRecord.findUnique({
+      where: { id },
+      select: { id: true, invoicePayload: true },
+    });
+    if (!existing) throw new Error('Invoice not found');
+
+    const reminders = readInvoiceReminders(existing);
+    const target = reminders.find((item) => item?.id === reminderId);
+    if (!target) throw new Error('Reminder not found');
+    if (target.status !== 'PENDING') {
+      throw new Error('Only pending reminders can be cancelled');
+    }
+
+    const next = reminders.map((item) =>
+      item?.id === reminderId
+        ? { ...item, status: 'CANCELLED', cancelledAt: new Date().toISOString() }
+        : item,
+    );
+    await prisma.billingRecord.update({
+      where: { id },
+      data: { invoicePayload: { ...invoicePayloadObject(existing), paymentReminders: next } },
+    });
+    return { billingRecordId: id, reminderId, status: 'CANCELLED' };
+  },
+
+  /**
+   * Called by the alert scheduler: send every pending reminder whose scheduled
+   * time has passed, skipping invoices that got paid or cancelled meanwhile.
+   */
+  async dispatchDueInvoiceReminders({ limit = 200 } = {}) {
+    const records = await prisma.billingRecord.findMany({
+      where: {
+        paidAt: null,
+        status: { in: ['SENT', 'OVERDUE'] },
+        invoicePayload: { not: null },
+      },
+      include: {
+        client: { select: clientBillingEmailSelect },
+        placement: { include: { client: { select: clientBillingEmailSelect } } },
+      },
+      take: limit,
+    });
+
+    const nowMs = Date.now();
+    let sent = 0;
+    let failed = 0;
+
+    for (const record of records) {
+      const reminders = readInvoiceReminders(record);
+      const due = reminders.filter(
+        (item) =>
+          item?.status === 'PENDING' &&
+          item?.scheduledAt &&
+          new Date(item.scheduledAt).getTime() <= nowMs,
+      );
+      if (!due.length) continue;
+
+      if (!isReminderEligible(record)) {
+        const skippedList = reminders.map((item) =>
+          due.some((d) => d.id === item.id)
+            ? { ...item, status: 'CANCELLED', cancelledAt: new Date().toISOString() }
+            : item,
+        );
+        await prisma.billingRecord.update({
+          where: { id: record.id },
+          data: { invoicePayload: { ...invoicePayloadObject(record), paymentReminders: skippedList } },
+        });
+        continue;
+      }
+
+      const outcomes = new Map();
+      for (const reminder of due) {
+        try {
+          const result = await dispatchInvoiceReminderEmail(record, reminder, reminder.createdById);
+          if (result.success) {
+            outcomes.set(reminder.id, { status: 'SENT', sentAt: new Date().toISOString(), error: null });
+            sent += 1;
+          } else {
+            outcomes.set(reminder.id, { status: 'FAILED', error: result.error || 'Send failed' });
+            failed += 1;
+          }
+        } catch (err) {
+          outcomes.set(reminder.id, { status: 'FAILED', error: err?.message || 'Send failed' });
+          failed += 1;
+        }
+      }
+
+      const nextList = reminders.map((item) =>
+        outcomes.has(item?.id) ? { ...item, ...outcomes.get(item.id) } : item,
+      );
+      await prisma.billingRecord.update({
+        where: { id: record.id },
+        data: { invoicePayload: { ...invoicePayloadObject(record), paymentReminders: nextList } },
+      });
+    }
+
+    return { sent, failed };
+  },
+
   async delete(id) {
     const existing = await prisma.billingRecord.findUnique({
       where: { id },
@@ -1629,6 +1925,36 @@ export const billingService = {
       });
     }
 
+    // Payment reminders (sent + scheduled) so the drawer doubles as a
+    // reminder history for this invoice.
+    for (const reminder of readInvoiceReminders(invoice)) {
+      if (!reminder || reminder.status === 'CANCELLED') continue;
+      const amountLabel = formatCurrencyAmount(
+        invoicePayloadObject(invoice).total ?? invoice.amount,
+        invoice.currency,
+      );
+      const scheduled = reminder.status === 'PENDING';
+      events.push({
+        kind: 'reminder',
+        title: scheduled
+          ? 'Payment reminder scheduled'
+          : reminder.status === 'FAILED'
+            ? 'Payment reminder failed'
+            : 'Payment reminder sent',
+        description: scheduled
+          ? `${amountLabel} outstanding — will email ${reminder.toEmail}`
+          : `${amountLabel} outstanding — emailed to ${reminder.toEmail}`,
+        at: reminder.sentAt || reminder.scheduledAt || reminder.createdAt,
+        meta: {
+          status: reminder.status,
+          mode: reminder.mode,
+          timezone: reminder.timezone || null,
+          scheduledAt: reminder.scheduledAt || null,
+          error: reminder.error || null,
+        },
+      });
+    }
+
     // Sort the merged events by timestamp ascending; rows without a timestamp
     // sink to the end so they don't disrupt the chronological flow.
     const eventsSorted = events
@@ -1657,6 +1983,8 @@ export const billingService = {
         paidAt: invoice.paidAt ? displayDate(invoice.paidAt) : null,
         invoiceUrl: invoice.invoiceUrl || null,
         hasInvoiceDocument,
+        canSendReminder: isReminderEligible(invoice),
+        reminders: readInvoiceReminders(invoice),
       },
       // `lead` is no longer surfaced — the timeline is candidate-centric, so
       // top-of-funnel data is intentionally elided. Kept null for backwards

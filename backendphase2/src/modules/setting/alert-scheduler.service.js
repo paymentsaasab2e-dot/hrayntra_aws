@@ -14,6 +14,7 @@ import {
   sendLeadFollowUpReminderEmails,
 } from '../lead/leadFollowUpNotify.js';
 import { sendClientMeetReminderEmails } from '../client/clientMeetingNotify.js';
+import { billingService } from '../billing/billing.service.js';
 
 const FEEDBACK_OVERDUE_HOURS = Number(process.env.ALERT_FEEDBACK_OVERDUE_HOURS || 48);
 const PLACEMENT_REMINDER_DAYS = Number(process.env.ALERT_PLACEMENT_REMINDER_DAYS || 30);
@@ -29,6 +30,7 @@ const TERMINAL_PIPELINE_STAGES = new Set([
 ]);
 
 let schedulerRunning = false;
+let invoiceReminderRunning = false;
 
 function startOfDay(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
@@ -738,6 +740,23 @@ async function processInterviewTodayReminders() {
 }
 
 /**
+ * Send scheduled invoice payment reminders whose time has arrived.
+ */
+async function processInvoicePaymentReminders() {
+  try {
+    const result = await billingService.dispatchDueInvoiceReminders();
+    if (result?.sent || result?.failed) {
+      console.log(
+        `[alert-scheduler] invoice reminders sent=${result.sent} failed=${result.failed}`
+      );
+    }
+  } catch (error) {
+    if (isTransientMongoConnectivityError(error)) return;
+    throw error;
+  }
+}
+
+/**
  * Run all time-based alert checks. Safe to call on an interval.
  */
 export async function runAlertScheduler() {
@@ -754,6 +773,7 @@ export async function runAlertScheduler() {
       processPipelineFollowUps(),
       processTaskReminders(),
       processInvoiceOverdue(),
+      processInvoicePaymentReminders(),
       processInterviewFeedbackOverdue(),
       processPlacementReminders(),
       processJobSlaAndApplicants(),
@@ -805,6 +825,21 @@ export function startAlertScheduler() {
   setInterval(() => {
     void runAlertScheduler();
   }, intervalMs);
+
+  // Scheduled invoice reminders are picked to the minute by the user, so they
+  // get their own tighter loop instead of waiting for the hourly alert sweep.
+  const reminderIntervalMs = Number(process.env.INVOICE_REMINDER_INTERVAL_MS || 60 * 1000);
+  setInterval(() => {
+    if (invoiceReminderRunning) return;
+    invoiceReminderRunning = true;
+    void processInvoicePaymentReminders()
+      .catch((error) => {
+        console.warn('[alert-scheduler] invoice reminder sweep failed:', error?.message || error);
+      })
+      .finally(() => {
+        invoiceReminderRunning = false;
+      });
+  }, reminderIntervalMs);
 
   console.log(
     `[alert-scheduler] started (every ${Math.round(intervalMs / 60000)} min, first run in ${Math.round(initialDelayMs / 1000)}s)`

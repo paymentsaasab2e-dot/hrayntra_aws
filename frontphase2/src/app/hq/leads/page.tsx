@@ -1463,21 +1463,21 @@ export default function HqLeadsPage() {
                             </td>
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex items-center justify-end gap-1">
-                                <button
-                                  type="button"
+                          <button
+                            type="button"
                                   title={
                                     isHqLeadTrialStage(lead)
                                       ? 'Resend / refresh trial account'
                                       : 'Grant trial account'
                                   }
-                                  onClick={(e) => {
-                                    e.stopPropagation();
+                            onClick={(e) => {
+                              e.stopPropagation();
                                     openTrialGrantPopup(lead);
-                                  }}
+                            }}
                                   className="rounded-lg p-1.5 text-teal-600 transition hover:bg-teal-50"
-                                >
+                          >
                                   <KeyRound className="h-4 w-4" />
-                                </button>
+                          </button>
                                 {lead.stage !== 'converted' && lead.stage !== 'lost' ? (
                           <button
                             type="button"

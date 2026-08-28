@@ -28,7 +28,9 @@ import {
   AlertCircle,
   CheckCircle2,
   ExternalLink,
+  Bell,
 } from 'lucide-react';
+import SendInvoiceReminderModal from './SendInvoiceReminderModal';
 import { openBillingInvoiceInNewTab, openInvoicePreviewTab } from '../../lib/openBillingInvoice';
 import {
   apiGetInvoiceActivity,
@@ -59,6 +61,7 @@ const KIND_TONE: Record<InvoiceActivityEvent['kind'], Tone> = {
   placement: { bg: 'bg-emerald-50', ring: 'ring-emerald-200', icon: 'text-emerald-600' },
   invoice: { bg: 'bg-slate-50', ring: 'ring-slate-200', icon: 'text-slate-700' },
   payment: { bg: 'bg-green-50', ring: 'ring-green-200', icon: 'text-green-700' },
+  reminder: { bg: 'bg-orange-50', ring: 'ring-orange-200', icon: 'text-orange-600' },
   activity: { bg: 'bg-zinc-50', ring: 'ring-zinc-200', icon: 'text-zinc-600' },
 };
 
@@ -72,6 +75,7 @@ const KIND_ICON: Record<InvoiceActivityEvent['kind'], React.ComponentType<{ size
   placement: Award,
   invoice: Receipt,
   payment: CreditCard,
+  reminder: Bell,
   activity: ActivityIcon,
 };
 
@@ -108,6 +112,7 @@ export default function InvoiceActivityDrawer({
   const [openingInvoice, setOpeningInvoice] = useState(false);
   const [currencyDraft, setCurrencyDraft] = useState<string>('');
   const [savedFlash, setSavedFlash] = useState<string>('');
+  const [reminderModalOpen, setReminderModalOpen] = useState(false);
 
   useEffect(() => {
     if (!open || !invoiceId) return;
@@ -144,6 +149,21 @@ export default function InvoiceActivityDrawer({
     data.invoice.status !== 'Cancelled';
 
   const canViewInvoice = Boolean(data?.invoice?.hasInvoiceDocument);
+
+  const canSendReminder = canRecordPayment && Boolean(data?.invoice?.canSendReminder);
+  const pendingReminderCount = (data?.invoice?.reminders || []).filter(
+    (item) => item.status === 'PENDING',
+  ).length;
+
+  const refreshActivity = async () => {
+    if (!invoiceId) return;
+    try {
+      const res = await apiGetInvoiceActivity(invoiceId);
+      setData(res.data || null);
+    } catch {
+      // Non-fatal: the modal already reported the outcome of the action.
+    }
+  };
 
   const handleViewInvoice = () => {
     if (!invoiceId || !data?.invoice) return;
@@ -294,6 +314,17 @@ export default function InvoiceActivityDrawer({
                         {openingInvoice ? 'Opening…' : 'Open invoice PDF'}
                       </button>
                     ) : null}
+                    {canSendReminder ? (
+                      <button
+                        type="button"
+                        onClick={() => setReminderModalOpen(true)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-[11px] font-bold text-amber-800 hover:bg-amber-100"
+                      >
+                        <Bell size={12} />
+                        Send reminder
+                        {pendingReminderCount > 0 ? ` (${pendingReminderCount} scheduled)` : ''}
+                      </button>
+                    ) : null}
                     {canMarkPaid ? (
                       <button
                         type="button"
@@ -424,6 +455,18 @@ export default function InvoiceActivityDrawer({
           ) : null}
         </div>
       </aside>
+
+      <SendInvoiceReminderModal
+        open={reminderModalOpen}
+        invoiceId={invoiceId}
+        invoiceNumber={data?.invoice?.invoiceNumber}
+        outstandingLabel={headerSummary || undefined}
+        dueDateLabel={data?.invoice?.dueDate}
+        clientName={data?.client?.companyName}
+        reminders={data?.invoice?.reminders || []}
+        onClose={() => setReminderModalOpen(false)}
+        onSaved={() => void refreshActivity()}
+      />
     </>
   );
 }

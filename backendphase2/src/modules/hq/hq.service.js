@@ -1255,6 +1255,15 @@ export const hqService = {
     });
   },
 
+  async setPortalJobClientVisibility(jobId, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqPortalService.setPortalJobClientVisibility({
+      jobId,
+      tenantDbName: data?.tenantDbName,
+      showClientNamePublicly: data?.showClientNamePublicly,
+    });
+  },
+
   async listPackages(reqUser) {
     assertPlatformProvisioner(reqUser);
     const packages = await hqPackagesService.listPackages();

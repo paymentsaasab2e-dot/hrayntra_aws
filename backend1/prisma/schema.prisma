@@ -903,6 +903,8 @@ model Job {
 
   /// When false, client/company name is hidden on candidate-facing job listings and apply pages.
   showClientNamePublicly   Boolean?  @default(true)
+  /// HQ-enforced hide of the client name. When true it overrides Phase 2 tenant edits.
+  hqHideClientName         Boolean?
   /// Per-field public visibility mirrored from Phase 2 CRM.
   publicFieldVisibility    Json?
   aboutCompany             String?

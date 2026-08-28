@@ -1,12 +1,17 @@
 import { env } from '../../config/env.js';
 import {
   getCandidateCommonPrismaClient,
+  getDefaultPrismaClient,
   getJobPortalPrismaClient,
   prisma,
   runWithTenantContext,
 } from '../../config/prisma.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
-import { jobService, removeJobFromPortalDatabases } from '../job/job.service.js';
+import {
+  invalidatePortalJobsListCache,
+  jobService,
+  removeJobFromPortalDatabases,
+} from '../job/job.service.js';
 
 const LIST_LIMIT = Math.min(
   10000,
@@ -123,10 +128,21 @@ function toPortalJobRow(doc, origin, extra = {}) {
     postedBy = `Tenant ${tenantDbName}`;
   }
 
+  const clientVisibleOnPortal =
+    doc.showClientNamePublicly !== false &&
+    !(
+      doc.publicFieldVisibility &&
+      typeof doc.publicFieldVisibility === 'object' &&
+      doc.publicFieldVisibility.client === false
+    );
+
   return {
     id: doc.id,
     title: doc.title || '—',
     company,
+    clientName: doc.client?.companyName || '',
+    showClientNamePublicly: clientVisibleOnPortal,
+    hqHideClientName: doc.hqHideClientName === true,
     location: doc.location || doc.city || '',
     status: String(doc.status || '—'),
     workMode: doc.workMode || doc.jobLocationType || '',
@@ -230,7 +246,107 @@ async function fetchPhase2OpenJobs(tenantDbNames) {
   return batches.flat();
 }
 
+/** Merge the `client` flag into an existing publicFieldVisibility map without dropping other keys. */
+function mergeClientVisibility(existing, show) {
+  const base =
+    existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {};
+  base.client = show;
+  return base;
+}
+
+/**
+ * Flip `showClientNamePublicly` on the Phase 1 job row. The portal DB may be the
+ * same client as the default one, so guard against updating twice.
+ */
+async function updatePortalJobClientVisibility(jobId, show, tenantClientId = null) {
+  const portalDb = getJobPortalPrismaClient();
+  const defaultDb = getDefaultPrismaClient();
+  const clients = portalDb === defaultDb ? [portalDb] : [portalDb, defaultDb];
+
+  let updated = false;
+  for (const client of clients) {
+    try {
+      const row = await client.job.findUnique({
+        where: { id: jobId },
+        select: { id: true, clientId: true, publicFieldVisibility: true },
+      });
+      if (!row) continue;
+      await client.job.update({
+        where: { id: jobId },
+        data: {
+          showClientNamePublicly: show,
+          hqHideClientName: !show,
+          publicFieldVisibility: mergeClientVisibility(row.publicFieldVisibility, show),
+          // Hiding the client also drops clientId from the mirror (see the portal
+          // sync), so restore it when HQ makes the name public again.
+          ...(show && !row.clientId && tenantClientId ? { clientId: tenantClientId } : {}),
+        },
+      });
+      updated = true;
+    } catch (error) {
+      console.warn(
+        `[hq-portal] portal client-name visibility update failed for job ${jobId}:`,
+        error?.message || error,
+      );
+    }
+  }
+  return updated;
+}
+
 export const hqPortalService = {
+  /**
+   * Show / hide the client (company) name on the Phase 1 portal job cards and
+   * job detail pages. Updates the Phase 2 tenant job (source of truth) plus the
+   * Phase 1 portal mirror that backend1 reads.
+   */
+  async setPortalJobClientVisibility({ jobId, tenantDbName = '', showClientNamePublicly }) {
+    const id = String(jobId || '').trim();
+    if (!id) {
+      throw new Error('Job ID is required');
+    }
+    const show = showClientNamePublicly !== false;
+
+    const tenant = String(tenantDbName || '').trim();
+    let updatedTenant = false;
+    let tenantClientId = null;
+
+    if (tenant) {
+      await runWithTenantContext(tenant, async () => {
+        const tenantJob = await prisma.job.findFirst({
+          where: { id },
+          select: { id: true, clientId: true, publicFieldVisibility: true },
+        });
+        if (!tenantJob) return;
+        tenantClientId = tenantJob.clientId || null;
+        await prisma.job.update({
+          where: { id },
+          data: {
+            showClientNamePublicly: show,
+            hqHideClientName: !show,
+            publicFieldVisibility: mergeClientVisibility(tenantJob.publicFieldVisibility, show),
+          },
+        });
+        updatedTenant = true;
+      });
+    }
+
+    const updatedPortal = await updatePortalJobClientVisibility(id, show, tenantClientId);
+
+    if (!updatedTenant && !updatedPortal) {
+      throw new Error('Job not found in tenant or Phase 1 portal');
+    }
+
+    await invalidatePortalJobsListCache();
+
+    return {
+      jobId: id,
+      tenantDbName: tenant,
+      showClientNamePublicly: show,
+      updatedTenant,
+      updatedPortal,
+    };
+  },
+
   /**
    * Permanently remove a job from Phase 2 tenant DB and Phase 1 portal mirror.
    * Portal-only jobs (no tenant row) are removed from the shared portal DB only.
