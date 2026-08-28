@@ -7,11 +7,16 @@ const router = express.Router();
 
 router.use(authMiddleware, attachUserPermissions);
 
-const orgRead = requireAnyPermission(['org_structure', 'node_org_structure', 'view_team', 'view_dashboard']);
+// Organization is an admin screen: only explicit org-structure permission (or
+// Super Admin, handled inside requireAnyPermission) may read it. `view_team` /
+// `view_dashboard` used to be enough, which showed the tab to almost everyone.
+const orgRead = requireAnyPermission(['org_structure', 'node_org_structure']);
 const orgWrite = requireAnyPermission(['org_structure', 'node_org_structure']);
 
 router.get('/', orgRead, orgController.list);
 router.get('/tree', orgRead, orgController.tree);
+router.get('/transferable-data', orgWrite, orgController.transferableData);
+router.post('/transfer-data', orgWrite, orgController.transferData);
 router.post('/', orgWrite, orgController.create);
 router.post('/assign', orgWrite, orgController.assign);
 // Body-based aliases (avoid nested-path 404s behind some proxies).

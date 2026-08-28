@@ -27,7 +27,8 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
   Request: [
     'requests_create', 'requests_read', 'requests_update', 'requests_delete', 'view_all_requests',
   ],
-  Organization: ['org_structure', 'node_org_structure', 'view_team'],
+  // Admin-only screen: plain team viewers must not see the Organization tab.
+  Organization: ['org_structure', 'node_org_structure'],
   System: [
     'manage_settings', 'access_integrations', 'export_data', 'view_activity_log',
     'recycle_bin_manage', 'view_dashboard',

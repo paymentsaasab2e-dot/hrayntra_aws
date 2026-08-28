@@ -123,6 +123,53 @@ export async function apiStampUntaggedToOrgUnit(orgUnitId: string, userIds?: str
   return res.data;
 }
 
+export type TransferableType = 'leads' | 'clients' | 'jobs' | 'candidates';
+
+export type TransferableItem = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  orgUnitId?: string | null;
+};
+
+/** Rows living in a company/branch (empty id = rows with no company yet). */
+export async function apiTransferableData(params: {
+  orgUnitId: string;
+  type: TransferableType;
+  search?: string;
+}) {
+  const query = new URLSearchParams({ orgUnitId: params.orgUnitId, type: params.type });
+  if (params.search) query.set('search', params.search);
+  const res = await apiFetch<{ type: TransferableType; items: TransferableItem[] }>(
+    `/org-units/transferable-data?${query.toString()}`,
+    { auth: true },
+  );
+  return res.data;
+}
+
+export type TransferResult = {
+  mode: 'copy' | 'move';
+  copied: Record<TransferableType, number>;
+  moved: Record<TransferableType, number>;
+  skipped: Record<TransferableType, number>;
+  total: number;
+};
+
+/** Duplicate or move selected rows into another company/branch (empty target = leave with no company). */
+export async function apiTransferOrgData(body: {
+  fromOrgUnitId: string;
+  toOrgUnitId: string;
+  mode: 'copy' | 'move';
+  items: Partial<Record<TransferableType, string[]>>;
+}) {
+  const res = await apiFetch<TransferResult>('/org-units/transfer-data', {
+    auth: true,
+    method: 'POST',
+    body,
+  });
+  return res.data;
+}
+
 export async function apiAssignOrgMember(body: {
   userId?: string;
   orgUnitId: string;

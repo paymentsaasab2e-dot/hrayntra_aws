@@ -104,7 +104,9 @@ app.use(cors({
     return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-db-name'],
+  // `x-org-unit-id` carries the active company/branch from the workspace switcher.
+  // Without it here the browser blocks every request made while a company is selected.
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-db-name', 'x-org-unit-id'],
   exposedHeaders: ['X-Coin-Balance', 'X-Coins-Spent'],
 }));
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '15mb';

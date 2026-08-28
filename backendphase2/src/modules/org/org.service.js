@@ -869,6 +869,179 @@ export async function assignOrgMember(req, body) {
   };
 }
 
+/**
+ * Data that can be duplicated or moved between companies / branches.
+ * All four models carry `orgUnitId`, so a clone is the same row with a new home.
+ */
+const TRANSFERABLE = {
+  leads: {
+    delegate: () => prisma.lead,
+    label: 'leads',
+    title: (row) => row.companyName || row.contactName || row.email || 'Lead',
+    subtitle: (row) => [row.status, row.city || row.location].filter(Boolean).join(' · '),
+  },
+  clients: {
+    delegate: () => prisma.client,
+    label: 'clients',
+    title: (row) => row.companyName || 'Client',
+    subtitle: (row) => [row.status, row.location].filter(Boolean).join(' · '),
+  },
+  jobs: {
+    delegate: () => prisma.job,
+    label: 'jobs',
+    title: (row) => row.title || 'Job',
+    subtitle: (row) => [row.statusLabel || row.status, row.location].filter(Boolean).join(' · '),
+  },
+  candidates: {
+    delegate: () => prisma.candidate,
+    label: 'candidates',
+    title: (row) =>
+      [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email || 'Candidate',
+    subtitle: (row) => [row.currentTitle, row.location].filter(Boolean).join(' · '),
+  },
+};
+
+export const TRANSFERABLE_TYPES = Object.keys(TRANSFERABLE);
+
+/** Fields that must never be carried over to a duplicated row. */
+const CLONE_SKIP_FIELDS = new Set([
+  'id',
+  'createdAt',
+  'updatedAt',
+  'deletedAt',
+  'deletedBy',
+  'publicToken',
+  'accessToken',
+]);
+
+function assertUnitAccess(scope, unitId) {
+  if (!unitId) return;
+  if (scope.isTenantAdmin) return;
+  if (!scope.unitIds.includes(String(unitId))) {
+    throw new Error('You can only move data inside your own company.');
+  }
+}
+
+/**
+ * Rows currently living in a company / branch (including its branches), for the
+ * multi-select copy list. Pass `orgUnitId` empty to list rows with no company yet.
+ */
+export async function listTransferableData(req, { orgUnitId, type, search = '', limit = 200 } = {}) {
+  const scope = await resolveViewerOrgScope(req);
+  const config = TRANSFERABLE[String(type || '')];
+  if (!config) throw new Error('Pick leads, clients, jobs, or candidates.');
+
+  const unitId = oid(orgUnitId);
+  assertUnitAccess(scope, unitId);
+
+  const delegate = config.delegate();
+  if (!delegate?.findMany) return { type, items: [] };
+
+  const unitIds = unitId ? await collectDescendantIds(unitId) : [];
+  let rows = [];
+  try {
+    rows = await delegate.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 2000,
+    });
+  } catch {
+    return { type, items: [] };
+  }
+
+  const wanted = new Set(unitIds.map(String));
+  const term = String(search || '').trim().toLowerCase();
+
+  const items = rows
+    .filter((row) => {
+      const home = row.orgUnitId ? String(row.orgUnitId) : '';
+      return unitId ? wanted.has(home) : !home;
+    })
+    .map((row) => ({
+      id: String(row.id),
+      title: config.title(row),
+      subtitle: config.subtitle(row) || '',
+      orgUnitId: row.orgUnitId ? String(row.orgUnitId) : null,
+    }))
+    .filter((item) => !term || `${item.title} ${item.subtitle}`.toLowerCase().includes(term))
+    .slice(0, Math.max(1, Math.min(Number(limit) || 200, 500)));
+
+  return { type, items };
+}
+
+async function cloneRow(delegate, id, targetOrgUnitId) {
+  const row = await delegate.findUnique({ where: { id } });
+  if (!row) return false;
+  const data = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (CLONE_SKIP_FIELDS.has(key)) continue;
+    if (value === undefined) continue;
+    data[key] = value;
+  }
+  data.orgUnitId = targetOrgUnitId || null;
+  await delegate.create({ data });
+  return true;
+}
+
+/**
+ * Duplicate ("copy") or re-home ("move") selected rows into another company /
+ * branch. A null / empty `toOrgUnitId` leaves the rows with no company, so they
+ * behave like freshly created data that has not been assigned yet.
+ */
+export async function transferOrgUnitData(req, body = {}) {
+  const scope = await resolveViewerOrgScope(req);
+  const mode = String(body?.mode || 'copy').toLowerCase() === 'move' ? 'move' : 'copy';
+  const fromId = oid(body?.fromOrgUnitId);
+  const toId = oid(body?.toOrgUnitId);
+
+  assertUnitAccess(scope, fromId);
+  assertUnitAccess(scope, toId);
+
+  if (fromId && toId && fromId === toId) {
+    throw new Error('Pick a different company or branch to send the data to.');
+  }
+
+  if (toId) {
+    const target = await prisma.orgUnit.findUnique({ where: { id: toId } });
+    if (!target) throw new Error('Target company or branch was not found.');
+    if (!target.parentId) throw new Error('Pick a company or branch, not HQ.');
+  }
+
+  const selections = body?.items && typeof body.items === 'object' ? body.items : {};
+  const result = { mode, copied: {}, moved: {}, skipped: {}, total: 0 };
+
+  for (const type of TRANSFERABLE_TYPES) {
+    const ids = Array.isArray(selections[type]) ? selections[type].map(oid).filter(Boolean) : [];
+    result.copied[type] = 0;
+    result.moved[type] = 0;
+    result.skipped[type] = 0;
+    if (!ids.length) continue;
+
+    const delegate = TRANSFERABLE[type].delegate();
+    if (!delegate?.findUnique) {
+      result.skipped[type] = ids.length;
+      continue;
+    }
+
+    for (const id of ids) {
+      try {
+        if (mode === 'move') {
+          await delegate.update({ where: { id }, data: { orgUnitId: toId || null } });
+          result.moved[type] += 1;
+        } else {
+          const done = await cloneRow(delegate, id, toId);
+          if (done) result.copied[type] += 1;
+          else result.skipped[type] += 1;
+        }
+        result.total += 1;
+      } catch {
+        result.skipped[type] += 1;
+      }
+    }
+  }
+
+  return result;
+}
+
 export async function getOrgTreeStats(req) {
   const data = await listOrgStructure(req);
   const byParent = new Map();

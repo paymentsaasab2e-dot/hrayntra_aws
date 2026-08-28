@@ -262,8 +262,8 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'clients_handoff',
     'requests_read', 'requests_create', 'requests_update', 'requests_delete', 'view_all_requests',
     'dash_mine_approvals',
-    'org_structure',
-    'node_org_structure',
+    // Organization (company/branch tree) stays with Admin — Managers get it only
+    // when an admin ticks org_structure for them.
   ],
   'Line Manager': [
     'requests_create',

@@ -7,6 +7,8 @@ import {
   adoptWorkspaceIntoUnit,
   stampUntaggedRecordsForUnit,
   getOrgTreeStats,
+  listTransferableData,
+  transferOrgUnitData,
 } from './org.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 
@@ -100,6 +102,34 @@ export const orgController = {
       if (!id) return sendError(res, 400, 'orgUnitId is required');
       const result = await stampUntaggedRecordsForUnit(req, id, req.body || {});
       sendResponse(res, 200, 'Assigned existing users and data to company', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async transferableData(req, res) {
+    try {
+      const data = await listTransferableData(req, {
+        orgUnitId: req.query.orgUnitId || req.query.fromOrgUnitId || '',
+        type: req.query.type,
+        search: req.query.search || '',
+        limit: req.query.limit,
+      });
+      sendResponse(res, 200, 'OK', data);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async transferData(req, res) {
+    try {
+      const result = await transferOrgUnitData(req, req.body || {});
+      sendResponse(
+        res,
+        200,
+        result.mode === 'move' ? 'Data moved' : 'Data duplicated',
+        result,
+      );
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

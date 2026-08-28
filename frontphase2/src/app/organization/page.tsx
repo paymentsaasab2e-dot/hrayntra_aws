@@ -23,8 +23,12 @@ import {
   apiDeleteOrgUnit,
   apiOrgTree,
   apiStampUntaggedToOrgUnit,
+  apiTransferableData,
+  apiTransferOrgData,
   apiUpdateOrgUnit,
   type OrgUnitNode,
+  type TransferableItem,
+  type TransferableType,
 } from '../../lib/org/orgApi';
 
 export const dynamic = 'force-dynamic';
@@ -407,6 +411,8 @@ function StructureUnitRow({
 export default function OrganizationPage() {
   const { hasPermission, isSuperAdmin } = usePermissions();
   const canWrite = isSuperAdmin() || hasPermission('org_structure') || hasPermission('node_org_structure');
+  // Organization is an admin screen — plain team members should not land here.
+  const canRead = canWrite;
   const [tree, setTree] = useState<OrgUnitNode | null>(null);
   const [isTenantAdmin, setIsTenantAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -417,7 +423,9 @@ export default function OrganizationPage() {
   const [unitKind, setUnitKind] = useState<'company' | 'site'>('company');
   const [unassignedCount, setUnassignedCount] = useState(0);
   const [unassignedPeopleIds, setUnassignedPeopleIds] = useState<string[]>([]);
-  const [source, setSource] = useState<'workspace' | 'blank' | 'department' | 'people'>('workspace');
+  const [source, setSource] = useState<'workspace' | 'blank' | 'department' | 'people' | 'copy'>(
+    'workspace',
+  );
   const [showMoreSource, setShowMoreSource] = useState(false);
   const [unitName, setUnitName] = useState('');
   const [siteParentId, setSiteParentId] = useState('');
@@ -430,7 +438,7 @@ export default function OrganizationPage() {
   const [newEmail, setNewEmail] = useState('');
   const [newRoleId, setNewRoleId] = useState('');
   const [sendInvite, setSendInvite] = useState(true);
-  const [tab, setTab] = useState<'structure' | 'create' | 'people'>('structure');
+  const [tab, setTab] = useState<'structure' | 'create' | 'people' | 'data'>('structure');
   const [createStep, setCreateStep] = useState(1);
   const [peopleStep, setPeopleStep] = useState(1);
 
@@ -445,6 +453,20 @@ export default function OrganizationPage() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+
+  const [dataFromId, setDataFromId] = useState('');
+  const [dataToId, setDataToId] = useState('');
+  const [dataMode, setDataMode] = useState<'copy' | 'move'>('copy');
+  const [dataType, setDataType] = useState<TransferableType>('leads');
+  const [dataSearch, setDataSearch] = useState('');
+  const [dataItems, setDataItems] = useState<TransferableItem[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataSelected, setDataSelected] = useState<Record<TransferableType, string[]>>({
+    leads: [],
+    clients: [],
+    jobs: [],
+    candidates: [],
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -611,7 +633,16 @@ export default function OrganizationPage() {
       setNewLast('');
       setNewEmail('');
       setCreateStep(1);
-      setTab('structure');
+      if (source === 'copy' && created?.id) {
+        setDataToId(String(created.id));
+        setDataFromId('');
+        setDataMode('copy');
+        setDataSelected({ leads: [], clients: [], jobs: [], candidates: [] });
+        setTab('data');
+        toast.message(`Pick the records to duplicate into ${created?.name || name}.`);
+      } else {
+        setTab('structure');
+      }
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not add');
@@ -626,6 +657,101 @@ export default function OrganizationPage() {
     if (!addingCompany) setSiteParentId(parentId);
     setCreateStep(1);
     setTab('create');
+  };
+
+  const loadTransferable = useCallback(
+    async (unitId: string, type: TransferableType, search: string) => {
+      setDataLoading(true);
+      try {
+        const res = await apiTransferableData({ orgUnitId: unitId, type, search });
+        setDataItems(res.items || []);
+      } catch (error) {
+        setDataItems([]);
+        toast.error(error instanceof Error ? error.message : 'Could not load data');
+      } finally {
+        setDataLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (tab !== 'data') return;
+    void loadTransferable(dataFromId, dataType, dataSearch);
+  }, [tab, dataFromId, dataType, dataSearch, loadTransferable]);
+
+  const selectedTotal = useMemo(
+    () => Object.values(dataSelected).reduce((sum, ids) => sum + ids.length, 0),
+    [dataSelected],
+  );
+
+  const toggleDataItem = (id: string) => {
+    setDataSelected((prev) => {
+      const current = prev[dataType] || [];
+      return {
+        ...prev,
+        [dataType]: current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
+      };
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setDataSelected((prev) => {
+      const current = prev[dataType] || [];
+      const visible = dataItems.map((i) => i.id);
+      const allPicked = visible.length > 0 && visible.every((id) => current.includes(id));
+      return {
+        ...prev,
+        [dataType]: allPicked
+          ? current.filter((id) => !visible.includes(id))
+          : [...new Set([...current, ...visible])],
+      };
+    });
+  };
+
+  const runTransfer = async () => {
+    if (!selectedTotal) {
+      toast.error('Select at least one record.');
+      return;
+    }
+    if (dataFromId && dataToId && dataFromId === dataToId) {
+      toast.error('Pick a different destination.');
+      return;
+    }
+    const targetLabel = dataToId
+      ? assignableUnits.find((u) => u.id === dataToId)?.name || 'the selected company'
+      : 'no company (left unassigned)';
+    if (
+      !window.confirm(
+        dataMode === 'copy'
+          ? `Duplicate ${selectedTotal} record(s) into ${targetLabel}? The originals stay where they are.`
+          : `Move ${selectedTotal} record(s) to ${targetLabel}? They will disappear from the source company.`,
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await apiTransferOrgData({
+        fromOrgUnitId: dataFromId,
+        toOrgUnitId: dataToId,
+        mode: dataMode,
+        items: dataSelected,
+      });
+      const done = dataMode === 'copy' ? result.copied : result.moved;
+      const doneTotal = Object.values(done).reduce((sum, n) => sum + Number(n || 0), 0);
+      const skipped = Object.values(result.skipped).reduce((sum, n) => sum + Number(n || 0), 0);
+      toast.success(
+        `${dataMode === 'copy' ? 'Duplicated' : 'Moved'} ${doneTotal} record(s)${skipped ? ` · ${skipped} skipped` : ''}`,
+      );
+      setDataSelected({ leads: [], clients: [], jobs: [], candidates: [] });
+      await loadTransferable(dataFromId, dataType, dataSearch);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not transfer data');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const promptAddUser = (unitId: string) => {
@@ -791,13 +917,27 @@ export default function OrganizationPage() {
       ? Boolean(assignUserId)
       : Boolean(assignFirst.trim() && assignLast.trim() && assignEmail.trim());
 
-  const tabs: { id: 'structure' | 'create' | 'people'; label: string }[] = canWrite
+  const tabs: { id: 'structure' | 'create' | 'people' | 'data'; label: string }[] = canWrite
     ? [
         { id: 'structure', label: 'Structure' },
         { id: 'create', label: 'Create' },
         { id: 'people', label: 'Add users' },
+        { id: 'data', label: 'Copy / move data' },
       ]
     : [{ id: 'structure', label: 'Structure' }];
+
+  if (!canRead) {
+    return (
+      <div className="mx-auto max-w-xl p-10 text-center">
+        <Building2 className="mx-auto mb-3 text-slate-300" size={36} />
+        <h1 className="text-lg font-bold text-slate-900">Organization is not available for your role</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Companies and branches are managed by admins. Ask your admin for the “Organization structure” permission if
+          you need access.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
@@ -1058,8 +1198,14 @@ export default function OrganizationPage() {
                 <Choice
                   active={source === 'blank'}
                   title="Start empty"
-                  hint="Create the name only. Add people next."
+                  hint="Create the name only, with no people or data. Add them later."
                   onClick={() => setSource('blank')}
+                />
+                <Choice
+                  active={source === 'copy'}
+                  title="Start empty, then copy data in"
+                  hint="Creates it empty and opens Copy / move data so you can duplicate selected leads, clients, jobs or candidates from another company."
+                  onClick={() => setSource('copy')}
                 />
               </div>
               <button
@@ -1349,6 +1495,149 @@ export default function OrganizationPage() {
               />
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {canWrite && tab === 'data' ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <h2 className="text-base font-bold text-slate-900">Copy or move data between companies</h2>
+          <p className="mt-0.5 text-[13px] text-slate-500">
+            Pick a source, select the records you want, then duplicate them into another company or branch. Copy keeps
+            the originals; move re-homes them. Leave the destination as “No company” to park records as unassigned.
+          </p>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className={labelClass}>From</label>
+              <select
+                value={dataFromId}
+                onChange={(e) => {
+                  setDataFromId(e.target.value);
+                  setDataSelected({ leads: [], clients: [], jobs: [], candidates: [] });
+                }}
+                className={fieldClass}
+              >
+                <option value="">No company (unassigned)</option>
+                {assignableUnits.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                    {u.isLeaf ? ' — branch' : ' — company'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>To</label>
+              <select value={dataToId} onChange={(e) => setDataToId(e.target.value)} className={fieldClass}>
+                <option value="">No company (leave unassigned)</option>
+                {assignableUnits
+                  .filter((u) => u.id !== dataFromId)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                      {u.isLeaf ? ' — branch' : ' — company'}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Action</label>
+              <select
+                value={dataMode}
+                onChange={(e) => setDataMode(e.target.value as 'copy' | 'move')}
+                className={fieldClass}
+              >
+                <option value="copy">Duplicate (keep original)</option>
+                <option value="move">Move (remove from source)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {(['leads', 'clients', 'jobs', 'candidates'] as TransferableType[]).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setDataType(type)}
+                className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold capitalize ${
+                  dataType === type
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {type}
+                {dataSelected[type].length ? ` (${dataSelected[type].length})` : ''}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              value={dataSearch}
+              onChange={(e) => setDataSearch(e.target.value)}
+              placeholder={`Search ${dataType}…`}
+              className="h-10 flex-1 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-sky-400"
+            />
+            <button
+              type="button"
+              onClick={toggleAllVisible}
+              disabled={!dataItems.length}
+              className="h-10 rounded-xl border border-slate-200 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              Select all shown
+            </button>
+          </div>
+
+          <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200">
+            {dataLoading ? (
+              <p className="p-4 text-sm text-slate-500">Loading…</p>
+            ) : dataItems.length ? (
+              <ul>
+                {dataItems.map((item) => {
+                  const checked = (dataSelected[dataType] || []).includes(item.id);
+                  return (
+                    <li key={item.id} className="border-b border-slate-100 last:border-0">
+                      <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50">
+                        <input type="checkbox" checked={checked} onChange={() => toggleDataItem(item.id)} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] font-medium text-slate-800">{item.title}</span>
+                          {item.subtitle ? (
+                            <span className="block truncate text-[11px] text-slate-500">{item.subtitle}</span>
+                          ) : null}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="p-4 text-sm text-slate-500">
+                No {dataType} found in {dataFromId ? 'this company' : 'the unassigned pool'}.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void runTransfer()}
+              disabled={saving || !selectedTotal}
+              className="h-11 rounded-xl bg-sky-600 px-5 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-40"
+            >
+              {saving
+                ? 'Working…'
+                : `${dataMode === 'copy' ? 'Duplicate' : 'Move'} ${selectedTotal || ''} selected`.trim()}
+            </button>
+            {selectedTotal ? (
+              <button
+                type="button"
+                onClick={() => setDataSelected({ leads: [], clients: [], jobs: [], candidates: [] })}
+                className="h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Clear selection
+              </button>
+            ) : null}
+          </div>
         </section>
       ) : null}
     </div>
