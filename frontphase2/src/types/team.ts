@@ -177,6 +177,10 @@ export interface TeamMember {
     loginId: string;
     tempPassword: string;
   } | null;
+  /** Company / branch this user belongs to (org structure). */
+  orgUnitId?: string | null;
+  orgUnit?: { id: string; name: string; kind: 'company' | 'branch' } | null;
+  hierarchyPurpose?: string;
   createdAt: string;
   updatedAt: string;
 }

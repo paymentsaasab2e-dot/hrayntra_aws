@@ -11,6 +11,10 @@ import { sendCredentialInvite, sendPasswordResetEmail } from '../../utils/emailS
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { assertCanCreateUser } from '../setting/planAccess.service.js';
+import {
+  mergeOrgCompanyUserScope,
+  resolveWriteOrgUnitId,
+} from '../../services/orgListScope.service.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -88,7 +92,10 @@ export const teamMemberService = {
       });
     }
 
-    const where = andFilters.length ? { AND: andFilters } : {};
+    const baseWhere = andFilters.length ? { AND: andFilters } : {};
+    // Team follows the company selector: users are filtered by the same
+    // orgUnitId that CRM/recruitment rows use.
+    const where = await mergeOrgCompanyUserScope(baseWhere, req);
 
     const [members, total] = await Promise.all([
       prisma.user.findMany({
@@ -109,6 +116,8 @@ export const teamMemberService = {
           isActive: true,
           createdAt: true,
           updatedAt: true,
+          orgUnitId: true,
+          hierarchyPurpose: true,
           departmentRelation: {
             select: { id: true, name: true },
           },
@@ -147,8 +156,19 @@ export const teamMemberService = {
       prisma.user.count({ where }),
     ]);
 
+    const unitIds = [...new Set(members.map((m) => m.orgUnitId).filter(Boolean).map(String))];
+    const unitNameById = new Map();
+    if (unitIds.length) {
+      const units = await prisma.orgUnit.findMany({
+        where: { id: { in: unitIds } },
+        select: { id: true, name: true, isLeaf: true },
+      });
+      for (const unit of units) unitNameById.set(String(unit.id), unit);
+    }
+
     // Format response
     const formatted = members.map((member) => {
+      const unit = member.orgUnitId ? unitNameById.get(String(member.orgUnitId)) : null;
       const fallbackName = typeof member.name === 'string' ? member.name.trim() : '';
       const fallbackParts = fallbackName ? fallbackName.split(/\s+/) : [];
 
@@ -196,6 +216,11 @@ export const teamMemberService = {
       assignedJobs: member.assignedJobs || 0,
       placements: member.placements || 0,
       revenueGenerated: member.revenueGenerated || 0,
+      orgUnitId: member.orgUnitId ? String(member.orgUnitId) : null,
+      hierarchyPurpose: member.hierarchyPurpose || 'member',
+      orgUnit: unit
+        ? { id: String(unit.id), name: unit.name, kind: unit.isLeaf ? 'branch' : 'company' }
+        : null,
       createdAt: member.createdAt,
       updatedAt: member.updatedAt,
     };
@@ -272,7 +297,7 @@ export const teamMemberService = {
     };
   },
 
-  async create(data, createdById) {
+  async create(data, createdById, req = null) {
     await assertCanCreateUser();
 
     const {
@@ -301,9 +326,17 @@ export const teamMemberService = {
       throw new Error('User with this email already exists');
     }
 
+    // New users belong to the company/branch the creator is currently operating in,
+    // so the Team tab stays segregated the same way CRM data is.
+    let orgUnitId = data?.orgUnitId ? String(data.orgUnitId) : null;
+    if (!orgUnitId && req) {
+      orgUnitId = await resolveWriteOrgUnitId(req);
+    }
+
     // Create user - passwordHash is required, use a placeholder if no credentials
     const user = await prisma.user.create({
       data: {
+        ...(orgUnitId ? { orgUnitId } : {}),
         name: `${firstName} ${lastName}`.trim(),
         firstName,
         lastName,
