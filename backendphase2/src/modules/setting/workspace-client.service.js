@@ -1,4 +1,5 @@
 import { prisma, getActiveTenantDbName } from '../../config/prisma.js';
+import { getOrganizationName } from './recruitmentMode.service.js';
 
 function formatUserName(user) {
   const first = String(user?.firstName || '').trim();
@@ -39,16 +40,27 @@ export async function findWorkspaceClient() {
   });
 }
 
-/** Internal company record used by standalone tenants (no CRM clients module). */
+/** Internal company record for jobs hired under this tenant (own company). */
 export async function getOrCreateWorkspaceClient(user) {
   const tenantDbName = String(getActiveTenantDbName() || '').trim();
   if (!tenantDbName) return null;
 
   const existing = await findWorkspaceClient();
-  if (existing) return existing;
+  if (existing) {
+    const orgName = await getOrganizationName();
+    const currentName = String(existing.companyName || '').trim();
+    if (orgName && currentName !== orgName) {
+      return prisma.client.update({
+        where: { id: existing.id },
+        data: { companyName: orgName },
+      });
+    }
+    return existing;
+  }
 
+  const orgName = await getOrganizationName();
   const ownerName = formatUserName(user);
-  const companyName = ownerName ? `${ownerName} Workspace` : `${tenantDbName} Workspace`;
+  const companyName = orgName || (ownerName ? `${ownerName} Workspace` : `${tenantDbName} Workspace`);
 
   return prisma.client.create({
     data: {

@@ -10,6 +10,7 @@ import {
   DASHBOARD_PEOPLE_FOLLOW_TEAM,
   formatPermissionLabel,
   isDashboardHiddenTickPermission,
+  RBAC_MODULE_GROUPS,
   sortModules,
   type RoleDashboardLevelChoice,
 } from './permissionCatalog';
@@ -63,6 +64,35 @@ export function PermissionPicker({
     return out;
   }, [permissionsByModule]);
 
+  /**
+   * Modules split into catalog sections (CRM, Recruitment, …) so the tick list
+   * reads in business sequence. A caller-supplied moduleOrder (HQ Team) opts out
+   * of sectioning and keeps its own flat order.
+   */
+  const sections = useMemo(() => {
+    const withPermissions = modules.filter((module) => (filteredByModule[module] || []).length > 0);
+    if (moduleOrder?.length) {
+      return [{ group: null as string | null, description: null, modules: withPermissions }];
+    }
+
+    const remaining = new Set(withPermissions);
+    const out: { group: string | null; description: string | null; modules: string[] }[] = [];
+
+    for (const entry of RBAC_MODULE_GROUPS) {
+      const groupModules = entry.modules.filter((module) => remaining.has(module));
+      groupModules.forEach((module) => remaining.delete(module));
+      if (groupModules.length) {
+        out.push({ group: entry.group, description: entry.description, modules: groupModules });
+      }
+    }
+
+    const leftovers = withPermissions.filter((module) => remaining.has(module));
+    if (leftovers.length) {
+      out.push({ group: 'Other', description: null, modules: leftovers });
+    }
+    return out;
+  }, [filteredByModule, moduleOrder, modules]);
+
   const syncPeopleWithTeam = (next: Set<string>) => {
     const nameToId = findPermissionIdsByNames(permissionsByModule, [
       ...Object.keys(DASHBOARD_PEOPLE_FOLLOW_TEAM),
@@ -104,6 +134,19 @@ export function PermissionPicker({
       modulePermissions.every((p) => selectedIds.has(p.id));
     const next = new Set(selectedIds);
     modulePermissions.forEach((p) => {
+      if (allSelected) next.delete(p.id);
+      else next.add(p.id);
+    });
+    onSelectionChange(syncPeopleWithTeam(next));
+  };
+
+  const handleGroupSelectAll = (groupModules: string[]) => {
+    if (disabled || !onSelectionChange) return;
+    const groupPermissions = groupModules.flatMap((module) => filteredByModule[module] || []);
+    if (!groupPermissions.length) return;
+    const allSelected = groupPermissions.every((p) => selectedIds.has(p.id));
+    const next = new Set(selectedIds);
+    groupPermissions.forEach((p) => {
       if (allSelected) next.delete(p.id);
       else next.add(p.id);
     });
@@ -164,65 +207,97 @@ export function PermissionPicker({
         </select>
       </div>
 
-      {modules.map((module) => {
-        const modulePermissions = filteredByModule[module] || [];
-        if (!modulePermissions.length) return null;
-        const allSelected =
-          modulePermissions.length > 0 &&
-          modulePermissions.every((p) => selectedIds.has(p.id));
-
-        return (
-          <div key={module} className="rounded-lg border border-slate-200 p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h4 className="text-sm font-semibold text-slate-900">{module}</h4>
-                <p className="text-[10px] text-slate-400">
-                  {modulePermissions.filter((p) => selectedIds.has(p.id)).length} /{' '}
-                  {modulePermissions.length} selected
-                </p>
+      {sections.map((section) => (
+        <div key={section.group || 'all'} className="space-y-3">
+          {section.group ? (
+            <div className="flex items-end justify-between gap-2 border-b border-slate-200 pb-1">
+              <div className="min-w-0">
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  {section.group}
+                </h3>
+                {section.description ? (
+                  <p className="text-[10px] text-slate-400">{section.description}</p>
+                ) : null}
               </div>
-              {!disabled ? (
+              {!disabled && onSelectionChange ? (
                 <button
                   type="button"
-                  onClick={() => handleModuleSelectAll(module)}
-                  className="text-xs font-medium text-blue-600 hover:text-blue-700 shrink-0"
+                  onClick={() => handleGroupSelectAll(section.modules)}
+                  className="shrink-0 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
                 >
-                  {allSelected ? 'Deselect all' : 'Select all'}
+                  {section.modules
+                    .flatMap((module) => filteredByModule[module] || [])
+                    .every((p) => selectedIds.has(p.id))
+                    ? `Deselect ${section.group}`
+                    : `Select all ${section.group}`}
                 </button>
               ) : null}
             </div>
-            <div className="grid grid-cols-1 gap-1">
-              {modulePermissions.map((permission) => (
-                <label
-                  key={permission.id}
-                  className={`flex items-start gap-2 rounded-lg p-2 transition-colors ${
-                    disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-slate-50'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(permission.id)}
-                    onChange={() => handleToggle(permission.id)}
-                    disabled={disabled}
-                    className="mt-0.5 size-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-sm font-medium text-slate-800">
-                      {formatPermissionLabel(permission.permissionName)}
-                    </span>
-                    {permission.description ? (
-                      <span className="block text-[11px] text-slate-500">{permission.description}</span>
-                    ) : null}
-                    <span className="block text-[10px] font-mono text-slate-400 mt-0.5">
-                      {permission.permissionName}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-        );
-      })}
+          ) : null}
+
+          {section.modules.map((module) => {
+            const modulePermissions = filteredByModule[module] || [];
+            if (!modulePermissions.length) return null;
+            const allSelected = modulePermissions.every((p) => selectedIds.has(p.id));
+
+            return (
+              <div key={module} className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">{module}</h4>
+                    <p className="text-[10px] text-slate-400">
+                      {modulePermissions.filter((p) => selectedIds.has(p.id)).length} /{' '}
+                      {modulePermissions.length} selected
+                    </p>
+                  </div>
+                  {!disabled ? (
+                    <button
+                      type="button"
+                      onClick={() => handleModuleSelectAll(module)}
+                      className="text-xs font-medium text-blue-600 hover:text-blue-700 shrink-0"
+                    >
+                      {allSelected ? 'Deselect all' : 'Select all'}
+                    </button>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-1 gap-1">
+                  {modulePermissions.map((permission) => (
+                    <label
+                      key={permission.id}
+                      className={`flex items-start gap-2 rounded-lg p-2 transition-colors ${
+                        disabled
+                          ? 'cursor-not-allowed opacity-60'
+                          : 'cursor-pointer hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(permission.id)}
+                        onChange={() => handleToggle(permission.id)}
+                        disabled={disabled}
+                        className="mt-0.5 size-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-medium text-slate-800">
+                          {formatPermissionLabel(permission.permissionName)}
+                        </span>
+                        {permission.description ? (
+                          <span className="block text-[11px] text-slate-500">
+                            {permission.description}
+                          </span>
+                        ) : null}
+                        <span className="block text-[10px] font-mono text-slate-400 mt-0.5">
+                          {permission.permissionName}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

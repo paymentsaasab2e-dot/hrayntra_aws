@@ -5,6 +5,19 @@ import {
   hqPlatformUserEmailNotClause,
 } from '../../utils/hqPlatformUser.js';
 import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
+import { resolveTenantOrganizationName } from '../setting/recruitmentMode.service.js';
+
+async function withOrganizationName(profile) {
+  if (!profile) return profile;
+  const organizationName = await resolveTenantOrganizationName({
+    email: profile.email,
+  });
+  return {
+    ...profile,
+    organizationName: organizationName || '',
+    companyName: organizationName || '',
+  };
+}
 
 export const userService = {
   async getAll(req) {
@@ -130,10 +143,10 @@ export const userService = {
     if (!user) return null;
 
     const { credential, ...profile } = user;
-    return {
+    return withOrganizationName({
       ...profile,
       loginId: credential?.loginId || null,
-    };
+    });
   },
 
   async update(id, data) {
@@ -161,7 +174,7 @@ export const userService = {
       }
     }
 
-    return prisma.user.update({
+    const updated = await prisma.user.update({
       where: { id },
       data: payload,
       select: {
@@ -180,6 +193,7 @@ export const userService = {
         isActive: true,
       },
     });
+    return withOrganizationName(updated);
   },
 
   async delete(id) {

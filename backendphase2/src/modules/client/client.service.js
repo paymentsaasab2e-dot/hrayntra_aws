@@ -223,10 +223,12 @@ function applySystemWorkspaceExclusion(where = {}, includeSystem = false) {
   if (includeSystem) return where;
 
   const excludeWorkspaceWhere = {
-    OR: [
-      { industry: { not: 'Workspace' } },
-      { companyName: { not: { endsWith: ' Workspace' } } },
-    ],
+    NOT: {
+      OR: [
+        { industry: 'Workspace' },
+        { website: { startsWith: 'tenant://' } },
+      ],
+    },
   };
 
   if (!where || Object.keys(where).length === 0) {

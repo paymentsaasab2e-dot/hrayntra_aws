@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Save, User as UserIcon, Mail, Shield, Briefcase } from 'lucide-react';
+import { Camera, Save, User as UserIcon, Mail, Shield, Briefcase, Building2 } from 'lucide-react';
 import { useUser } from '../hooks/useUser';
 import { apiUploadUserAvatar, apiUpdateMe } from '../lib/api';
 import { toast } from 'sonner';
@@ -106,7 +106,7 @@ export function ProfileSettings({ onDirtyChange }: ProfileSettingsProps) {
       <SettingsPageHero
         eyebrow="Profile"
         title="Personal profile"
-        description="Manage your name and profile picture. Role and email are managed by your organization admin."
+        description="Manage your name and profile picture. Company name comes from HQ when this tenant was created. Role and email are managed by your organization admin."
         icon={<UserIcon className="h-3.5 w-3.5 text-indigo-200" />}
         stats={
           isDirty ? (
@@ -171,6 +171,22 @@ export function ProfileSettings({ onDirtyChange }: ProfileSettingsProps) {
           </div>
 
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <DrawerFieldLabel label="Company Name" icon={Building2} iconClassName="text-sky-500" />
+              <DrawerIconInput
+                icon={Building2}
+                iconClassName="text-sky-400"
+                type="text"
+                value={user.organizationName || user.companyName || 'Not specified'}
+                disabled
+                readOnly
+                className={READONLY_INPUT_CLASS}
+              />
+              <p className="mt-1.5 text-[11px] text-slate-400">
+                Set when HQ created this tenant.
+              </p>
+            </div>
+
             <div>
               <DrawerFieldLabel label="Full Name" icon={UserIcon} iconClassName="text-indigo-500" required />
               <DrawerIconInput

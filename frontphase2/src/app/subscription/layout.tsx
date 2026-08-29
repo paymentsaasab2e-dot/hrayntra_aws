@@ -5,7 +5,8 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { dashTextFont } from '../../lib/dashTypeFonts';
 
 export default function SubscriptionLayout({ children }: { children: React.ReactNode }) {
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, hasPermission } = usePermissions();
+  const canManageSubscription = isSuperAdmin() || hasPermission('manage_subscription');
 
   return (
     <div className={`min-h-screen bg-slate-50 ${dashTextFont}`}>
@@ -13,11 +14,11 @@ export default function SubscriptionLayout({ children }: { children: React.React
         avatarUrl=""
         userProfile={{ name: '', role: '', avatarUrl: '' }}
       >
-        {isSuperAdmin() ? (
+        {canManageSubscription ? (
           children
         ) : (
           <div className="p-10 text-center text-sm text-slate-500">
-            Subscription tokens are only available to Super Admin.
+            Subscription tokens require Super Admin or the Manage subscription permission.
           </div>
         )}
       </Sidenav>

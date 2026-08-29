@@ -790,6 +790,37 @@ export const headquartersAuthService = {
     return normalizeHeadquartersUser(updated);
   },
 
+  async setOrganizationNameForEmail(email, organizationName) {
+    const collection = await getCollection();
+    if (!collection) return null;
+    const normalizedEmail = normalizeEmail(email);
+    const name = String(organizationName || '').trim();
+    if (!normalizedEmail) return null;
+    if (name.length < 2) {
+      throw new Error('Company name must be at least 2 characters');
+    }
+    const existing = await collection.findOne({
+      email: normalizedEmail,
+      isDeleted: { $ne: true },
+    });
+    if (!existing) return null;
+    const tenantDbName = String(existing.tenantDbName || '').trim();
+    const filter = tenantDbName
+      ? {
+          isDeleted: { $ne: true },
+          $or: [{ email: normalizedEmail }, { tenantDbName }],
+        }
+      : { email: normalizedEmail, isDeleted: { $ne: true } };
+    await collection.updateMany(filter, {
+      $set: { organizationName: name, updatedAt: new Date() },
+    });
+    const updated = await collection.findOne({
+      email: normalizedEmail,
+      isDeleted: { $ne: true },
+    });
+    return normalizeHeadquartersUser(updated);
+  },
+
   async setCoinsForEmail(email, coins) {
     const collection = await getCollection();
     if (!collection) return null;

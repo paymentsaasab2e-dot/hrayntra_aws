@@ -15,7 +15,7 @@ import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/LanguageProficiencySuggestInput';
 import { JobLocationFields } from '../location/JobLocationFields';
 import { EditDateField } from '../candidates/EditDateField';
-import type { BackendClient, BackendUser } from '../../lib/api';
+import { isOwnCompanyWorkspaceClient, type BackendClient, type BackendUser } from '../../lib/api';
 import { JOB_SALARY_CURRENCY_OPTIONS } from '../../constants/jobSalary';
 import {
   createEmptyCustomJdSection,
@@ -250,6 +250,11 @@ export function CreateJobDetailsForm({
   const managerOptions = useLineManagerPicker ? lineManagerOptions : users;
   const loadingManagerOptions = useLineManagerPicker ? loadingLineManagers : loadingUsers;
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
+  const companyValueLabel = selectedCompany
+    ? isOwnCompanyWorkspaceClient(selectedCompany)
+      ? `Own company · ${selectedCompany.companyName}`
+      : selectedCompany.companyName
+    : undefined;
   const selectedRecruiter = users.find((u) => u.id === formData.assignedToId);
   const selectedManager = managerOptions.find((u) => u.id === formData.managerId);
   const selectedContact =
@@ -299,11 +304,13 @@ export function CreateJobDetailsForm({
       const industry = client.industry?.toLowerCase() || '';
       const location = client.location?.toLowerCase() || '';
       const website = client.website?.toLowerCase() || '';
+      const ownLabel = isOwnCompanyWorkspaceClient(client) ? 'own company' : '';
       return (
         name.includes(query) ||
         industry.includes(query) ||
         location.includes(query) ||
-        website.includes(query)
+        website.includes(query) ||
+        ownLabel.includes(query)
       );
     });
   }, [clients, clientSearch]);
@@ -424,7 +431,7 @@ export function CreateJobDetailsForm({
             {standaloneWorkspaceName || selectedCompany?.companyName || 'Your organization'}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Standalone mode uses your internal workspace for hiring — no client selection needed.
+            Jobs under your own company are visible to all team members in this tenant.
           </p>
         </div>
       ) : (
@@ -432,7 +439,7 @@ export function CreateJobDetailsForm({
           label="Client"
           required
           placeholder="Select client"
-          valueLabel={selectedCompany?.companyName}
+          valueLabel={companyValueLabel}
           openKey="company"
           dropdownsOpen={dropdownsOpen}
           setDropdownsOpen={setDropdownsOpen}
@@ -466,7 +473,9 @@ export function CreateJobDetailsForm({
                     formData.companyId === client.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
                   }`}
                 >
-                  {client.companyName}
+                  {isOwnCompanyWorkspaceClient(client)
+                    ? `Own company · ${client.companyName}`
+                    : client.companyName}
                 </button>
               </li>
             ))

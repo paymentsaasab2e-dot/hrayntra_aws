@@ -122,12 +122,14 @@ const UserDropdown = ({
   avatarUrl,
   userName,
   userRole,
+  companyName,
   placement = 'auto',
   align = 'auto',
 }: {
   avatarUrl: string;
   userName: string;
   userRole: string;
+  companyName?: string;
   /** Preferred direction: 'top' opens above the trigger, 'bottom' opens below. 'auto' picks the side with more room. */
   placement?: 'auto' | 'top' | 'bottom';
   /** Horizontal alignment relative to the trigger: 'left' aligns the menu's left edge to the trigger, 'right' aligns the right edge. 'auto' clamps to the viewport. */
@@ -270,6 +272,9 @@ const UserDropdown = ({
             >
               <div className="px-4 py-2 border-b border-slate-100 mb-1">
                 <p className="text-sm font-semibold text-slate-800 truncate">{userName}</p>
+                {companyName ? (
+                  <p className="text-xs font-medium text-slate-600 truncate">{companyName}</p>
+                ) : null}
                 <p className="text-xs text-slate-500 truncate">{userRole}</p>
               </div>
               {menuItems.map((item, i) => {
@@ -1115,10 +1120,12 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   };
   const rawRole = user?.role || userProfile?.role || '';
   const designation = (user?.designation || '').trim();
+  const companyName = String(user?.organizationName || user?.companyName || '').trim();
   const profile = {
     name: user?.name || userProfile?.name || 'User',
     role: designation || formatRoleLabel(rawRole),
     avatarUrl: resolveSidenavAvatar(user?.avatar || userProfile?.avatarUrl || avatarUrl),
+    companyName,
   };
 
   const SIDEBAR_W = isCollapsed ? 60 : 220;
@@ -1562,6 +1569,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             avatarUrl={profile.avatarUrl}
             userName={profile.name}
             userRole={profile.role}
+            companyName={profile.companyName}
             placement="bottom"
             align="right"
           />
@@ -1651,11 +1659,13 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="lime" />
           )}
 
-          {mounted && isOrgModuleEnabled('events') && (
+          {(mounted && isOrgModuleEnabled('events') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Events))) && (
             <NavItem icon={CalendarDays} label="Portal Events" href="/events" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
           )}
 
-          {mounted && (isOrgModuleEnabled('clients') || isOrgModuleEnabled('jobs')) && (
+          {(mounted &&
+            (isOrgModuleEnabled('clients') || isOrgModuleEnabled('jobs')) &&
+            (showAll || hasAnyPermission(MODULE_ACCESS_MAP.CompanyPage))) && (
             <NavItem icon={Building2} label="Company Page" href="/company-page" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
           )}
 
@@ -1821,12 +1831,16 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               avatarUrl={profile.avatarUrl}
               userName={profile.name}
               userRole={profile.role}
+              companyName={profile.companyName}
               placement="top"
               align="left"
             />
             {!isCollapsed && (
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-semibold text-white truncate">{profile.name}</p>
+                {profile.companyName ? (
+                  <p className="text-[9px] text-slate-300 truncate">{profile.companyName}</p>
+                ) : null}
                 <p className="text-[9px] text-[#4A6070] truncate">{profile.role}</p>
               </div>
             )}

@@ -6,7 +6,8 @@ import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { signHqImpersonationToken } from '../../utils/hqImpersonationToken.js';
 import { env, normalizePublicUrl } from '../../config/env.js';
 import { applyTenantSubscriptionPlan } from '../setting/planAccess.service.js';
-import { setSubscriptionPlan, setHqEnabledModules, getHqEnabledModules } from '../setting/recruitmentMode.service.js';
+import { setSubscriptionPlan, setHqEnabledModules, getHqEnabledModules, setOrganizationName } from '../setting/recruitmentMode.service.js';
+import { findWorkspaceClient } from '../setting/workspace-client.service.js';
 import { resolvePackageSlug, todayPlanStartDate } from './hq-packages.config.js';
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { hqLeadsService } from './hq-leads.service.js';
@@ -727,6 +728,78 @@ export const hqService = {
       phase1CommonPoolEnabled: updated.phase1CommonPoolEnabled !== false,
       tenantDbName,
       syncedToTenant: true,
+    };
+  },
+
+  async updateTenantOrganizationName(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    const organizationName = String(data?.organizationName || data?.companyName || '').trim();
+    if (!email) throw new Error('email is required');
+    if (organizationName.length < 2) throw new Error('Company name must be at least 2 characters');
+
+    const updated = await headquartersAuthService.setOrganizationNameForEmail(email, organizationName);
+    if (!updated) throw new Error('Tenant not found');
+
+    const tenantDbName = String(updated.tenantDbName || '').trim();
+    if (tenantDbName) {
+      const tenantSettingWrite = runWithTenantContext(tenantDbName, () =>
+        setOrganizationName(organizationName),
+      );
+      let timeoutId;
+      try {
+        await Promise.race([
+          tenantSettingWrite,
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(
+              () => reject(new Error('tenant company name sync timed out')),
+              2500,
+            );
+          }),
+        ]);
+      } catch (err) {
+        console.warn('[hq] company name tenant sync continuing in background:', err?.message || err);
+        void tenantSettingWrite.catch((syncErr) => {
+          console.warn('[hq] company name tenant sync failed:', syncErr?.message || syncErr);
+        });
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+
+      void (async () => {
+        try {
+          await runWithTenantContext(tenantDbName, async () => {
+            const workspaceClient = await findWorkspaceClient();
+            if (workspaceClient?.id) {
+              await prisma.client.update({
+                where: { id: workspaceClient.id },
+                data: { companyName: organizationName },
+              });
+            }
+          });
+        } catch (err) {
+          console.warn('[hq] workspace client name sync failed:', err?.message || err);
+        }
+        try {
+          const { applyOrganizationNameToCompanyPage } = await import(
+            '../company-page/company-page.service.js'
+          );
+          await applyOrganizationNameToCompanyPage({
+            tenantDbName,
+            organizationName,
+            user: { email: updated.email },
+          });
+        } catch (err) {
+          console.warn('[hq] company page name sync failed:', err?.message || err);
+        }
+      })();
+    }
+
+    return {
+      email: updated.email,
+      organizationName: updated.organizationName || organizationName,
+      tenantDbName: tenantDbName || '',
+      syncedToTenant: Boolean(tenantDbName),
     };
   },
 

@@ -55,6 +55,7 @@ router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.put('/tenants/coins', authMiddleware, hqController.setTenantCoins);
 router.put('/tenants/pause', authMiddleware, hqController.setTenantPause);
 router.put('/tenants/modules', authMiddleware, hqController.updateTenantModules);
+router.put('/tenants/organization-name', authMiddleware, hqController.updateTenantOrganizationName);
 router.get('/ai-features', authMiddleware, hqController.listAiFeatures);
 router.put('/ai-features', authMiddleware, hqController.updateAiFeatures);
 router.get('/ai-coin-packs', authMiddleware, hqController.listAiCoinPacks);

@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileText,
   Globe,
+  Home,
   Linkedin,
   Loader2,
   LogIn,
@@ -20,6 +21,7 @@ import {
   Share2,
   Sparkles,
   Upload,
+  Users,
   X,
 } from 'lucide-react';
 import {
@@ -31,8 +33,10 @@ import {
   apiGetContacts,
   apiGetJobApplyLink,
   apiGetSocialStatus,
+  apiGetWorkspaceClient,
   apiProcessJobCreationPipeline,
   apiPublishSocialJob,
+  isOwnCompanyWorkspaceClient,
   type BackendClient,
   type BackendContact,
   type BackendUser,
@@ -486,7 +490,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
 };
 
 const STEP_HINTS: Record<WizardStep, string> = {
-  client: 'Who is this job for? Select a client to continue.',
+  client: 'Who is this job for? Choose your own company or a client to continue.',
   jd: 'Upload or paste a JD — we extract fields automatically where possible.',
   review: 'Review and edit every field, then continue to publish.',
 };
@@ -501,6 +505,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     targetHireDate: defaultTargetHireDate(),
   });
   const [clients, setClients] = useState<BackendClient[]>([]);
+  const [ownCompanyClient, setOwnCompanyClient] = useState<BackendClient | null>(null);
   const [clientSearch, setClientSearch] = useState('');
   const [loadingClients, setLoadingClients] = useState(false);
   const [showCreateClient, setShowCreateClient] = useState(false);
@@ -755,7 +760,10 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const loadClients = useCallback(async () => {
     setLoadingClients(true);
     try {
-      const res = await apiGetClients({ page: 1, limit: 200 });
+      const [res, workspaceRes] = await Promise.all([
+        apiGetClients({ page: 1, limit: 200 }),
+        apiGetWorkspaceClient().catch(() => null),
+      ]);
       const raw = res.data as unknown;
       const list = Array.isArray(raw)
         ? raw
@@ -764,8 +772,17 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           : Array.isArray((raw as { items?: BackendClient[] })?.items)
             ? (raw as { items: BackendClient[] }).items
             : [];
-      setClients(list as BackendClient[]);
-      return list as BackendClient[];
+      const workspace =
+        (workspaceRes as { data?: { workspaceClient?: BackendClient | null } } | null)?.data
+          ?.workspaceClient || null;
+      const crmList = (list as BackendClient[]).filter(
+        (client) =>
+          !isOwnCompanyWorkspaceClient(client) &&
+          (!workspace?.id || client.id !== workspace.id),
+      );
+      setOwnCompanyClient(workspace);
+      setClients(crmList);
+      return crmList;
     } catch {
       setError('Could not load clients.');
       return [] as BackendClient[];
@@ -818,6 +835,12 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
 
   const jobDetailsFormData = useMemo(() => draftToJobDetailsForm(draft), [draft]);
 
+  const clientsForForm = useMemo(() => {
+    if (!ownCompanyClient?.id) return clients;
+    if (clients.some((client) => client.id === ownCompanyClient.id)) return clients;
+    return [ownCompanyClient, ...clients];
+  }, [clients, ownCompanyClient]);
+
   const patchJobDetailsForm = useCallback(
     (
       patch:
@@ -828,10 +851,10 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       setDraft((prev) => {
         const current = draftToJobDetailsForm(prev);
         const nextPatch = typeof patch === 'function' ? patch(current) : patch;
-        return applyJobDetailsPatch(prev, nextPatch, clients);
+        return applyJobDetailsPatch(prev, nextPatch, clientsForForm);
       });
     },
-    [clients, markWizardDirty],
+    [clientsForForm, markWizardDirty],
   );
 
   const addSkill = useCallback(() => {
@@ -861,7 +884,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       setDraft((prev) => {
         const next = pipelineToDraft(prev, data);
         if (data.companyId || data.companyName) {
-          const matchedClient = clients.find(
+          const matchedClient = clientsForForm.find(
             (client) =>
               client.id === data.companyId ||
               client.companyName?.toLowerCase() === data.companyName?.toLowerCase(),
@@ -875,7 +898,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       });
       markWizardDirty();
     },
-    [clients, markWizardDirty],
+    [clientsForForm, markWizardDirty],
   );
 
   const handleAutoFillFromPastedJd = useCallback(async () => {
@@ -1032,6 +1055,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     );
   }, [clients, clientSearch]);
 
+  const ownCompanyVisible = useMemo(() => {
+    if (!ownCompanyClient?.id) return false;
+    const q = clientSearch.trim().toLowerCase();
+    if (!q) return true;
+    const haystack = `own company ${ownCompanyClient.companyName || ''}`.toLowerCase();
+    return haystack.includes(q);
+  }, [ownCompanyClient, clientSearch]);
+
   const stepIndex = Math.max(0, wizardSteps.indexOf(step));
 
   const patchDraft = (patch: Partial<WizardDraft>) => {
@@ -1039,11 +1070,19 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setDraft((prev) => ({ ...prev, ...patch }));
   };
 
+  const selectOwnCompany = () => {
+    if (!ownCompanyClient?.id) return;
+    patchDraft({
+      clientId: ownCompanyClient.id,
+      clientName: ownCompanyClient.companyName || 'Own company',
+    });
+  };
+
   const goNext = () => {
     setError('');
     if (step === 'client') {
       if (!draft.clientId) {
-        setError('Select a client to continue.');
+        setError('Select your own company or a client to continue.');
         return;
       }
       setStep('jd');
@@ -1098,8 +1137,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   };
 
   const validateReview = () => {
-    if (!draft.clientId || !draft.jobTitle.trim()) {
-      setError('Client and job title are required.');
+                if (!draft.clientId || !draft.jobTitle.trim()) {
+      setError('Own company or client, and job title, are required.');
       return false;
     }
     if (!draft.country.trim()) {
@@ -1671,11 +1710,54 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                     <div>
                       <p className="font-semibold text-slate-900">Select your client</p>
                       <p className="mt-0.5 text-sm text-slate-500">
-                        Search or tap a company below — this job will be linked to them. Or create a new client with the same fields as the Clients page.
+                        Hire for your own company, or search and tap a client below. This job will be linked to the company you pick. You can also create a new client with the same fields as the Clients page.
                       </p>
                     </div>
                   </div>
                 </div>
+
+                {ownCompanyVisible && ownCompanyClient ? (
+                  <button
+                    type="button"
+                    onClick={selectOwnCompany}
+                    className={`group flex w-full items-center gap-3 rounded-[1.2rem] border px-4 py-3.5 text-left transition ${
+                      draft.clientId === ownCompanyClient.id
+                        ? 'border-[#2098C8] bg-gradient-to-r from-[#E8F6FC] to-[#E8F6FC]/70 shadow-md shadow-[#2098C8]/15 ring-2 ring-[#2098C8]/25'
+                        : 'border-[#2098C8]/40 bg-gradient-to-r from-[#F3FBFE] to-white shadow-sm shadow-[#2098C8]/10 hover:border-[#2098C8]/70 hover:shadow-md hover:shadow-[#2098C8]/15'
+                    }`}
+                  >
+                    <div
+                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl transition ${
+                        draft.clientId === ownCompanyClient.id
+                          ? 'bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/25'
+                          : 'bg-gradient-to-br from-[#2098C8] to-[#176F96] text-white shadow-sm shadow-[#2098C8]/20'
+                      }`}
+                    >
+                      <Home className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#176F96]">
+                        Own company
+                      </p>
+                      <p className="truncate font-semibold text-slate-900">
+                        {ownCompanyClient.companyName || 'Your organization'}
+                      </p>
+                      <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-500">
+                        <Users className="h-3.5 w-3.5 shrink-0 text-[#2098C8]" />
+                        Visible to all team members in this company
+                      </p>
+                    </div>
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition ${
+                        draft.clientId === ownCompanyClient.id
+                          ? 'bg-[#2098C8] text-white shadow-sm shadow-[#2098C8]/30'
+                          : 'bg-slate-100 text-transparent group-hover:bg-[#D6EEF8] group-hover:text-[#2098C8]/45'
+                      }`}
+                    >
+                      <Check className="h-4 w-4" />
+                    </span>
+                  </button>
+                ) : null}
 
                 <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
                   <div className="relative min-w-0 flex-1">
@@ -1706,7 +1788,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                   <div className="max-h-[420px] space-y-2.5 overflow-y-auto pr-1 [scrollbar-width:thin]">
                     {filteredClients.length === 0 ? (
                       <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-white/70 px-4 py-10 text-center">
-                        <p className="text-sm text-slate-500">No clients found.</p>
+                        <p className="text-sm text-slate-500">
+                          {ownCompanyVisible
+                            ? 'No matching clients. You can still hire under your own company above.'
+                            : 'No clients found.'}
+                        </p>
                         <button
                           type="button"
                           onClick={() => setShowCreateClient(true)}
@@ -2437,7 +2523,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                     <CreateJobDetailsForm
                       formData={jobDetailsFormData}
                       setFormData={patchJobDetailsForm}
-                      clients={clients}
+                      clients={clientsForForm}
                       users={users}
                       contacts={contacts}
                       loadingClients={loadingClients}
@@ -2454,7 +2540,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       <CreateJobPhase1Preview
                         form={jobDetailsFormData}
                         companyName={
-                          clients.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ??
+                          clientsForForm.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ??
                           null
                         }
                         jobDescriptionHtml={draft.jobDescriptionHtml}
