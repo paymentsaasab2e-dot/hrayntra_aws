@@ -1500,6 +1500,7 @@ async function syncPhase2AfterPortalWithdraw(candidateId, jobId) {
         candidateId,
         jobId,
       }),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!res.ok) {
@@ -2489,7 +2490,8 @@ async function withdrawApplication(req, res) {
       }
     }, 10);
 
-    await syncPhase2AfterPortalWithdraw(candidateId, app.jobId);
+    // Phase 2 tenant sync can take tens of seconds — do not block the candidate UI.
+    void syncPhase2AfterPortalWithdraw(candidateId, app.jobId);
 
     return res.json({
       success: true,
