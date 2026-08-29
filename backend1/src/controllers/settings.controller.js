@@ -54,7 +54,7 @@ async function getSettings(req, res) {
           profileVisibility: 'Recruiters only',
           dataSharing: false,
           language: 'English',
-          timezone: 'Asia/Kolkata (UTC+05:30)',
+          timezone: 'Asia/Kolkata',
           theme: 'System',
         },
       });
@@ -278,7 +278,7 @@ async function updatePreferences(req, res) {
       create: {
         candidateId,
         language: language || 'English',
-        timezone: timezone || 'Asia/Kolkata (UTC+05:30)',
+        timezone: timezone || 'Asia/Kolkata',
         theme: theme || 'System',
       },
       update: {
