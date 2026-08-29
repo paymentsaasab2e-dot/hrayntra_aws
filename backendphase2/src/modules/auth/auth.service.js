@@ -7,6 +7,7 @@ import { headquartersAuthService } from './headquarters-auth.service.js';
 import {
   getSubscriptionPlan,
   seedOrgRecruitmentFromOrganizationType,
+  resolveTenantOrganizationName,
 } from '../setting/recruitmentMode.service.js';
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions, syncDefaultRolePresets, syncMissingRolePresetPermissions } from '../role/permission-sync.service.js';
@@ -179,6 +180,22 @@ async function rerunLoginInResolvedTenant(loginIdOrEmail, user, credential, reru
   return runWithTenantContext(resolved, rerun);
 }
 
+function workspaceLabelFromHqUser(hqUser) {
+  return String(hqUser?.organizationName || hqUser?.name || '').trim();
+}
+
+async function organizationFieldsForLogin({ email, tenantDbName } = {}) {
+  try {
+    const organizationName = await resolveTenantOrganizationName({ email, tenantDbName });
+    return {
+      organizationName: organizationName || '',
+      companyName: organizationName || '',
+    };
+  } catch {
+    return { organizationName: '', companyName: '' };
+  }
+}
+
 async function ensureWorkspaceClientForTenant(tenantDbName, user, fallbackWorkspaceName = '') {
   const normalizedTenant = String(tenantDbName || '').trim();
   if (!normalizedTenant) return null;
@@ -199,8 +216,10 @@ async function ensureWorkspaceClientForTenant(tenantDbName, user, fallbackWorksp
 
     if (existingWorkspaceClient) return existingWorkspaceClient;
 
-    const ownerName = String(user?.name || fallbackWorkspaceName || normalizedTenant).trim();
-    const companyName = ownerName ? `${ownerName} Workspace` : `${normalizedTenant} Workspace`;
+    const orgName = String(fallbackWorkspaceName || '').trim();
+    const ownerName = String(user?.name || '').trim();
+    const companyName =
+      orgName || (ownerName ? `${ownerName} Workspace` : `${normalizedTenant} Workspace`);
 
     return prisma.client.create({
       data: {
@@ -437,13 +456,30 @@ export const authService = {
       throw new Error('tenantDbName is required');
     }
     return runWithTenantContext(headquartersUser.tenantDbName, async () => {
-      await seedOrgRecruitmentFromOrganizationType(headquartersUser.organizationType || 'agency');
+      await seedOrgRecruitmentFromOrganizationType(headquartersUser.organizationType || 'agency', {
+        organizationName: headquartersUser.organizationName,
+      });
       return ensureLocalSuperAdminFromHeadquarters(headquartersUser);
     });
   },
 
   async finalizeHeadquartersTenantWorkspace(headquartersUser, localUser) {
-    await ensureWorkspaceClientForTenant(headquartersUser.tenantDbName, localUser, headquartersUser.name);
+    const workspaceName = String(
+      headquartersUser.organizationName || headquartersUser.name || '',
+    ).trim();
+    await ensureWorkspaceClientForTenant(headquartersUser.tenantDbName, localUser, workspaceName);
+    try {
+      const { seedTenantCompanyPageFromOrganization } = await import(
+        '../company-page/company-page.service.js'
+      );
+      await seedTenantCompanyPageFromOrganization({
+        tenantDbName: headquartersUser.tenantDbName,
+        organizationName: headquartersUser.organizationName,
+        user: localUser,
+      });
+    } catch (err) {
+      console.warn('[auth] company page seed failed:', err?.message || err);
+    }
   },
 
   async updateHeadquartersAdminCredentials(headquartersUser, plainPassword) {
@@ -510,7 +546,11 @@ export const authService = {
     });
 
     const localUser = await this.provisionHeadquartersMappedTenant(headquartersUser);
-    await ensureWorkspaceClientForTenant(headquartersUser.tenantDbName, localUser, headquartersUser.name);
+    await ensureWorkspaceClientForTenant(
+      headquartersUser.tenantDbName,
+      localUser,
+      workspaceLabelFromHqUser(headquartersUser),
+    );
     await sendWelcomeEmail(normalizedEmail, normalizedName);
 
     return {
@@ -627,7 +667,11 @@ export const authService = {
       }
 
       const { localUser, accessToken, refreshToken } = hqLoginResult;
-      await ensureWorkspaceClientForTenant(tenantDbName, localUser, headquartersUser.name);
+      await ensureWorkspaceClientForTenant(
+        tenantDbName,
+        localUser,
+        workspaceLabelFromHqUser(headquartersUser),
+      );
 
       return {
         user: {
@@ -637,6 +681,8 @@ export const authService = {
           role: 'SUPER_ADMIN',
           roleName: 'Super Admin',
           roleColor: 'red',
+          organizationName: headquartersUser.organizationName || '',
+          companyName: headquartersUser.organizationName || '',
         },
         accessToken,
         refreshToken,
@@ -1068,6 +1114,7 @@ export const authService = {
             loginId: credential.loginId,
             roleName: userWithRole.systemRole?.roleName,
             roleColor: userWithRole.systemRole?.color,
+            ...(await organizationFieldsForLogin({ email: user.email, tenantDbName })),
           },
           permissions: appliedHq.hqAuth?.hqPermissionIds?.length ? appliedHq.hqAuth.hqPermissionIds : permissions,
           requirePasswordReset: await resolveRequirePasswordReset(credential, user.email),
@@ -1251,6 +1298,7 @@ export const authService = {
             roleId: user.systemRole?.id,
             roleName: user.systemRole?.roleName,
             roleColor: user.systemRole?.color,
+            ...(await organizationFieldsForLogin({ email: user.email, tenantDbName })),
           },
           accessToken,
           refreshToken,
@@ -1313,7 +1361,13 @@ export const authService = {
       });
 
       return {
-        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          ...(await organizationFieldsForLogin({ email: user.email, tenantDbName })),
+        },
         accessToken,
         refreshToken,
         requirePasswordReset: false,
@@ -1641,7 +1695,11 @@ export const authService = {
       };
     });
 
-    await ensureWorkspaceClientForTenant(tenantDbName, loginResult.localUser, headquartersUser.name);
+    await ensureWorkspaceClientForTenant(
+      tenantDbName,
+      loginResult.localUser,
+      workspaceLabelFromHqUser(headquartersUser),
+    );
 
     console.info('[hq-impersonation] access consumed', {
       tenantEmail: payload.tenantEmail,
@@ -1659,6 +1717,8 @@ export const authService = {
         roleName: 'Super Admin',
         roleColor: 'red',
         loginId: headquartersUser.loginId || headquartersUser.email,
+        organizationName: headquartersUser.organizationName || '',
+        companyName: headquartersUser.organizationName || '',
       },
       accessToken: loginResult.accessToken,
       refreshToken: loginResult.refreshToken,

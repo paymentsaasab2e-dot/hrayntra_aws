@@ -146,6 +146,15 @@ export const hqController = {
     }
   },
 
+  async updateTenantOrganizationName(req, res) {
+    try {
+      const result = await hqService.updateTenantOrganizationName(req.body, req.user);
+      sendResponse(res, 200, 'Company name updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listLeads(req, res) {
     try {
       const result = await hqService.listLeads(req.user);

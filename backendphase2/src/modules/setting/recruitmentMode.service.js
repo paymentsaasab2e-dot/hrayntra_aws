@@ -149,6 +149,55 @@ export async function setHqEnabledModules({
   return normalized;
 }
 
+const KEY_ORGANIZATION_NAME = 'organizationName';
+
+function parseOrganizationNameFromSetting(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value && typeof value === 'object' && typeof value.name === 'string' && value.name.trim()) {
+    return value.name.trim();
+  }
+  return '';
+}
+
+/** Company name captured when HQ (or landing) provisions this tenant. */
+export async function getOrganizationName() {
+  const row = await findOrgSettingRow(KEY_ORGANIZATION_NAME);
+  return parseOrganizationNameFromSetting(row?.value);
+}
+
+export async function setOrganizationName(name) {
+  const normalized = String(name || '').trim();
+  if (!normalized) return '';
+  await upsertOrgSettingJson(KEY_ORGANIZATION_NAME, { name: normalized });
+  return normalized;
+}
+
+/**
+ * Tenant profile / workspace company name.
+ * Prefers the org setting (seeded at provision). Falls back to the HQ directory
+ * so existing tenants still show the name entered when the tenant was created.
+ */
+export async function resolveTenantOrganizationName({ email, tenantDbName } = {}) {
+  const local = await getOrganizationName();
+  if (local) return local;
+  try {
+    const { headquartersAuthService } = await import('../auth/headquarters-auth.service.js');
+    const { getActiveTenantDbName } = await import('../../config/prisma.js');
+    const hq = await headquartersAuthService.findTenantModulesForSession({
+      email,
+      tenantDbName: tenantDbName || getActiveTenantDbName(),
+    });
+    const name = String(hq?.organizationName || '').trim();
+    if (name) {
+      await setOrganizationName(name);
+      return name;
+    }
+  } catch (err) {
+    console.warn('[org] organization name lookup failed:', err?.message || err);
+  }
+  return '';
+}
+
 export const SUBSCRIPTION_PLAN_OPTIONS = [
   { id: 'basic', name: 'Basic' },
   { id: 'pro', name: 'Pro' },
@@ -275,9 +324,13 @@ export async function setDefaultPipelineTemplate(stages) {
 }
 
 /** Used after HQ provisions a tenant — same Prisma helpers inside tenant context. */
-export async function seedOrgRecruitmentFromOrganizationType(organizationType) {
+export async function seedOrgRecruitmentFromOrganizationType(organizationType, extras = {}) {
   const mode = normalizeMode(organizationType);
   await upsertOrgSettingJson(KEY_RECRUITMENT_MODE, { mode });
+  const organizationName = String(extras?.organizationName || '').trim();
+  if (organizationName) {
+    await setOrganizationName(organizationName);
+  }
   await setDefaultPipelineTemplate(getBuiltinDefaultPipelineTemplate());
   try {
     await applyOrgPipelineTemplateToEmptyJobs();

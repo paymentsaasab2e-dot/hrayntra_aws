@@ -81,10 +81,12 @@ export async function buildClientsListScopeWhere(req) {
     AND: [
       where,
       {
-        OR: [
-          { industry: { not: 'Workspace' } },
-          { companyName: { not: { endsWith: ' Workspace' } } },
-        ],
+        NOT: {
+          OR: [
+            { industry: 'Workspace' },
+            { website: { startsWith: 'tenant://' } },
+          ],
+        },
       },
     ],
   };

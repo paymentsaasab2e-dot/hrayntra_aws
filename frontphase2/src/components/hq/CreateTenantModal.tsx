@@ -333,7 +333,7 @@ export function ProvisionTenantFormFields({
       </div>
 
       <HqFieldText
-        label="User name"
+        label="Company name"
         icon={Building2}
         value={data.organizationName}
         onChange={(v) => onChange({ ...data, organizationName: v })}

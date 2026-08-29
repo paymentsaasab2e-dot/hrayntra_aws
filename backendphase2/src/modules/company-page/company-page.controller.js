@@ -26,7 +26,10 @@ export const companyPageController = {
   async get(req, res) {
     try {
       const tenantDbName = resolveTenantDbName(req);
-      const data = await companyPageService.getTenantCompanyPage({ tenantDbName });
+      const data = await companyPageService.getTenantCompanyPage({
+        tenantDbName,
+        user: req.user,
+      });
       return sendResponse(res, 200, 'OK', data);
     } catch (error) {
       return handleError(res, error, '[companyPage.get]');

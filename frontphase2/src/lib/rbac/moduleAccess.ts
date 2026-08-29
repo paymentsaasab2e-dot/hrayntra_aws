@@ -1,14 +1,14 @@
 /** Route / nav access: any listed permission grants module access */
 export const MODULE_ACCESS_MAP: Record<string, string[]> = {
-  Leads: ['leads_create', 'leads_read', 'leads_update', 'leads_delete', 'view_all_leads'],
+  Leads: ['leads_create', 'leads_read', 'leads_update', 'leads_delete', 'view_all_leads', 'convert_lead'],
   Clients: ['clients_create', 'clients_read', 'clients_update', 'clients_delete', 'view_all_clients', 'clients_handoff'],
-  Jobs: ['jobs_create', 'jobs_read', 'jobs_update', 'jobs_delete', 'assign_job', 'view_all_jobs', 'create_job', 'edit_job', 'delete_job', 'view_jobs'],
+  Jobs: ['jobs_create', 'jobs_read', 'jobs_update', 'jobs_delete', 'assign_job', 'view_all_jobs', 'publish_job', 'create_job', 'edit_job', 'delete_job', 'view_jobs'],
   Candidates: [
     'candidates_create', 'candidates_read', 'candidates_update', 'candidates_delete',
     'view_all_candidates', 'view_assigned_candidates', 'add_candidate', 'edit_candidate',
     'delete_candidate', 'move_pipeline', 'submit_candidate',
   ],
-  Interviews: ['interviews_create', 'interviews_read', 'interviews_update', 'interviews_delete'],
+  Interviews: ['interviews_create', 'interviews_read', 'interviews_update', 'interviews_delete', 'interviews_feedback'],
   Placements: ['placements_create', 'placements_read', 'placements_update', 'placements_delete'],
   Contacts: ['contacts_create', 'contacts_read', 'contacts_update', 'contacts_delete'],
   Tasks: ['tasks_create', 'tasks_read', 'tasks_update', 'tasks_delete'],
@@ -18,24 +18,38 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
   Agreements: ['agreements_read', 'agreements_manage'],
   Inbox: ['inbox_read', 'inbox_manage'],
   Calendar: ['calendar_read', 'calendar_manage'],
+  // Events keeps Calendar permissions as a fallback so roles seeded before
+  // events_read existed do not lose the tab.
+  Events: ['events_read', 'events_manage', 'calendar_read', 'calendar_manage'],
   Reports: ['reports_create', 'reports_read', 'reports_update', 'reports_delete'],
   Billing: ['access_billing', 'create_invoice', 'record_payment', 'manage_billing_settings'],
+  Subscription: ['manage_subscription', 'manage_billing_settings', 'access_billing'],
   Team: [
     'view_team', 'add_team_member', 'edit_team_member', 'assign_roles', 'manage_roles',
-    'generate_credentials', 'manage_commission', 'manage_targets', 'view_team_activity',
+    'manage_departments', 'generate_credentials', 'manage_commission', 'manage_targets',
+    'view_team_activity',
   ],
   Request: [
     'requests_create', 'requests_read', 'requests_update', 'requests_delete', 'view_all_requests',
+    'approve_requests',
   ],
   // Admin-only screen: plain team viewers must not see the Organization tab.
-  Organization: ['org_structure', 'node_org_structure'],
+  Organization: ['org_structure', 'node_org_structure', 'switch_companies'],
+  CompanyPage: [
+    'company_page_read', 'company_page_manage',
+    // Pre-existing behaviour: client/job access implied company-page access.
+    'clients_read', 'view_all_clients', 'jobs_read', 'view_all_jobs',
+  ],
   System: [
     'manage_settings', 'access_integrations', 'export_data', 'view_activity_log',
     'recycle_bin_manage', 'view_dashboard',
   ],
   CrmDashboard: ['dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team', 'dash_crm_people', 'view_dashboard'],
   RecDashboard: ['dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team', 'dash_rec_people', 'view_dashboard'],
-  Behaviour: ['view_team_activity', 'reports_read', 'view_activity_log', 'manage_settings', 'view_dashboard'],
+  Behaviour: [
+    'behavior_read', 'behavior_manage',
+    'view_team_activity', 'reports_read', 'view_activity_log', 'manage_settings', 'view_dashboard',
+  ],
 };
 
 export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
@@ -58,8 +72,9 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/request/approval': MODULE_ACCESS_MAP.Request,
   '/inbox': MODULE_ACCESS_MAP.Inbox,
   '/calendar': MODULE_ACCESS_MAP.Calendar,
-  '/events': MODULE_ACCESS_MAP.Calendar,
-  '/company-page': [...MODULE_ACCESS_MAP.Clients, ...MODULE_ACCESS_MAP.Jobs],
+  '/events': MODULE_ACCESS_MAP.Events,
+  '/company-page': MODULE_ACCESS_MAP.CompanyPage,
+  '/subscription': MODULE_ACCESS_MAP.Subscription,
   '/activity-feed': ['view_activity_log', 'reports_read', 'view_team_activity'],
   '/recycle-bin': ['recycle_bin_manage'],
   '/dashboard': ['view_dashboard'],
@@ -70,19 +85,7 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
     ...MODULE_ACCESS_MAP.Placements,
     'view_dashboard',
   ],
-  '/administration': ['manage_settings', 'manage_roles', 'assign_roles'],
-  '/thebehave': [
-    'view_team_activity',
-    'reports_read',
-    'view_activity_log',
-    'manage_settings',
-    'view_dashboard',
-  ],
-  '/tenant-behave': [
-    'view_team_activity',
-    'reports_read',
-    'view_activity_log',
-    'manage_settings',
-    'view_dashboard',
-  ],
+  '/administration': ['manage_settings', 'manage_roles', 'manage_departments', 'assign_roles'],
+  '/thebehave': MODULE_ACCESS_MAP.Behaviour,
+  '/tenant-behave': MODULE_ACCESS_MAP.Behaviour,
 };

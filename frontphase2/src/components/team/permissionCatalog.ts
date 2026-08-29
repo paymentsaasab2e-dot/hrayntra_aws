@@ -1,7 +1,19 @@
 import type { Permission } from '../../types/team';
-import { RBAC_CATALOG_TOTAL, RBAC_MODULE_ORDER, RBAC_PERMISSION_SEED } from '../../lib/rbac/permissions';
+import {
+  RBAC_CATALOG_TOTAL,
+  RBAC_MODULE_GROUPS,
+  RBAC_MODULE_ORDER,
+  RBAC_PERMISSION_SEED,
+  rbacGroupForModule,
+} from '../../lib/rbac/permissions';
 
-export { RBAC_CATALOG_TOTAL, RBAC_MODULE_ORDER, RBAC_PERMISSION_SEED };
+export {
+  RBAC_CATALOG_TOTAL,
+  RBAC_MODULE_GROUPS,
+  RBAC_MODULE_ORDER,
+  RBAC_PERMISSION_SEED,
+  rbacGroupForModule,
+};
 
 /** @deprecated use RBAC_PERMISSION_SEED */
 export const DEFAULT_PERMISSION_SEED = RBAC_PERMISSION_SEED;
@@ -57,6 +69,18 @@ export function formatPermissionLabel(name: string): string {
     dash_company_scope: 'Dashboard level: This company',
     dash_full_scope: 'Dashboard level: Whole tenant',
     dash_mine_approvals: 'My work: approvals',
+    convert_lead: 'Convert lead to client',
+    publish_job: 'Publish job',
+    interviews_feedback: 'Record interview feedback',
+    events_read: 'View events',
+    events_manage: 'Manage events',
+    approve_requests: 'Approve requests',
+    behavior_read: 'View behaviour analytics',
+    behavior_manage: 'Configure behaviour tracking',
+    manage_subscription: 'Manage subscription',
+    manage_departments: 'Manage departments',
+    company_page_read: 'View company page',
+    company_page_manage: 'Manage company page',
   };
   if (special[name]) return special[name];
   const normalized = String(name || '')

@@ -54,6 +54,8 @@ import {
   setTableColumnModuleVisibility,
   setTableColumnVisibility,
   getHqEnabledModules,
+  getOrganizationName,
+  setOrganizationName,
 } from './recruitmentMode.service.js';
 import { getOrCreateWorkspaceClient } from './workspace-client.service.js';
 import {
@@ -97,6 +99,7 @@ router.get('/recruitment-summary', async (req, res) => {
     const clientPageFieldVisibility = await getClientPageFieldVisibility();
     const tenantModules = await getHqEnabledModules();
     const tenantDbName = String(getActiveTenantDbName() || '').trim();
+    let organizationName = await getOrganizationName();
     let tenantPaused = false;
     let tenantPausedAt = null;
     let productLine = tenantModules.productLine || '';
@@ -121,6 +124,15 @@ router.get('/recruitment-summary', async (req, res) => {
           if (Object.prototype.hasOwnProperty.call(hqTenant, 'phase1CommonPoolEnabled')) {
             phase1CommonPoolEnabled = hqTenant.phase1CommonPoolEnabled !== false;
           }
+          const hqOrgName = String(hqTenant.organizationName || '').trim();
+          if (hqOrgName && !organizationName) {
+            organizationName = hqOrgName;
+            try {
+              await setOrganizationName(hqOrgName);
+            } catch {
+              /* cache miss is non-blocking */
+            }
+          }
         }
       } catch (err) {
         console.warn('[recruitment-summary] tenant modules lookup failed:', err?.message || err);
@@ -141,6 +153,8 @@ router.get('/recruitment-summary', async (req, res) => {
       enabledModules,
       modulesRestricted,
       phase1CommonPoolEnabled,
+      organizationName: organizationName || '',
+      companyName: organizationName || '',
     });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load org summary', error);
@@ -226,17 +240,13 @@ router.post('/people-perf/unlock', async (req, res) => {
   }
 });
 
-/** Standalone tenants: internal workspace company (no Clients module). */
+/** Internal own-company record used for jobs hired under this tenant (agency + standalone). */
 router.get('/workspace-client', async (req, res) => {
   try {
     const recruitmentMode = await getRecruitmentMode();
-    if (recruitmentMode !== 'standalone') {
-      return sendResponse(res, 200, 'OK', { recruitmentMode, workspaceClient: null });
-    }
-
     const workspaceClient = await getOrCreateWorkspaceClient(req.user);
     if (!workspaceClient) {
-      return sendError(res, 404, 'Workspace client is not available for this tenant');
+      return sendError(res, 404, 'Own company is not available for this tenant');
     }
 
     sendResponse(res, 200, 'OK', {
@@ -247,10 +257,11 @@ router.get('/workspace-client', async (req, res) => {
         website: workspaceClient.website,
         industry: workspaceClient.industry,
         status: workspaceClient.status,
+        logo: workspaceClient.logo || null,
       },
     });
   } catch (error) {
-    sendError(res, 500, error.message || 'Failed to load workspace client', error);
+    sendError(res, 500, error.message || 'Failed to load own company', error);
   }
 });
 

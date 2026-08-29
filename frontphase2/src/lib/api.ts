@@ -811,6 +811,8 @@ export function applyOrgRecruitmentSummaryPayload(
         enabledModules?: string[] | null;
         modulesRestricted?: boolean;
         phase1CommonPoolEnabled?: boolean;
+        organizationName?: string | null;
+        companyName?: string | null;
         clientPageFieldVisibility?: {
           interestLevel?: boolean;
           status?: boolean;
@@ -912,6 +914,21 @@ export function applyOrgRecruitmentSummaryPayload(
     localStorage.setItem('orgTenantPaused', '0');
     localStorage.removeItem('orgTenantPausedAt');
   }
+  const orgName = String(payload?.organizationName || payload?.companyName || '').trim();
+  if (orgName) {
+    try {
+      const raw = localStorage.getItem('currentUser');
+      const current = raw ? JSON.parse(raw) : {};
+      if (current && typeof current === 'object') {
+        localStorage.setItem(
+          'currentUser',
+          JSON.stringify({ ...current, organizationName: orgName, companyName: orgName }),
+        );
+      }
+    } catch {
+      /* ignore corrupt currentUser */
+    }
+  }
   window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
 }
 
@@ -932,6 +949,8 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
       enabledModules?: string[] | null;
       modulesRestricted?: boolean;
       phase1CommonPoolEnabled?: boolean;
+      organizationName?: string | null;
+      companyName?: string | null;
       clientPageFieldVisibility?: {
         interestLevel?: boolean;
         status?: boolean;
@@ -944,7 +963,7 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
   }
 }
 
-/** Standalone internal company used for jobs when the Clients module is hidden. */
+/** Tenant own-company record used when creating jobs for this organization. */
 export async function apiGetWorkspaceClient(): Promise<{
   data?: {
     recruitmentMode?: string;
@@ -952,6 +971,16 @@ export async function apiGetWorkspaceClient(): Promise<{
   };
 }> {
   return apiFetch('/settings/org/workspace-client', { auth: true });
+}
+
+export function isOwnCompanyWorkspaceClient(
+  client?: { website?: string | null; industry?: string | null } | null,
+): boolean {
+  if (!client) return false;
+  return (
+    String(client.website || '').startsWith('tenant://') ||
+    String(client.industry || '') === 'Workspace'
+  );
 }
 
 export async function apiGetClientPageFieldVisibility() {
@@ -4156,6 +4185,18 @@ export async function apiHqUpdateTenantModules(body: {
   }>('/hq/tenants/modules', { method: 'PUT', auth: true, body });
 }
 
+export async function apiHqUpdateTenantOrganizationName(body: {
+  email: string;
+  organizationName: string;
+}) {
+  return apiFetch<{
+    email: string;
+    organizationName: string;
+    tenantDbName?: string;
+    syncedToTenant?: boolean;
+  }>('/hq/tenants/organization-name', { method: 'PUT', auth: true, body });
+}
+
 export interface InvoicePaymentReminder {
   id: string;
   mode: 'now' | 'schedule';
@@ -4919,6 +4960,9 @@ export interface BackendUser {
   lastLogin?: string;
   createdAt: string;
   updatedAt?: string;
+  /** Company name entered when HQ created this tenant. */
+  organizationName?: string | null;
+  companyName?: string | null;
 }
 
 export async function apiGetMe() {

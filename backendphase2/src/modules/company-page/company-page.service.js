@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { env } from '../../config/env.js';
 import * as store from './company-page.store.js';
+import { resolveTenantOrganizationName } from '../setting/recruitmentMode.service.js';
 
 function phase1ApiBase() {
   return String(env.JOB_PORTAL_API_URL || process.env.JOB_PORTAL_API_URL || 'http://localhost:5000')
@@ -53,6 +54,7 @@ async function pushToOfficeGossips({ companyPages = [], posts = [], userId }) {
         posts,
         userId,
       }),
+      signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -127,12 +129,44 @@ function toPortalPost(record) {
   };
 }
 
-export async function getTenantCompanyPage({ tenantDbName }) {
+export async function getTenantCompanyPage({ tenantDbName, user }) {
   if (!tenantDbName) validationError('Tenant is required');
-  const page = await store.getCompanyPageByTenant(tenantDbName);
+  let page = await store.getCompanyPageByTenant(tenantDbName);
+  if (!page) {
+    const organizationName = await resolveTenantOrganizationName({
+      email: user?.email,
+      tenantDbName,
+    });
+    if (organizationName.length >= 2) {
+      const seeded = await upsertTenantCompanyPage({
+        tenantDbName,
+        user,
+        payload: { name: organizationName },
+      });
+      page = seeded?.page || null;
+    }
+  }
   if (!page) return { page: null, posts: [] };
   const posts = await store.listCompanyPosts(tenantDbName);
   return { page, posts };
+}
+
+/** Used when HQ provisions a tenant so Company Page already shows the company name. */
+export async function seedTenantCompanyPageFromOrganization({
+  tenantDbName,
+  organizationName,
+  user,
+} = {}) {
+  const name = String(organizationName || '').trim();
+  if (!tenantDbName || name.length < 2) return null;
+  const existing = await store.getCompanyPageByTenant(tenantDbName);
+  if (existing) return existing;
+  const result = await upsertTenantCompanyPage({
+    tenantDbName,
+    user,
+    payload: { name },
+  });
+  return result?.page || null;
 }
 
 export async function upsertTenantCompanyPage({
@@ -199,6 +233,26 @@ export async function upsertTenantCompanyPage({
   });
 
   return { page: saved, synced: Boolean(sync.ok), sync };
+}
+
+/** HQ rename path: update the local company page immediately; Phase 1 sync is background. */
+export async function applyOrganizationNameToCompanyPage({
+  tenantDbName,
+  organizationName,
+  user,
+} = {}) {
+  const name = String(organizationName || '').trim();
+  if (!tenantDbName || name.length < 2) return null;
+  const existing = await store.getCompanyPageByTenant(tenantDbName);
+  if (existing) {
+    const saved = await store.updateCompanyPageName(tenantDbName, name);
+    void pushToOfficeGossips({
+      companyPages: saved ? [toPortalCompanyPage(saved)] : [],
+      userId: ownerAuthorId(tenantDbName),
+    }).catch(() => undefined);
+    return saved;
+  }
+  return null;
 }
 
 export async function createTenantCompanyPost({

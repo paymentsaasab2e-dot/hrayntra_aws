@@ -69,6 +69,20 @@ export async function upsertCompanyPageRecord(page) {
   return db.collection(PAGES_COLLECTION).findOne({ tenantDbName: doc.tenantDbName });
 }
 
+export async function updateCompanyPageName(tenantDbName, name) {
+  const db = await getDb();
+  await ensureIndexes(db);
+  const nextName = String(name || '').trim();
+  if (!nextName) return null;
+  const logoLetter = nextName.slice(0, 1).toUpperCase() || 'C';
+  const now = new Date().toISOString();
+  await db.collection(PAGES_COLLECTION).updateOne(
+    { tenantDbName: String(tenantDbName) },
+    { $set: { name: nextName, logoLetter, updatedAt: now, mirroredAt: new Date() } },
+  );
+  return db.collection(PAGES_COLLECTION).findOne({ tenantDbName: String(tenantDbName) });
+}
+
 export async function listCompanyPosts(tenantDbName, { limit = 50 } = {}) {
   const db = await getDb();
   await ensureIndexes(db);

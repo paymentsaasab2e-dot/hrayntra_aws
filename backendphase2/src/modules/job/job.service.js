@@ -15,11 +15,12 @@ import { notifyJobClosed, personName } from '../setting/alert-notify.helpers.js'
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, canViewAllJobs } from '../../utils/permissionScope.js';
 import {
+  applyOrgCompanyAssigneeWhere,
   getRequestOrgScope,
   isOrgHeadPurpose,
-  mergeOrgCompanyListScope,
   resolveWriteOrgUnitId,
 } from '../../services/orgListScope.service.js';
+import { findWorkspaceClient } from '../setting/workspace-client.service.js';
 import {
   buildAssigneeVisibilityOr,
   buildInitialParticipantIds,
@@ -90,6 +91,31 @@ function resolveApplicationFormSchemaFromPayload(data) {
     return schemaFromLegacyQuestions(data.applicationFormQuestions);
   }
   return data.applicationFormEnabled ? defaultApplicationFormSchema() : null;
+}
+
+async function resolveOwnCompanyClientId() {
+  try {
+    const workspace = await findWorkspaceClient();
+    return workspace?.id ? String(workspace.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+function ownCompanyJobClause(ownCompanyClientId) {
+  return ownCompanyClientId ? { clientId: ownCompanyClientId } : null;
+}
+
+/** Own-company jobs are visible to every team member in the tenant, not one org unit. */
+async function mergeJobOrgScope(where, req, ownCompanyClientId) {
+  const orgWhere = await applyOrgCompanyAssigneeWhere(req, {
+    assignedToIdField: 'assignedToId',
+    createdByField: 'createdById',
+    extraHasField: 'supportingRecruiters',
+  });
+  if (!orgWhere) return where;
+  const ownCompany = ownCompanyJobClause(ownCompanyClientId);
+  return mergeWhereWithScope(where, ownCompany ? { OR: [orgWhere, ownCompany] } : orgWhere);
 }
 
 /** First `getAll` per tenant awaits a one-time pipeline repair (empty / legacy → org template). */
@@ -1165,17 +1191,21 @@ export const jobService = {
 
     // Jobs page: only jobs created by the authenticated user (no seeded/dummy rows unless they match)
     const mineFilter = mine === 'true' || mine === '1';
+    const ownCompanyClientId = await resolveOwnCompanyClientId();
+    const ownCompany = ownCompanyJobClause(ownCompanyClientId);
+    const visibilityOr = [];
     if (mineFilter && req.user?.id) {
       where.createdById = req.user.id;
     } else if (!canViewAllJobs(req) && req.user?.id) {
       const org = await getRequestOrgScope(req);
       if (!isOrgHeadPurpose(org)) {
-        where.OR = buildAssigneeVisibilityOr(req.user.id);
+        visibilityOr.push(...buildAssigneeVisibilityOr(req.user.id));
+        if (ownCompany) visibilityOr.push(ownCompany);
       }
     }
     if (search) {
       const escaped = escapePrismaRegex(search);
-      where.OR = [
+      const searchOr = [
         { title: { contains: escaped, mode: 'insensitive' } },
         { description: { contains: escaped, mode: 'insensitive' } },
         { overview: { contains: escaped, mode: 'insensitive' } },
@@ -1199,14 +1229,16 @@ export const jobService = {
         { benefits: { hasSome: [search] } },
         { client: { companyName: { contains: escaped, mode: 'insensitive' } } },
       ];
+      const andParts = [];
+      if (visibilityOr.length) andParts.push({ OR: visibilityOr });
+      andParts.push({ OR: searchOr });
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : []), ...andParts];
+    } else if (visibilityOr.length) {
+      where.OR = visibilityOr;
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     let scopedWhere = mergeWhereWithScope(where, superAdminScope);
-    scopedWhere = await mergeOrgCompanyListScope(scopedWhere, req, {
-      assignedToIdField: 'assignedToId',
-      createdByField: 'createdById',
-      extraHasField: 'supportingRecruiters',
-    });
+    scopedWhere = await mergeJobOrgScope(scopedWhere, req, ownCompanyClientId);
     // Recycle Bin: hide soft-deleted rows from the normal Jobs page.
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
@@ -1285,17 +1317,17 @@ export const jobService = {
 
   async getById(id, req = null) {
     let where = { id };
+    const ownCompanyClientId = await resolveOwnCompanyClientId();
+    const ownCompany = ownCompanyJobClause(ownCompanyClientId);
     const scope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     where = mergeWhereWithScope(where, scope);
-    where = await mergeOrgCompanyListScope(where, req, {
-      assignedToIdField: 'assignedToId',
-      createdByField: 'createdById',
-      extraHasField: 'supportingRecruiters',
-    });
+    where = await mergeJobOrgScope(where, req, ownCompanyClientId);
     if (!canViewAllJobs(req) && req?.user?.id) {
       const org = await getRequestOrgScope(req);
       if (!isOrgHeadPurpose(org)) {
-        where = mergeWhereWithScope(where, { OR: buildAssigneeVisibilityOr(req.user.id) });
+        const visibilityOr = [...buildAssigneeVisibilityOr(req.user.id)];
+        if (ownCompany) visibilityOr.push(ownCompany);
+        where = mergeWhereWithScope(where, { OR: visibilityOr });
       }
     }
 
@@ -1541,8 +1573,13 @@ export const jobService = {
       data.assignedToId,
     );
 
-    const writeOrgUnitId = req ? await resolveWriteOrgUnitId(req).catch(() => null) : null;
-    if (writeOrgUnitId) jobData.orgUnitId = writeOrgUnitId;
+    const ownCompanyClientId = await resolveOwnCompanyClientId();
+    const isOwnCompanyJob =
+      ownCompanyClientId && data.clientId && String(data.clientId) === String(ownCompanyClientId);
+    if (!isOwnCompanyJob) {
+      const writeOrgUnitId = req ? await resolveWriteOrgUnitId(req).catch(() => null) : null;
+      if (writeOrgUnitId) jobData.orgUnitId = writeOrgUnitId;
+    }
 
     // Log data being stored
     dbLogger.logCreate('JOB', jobData);
@@ -2203,24 +2240,24 @@ export const jobService = {
     );
     const skip = (page - 1) * limit;
 
+    const ownCompanyClientId = await resolveOwnCompanyClientId();
+    const ownCompany = ownCompanyJobClause(ownCompanyClientId);
     let baseWhere = { isDeleted: true };
     if (!canViewAllJobs(req) && req?.user?.id) {
+      const visibilityOr = [
+        { createdById: req.user.id },
+        ...buildAssigneeVisibilityOr(req.user.id),
+        { deletedBy: req.user.id },
+      ];
+      if (ownCompany) visibilityOr.push(ownCompany);
       baseWhere = {
         ...baseWhere,
-        OR: [
-          { createdById: req.user.id },
-          ...buildAssigneeVisibilityOr(req.user.id),
-          { deletedBy: req.user.id },
-        ],
+        OR: visibilityOr,
       };
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     let where = mergeWhereWithScope(baseWhere, superAdminScope);
-    where = await mergeOrgCompanyListScope(where, req, {
-      assignedToIdField: 'assignedToId',
-      createdByField: 'createdById',
-      extraHasField: 'supportingRecruiters',
-    });
+    where = await mergeJobOrgScope(where, req, ownCompanyClientId);
 
     const [jobs, total] = await Promise.all([
       prisma.job.findMany({
@@ -2348,11 +2385,15 @@ export const jobService = {
 
     const mineFilter = req?.query?.mine === 'true' || req?.query?.mine === '1';
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    const ownCompany = ownCompanyJobClause(await resolveOwnCompanyClientId());
+    const memberVisibilityOr = req?.user?.id
+      ? [...buildAssigneeVisibilityOr(req.user.id), ...(ownCompany ? [ownCompany] : [])]
+      : [];
     const ownerScope = superAdminScope || (
       mineFilter && req?.user?.id
         ? { createdById: req.user.id }
         : !canViewAllJobs(req) && req?.user?.id
-          ? { OR: buildAssigneeVisibilityOr(req.user.id) }
+          ? { OR: memberVisibilityOr }
           : {}
     );
 

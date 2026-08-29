@@ -27,6 +27,7 @@ import {
 import { IndustryMultiSelect } from '@/components/forms/IndustryMultiSelect';
 import { LocationMultiSelect } from '@/components/forms/LocationMultiSelect';
 import { parseIndustries, serializeIndustries } from '@/lib/industryOptions';
+import { useUser } from '@/hooks/useUser';
 
 const PHASE1_COMMUNITY =
   process.env.NEXT_PUBLIC_PHASE1_FRONTEND_URL?.replace(/\/+$/, '') || 'http://localhost:3000';
@@ -50,6 +51,7 @@ function persistableLogoUrl(raw: string | null | undefined): string | null {
 }
 
 export default function CompanyPageManager() {
+  const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -96,13 +98,18 @@ export default function CompanyPageManager() {
           logoUrl: nextPage.logoUrl || '',
         });
         setEditingProfile(false);
+      } else {
+        const hqName = String(user?.organizationName || user?.companyName || '').trim();
+        if (hqName) {
+          setForm((prev) => ({ ...prev, name: prev.name || hqName }));
+        }
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load company page');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.organizationName, user?.companyName]);
 
   useEffect(() => {
     void load();
