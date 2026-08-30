@@ -40,6 +40,19 @@ export function isLoopbackPublicUrl(url) {
 }
 
 /**
+ * Personal Outlook.com / Hotmail accounts cannot sign in against a single-tenant GUID.
+ * Azure "Any Entra ID tenant + personal Microsoft accounts" requires the `common` endpoint.
+ */
+export function resolveMicrosoftOAuthTenant(raw = process.env.MICROSOFT_TENANT_ID || process.env.MS_TENANT_ID) {
+  const value = String(raw || 'common').trim().toLowerCase();
+  if (!value || value === 'organizations') return 'common';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) {
+    return 'common';
+  }
+  return String(raw || 'common').trim() || 'common';
+}
+
+/**
  * Base URL for the employers SPA (emails, invite links). Reads several env aliases used in deployment.
  * Production must set one of: FRONTEND_URL, CLIENT_URL, NEXT_PUBLIC_APP_URL, APP_PUBLIC_URL, EMPLOYERS_APP_URL.
  */
@@ -204,7 +217,7 @@ export const env = {
   // Microsoft OAuth (Outlook + Teams)
   MICROSOFT_CLIENT_ID: process.env.MICROSOFT_CLIENT_ID || process.env.MS_CLIENT_ID,
   MICROSOFT_CLIENT_SECRET: process.env.MICROSOFT_CLIENT_SECRET || process.env.MS_CLIENT_SECRET,
-  MICROSOFT_TENANT_ID: process.env.MICROSOFT_TENANT_ID || process.env.MS_TENANT_ID || 'common',
+  MICROSOFT_TENANT_ID: resolveMicrosoftOAuthTenant(),
   MICROSOFT_REDIRECT_URI:
     process.env.MICROSOFT_REDIRECT_URI ||
     `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/microsoft/callback`,
@@ -315,6 +328,28 @@ export const env = {
     if (raw == null || String(raw).trim() === '') return true;
     const v = String(raw).trim().toLowerCase();
     return v !== 'false' && v !== '0' && v !== 'no';
+  })(),
+
+  /**
+   * Adzuna Search API (app_id + app_key). These cannot post jobs.
+   * Organic listings use the public XML feed: GET /api/v1/jobs/adzuna.xml
+   */
+  ADZUNA_APP_ID: String(process.env.ADZUNA_APP_ID || '').trim(),
+  ADZUNA_APP_KEY: String(process.env.ADZUNA_APP_KEY || '').trim(),
+  ADZUNA_COUNTRY: String(process.env.ADZUNA_COUNTRY || 'in').trim().toLowerCase() || 'in',
+  ADZUNA_FEED_TOKEN: String(process.env.ADZUNA_FEED_TOKEN || '').trim(),
+  ADZUNA_FEED_INCLUDE_ALL: (() => {
+    const v = String(process.env.ADZUNA_FEED_INCLUDE_ALL || '').trim().toLowerCase();
+    return v === 'true' || v === '1' || v === 'yes';
+  })(),
+
+  /**
+   * Careerjet Job Feed (OUR jobs → Careerjet). Not the Search API.
+   * Canonical XML: backend1 GET /api/careerjet/jobs.xml
+   */
+  CAREERJET_FEED_INCLUDE_ALL: (() => {
+    const v = String(process.env.CAREERJET_FEED_INCLUDE_ALL || '').trim().toLowerCase();
+    return v === 'true' || v === '1' || v === 'yes';
   })(),
 
   /** Max ZIP upload size for bulk CV archive. Default 2GB. */

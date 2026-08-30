@@ -31,6 +31,31 @@ export const DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY: JobPublicFieldVisibility = Obj
   JOB_PUBLIC_VISIBILITY_FIELDS.map((key) => [key, true]),
 ) as JobPublicFieldVisibility;
 
+export const JOB_PUBLIC_VISIBILITY_FIELD_LABELS: Record<JobPublicVisibilityField, string> = {
+  nationality: 'Nationality',
+  jobTitle: 'Job Title',
+  client: 'Client Name',
+  contactPerson: 'Contact Person',
+  openings: 'Number of Openings',
+  location: 'Location',
+  industryType: 'Industry',
+  employmentType: 'Employment Type',
+  targetHireDate: 'Target Hire Date',
+  experience: 'Experience',
+  salary: 'Salary Range',
+  languages: 'Languages',
+  keyResponsibilities: 'Key Responsibilities',
+  qualifications: 'Qualifications',
+  candidateRequirements: 'Candidate Requirements',
+  skills: 'Skills',
+  jobDescription: 'Job Description',
+  videoMediaLink: 'Video / Media Link',
+  forecastRevenue: 'Forecast Revenue',
+  priority: 'Priority',
+  aboutCompany: 'About Company',
+  recruiterProfile: 'Assigned Team Member',
+};
+
 export function parseJobPublicFieldVisibility(raw: unknown): JobPublicFieldVisibility {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ...DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY };

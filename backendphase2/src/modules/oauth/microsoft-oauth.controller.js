@@ -6,7 +6,7 @@ import { oauthTokenService } from './oauth-token.service.js';
 import { integrationService } from '../integration/integration.service.js';
 
 const OUTLOOK_SCOPES =
-  'openid email profile offline_access User.Read Mail.Send Mail.Read';
+  'openid email profile offline_access User.Read Mail.Send Mail.Read Mail.ReadWrite';
 const TEAMS_SCOPES =
   'openid email profile offline_access User.Read Calendars.ReadWrite OnlineMeetings.ReadWrite';
 
@@ -36,6 +36,7 @@ export const microsoftOAuthController = {
       redirect_uri: env.MICROSOFT_REDIRECT_URI,
       response_mode: 'query',
       scope: buildScope(mode),
+      prompt: 'select_account',
       state,
     });
     const url = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?${params.toString()}`;
@@ -53,6 +54,12 @@ export const microsoftOAuthController = {
 
       if (service === 'outlook' || service === 'microsoft-teams') {
         const result = await integrationService.handleCallback(service, String(code), String(state || ''));
+        if (service === 'outlook') {
+          const inbox = new URL(`${frontend}/inbox`);
+          inbox.searchParams.set('outlook_connected', '1');
+          if (result.accountEmail) inbox.searchParams.set('email', result.accountEmail);
+          return res.redirect(inbox.toString());
+        }
         return res.redirect(
           `${frontend}/setting?section=communication&integration_connected=${encodeURIComponent(result.provider)}&email=${encodeURIComponent(result.accountEmail || '')}`
         );

@@ -534,8 +534,21 @@ export async function refreshJobPortalMirror(jobId) {
  * Phase 1 job-board mirror is opt-in when the create wizard sends distributionPlatforms.
  * Missing / legacy payloads keep previous behaviour (always mirror).
  */
+function wantsAdzunaPublish(distributionPlatforms) {
+  if (!distributionPlatforms || typeof distributionPlatforms !== 'object') return false;
+  return distributionPlatforms.adzuna === true;
+}
+
+function wantsCareerjetPublish(distributionPlatforms) {
+  if (!distributionPlatforms || typeof distributionPlatforms !== 'object') return false;
+  return distributionPlatforms.careerjet === true;
+}
+
 function shouldPublishJobToHryantraPortal(distributionPlatforms) {
   if (!distributionPlatforms || typeof distributionPlatforms !== 'object') return true;
+  // Adzuna/Careerjet apply URLs live on the HRyantra portal, so those jobs must be mirrored.
+  if (wantsAdzunaPublish(distributionPlatforms)) return true;
+  if (wantsCareerjetPublish(distributionPlatforms)) return true;
   if (distributionPlatforms.hryantra === false) return false;
   if (distributionPlatforms.hryantra === true) return true;
   if (distributionPlatforms.hryantra_job_board === false) return false;
@@ -708,6 +721,8 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     hqHideClientName,
     publicFieldVisibility: resolvedVisibility,
     distributionPlatforms: job.distributionPlatforms || null,
+    publishToAdzuna: wantsAdzunaPublish(job.distributionPlatforms),
+    publishToCareerjet: wantsCareerjetPublish(job.distributionPlatforms),
     supportingRecruiters: Array.isArray(job.supportingRecruiters) ? job.supportingRecruiters : [],
     applicationFormEnabled: Boolean(job.applicationFormEnabled),
     applicationFormLogo: job.applicationFormLogo || null,

@@ -1,11 +1,14 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Archive,
   Bell,
   CalendarDays,
   ChevronDown,
+  ChevronRight,
   Circle,
   Clock3,
   Download,
@@ -29,12 +32,19 @@ import {
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import {
   apiArchiveGmailMessage,
+  apiArchiveOutlookMessage,
   apiConnectIntegration,
   apiCreateCalendarEventFromGmailMessage,
+  apiCreateCalendarEventFromOutlookMessage,
   apiGetGmailInbox,
   apiGetGmailMessage,
+  apiGetMailboxStatus,
+  apiGetOutlookInbox,
+  apiGetOutlookMessage,
   apiTrashGmailMessage,
+  apiTrashOutlookMessage,
   apiUpdateGmailMessageFlags,
+  apiUpdateOutlookMessageFlags,
   type GmailInboxMessage,
 } from '../../lib/api';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -42,6 +52,9 @@ import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 type MailTab = 'Primary' | 'Promotions' | 'Social' | 'Updates';
 type ResizeSection = 'left' | 'middle' | null;
 type GmailFolder = 'INBOX' | 'STARRED' | 'SNOOZED' | 'SENT' | 'DRAFT';
+type MailProvider = 'gmail' | 'outlook';
+
+const INBOX_PROVIDER_KEY = 'inbox_mail_provider';
 
 const LEFT_MENU = [
   { label: 'Inbox', icon: Mail, folder: 'INBOX' as GmailFolder },
@@ -124,31 +137,6 @@ function getAvatarLabel(name?: string) {
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('') || 'GM';
 }
 
-function EmptyInboxState() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc] p-8">
-      <div className="w-full max-w-xl rounded-[28px] border border-[#dadce0] bg-white p-10 text-center shadow-sm">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e8f0fe] text-[#1a73e8]">
-          <Mail className="h-8 w-8" />
-        </div>
-        <h2 className="mt-5 text-2xl font-medium text-[#202124]">Connect Gmail to open Inbox</h2>
-        <p className="mt-3 text-sm leading-6 text-[#5f6368]">
-          Once Gmail is connected from settings, this page will show the real emails from that mailbox
-          in a Gmail-style layout.
-        </p>
-        <button
-          type="button"
-          onClick={() => void apiConnectIntegration('gmail')}
-          className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#c2e7ff] px-5 py-3 text-sm font-medium text-[#001d35] hover:bg-[#b3e0ff]"
-        >
-          <Mail className="h-4 w-4" />
-          Connect Gmail
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function ResizeHandle({
   onMouseDown,
 }: {
@@ -171,13 +159,16 @@ function TopBar({
   onRefresh,
   refreshing,
   onOpenUpdates,
+  mailProvider,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
   onRefresh: () => void;
   refreshing: boolean;
   onOpenUpdates: () => void;
+  mailProvider: MailProvider;
 }) {
+  const isOutlook = mailProvider === 'outlook';
   return (
     <header className="flex h-16 items-center gap-4 px-4">
       <button className="rounded-full p-3 text-[#5f6368] hover:bg-[#e8eaed]">
@@ -185,10 +176,16 @@ function TopBar({
       </button>
 
       <div className="flex min-w-[140px] items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#ea4335] text-white">
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-white ${
+            isOutlook ? 'bg-[#0f6cbd]' : 'bg-[#ea4335]'
+          }`}
+        >
           <Mail className="h-5 w-5" />
         </div>
-        <div className="text-[30px] font-normal tracking-tight text-[#5f6368]">Gmail</div>
+        <div className="text-[30px] font-normal tracking-tight text-[#5f6368]">
+          {isOutlook ? 'Outlook' : 'Gmail'}
+        </div>
       </div>
 
       <div className="mx-2 flex flex-1 items-center rounded-full bg-[#eaf1fb] px-4 py-3">
@@ -227,19 +224,194 @@ function TopBar({
   );
 }
 
+function InboxFolderFlyout({
+  inboxCount,
+  active,
+  mailProvider,
+  gmailConnected,
+  outlookConnected,
+  onOpenInbox,
+  onProviderChange,
+}: {
+  inboxCount: number;
+  active: boolean;
+  mailProvider: MailProvider;
+  gmailConnected: boolean;
+  outlookConnected: boolean;
+  onOpenInbox: () => void;
+  onProviderChange: (provider: MailProvider) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [panelStyle, setPanelStyle] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<number | null>(null);
+
+  const clearTimer = () => {
+    if (closeTimer.current) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+
+  const computePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const estimatedHeight = 112;
+    const top = Math.max(8, Math.min(rect.top, window.innerHeight - estimatedHeight - 8));
+    setPanelStyle({ top, left: rect.right + 8 });
+  }, []);
+
+  const show = () => {
+    clearTimer();
+    computePosition();
+    setOpen(true);
+  };
+
+  const hide = () => {
+    clearTimer();
+    closeTimer.current = window.setTimeout(() => setOpen(false), 140);
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    computePosition();
+  }, [open, computePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onScrollOrResize = () => computePosition();
+    window.addEventListener('resize', onScrollOrResize);
+    window.addEventListener('scroll', onScrollOrResize, true);
+    return () => {
+      window.removeEventListener('resize', onScrollOrResize);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+    };
+  }, [open, computePosition]);
+
+  useEffect(() => () => clearTimer(), []);
+
+  const pickMailbox = (provider: MailProvider) => {
+    onProviderChange(provider);
+    onOpenInbox();
+    setOpen(false);
+  };
+
+  const flyoutPanel =
+    open && typeof window !== 'undefined' && panelStyle
+      ? createPortal(
+          <div
+            ref={panelRef}
+            style={{
+              position: 'fixed',
+              top: panelStyle.top,
+              left: panelStyle.left,
+              width: 196,
+              zIndex: 80,
+            }}
+            className="rounded-2xl border border-[#dadce0] bg-white p-1.5 shadow-[0_8px_28px_rgba(32,33,36,0.18)]"
+            onMouseEnter={show}
+            onMouseLeave={hide}
+          >
+            <button
+              type="button"
+              onClick={() => pickMailbox('gmail')}
+              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm ${
+                mailProvider === 'gmail' ? 'bg-[#e8f0fe] font-medium text-[#174ea6]' : 'text-[#202124] hover:bg-[#f1f3f4]'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Mail className="h-4 w-4" />
+                Gmail
+              </span>
+              {gmailConnected ? (
+                <span className="text-[10px] font-medium text-[#1a73e8]">On</span>
+              ) : (
+                <span className="text-[10px] text-[#5f6368]">Connect</span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => pickMailbox('outlook')}
+              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm ${
+                mailProvider === 'outlook' ? 'bg-[#e8f0fe] font-medium text-[#0f6cbd]' : 'text-[#202124] hover:bg-[#f1f3f4]'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Mail className="h-4 w-4" />
+                Outlook
+              </span>
+              {outlookConnected ? (
+                <span className="text-[10px] font-medium text-[#0f6cbd]">On</span>
+              ) : (
+                <span className="text-[10px] text-[#5f6368]">Connect</span>
+              )}
+            </button>
+          </div>,
+          document.body
+        )
+      : null;
+
+  return (
+    <>
+      <div ref={triggerRef} className="relative" onMouseEnter={show} onMouseLeave={hide}>
+        <button
+          type="button"
+          onClick={() => {
+            onOpenInbox();
+            if (open) {
+              setOpen(false);
+            } else {
+              show();
+            }
+          }}
+          className={`flex w-full items-center justify-between rounded-r-full px-4 py-2 text-sm ${
+            active || open ? 'bg-[#d3e3fd] font-medium text-[#001d35]' : 'text-[#202124] hover:bg-[#eaebef]'
+          }`}
+        >
+          <span className="flex min-w-0 items-center gap-4">
+            <Mail className="h-4 w-4 shrink-0" />
+            <span className="min-w-0">
+              <span className="block">Inbox</span>
+              <span className="block truncate text-[10px] font-medium uppercase tracking-[0.12em] text-[#5f6368]">
+                {mailProvider === 'outlook' ? 'Outlook' : 'Gmail'}
+              </span>
+            </span>
+          </span>
+          <span className="flex items-center gap-2">
+            {inboxCount ? <span className="text-xs font-medium">{inboxCount}</span> : null}
+            <ChevronRight className={`h-3.5 w-3.5 text-[#5f6368] ${open ? 'translate-x-0.5' : ''}`} />
+          </span>
+        </button>
+      </div>
+      {flyoutPanel}
+    </>
+  );
+}
+
 function LeftRail({
   connectedEmail,
   inboxCount,
   activeFolder,
   onFolderChange,
   onCompose,
+  mailProvider,
+  gmailConnected,
+  outlookConnected,
+  onProviderChange,
 }: {
   connectedEmail?: string;
   inboxCount: number;
   activeFolder: GmailFolder;
   onFolderChange: (folder: GmailFolder) => void;
   onCompose: () => void;
+  mailProvider: MailProvider;
+  gmailConnected: boolean;
+  outlookConnected: boolean;
+  onProviderChange: (provider: MailProvider) => void;
 }) {
+  const brand = mailProvider === 'outlook' ? 'Outlook' : 'Gmail';
   return (
     <aside className="flex h-full flex-col px-2 pb-4">
       <div className="px-2 py-2">
@@ -255,6 +427,20 @@ function LeftRail({
 
       <div className="mt-3 space-y-1">
         {LEFT_MENU.map((item) => {
+          if (item.folder === 'INBOX') {
+            return (
+              <InboxFolderFlyout
+                key={item.label}
+                inboxCount={inboxCount}
+                active={activeFolder === 'INBOX'}
+                mailProvider={mailProvider}
+                gmailConnected={gmailConnected}
+                outlookConnected={outlookConnected}
+                onOpenInbox={() => onFolderChange('INBOX')}
+                onProviderChange={onProviderChange}
+              />
+            );
+          }
           const Icon = item.icon;
           const count = item.folder === activeFolder ? inboxCount : undefined;
           const active = activeFolder === item.folder;
@@ -286,13 +472,21 @@ function LeftRail({
         </div>
         <div className="mt-4 rounded-2xl bg-white px-4 py-3 text-sm text-[#5f6368] shadow-sm">
           Connected as
-          <div className="mt-2 truncate font-medium text-[#202124]">{connectedEmail || 'No Gmail linked'}</div>
+          <div className="mt-2 truncate font-medium text-[#202124]">{connectedEmail || `No ${brand} linked`}</div>
+          {mailProvider === 'outlook' && connectedEmail ? (
+            <div className="mt-1 text-[11px] leading-4 text-[#5f6368]">
+              Microsoft / Outlook account
+              {/@gmail\.com$/i.test(connectedEmail)
+                ? ' — this is the Microsoft login, not the Gmail inbox.'
+                : ''}
+            </div>
+          ) : null}
         </div>
       </div>
 
       <div className="mt-auto px-4">
         <div className="rounded-2xl bg-white px-4 py-3 text-xs text-[#5f6368] shadow-sm">
-          Gmail sync is powered by your connected Google account.
+          {brand} sync is powered by your connected {mailProvider === 'outlook' ? 'Microsoft' : 'Google'} account.
         </div>
       </div>
     </aside>
@@ -355,6 +549,10 @@ function MailList({
   hasMore,
   loadingMore,
   requiresReconnect,
+  mailProvider,
+  needsConnect,
+  mailboxUnavailable,
+  loadError,
 }: {
   emails: GmailInboxMessage[];
   selectedId?: string;
@@ -364,6 +562,10 @@ function MailList({
   hasMore: boolean;
   loadingMore: boolean;
   requiresReconnect: boolean;
+  mailProvider: MailProvider;
+  needsConnect: boolean;
+  mailboxUnavailable?: boolean;
+  loadError?: string;
 }) {
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
@@ -408,24 +610,107 @@ function MailList({
             <div key={index} className="h-12 animate-pulse rounded-lg bg-[#f1f3f4]" />
           ))}
         </div>
-      ) : requiresReconnect ? (
+      ) : needsConnect ? (
         <div className="p-6">
-          <div className="rounded-2xl border border-[#dadce0] bg-[#fff8e1] p-4 text-sm text-[#5f6368]">
-            <p className="font-medium text-[#202124]">Reconnect Gmail to read inbox messages</p>
-            <p className="mt-2 leading-6">
-              Your current Google connection does not include inbox-read permission yet.
+          <div className="rounded-2xl border border-[#dadce0] bg-white p-6 text-center">
+            <div
+              className={`mx-auto flex h-12 w-12 items-center justify-center rounded-full text-white ${
+                mailProvider === 'outlook' ? 'bg-[#0f6cbd]' : 'bg-[#ea4335]'
+              }`}
+            >
+              <Mail className="h-6 w-6" />
+            </div>
+            <p className="mt-4 text-base font-medium text-[#202124]">
+              Connect {mailProvider === 'outlook' ? 'Outlook' : 'Gmail'}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-[#5f6368]">
+              Sign in with your {mailProvider === 'outlook' ? 'Microsoft / Outlook' : 'Google'} account to
+              load this mailbox here.
             </p>
             <button
               type="button"
-              onClick={() => void apiConnectIntegration('gmail')}
+              onClick={() =>
+                void apiConnectIntegration(
+                  mailProvider === 'outlook' ? 'outlook' : 'gmail',
+                  `${window.location.origin}/inbox`
+                )
+              }
+              className="mt-5 rounded-full bg-[#c2e7ff] px-4 py-2 text-sm font-medium text-[#001d35] hover:bg-[#b3e0ff]"
+            >
+              Connect {mailProvider === 'outlook' ? 'Outlook' : 'Gmail'}
+            </button>
+          </div>
+        </div>
+      ) : requiresReconnect ? (
+        <div className="p-6">
+          <div className="rounded-2xl border border-[#dadce0] bg-[#fff8e1] p-4 text-sm text-[#5f6368]">
+            <p className="font-medium text-[#202124]">
+              Reconnect {mailProvider === 'outlook' ? 'Outlook' : 'Gmail'} to read inbox messages
+            </p>
+            <p className="mt-2 leading-6">
+              Your current {mailProvider === 'outlook' ? 'Microsoft' : 'Google'} connection does not
+              include inbox-read permission yet.
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                void apiConnectIntegration(
+                  mailProvider === 'outlook' ? 'outlook' : 'gmail',
+                  `${window.location.origin}/inbox`
+                )
+              }
               className="mt-4 rounded-full bg-[#c2e7ff] px-4 py-2 text-sm font-medium text-[#001d35] hover:bg-[#b3e0ff]"
             >
-              Reconnect Gmail
+              Reconnect {mailProvider === 'outlook' ? 'Outlook' : 'Gmail'}
+            </button>
+          </div>
+        </div>
+      ) : mailboxUnavailable ? (
+        <div className="p-6">
+          <div className="rounded-2xl border border-[#dadce0] bg-white p-6 text-center">
+            <p className="text-base font-medium text-[#202124]">No Outlook mailbox on this account</p>
+            <p className="mt-2 text-sm leading-6 text-[#5f6368]">
+              Microsoft is connected, but this login does not have Outlook.com or Microsoft 365 mail.
+              Reconnect Outlook with an Outlook or work mail account.
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                void apiConnectIntegration('outlook', `${window.location.origin}/inbox`)
+              }
+              className="mt-5 rounded-full bg-[#c2e7ff] px-4 py-2 text-sm font-medium text-[#001d35] hover:bg-[#b3e0ff]"
+            >
+              Reconnect Outlook
+            </button>
+          </div>
+        </div>
+      ) : loadError ? (
+        <div className="p-6">
+          <div className="rounded-2xl border border-[#dadce0] bg-[#fff8e1] p-6 text-center">
+            <p className="text-base font-medium text-[#202124]">
+              Could not load {mailProvider === 'outlook' ? 'Outlook' : 'Gmail'} mail
+            </p>
+            <p className="mt-2 text-sm leading-6 text-[#5f6368]">{loadError}</p>
+            <button
+              type="button"
+              onClick={() =>
+                void apiConnectIntegration(
+                  mailProvider === 'outlook' ? 'outlook' : 'gmail',
+                  `${window.location.origin}/inbox`
+                )
+              }
+              className="mt-5 rounded-full bg-[#c2e7ff] px-4 py-2 text-sm font-medium text-[#001d35] hover:bg-[#b3e0ff]"
+            >
+              Reconnect {mailProvider === 'outlook' ? 'Outlook' : 'Gmail'}
             </button>
           </div>
         </div>
       ) : emails.length === 0 ? (
-        <div className="p-10 text-center text-sm text-[#5f6368]">No messages found in this tab.</div>
+        <div className="p-10 text-center text-sm text-[#5f6368]">
+          {mailProvider === 'outlook'
+            ? 'No Outlook messages in this folder.'
+            : 'No messages found in this tab.'}
+        </div>
       ) : (
         emails.map((email) => {
           const selected = selectedId === email.id;
@@ -606,7 +891,7 @@ function MailDetail({
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         {hasRenderableHtml ? (
           <iframe
-            title={`gmail-message-${email.id}`}
+            title={`mail-message-${email.id}`}
             srcDoc={email.htmlBody}
             sandbox="allow-popups allow-popups-to-escape-sandbox"
             className="h-full min-h-[520px] w-full rounded-xl border border-[#dadce0] bg-white"
@@ -623,7 +908,7 @@ function MailDetail({
               <Paperclip className="h-4 w-4 text-[#5f6368]" />
               Attachments
             </div>
-            <p className="text-xs text-[#5f6368]">This message includes attachment data from Gmail.</p>
+            <p className="text-xs text-[#5f6368]">This message includes attachment data from the mailbox.</p>
           </div>
         ) : null}
       </div>
@@ -661,11 +946,21 @@ function MailDetail({
 }
 
 export default function InboxPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const [mailProvider, setMailProvider] = useState<MailProvider>('gmail');
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [outlookConnected, setOutlookConnected] = useState(false);
+  const [gmailEmail, setGmailEmail] = useState('');
+  const [outlookEmail, setOutlookEmail] = useState('');
+  const [statusReady, setStatusReady] = useState(false);
   const [connected, setConnected] = useState(false);
   const [connectedEmail, setConnectedEmail] = useState('');
+  const [mailboxUnavailable, setMailboxUnavailable] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [emails, setEmails] = useState<GmailInboxMessage[]>([]);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -682,33 +977,61 @@ export default function InboxPage() {
   const [viewportWidth, setViewportWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const loadInbox = async (query?: string, folder: GmailFolder = activeFolder) => {
-    const result = await apiGetGmailInbox({
-      q: query || undefined,
-      maxResults: 25,
-      labelId: folder,
-    });
+  const applyInboxResult = (result: Awaited<ReturnType<typeof apiGetGmailInbox>>) => {
     const nextEmails = result?.messages || [];
     setConnected(!!result?.connected);
     setConnectedEmail(result?.email || '');
     setEmails(nextEmails);
     setNextPageToken(result?.nextPageToken || null);
     setRequiresReconnect(!!result?.requiresReconnect);
+    setMailboxUnavailable(!!result?.mailboxUnavailable);
+    setLoadError('');
     setSelectedId((current) =>
       current && nextEmails.some((item) => item.id === current) ? current : nextEmails[0]?.id
     );
+  };
+
+  const loadInbox = async (
+    query?: string,
+    folder: GmailFolder = activeFolder,
+    provider: MailProvider = mailProvider
+  ) => {
+    if (
+      (provider === 'outlook' && !outlookConnected) ||
+      (provider === 'gmail' && !gmailConnected)
+    ) {
+      setConnected(false);
+      setConnectedEmail(provider === 'outlook' ? outlookEmail : gmailEmail);
+      setEmails([]);
+      setNextPageToken(null);
+      setRequiresReconnect(false);
+      setMailboxUnavailable(false);
+      setLoadError('');
+      setSelectedId(undefined);
+      return;
+    }
+    const params = {
+      q: query || undefined,
+      maxResults: 25,
+      labelId: folder,
+    };
+    const result =
+      provider === 'outlook' ? await apiGetOutlookInbox(params) : await apiGetGmailInbox(params);
+    applyInboxResult(result);
   };
 
   const loadMoreInbox = async () => {
     if (!nextPageToken || loadingMore) return;
     try {
       setLoadingMore(true);
-      const result = await apiGetGmailInbox({
+      const params = {
         q: search || undefined,
         maxResults: 25,
         pageToken: nextPageToken,
         labelId: activeFolder,
-      });
+      };
+      const result =
+        mailProvider === 'outlook' ? await apiGetOutlookInbox(params) : await apiGetGmailInbox(params);
       const moreEmails = result?.messages || [];
       setRequiresReconnect(!!result?.requiresReconnect);
       setEmails((current) => {
@@ -722,28 +1045,109 @@ export default function InboxPage() {
     }
   };
 
+  const chooseProvider = (
+    gmailOn: boolean,
+    outlookOn: boolean,
+    preferred?: MailProvider | null
+  ): MailProvider => {
+    if (preferred === 'outlook' || preferred === 'gmail') return preferred;
+    if (outlookOn && !gmailOn) return 'outlook';
+    return 'gmail';
+  };
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('gmail_connected') === '1') {
+    const gmailJustConnected = params.get('gmail_connected') === '1';
+    const outlookJustConnected = params.get('outlook_connected') === '1';
+    if (gmailJustConnected || outlookJustConnected) {
       const email = params.get('email');
-      // Soft success signal after OAuth redirect
-      console.info(`[inbox] Gmail connected${email ? ` as ${email}` : ''}`);
-      window.history.replaceState({}, '', '/inbox');
+      console.info(
+        `[inbox] ${outlookJustConnected ? 'Outlook' : 'Gmail'} connected${email ? ` as ${email}` : ''}`
+      );
+      window.history.replaceState(
+        {},
+        '',
+        `/inbox?mailbox=${outlookJustConnected ? 'outlook' : 'gmail'}`
+      );
     }
+
+    let active = true;
+    void (async () => {
+      try {
+        const status = await apiGetMailboxStatus();
+        if (!active) return;
+        const gmailOn = !!status?.gmail?.connected;
+        const outlookOn = !!status?.outlook?.connected;
+        setGmailConnected(gmailOn);
+        setOutlookConnected(outlookOn);
+        setGmailEmail(status?.gmail?.email || '');
+        setOutlookEmail(status?.outlook?.email || '');
+        const mailboxParam = params.get('mailbox');
+        const mailboxFromUrl =
+          mailboxParam === 'outlook' || mailboxParam === 'gmail' ? mailboxParam : null;
+        const stored = window.sessionStorage.getItem(INBOX_PROVIDER_KEY) as MailProvider | null;
+        const preferred: MailProvider | null = outlookJustConnected
+          ? 'outlook'
+          : gmailJustConnected
+            ? 'gmail'
+            : mailboxFromUrl
+              ? mailboxFromUrl
+              : stored === 'outlook' || stored === 'gmail'
+                ? stored
+                : null;
+        const nextProvider = chooseProvider(gmailOn, outlookOn, preferred);
+        setMailProvider(nextProvider);
+        window.sessionStorage.setItem(INBOX_PROVIDER_KEY, nextProvider);
+      } catch {
+        if (active) {
+          setGmailConnected(false);
+          setOutlookConnected(false);
+        }
+      } finally {
+        if (active) setStatusReady(true);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
+    const mailbox = searchParams.get('mailbox');
+    if (mailbox !== 'gmail' && mailbox !== 'outlook') return;
+    setMailProvider((current) => {
+      if (current === mailbox) return current;
+      window.sessionStorage.setItem(INBOX_PROVIDER_KEY, mailbox);
+      setConnectedEmail(mailbox === 'outlook' ? outlookEmail : gmailEmail);
+      setEmails([]);
+      setSelectedId(undefined);
+      setNextPageToken(null);
+      setDetailActionMessage('');
+      setMailboxUnavailable(false);
+      setLoadError('');
+      setLoading(true);
+      return mailbox;
+    });
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!statusReady) return;
     let active = true;
     const delay = search.trim() ? 350 : 0;
     const timeout = window.setTimeout(() => {
       void (async () => {
         try {
-          await loadInbox(search, activeFolder);
-        } catch {
+          await loadInbox(search, activeFolder, mailProvider);
+          if (active) setLoadError('');
+        } catch (error: any) {
           if (active) {
-            setConnected(false);
+            setConnected(mailProvider === 'outlook' ? outlookConnected : gmailConnected);
             setEmails([]);
+            setMailboxUnavailable(false);
+            setConnectedEmail(mailProvider === 'outlook' ? outlookEmail : gmailEmail);
+            setLoadError(error?.message || `Could not load ${mailProvider === 'outlook' ? 'Outlook' : 'Gmail'} mail`);
           }
         } finally {
           if (active) setLoading(false);
@@ -754,11 +1158,11 @@ export default function InboxPage() {
       active = false;
       window.clearTimeout(timeout);
     };
-  }, [search, activeFolder]);
+  }, [search, activeFolder, mailProvider, statusReady, gmailConnected, outlookConnected]);
 
   // Reusable auto-refresh — re-fetch the active folder while visible/on focus.
   usePageAutoRefresh(() => {
-    if (!loading) void loadInbox(search, activeFolder);
+    if (!loading && statusReady) void loadInbox(search, activeFolder, mailProvider);
   }, { events: ['jobportal:inbox-changed'] });
 
   useEffect(() => {
@@ -838,7 +1242,8 @@ export default function InboxPage() {
     return data;
   }, [emails]);
 
-  const filteredEmails = activeFolder === 'INBOX' ? grouped[activeTab] : emails;
+  const filteredEmails =
+    mailProvider === 'outlook' || activeFolder !== 'INBOX' ? emails : grouped[activeTab];
 
   const selectedEmail = useMemo(
     () => filteredEmails.find((item) => item.id === selectedId) || filteredEmails[0] || null,
@@ -854,7 +1259,10 @@ export default function InboxPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const full = await apiGetGmailMessage(messageId);
+        const full =
+          mailProvider === 'outlook'
+            ? await apiGetOutlookMessage(messageId)
+            : await apiGetGmailMessage(messageId);
         if (cancelled || !full) return;
         setEmails((current) =>
           current.map((item) => (item.id === full.id ? { ...item, ...full } : item))
@@ -867,19 +1275,42 @@ export default function InboxPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedEmail?.id, selectedEmail?.htmlBody, selectedEmail?.body, selectedEmail?.preview]);
+  }, [selectedEmail?.id, selectedEmail?.htmlBody, selectedEmail?.body, selectedEmail?.preview, mailProvider]);
 
   const handleRefresh = async () => {
     try {
       setRefreshing(true);
+      setLoadError('');
       await loadInbox(search, activeFolder);
+    } catch (error: any) {
+      setLoadError(error?.message || 'Could not refresh mail');
     } finally {
       setRefreshing(false);
     }
   };
 
   const handleCompose = () => {
-    window.open('https://mail.google.com/mail/u/0/#inbox?compose=new', '_blank', 'noopener,noreferrer');
+    const url =
+      mailProvider === 'outlook'
+        ? 'https://outlook.office.com/mail/deeplink/compose'
+        : 'https://mail.google.com/mail/u/0/#inbox?compose=new';
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleProviderChange = (provider: MailProvider) => {
+    if (provider !== mailProvider) {
+      setMailProvider(provider);
+      window.sessionStorage.setItem(INBOX_PROVIDER_KEY, provider);
+      setConnectedEmail(provider === 'outlook' ? outlookEmail : gmailEmail);
+      setEmails([]);
+      setSelectedId(undefined);
+      setNextPageToken(null);
+      setDetailActionMessage('');
+      setMailboxUnavailable(false);
+      setLoadError('');
+      setLoading(true);
+    }
+    router.replace(`/inbox?mailbox=${provider}`, { scroll: false });
   };
 
   const handleFolderChange = (folder: GmailFolder) => {
@@ -936,7 +1367,7 @@ export default function InboxPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${(email.subject || 'gmail-message').replace(/[^\w.-]+/g, '_')}.${email.htmlBody ? 'html' : 'txt'}`;
+    anchor.download = `${(email.subject || 'mail-message').replace(/[^\w.-]+/g, '_')}.${email.htmlBody ? 'html' : 'txt'}`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -949,7 +1380,7 @@ export default function InboxPage() {
       setDetailActionMessage('');
       await task();
     } catch (error: any) {
-      setDetailActionMessage(error?.message || 'Gmail action failed');
+      setDetailActionMessage(error?.message || 'Inbox action failed');
     } finally {
       setDetailActionBusy(null);
     }
@@ -957,35 +1388,48 @@ export default function InboxPage() {
 
   const handleArchive = (email: GmailInboxMessage) =>
     void runDetailAction('archive', async () => {
-      await apiArchiveGmailMessage(email.id);
+      await (mailProvider === 'outlook'
+        ? apiArchiveOutlookMessage(email.id)
+        : apiArchiveGmailMessage(email.id));
       removeEmailFromState(email.id);
       setDetailActionMessage('Email archived.');
     });
 
   const handleTrash = (email: GmailInboxMessage) =>
     void runDetailAction('trash', async () => {
-      await apiTrashGmailMessage(email.id);
+      await (mailProvider === 'outlook'
+        ? apiTrashOutlookMessage(email.id)
+        : apiTrashGmailMessage(email.id));
       removeEmailFromState(email.id);
       setDetailActionMessage('Email moved to trash.');
     });
 
   const handleToggleUnread = (email: GmailInboxMessage) =>
     void runDetailAction('flags', async () => {
-      const result = await apiUpdateGmailMessageFlags(email.id, { unread: !email.unread });
+      const result =
+        mailProvider === 'outlook'
+          ? await apiUpdateOutlookMessageFlags(email.id, { unread: !email.unread })
+          : await apiUpdateGmailMessageFlags(email.id, { unread: !email.unread });
       updateEmailInState(email.id, { unread: !!result.unread });
       setDetailActionMessage(result.unread ? 'Marked as unread.' : 'Marked as read.');
     });
 
   const handleToggleStar = (email: GmailInboxMessage) =>
     void runDetailAction('flags', async () => {
-      const result = await apiUpdateGmailMessageFlags(email.id, { starred: !email.starred });
+      const result =
+        mailProvider === 'outlook'
+          ? await apiUpdateOutlookMessageFlags(email.id, { starred: !email.starred })
+          : await apiUpdateGmailMessageFlags(email.id, { starred: !email.starred });
       updateEmailInState(email.id, { starred: !!result.starred });
       setDetailActionMessage(result.starred ? 'Star added.' : 'Star removed.');
     });
 
   const handleCreateCalendar = (email: GmailInboxMessage) =>
     void runDetailAction('calendar', async () => {
-      const result = await apiCreateCalendarEventFromGmailMessage(email.id);
+      const result =
+        mailProvider === 'outlook'
+          ? await apiCreateCalendarEventFromOutlookMessage(email.id)
+          : await apiCreateCalendarEventFromGmailMessage(email.id);
       setDetailActionMessage('Calendar event created.');
       if (result.eventLink) {
         window.open(result.eventLink, '_blank', 'noopener,noreferrer');
@@ -998,8 +1442,12 @@ export default function InboxPage() {
     }
   }, [filteredEmails, selectedId]);
 
-  if (!loading && !connected) {
-    return <EmptyInboxState />;
+  if (!statusReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc]">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-[#dadce0] border-t-[#1a73e8]" />
+      </div>
+    );
   }
 
   return (
@@ -1010,16 +1458,21 @@ export default function InboxPage() {
         onRefresh={handleRefresh}
         refreshing={refreshing}
         onOpenUpdates={handleOpenUpdates}
+        mailProvider={mailProvider}
       />
 
       <div ref={containerRef} className="flex h-[calc(100%-4rem)] overflow-hidden">
-        <div style={{ width: leftWidth }} className="shrink-0 overflow-hidden">
+        <div style={{ width: leftWidth }} className="relative z-20 shrink-0 overflow-visible">
           <LeftRail
             connectedEmail={connectedEmail}
             inboxCount={emails.length}
             activeFolder={activeFolder}
             onFolderChange={handleFolderChange}
             onCompose={handleCompose}
+            mailProvider={mailProvider}
+            gmailConnected={gmailConnected}
+            outlookConnected={outlookConnected}
+            onProviderChange={handleProviderChange}
           />
         </div>
 
@@ -1044,7 +1497,7 @@ export default function InboxPage() {
                 </div>
               </div>
 
-              {activeFolder === 'INBOX' ? (
+              {activeFolder === 'INBOX' && mailProvider === 'gmail' ? (
                 <MailTabs
                   counts={{
                     Primary: grouped.Primary.length,
@@ -1066,6 +1519,12 @@ export default function InboxPage() {
                 hasMore={!!nextPageToken}
                 loadingMore={loadingMore}
                 requiresReconnect={requiresReconnect}
+                mailProvider={mailProvider}
+                mailboxUnavailable={mailboxUnavailable}
+                loadError={loadError}
+                needsConnect={
+                  mailProvider === 'outlook' ? !outlookConnected : !gmailConnected
+                }
               />
             </div>
 

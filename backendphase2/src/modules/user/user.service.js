@@ -7,6 +7,61 @@ import {
 import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
 import { resolveTenantOrganizationName } from '../setting/recruitmentMode.service.js';
 
+const JOB_VISIBILITY_DEFAULTS_KEY = 'jobPublicVisibilityDefaults';
+const JOB_VISIBILITY_FIELDS = [
+  'nationality',
+  'jobTitle',
+  'client',
+  'contactPerson',
+  'openings',
+  'location',
+  'industryType',
+  'employmentType',
+  'targetHireDate',
+  'experience',
+  'salary',
+  'languages',
+  'keyResponsibilities',
+  'qualifications',
+  'candidateRequirements',
+  'skills',
+  'jobDescription',
+  'videoMediaLink',
+  'forecastRevenue',
+  'priority',
+  'aboutCompany',
+  'recruiterProfile',
+];
+
+function emptyJobVisibilityDefaults() {
+  const publicFieldVisibility = Object.fromEntries(JOB_VISIBILITY_FIELDS.map((key) => [key, true]));
+  return {
+    publicFieldVisibility,
+    showClientNamePublicly: true,
+    updatedAt: null,
+  };
+}
+
+function normalizeJobVisibilityDefaults(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const nested =
+    source.publicFieldVisibility && typeof source.publicFieldVisibility === 'object'
+      ? source.publicFieldVisibility
+      : source;
+  const publicFieldVisibility = {};
+  for (const key of JOB_VISIBILITY_FIELDS) {
+    publicFieldVisibility[key] = nested[key] !== false;
+  }
+  const showClientNamePublicly =
+    source.showClientNamePublicly === false || publicFieldVisibility.client === false ? false : true;
+  publicFieldVisibility.client = showClientNamePublicly;
+  return {
+    publicFieldVisibility,
+    showClientNamePublicly,
+    updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt : null,
+  };
+}
+
 async function withOrganizationName(profile) {
   if (!profile) return profile;
   const organizationName = await resolveTenantOrganizationName({
@@ -258,5 +313,49 @@ export const userService = {
       isActive: user.isActive,
       permissions: permissionNames,
     };
+  },
+
+  async getJobVisibilityDefaults(userId) {
+    if (!userId) return emptyJobVisibilityDefaults();
+    const row = await prisma.setting.findUnique({
+      where: {
+        userId_key_scope: {
+          userId,
+          key: JOB_VISIBILITY_DEFAULTS_KEY,
+          scope: 'USER',
+        },
+      },
+    });
+    if (!row?.value) return emptyJobVisibilityDefaults();
+    return normalizeJobVisibilityDefaults(row.value);
+  },
+
+  async saveJobVisibilityDefaults(userId, raw) {
+    if (!userId) {
+      const err = new Error('User is required');
+      err.statusCode = 401;
+      throw err;
+    }
+    const value = {
+      ...normalizeJobVisibilityDefaults(raw),
+      updatedAt: new Date().toISOString(),
+    };
+    await prisma.setting.upsert({
+      where: {
+        userId_key_scope: {
+          userId,
+          key: JOB_VISIBILITY_DEFAULTS_KEY,
+          scope: 'USER',
+        },
+      },
+      update: { value },
+      create: {
+        userId,
+        key: JOB_VISIBILITY_DEFAULTS_KEY,
+        value,
+        scope: 'USER',
+      },
+    });
+    return value;
   },
 };

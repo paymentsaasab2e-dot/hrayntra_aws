@@ -17,7 +17,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "test:adzuna": "node --test src/services/adzuna/feed.test.js",
+    "test:careerjet": "node --test src/services/careerjet/feed.test.js"
   },
   "keywords": [
     "job-portal",

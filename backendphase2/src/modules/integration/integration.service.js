@@ -40,7 +40,7 @@ const PROVIDERS = {
   outlook: {
     label: 'Outlook',
     family: 'microsoft',
-    scopes: ['openid', 'email', 'profile', 'offline_access', 'User.Read', 'Mail.Send', 'Mail.Read'],
+    scopes: ['openid', 'email', 'profile', 'offline_access', 'User.Read', 'Mail.Send', 'Mail.Read', 'Mail.ReadWrite'],
   },
   'microsoft-teams': {
     label: 'Microsoft Teams',
@@ -299,6 +299,7 @@ export const integrationService = {
         redirect_uri: callbackUrl,
         response_mode: 'query',
         scope: config.scopes.join(' '),
+        prompt: 'select_account',
         state,
       });
       const tenant = env.MICROSOFT_TENANT_ID || 'common';

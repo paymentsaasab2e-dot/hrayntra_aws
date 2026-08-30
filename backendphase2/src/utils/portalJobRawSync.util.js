@@ -106,13 +106,18 @@ export async function upsertPortalJobRaw(portalPrisma, jobId, jobData) {
 
 /** Fallback when raw Mongo upsert is unavailable — split into small Prisma updates. */
 export async function upsertPortalJobChunked(portalPrisma, jobId, jobData) {
+  const {
+    publishToAdzuna: _publishToAdzuna,
+    publishToCareerjet: _publishToCareerjet,
+    ...prismaJobData
+  } = jobData || {};
   const exists = await portalPrisma.job.findUnique({
     where: { id: jobId },
     select: { id: true },
   });
 
   if (!exists) {
-    const { title, type, status, tenantDbName, ...rest } = jobData;
+    const { title, type, status, tenantDbName, ...rest } = prismaJobData;
     await portalPrisma.job.create({
       data: {
         id: jobId,
@@ -130,7 +135,7 @@ export async function upsertPortalJobChunked(portalPrisma, jobId, jobData) {
     return;
   }
 
-  for (const chunk of chunkRecord(jobData, PORTAL_JOB_UPDATE_CHUNK_SIZE)) {
+  for (const chunk of chunkRecord(prismaJobData, PORTAL_JOB_UPDATE_CHUNK_SIZE)) {
     if (Object.keys(chunk).length) {
       await portalPrisma.job.update({ where: { id: jobId }, data: chunk });
     }

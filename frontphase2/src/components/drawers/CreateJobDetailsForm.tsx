@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Plus, Search, X } from 'lucide-react';
-import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
+import { JobPublicVisibilityDefaultsPanel } from '../jobs/JobPublicVisibilityDefaultsPanel';
 import {
   isJobFieldPubliclyVisible,
   mergeClientVisibility,
@@ -16,7 +16,11 @@ import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/Language
 import { JobLocationFields } from '../location/JobLocationFields';
 import { EditDateField } from '../candidates/EditDateField';
 import { isOwnCompanyWorkspaceClient, type BackendClient, type BackendUser } from '../../lib/api';
-import { JOB_SALARY_CURRENCY_OPTIONS } from '../../constants/jobSalary';
+import {
+  listCustomJobSalaryCurrencies,
+  mergeJobSalaryCurrencyOptions,
+  saveCustomJobSalaryCurrency,
+} from '../../constants/jobSalary';
 import {
   createEmptyCustomJdSection,
   type JobCustomJdSection,
@@ -295,6 +299,10 @@ export function CreateJobDetailsForm({
   );
   const [clientSearch, setClientSearch] = useState('');
   const [currencySearch, setCurrencySearch] = useState('');
+  const [customCurrencies, setCustomCurrencies] = useState<string[]>(() => listCustomJobSalaryCurrencies());
+  const [addingCurrency, setAddingCurrency] = useState(false);
+  const [newCurrencyCode, setNewCurrencyCode] = useState('');
+  const [currencyAddError, setCurrencyAddError] = useState('');
 
   const filteredClients = useMemo(() => {
     const query = clientSearch.trim().toLowerCase();
@@ -315,11 +323,16 @@ export function CreateJobDetailsForm({
     });
   }, [clients, clientSearch]);
 
+  const currencyOptions = useMemo(
+    () => mergeJobSalaryCurrencyOptions(customCurrencies),
+    [customCurrencies],
+  );
+
   const filteredCurrencies = useMemo(() => {
     const query = currencySearch.trim().toLowerCase();
-    if (!query) return JOB_SALARY_CURRENCY_OPTIONS;
-    return JOB_SALARY_CURRENCY_OPTIONS.filter((code) => code.toLowerCase().includes(query));
-  }, [currencySearch]);
+    if (!query) return currencyOptions;
+    return currencyOptions.filter((code) => code.toLowerCase().includes(query));
+  }, [currencyOptions, currencySearch]);
 
   useEffect(() => {
     if (!dropdownsOpen.company) {
@@ -334,6 +347,22 @@ export function CreateJobDetailsForm({
   }, [dropdownsOpen.currency]);
 
   const patchForm = (patch: Partial<CreateJobDetailsFormData>) => setFormData(patch);
+
+  const saveCurrencyEntry = (raw: string) => {
+    const result = saveCustomJobSalaryCurrency(raw);
+    if (!result.ok) {
+      setCurrencyAddError(result.message);
+      return false;
+    }
+    setCustomCurrencies(listCustomJobSalaryCurrencies());
+    patchForm({ salaryCurrency: result.code });
+    setCurrencyAddError('');
+    setNewCurrencyCode('');
+    setAddingCurrency(false);
+    setCurrencySearch('');
+    setDropdownsOpen((prev) => ({ ...prev, currency: false }));
+    return true;
+  };
 
   const visibility = parseJobPublicFieldVisibility(formData.publicFieldVisibility);
 
@@ -385,6 +414,12 @@ export function CreateJobDetailsForm({
 
   return (
     <div className="space-y-4">
+      <JobPublicVisibilityDefaultsPanel
+        visibility={formData.publicFieldVisibility}
+        showClientNamePublicly={formData.showClientNamePublicly}
+        onChange={(next) => patchForm(next)}
+      />
+
       <div>
         <FieldLabelRow label="Nationality" labelAction={visibilityAction('nationality')} />
         <input
@@ -687,7 +722,10 @@ export function CreateJobDetailsForm({
           <div className="relative">
             <button
               type="button"
-              onClick={() => setDropdownsOpen((prev) => ({ ...prev, currency: !prev.currency }))}
+              onClick={() => {
+                setAddingCurrency(false);
+                setDropdownsOpen((prev) => ({ ...prev, currency: !prev.currency }));
+              }}
               className={`${compactInputClass} flex w-[7.5rem] items-center justify-between bg-white font-medium text-slate-800`}
               aria-label="Salary currency"
             >
@@ -720,7 +758,20 @@ export function CreateJobDetailsForm({
                   </div>
                   <ul className="max-h-56 overflow-y-auto py-1">
                     {filteredCurrencies.length === 0 ? (
-                      <li className="px-3 py-2 text-sm text-slate-500">No currencies found</li>
+                      <li className="px-3 py-2 text-sm text-slate-500">
+                        {/^[A-Za-z]{3}$/.test(currencySearch.trim()) ? (
+                          <button
+                            type="button"
+                            onClick={() => saveCurrencyEntry(currencySearch)}
+                            className="inline-flex items-center gap-1 font-semibold text-[#2098C8] hover:text-[#176F96]"
+                          >
+                            <Plus size={14} />
+                            Add {currencySearch.trim().toUpperCase()}
+                          </button>
+                        ) : (
+                          'No currencies found'
+                        )}
+                      </li>
                     ) : (
                       filteredCurrencies.map((code) => (
                         <li key={code}>
@@ -730,18 +781,84 @@ export function CreateJobDetailsForm({
                               patchForm({ salaryCurrency: code });
                               setDropdownsOpen((prev) => ({ ...prev, currency: false }));
                             }}
-                            className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-50 ${
                               formData.salaryCurrency === code
                                 ? 'bg-blue-50 font-medium text-blue-700'
                                 : 'text-slate-700'
                             }`}
                           >
-                            {code}
+                            <span>{code}</span>
+                            {customCurrencies.includes(code) ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                Saved
+                              </span>
+                            ) : null}
                           </button>
                         </li>
                       ))
                     )}
                   </ul>
+                </div>
+              </>
+            ) : null}
+          </div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setDropdownsOpen((prev) => ({ ...prev, currency: false }));
+                setCurrencyAddError('');
+                setAddingCurrency((open) => !open);
+              }}
+              className="inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl border border-[#2098C8]/30 bg-[#E8F6FC] text-[#2098C8] transition hover:bg-[#D6EEF8]"
+              aria-label="Add currency"
+              title="Add currency"
+            >
+              <Plus size={16} />
+            </button>
+            {addingCurrency ? (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => {
+                    setAddingCurrency(false);
+                    setCurrencyAddError('');
+                  }}
+                />
+                <div className="absolute left-0 z-20 mt-1 w-56 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                  <p className="text-xs font-semibold text-slate-700">Add currency</p>
+                  <form
+                    className="mt-2 space-y-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      saveCurrencyEntry(newCurrencyCode);
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={newCurrencyCode}
+                      onChange={(e) => {
+                        setNewCurrencyCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3));
+                        setCurrencyAddError('');
+                      }}
+                      placeholder="e.g. UGX"
+                      maxLength={3}
+                      autoFocus
+                      className={`${compactInputClass} w-full uppercase`}
+                      aria-label="New currency code"
+                    />
+                    {currencyAddError ? (
+                      <p className="text-xs text-red-600">{currencyAddError}</p>
+                    ) : (
+                      <p className="text-[11px] text-slate-400">3-letter code, then Save.</p>
+                    )}
+                    <button
+                      type="submit"
+                      className="w-full rounded-lg bg-[#2098C8] px-3 py-2 text-xs font-semibold text-white hover:bg-[#1A86B3]"
+                    >
+                      Save
+                    </button>
+                  </form>
                 </div>
               </>
             ) : null}

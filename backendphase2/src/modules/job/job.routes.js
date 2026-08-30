@@ -10,6 +10,8 @@ import { requireAnyPermission } from '../../middleware/permission.middleware.js'
 const router = express.Router();
 
 router.get('/public-feed', jobController.getPublicFeed);
+router.get('/adzuna.xml', jobController.getAdzunaFeed);
+router.get('/careerjet.xml', jobController.getCareerjetFeed);
 router.get('/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
 router.post(
   '/public/apply/:token/submit',
@@ -20,6 +22,7 @@ router.post(
 
 router.use(authMiddleware);
 
+router.get('/adzuna/status', requireAnyPermission(['jobs_read', 'view_jobs', 'jobs_create', 'create_job']), jobController.getAdzunaStatus);
 router.get('/application-form-templates', requireAnyPermission(['jobs_read', 'view_jobs', 'jobs_create', 'create_job']), jobPublicApplyController.listTemplates);
 router.post('/application-form-templates', requireAnyPermission(['jobs_create', 'create_job', 'jobs_update', 'edit_job']), jobPublicApplyController.createTemplate);
 router.patch('/application-form-templates/:id', requireAnyPermission(['jobs_update', 'edit_job', 'jobs_create', 'create_job']), jobPublicApplyController.updateTemplate);

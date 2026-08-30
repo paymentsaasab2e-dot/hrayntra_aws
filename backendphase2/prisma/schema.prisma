@@ -703,7 +703,11 @@ model Job {
   aboutCompany             String?
   /// Snapshot of the assigned recruiter for the public job page.
   recruiterProfile         Json?
-  distributionPlatforms    Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, internalDatabase)
+  distributionPlatforms    Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, adzuna, careerjet, internalDatabase)
+  /// When true, this job is included in the Adzuna XML feed (mirrored to the portal DB).
+  publishToAdzuna          Boolean?
+  /// When true, this job is included in the Careerjet XML feed (mirrored to the portal DB).
+  publishToCareerjet       Boolean?
   supportingRecruiters     String[]  @default([]) // Array of supporting recruiter user IDs
   applicationFormEnabled   Boolean   @default(false) // Enable job application form
   applicationFormLogo      String? // Logo option: account, company, none, custom URL

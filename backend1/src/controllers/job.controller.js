@@ -8,6 +8,9 @@ const {
   recordAdminAudit,
   auditContextFromReq,
 } = require('../services/audit.service');
+const { sendAdzunaXml } = require('../routes/adzuna.routes');
+const { sendCareerjetXml } = require('../routes/careerjet.routes');
+const { getAdzunaStatus: adzunaStatus } = require('../services/adzuna.service');
 
 // simple in-memory cache
 const cache = {
@@ -113,6 +116,29 @@ function isDbUnavailableError(error) {
     message.includes('ETIMEDOUT') ||
     message.includes('connection')
   );
+}
+
+/**
+ * Alias of GET /api/adzuna/jobs.xml
+ * GET /api/jobs/adzuna.xml
+ */
+async function getAdzunaFeed(req, res) {
+  return sendAdzunaXml(req, res);
+}
+
+/**
+ * Alias of GET /api/careerjet/jobs.xml
+ * GET /api/jobs/careerjet.xml
+ */
+async function getCareerjetFeed(req, res) {
+  return sendCareerjetXml(req, res);
+}
+
+/**
+ * GET /api/jobs/adzuna/status
+ */
+async function getAdzunaStatus(req, res) {
+  return adzunaStatus(req, res);
 }
 
 /**
@@ -1356,6 +1382,9 @@ async function getJobPreScreenAssessments(req, res) {
 }
 
 module.exports = {
+  getAdzunaFeed,
+  getCareerjetFeed,
+  getAdzunaStatus,
   getAllJobs,
   getJobById,
   getJobPreScreenAssessments,

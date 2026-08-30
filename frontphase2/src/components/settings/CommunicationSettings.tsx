@@ -301,6 +301,12 @@ export function CommunicationSettings() {
         );
         return;
       }
+      if (provider === 'outlook' || provider === 'microsoft') {
+        window.location.replace(
+          `/inbox?outlook_connected=1${email ? `&email=${encodeURIComponent(email)}` : ''}`,
+        );
+        return;
+      }
       window.history.replaceState({}, '', '/setting?section=communication');
       void reload();
     }
@@ -322,12 +328,13 @@ export function CommunicationSettings() {
   );
 
   const gmailConnected = !!statuses.gmail?.connected;
+  const outlookConnected = !!statuses.outlook?.connected;
 
   const handleConnect = async (provider: IntegrationProvider) => {
     try {
       setBusyProvider(provider);
       const returnUrl =
-        provider === 'gmail' && typeof window !== 'undefined'
+        (provider === 'gmail' || provider === 'outlook') && typeof window !== 'undefined'
           ? `${window.location.origin}/inbox`
           : undefined;
       await apiConnectIntegration(provider, returnUrl);
@@ -395,7 +402,7 @@ export function CommunicationSettings() {
                 <span className="text-sm font-medium text-slate-400"> / {totalCount}</span>
               </p>
             </div>
-            {gmailConnected ? (
+            {gmailConnected || outlookConnected ? (
               <a
                 href="/inbox"
                 className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:brightness-110"

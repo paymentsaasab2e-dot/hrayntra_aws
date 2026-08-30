@@ -173,10 +173,11 @@ export const oauthTokenService = {
     if (!refreshToken) throw new Error('No Microsoft refresh token');
 
     const tenant = env.MICROSOFT_TENANT_ID || 'common';
+    const scopes = Array.isArray(row.microsoftScope) ? row.microsoftScope.filter(Boolean).join(' ') : '';
     const body = new URLSearchParams({
       client_id: env.MICROSOFT_CLIENT_ID,
       client_secret: env.MICROSOFT_CLIENT_SECRET,
-      scope: 'offline_access',
+      scope: scopes || 'openid email profile offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send',
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     });

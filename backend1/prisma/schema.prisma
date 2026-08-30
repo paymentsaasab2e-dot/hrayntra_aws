@@ -901,6 +901,13 @@ model Job {
   // the apply webhook routes the new Application/Match into the correct tenant DB.
   tenantDbName             String?
 
+  /// Phase 2 distribution payload (hryantra, adzuna, careerjet, companyPage, …)
+  distributionPlatforms    Json?
+  /// When true, this job is included in the Adzuna XML feed
+  publishToAdzuna          Boolean?
+  /// When true, this job is included in the Careerjet XML feed
+  publishToCareerjet       Boolean?
+
   /// When false, client/company name is hidden on candidate-facing job listings and apply pages.
   showClientNamePublicly   Boolean?  @default(true)
   /// HQ-enforced hide of the client name. When true it overrides Phase 2 tenant edits.

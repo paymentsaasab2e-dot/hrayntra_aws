@@ -608,11 +608,20 @@ const NavGroupFlyout = ({
               aria-hidden
             />
             <div className="flex flex-col gap-0.5">
-              {items.map((item) => {
+                  {items.map((item) => {
                 const ItemIcon = item.icon;
                 const itemTone = NAV_ICON_ACCENTS[item.accent || accent] || tone;
-                const isActive =
-                  pathname === item.href || (pathname || '').startsWith(`${item.href}/`);
+                const [itemPath, itemQuery] = item.href.split('?');
+                const pathActive =
+                  pathname === itemPath || (pathname || '').startsWith(`${itemPath}/`);
+                const wantedMailbox = new URLSearchParams(itemQuery || '').get('mailbox');
+                const currentMailbox =
+                  typeof window !== 'undefined'
+                    ? new URLSearchParams(window.location.search).get('mailbox')
+                    : null;
+                const isActive = wantedMailbox
+                  ? pathActive && (currentMailbox || 'gmail') === wantedMailbox
+                  : pathActive && (!itemQuery || pathname === item.href || (pathname || '').startsWith(`${item.href}/`));
                 return (
                   <Link
                     key={item.href}
@@ -665,6 +674,13 @@ const NavGroupFlyout = ({
         ref={triggerRef}
         onMouseEnter={openFlyout}
         onMouseLeave={scheduleClose}
+        onClick={() => {
+          if (open) {
+            setOpen(false);
+          } else {
+            openFlyout();
+          }
+        }}
         className="relative"
       >
         <div
@@ -1670,7 +1686,18 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           )}
 
           {(mounted && isOrgModuleEnabled('inbox') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Inbox))) && (
-            <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} onNavigate={persistScrollPosition} accent="fuchsia" />
+            <NavGroupFlyout
+              icon={Mail}
+              label="Inbox"
+              collapsed={isCollapsed}
+              accent="fuchsia"
+              active={(pathname || '') === '/inbox' || (pathname || '').startsWith('/inbox/')}
+              onNavigate={persistScrollPosition}
+              items={[
+                { icon: Mail, label: 'Gmail', href: '/inbox?mailbox=gmail', accent: 'rose' },
+                { icon: Mail, label: 'Outlook', href: '/inbox?mailbox=outlook', accent: 'sky' },
+              ]}
+            />
           )}
 
           {(mounted && isOrgModuleEnabled('contacts') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Contacts))) && (

@@ -117,6 +117,8 @@ app.use('/api/cv', cvRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/resume-editor', resumeEditorRoutes);
 app.use('/api/cveditor', cveditorRoutes);
+app.use('/api/adzuna', require('./routes/adzuna.routes'));
+app.use('/api/careerjet', require('./routes/careerjet.routes'));
 app.use('/api/jobs', jobRoutes);
 app.use('/api/cv-analysis', cvAnalysisRoutes);
 app.use('/api/candidates', candidateRoutes);
