@@ -1,3 +1,4 @@
+import { env } from '../../config/env.js';
 import { jobService } from './job.service.js';
 import { jobNoteService } from './job-note.service.js';
 import { jobFileService } from './job-file.service.js';
@@ -8,8 +9,50 @@ import {
   cleanupJobPipelineUpload,
 } from '../../services/jobCreationPipeline.service.js';
 import { getEntityActivities, ENTITY_TYPES } from '../../services/activityService.js';
+import {
+  buildAdzunaXmlFeed,
+  getAdzunaStatus as loadAdzunaStatus,
+} from './adzuna.service.js';
+
+function portalApiBase() {
+  const raw = env.JOB_PORTAL_API_URL || process.env.PHASE1_API_URL || 'http://localhost:5000';
+  return String(raw).trim().replace(/\/+$/, '');
+}
 
 export const jobController = {
+  async getAdzunaFeed(req, res) {
+    try {
+      const xml = await buildAdzunaXmlFeed();
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      return res.status(200).send(xml);
+    } catch (error) {
+      return sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getCareerjetFeed(req, res) {
+    try {
+      const url = `${portalApiBase()}/api/careerjet/jobs.xml`;
+      const upstream = await fetch(url);
+      const xml = await upstream.text();
+      res.setHeader('Content-Type', 'application/xml; charset=UTF-8');
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      return res.status(upstream.ok ? 200 : upstream.status).send(xml);
+    } catch (error) {
+      return sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getAdzunaStatus(req, res) {
+    try {
+      const result = await loadAdzunaStatus();
+      sendResponse(res, 200, result.message || 'Adzuna status', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getPublicFeed(req, res) {
     try {
       const result = await jobService.getPublicFeed(req);

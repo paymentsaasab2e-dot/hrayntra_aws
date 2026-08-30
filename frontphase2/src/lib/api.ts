@@ -4977,6 +4977,24 @@ export async function apiUpdateMe(data: Partial<BackendUser>) {
   });
 }
 
+export type JobVisibilityDefaultsPayload = {
+  publicFieldVisibility?: Record<string, boolean> | null;
+  showClientNamePublicly?: boolean;
+  updatedAt?: string | null;
+};
+
+export async function apiGetJobVisibilityDefaults() {
+  return apiFetch<JobVisibilityDefaultsPayload>('/users/me/job-visibility-defaults', { auth: true });
+}
+
+export async function apiSaveJobVisibilityDefaults(body: JobVisibilityDefaultsPayload) {
+  return apiFetch<JobVisibilityDefaultsPayload>('/users/me/job-visibility-defaults', {
+    method: 'PUT',
+    body,
+    auth: true,
+  });
+}
+
 export interface MyPermissionsPayload {
   id: string;
   role: string;
@@ -5298,6 +5316,15 @@ export interface CreateJobData {
   /** Per-field visibility for public apply page, Phase 1, and social posts. */
   publicFieldVisibility?: Record<string, boolean>;
   aboutCompany?: string | null;
+  distributionPlatforms?: {
+    internalCompany?: boolean;
+    companyPage?: boolean;
+    hryantra?: boolean;
+    externalPlatforms?: boolean;
+    adzuna?: boolean;
+    careerjet?: boolean;
+    socialMedia?: boolean;
+  };
   preScreenAssessments?: Array<{
     assessmentId: string;
     sortOrder?: number;
@@ -9699,6 +9726,7 @@ export interface GmailInboxResponse {
   messages: GmailInboxMessage[];
   nextPageToken?: string | null;
   requiresReconnect?: boolean;
+  mailboxUnavailable?: boolean;
 }
 
 export interface GmailMessageActionResult {
@@ -9770,6 +9798,97 @@ export const apiCreateCalendarEventFromGmailMessage = async (messageId: string) 
     method: 'POST',
     auth: true,
   });
+  return res.data;
+};
+
+export interface MailboxStatusResponse {
+  gmail: { connected: boolean; email?: string };
+  outlook: { connected: boolean; email?: string };
+}
+
+export const apiGetMailboxStatus = async () => {
+  const res = await apiFetch<MailboxStatusResponse>('/inbox/mailboxes/status', {
+    method: 'GET',
+    auth: true,
+  });
+  return res.data;
+};
+
+export const apiGetOutlookInbox = async (params?: {
+  q?: string;
+  maxResults?: number;
+  pageToken?: string;
+  labelId?: 'INBOX' | 'STARRED' | 'SNOOZED' | 'SENT' | 'DRAFT';
+}) => {
+  const query = new URLSearchParams();
+  if (params?.q) query.set('q', params.q);
+  if (params?.maxResults) query.set('maxResults', String(params.maxResults));
+  if (params?.pageToken) query.set('pageToken', params.pageToken);
+  if (params?.labelId) query.set('labelId', params.labelId);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const res = await apiFetch<GmailInboxResponse>(`/inbox/outlook/messages${suffix}`, {
+    method: 'GET',
+    auth: true,
+  });
+  return res.data;
+};
+
+export const apiGetOutlookMessage = async (messageId: string) => {
+  const res = await apiFetch<GmailInboxMessage>(
+    `/inbox/outlook/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'GET',
+      auth: true,
+    }
+  );
+  return res.data;
+};
+
+export const apiArchiveOutlookMessage = async (messageId: string) => {
+  const res = await apiFetch<GmailMessageActionResult>(
+    `/inbox/outlook/messages/${encodeURIComponent(messageId)}/archive`,
+    {
+      method: 'POST',
+      auth: true,
+    }
+  );
+  return res.data;
+};
+
+export const apiTrashOutlookMessage = async (messageId: string) => {
+  const res = await apiFetch<GmailMessageActionResult>(
+    `/inbox/outlook/messages/${encodeURIComponent(messageId)}/trash`,
+    {
+      method: 'POST',
+      auth: true,
+    }
+  );
+  return res.data;
+};
+
+export const apiUpdateOutlookMessageFlags = async (
+  messageId: string,
+  body: { unread?: boolean; starred?: boolean }
+) => {
+  const res = await apiFetch<GmailMessageActionResult>(
+    `/inbox/outlook/messages/${encodeURIComponent(messageId)}/flags`,
+    {
+      method: 'PATCH',
+      body,
+      auth: true,
+    }
+  );
+  return res.data;
+};
+
+export const apiCreateCalendarEventFromOutlookMessage = async (messageId: string) => {
+  const res = await apiFetch<GmailMessageActionResult>(
+    `/inbox/outlook/messages/${encodeURIComponent(messageId)}/calendar-event`,
+    {
+      method: 'POST',
+      auth: true,
+    }
+  );
   return res.data;
 };
 

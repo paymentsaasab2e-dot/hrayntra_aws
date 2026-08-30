@@ -65,6 +65,24 @@ export const userController = {
     }
   },
 
+  async getJobVisibilityDefaults(req, res) {
+    try {
+      const data = await userService.getJobVisibilityDefaults(req.user.id);
+      sendResponse(res, 200, 'Job visibility defaults retrieved', data);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async saveJobVisibilityDefaults(req, res) {
+    try {
+      const data = await userService.saveJobVisibilityDefaults(req.user.id, req.body);
+      sendResponse(res, 200, 'Job visibility defaults saved', data);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
   async delete(req, res) {
     try {
       const result = await userService.delete(req.params.id);

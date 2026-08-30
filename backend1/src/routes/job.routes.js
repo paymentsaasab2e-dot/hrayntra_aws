@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const jobController = require('../controllers/job.controller');
 
+// Adzuna / Careerjet XML feeds (must be before /:jobId)
+router.get('/adzuna.xml', jobController.getAdzunaFeed);
+router.get('/adzuna/status', jobController.getAdzunaStatus);
+router.get('/careerjet.xml', jobController.getCareerjetFeed);
+
 // Get personalized job matches
 router.get('/personalized', jobController.getPersonalizedJobs);
 

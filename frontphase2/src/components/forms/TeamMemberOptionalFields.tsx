@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { Plus, Trash2, Users } from 'lucide-react';
 import { KycDocumentsField } from '../documents/KycDocumentsField';
 import { NAME_SALUTATION_OPTIONS, applySalutationFromNameInput } from '../../constants/salutations';
@@ -10,7 +10,6 @@ import {
   hasTeamName,
   normalizeTeamMemberList,
 } from '../../lib/teamMemberFormDetails';
-import { composeInternationalPhone, extractNationalNumber, getPhoneCountryRule } from '../../lib/phoneByCountry';
 import { CountryDialPhoneInput } from './CountryDialPhoneInput';
 
 export type TeamMemberOptionalFieldsProps = {
@@ -46,30 +45,6 @@ export function TeamMemberOptionalFields({
   kycDisabled,
 }: TeamMemberOptionalFieldsProps) {
   const normalizedMembers = normalizeTeamMemberList(members);
-  const lastCountryKeyRef = useRef(`${countryCode}|${countryName}`);
-  const membersRef = useRef(normalizedMembers);
-  membersRef.current = normalizedMembers;
-
-  useEffect(() => {
-    if (requireTeamName && !hasTeamName(teamName)) return;
-    const key = `${countryCode}|${countryName}`;
-    if (key === lastCountryKeyRef.current) return;
-    lastCountryKeyRef.current = key;
-    const rule = getPhoneCountryRule(countryCode, countryName);
-    if (!rule) return;
-    const current = membersRef.current;
-    const next = current.map((member) => {
-      const national = extractNationalNumber(member.teamMemberPhone || '', rule.dialCode);
-      return {
-        ...member,
-        teamMemberPhone: composeInternationalPhone(rule.dialCode, national),
-      };
-    });
-    const changed = next.some(
-      (member, index) => member.teamMemberPhone !== (current[index]?.teamMemberPhone || ''),
-    );
-    if (changed) onChange(next);
-  }, [countryCode, countryName, onChange, requireTeamName, teamName]);
 
   if (requireTeamName && !hasTeamName(teamName)) return null;
 

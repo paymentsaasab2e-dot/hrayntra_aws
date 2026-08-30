@@ -1,3 +1,4 @@
+import { Country } from 'country-state-city';
 import { getCountryByCodeOrName } from './cscData';
 
 /** Expected national (subscriber) digit length by ISO country code. */
@@ -74,6 +75,55 @@ export function getPhoneCountryRule(
   };
 }
 
+export type PhoneDialOption = {
+  isoCode: string;
+  countryName: string;
+  dialCode: string;
+};
+
+let cachedDialOptions: PhoneDialOption[] | null = null;
+
+export function getPhoneDialOptions(): PhoneDialOption[] {
+  if (cachedDialOptions) return cachedDialOptions;
+  cachedDialOptions = Country.getAllCountries()
+    .map((country) => {
+      const dialCode = normalizeDialCode(country.phonecode);
+      return {
+        isoCode: String(country.isoCode || '').toUpperCase(),
+        countryName: country.name,
+        dialCode,
+      };
+    })
+    .filter((option) => option.isoCode && option.dialCode)
+    .sort((a, b) => a.countryName.localeCompare(b.countryName));
+  return cachedDialOptions;
+}
+
+/** Pick the country whose dial code is the longest prefix of the stored number. */
+export function inferPhoneCountryFromNumber(
+  phone: string,
+  fallbackIso?: string | null,
+): string {
+  const digits = digitsOnly(phone);
+  const fallback = String(fallbackIso || '').toUpperCase();
+  if (!digits) return fallback;
+
+  let bestIso = '';
+  let bestLen = 0;
+  for (const option of getPhoneDialOptions()) {
+    const dialDigits = digitsOnly(option.dialCode);
+    if (!dialDigits || !digits.startsWith(dialDigits) || dialDigits.length < bestLen) continue;
+    if (dialDigits.length > bestLen) {
+      bestIso = option.isoCode;
+      bestLen = dialDigits.length;
+      continue;
+    }
+    // Same dial-code length (e.g. US/CA +1): keep the Location fallback when it matches.
+    if (option.isoCode === fallback) bestIso = option.isoCode;
+  }
+  return bestIso || fallback;
+}
+
 export function digitsOnly(value: string): string {
   return String(value || '').replace(/\D/g, '');
 }
@@ -144,7 +194,9 @@ export function validatePhoneForCountry(
     return { valid: true };
   }
 
-  const rule = getPhoneCountryRule(countryCode, countryName);
+  const inferredIso = inferPhoneCountryFromNumber(trimmed, countryCode);
+  const rule =
+    getPhoneCountryRule(inferredIso, '') || getPhoneCountryRule(countryCode, countryName);
   const national = extractNationalNumber(trimmed, rule?.dialCode);
 
   if (!national) {

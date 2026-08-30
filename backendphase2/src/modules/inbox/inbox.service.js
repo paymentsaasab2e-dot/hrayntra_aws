@@ -1,6 +1,15 @@
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { oauthTokenService } from '../oauth/oauth-token.service.js';
+import {
+  getOutlookMailboxStatus,
+  getOutlookMessages,
+  getOutlookMessage,
+  archiveOutlookMessage,
+  trashOutlookMessage,
+  updateOutlookMessageFlags,
+  createCalendarEventFromOutlookMessage,
+} from './inbox-outlook.util.js';
 
 function decodeBase64Url(value = '') {
   try {
@@ -599,5 +608,41 @@ export const inboxService = {
       eventId: event?.id || '',
       eventLink: event?.htmlLink || '',
     };
+  },
+
+  async getMailboxStatus(userId) {
+    const oauth = await prisma.userOAuthTokens.findUnique({ where: { userId } });
+    const outlook = await getOutlookMailboxStatus(userId);
+    return {
+      gmail: {
+        connected: !!(oauth?.gmailConnected && oauth?.googleAccessToken),
+        email: oauth?.googleEmail || '',
+      },
+      outlook,
+    };
+  },
+
+  async getOutlookMessages(userId, params = {}) {
+    return getOutlookMessages(userId, params);
+  },
+
+  async getOutlookMessage(userId, messageId) {
+    return getOutlookMessage(userId, messageId);
+  },
+
+  async archiveOutlookMessage(userId, messageId) {
+    return archiveOutlookMessage(userId, messageId);
+  },
+
+  async trashOutlookMessage(userId, messageId) {
+    return trashOutlookMessage(userId, messageId);
+  },
+
+  async updateOutlookMessageFlags(userId, messageId, flags = {}) {
+    return updateOutlookMessageFlags(userId, messageId, flags);
+  },
+
+  async createCalendarEventFromOutlookMessage(userId, messageId) {
+    return createCalendarEventFromOutlookMessage(userId, messageId);
   },
 };

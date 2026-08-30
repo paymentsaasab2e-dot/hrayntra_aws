@@ -84,6 +84,7 @@ import {
   type JobPublicFieldVisibility,
 } from '@/lib/jobPublicFieldVisibility';
 import { stripHtml } from '@/lib/jobSocialPost';
+import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '@/lib/jobVisibilityUserDefaults';
 
 type WizardStep = 'client' | 'jd' | 'review';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
@@ -114,7 +115,7 @@ const DISTRIBUTION_OPTIONS: Array<{
   {
     id: 'external_platforms',
     label: 'External platforms',
-    description: 'Partner job boards — coming soon.',
+    description: 'Partner job boards. Adzuna is live; others coming soon.',
     icon: Globe,
   },
   {
@@ -132,6 +133,8 @@ const DISTRIBUTION_PLATFORMS: Record<
   internal_company: [{ id: 'company_page', label: 'Company page' }],
   hryantra: [{ id: 'hryantra_job_board', label: 'HRyantra job board' }],
   external_platforms: [
+    { id: 'adzuna', label: 'Adzuna' },
+    { id: 'careerjet', label: 'Careerjet' },
     { id: 'indeed', label: 'Indeed' },
     { id: 'naukri', label: 'Naukri' },
     { id: 'glassdoor', label: 'Glassdoor' },
@@ -171,8 +174,9 @@ function getDistributionChannelsFromPlatforms(
   return {
     internal_company: DISTRIBUTION_PLATFORMS.internal_company.some((p) => selected[p.id]),
     hryantra: DISTRIBUTION_PLATFORMS.hryantra.some((p) => selected[p.id]),
-    // External boards are coming soon — never count as selected destinations
-    external_platforms: false,
+    external_platforms: DISTRIBUTION_PLATFORMS.external_platforms.some(
+      (p) => selected[p.id] && !isComingSoonPlatform(p.id),
+    ),
     social_media: DISTRIBUTION_PLATFORMS.social_media.some(
       (p) => selected[p.id] && !isComingSoonPlatform(p.id),
     ),
@@ -484,9 +488,9 @@ type Props = {
 const STEPS: WizardStep[] = ['client', 'jd', 'review'];
 
 const STEP_LABELS: Record<WizardStep, string> = {
-  client: 'Pick a client',
-  jd: 'Upload job description',
-  review: 'Review job details',
+  client: 'Select Your Client',
+  jd: 'Upload Job Description',
+  review: 'Review Job Details',
 };
 
 const STEP_HINTS: Record<WizardStep, string> = {
@@ -552,8 +556,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [linkedinAccountsLoading, setLinkedinAccountsLoading] = useState(false);
 
   const reset = useCallback(() => {
+    const visibilityDefaults = visibilityDefaultsForNewJob();
     setStep('client');
-    setDraft({ ...EMPTY_DRAFT, targetHireDate: defaultTargetHireDate() });
+    setDraft({
+      ...EMPTY_DRAFT,
+      targetHireDate: defaultTargetHireDate(),
+      publicFieldVisibility: visibilityDefaults.publicFieldVisibility,
+      showClientNamePublicly: visibilityDefaults.showClientNamePublicly,
+    });
     setClientSearch('');
     setShowCreateClient(false);
     setError('');
@@ -749,7 +759,31 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         saved?.activeDistributionTab ? saved.activeDistributionTab : 'social_media',
       );
       markWizardDirty();
+      return;
     }
+
+    let cancelled = false;
+    const baseline = visibilityDefaultsForNewJob();
+    void loadJobVisibilityUserDefaults().then((defaults) => {
+      if (cancelled) return;
+      setDraft((prev) => {
+        const untouched = jobVisibilityDefaultsEqual(
+          prev.publicFieldVisibility,
+          baseline.publicFieldVisibility,
+          prev.showClientNamePublicly,
+          baseline.showClientNamePublicly,
+        );
+        if (!untouched) return prev;
+        return {
+          ...prev,
+          publicFieldVisibility: defaults.visibility,
+          showClientNamePublicly: defaults.showClient,
+        };
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, markWizardDirty]);
 
   useEffect(() => {
@@ -1439,6 +1473,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           companyPage: publishToCompanyPage,
           hryantra: Boolean(selectedDistributionPlatforms.hryantra_job_board),
           externalPlatforms: distributionChannels.external_platforms,
+          adzuna: Boolean(selectedDistributionPlatforms.adzuna),
+          careerjet: Boolean(selectedDistributionPlatforms.careerjet),
           socialMedia: distributionChannels.social_media,
         },
       };
@@ -1701,21 +1737,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                 transition={{ duration: 0.22 }}
                 className="space-y-4"
               >
-                <div className="relative overflow-hidden rounded-[1.35rem] border border-[#2098C8]/25 bg-gradient-to-br from-[#E8F6FC] via-white to-[#E8F6FC]/70 p-4 shadow-sm sm:p-5">
-                  <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-[#2098C8]/25 blur-2xl" />
-                  <div className="relative flex items-start gap-3">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#2098C8] text-white shadow-lg shadow-[#2098C8]/30">
-                      <Building2 className="h-5 w-5" />
-                    </span>
-                    <div>
-                      <p className="font-semibold text-slate-900">Select your client</p>
-                      <p className="mt-0.5 text-sm text-slate-500">
-                        Hire for your own company, or search and tap a client below. This job will be linked to the company you pick. You can also create a new client with the same fields as the Clients page.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
                 {ownCompanyVisible && ownCompanyClient ? (
                   <button
                     type="button"
@@ -1879,21 +1900,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                 transition={{ duration: 0.22 }}
                 className="space-y-4"
               >
-                <div className="relative overflow-hidden rounded-[1.35rem] border border-[#2098C8]/25 bg-gradient-to-br from-[#E8F6FC] via-white to-[#E8F6FC]/70 p-4 shadow-sm sm:p-5">
-                  <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-[#2098C8]/25 blur-2xl" />
-                  <div className="relative flex items-start gap-3">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#2098C8] text-white shadow-lg shadow-[#2098C8]/30">
-                      <Upload className="h-5 w-5" />
-                    </span>
-                    <div>
-                      <p className="font-semibold text-slate-900">Upload job description</p>
-                      <p className="mt-0.5 text-sm text-slate-500">
-                        Attach a JD file or paste the posting below. We extract title, location, skills, and more so the next step is already filled.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
                 <div className={`${sectionClass} space-y-4`}>
                   <input
                     ref={jdFileInputRef}
@@ -2224,7 +2230,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                           ? Linkedin
                           : platform.id === 'x_twitter'
                             ? Share2
-                            : platform.id === 'indeed' ||
+                            : platform.id === 'adzuna' ||
+                                platform.id === 'careerjet' ||
+                                platform.id === 'indeed' ||
                                 platform.id === 'naukri' ||
                                 platform.id === 'glassdoor' ||
                                 platform.id === 'monster'
@@ -2385,8 +2393,15 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                               <PlatformIcon className="h-4 w-4" />
                             )}
                           </span>
-                          <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">
-                            {platform.label}
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium text-slate-800">
+                              {platform.label}
+                            </span>
+                            {platform.id === 'adzuna' || platform.id === 'careerjet' ? (
+                              <span className="mt-0.5 block text-[0.7rem] text-slate-500">
+                                Organic listing via job feed
+                              </span>
+                            ) : null}
                           </span>
                           {requiresSocialAuth && connected ? (
                             <span className="shrink-0 text-[0.65rem] font-medium text-emerald-600">

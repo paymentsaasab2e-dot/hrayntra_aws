@@ -47,15 +47,16 @@ export function normalizeSalutationValue(value: string | null | undefined): Name
 }
 
 export function parseNameSalutation(fullName: string): { salutation: NameSalutation; name: string } {
-  const trimmed = String(fullName || '').trim();
-  const match = trimmed.match(SALUTATION_PREFIX_RE);
+  // Keep trailing spaces while typing so "First " can become "First Last".
+  const leadingTrimmed = String(fullName || '').replace(/^\s+/, '');
+  const match = leadingTrimmed.match(SALUTATION_PREFIX_RE);
   if (!match) {
-    return { salutation: '', name: trimmed };
+    return { salutation: '', name: leadingTrimmed };
   }
 
   return {
     salutation: normalizeSalutationValue(match[1]),
-    name: trimmed.slice(match[0].length).trim(),
+    name: leadingTrimmed.slice(match[0].length).replace(/^\s+/, ''),
   };
 }
 
@@ -95,7 +96,7 @@ export function resolveSalutationForName(
 
   return {
     salutation: VALID_SALUTATION_VALUES.has(salutation) ? salutation : '',
-    name: parsed.name || String(fullName || '').trim(),
+    name: (parsed.name || String(fullName || '')).trim(),
   };
 }
 

@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   composeInternationalPhone,
+  digitsOnly,
   extractNationalNumber,
   getPhoneCountryRule,
+  getPhoneDialOptions,
   getPhonePlaceholder,
+  inferPhoneCountryFromNumber,
 } from '../../lib/phoneByCountry';
-
-const INPUT_CLASS =
-  'rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500';
 
 export type CountryDialPhoneInputProps = {
   value: string;
@@ -24,6 +24,10 @@ export type CountryDialPhoneInputProps = {
   'aria-label'?: string;
 };
 
+function locationIsoCode(countryCode?: string, countryName?: string): string {
+  return getPhoneCountryRule(countryCode, countryName)?.isoCode || '';
+}
+
 export function CountryDialPhoneInput({
   value,
   onChange,
@@ -36,14 +40,37 @@ export function CountryDialPhoneInput({
   id,
   'aria-label': ariaLabel = 'Mobile number',
 }: CountryDialPhoneInputProps) {
-  const rule = useMemo(
-    () => getPhoneCountryRule(countryCode, countryName),
-    [countryCode, countryName],
+  const options = useMemo(() => getPhoneDialOptions(), []);
+  const [selectedIso, setSelectedIso] = useState(() =>
+    inferPhoneCountryFromNumber(value, locationIsoCode(countryCode, countryName)),
   );
+  const userPickedRef = useRef(false);
+
+  useEffect(() => {
+    if (userPickedRef.current) return;
+    if (digitsOnly(value)) {
+      const fromNumber = inferPhoneCountryFromNumber(value, '');
+      if (fromNumber) setSelectedIso(fromNumber);
+      return;
+    }
+    const next = locationIsoCode(countryCode, countryName);
+    if (next) setSelectedIso(next);
+  }, [countryCode, countryName, value]);
+
+  const rule = getPhoneCountryRule(selectedIso, '') || getPhoneCountryRule(countryCode, countryName);
   const dialCode = rule?.dialCode || '';
   const nationalNumber = extractNationalNumber(value, dialCode);
   const maxLength = rule?.nationalLength ?? 15;
-  const placeholder = getPhonePlaceholder(countryCode, countryName);
+  const placeholder = selectedIso
+    ? getPhonePlaceholder(selectedIso, rule?.countryName)
+    : 'Mobile number';
+
+  const applyCountry = (iso: string) => {
+    userPickedRef.current = true;
+    setSelectedIso(iso);
+    const nextRule = getPhoneCountryRule(iso, '');
+    onChange(composeInternationalPhone(nextRule?.dialCode || '', nationalNumber));
+  };
 
   const handleNationalChange = (raw: string) => {
     const digits = raw.replace(/\D/g, '').slice(0, maxLength);
@@ -52,18 +79,25 @@ export function CountryDialPhoneInput({
 
   return (
     <div
-      className={`flex min-w-[7rem] flex-1 overflow-hidden rounded-xl border bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 sm:min-w-0 ${
+      className={`flex min-w-[12.5rem] flex-1 rounded-xl border bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 sm:min-w-0 ${
         error ? 'border-red-300' : 'border-slate-200'
       } ${className}`}
     >
-      {dialCode ? (
-        <span
-          className="inline-flex shrink-0 items-center border-r border-slate-200 bg-slate-50 px-2.5 text-sm font-semibold text-slate-700"
-          title={rule?.countryName ? `${rule.countryName} dial code` : 'Country dial code'}
-        >
-          {dialCode}
-        </span>
-      ) : null}
+      <select
+        value={selectedIso}
+        disabled={disabled}
+        onChange={(e) => applyCountry(e.target.value)}
+        aria-label="Country code"
+        title={rule ? `${rule.countryName} (${rule.dialCode})` : 'Choose country code'}
+        className="w-[8.75rem] shrink-0 cursor-pointer rounded-l-xl border-0 border-r border-slate-200 bg-slate-50 px-1.5 py-2.5 text-[11px] font-semibold text-slate-700 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <option value="">Country</option>
+        {options.map((option) => (
+          <option key={option.isoCode} value={option.isoCode}>
+            {option.countryName} ({option.dialCode})
+          </option>
+        ))}
+      </select>
       <input
         id={id}
         type="tel"
@@ -75,7 +109,7 @@ export function CountryDialPhoneInput({
         maxLength={maxLength}
         placeholder={placeholder}
         aria-label={ariaLabel}
-        className={`min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm text-slate-900 outline-none focus:ring-0 ${INPUT_CLASS} ${inputClassName}`}
+        className={`min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm text-slate-900 outline-none focus:ring-0 ${inputClassName}`}
       />
     </div>
   );

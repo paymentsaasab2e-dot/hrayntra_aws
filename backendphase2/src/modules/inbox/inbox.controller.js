@@ -109,4 +109,74 @@ export const inboxController = {
       sendError(res, 400, error.message, error);
     }
   },
+
+  async getMailboxStatus(req, res) {
+    try {
+      const result = await inboxService.getMailboxStatus(req.user.id);
+      sendResponse(res, 200, 'Mailbox status retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getOutlookMessages(req, res) {
+    try {
+      const result = await inboxService.getOutlookMessages(req.user.id, req.query || {});
+      sendResponse(res, 200, 'Outlook messages retrieved successfully', result);
+    } catch (error) {
+      sendError(res, error.status === 429 ? 429 : 500, error.message, error);
+    }
+  },
+
+  async getOutlookMessage(req, res) {
+    try {
+      const result = await inboxService.getOutlookMessage(req.user.id, req.params.messageId);
+      sendResponse(res, 200, 'Outlook message retrieved successfully', result);
+    } catch (error) {
+      sendError(res, error.status === 429 ? 429 : 500, error.message, error);
+    }
+  },
+
+  async archiveOutlookMessage(req, res) {
+    try {
+      const result = await inboxService.archiveOutlookMessage(req.user.id, req.params.messageId);
+      sendResponse(res, 200, 'Outlook message archived successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async trashOutlookMessage(req, res) {
+    try {
+      const result = await inboxService.trashOutlookMessage(req.user.id, req.params.messageId);
+      sendResponse(res, 200, 'Outlook message deleted successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateOutlookMessageFlags(req, res) {
+    try {
+      const result = await inboxService.updateOutlookMessageFlags(
+        req.user.id,
+        req.params.messageId,
+        req.body || {}
+      );
+      sendResponse(res, 200, 'Outlook message updated successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async createCalendarEventFromOutlookMessage(req, res) {
+    try {
+      const result = await inboxService.createCalendarEventFromOutlookMessage(
+        req.user.id,
+        req.params.messageId
+      );
+      sendResponse(res, 200, 'Calendar event created successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
 };

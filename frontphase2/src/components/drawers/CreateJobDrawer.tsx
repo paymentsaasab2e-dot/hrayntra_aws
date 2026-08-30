@@ -89,6 +89,7 @@ import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
+import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '../../lib/jobVisibilityUserDefaults';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 import { ApplicationFormBuilderModal } from '../jobs/ApplicationFormBuilderModal';
 import { LinkedInPostTemplateModal } from '../jobs/LinkedInPostTemplateModal';
@@ -110,7 +111,6 @@ import {
   type JobContactPersonOption,
 } from '../../lib/jobClientContacts';
 import {
-  DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY,
   isJobFieldPubliclyVisible,
   mergeClientVisibility,
   parseJobPublicFieldVisibility,
@@ -1014,8 +1014,8 @@ export function CreateJobDrawer({
     priority: 'Medium',
     numberOfOpenings: '1',
     companyId: '',
-    showClientNamePublicly: true,
-    publicFieldVisibility: { ...DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY },
+    showClientNamePublicly: visibilityDefaultsForNewJob().showClientNamePublicly,
+    publicFieldVisibility: visibilityDefaultsForNewJob().publicFieldVisibility,
     contactPersonId: '',
     contactPersonName: '',
     industryType: '',
@@ -1171,6 +1171,30 @@ export function CreateJobDrawer({
 
     setWizardStep(isEditMode || jobId || duplicateFromJobId ? 'details' : 'client');
     setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
+
+    if (isEditMode || jobId || duplicateFromJobId) return undefined;
+    const baseline = visibilityDefaultsForNewJob();
+    let cancelled = false;
+    void loadJobVisibilityUserDefaults().then((defaults) => {
+      if (cancelled) return;
+      setFormData((prev) => {
+        const untouched = jobVisibilityDefaultsEqual(
+          prev.publicFieldVisibility,
+          baseline.publicFieldVisibility,
+          prev.showClientNamePublicly,
+          baseline.showClientNamePublicly,
+        );
+        if (!untouched) return prev;
+        return {
+          ...prev,
+          publicFieldVisibility: defaults.visibility,
+          showClientNamePublicly: defaults.showClient,
+        };
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, jobId, duplicateFromJobId, isEditMode]);
 
   // Reset form when switching between add and edit modes
@@ -1183,8 +1207,8 @@ export function CreateJobDrawer({
         priority: 'Medium',
         numberOfOpenings: '1',
         companyId: '',
-        showClientNamePublicly: true,
-        publicFieldVisibility: { ...DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY },
+        showClientNamePublicly: visibilityDefaultsForNewJob().showClientNamePublicly,
+        publicFieldVisibility: visibilityDefaultsForNewJob().publicFieldVisibility,
         contactPersonId: '',
         contactPersonName: '',
         industryType: '',
@@ -3850,8 +3874,7 @@ export function CreateJobDrawer({
               <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG} p-6 space-y-5`}>
               {wizardStep === 'client' ? (
                 <DrawerSectionCard
-                  title="Select client"
-                  subtitle="Who is this job for?"
+                  title="Select Your Client"
                   icon={Building2}
                   accent="blue"
                 >
@@ -3938,8 +3961,7 @@ export function CreateJobDrawer({
 
               {wizardStep === 'jd' ? (
                 <DrawerSectionCard
-                  title="Upload job description"
-                  subtitle="We extract fields automatically wherever possible"
+                  title="Upload Job Description"
                   icon={Upload}
                   accent="blue"
                 >
@@ -4071,7 +4093,7 @@ export function CreateJobDrawer({
                             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:border-blue-300 hover:bg-blue-50/50 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             <Upload className="h-3.5 w-3.5 text-blue-600" />
-                            Upload job description
+                            Upload Job Description
                             <span className="font-normal text-slate-500">· PDF, DOC, DOCX, TXT</span>
                           </button>
                         </div>

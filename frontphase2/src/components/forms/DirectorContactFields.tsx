@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { Check, Mail, Phone, Plus, Trash2, User } from 'lucide-react';
 import { NAME_SALUTATION_OPTIONS, applySalutationFromNameInput } from '../../constants/salutations';
 import { ensureMinContactRows, normalizeContactList, primaryContactValue } from '../../lib/contact-channels';
-import { remapPhonesToCountry } from '../../lib/phoneByCountry';
 import { CountryDialPhoneInput } from './CountryDialPhoneInput';
 
 const INPUT_CLASS =
@@ -95,24 +94,6 @@ export function DirectorContactFields({
   const emailRows = ensureMinContactRows(emails, 1);
   const phoneRows = ensureMinContactRows(phones, 1);
   const rowCount = Math.max(emailRows.length, phoneRows.length);
-  const lastCountryKeyRef = useRef(`${countryCode}|${countryName}`);
-  const phonesRef = useRef(phoneRows);
-  const phoneRef = useRef(phone);
-  phonesRef.current = phoneRows;
-  phoneRef.current = phone;
-
-  useEffect(() => {
-    const key = `${countryCode}|${countryName}`;
-    if (key === lastCountryKeyRef.current) return;
-    lastCountryKeyRef.current = key;
-    if (!countryCode && !countryName) return;
-    if (phoneNotAvailable) return;
-    const currentPhones = phonesRef.current;
-    const remapped = remapPhonesToCountry(currentPhones, countryCode, countryName);
-    const changed = remapped.some((value, index) => value !== (currentPhones[index] ?? ''));
-    if (!changed) return;
-    onPhonesChange(remapped, primaryContactValue(normalizeContactList(remapped, phoneRef.current)));
-  }, [countryCode, countryName, onPhonesChange, phoneNotAvailable]);
 
   const updateEmailRow = (index: number, value: string) => {
     if (emailNotAvailable) return;
@@ -164,7 +145,7 @@ export function DirectorContactFields({
   return (
     <div className={boxed ? 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-3' : undefined}>
       <div className="space-y-2">
-      <div className="hidden sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.2fr)_minmax(9rem,1.15fr)_2.5rem] sm:gap-2 sm:px-0">
+      <div className="hidden sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.1fr)_minmax(12.5rem,1.4fr)_2.5rem] sm:gap-2 sm:px-0">
         <span className="col-span-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
           <User size={12} />
           Director Name <span className="text-red-500">*</span>
@@ -183,7 +164,7 @@ export function DirectorContactFields({
         {Array.from({ length: rowCount }, (_, index) => (
           <div
             key={`director-contact-row-${index}`}
-            className="flex flex-wrap items-center gap-2 sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.2fr)_minmax(9rem,1.15fr)_2.5rem] sm:gap-2"
+            className="flex flex-wrap items-center gap-2 sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.1fr)_minmax(12.5rem,1.4fr)_2.5rem] sm:gap-2"
           >
             {index === 0 ? (
               <>
@@ -275,7 +256,7 @@ export function DirectorContactFields({
         ))}
       </div>
       {allowNotAvailable ? (
-        <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1 sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.2fr)_minmax(9rem,1.15fr)_2.5rem] sm:gap-2">
+        <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1 sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.1fr)_minmax(12.5rem,1.4fr)_2.5rem] sm:gap-2">
           <div className="hidden sm:col-span-2 sm:block" aria-hidden />
           <NotAvailableCheckbox
             checked={emailNotAvailable}
@@ -294,11 +275,6 @@ export function DirectorContactFields({
       {emailError ? <p className="text-xs text-red-600">{emailError}</p> : null}
       {phoneError && phoneError !== emailError ? (
         <p className="text-xs text-red-600">{phoneError}</p>
-      ) : null}
-      {!countryCode && !countryName && !phoneNotAvailable ? (
-        <p className="text-[11px] text-slate-400">
-          Select a country in Location to auto-fill the dial code and number length.
-        </p>
       ) : null}
       </div>
     </div>

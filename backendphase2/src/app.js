@@ -22,6 +22,8 @@ import candidateRoutes from './modules/candidate/candidate.routes.js';
 import clientRoutes from './modules/client/client.routes.js';
 import contactRoutes from './modules/contact/contact.routes.js';
 import jobRoutes from './modules/job/job.routes.js';
+import adzunaFeedRoutes from './modules/job/adzuna.routes.js';
+import careerjetFeedRoutes from './modules/job/careerjet.routes.js';
 import { jobPublicApplyController } from './modules/job/jobPublicApply.controller.js';
 import { publicApplyUpload } from './utils/upload.middleware.js';
 import filesRoutes from './modules/files/files.routes.js';
@@ -234,6 +236,9 @@ app.use('/api/v1/support', supportRoutes);
 app.use('/api/v1/portal-events', portalEventsRoutes);
 app.use('/api/v1/company-page', companyPageRoutes);
 app.use('/api/v1/tenant-behavior', tenantBehaviorRoutes);
+// Public Adzuna / Careerjet XML feeds — must be before `/api/v1` routers with router-level authMiddleware
+app.use('/api/v1/adzuna', adzunaFeedRoutes);
+app.use('/api/v1/careerjet', careerjetFeedRoutes);
 // Public job apply — register before any `/api/v1` router with router-level authMiddleware
 app.get('/api/v1/jobs/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
 app.post(

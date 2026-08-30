@@ -23,8 +23,9 @@ function buildFrontendRedirect(params, returnUrl = '', provider = '') {
   const frontendBase = env.FRONTEND_URL || 'http://localhost:3001';
   const safeReturn =
     returnUrl && String(returnUrl).startsWith(frontendBase) ? String(returnUrl) : '';
+  const providerName = String(provider || params.integration_connected || '').toLowerCase();
   const defaultPath =
-    String(provider || params.integration_connected || '').toLowerCase() === 'gmail'
+    providerName === 'gmail' || providerName === 'outlook'
       ? `${frontendBase}/inbox`
       : `${frontendBase}/setting`;
   const url = safeReturn ? new URL(safeReturn) : new URL(defaultPath);
@@ -38,6 +39,9 @@ function buildFrontendRedirect(params, returnUrl = '', provider = '') {
   });
   if (String(url.pathname || '').includes('/inbox') && params.integration_connected === 'gmail') {
     url.searchParams.set('gmail_connected', '1');
+  }
+  if (String(url.pathname || '').includes('/inbox') && params.integration_connected === 'outlook') {
+    url.searchParams.set('outlook_connected', '1');
   }
   return url.toString();
 }
