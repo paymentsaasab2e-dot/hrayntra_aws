@@ -29,16 +29,16 @@ export const candidateController = {
       const candidate = await candidateService.create(req.body, req.user?.id, req);
       sendResponse(res, 201, 'Candidate created successfully', candidate);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error?.statusCode || 400, error.message, error);
     }
   },
 
   async update(req, res) {
     try {
-      const candidate = await candidateService.update(req.params.id, req.body, req.user?.id);
+      const candidate = await candidateService.update(req.params.id, req.body, req.user?.id, req);
       sendResponse(res, 200, 'Candidate updated successfully', candidate);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error?.statusCode || 400, error.message, error);
     }
   },
 
@@ -225,10 +225,10 @@ export const candidateController = {
       if (!action || !Array.isArray(candidateIds) || candidateIds.length === 0) {
         return sendError(res, 400, 'Action and candidateIds are required');
       }
-      const result = await candidateService.bulkAction(action, candidateIds, payload, req.user.id);
+      const result = await candidateService.bulkAction(action, candidateIds, payload, req.user.id, req);
       sendResponse(res, 200, 'Bulk action completed successfully', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error?.statusCode || 400, error.message, error);
     }
   },
 };

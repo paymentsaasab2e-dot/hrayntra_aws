@@ -963,7 +963,7 @@ export function ScheduleInterviewModal({
             apiGetJobs({ page: 1, limit: 500 }),
             apiGetWorkspaceClient(),
             getLineManagersForJobPicker(),
-            getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined),
+            getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Interviews'),
           ]);
           if (cancelled) return;
 

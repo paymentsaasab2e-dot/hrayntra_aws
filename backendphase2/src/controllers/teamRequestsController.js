@@ -8,6 +8,7 @@ import {
   assertValidTaskCompletionApprover,
 } from '../services/taskAssignmentScope.service.js';
 import { isDepartmentHeadUser, listAllDepartmentHeadRecipients } from '../services/departmentRole.service.js';
+import { mergeOrgCompanyListScope } from '../services/orgListScope.service.js';
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -126,7 +127,11 @@ export async function listTeamRequests(req, res) {
     if (box === 'inbox') {
       where = buildInboxWhere(authz);
     } else if (viewAll && authz.canViewAll) {
-      where = {};
+      where = await mergeOrgCompanyListScope({}, req, {
+        orgUnitField: null,
+        assignedToIdField: 'sendToId',
+        createdByField: 'requestedById',
+      });
     } else {
       where = buildSentWhere(authz);
     }

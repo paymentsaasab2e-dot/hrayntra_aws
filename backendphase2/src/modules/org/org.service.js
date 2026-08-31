@@ -1,6 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
-import { hasPermission } from '../../utils/permissionScope.js';
+import { hasPermission, canViewAllCompanies } from '../../utils/permissionScope.js';
 import { teamMemberService } from '../team/teamMember.service.js';
 
 export const HIERARCHY_PURPOSES = ['member', 'company_head', 'site_head'];
@@ -236,24 +236,46 @@ export async function resolveViewerOrgScope(req) {
   const purpose = String(viewer?.hierarchyPurpose || 'member');
   const homeId = viewer?.orgUnitId ? String(viewer.orgUnitId) : '';
   const isCompanyScopedHead = purpose === 'company_head' || purpose === 'site_head';
+
+  let homeOrgUnitName = null;
+  let homeIsOrgCompany = false;
+  if (homeId) {
+    const homeUnit = await prisma.orgUnit.findUnique({
+      where: { id: homeId },
+      select: { name: true, levelOrder: true, parentId: true },
+    });
+    homeOrgUnitName = homeUnit?.name || null;
+    homeIsOrgCompany = Boolean(homeUnit && Number(homeUnit.levelOrder) >= 2);
+  }
+
+  const mayViewAllCompanies = canViewAllCompanies(req);
+  // Company members with View all (jobs/leads/…) stay in their own organization
+  // unless they also have Full access of all companies.
+  const pinToHomeCompany = Boolean(homeId && homeIsOrgCompany && !mayViewAllCompanies);
+
   // Cross-company selector: Super Admin, or roles explicitly granted switch_companies.
   // Do not treat org_structure alone as switch access (Managers had org_structure and saw the selector).
-  const canSwitchCompanies =
+  const canSwitchCompaniesRaw =
     isSuperAdminUser(req) || hasPermission(req, 'switch_companies');
+  const canSwitchCompanies = Boolean(canSwitchCompaniesRaw && !pinToHomeCompany);
   // HQ org tree editors (without being locked to a company_head home).
   const isTenantAdmin =
     canSwitchCompanies ||
-    (hasPermission(req, 'org_structure') && !isCompanyScopedHead);
+    (hasPermission(req, 'org_structure') && !isCompanyScopedHead && !pinToHomeCompany);
 
   const forced =
-    !canSwitchCompanies &&
-    (isCompanyScopedHead || Boolean(homeId));
+    pinToHomeCompany ||
+    (!mayViewAllCompanies &&
+      !canSwitchCompanies &&
+      (isCompanyScopedHead || Boolean(homeId)));
 
   let scopeUnitId = null;
   if (forced && homeId) scopeUnitId = homeId;
   else if (canSwitchCompanies && requested) scopeUnitId = requested;
 
-  const isTenantWide = Boolean(canSwitchCompanies && !scopeUnitId);
+  const isTenantWide = Boolean(
+    (canSwitchCompanies || mayViewAllCompanies) && !scopeUnitId && !pinToHomeCompany,
+  );
   let unitIds = [];
   let memberIds = [];
   if (scopeUnitId) {
@@ -273,21 +295,11 @@ export async function resolveViewerOrgScope(req) {
     orderBy: { name: 'asc' },
   });
 
-  let homeOrgUnitName = null;
-  let homeIsOrgCompany = false;
-  if (homeId) {
-    const homeUnit = await prisma.orgUnit.findUnique({
-      where: { id: homeId },
-      select: { name: true, levelOrder: true, parentId: true },
-    });
-    homeOrgUnitName = homeUnit?.name || null;
-    homeIsOrgCompany = Boolean(homeUnit && Number(homeUnit.levelOrder) >= 2);
-  }
-
   const payload = {
     isTenantAdmin,
     isTenantWide,
     canSwitchCompanies: Boolean(canSwitchCompanies),
+    canViewAllCompanies: Boolean(mayViewAllCompanies),
     hierarchyPurpose: purpose,
     orgUnitId: scopeUnitId,
     homeOrgUnitId: homeId || null,
@@ -298,6 +310,7 @@ export async function resolveViewerOrgScope(req) {
     // Only expose full company list to users who may switch.
     companies: canSwitchCompanies ? companies.map((c) => mapUnit(c)) : [],
     hasCompanies: companies.length > 0,
+    companyCount: companies.length,
   };
   if (req) req._orgViewerScope = payload;
   return payload;

@@ -17,6 +17,7 @@ import { canViewAllAssignments, canViewAllJobs } from '../../utils/permissionSco
 import {
   applyOrgCompanyAssigneeWhere,
   getRequestOrgScope,
+  isOrgCompanyScoped,
   isOrgHeadPurpose,
   resolveWriteOrgUnitId,
 } from '../../services/orgListScope.service.js';
@@ -26,6 +27,7 @@ import {
   buildInitialParticipantIds,
   stampVisibilityOnAssigneeChange,
 } from '../../services/memberVisibility.service.js';
+import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import {
   getDefaultPipelineTemplate,
@@ -106,7 +108,13 @@ function ownCompanyJobClause(ownCompanyClientId) {
   return ownCompanyClientId ? { clientId: ownCompanyClientId } : null;
 }
 
-/** Own-company jobs are visible to every team member in the tenant, not one org unit. */
+/** HQ / tenant workspace jobs — not mixed into a selected organization. */
+function ownCompanyJobsVisible(scope, ownCompanyClientId) {
+  if (!ownCompanyClientId || isOrgCompanyScoped(scope)) return null;
+  return ownCompanyJobClause(ownCompanyClientId);
+}
+
+/** Own-company jobs stay on tenant-wide lists, not inside one organization. */
 async function mergeJobOrgScope(where, req, ownCompanyClientId) {
   const orgWhere = await applyOrgCompanyAssigneeWhere(req, {
     assignedToIdField: 'assignedToId',
@@ -114,7 +122,8 @@ async function mergeJobOrgScope(where, req, ownCompanyClientId) {
     extraHasField: 'supportingRecruiters',
   });
   if (!orgWhere) return where;
-  const ownCompany = ownCompanyJobClause(ownCompanyClientId);
+  const scope = await getRequestOrgScope(req);
+  const ownCompany = ownCompanyJobsVisible(scope, ownCompanyClientId);
   return mergeWhereWithScope(where, ownCompany ? { OR: [orgWhere, ownCompany] } : orgWhere);
 }
 
@@ -1206,7 +1215,6 @@ export const jobService = {
     // Jobs page: only jobs created by the authenticated user (no seeded/dummy rows unless they match)
     const mineFilter = mine === 'true' || mine === '1';
     const ownCompanyClientId = await resolveOwnCompanyClientId();
-    const ownCompany = ownCompanyJobClause(ownCompanyClientId);
     const visibilityOr = [];
     if (mineFilter && req.user?.id) {
       where.createdById = req.user.id;
@@ -1214,6 +1222,7 @@ export const jobService = {
       const org = await getRequestOrgScope(req);
       if (!isOrgHeadPurpose(org)) {
         visibilityOr.push(...buildAssigneeVisibilityOr(req.user.id));
+        const ownCompany = ownCompanyJobsVisible(org, ownCompanyClientId);
         if (ownCompany) visibilityOr.push(ownCompany);
       }
     }
@@ -1332,7 +1341,6 @@ export const jobService = {
   async getById(id, req = null) {
     let where = { id };
     const ownCompanyClientId = await resolveOwnCompanyClientId();
-    const ownCompany = ownCompanyJobClause(ownCompanyClientId);
     const scope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     where = mergeWhereWithScope(where, scope);
     where = await mergeJobOrgScope(where, req, ownCompanyClientId);
@@ -1340,6 +1348,7 @@ export const jobService = {
       const org = await getRequestOrgScope(req);
       if (!isOrgHeadPurpose(org)) {
         const visibilityOr = [...buildAssigneeVisibilityOr(req.user.id)];
+        const ownCompany = ownCompanyJobsVisible(org, ownCompanyClientId);
         if (ownCompany) visibilityOr.push(ownCompany);
         where = mergeWhereWithScope(where, { OR: visibilityOr });
       }
@@ -1572,7 +1581,17 @@ export const jobService = {
     }
 
     if (data.assignedToId) {
+      if (createdByUserId) {
+        await assertCanAssignCrm(createdByUserId, data.assignedToId, { req, modules: ['Jobs'] });
+      }
       jobData.assignedTo = { connect: { id: data.assignedToId } };
+    }
+    if (createdByUserId && Array.isArray(data.supportingRecruiters)) {
+      for (const recruiterId of data.supportingRecruiters) {
+        if (recruiterId) {
+          await assertCanAssignCrm(createdByUserId, recruiterId, { req, modules: ['Jobs'] });
+        }
+      }
     }
 
     if (data.managerId) {
@@ -1764,6 +1783,28 @@ export const jobService = {
 
     if (!currentJob) {
       throw new Error('Job not found');
+    }
+
+    const actorUserId = data.performedById || req?.user?.id || null;
+    if (actorUserId && data.assignedToId !== undefined && data.assignedToId) {
+      const nextAssignee = String(data.assignedToId || '').trim();
+      const previousAssignee = String(currentJob.assignedToId || '').trim();
+      if (nextAssignee && nextAssignee !== previousAssignee) {
+        await assertCanAssignCrm(actorUserId, nextAssignee, { req, modules: ['Jobs'] });
+      }
+    }
+    if (actorUserId && Array.isArray(data.supportingRecruiters)) {
+      const previousSupporting = new Set(
+        (Array.isArray(currentJob.supportingRecruiters) ? currentJob.supportingRecruiters : [])
+          .map((id) => String(id || '').trim())
+          .filter(Boolean),
+      );
+      for (const recruiterId of data.supportingRecruiters) {
+        const nextId = String(recruiterId || '').trim();
+        if (nextId && !previousSupporting.has(nextId)) {
+          await assertCanAssignCrm(actorUserId, nextId, { req, modules: ['Jobs'] });
+        }
+      }
     }
 
     const requestedStatusRaw =
@@ -2261,14 +2302,15 @@ export const jobService = {
     const skip = (page - 1) * limit;
 
     const ownCompanyClientId = await resolveOwnCompanyClientId();
-    const ownCompany = ownCompanyJobClause(ownCompanyClientId);
     let baseWhere = { isDeleted: true };
     if (!canViewAllJobs(req) && req?.user?.id) {
+      const org = await getRequestOrgScope(req);
       const visibilityOr = [
         { createdById: req.user.id },
         ...buildAssigneeVisibilityOr(req.user.id),
         { deletedBy: req.user.id },
       ];
+      const ownCompany = ownCompanyJobsVisible(org, ownCompanyClientId);
       if (ownCompany) visibilityOr.push(ownCompany);
       baseWhere = {
         ...baseWhere,
@@ -2406,7 +2448,8 @@ export const jobService = {
     const mineFilter = req?.query?.mine === 'true' || req?.query?.mine === '1';
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     const ownCompanyClientId = await resolveOwnCompanyClientId();
-    const ownCompany = ownCompanyJobClause(ownCompanyClientId);
+    const org = await getRequestOrgScope(req);
+    const ownCompany = ownCompanyJobsVisible(org, ownCompanyClientId);
     const memberVisibilityOr = req?.user?.id
       ? [...buildAssigneeVisibilityOr(req.user.id), ...(ownCompany ? [ownCompany] : [])]
       : [];

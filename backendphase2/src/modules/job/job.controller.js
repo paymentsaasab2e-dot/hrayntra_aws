@@ -88,7 +88,7 @@ export const jobController = {
       const job = await jobService.create(req.body, req.user?.id, req);
       sendResponse(res, 201, 'Job created successfully', job);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error?.statusCode || 400, error.message, error);
     }
   },
 
@@ -146,7 +146,7 @@ export const jobController = {
       );
       sendResponse(res, 200, 'Job updated successfully', job);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error?.statusCode || 400, error.message, error);
     }
   },
 

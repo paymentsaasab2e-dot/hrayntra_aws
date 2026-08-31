@@ -60,6 +60,8 @@ export interface LeadAssigneesMultiSelectProps {
   /** Optional id used to label the dropdown for screen readers. */
   ariaLabel?: string;
   className?: string;
+  /** Module the assignee must have (Leads, Clients, …). Filters GET /team/assignable. */
+  assignmentModule?: string;
 }
 
 /**
@@ -78,9 +80,13 @@ export function LeadAssigneesMultiSelect({
   placeholder = 'Select team members',
   ariaLabel = 'Assigned team members',
   className = '',
+  assignmentModule,
 }: LeadAssigneesMultiSelectProps) {
-  const assignable = useAssignableMembers(!disabled);
-  const members = assignable.canSelectCompany ? assignable.members : membersProp;
+  const assignable = useAssignableMembers(!disabled, assignmentModule);
+  const members =
+    assignable.canSelectCompany || Boolean(assignmentModule)
+      ? assignable.members
+      : membersProp;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
@@ -90,9 +96,10 @@ export function LeadAssigneesMultiSelect({
 
   const memberById = useMemo(() => {
     const m = new Map<string, TeamMember>();
+    for (const member of membersProp) m.set(member.id, member);
     for (const member of members) m.set(member.id, member);
     return m;
-  }, [members]);
+  }, [members, membersProp]);
 
   const selected = useMemo(
     () => value.map((id) => memberById.get(id)).filter(Boolean) as TeamMember[],

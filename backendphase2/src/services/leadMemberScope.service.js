@@ -50,7 +50,8 @@ function buildDeptMemberLeadOr(memberIds, headUserId) {
 
 /**
  * Restrict lead lists/detail to records the actor may access:
- * - tenant-wide viewers (`view_all_leads`, super admin, etc.)
+ * - organization-wide viewers (`view_all_leads`) stay inside their company
+ * - Full access of all companies / Super Admin: every company in this tenant
  * - assignee or creator
  * - department heads: leads assigned to any member of their department
  */

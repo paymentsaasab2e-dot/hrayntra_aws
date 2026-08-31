@@ -35,6 +35,7 @@ import {
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
 import { resolveCommissionFromContext } from '../setting/commissionSlabs.service.js';
+import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
 
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
 const DEFAULT_LIMIT = 20;
@@ -614,6 +615,7 @@ export const placementService = {
     const sortBy = VALID_SORT_FIELDS.has(req.query.sortBy) ? req.query.sortBy : 'updatedAt';
     const sortOrder = String(req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
     const where = await mergeOrgCompanyListScope(await buildPlacementWhere(req.query), req, {
+      orgUnitField: null,
       assignedToIdField: 'recruiterId',
       createdByField: '',
     });
@@ -689,7 +691,7 @@ export const placementService = {
     return fetchPlacementOrThrow(id);
   },
 
-  async create(data, userId, file) {
+  async create(data, userId, file, req = null) {
     assertObjectId(data.candidateId, 'candidateId');
     assertObjectId(data.jobId, 'jobId');
     if (data.recruiterId) {
@@ -751,6 +753,9 @@ export const placementService = {
     ]);
     if (!job) throw new Error('Job not found');
     if (!recruiter) throw new Error('Recruiter not found');
+    if (userId && recruiter.id) {
+      await assertCanAssignCrm(userId, recruiter.id, { req, modules: ['Placements'] });
+    }
 
     const clientId = String(data.companyId || data.clientId || job.clientId || '').trim();
     if (!isValidObjectId(clientId)) {
@@ -1013,10 +1018,15 @@ export const placementService = {
     return placementResult;
   },
 
-  async update(id, data, userId) {
+  async update(id, data, userId, req = null) {
     const existing = await fetchPlacementOrThrow(id);
     if (data.recruiterId) {
       assertObjectId(data.recruiterId, 'recruiterId');
+      const nextRecruiterId = String(data.recruiterId).trim();
+      const previousRecruiterId = String(existing.recruiterId || '').trim();
+      if (userId && nextRecruiterId && nextRecruiterId !== previousRecruiterId) {
+        await assertCanAssignCrm(userId, nextRecruiterId, { req, modules: ['Placements'] });
+      }
     }
 
     const salaryOffered = data.salaryOffered ?? data.offerSalary ?? data.salary;

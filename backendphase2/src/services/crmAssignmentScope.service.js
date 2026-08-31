@@ -14,6 +14,12 @@ import {
   labelUsersWithOrgUnit,
   requestedAssignCompanyId,
 } from './orgListScope.service.js';
+import {
+  assertUserHasAssignmentAccess,
+  filterUsersByAssignmentAccess,
+  resolveAssignmentModules,
+  resolveAssignmentModulesFromReq,
+} from './assigneeModuleAccess.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -102,8 +108,9 @@ export function newlyAddedAssigneeIds(previousIds, nextIds) {
  * Super Admin / view_cross_company_members: people in the requested company
  * (companyId query). No company selected → empty list.
  * Never includes HQ platform accounts or other tenants.
+ * Optional `modules` (or ?module=) then keeps only users with that module access.
  */
-export async function listCrmAssigneeCandidates(actorUserId, { req = null } = {}) {
+export async function listCrmAssigneeCandidates(actorUserId, { req = null, modules = [] } = {}) {
   if (!actorUserId) return [];
 
   const actor = await prisma.user.findUnique({
@@ -164,21 +171,31 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null } = {}
     if (self) byId.set(self.id, self);
   }
 
-  return labelUsersWithOrgUnit(sortMembers([...byId.values()]));
+  const labeled = labelUsersWithOrgUnit(sortMembers([...byId.values()]));
+  const requiredModules = resolveAssignmentModules(modules?.length ? modules : resolveAssignmentModulesFromReq(req));
+  if (!requiredModules.length) return labeled;
+  return filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
 }
 
-export async function canAssignCrmTo(actorUserId, assigneeUserId, { req = null } = {}) {
+export async function canAssignCrmTo(actorUserId, assigneeUserId, { req = null, modules = [] } = {}) {
   if (!actorUserId || !assigneeUserId) return false;
-  const allowed = await listCrmAssigneeCandidates(actorUserId, { req });
+  const allowed = await listCrmAssigneeCandidates(actorUserId, { req, modules });
   return allowed.some((member) => idStr(member.id) === idStr(assigneeUserId));
 }
 
-export async function assertCanAssignCrm(actorUserId, assigneeUserId, { req = null } = {}) {
+export async function assertCanAssignCrm(actorUserId, assigneeUserId, { req = null, modules = [] } = {}) {
+  const requiredModules = resolveAssignmentModules(
+    modules?.length ? modules : resolveAssignmentModulesFromReq(req),
+  );
+  if (requiredModules.length) {
+    await assertUserHasAssignmentAccess(assigneeUserId, { modules: requiredModules });
+  }
+
   if (await isSuperAdminUserId(actorUserId)) return;
   if (req && canViewCrossCompanyMembers(req)) return;
   if (idStr(actorUserId) === idStr(assigneeUserId)) return;
 
-  if (await canAssignCrmTo(actorUserId, assigneeUserId, { req })) return;
+  if (await canAssignCrmTo(actorUserId, assigneeUserId, { req, modules: requiredModules })) return;
 
   const [actor, assignee] = await Promise.all([
     prisma.user.findUnique({

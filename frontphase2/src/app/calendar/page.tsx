@@ -252,7 +252,7 @@ export default function CalendarPage() {
       try {
         const [meRes, members] = await Promise.all([
           apiGetMe().catch(() => null),
-          getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined).catch(() => []),
+          getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Calendar').catch(() => []),
         ]);
         if (ignore) return;
 

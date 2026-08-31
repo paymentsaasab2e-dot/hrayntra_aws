@@ -57,6 +57,7 @@ import {
   applyOrgCompanyAssigneeWhere,
   getRequestOrgScope,
   isOrgHeadPurpose,
+  mergeOrgCompanyListScope,
   resolveWriteOrgUnitId,
 } from '../../services/orgListScope.service.js';
 import {
@@ -64,6 +65,7 @@ import {
   buildInitialParticipantIds,
   stampVisibilityOnAssigneeChange,
 } from '../../services/memberVisibility.service.js';
+import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
 import { pushPortalNotification } from '../notification/notification.service.js';
 import { createAlertNotification } from '../setting/alert-dispatch.service.js';
 import { notifyCandidateRejectedInternal } from '../setting/alert-notify.helpers.js';
@@ -2745,8 +2747,14 @@ function isTenantScopedRequest() {
 
 async function getVisibleTenantJobIds(req, mine) {
   const userId = req?.user?.id;
-  const jobWhere =
+  let jobWhere =
     mine && userId ? buildMyJobsWhereClause(userId) : { isDeleted: { not: true } };
+
+  jobWhere = await mergeOrgCompanyListScope(jobWhere, req, {
+    assignedToIdField: 'assignedToId',
+    createdByField: 'createdById',
+    extraHasField: 'supportingRecruiters',
+  });
 
   const jobs = await prisma.job.findMany({
     where: jobWhere,
@@ -3540,6 +3548,10 @@ export const candidateService = {
     const writeOrgUnitId = await resolveWriteOrgUnitId(req);
     if (writeOrgUnitId) candidateData.orgUnitId = writeOrgUnitId;
 
+    if (createdByUserId && data.assignedToId) {
+      await assertCanAssignCrm(createdByUserId, data.assignedToId, { req, modules: ['Candidates'] });
+    }
+
     // Log data being stored
     dbLogger.logCreate('CANDIDATE', candidateData);
 
@@ -3574,7 +3586,7 @@ export const candidateService = {
     return candidate;
   },
 
-  async update(id, data, performedByUserId = null) {
+  async update(id, data, performedByUserId = null, req = null) {
     // Whitelist of fields that exist on the Candidate Prisma model. Anything not
     // in this list (e.g. legacy `tags`, `dateOfBirth`, `workAuthorization`,
     // `state`, `zipCode`, `github`, `gender`, `willingToRelocate`,
@@ -3724,6 +3736,14 @@ export const candidateService = {
       previous: beforeUpdate,
       performerId: performedByUserId,
     });
+
+    if (performedByUserId && updateData.assignedToId) {
+      const nextAssignee = String(updateData.assignedToId || '').trim();
+      const previousAssignee = String(beforeUpdate?.assignedToId || '').trim();
+      if (nextAssignee && nextAssignee !== previousAssignee) {
+        await assertCanAssignCrm(performedByUserId, nextAssignee, { req, modules: ['Candidates'] });
+      }
+    }
 
     const writeOnClient = async (client) => {
       try {
@@ -5266,7 +5286,7 @@ export const candidateService = {
     return result;
   },
 
-  async bulkAction(action, candidateIds, payload, userId) {
+  async bulkAction(action, candidateIds, payload, userId, req = null) {
     if (!Array.isArray(candidateIds) || candidateIds.length === 0) {
       throw new Error('Candidate IDs are required');
     }
@@ -5285,6 +5305,9 @@ export const candidateService = {
 
         const uniqueRecruiterIds = Array.from(new Set(recruiterIds.map(String)));
         const primaryRecruiterId = uniqueRecruiterIds[0];
+        if (userId && primaryRecruiterId) {
+          await assertCanAssignCrm(userId, primaryRecruiterId, { req, modules: ['Candidates'] });
+        }
         const recruiters = await prisma.user.findMany({
           where: { id: { in: uniqueRecruiterIds }, isActive: true },
           select: { id: true, name: true, email: true },

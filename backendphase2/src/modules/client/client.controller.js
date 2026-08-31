@@ -337,6 +337,7 @@ export const clientController = {
           duplicateRule: req.body?.duplicateRule || 'skip',
           performedById: req.user?.id,
           performedByRole: req.user?.role,
+          recruitmentEnabled: req.body?.recruitmentEnabled === true,
         },
         req,
       );
@@ -360,7 +361,7 @@ export const clientController = {
 
   async getAssignableMembers(req, res) {
     try {
-      const members = await listCrmAssigneeCandidates(req.user.id, { req });
+      const members = await listCrmAssigneeCandidates(req.user.id, { req, modules: ['Clients'] });
       sendResponse(res, 200, 'Assignable members retrieved', members);
     } catch (error) {
       sendError(res, error?.statusCode === 403 ? 403 : 500, error.message, error);

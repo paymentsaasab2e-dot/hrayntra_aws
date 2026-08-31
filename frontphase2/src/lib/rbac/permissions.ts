@@ -21,14 +21,14 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'leads_read', module: 'Leads', description: 'View leads' },
   { permissionName: 'leads_update', module: 'Leads', description: 'Update leads' },
   { permissionName: 'leads_delete', module: 'Leads', description: 'Delete leads' },
-  { permissionName: 'view_all_leads', module: 'Leads', description: 'View all leads in tenant' },
+  { permissionName: 'view_all_leads', module: 'Leads', description: 'View all leads in my organization' },
   { permissionName: 'convert_lead', module: 'Leads', description: 'Convert a lead into a client' },
 
   { permissionName: 'clients_create', module: 'Clients', description: 'Create clients' },
   { permissionName: 'clients_read', module: 'Clients', description: 'View clients' },
   { permissionName: 'clients_update', module: 'Clients', description: 'Update clients' },
   { permissionName: 'clients_delete', module: 'Clients', description: 'Delete clients' },
-  { permissionName: 'view_all_clients', module: 'Clients', description: 'View all clients in tenant' },
+  { permissionName: 'view_all_clients', module: 'Clients', description: 'View all clients in my organization' },
   { permissionName: 'clients_handoff', module: 'Clients', description: 'Hand off clients to another department' },
 
   { permissionName: 'contacts_create', module: 'Contacts', description: 'Create contacts' },
@@ -51,14 +51,14 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'jobs_update', module: 'Jobs', description: 'Update jobs' },
   { permissionName: 'jobs_delete', module: 'Jobs', description: 'Delete jobs' },
   { permissionName: 'assign_job', module: 'Jobs', description: 'Assign jobs to recruiters' },
-  { permissionName: 'view_all_jobs', module: 'Jobs', description: 'View all jobs in tenant' },
+  { permissionName: 'view_all_jobs', module: 'Jobs', description: 'View all jobs in my organization' },
   { permissionName: 'publish_job', module: 'Jobs', description: 'Publish jobs to the portal and social channels' },
 
   { permissionName: 'candidates_create', module: 'Candidates', description: 'Create candidates' },
   { permissionName: 'candidates_read', module: 'Candidates', description: 'View candidates' },
   { permissionName: 'candidates_update', module: 'Candidates', description: 'Update candidates' },
   { permissionName: 'candidates_delete', module: 'Candidates', description: 'Delete candidates' },
-  { permissionName: 'view_all_candidates', module: 'Candidates', description: 'View all candidates in tenant' },
+  { permissionName: 'view_all_candidates', module: 'Candidates', description: 'View all candidates in my organization' },
   { permissionName: 'view_assigned_candidates', module: 'Candidates', description: 'View only assigned candidates' },
   { permissionName: 'move_pipeline', module: 'Candidates', description: 'Move candidates in pipeline' },
   { permissionName: 'submit_candidate', module: 'Candidates', description: 'Submit candidates to jobs' },
@@ -105,7 +105,7 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'requests_read', module: 'Request', description: 'View requests' },
   { permissionName: 'requests_update', module: 'Request', description: 'Update request status' },
   { permissionName: 'requests_delete', module: 'Request', description: 'Cancel or delete requests' },
-  { permissionName: 'view_all_requests', module: 'Request', description: 'View all requests in tenant' },
+  { permissionName: 'view_all_requests', module: 'Request', description: 'View all requests in my organization' },
   { permissionName: 'approve_requests', module: 'Request', description: 'Approve or reject requests raised to you' },
 
   // ══ Insights & Finance ═════════════════════════════════════════════════
@@ -148,6 +148,12 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
     module: 'Organization',
     description:
       'Show the company/branch switcher and operate CRM/recruitment across companies. Super Admin has this by default; grant only to HQ users who may work across companies.',
+  },
+  {
+    permissionName: 'view_all_companies',
+    module: 'Organization',
+    description:
+      'Full access of all companies — see jobs, leads, clients, candidates, and related lists across every company in this tenant. Without this, View all is limited to the member’s own organization.',
   },
 
   { permissionName: 'company_page_read', module: 'Company Page', description: 'View the public company page' },

@@ -38,6 +38,17 @@ export function canViewAllAssignments(req) {
   return hasAnyPermission(req, ['system_select_all', 'manage_settings']);
 }
 
+/**
+ * See jobs/leads/clients/candidates across every company in this tenant.
+ * Without this, View all (jobs/leads/clients/candidates) is limited to the
+ * member’s own organization. Super Admin has this; manage_settings does not.
+ */
+export function canViewAllCompanies(req) {
+  if (isSuperAdminOwnWork(req)) return false;
+  if (isSuperAdminUser(req) || req?.userWithPermissions?.isSuperAdmin) return true;
+  return hasPermission(req, 'view_all_companies');
+}
+
 export function canViewAllClients(req) {
   if (isSuperAdminOwnWork(req)) return false;
   return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_clients']);
@@ -51,4 +62,9 @@ export function canViewAllLeads(req) {
 export function canViewAllJobs(req) {
   if (isSuperAdminOwnWork(req)) return false;
   return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_jobs']);
+}
+
+export function canViewAllCandidates(req) {
+  if (isSuperAdminOwnWork(req)) return false;
+  return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_candidates']);
 }

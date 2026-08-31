@@ -8,7 +8,7 @@ export const PH2_TOOLBAR_SELECT_CLASS =
 
 /** Frosted table / panel wrapper — viewport-locked list card (fills remaining height). */
 export const PH2_TABLE_CARD_CLASS =
-  'mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]';
+  'mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]';
 
 /** Top row inside table card (search + filters). */
 export const PH2_TOOLBAR_ROW_CLASS =

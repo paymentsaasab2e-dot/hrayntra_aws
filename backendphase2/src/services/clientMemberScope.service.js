@@ -61,7 +61,8 @@ async function listActiveDepartmentMemberIds(userId) {
 
 /**
  * Restrict client lists/detail to records the actor may access:
- * - tenant-wide viewers (`view_all_clients`, super admin, etc.)
+ * - organization-wide viewers (`view_all_clients`) stay inside their company
+ * - Full access of all companies / Super Admin: every company in this tenant
  * - assignee or creator
  * - department heads: any client assigned to a member of their department
  */
@@ -81,7 +82,7 @@ export async function applyMemberClientScope(scopedWhere, req) {
   }
 
   const forwarded = {
-    AND: [{ recruitmentEnabled: true }, { participantIds: { has: userId } }],
+    AND: [{ recruitmentEnabled: { equals: true } }, { participantIds: { has: userId } }],
   };
 
   const org = await getRequestOrgScope(req);

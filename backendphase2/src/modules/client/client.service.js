@@ -155,20 +155,33 @@ async function listClientIdsThatHaveJobs() {
   ];
 }
 
-/** Creating a job (including jobs made before recruitmentEnabled) puts that client on Recruitment Clients. */
-export async function markClientRecruitmentEnabledFromJob(clientId, performedById = null) {
-  const id = String(clientId || '').trim();
-  if (!/^[a-fA-F0-9]{24}$/.test(id)) return;
+function recruitmentEnabledCreateFields(performedById = null) {
   const data = { recruitmentEnabled: true, recruitmentEnabledAt: new Date() };
   if (/^[a-fA-F0-9]{24}$/.test(String(performedById || ''))) {
     data.recruitmentEnabledBy = performedById;
   }
-  await prisma.client
+  return data;
+}
+
+function wantsRecruitmentClient(data, req = null) {
+  const bodyFlag = data?.recruitmentEnabled === true || data?.recruitmentEnabled === 'true';
+  const queryFlag =
+    String(req?.query?.recruitmentEnabled || req?.body?.recruitmentEnabled || '').toLowerCase() ===
+    'true';
+  return Boolean(bodyFlag || queryFlag);
+}
+
+/** Creating a job (including jobs made before recruitmentEnabled) puts that client on Recruitment Clients. */
+export async function markClientRecruitmentEnabledFromJob(clientId, performedById = null) {
+  const id = String(clientId || '').trim();
+  if (!/^[a-fA-F0-9]{24}$/.test(id)) return { updated: false };
+  const result = await prisma.client
     .updateMany({
       where: { id, isDeleted: { not: true }, recruitmentEnabled: { not: true } },
-      data,
+      data: recruitmentEnabledCreateFields(performedById),
     })
     .catch(() => null);
+  return { updated: Boolean(result?.count) };
 }
 
 /** Collapse same-name live clients created by repeated job posts. */
@@ -551,7 +564,7 @@ export const clientService = {
       const jobClientIds = await listClientIdsThatHaveJobs();
       recruitmentMatch.push({
         OR: [
-          { recruitmentEnabled: true },
+          { recruitmentEnabled: { equals: true } },
           ...(jobClientIds.length ? [{ id: { in: jobClientIds } }] : []),
         ],
       });
@@ -961,12 +974,7 @@ export const clientService = {
         : {}),
       ...buildPostServiceKycFormCreateFields(data),
       otherDetails: normalizeClientOtherDetails(data.otherDetails),
-      recruitmentEnabled: data.recruitmentEnabled === true ? true : undefined,
-      recruitmentEnabledAt: data.recruitmentEnabled === true ? new Date() : undefined,
-      recruitmentEnabledBy:
-        data.recruitmentEnabled === true && /^[a-fA-F0-9]{24}$/.test(String(data.performedById || ''))
-          ? data.performedById
-          : undefined,
+      ...(wantsRecruitmentClient(data, req) ? recruitmentEnabledCreateFields(data.performedById) : {}),
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
       // billingEmail, billingPhone, billingAddress, notes, tags, hot (not in schema)
@@ -986,7 +994,7 @@ export const clientService = {
     dbLogger.logCreate('CLIENT', clientData);
 
     if (data.performedById && clientData.assignedToId) {
-      await assertCanAssignCrm(data.performedById, clientData.assignedToId, { req });
+      await assertCanAssignCrm(data.performedById, clientData.assignedToId, { req, modules: ['Clients'] });
     }
 
     const client = await prisma.client.create({
@@ -1229,7 +1237,7 @@ export const clientService = {
       const currentAssignee = String(currentClient?.assignedToId || '').trim();
       const nextAssignee = String(data.assignedToId || '').trim();
       if (nextAssignee && nextAssignee !== currentAssignee) {
-        await assertCanAssignCrm(data.performedById, data.assignedToId, { req });
+        await assertCanAssignCrm(data.performedById, data.assignedToId, { req, modules: ['Clients'] });
       }
     }
 
@@ -1682,6 +1690,14 @@ export const clientService = {
 
     const includeSystemClients = req?.query?.includeSystem === 'true';
     const clientBaseWhere = applySystemWorkspaceExclusion({}, includeSystemClients);
+    const clientOrgOpts = { assignedToIdField: 'assignedToId', createdByField: 'createdById' };
+    const jobOrgOpts = {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+      extraHasField: 'supportingRecruiters',
+    };
+    const candidateOrgOpts = { assignedToIdField: 'assignedToId', createdByField: 'createdById' };
+    const placementOrgOpts = { orgUnitField: null, assignedToIdField: 'recruiterId', createdByField: '' };
 
     const [
       activeClients,
@@ -1696,50 +1712,87 @@ export const clientService = {
       revenueLastMonth,
     ] = await Promise.all([
       prisma.client.count({
-        where: mergeWhereWithScope({ ...clientBaseWhere, status: 'ACTIVE' }, superAdminClientScope),
+        where: await mergeOrgCompanyListScope(
+          mergeWhereWithScope({ ...clientBaseWhere, status: 'ACTIVE' }, superAdminClientScope),
+          req,
+          clientOrgOpts,
+        ),
       }),
       prisma.client.count({
-        where: mergeWhereWithScope(
-          {
-            ...clientBaseWhere,
-            status: 'ACTIVE',
-            createdAt: { lte: endOfLastMonth },
-          },
-          superAdminClientScope
+        where: await mergeOrgCompanyListScope(
+          mergeWhereWithScope(
+            {
+              ...clientBaseWhere,
+              status: 'ACTIVE',
+              createdAt: { lte: endOfLastMonth },
+            },
+            superAdminClientScope
+          ),
+          req,
+          clientOrgOpts,
         ),
       }),
-      prisma.job.count({ where: mergeWhereWithScope({ status: 'OPEN' }, superAdminJobScope) }),
       prisma.job.count({
-        where: mergeWhereWithScope(
-          {
-            status: 'OPEN',
-            createdAt: { lte: endOfLastMonth },
-          },
-          superAdminJobScope
+        where: await mergeOrgCompanyListScope(
+          mergeWhereWithScope({ status: 'OPEN', isDeleted: { not: true } }, superAdminJobScope),
+          req,
+          jobOrgOpts,
         ),
       }),
-      prisma.candidate.count({ where: mergeWhereWithScope({ status: 'ACTIVE' }, superAdminCandidateScope) }),
+      prisma.job.count({
+        where: await mergeOrgCompanyListScope(
+          mergeWhereWithScope(
+            {
+              status: 'OPEN',
+              isDeleted: { not: true },
+              createdAt: { lte: endOfLastMonth },
+            },
+            superAdminJobScope
+          ),
+          req,
+          jobOrgOpts,
+        ),
+      }),
       prisma.candidate.count({
-        where: mergeWhereWithScope(
-          {
-            status: 'ACTIVE',
-            createdAt: { lte: endOfLastMonth },
-          },
-          superAdminCandidateScope
+        where: await mergeOrgCompanyListScope(
+          mergeWhereWithScope({ status: 'ACTIVE' }, superAdminCandidateScope),
+          req,
+          candidateOrgOpts,
+        ),
+      }),
+      prisma.candidate.count({
+        where: await mergeOrgCompanyListScope(
+          mergeWhereWithScope(
+            {
+              status: 'ACTIVE',
+              createdAt: { lte: endOfLastMonth },
+            },
+            superAdminCandidateScope
+          ),
+          req,
+          candidateOrgOpts,
         ),
       }),
       prisma.placement.count({
-        where: joinedInRangeWhere(startOfMonth, null),
+        where: await mergeOrgCompanyListScope(joinedInRangeWhere(startOfMonth, null), req, placementOrgOpts),
       }),
       prisma.placement.count({
-        where: joinedInRangeWhere(startOfLastMonth, endOfLastMonth),
+        where: await mergeOrgCompanyListScope(
+          joinedInRangeWhere(startOfLastMonth, endOfLastMonth),
+          req,
+          placementOrgOpts,
+        ),
       }),
       prisma.placement.aggregate({
-        where: joinedInRangeWhere(startOfMonth, null),
+        where: await mergeOrgCompanyListScope(joinedInRangeWhere(startOfMonth, null), req, placementOrgOpts),
         _sum: { fee: true },
       }),
       prisma.placement.aggregate({
-        where: joinedInRangeWhere(startOfLastMonth, endOfLastMonth),
+        where: await mergeOrgCompanyListScope(
+          joinedInRangeWhere(startOfLastMonth, endOfLastMonth),
+          req,
+          placementOrgOpts,
+        ),
         _sum: { fee: true },
       }),
     ]);
@@ -1799,7 +1852,11 @@ export const clientService = {
     };
   },
 
-  async importClients({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }, req = null) {
+  async importClients(
+    { rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole, recruitmentEnabled = false },
+    req = null,
+  ) {
+    const enableRecruitment = wantsRecruitmentClient({ recruitmentEnabled }, req);
     const results = {
       total: rows.length,
       created: 0,
@@ -1952,6 +2009,13 @@ export const clientService = {
         }
 
         if (existing && duplicateRule === 'skip') {
+          if (enableRecruitment && existing.id) {
+            const stamped = await markClientRecruitmentEnabledFromJob(existing.id, performedById);
+            if (stamped.updated) {
+              results.updated += 1;
+              continue;
+            }
+          }
           results.skipped += 1;
           continue;
         }
@@ -1980,6 +2044,7 @@ export const clientService = {
                 existingWithDetails?.otherDetails,
                 payload.otherDetails
               ),
+              ...(enableRecruitment ? { recruitmentEnabled: true } : {}),
               performedById,
               skipSideEffects: true,
             },
@@ -2021,6 +2086,7 @@ export const clientService = {
             performedByRole,
             skipSideEffects: true,
             forceNew: true,
+            ...(enableRecruitment ? { recruitmentEnabled: true } : {}),
           },
           req,
         );

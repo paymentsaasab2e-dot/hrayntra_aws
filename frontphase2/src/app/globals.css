@@ -430,6 +430,23 @@ html {
   background: rgba(148, 163, 184, 0.42);
 }
 
+/*
+  Portaled toolbar menus (Columns, filters). Must be fully opaque: table cards
+  and sticky headers use backdrop-filter, which Chromium composites through
+  translucent overlays so table text shows through the dropdown.
+*/
+.ph2-portal-popover {
+  box-sizing: border-box;
+  background-color: #ffffff;
+  isolation: isolate;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  opacity: 1;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+}
+
 /* No scrollbar */
 .no-scrollbar::-webkit-scrollbar {
   display: none;

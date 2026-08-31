@@ -22,6 +22,8 @@ import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../utils/list
 import { filterInterviewUserRowsForViewer } from './activityVisibility.service.js';
 import { ENTITY_TYPES } from './activityService.js';
 import { canViewAllAssignments } from '../utils/permissionScope.js';
+import { mergeOrgCompanyListScope } from './orgListScope.service.js';
+import { assertCanAssignCrm } from './crmAssignmentScope.service.js';
 import { notifyInterviewScheduleChange, notifyInterviewCancelledForPortal } from '../modules/notification/interviewNotifications.js';
 import {
   queueAiEntryRecommendation,
@@ -844,6 +846,17 @@ const buildInterviewAssignmentScope = (req) => {
   };
 };
 
+const INTERVIEW_ORG_SCOPE_OPTIONS = {
+  orgUnitField: null,
+  assignedToIdField: 'interviewerId',
+  createdByField: 'createdById',
+  extraHasField: 'panelIds',
+};
+
+async function applyInterviewOrgScope(where, req) {
+  return mergeOrgCompanyListScope(where, req, INTERVIEW_ORG_SCOPE_OPTIONS);
+}
+
 export const interviewService = {
   interviewInclude,
 
@@ -904,7 +917,8 @@ export const interviewService = {
     }
 
     const assignmentScope = buildInterviewAssignmentScope(req);
-    const scopedWhere = assignmentScope ? { AND: [where, assignmentScope] } : where;
+    let scopedWhere = assignmentScope ? { AND: [where, assignmentScope] } : where;
+    scopedWhere = await applyInterviewOrgScope(scopedWhere, req);
 
     const skip = (page - 1) * limit;
 
@@ -975,8 +989,10 @@ export const interviewService = {
 
   async getById(id, req = null) {
     const assignmentScope = buildInterviewAssignmentScope(req);
+    let interviewWhere = assignmentScope ? { AND: [{ id }, assignmentScope] } : { id };
+    interviewWhere = await applyInterviewOrgScope(interviewWhere, req);
     const interview = await prisma.interview.findFirst({
-      where: assignmentScope ? { AND: [{ id }, assignmentScope] } : { id },
+      where: interviewWhere,
       include: interviewInclude,
     });
     if (!interview) {
@@ -994,7 +1010,7 @@ export const interviewService = {
     return withAudit;
   },
 
-  async create(payload, user) {
+  async create(payload, user, req = null) {
     const clientId = payload.clientId || payload.companyId;
     // The candidate picker on the CRM merges portal + tenant rows. If the chosen candidate
     // only exists on the portal side, `getCandidateOrThrow` will materialize it into the
@@ -1012,6 +1028,11 @@ export const interviewService = {
     if (!client) throw new Error('Client not found');
     if (job.clientId !== client.id) throw new Error('Job does not belong to the provided client');
     if (panelUsers.length !== panelUserIds.length) throw new Error('One or more panel users were not found');
+    if (user?.id) {
+      for (const panelUserId of panelUserIds) {
+        await assertCanAssignCrm(user.id, panelUserId, { req, modules: ['Interviews'] });
+      }
+    }
 
     const scheduledAt = buildInterviewDateTime(payload.date);
     const leadInterviewerId = panelUserIds[0] || null;
@@ -1166,7 +1187,7 @@ export const interviewService = {
     };
   },
 
-  async update(id, payload, user) {
+  async update(id, payload, user, req = null) {
     const current = await getInterviewOrThrow(id);
 
     const nextCandidateId = payload.candidateId || current.candidate.id;
@@ -1195,6 +1216,19 @@ export const interviewService = {
     if (job.clientId !== client.id) throw new Error('Job does not belong to the provided client');
     if (payload.panelUserIds && panelUsers.length !== payload.panelUserIds.length) {
       throw new Error('One or more panel users were not found');
+    }
+    if (user?.id && Array.isArray(payload.panelUserIds)) {
+      const previousPanelIds = new Set(
+        (current.panel || [])
+          .map((member) => String(member.userId || member.user?.id || '').trim())
+          .filter(Boolean),
+      );
+      for (const panelUserId of payload.panelUserIds) {
+        const nextId = String(panelUserId || '').trim();
+        if (nextId && !previousPanelIds.has(nextId)) {
+          await assertCanAssignCrm(user.id, nextId, { req, modules: ['Interviews'] });
+        }
+      }
     }
 
     const nextClientId = client.id;
@@ -1530,8 +1564,11 @@ export const interviewService = {
     return updated;
   },
 
-  async addPanelMember(id, payload, user) {
+  async addPanelMember(id, payload, user, req = null) {
     await getInterviewOrThrow(id);
+    if (user?.id && payload.userId) {
+      await assertCanAssignCrm(user.id, payload.userId, { req, modules: ['Interviews'] });
+    }
     const panelMember = await prisma.interviewPanel.create({
       data: {
         interviewId: id,
@@ -2228,7 +2265,8 @@ export const interviewService = {
 
   async getKpis(req = null) {
     const assignmentScope = buildInterviewAssignmentScope(req);
-    const base = await countKpis(assignmentScope || {});
+    const orgWhere = await applyInterviewOrgScope(assignmentScope || {}, req);
+    const base = await countKpis(orgWhere || {});
     const [offerCount, feedbackRows] = await Promise.all([
       prisma.placement.count({
         where: {
@@ -2269,26 +2307,28 @@ export const interviewService = {
     const start = new Date(Date.UTC(year, month - 1, 1));
     const end = new Date(Date.UTC(year, month, 1));
     const assignmentScope = buildInterviewAssignmentScope(req);
+    let calendarWhere = assignmentScope
+      ? {
+          AND: [
+            {
+              scheduledAt: {
+                gte: start,
+                lt: end,
+              },
+            },
+            assignmentScope,
+          ],
+        }
+      : {
+          scheduledAt: {
+            gte: start,
+            lt: end,
+          },
+        };
+    calendarWhere = await applyInterviewOrgScope(calendarWhere, req);
 
     return prisma.interview.findMany({
-      where: assignmentScope
-        ? {
-            AND: [
-              {
-                scheduledAt: {
-                  gte: start,
-                  lt: end,
-                },
-              },
-              assignmentScope,
-            ],
-          }
-        : {
-            scheduledAt: {
-              gte: start,
-              lt: end,
-            },
-          },
+      where: calendarWhere,
       include: interviewInclude,
       orderBy: {
         scheduledAt: 'asc',

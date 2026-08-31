@@ -256,6 +256,8 @@ export interface TeamMemberFilters {
   limit?: number;
   orgUnitId?: string;
   companyId?: string;
+  /** Assignment picker module filter (Leads, Jobs, Candidates, …). */
+  module?: string;
 }
 
 export interface TeamMemberStats {

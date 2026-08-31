@@ -68,6 +68,7 @@ function getTeamListCacheKey(req) {
     userId: req.user?.id || '',
     assignableOnly,
     assignAcrossOrgs,
+    assignmentModule: String(req.query.module || req.query.modules || ''),
     hqExcluded: 2,
     orgUnitId: assignableOnly
       ? requestedAssignCompanyId(req)

@@ -23,10 +23,9 @@ export function PanelAssignmentModal({
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
   const [isSaving, setIsSaving] = useState(false);
-  const assignable = useAssignableMembers(isOpen);
+  const assignable = useAssignableMembers(isOpen, 'Interviews');
   const pool: InterviewPanelMember[] = useMemo(() => {
-    if (!assignable.canSelectCompany) return interviewers;
-    return assignable.members.map((member) => ({
+    const fromAssignable = assignable.members.map((member) => ({
       id: member.id,
       userId: member.id,
       name: [member.firstName, member.lastName].filter(Boolean).join(' ').trim() || member.email || 'Member',
@@ -36,7 +35,10 @@ export function PanelAssignmentModal({
       phone: '',
       avatar: '',
     }));
-  }, [assignable.canSelectCompany, assignable.members, interviewers]);
+    if (assignable.canSelectCompany) return fromAssignable;
+    if (!assignable.loading) return fromAssignable;
+    return interviewers;
+  }, [assignable.canSelectCompany, assignable.loading, assignable.members, interviewers]);
 
   const filtered = useMemo(
     () =>

@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { canViewAllAssignments } from '../../utils/permissionScope.js';
+import { mergeOrgCompanyListScope } from '../../services/orgListScope.service.js';
 import { prepareListWithAuditMeta } from '../../utils/listAuditMeta.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
 import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
@@ -115,6 +116,15 @@ function applyTaskVisibilityWhere(filters, req) {
   return { AND: [filters, visibility] };
 }
 
+async function applyTaskListWhere(filters, req) {
+  return mergeOrgCompanyListScope(applyTaskVisibilityWhere(filters, req), req, {
+    orgUnitField: null,
+    assignedToIdField: 'assignedToId',
+    createdByField: 'createdById',
+    extraHasField: 'participantIds',
+  });
+}
+
 export const taskService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
@@ -158,7 +168,7 @@ export const taskService = {
     }
     if (linkedEntityId) filters.linkedEntityId = linkedEntityId;
 
-    const where = applyTaskVisibilityWhere(filters, req);
+    const where = await applyTaskListWhere(filters, req);
 
     const [tasks, total] = await Promise.all([
       prisma.task.findMany({
@@ -177,7 +187,7 @@ export const taskService = {
 
   async getById(id, req = null) {
     const filters = { id };
-    const where = applyTaskVisibilityWhere(filters, req);
+    const where = await applyTaskListWhere(filters, req);
 
     const task = await prisma.task.findFirst({
       where,
@@ -449,7 +459,7 @@ export const taskService = {
 
     dbLogger.logUpdate('TASK', id, updateData);
 
-    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const accessWhere = await applyTaskListWhere({ id }, req);
 
     const existingTask = await prisma.task.findFirst({
       where: accessWhere,
@@ -565,7 +575,7 @@ export const taskService = {
     const assignToId = String(data.assignToId || data.assignedToId || '').trim();
     if (!assignToId) throw new Error('Delegate assignee is required');
 
-    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const accessWhere = await applyTaskListWhere({ id }, req);
     const existingTask = await prisma.task.findFirst({
       where: accessWhere,
       include: TASK_INCLUDE,
@@ -648,7 +658,7 @@ export const taskService = {
   },
 
   async delete(id, req = null) {
-    const where = applyTaskVisibilityWhere({ id }, req);
+    const where = await applyTaskListWhere({ id }, req);
 
     const task = await prisma.task.findFirst({
       where,
@@ -856,7 +866,7 @@ export const taskService = {
     const actorId = req?.user?.id;
     if (!actorId) throw new Error('Unauthorized');
 
-    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const accessWhere = await applyTaskListWhere({ id }, req);
     const existingTask = await prisma.task.findFirst({
       where: accessWhere,
       include: TASK_INCLUDE,
@@ -921,7 +931,7 @@ export const taskService = {
     const actorId = req?.user?.id;
     if (!actorId) throw new Error('Unauthorized');
 
-    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const accessWhere = await applyTaskListWhere({ id }, req);
     const existingTask = await prisma.task.findFirst({
       where: accessWhere,
       include: TASK_INCLUDE,
@@ -973,7 +983,7 @@ export const taskService = {
     const actorId = req?.user?.id;
     if (!actorId) throw new Error('Unauthorized');
 
-    const accessWhere = applyTaskVisibilityWhere({ id }, req);
+    const accessWhere = await applyTaskListWhere({ id }, req);
     const existingTask = await prisma.task.findFirst({
       where: accessWhere,
       include: TASK_INCLUDE,
