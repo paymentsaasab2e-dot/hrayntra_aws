@@ -672,16 +672,27 @@ export default function App() {
       }
 
       const mappedClients = backendClients.map(mapBackendClientToFrontend);
-      const clientMap = new Map<string, Client>();
+      const fromApi = new Map<string, Client>();
       mappedClients.forEach((client) => {
         const id = String(client.id);
-        clientMap.set(id, { ...client, id });
+        fromApi.set(id, { ...client, id });
       });
-      const uniqueClients = Array.from(clientMap.values());
-
-      setClients(uniqueClients);
-      setIsEmpty(uniqueClients.length === 0);
-      setSelectedClients((prev) => prev.filter((id) => uniqueClients.some((c) => c.id === id)));
+      setClients((prev) => {
+        const clientMap = new Map(fromApi);
+        prev.forEach((client) => {
+          if (clientMap.has(client.id)) return;
+          if (isRecruitmentScope && !client.recruitmentEnabled) return;
+          clientMap.set(client.id, client);
+        });
+        const uniqueClients = Array.from(clientMap.values()).sort((a, b) => {
+          const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+          const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+          return bTime - aTime;
+        });
+        setIsEmpty(uniqueClients.length === 0);
+        return uniqueClients;
+      });
+      setSelectedClients((prev) => prev.filter((id) => fromApi.has(id)));
     } catch (err: any) {
       console.error('Failed to fetch clients:', err);
       setError(err?.message || 'Failed to fetch clients');
@@ -1566,7 +1577,11 @@ export default function App() {
             setTeamMemberFilterId('');
             setCurrentPage(1);
             if (created?.id && created.companyName) {
-              mergeClientOptimistically(mapBackendClientToFrontend(created));
+              const mapped = mapBackendClientToFrontend(created);
+              mergeClientOptimistically({
+                ...mapped,
+                recruitmentEnabled: isRecruitmentScope ? true : mapped.recruitmentEnabled,
+              });
             }
             void fetchClients({ page: 1, search: '', matchingClientIds: [] });
           }}
@@ -1588,6 +1603,7 @@ export default function App() {
         <ClientImportDrawer
           isOpen={showImportDrawer}
           onClose={() => setShowImportDrawer(false)}
+          recruitmentEnabled={isRecruitmentScope}
           onImportComplete={() => {
             setActiveTab('all');
             setSelectedClients([]);

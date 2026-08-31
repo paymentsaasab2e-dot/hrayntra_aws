@@ -116,7 +116,7 @@ export function usePlacements(filters: PlacementFilters) {
         apiGetCandidates({ page: 1, limit: 500 }),
         apiGetJobs(PLACEMENT_FORM_JOBS_PARAMS),
         apiGetClients({ page: 1, limit: 500 }),
-        getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined),
+        getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Placements'),
       ]);
 
       const candidates = unwrapCollection(candidatesRes.data as any);

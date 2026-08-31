@@ -999,10 +999,11 @@ function CandidatesPageContent() {
 
     async function loadPipelineOptions() {
       try {
-        const [allJobsRes, clientsRes, members] = await Promise.all([
+        const [allJobsRes, clientsRes, candidateMembers, interviewMembers] = await Promise.all([
           apiGetJobs({ page: 1, limit: 500 }),
           apiGetClients({ page: 1, limit: 500 }),
-          getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined),
+          getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Candidates'),
+          getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Interviews'),
         ]);
         if (cancelled) return;
 
@@ -1010,9 +1011,9 @@ function CandidatesPageContent() {
         const allJobsForFilter = toJobFilterOptions(allJobsParsed);
         const clientNames = clientNamesFromApiResponse(clientsRes);
 
-        const memberName = (m: (typeof members)[number]) =>
+        const memberName = (m: (typeof candidateMembers)[number]) =>
           [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email;
-        const memberAvatar = (m: (typeof members)[number]) => (m as { avatar?: string | null }).avatar || null;
+        const memberAvatar = (m: (typeof candidateMembers)[number]) => (m as { avatar?: string | null }).avatar || null;
 
         setPipelineJobs(
           allJobsParsed
@@ -1035,7 +1036,7 @@ function CandidatesPageContent() {
         setCompanyFilterOptions(clientNames);
 
         setPipelineRecruiters(
-          members.map((m) => ({
+          candidateMembers.map((m) => ({
             id: m.id,
             name: memberName(m),
             avatar: memberAvatar(m),
@@ -1043,7 +1044,7 @@ function CandidatesPageContent() {
         );
 
         setInterviewPanelMembers(
-          members.map((m) => ({
+          interviewMembers.map((m) => ({
             id: m.id,
             name: memberName(m),
             role: m.role?.roleName || '',

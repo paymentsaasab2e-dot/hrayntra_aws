@@ -81,6 +81,12 @@ export function formatPermissionLabel(name: string): string {
     manage_departments: 'Manage departments',
     view_cross_company_members: 'View Members Across Companies',
     VIEW_CROSS_COMPANY_MEMBERS: 'View Members Across Companies',
+    view_all_companies: 'Full access of all companies',
+    view_all_jobs: 'View all jobs in my organization',
+    view_all_leads: 'View all leads in my organization',
+    view_all_clients: 'View all clients in my organization',
+    view_all_candidates: 'View all candidates in my organization',
+    view_all_requests: 'View all requests in my organization',
     company_page_read: 'View company page',
     company_page_manage: 'Manage company page',
   };

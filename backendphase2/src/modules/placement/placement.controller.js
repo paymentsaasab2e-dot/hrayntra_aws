@@ -2,6 +2,7 @@ import { placementService } from './placement.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 
 function getStatusCode(error) {
+  if (Number(error?.statusCode) > 0) return Number(error.statusCode);
   const message = String(error?.message || '').toLowerCase();
   if (message.includes('not found')) return 404;
   if (
@@ -48,7 +49,7 @@ export const placementController = {
 
   async create(req, res) {
     try {
-      const placement = await placementService.create(req.body, req.user.id, req.file);
+      const placement = await placementService.create(req.body, req.user.id, req.file, req);
       // Log placement created so it's visible in terminal (saved in DB)
       const saved = {
         id: placement.id,
@@ -73,7 +74,7 @@ export const placementController = {
 
   async update(req, res) {
     try {
-      const placement = await placementService.update(req.params.id, req.body, req.user.id);
+      const placement = await placementService.update(req.params.id, req.body, req.user.id, req);
       sendResponse(res, 200, 'Placement updated successfully', placement);
     } catch (error) {
       sendError(res, getStatusCode(error), error.message, error);

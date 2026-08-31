@@ -12,7 +12,7 @@ import type { BackendUser } from '@/lib/api';
 
 export type AssignCompanyOption = { id: string; name: string; kind?: string };
 
-export function useAssignableMembers(enabled = true) {
+export function useAssignableMembers(enabled = true, module?: string) {
   const { isSuperAdmin, hasAnyPermission } = usePermissions();
   const mayPickCompany =
     isSuperAdmin() ||
@@ -64,7 +64,7 @@ export function useAssignableMembers(enabled = true) {
     }
     let cancelled = false;
     setLoading(true);
-    void getAllTeamMembersForAssign(canSelectCompany ? companyId : undefined)
+    void getAllTeamMembersForAssign(canSelectCompany ? companyId : undefined, module)
       .then((rows) => {
         if (!cancelled) setMembers(rows || []);
       })
@@ -77,7 +77,7 @@ export function useAssignableMembers(enabled = true) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, mayPickCompany, companiesReady, canSelectCompany, companyId]);
+  }, [enabled, mayPickCompany, companiesReady, canSelectCompany, companyId, module]);
 
   const users: BackendUser[] = useMemo(() => teamMembersToBackendUsers(members), [members]);
 

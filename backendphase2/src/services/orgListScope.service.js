@@ -147,6 +147,19 @@ function emptyUserWhere() {
   return { id: { in: [NONE] } };
 }
 
+/**
+ * How many L2 companies exist in this tenant.
+ * Do not use `scope.companies.length` — that array is empty for non-switchers
+ * and was treating every org member as “only one company”, which leaked HQ /
+ * untagged tenant rows into their lists.
+ */
+function tenantCompanyCount(scope) {
+  const counted = Number(scope?.companyCount);
+  if (Number.isFinite(counted) && counted >= 0) return counted;
+  if (scope?.hasCompanies) return 2;
+  return Array.isArray(scope?.companies) ? scope.companies.length : 0;
+}
+
 /** Label assignable people with company/branch when the tenant has more than one company. */
 export async function labelUsersWithOrgUnit(members) {
   if (!Array.isArray(members) || members.length === 0) return members;
@@ -206,8 +219,8 @@ export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
 
   const unitIds = scope.unitIds?.length ? scope.unitIds.map(String) : [NONE];
   const memberIds = scope.memberIds?.length ? scope.memberIds.map(String) : [];
-  const companyCount = Array.isArray(scope.companies) ? scope.companies.length : 0;
-  const onlyOneCompany = companyCount <= 1;
+  const companyCount = tenantCompanyCount(scope);
+  const onlyOneCompany = companyCount === 1;
 
   let hqRootId = null;
   try {
@@ -270,7 +283,7 @@ export async function applyOrgCompanyUserWhere(req, { forAssign = false } = {}) 
   const scope = await getRequestOrgScope(req);
   const cross = canViewCrossCompanyMembers(req);
   const homeId = String(scope?.homeOrgUnitId || scope?.orgUnitId || '').trim();
-  const companyCount = Array.isArray(scope?.companies) ? scope.companies.length : 0;
+  const companyCount = tenantCompanyCount(scope);
 
   if (forAssign) {
     if (cross) {
@@ -283,7 +296,7 @@ export async function applyOrgCompanyUserWhere(req, { forAssign = false } = {}) 
     }
     if (homeId) {
       return userWhereForUnit(homeId, {
-        includeUntagged: companyCount <= 1 && !scope?.homeOrgUnitId,
+        includeUntagged: companyCount === 1 && !scope?.homeOrgUnitId,
       });
     }
     const selfId = String(req?.user?.id || '').trim();
@@ -292,7 +305,7 @@ export async function applyOrgCompanyUserWhere(req, { forAssign = false } = {}) 
 
   if (!cross) {
     if (homeId) {
-      return userWhereForUnit(homeId, { includeUntagged: companyCount <= 1 });
+      return userWhereForUnit(homeId, { includeUntagged: companyCount === 1 });
     }
     const selfId = String(req?.user?.id || '').trim();
     return { id: { in: selfId ? [selfId] : [NONE] } };
@@ -302,7 +315,7 @@ export async function applyOrgCompanyUserWhere(req, { forAssign = false } = {}) 
 
   const unitIds = scope.unitIds?.length ? scope.unitIds.map(String) : [NONE];
   const or = [{ orgUnitId: { in: unitIds } }];
-  if (companyCount <= 1) {
+  if (companyCount === 1) {
     let hqRootId = null;
     try {
       const root = await prisma.orgUnit.findFirst({

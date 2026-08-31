@@ -2239,7 +2239,7 @@ export function CreateJobDrawer({
   const loadUsers = async () => {
     try {
       setLoadingUsers(true);
-      const members = await getAllTeamMembersForAssign();
+      const members = await getAllTeamMembersForAssign(undefined, 'Jobs');
       setUsers(teamMembersToBackendUsers(members));
     } catch (err) {
       console.error('Failed to load users:', err);

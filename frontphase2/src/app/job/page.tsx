@@ -805,7 +805,7 @@ const JobsListView = ({
   <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
       <table className="w-full min-w-[520px] text-left border-collapse">
         <thead className="sticky top-0 z-10">
-          <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
+          <tr className="border-b border-indigo-100 bg-gradient-to-r from-slate-50 via-indigo-50 to-violet-50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
             {show('select') ? (
               <th className="px-3 py-2 sm:px-4 w-10 first:pl-4">
                 <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />

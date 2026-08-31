@@ -99,7 +99,7 @@ export function TaskForm({
   const [clients, setClients] = useState<RelatedEntity[]>(MOCK_CLIENTS);
   const [interviews, setInterviews] = useState<RelatedEntity[]>([]);
   const [loadingEntities, setLoadingEntities] = useState(false);
-  const assignable = useAssignableMembers(true);
+  const assignable = useAssignableMembers(true, 'Tasks');
   const assignees = useMemo<TaskAssignee[]>(() => {
     if (!assignable.members.length) return [];
     return assignable.members.map((m) => ({

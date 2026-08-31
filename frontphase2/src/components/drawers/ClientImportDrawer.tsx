@@ -25,6 +25,8 @@ import {
 export interface ClientImportDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  /** When true, imported clients appear on Recruitment Clients (`/client?scope=recruitment`). */
+  recruitmentEnabled?: boolean;
   onImportComplete?: (result: {
     total: number;
     created: number;
@@ -74,6 +76,7 @@ export function ClientImportDrawer({
   isOpen,
   onClose,
   onImportComplete,
+  recruitmentEnabled = false,
 }: ClientImportDrawerProps) {
   usePageDrawerLifecycle(isOpen);
   const [step, setStep] = useState(1);
@@ -187,6 +190,7 @@ export function ClientImportDrawer({
         rows: importRows.length > 0 ? importRows : previewRows,
         mapping: columnMapping,
         duplicateRule,
+        recruitmentEnabled: recruitmentEnabled || undefined,
       });
 
       importProgress.finish();

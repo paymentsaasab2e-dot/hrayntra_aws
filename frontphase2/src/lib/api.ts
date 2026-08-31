@@ -6339,6 +6339,7 @@ export const apiImportClients = async (payload: {
   rows: Record<string, string | number | boolean | null>[];
   mapping: Record<string, string>;
   duplicateRule: string;
+  recruitmentEnabled?: boolean;
 }) => {
   return apiFetch<ClientImportExecuteResult>('/clients/import', {
     method: 'POST',
@@ -9190,7 +9191,8 @@ export interface UpdateClientData {
 }
 
 export const apiCreateClient = async (data: CreateClientData) => {
-  return apiFetch<BackendClient>('/clients', {
+  const qs = data.recruitmentEnabled ? '?recruitmentEnabled=true' : '';
+  return apiFetch<BackendClient>(`/clients${qs}`, {
     method: 'POST',
     body: data,
     auth: true,

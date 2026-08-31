@@ -52,7 +52,7 @@ export function TeamRequestActionDrawer({
   const [assignees, setAssignees] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const assignable = useAssignableMembers(isOpen);
+  const assignable = useAssignableMembers(isOpen, 'Tasks');
 
   const currentUserId = getCurrentUserRequestIdentity().id || '';
 

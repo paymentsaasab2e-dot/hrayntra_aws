@@ -110,16 +110,17 @@ export function SearchableToolbarFilterSelect({
       ? createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[200] flex min-w-[14rem] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+            className="ph2-portal-popover fixed z-[2000] flex min-w-[14rem] flex-col overflow-hidden rounded-xl border border-slate-200 shadow-lg"
             style={{
               left: menuPosition.left,
               width: Math.max(menuPosition.width, 224),
               ...(menuPosition.placement === 'top'
                 ? { bottom: menuPosition.bottom }
                 : { top: menuPosition.top }),
+              backgroundColor: '#ffffff',
             }}
           >
-            <div className="shrink-0 border-b border-slate-100 p-2">
+            <div className="shrink-0 border-b border-slate-100 bg-white p-2">
               <div className="relative">
                 <Search
                   size={14}
@@ -136,7 +137,7 @@ export function SearchableToolbarFilterSelect({
               </div>
             </div>
             <ul
-              className="ph2-invisible-scrollbar min-h-0 overflow-y-auto overscroll-contain py-1 pr-0.5"
+              className="ph2-invisible-scrollbar min-h-0 overflow-y-auto overscroll-contain bg-white py-1 pr-0.5"
               style={{ maxHeight: listMaxHeight }}
             >
               <li>

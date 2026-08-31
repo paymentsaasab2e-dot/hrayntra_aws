@@ -1062,7 +1062,7 @@ export function ClientDetailsDrawer({
   const drawerIsOpen = Boolean(client) || propIsAddMode;
   const clientAiGate = useAiCoinGate('ai.client_chat');
   const isHqOverrideMode = Boolean(createClientOverride || updateClientOverride);
-  const assignable = useAssignableMembers(!isHqOverrideMode);
+  const assignable = useAssignableMembers(!isHqOverrideMode, 'Clients');
   usePageDrawerLifecycle(drawerIsOpen);
   const [clientPanelPortalReady, setClientPanelPortalReady] = useState(false);
   useEffect(() => {
@@ -2761,7 +2761,7 @@ export function ClientDetailsDrawer({
           phones: contactChannels.phones,
           ...(canManageClientAgreements ? agreementTermsApiPayload(overviewEditForm) : {}),
           ...postServiceKycFormApiPayload(overviewEditForm.postServiceKycForm),
-          recruitmentEnabled: defaultRecruitmentEnabled || undefined,
+          recruitmentEnabled: defaultRecruitmentEnabled === true,
         };
 
         let createdClientPayload: BackendClient | null | undefined = null;
@@ -4897,6 +4897,7 @@ export function ClientDetailsDrawer({
                                       members={recruiters}
                                       value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
                                       loading={loadingRecruiters}
+                                      assignmentModule={isHqOverrideMode ? undefined : 'Clients'}
                                       onChange={(ids) => {
                                         setOverviewEditForm((p) => ({
                                           ...p,
@@ -6064,6 +6065,7 @@ export function ClientDetailsDrawer({
                                     members={recruiters}
                                     value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
                                     loading={loadingRecruiters}
+                                    assignmentModule={isHqOverrideMode ? undefined : 'Clients'}
                                     onChange={(ids) => {
                                       setOverviewEditForm((p) => ({
                                         ...p,

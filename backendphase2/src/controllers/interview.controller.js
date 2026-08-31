@@ -23,7 +23,7 @@ export const interviewController = {
 
   async create(req, res) {
     try {
-      const result = await interviewService.create(req.body, req.user);
+      const result = await interviewService.create(req.body, req.user, req);
       sendResponse(res, 201, 'Interview scheduled successfully', result);
     } catch (error) {
       sendError(res, httpStatusFromError(error), error.message, error);
@@ -32,7 +32,7 @@ export const interviewController = {
 
   async update(req, res) {
     try {
-      const result = await interviewService.update(req.params.id, req.body, req.user);
+      const result = await interviewService.update(req.params.id, req.body, req.user, req);
       sendResponse(res, 200, 'Interview updated successfully', result);
     } catch (error) {
       sendError(res, httpStatusFromError(error), error.message, error);

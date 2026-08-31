@@ -967,7 +967,7 @@ export const leadService = {
 
     if (data.performedById && leadData.assignedToIds?.length) {
       for (const assigneeId of leadData.assignedToIds) {
-        if (assigneeId) await assertCanAssignCrm(data.performedById, assigneeId, { req });
+        if (assigneeId) await assertCanAssignCrm(data.performedById, assigneeId, { req, modules: ['Leads'] });
       }
     }
 
@@ -1328,7 +1328,7 @@ export const leadService = {
         nextAssignees,
       );
       for (const assigneeId of addedAssignees) {
-        await assertCanAssignCrm(data.performedById, assigneeId, { req });
+        await assertCanAssignCrm(data.performedById, assigneeId, { req, modules: ['Leads'] });
       }
     }
 
@@ -1925,7 +1925,12 @@ export const leadService = {
         OR: [...(scope.OR || []), { deletedBy: req.user.id }],
       });
     }
-    const where = { AND: andParts };
+    let where = { AND: andParts };
+    where = await mergeOrgCompanyListScope(where, req, {
+      assignedToIdField: 'assignedToId',
+      assignedToIdsField: 'assignedToIds',
+      createdByField: 'createdBy',
+    });
 
     const [leads, total] = await Promise.all([
       prisma.lead.findMany({

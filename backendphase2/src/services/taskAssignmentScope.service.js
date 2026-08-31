@@ -6,6 +6,10 @@ import {
   isHqPlatformUser,
 } from '../utils/hqPlatformUser.js';
 import { labelUsersWithOrgUnit, applyOrgCompanyUserWhere, canViewCrossCompanyMembers, requestedAssignCompanyId } from './orgListScope.service.js';
+import {
+  assertUserHasAssignmentAccess,
+  filterUsersByAssignmentAccess,
+} from './assigneeModuleAccess.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -106,8 +110,11 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
       select: memberSelect,
       orderBy: { firstName: 'asc' },
     });
-    return labelUsersWithOrgUnit(
-      excludeHqPlatformUsers(all).map(normalizeMember).filter(Boolean),
+    return filterUsersByAssignmentAccess(
+      labelUsersWithOrgUnit(
+        excludeHqPlatformUsers(all).map(normalizeMember).filter(Boolean),
+      ),
+      { modules: ['Tasks'] },
     );
   }
 
@@ -116,7 +123,10 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
   byId.set(actor.id, normalizeMember(actor));
 
   if (!actorDeptId) {
-    return labelUsersWithOrgUnit([normalizeMember(actor)].filter(Boolean));
+    return filterUsersByAssignmentAccess(
+      labelUsersWithOrgUnit([normalizeMember(actor)].filter(Boolean)),
+      { modules: ['Tasks'] },
+    );
   }
 
   const deptWhere = {
@@ -155,17 +165,20 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
     }
   }
 
-  return labelUsersWithOrgUnit(
-    [...byId.values()]
-      .filter(
-        (member) =>
-          idStr(member.id) === idStr(actorUserId) || idStr(member.departmentId) === actorDeptId,
-      )
-      .sort((a, b) => {
-        const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim() || a.name || '';
-        const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim() || b.name || '';
-        return nameA.localeCompare(nameB);
-      }),
+  return filterUsersByAssignmentAccess(
+    labelUsersWithOrgUnit(
+      [...byId.values()]
+        .filter(
+          (member) =>
+            idStr(member.id) === idStr(actorUserId) || idStr(member.departmentId) === actorDeptId,
+        )
+        .sort((a, b) => {
+          const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim() || a.name || '';
+          const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim() || b.name || '';
+          return nameA.localeCompare(nameB);
+        }),
+    ),
+    { modules: ['Tasks'] },
   );
 }
 
@@ -180,6 +193,7 @@ export async function canAssignTaskTo(actorUserId, assigneeUserId) {
 }
 
 export async function assertCanAssignTask(actorUserId, assigneeUserId) {
+  await assertUserHasAssignmentAccess(assigneeUserId, { modules: ['Tasks'] });
   const ok = await canAssignTaskTo(actorUserId, assigneeUserId);
   if (!ok) {
     throw new Error(

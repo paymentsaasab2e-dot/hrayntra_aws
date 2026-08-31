@@ -252,7 +252,7 @@ export function CreateJobDetailsForm({
   lineManagerOptions = [],
   loadingLineManagers = false,
 }: CreateJobDetailsFormProps) {
-  const assignable = useAssignableMembers(true);
+  const assignable = useAssignableMembers(true, 'Jobs');
   const recruiterUsers = assignable.canSelectCompany || assignable.users.length ? assignable.users : users;
   const loadingRecruiters = assignable.canSelectCompany ? assignable.loading : loadingUsers;
   const managerOptions = lineManagerOptions;

@@ -10,6 +10,7 @@ import { batchHydrateCandidatesResumeFromPortal } from '../../utils/candidateRes
 import { hydratePhase1SnapshotPersonalInfoFromPortal } from '../../utils/phase1SnapshotHydrate.util.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
+import { mergeOrgCompanyListScope } from '../orgListScope.service.js';
 import { normalizePortfolioLinksForCommon } from '../../utils/portfolioLinkFilter.util.js';
 import { getHqEnabledModules } from '../../modules/setting/recruitmentMode.service.js';
 
@@ -33,8 +34,17 @@ async function getVisibleTenantJobIds(req, mine) {
   if (mine && req?.user?.id) {
     jobWhere.createdById = req.user.id;
   }
+  const scoped = await mergeOrgCompanyListScope(
+    { ...jobWhere, isDeleted: { not: true } },
+    req,
+    {
+      assignedToIdField: 'assignedToId',
+      createdByField: 'createdById',
+      extraHasField: 'supportingRecruiters',
+    },
+  );
   const jobs = await prisma.job.findMany({
-    where: { ...jobWhere, isDeleted: { not: true } },
+    where: scoped,
     select: { id: true },
   });
   return jobs.map((job) => job.id);

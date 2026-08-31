@@ -201,13 +201,22 @@ export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] 
 /**
  * Load every team member for “Assigned to” / owner pickers (follows pagination until complete).
  */
-async function getAllTeamMembersPaginated(assignmentDirectory: boolean, companyId?: string): Promise<TeamMember[]> {
+async function getAllTeamMembersPaginated(
+  assignmentDirectory: boolean,
+  companyId?: string,
+  module?: string,
+): Promise<TeamMember[]> {
   const limit = TEAM_LIST_MAX_PAGE_SIZE;
   const all: TeamMember[] = [];
   let page = 1;
   for (;;) {
     const res = await getTeamMembers(
-      { limit, page, ...(companyId ? { companyId, orgUnitId: companyId } : {}) },
+      {
+        limit,
+        page,
+        ...(companyId ? { companyId, orgUnitId: companyId } : {}),
+        ...(module ? { module } : {}),
+      },
       { assignmentDirectory },
     );
     const batch = res.data || [];
@@ -221,12 +230,12 @@ async function getAllTeamMembersPaginated(assignmentDirectory: boolean, companyI
   return all;
 }
 
-export async function getAllTeamMembersForAssign(companyId?: string): Promise<TeamMember[]> {
+export async function getAllTeamMembersForAssign(companyId?: string, module?: string): Promise<TeamMember[]> {
   const orgUnitId = String(companyId || '').trim();
   if (orgUnitId) {
-    return getAllTeamMembersPaginated(true, orgUnitId);
+    return getAllTeamMembersPaginated(true, orgUnitId, module);
   }
-  return getAllTeamMembersPaginated(true);
+  return getAllTeamMembersPaginated(true, undefined, module);
 }
 
 /** Full tenant team directory (activity log, reports). Falls back to assignable list if needed. */
@@ -244,10 +253,14 @@ export async function getAllTeamMembersForDirectory(): Promise<TeamMember[]> {
 export async function getLineManagersForJobPicker(includeUserId?: string): Promise<BackendUser[]> {
   const includeId = String(includeUserId || '').trim();
   const attempts: Array<() => Promise<TeamMember[]>> = [
-    () => getAllTeamMembersPaginated(true),
-    () => getAllTeamMembersPaginated(false),
+    () => getAllTeamMembersPaginated(true, undefined, 'Jobs'),
     async () => {
-      const res = await getTeamMembers({ limit: TEAM_LIST_MAX_PAGE_SIZE, page: 1, roleName: 'Line Manager' });
+      const res = await getTeamMembers({
+        limit: TEAM_LIST_MAX_PAGE_SIZE,
+        page: 1,
+        roleName: 'Line Manager',
+        module: 'Jobs',
+      }, { assignmentDirectory: true });
       return res.data || [];
     },
   ];

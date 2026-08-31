@@ -318,6 +318,8 @@ export type DashboardOrgScope = {
   homeOrgUnitName?: string | null;
   homeIsOrgCompany?: boolean;
   hasCompanies?: boolean;
+  companyCount?: number;
+  canViewAllCompanies?: boolean;
   companies?: OrgCompanyOption[];
   memberIds?: string[];
 };

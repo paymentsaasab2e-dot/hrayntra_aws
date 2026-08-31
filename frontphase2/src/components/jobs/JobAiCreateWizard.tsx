@@ -1134,7 +1134,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     const loadUsers = async () => {
       try {
         setLoadingUsers(true);
-        const members = await getAllTeamMembersForAssign();
+        const members = await getAllTeamMembersForAssign(undefined, 'Jobs');
         if (!cancelled) setUsers(teamMembersToBackendUsers(members));
       } catch {
         if (!cancelled) setUsers([]);

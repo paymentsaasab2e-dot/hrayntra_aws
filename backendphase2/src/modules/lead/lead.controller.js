@@ -403,7 +403,7 @@ export const leadController = {
 
   async getAssignableMembers(req, res) {
     try {
-      const members = await listCrmAssigneeCandidates(req.user.id, { req });
+      const members = await listCrmAssigneeCandidates(req.user.id, { req, modules: ['Leads'] });
       sendResponse(res, 200, 'Assignable members retrieved', members);
     } catch (error) {
       sendError(res, error?.statusCode === 403 ? 403 : 500, error.message, error);

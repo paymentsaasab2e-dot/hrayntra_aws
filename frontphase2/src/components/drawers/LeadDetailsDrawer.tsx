@@ -1412,7 +1412,7 @@ export function LeadDetailsDrawer({
 
         // Tenant Assigned To = all members Super Admin / HQ may assign, including
         // people in other companies created under Organization.
-        const teamMembers = await getAllTeamMembersForAssign();
+        const teamMembers = await getAllTeamMembersForAssign(undefined, 'Leads');
         const companyNames = new Set(
           (teamMembers || []).map((member) => member.orgUnit?.name).filter(Boolean),
         );
@@ -1533,6 +1533,8 @@ export function LeadDetailsDrawer({
         ? 'Select HQ team members'
         : 'No HQ team members yet — add them under Team'
     : undefined;
+
+  const leadAssignmentModule = isHqOverrideMode || hqMode ? undefined : 'Leads';
 
   useEffect(() => {
     if (!addLeadMode && !lead) return;
@@ -4157,6 +4159,7 @@ export function LeadDetailsDrawer({
                         members={recruiters}
                         value={assignLeadForm.assignTos}
                         loading={loadingRecruiters}
+                        assignmentModule={leadAssignmentModule}
                         placeholder={hqAssignedToPlaceholder}
                         onChange={(ids) => {
                           setAssignLeadForm((p) => ({
@@ -4672,6 +4675,7 @@ export function LeadDetailsDrawer({
                             (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])
                           }
                           loading={loadingRecruiters}
+                        assignmentModule={leadAssignmentModule}
                           placeholder={hqAssignedToPlaceholder}
                           onChange={(ids) => {
                             const selected = ids
@@ -5106,6 +5110,7 @@ export function LeadDetailsDrawer({
                             members={recruiters}
                             value={addLeadForm.assignedToIds ?? (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])}
                             loading={loadingRecruiters}
+                        assignmentModule={leadAssignmentModule}
                             placeholder={hqAssignedToPlaceholder}
                             onChange={(ids) => {
                               const selected = ids
@@ -5734,6 +5739,7 @@ export function LeadDetailsDrawer({
                                 members={recruiters}
                                 value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
                                 loading={loadingRecruiters}
+                        assignmentModule={leadAssignmentModule}
                                 placeholder={hqAssignedToPlaceholder}
                                 onChange={(ids) => {
                                   const selected = ids

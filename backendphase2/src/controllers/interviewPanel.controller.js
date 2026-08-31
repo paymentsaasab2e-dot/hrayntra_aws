@@ -4,10 +4,10 @@ import { interviewService } from '../services/interview.service.js';
 export const interviewPanelController = {
   async add(req, res) {
     try {
-      const result = await interviewService.addPanelMember(req.params.id, req.body, req.user);
+      const result = await interviewService.addPanelMember(req.params.id, req.body, req.user, req);
       sendResponse(res, 201, 'Panel member added successfully', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error?.statusCode || 400, error.message, error);
     }
   },
 
