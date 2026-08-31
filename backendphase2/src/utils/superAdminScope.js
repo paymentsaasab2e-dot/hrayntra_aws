@@ -12,17 +12,31 @@ export function isSuperAdminUser(reqOrUser) {
   );
 }
 
+function headerValue(reqOrUser, name) {
+  const headers = reqOrUser?.headers || {};
+  const direct = headers[name] || headers[String(name).toLowerCase()];
+  if (Array.isArray(direct)) return String(direct[0] || '');
+  return String(direct || '');
+}
+
+/** Super Admin navbar “Own” — only records they created or are assigned to. */
+export function isSuperAdminOwnWork(reqOrUser) {
+  if (!isSuperAdminUser(reqOrUser)) return false;
+  const mineOnlyRaw = reqOrUser?.query?.mineOnly;
+  if (mineOnlyRaw === true || String(mineOnlyRaw || '').toLowerCase() === 'true') return true;
+  const scope =
+    headerValue(reqOrUser, 'x-work-scope') ||
+    String(reqOrUser?.query?.workScope || '');
+  return String(scope).trim().toLowerCase() === 'own';
+}
+
 export function buildSuperAdminOwnerScope(reqOrUser, ownerFields = []) {
   const userId = reqOrUser?.user?.id || reqOrUser?.id;
   if (!isSuperAdminUser(reqOrUser) || !userId || !Array.isArray(ownerFields) || ownerFields.length === 0) {
     return null;
   }
 
-  // Super Admin should see all tenant records by default.
-  // Apply owner-only scope only when explicitly requested via mineOnly=true.
-  const mineOnlyRaw = reqOrUser?.query?.mineOnly;
-  const mineOnly = mineOnlyRaw === true || String(mineOnlyRaw).toLowerCase() === 'true';
-  if (!mineOnly) {
+  if (!isSuperAdminOwnWork(reqOrUser)) {
     return null;
   }
 

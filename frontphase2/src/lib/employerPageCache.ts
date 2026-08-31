@@ -34,7 +34,9 @@ function scopeId(): string {
   } catch {
     userId = 'anon';
   }
-  return `${tenant}::${userId}`;
+  const orgUnit = String(localStorage.getItem('activeOrgUnitId') || '').trim() || 'all-org';
+  const work = String(localStorage.getItem('superAdminWorkScope') || 'all').trim() || 'all';
+  return `${tenant}::${userId}::${orgUnit}::${work}`;
 }
 
 function isJobsSnap(value: unknown): value is EmployerJobsSnapshot {

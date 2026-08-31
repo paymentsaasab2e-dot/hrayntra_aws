@@ -1,6 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { hasPermission } from '../../utils/permissionScope.js';
-import { isSuperAdminUser } from '../../utils/superAdminScope.js';
+import { isSuperAdminUser, isSuperAdminOwnWork } from '../../utils/superAdminScope.js';
 import { isDepartmentHeadUser } from '../../services/departmentRole.service.js';
 import { resolveViewerOrgScope, userIdsInOrgScope, collectDescendantIds } from '../org/org.service.js';
 
@@ -13,7 +13,10 @@ function userIdFrom(req) {
 function wantsSelfScope(req) {
   const scope = String(req?.query?.scope || '').trim().toLowerCase();
   const mineOnly = req?.query?.mineOnly;
-  return scope === 'self' || mineOnly === true || String(mineOnly || '').toLowerCase() === 'true';
+  if (scope === 'self' || mineOnly === true || String(mineOnly || '').toLowerCase() === 'true') {
+    return true;
+  }
+  return isSuperAdminOwnWork(req);
 }
 
 function emptyMyWork() {

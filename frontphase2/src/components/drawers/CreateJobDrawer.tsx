@@ -3361,7 +3361,7 @@ export function CreateJobDrawer({
             proficiency: row.proficiency.trim(),
           }))
           .filter((row) => row.language),
-        managerId: formData.managerId || undefined,
+        managerId: useLineManagerPicker ? formData.managerId || undefined : undefined,
         hiringManager: formData.contactPersonName.trim() || undefined,
         hiringManagerId: formData.contactPersonId || undefined,
         aboutCompany: (formData.aboutCompany || '').trim() || null,

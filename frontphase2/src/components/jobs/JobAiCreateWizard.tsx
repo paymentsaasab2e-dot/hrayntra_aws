@@ -1533,7 +1533,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         priority: draft.priority || undefined,
         jobCategory: draft.industryType.trim() || undefined,
         expectedClosureDate: draft.targetHireDate || undefined,
-        managerId: draft.managerId || undefined,
+        managerId: undefined,
         assignedToId: draft.assignedToId || undefined,
         hiringManager: draft.contactPersonName.trim() || undefined,
         hiringManagerId: draft.contactPersonId || undefined,

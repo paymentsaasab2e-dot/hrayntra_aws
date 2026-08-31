@@ -65,6 +65,9 @@ function getTeamAuthHeaders(): Record<string, string> {
   if (tenant) headers['x-tenant-db-name'] = tenant;
   const orgUnit = localStorage.getItem('activeOrgUnitId');
   if (orgUnit) headers['x-org-unit-id'] = orgUnit;
+  if (String(localStorage.getItem('superAdminWorkScope') || '').trim().toLowerCase() === 'own') {
+    headers['x-work-scope'] = 'own';
+  }
   return headers;
 }
 

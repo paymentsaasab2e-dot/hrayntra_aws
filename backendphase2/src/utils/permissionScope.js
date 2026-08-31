@@ -1,4 +1,4 @@
-import { isSuperAdminUser } from './superAdminScope.js';
+import { isSuperAdminUser, isSuperAdminOwnWork } from './superAdminScope.js';
 
 function getUserPermissions(req) {
   const permissions = req?.userWithPermissions?.permissions || req?.user?.permissions || [];
@@ -18,18 +18,22 @@ export function hasAnyPermission(req, permissionNames = []) {
 
 /** Tenant-wide CRM lists: Super Admin, system_select_all, manage_settings — not assign_roles (use view_all_* instead). */
 export function canViewAllAssignments(req) {
+  if (isSuperAdminOwnWork(req)) return false;
   if (isSuperAdminUser(req) || req?.userWithPermissions?.isSuperAdmin) return true;
   return hasAnyPermission(req, ['system_select_all', 'manage_settings']);
 }
 
 export function canViewAllClients(req) {
+  if (isSuperAdminOwnWork(req)) return false;
   return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_clients']);
 }
 
 export function canViewAllLeads(req) {
+  if (isSuperAdminOwnWork(req)) return false;
   return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_leads']);
 }
 
 export function canViewAllJobs(req) {
+  if (isSuperAdminOwnWork(req)) return false;
   return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_jobs']);
 }

@@ -255,8 +255,8 @@ export function CreateJobDetailsForm({
   const assignable = useAssignableMembers(true);
   const recruiterUsers = assignable.canSelectCompany || assignable.users.length ? assignable.users : users;
   const loadingRecruiters = assignable.canSelectCompany ? assignable.loading : loadingUsers;
-  const managerOptions = useLineManagerPicker ? lineManagerOptions : recruiterUsers;
-  const loadingManagerOptions = useLineManagerPicker ? loadingLineManagers : loadingUsers;
+  const managerOptions = lineManagerOptions;
+  const loadingManagerOptions = loadingLineManagers;
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
   const ownCompanyName = (client: BackendClient) =>
     ownCompanyDisplayName || client.companyName || 'Your organization';
@@ -1047,53 +1047,6 @@ export function CreateJobDetailsForm({
           </div>
         ) : null}
       </div>
-
-      {!useLineManagerPicker ? (
-      <DropdownField
-        label="Assign Manager"
-        placeholder="Select manager"
-        valueLabel={selectedManager?.name}
-        openKey="manager"
-        dropdownsOpen={dropdownsOpen}
-        setDropdownsOpen={setDropdownsOpen}
-      >
-        {loadingManagerOptions ? (
-          <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
-        ) : (
-          <>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  patchForm({ managerId: '' });
-                  setDropdownsOpen((prev) => ({ ...prev, manager: false }));
-                }}
-                className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-              >
-                Unassigned
-              </button>
-            </li>
-            {managerOptions.map((user) => (
-              <li key={user.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    patchForm({ managerId: user.id });
-                    setDropdownsOpen((prev) => ({ ...prev, manager: false }));
-                  }}
-                  className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                    formData.managerId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                  }`}
-                >
-                  <span className="block font-medium">{user.name}</span>
-                  <span className="block text-xs text-slate-500 truncate">{user.email}</span>
-                </button>
-              </li>
-            ))}
-          </>
-        )}
-      </DropdownField>
-      ) : null}
 
       <div>
         <FieldLabelRow label="About Company" />
