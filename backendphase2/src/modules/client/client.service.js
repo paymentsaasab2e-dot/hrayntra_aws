@@ -23,7 +23,10 @@ import {
   buildPostServiceKycFormCreateFields,
 } from '../../utils/postServiceKycFormFields.js';
 import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
-import { applyMemberClientScope } from '../../services/clientMemberScope.service.js';
+import {
+  applyMemberClientScope,
+  systemWorkspaceClientExclusionWhere,
+} from '../../services/clientMemberScope.service.js';
 import {
   mergeOrgCompanyListScope,
   resolveWriteOrgUnitId,
@@ -261,14 +264,7 @@ async function mirrorClientRowToJobPortalDb(client) {
 function applySystemWorkspaceExclusion(where = {}, includeSystem = false) {
   if (includeSystem) return where;
 
-  const excludeWorkspaceWhere = {
-    NOT: {
-      OR: [
-        { industry: 'Workspace' },
-        { website: { startsWith: 'tenant://' } },
-      ],
-    },
-  };
+  const excludeWorkspaceWhere = systemWorkspaceClientExclusionWhere();
 
   if (!where || Object.keys(where).length === 0) {
     return excludeWorkspaceWhere;
