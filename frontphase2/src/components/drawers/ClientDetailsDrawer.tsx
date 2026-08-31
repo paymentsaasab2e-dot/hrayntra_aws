@@ -2028,6 +2028,19 @@ export function ClientDetailsDrawer({
 
   const { hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
+  const canViewClientAgreements =
+    isHqOverrideMode || hasAnyPermission(['agreements_read', 'agreements_manage']);
+  const canManageClientAgreements =
+    isHqOverrideMode || hasAnyPermission(['agreements_manage']);
+  const addClientTabs = ADD_CLIENT_TABS.filter(
+    (tab) => tab.id !== 'agreements' || canManageClientAgreements,
+  );
+
+  useEffect(() => {
+    if (addClientTab === 'agreements' && !canManageClientAgreements) {
+      setAddClientTab('details');
+    }
+  }, [addClientTab, canManageClientAgreements]);
 
   const openCreateJobDrawer = async () => {
     if (!canCreateJob) {
@@ -2746,7 +2759,7 @@ export function ClientDetailsDrawer({
           phone: contactChannels.phone,
           emails: contactChannels.emails,
           phones: contactChannels.phones,
-          ...agreementTermsApiPayload(overviewEditForm),
+          ...(canManageClientAgreements ? agreementTermsApiPayload(overviewEditForm) : {}),
           ...postServiceKycFormApiPayload(overviewEditForm.postServiceKycForm),
           recruitmentEnabled: defaultRecruitmentEnabled || undefined,
         };
@@ -2821,7 +2834,7 @@ export function ClientDetailsDrawer({
         }
 
         // Agreements & Terms — upload after creation so we have a client id to scope the file under.
-        if (!createClientOverride && createdClientId && pendingAgreementsFile) {
+        if (!createClientOverride && createdClientId && pendingAgreementsFile && canManageClientAgreements) {
           try {
             setUploadingAgreements(true);
             const uploadResponse = await filesApiUpload(
@@ -3027,7 +3040,7 @@ export function ClientDetailsDrawer({
 
         // Agreements & Terms — upload the new file (if any) before patching the client so the
         // URL/filename land on the same update call as the rest of the overview fields.
-        if (pendingAgreementsFile) {
+        if (canManageClientAgreements && pendingAgreementsFile) {
           try {
             setUploadingAgreements(true);
             const uploadResponse = await filesApiUpload(
@@ -3051,14 +3064,20 @@ export function ClientDetailsDrawer({
           } finally {
             setUploadingAgreements(false);
           }
-        } else if (overviewEditForm.agreementsFileUrl === '' && overviewEditForm.agreementsFileName === '') {
+        } else if (
+          canManageClientAgreements &&
+          overviewEditForm.agreementsFileUrl === '' &&
+          overviewEditForm.agreementsFileName === ''
+        ) {
           // Explicit removal of the existing agreement.
           updateData.agreementsFileName = null;
           updateData.agreementsFileUrl = null;
           updateData.agreementsUploadedAt = null;
         }
 
-        Object.assign(updateData, agreementTermsApiPayload(overviewEditForm));
+        if (canManageClientAgreements) {
+          Object.assign(updateData, agreementTermsApiPayload(overviewEditForm));
+        }
         if (pendingStructuredKycCount > 0) {
           try {
             setUploadingKyc(true);
@@ -4426,8 +4445,10 @@ export function ClientDetailsDrawer({
                 {isAddMode ? (
                   <div className="space-y-5">
                     <div className="rounded-2xl bg-slate-100/95 p-1.5 shadow-sm ring-1 ring-slate-200/80">
-                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
-                        {ADD_CLIENT_TABS.map((tab) => {
+                    <div className={`grid grid-cols-1 gap-1 ${
+                      addClientTabs.length >= 3 ? 'sm:grid-cols-3' : addClientTabs.length === 2 ? 'sm:grid-cols-2' : ''
+                    }`}>
+                      {addClientTabs.map((tab) => {
                           const Icon = tab.icon;
                           const active = addClientTab === tab.id;
                           return (
@@ -5084,22 +5105,22 @@ export function ClientDetailsDrawer({
                       <button
                         type="button"
                         onClick={() => {
-                          const idx = ADD_CLIENT_TABS.findIndex((t) => t.id === addClientTab);
-                          if (idx > 0) setAddClientTab(ADD_CLIENT_TABS[idx - 1]!.id);
+                          const idx = addClientTabs.findIndex((t) => t.id === addClientTab);
+                          if (idx > 0) setAddClientTab(addClientTabs[idx - 1]!.id);
                         }}
-                        disabled={addClientTab === 'details'}
+                        disabled={addClientTab === addClientTabs[0]?.id}
                         className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <ChevronRight size={16} className="rotate-180" />
                         Back
                       </button>
-                      {addClientTab !== 'kyc' ? (
+                      {addClientTab !== addClientTabs[addClientTabs.length - 1]?.id ? (
                         <button
                           type="button"
                           onClick={() => {
-                            const idx = ADD_CLIENT_TABS.findIndex((t) => t.id === addClientTab);
-                            if (idx >= 0 && idx < ADD_CLIENT_TABS.length - 1) {
-                              setAddClientTab(ADD_CLIENT_TABS[idx + 1]!.id);
+                            const idx = addClientTabs.findIndex((t) => t.id === addClientTab);
+                            if (idx >= 0 && idx < addClientTabs.length - 1) {
+                              setAddClientTab(addClientTabs[idx + 1]!.id);
                             }
                           }}
                           className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
@@ -5634,6 +5655,7 @@ export function ClientDetailsDrawer({
                             );
                           })()}
 
+                          {canViewClientAgreements ? (
                           <DrawerSectionCard
                             title="Agreements & Terms"
                             subtitle="Contract terms and agreement documents"
@@ -5676,6 +5698,7 @@ export function ClientDetailsDrawer({
                               <p className="text-sm text-slate-500">No agreement details added yet.</p>
                             )}
                           </DrawerSectionCard>
+                          ) : null}
 
                           <DrawerSectionCard
                             title="KYC Form"
@@ -6167,6 +6190,7 @@ export function ClientDetailsDrawer({
                             />
                           </DrawerSectionCard>
 
+                          {canManageClientAgreements ? (
                           <DrawerSectionCard
                             title="Agreements & Terms"
                             subtitle="Contract terms and agreement documents"
@@ -6234,6 +6258,43 @@ export function ClientDetailsDrawer({
                               }
                             />
                           </DrawerSectionCard>
+                          ) : canViewClientAgreements ? (
+                          <DrawerSectionCard
+                            title="Agreements & Terms"
+                            subtitle="Contract terms and agreement documents"
+                            icon={FileText}
+                            accent="indigo"
+                            collapsible
+                            open={overviewOpen.agreementsTerms}
+                            onOpenChange={() => toggleOverviewSection('agreementsTerms')}
+                          >
+                            {(overviewEditForm.agreementsFileUrl ||
+                              formatAgreementTermsSummary(overviewEditForm).length > 0) ? (
+                              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-2">
+                                {overviewEditForm.agreementsFileUrl ? (
+                                  <a
+                                    href={overviewEditForm.agreementsFileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-2 text-sm text-slate-900 hover:underline"
+                                  >
+                                    <Paperclip size={14} className="text-slate-500" />
+                                    <span className="truncate max-w-[280px]">
+                                      {overviewEditForm.agreementsFileName || 'Agreement document'}
+                                    </span>
+                                  </a>
+                                ) : null}
+                                {formatAgreementTermsSummary(overviewEditForm).map((line) => (
+                                  <p key={line} className="text-sm text-slate-700">
+                                    {line}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-500">No agreement details added yet.</p>
+                            )}
+                          </DrawerSectionCard>
+                          ) : null}
 
                           <DrawerSectionCard
                             title="KYC Form"

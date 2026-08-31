@@ -98,3 +98,36 @@ export function applyAgreementTermsUpdateFields(data, updateData) {
     }
   }
 }
+
+export const AGREEMENT_TERMS_FIELD_KEYS = [
+  'agreementsFileName',
+  'agreementsFileUrl',
+  'agreementsUploadedAt',
+  'agreementTotalPayment',
+  'agreementLevel',
+  'agreementServiceChargePercent',
+  'agreementContractValidity',
+  'agreementContractStartDate',
+  'agreementContractEndDate',
+  'agreementTimePeriod',
+  'agreementAdvancePaymentPercent',
+  'agreementFreeReplacementValue',
+  'agreementFreeReplacementUnit',
+];
+
+export function stripAgreementTermsFromRecord(record) {
+  if (!record || typeof record !== 'object') return record;
+  const next = { ...record };
+  for (const key of AGREEMENT_TERMS_FIELD_KEYS) {
+    next[key] = null;
+  }
+  return next;
+}
+
+export function omitAgreementTermsFromPayload(data = {}) {
+  const next = { ...data };
+  for (const key of AGREEMENT_TERMS_FIELD_KEYS) {
+    delete next[key];
+  }
+  return next;
+}

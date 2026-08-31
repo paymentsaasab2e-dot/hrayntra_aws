@@ -193,14 +193,18 @@ export function ClientImportDrawer({
       const result = response.data;
       const created = result?.created ?? 0;
       const updated = result?.updated ?? 0;
+      const failed = result?.failed ?? 0;
+      const total = result?.total ?? (importRows.length > 0 ? importRows.length : previewRows.length);
       if (created === 0 && updated === 0) {
         toast.error(
-          result?.failed
-            ? `No new clients appeared on the list (${result.failed} failed)`
+          failed
+            ? `No clients appeared on the list (${failed} of ${total} rows failed)`
             : 'No clients were created. Check the file and try again.',
         );
       } else {
-        toast.success(formatImportSuccessToast('Clients', result));
+        toast.success(
+          `${formatImportSuccessToast('Clients', result)} from ${total} Excel row${total === 1 ? '' : 's'}`,
+        );
       }
       if (Array.isArray(result?.errors) && result.errors.length) {
         toast.error(result.errors.slice(0, 3).join('\n'));

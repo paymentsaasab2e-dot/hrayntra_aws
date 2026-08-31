@@ -34,8 +34,8 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'contacts_delete', module: 'Contacts', description: 'Delete contacts' },
 
   // Agreements
-  { permissionName: 'agreements_read', module: 'Agreements', description: 'View agreements' },
-  { permissionName: 'agreements_manage', module: 'Agreements', description: 'Create or update agreements' },
+  { permissionName: 'agreements_read', module: 'Agreements', description: 'View Agreements & Terms on clients and leads' },
+  { permissionName: 'agreements_manage', module: 'Agreements', description: 'Create or update Agreements & Terms on clients and leads' },
 
   // CRM dashboard tabs — how wide the data goes is set by the Dashboard level.
   { permissionName: 'dash_crm_insights', module: 'CRM Dashboard', description: 'CRM dashboard tab: Insights & actions' },
