@@ -79,6 +79,8 @@ export function formatPermissionLabel(name: string): string {
     behavior_manage: 'Configure behaviour tracking',
     manage_subscription: 'Manage subscription',
     manage_departments: 'Manage departments',
+    view_cross_company_members: 'View Members Across Companies',
+    VIEW_CROSS_COMPANY_MEMBERS: 'View Members Across Companies',
     company_page_read: 'View company page',
     company_page_manage: 'Manage company page',
   };

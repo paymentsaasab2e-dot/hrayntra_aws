@@ -25,7 +25,7 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
   Billing: ['access_billing', 'create_invoice', 'record_payment', 'manage_billing_settings'],
   Subscription: ['manage_subscription', 'manage_billing_settings', 'access_billing'],
   Team: [
-    'view_team', 'add_team_member', 'edit_team_member', 'assign_roles', 'manage_roles',
+    'view_team', 'view_cross_company_members', 'add_team_member', 'edit_team_member', 'assign_roles', 'manage_roles',
     'manage_departments', 'generate_credentials', 'manage_commission', 'manage_targets',
     'view_team_activity',
   ],

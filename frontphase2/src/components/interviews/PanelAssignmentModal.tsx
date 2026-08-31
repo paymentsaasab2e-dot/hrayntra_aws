@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Search, X } from 'lucide-react';
 import type { InterviewPanelMember } from '../../types/interview.types';
+import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 
 interface PanelAssignmentModalProps {
   isOpen: boolean;
@@ -21,15 +23,29 @@ export function PanelAssignmentModal({
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
   const [isSaving, setIsSaving] = useState(false);
+  const assignable = useAssignableMembers(isOpen);
+  const pool: InterviewPanelMember[] = useMemo(() => {
+    if (!assignable.canSelectCompany) return interviewers;
+    return assignable.members.map((member) => ({
+      id: member.id,
+      userId: member.id,
+      name: [member.firstName, member.lastName].filter(Boolean).join(' ').trim() || member.email || 'Member',
+      email: member.email || '',
+      role: 'Technical' as const,
+      department: member.department?.name || '',
+      phone: '',
+      avatar: '',
+    }));
+  }, [assignable.canSelectCompany, assignable.members, interviewers]);
 
   const filtered = useMemo(
     () =>
-      interviewers.filter(
+      pool.filter(
         (interviewer) =>
           interviewer.name.toLowerCase().includes(search.toLowerCase()) ||
           interviewer.email.toLowerCase().includes(search.toLowerCase())
       ),
-    [interviewers, search]
+    [pool, search]
   );
 
   React.useEffect(() => {
@@ -68,6 +84,13 @@ export function PanelAssignmentModal({
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+              {assignable.canSelectCompany ? (
+                <AssignCompanySelect
+                  companies={assignable.companies}
+                  value={assignable.companyId}
+                  onChange={assignable.setCompanyId}
+                />
+              ) : null}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#9CA3AF]" />
                 <input

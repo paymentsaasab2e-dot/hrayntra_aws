@@ -79,7 +79,7 @@ export function CountryDialPhoneInput({
 
   return (
     <div
-      className={`flex min-w-[12.5rem] flex-1 rounded-xl border bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 sm:min-w-0 ${
+      className={`flex min-w-0 w-full max-w-full overflow-hidden rounded-xl border bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 ${
         error ? 'border-red-300' : 'border-slate-200'
       } ${className}`}
     >
@@ -89,7 +89,7 @@ export function CountryDialPhoneInput({
         onChange={(e) => applyCountry(e.target.value)}
         aria-label="Country code"
         title={rule ? `${rule.countryName} (${rule.dialCode})` : 'Choose country code'}
-        className="w-[8.75rem] shrink-0 cursor-pointer rounded-l-xl border-0 border-r border-slate-200 bg-slate-50 px-1.5 py-2.5 text-[11px] font-semibold text-slate-700 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-[7.25rem] max-w-[46%] shrink-0 cursor-pointer rounded-l-xl border-0 border-r border-slate-200 bg-slate-50 px-1 py-2.5 text-[11px] font-semibold text-slate-700 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <option value="">Country</option>
         {options.map((option) => (
@@ -110,6 +110,7 @@ export function CountryDialPhoneInput({
         placeholder={placeholder}
         aria-label={ariaLabel}
         className={`min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm text-slate-900 outline-none focus:ring-0 ${inputClassName}`}
+        size={1}
       />
     </div>
   );

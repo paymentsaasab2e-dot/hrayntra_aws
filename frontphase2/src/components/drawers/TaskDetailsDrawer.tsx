@@ -58,6 +58,7 @@ import {
   MOCK_INTERVIEWS,
 } from '../../app/Task&Activites/types';
 import { apiGetTaskFiles, apiDelegateTask, apiGetTaskAssignableMembers, type TaskFile } from '../../lib/api';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { cloudinaryPdfViewerHref, normalizeCloudinaryDocumentUrl } from '../../utils/cloudinaryUrls';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { getTeamRequest } from '../../lib/api/teamApi';
@@ -427,7 +428,7 @@ export function TaskDetailsDrawer({
     }
 
     let cancelled = false;
-    void apiGetTaskAssignableMembers()
+    void apiGetTaskAssignableMembers(getActiveOrgUnitId() || undefined)
       .then((response) => {
         if (cancelled) return;
         const rows = Array.isArray(response.data) ? response.data : [];

@@ -15,6 +15,14 @@ function oid(value) {
   return String(value || '').trim();
 }
 
+/** Real Organization Management companies: L2 units under HQ, not the HQ root. */
+export const ACTIVE_ORG_COMPANY_WHERE = {
+  levelOrder: 2,
+  isLeaf: false,
+  status: 'active',
+  parentId: { not: null },
+};
+
 function mapUnit(row, extra = {}) {
   if (!row) return null;
   return {
@@ -166,7 +174,7 @@ export async function userIdsInOrgScope(unitId) {
 async function populatedCompanyIds() {
   const [companies, allUnits, users] = await Promise.all([
     prisma.orgUnit.findMany({
-      where: { levelOrder: 2, isLeaf: false, status: 'active' },
+      where: ACTIVE_ORG_COMPANY_WHERE,
       select: { id: true },
     }),
     prisma.orgUnit.findMany({
@@ -261,17 +269,19 @@ export async function resolveViewerOrgScope(req) {
   }
 
   const companies = await prisma.orgUnit.findMany({
-    where: { levelOrder: 2, isLeaf: false, status: 'active' },
+    where: ACTIVE_ORG_COMPANY_WHERE,
     orderBy: { name: 'asc' },
   });
 
   let homeOrgUnitName = null;
+  let homeIsOrgCompany = false;
   if (homeId) {
     const homeUnit = await prisma.orgUnit.findUnique({
       where: { id: homeId },
-      select: { name: true },
+      select: { name: true, levelOrder: true, parentId: true },
     });
     homeOrgUnitName = homeUnit?.name || null;
+    homeIsOrgCompany = Boolean(homeUnit && Number(homeUnit.levelOrder) >= 2);
   }
 
   const payload = {
@@ -282,10 +292,12 @@ export async function resolveViewerOrgScope(req) {
     orgUnitId: scopeUnitId,
     homeOrgUnitId: homeId || null,
     homeOrgUnitName,
+    homeIsOrgCompany,
     unitIds,
     memberIds,
     // Only expose full company list to users who may switch.
     companies: canSwitchCompanies ? companies.map((c) => mapUnit(c)) : [],
+    hasCompanies: companies.length > 0,
   };
   if (req) req._orgViewerScope = payload;
   return payload;

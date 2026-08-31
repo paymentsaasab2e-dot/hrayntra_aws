@@ -106,7 +106,7 @@ export const taskController = {
       const members = await taskService.getAssignableMembers(req);
       sendResponse(res, 200, 'Assignable members retrieved successfully', members);
     } catch (error) {
-      sendError(res, 500, error.message, error);
+      sendError(res, error?.statusCode === 403 ? 403 : 500, error.message, error);
     }
   },
 

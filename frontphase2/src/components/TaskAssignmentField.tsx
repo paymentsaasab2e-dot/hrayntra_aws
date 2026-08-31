@@ -4,6 +4,8 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { ChevronDown, Search, X, Loader2, User } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
 import type { TaskAssignee } from '../app/Task&Activites/types';
+import { AssignCompanySelect } from './assign/AssignCompanySelect';
+import type { AssignCompanyOption } from '../hooks/useAssignableMembers';
 
 export type AssignmentAuditEvent = {
   previousAssigneeId?: string;
@@ -35,6 +37,10 @@ export interface TaskAssignmentFieldProps {
   required?: boolean;
   /** Label override */
   label?: string;
+  canSelectCompany?: boolean;
+  companies?: AssignCompanyOption[];
+  companyId?: string;
+  onCompanyChange?: (companyId: string) => void;
 }
 
 export function TaskAssignmentField({
@@ -52,6 +58,10 @@ export function TaskAssignmentField({
   placeholder = 'Search or select user',
   required = true,
   label = 'Assign To',
+  canSelectCompany = false,
+  companies = [],
+  companyId = '',
+  onCompanyChange,
 }: TaskAssignmentFieldProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -115,6 +125,19 @@ export function TaskAssignmentField({
           You do not have permission to reassign this task.
         </p>
       )}
+
+      {canSelectCompany ? (
+        <AssignCompanySelect
+          companies={companies}
+          value={companyId}
+          onChange={(id) => {
+            onCompanyChange?.(id);
+            if (id !== companyId) onChange('');
+          }}
+          disabled={isDisabled}
+          className="mb-2"
+        />
+      ) : null}
 
       <button
         type="button"
@@ -190,6 +213,10 @@ export function TaskAssignmentField({
               <div className="flex items-center justify-center gap-2 py-8 text-slate-500">
                 <Loader2 size={18} className="animate-spin" />
                 <span className="text-sm">Loading...</span>
+              </div>
+            ) : canSelectCompany && !companyId ? (
+              <div className="py-8 text-center text-sm text-slate-500">
+                Select a company to see members
               </div>
             ) : filteredAssignees.length === 0 ? (
               <div className="py-8 text-center text-sm text-slate-500">

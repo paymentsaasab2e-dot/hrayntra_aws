@@ -33,6 +33,7 @@ import {
   apiGetContacts,
   apiGetJobApplyLink,
   apiGetSocialStatus,
+  apiListLinkedInPostTemplates,
   apiGetWorkspaceClient,
   apiProcessJobCreationPipeline,
   apiPublishSocialJob,
@@ -49,6 +50,7 @@ import {
   apiGetTenantCompanyPage,
   type TenantCompanyPage,
 } from '@/lib/company-page-api';
+import { filterClientsForAddJob } from '@/lib/recruitmentClients';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api/teamApi';
 import { RichTextEditor } from '@/components/RichTextEditor';
 import { CreateJobPhase1Preview } from '@/components/jobs/CreateJobPhase1Preview';
@@ -58,6 +60,8 @@ import { LinkedInAccountsModal } from '@/components/jobs/LinkedInAccountsModal';
 import {
   linkedInTemplateToPublicVisibility,
   normalizeLinkedInPostTemplateSchema,
+  type JobLinkedInPostTemplate,
+  type LinkedInPostTemplateSection,
 } from '@/lib/jobLinkedInPostTemplate';
 import {
   CreateJobDetailsForm,
@@ -71,20 +75,21 @@ import {
   type JobCustomJdSection,
 } from '@/lib/jobCustomJdSections';
 import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
-import { PublicVisibilityToggle } from '@/components/forms/PublicVisibilityToggle';
 import { useLinkedIn } from '@/hooks/useLinkedIn';
 import { useDrawerUnsavedGuard } from '@/hooks/useDrawerUnsavedGuard';
 import type { JobPreScreenAssessmentLink } from '@/lib/preScreenAssessmentTypes';
 import { buildJobContactPersonOptions } from '@/lib/jobClientContacts';
 import {
   DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY,
-  isJobFieldPubliclyVisible,
-  parseJobPublicFieldVisibility,
-  toggleJobPublicFieldVisibility,
   type JobPublicFieldVisibility,
 } from '@/lib/jobPublicFieldVisibility';
-import { stripHtml } from '@/lib/jobSocialPost';
+import { buildLinkedInJobPost, stripHtml } from '@/lib/jobSocialPost';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '@/lib/jobVisibilityUserDefaults';
+import {
+  getStoredTenantCompanyName,
+  resolveAddJobWorkspaceLabel,
+  useOrgWorkspace,
+} from '@/lib/org/useOrgWorkspace';
 
 type WizardStep = 'client' | 'jd' | 'review';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
@@ -201,6 +206,48 @@ const EMPTY_SOCIAL_CONNECTIONS: SocialPlatformConnection = {
 
 function isSocialAuthPlatform(platformId: string) {
   return SOCIAL_AUTH_PLATFORM_IDS.has(platformId);
+}
+
+function lastLinkedInTemplateStorageKey() {
+  try {
+    const tenant = String(localStorage.getItem('tenantDbName') || '').trim();
+    return tenant ? `jobLinkedInPostTemplate:lastId:${tenant}` : 'jobLinkedInPostTemplate:lastId';
+  } catch {
+    return 'jobLinkedInPostTemplate:lastId';
+  }
+}
+
+function rememberLinkedInTemplateId(id: string | null) {
+  try {
+    const key = lastLinkedInTemplateStorageKey();
+    if (id) localStorage.setItem(key, id);
+    else localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
+function readRememberedLinkedInTemplateId(): string | null {
+  try {
+    return localStorage.getItem(lastLinkedInTemplateStorageKey()) || null;
+  } catch {
+    return null;
+  }
+}
+
+function unwrapLinkedInTemplates(res: unknown): JobLinkedInPostTemplate[] {
+  const rows = (res as { data?: unknown })?.data ?? res;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => {
+    const item = row as Record<string, unknown>;
+    return {
+      id: String(item.id || ''),
+      name: String(item.name || 'Untitled'),
+      schema: normalizeLinkedInPostTemplateSchema(item.schema),
+      createdAt: item.createdAt ? String(item.createdAt) : undefined,
+      updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
+    };
+  });
 }
 
 type WizardDraft = {
@@ -503,6 +550,12 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const isManual = mode === 'manual';
   const wizardSteps = STEPS;
   const linkedIn = useLinkedIn();
+  const {
+    hasCompanies,
+    orgUnitName,
+    orgUnitId,
+    homeIsOrgCompany,
+  } = useOrgWorkspace();
   const [step, setStep] = useState<WizardStep>('client');
   const [draft, setDraft] = useState<WizardDraft>({
     ...EMPTY_DRAFT,
@@ -549,6 +602,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [selectedLinkedInTemplateName, setSelectedLinkedInTemplateName] = useState<string | null>(
     null,
   );
+  const [linkedInPostSections, setLinkedInPostSections] = useState<LinkedInPostTemplateSection[] | null>(
+    null,
+  );
   const [showLinkedInAccountsModal, setShowLinkedInAccountsModal] = useState(false);
   const [linkedinAccounts, setLinkedinAccounts] = useState<SocialPublishingAccount[]>([]);
   const [selectedLinkedInTargets, setSelectedLinkedInTargets] = useState<string[]>([]);
@@ -577,6 +633,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setShowLinkedInTemplateModal(false);
     setSelectedLinkedInTemplateId(null);
     setSelectedLinkedInTemplateName(null);
+    setLinkedInPostSections(null);
     setShowLinkedInAccountsModal(false);
     setLinkedinAccounts([]);
     setSelectedLinkedInTargets([]);
@@ -609,6 +666,45 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   });
 
   const linkedInRefreshStatus = linkedIn.refreshStatus;
+
+  const applyLinkedInTemplate = useCallback(
+    (template: JobLinkedInPostTemplate, options?: { syncVisibility?: boolean }) => {
+      const schema = normalizeLinkedInPostTemplateSchema(template.schema);
+      setSelectedLinkedInTemplateId(template.id);
+      setSelectedLinkedInTemplateName(template.name);
+      setLinkedInPostSections(schema.sections);
+      rememberLinkedInTemplateId(template.id);
+      if (options?.syncVisibility) {
+        const visibility = linkedInTemplateToPublicVisibility(schema);
+        setDraft((prev) => ({
+          ...prev,
+          publicFieldVisibility: visibility,
+          showClientNamePublicly: visibility.client !== false,
+        }));
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void apiListLinkedInPostTemplates()
+      .then((res) => {
+        if (cancelled) return;
+        const rows = unwrapLinkedInTemplates(res).filter((row) => row.id);
+        if (!rows.length) return;
+        const remembered = readRememberedLinkedInTemplateId();
+        const match = rows.find((row) => row.id === remembered) || rows[0];
+        applyLinkedInTemplate(match);
+      })
+      .catch(() => {
+        /* keep default LinkedIn section order */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, applyLinkedInTemplate]);
 
   const mapLinkedInAccounts = useCallback((accounts: SocialPublishingAccount[] = []) => {
     return accounts.map((account) => ({
@@ -870,10 +966,25 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const jobDetailsFormData = useMemo(() => draftToJobDetailsForm(draft), [draft]);
 
   const clientsForForm = useMemo(() => {
-    if (!ownCompanyClient?.id) return clients;
-    if (clients.some((client) => client.id === ownCompanyClient.id)) return clients;
-    return [ownCompanyClient, ...clients];
-  }, [clients, ownCompanyClient]);
+    const recruitmentClients = filterClientsForAddJob(clients, {
+      includeIds: [draft.clientId],
+    });
+    if (!ownCompanyClient?.id) return recruitmentClients;
+    if (recruitmentClients.some((client) => client.id === ownCompanyClient.id)) return recruitmentClients;
+    return [ownCompanyClient, ...recruitmentClients];
+  }, [clients, ownCompanyClient, draft.clientId]);
+
+  const jobWorkspaceLabel = resolveAddJobWorkspaceLabel({
+    hasCompanies,
+    orgUnitName,
+    orgUnitId,
+    homeIsOrgCompany,
+    companyName: ownCompanyClient?.companyName || getStoredTenantCompanyName(),
+  });
+  const ownCompanyDisplayName = jobWorkspaceLabel.displayName;
+  const workspaceOwnerHeading = jobWorkspaceLabel.useOrganizationLabel
+    ? 'Organization'
+    : 'Company';
 
   const patchJobDetailsForm = useCallback(
     (
@@ -1080,22 +1191,25 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   }, [isOpen, draft.clientId]);
 
   const filteredClients = useMemo(() => {
+    const recruitmentClients = filterClientsForAddJob(clients, {
+      includeIds: [draft.clientId],
+    });
     const q = clientSearch.trim().toLowerCase();
-    if (!q) return clients;
-    return clients.filter((c) =>
+    if (!q) return recruitmentClients;
+    return recruitmentClients.filter((c) =>
       String(c.companyName || '')
         .toLowerCase()
         .includes(q),
     );
-  }, [clients, clientSearch]);
+  }, [clients, clientSearch, draft.clientId]);
 
   const ownCompanyVisible = useMemo(() => {
     if (!ownCompanyClient?.id) return false;
     const q = clientSearch.trim().toLowerCase();
     if (!q) return true;
-    const haystack = `own company ${ownCompanyClient.companyName || ''}`.toLowerCase();
+    const haystack = `own company ${ownCompanyDisplayName} ${ownCompanyClient.companyName || ''}`.toLowerCase();
     return haystack.includes(q);
-  }, [ownCompanyClient, clientSearch]);
+  }, [ownCompanyClient, ownCompanyDisplayName, clientSearch]);
 
   const stepIndex = Math.max(0, wizardSteps.indexOf(step));
 
@@ -1544,20 +1658,39 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           const companyName = draft.showClientNamePublicly ? draft.clientName || '' : '';
           const locationLine =
             locationParts.join(', ') || draft.locationQuery.trim() || '';
-          const plainDescription = stripHtml(descriptionHtml || '')
+          const plainDescription = stripHtml(descriptionHtml || draft.jobDescriptionHtml || '')
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 500);
-          const linkedinPostText = [
-            `We're hiring: ${draft.jobTitle.trim()}`,
-            companyName ? `Company: ${companyName}` : '',
-            locationLine ? `Location: ${locationLine}` : '',
-            plainDescription ? `\n${plainDescription}` : '',
-            applyUrl ? `\nApply: ${applyUrl}` : '',
-            '\n#hiring #jobs #careers',
-          ]
-            .filter(Boolean)
-            .join('\n');
+          const linkedinPostText = buildLinkedInJobPost({
+            jobTitle: draft.jobTitle.trim(),
+            companyName: draft.clientName,
+            contactPersonName: draft.contactPersonName,
+            numberOfOpenings: draft.numberOfOpenings,
+            priority: draft.priority,
+            nationality: draft.nationality,
+            industryType: draft.industryType,
+            employmentType: draft.employmentType,
+            targetHireDate: draft.targetHireDate,
+            city: draft.city || draft.locationQuery,
+            state: draft.state,
+            country: draft.country,
+            minExperience: draft.minExperience,
+            maxExperience: draft.maxExperience,
+            currency: draft.salaryCurrency,
+            minSalary: draft.payRangeMin,
+            maxSalary: draft.payRangeMax,
+            skills: draft.skills,
+            languages: draft.languages,
+            jobDescriptionHtml: descriptionHtml || draft.jobDescriptionHtml,
+            keyResponsibilitiesText: draft.keyResponsibilitiesText,
+            qualificationsExperienceText: draft.qualificationsExperienceText,
+            candidateRequirementsText: draft.candidateRequirementsText,
+            applyUrl,
+            showClientNamePublicly: draft.showClientNamePublicly,
+            publicFieldVisibility: draft.publicFieldVisibility,
+            linkedInPostSections,
+          });
 
           const socialResult = await apiPublishSocialJob({
             jobId: createdJob.id,
@@ -1620,7 +1753,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         initial={{ opacity: 0, y: 28, scale: 0.94 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: 'spring', stiffness: 360, damping: 28 }}
-        className="relative flex max-h-[min(92vh,920px)] w-full max-w-3xl flex-col overflow-hidden rounded-[1.85rem] border border-white/70 bg-gradient-to-b from-white via-white to-slate-50 shadow-[0_40px_100px_-24px_rgba(2,6,23,0.55)]"
+        className="relative flex max-h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-[1.85rem] border border-white/70 bg-gradient-to-b from-white via-white to-slate-50 shadow-[0_40px_100px_-24px_rgba(2,6,23,0.55)]"
       >
         <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_at_top_right,_rgba(32,152,200,0.18),_transparent_55%),radial-gradient(ellipse_at_top_left,_rgba(32,152,200,0.12),_transparent_50%)]" />
         <div
@@ -1634,84 +1767,87 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           aria-hidden
         />
 
-        <div className="relative border-b border-[#2098C8]/20 px-5 pb-4 pt-5 sm:px-7 sm:pt-6">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#2098C8]/35 bg-[#E8F6FC] px-3 py-1 shadow-sm shadow-[#2098C8]/10">
-                <span className="relative flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm ring-1 ring-[#2098C8]/25">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/hryantra-logo.png" alt="" className="h-5 w-5 object-contain" />
-                </span>
-                <span className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-[#176F96]">
-                  {isManual ? 'Create job' : 'AI job creation'}
-                </span>
-              </div>
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`${step}-${publishFlowStep || 'main'}`}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.22 }}
-                >
-                  <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[1.7rem]">
+        <div className="relative border-b border-[#2098C8]/20 px-5 py-2.5 sm:px-7">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <div className="inline-flex items-center gap-1.5 rounded-full border border-[#2098C8]/35 bg-[#E8F6FC] px-2 py-0.5 shadow-sm shadow-[#2098C8]/10">
+                  <span className="relative flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm ring-1 ring-[#2098C8]/25">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/hryantra-logo.png" alt="" className="h-4 w-4 object-contain" />
+                  </span>
+                  <span className="text-[0.6rem] font-bold uppercase tracking-[0.16em] text-[#176F96]">
+                    {isManual ? 'Create job' : 'AI job creation'}
+                  </span>
+                </div>
+                <AnimatePresence mode="wait">
+                  <motion.h2
+                    key={`${step}-${publishFlowStep || 'main'}-title`}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.16 }}
+                    className="truncate text-lg font-bold tracking-tight text-slate-900 sm:text-xl"
+                  >
                     {publishFlowTitle}
-                  </h2>
-                  <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-slate-500">
-                    {publishFlowHint}
-                  </p>
-                </motion.div>
-              </AnimatePresence>
+                  </motion.h2>
+                </AnimatePresence>
+              </div>
+              <p className="mt-0.5 truncate text-xs leading-snug text-slate-500">
+                {publishFlowHint}
+              </p>
             </div>
             <button
               type="button"
               onClick={() => void requestWizardClose()}
-              className="rounded-full border border-slate-200/90 bg-white/90 p-2.5 text-slate-400 shadow-sm transition hover:scale-105 hover:border-slate-300 hover:text-slate-700 active:scale-95"
+              className="shrink-0 rounded-full border border-slate-200/90 bg-white/90 p-1.5 text-slate-400 shadow-sm transition hover:scale-105 hover:border-slate-300 hover:text-slate-700 active:scale-95"
               aria-label="Close"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="mt-5 flex items-center gap-2">
-            {wizardSteps.map((s, i) => {
-              const done = i < stepIndex;
-              const active = i === stepIndex;
-              return (
-                <div key={s} className="flex flex-1 items-center gap-2">
-                  <div
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[0.7rem] font-bold transition-all ${
-                      done
-                        ? 'bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/30'
-                        : active
-                          ? 'bg-[#2098C8] text-white shadow-lg shadow-[#2098C8]/30 ring-4 ring-[#2098C8]/25'
-                          : 'bg-slate-100 text-slate-400 ring-1 ring-slate-200'
-                    }`}
-                  >
-                    {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
-                  </div>
-                  {i < wizardSteps.length - 1 ? (
+          <div className="mt-2 flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {wizardSteps.map((s, i) => {
+                const done = i < stepIndex;
+                const active = i === stepIndex;
+                return (
+                  <div key={s} className="flex flex-1 items-center gap-2">
                     <div
-                      className={`h-1.5 flex-1 rounded-full ${
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-bold transition-all ${
                         done
-                          ? 'bg-[#2098C8]'
+                          ? 'bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/30'
                           : active
-                            ? 'bg-gradient-to-r from-[#2098C8] to-slate-200'
-                            : 'bg-slate-200/90'
+                            ? 'bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/30 ring-2 ring-[#2098C8]/25'
+                            : 'bg-slate-100 text-slate-400 ring-1 ring-slate-200'
                       }`}
-                    />
-                  ) : null}
-                </div>
-              );
-            })}
+                    >
+                      {done ? <Check className="h-3 w-3" /> : i + 1}
+                    </div>
+                    {i < wizardSteps.length - 1 ? (
+                      <div
+                        className={`h-1 flex-1 rounded-full ${
+                          done
+                            ? 'bg-[#2098C8]'
+                            : active
+                              ? 'bg-gradient-to-r from-[#2098C8] to-slate-200'
+                              : 'bg-slate-200/90'
+                        }`}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="shrink-0 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-slate-400">
+              {publishFlowStep === 'assessment'
+                ? 'Publish · 1 of 2'
+                : publishFlowStep === 'distribution'
+                  ? 'Publish · 2 of 2'
+                  : `Step ${stepIndex + 1} of ${wizardSteps.length}`}
+            </p>
           </div>
-          <p className="mt-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
-            {publishFlowStep === 'assessment'
-              ? 'Publish · Step 1 of 2'
-              : publishFlowStep === 'distribution'
-                ? 'Publish · Step 2 of 2'
-                : `Step ${stepIndex + 1} of ${wizardSteps.length}`}
-          </p>
         </div>
 
         <div
@@ -1761,7 +1897,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                         Own company
                       </p>
                       <p className="truncate font-semibold text-slate-900">
-                        {ownCompanyClient.companyName || 'Your organization'}
+                        {ownCompanyDisplayName}
                       </p>
                       <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-500">
                         <Users className="h-3.5 w-3.5 shrink-0 text-[#2098C8]" />
@@ -1811,8 +1947,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-white/70 px-4 py-10 text-center">
                         <p className="text-sm text-slate-500">
                           {ownCompanyVisible
-                            ? 'No matching clients. You can still hire under your own company above.'
-                            : 'No clients found.'}
+                            ? 'No matching Recruitment clients. Send a client from CRM, or hire under your own company above.'
+                            : 'No Recruitment clients yet. Send a client from CRM, or create one here.'}
                         </p>
                         <button
                           type="button"
@@ -2097,7 +2233,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                 </div>
 
                 <div className={sectionClass}>
-                  <div className="flex items-start gap-3 border-b border-slate-100 pb-4">
+                  <div className="flex items-start gap-3 border-b border-slate-100 pb-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2098C8]/10 text-[#2098C8]">
                       <ActiveDistributionIcon className="h-5 w-5" />
                     </span>
@@ -2111,7 +2247,57 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                     </div>
                   </div>
 
-                  <p className="mt-4 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  {activeDistributionTab === 'social_media' ? (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900">
+                            LinkedIn post templates
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            LinkedIn posts use the template you saved — section order and what is
+                            shown or hidden. Create more, edit any of them, then apply the one to
+                            use for this job.
+                          </p>
+                          {selectedLinkedInTemplateName ? (
+                            <p className="mt-1.5 text-xs font-medium text-[#176F96]">
+                              Using: {selectedLinkedInTemplateName}
+                            </p>
+                          ) : (
+                            <p className="mt-1.5 text-xs text-slate-400">
+                              No saved template selected — default section order will be used.
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          {selectedLinkedInTemplateId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedLinkedInTemplateId(null);
+                                setSelectedLinkedInTemplateName(null);
+                                setLinkedInPostSections(null);
+                                rememberLinkedInTemplateId(null);
+                              }}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                              Clear
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setShowLinkedInTemplateModal(true)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2098C8] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1A86B3]"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            Manage templates
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <p className="mt-3 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-400">
                     {activeDistributionTab === 'internal_company' ? 'Company page' : 'Platforms'}
                   </p>
                   {activeDistributionTab === 'internal_company' ? (
@@ -2422,50 +2608,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                     })}
                   </div>
                   )}
-
-                  {activeDistributionTab === 'social_media' &&
-                  isSocialPlatformConnected('linkedin') ? (
-                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-900">
-                            LinkedIn post templates
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            Create multiple templates, edit any of them, and drag sections into the
-                            order used when posting to LinkedIn.
-                          </p>
-                          {selectedLinkedInTemplateName ? (
-                            <p className="mt-1.5 text-xs font-medium text-[#176F96]">
-                              Using: {selectedLinkedInTemplateName}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          {selectedLinkedInTemplateId ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedLinkedInTemplateId(null);
-                                setSelectedLinkedInTemplateName(null);
-                              }}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                            >
-                              Clear
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => setShowLinkedInTemplateModal(true)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2098C8] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1A86B3]"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            Manage templates
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               </motion.div>
             ) : null}
@@ -2496,23 +2638,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                   </div>
 
                   <div>
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-sm font-bold text-slate-900">Job Description</h3>
-                      <PublicVisibilityToggle
-                        visible={isJobFieldPubliclyVisible(
-                          draft.publicFieldVisibility,
-                          'jobDescription',
-                        )}
-                        onToggle={() =>
-                          patchDraft({
-                            publicFieldVisibility: toggleJobPublicFieldVisibility(
-                              parseJobPublicFieldVisibility(draft.publicFieldVisibility),
-                              'jobDescription',
-                            ),
-                          })
-                        }
-                      />
-                    </div>
+                    <h3 className="mb-3 text-sm font-bold text-slate-900">Job Description</h3>
 
                     {jdAttachment?.status === 'ready' ? (
                       <p className="mb-3 text-xs text-emerald-700">
@@ -2550,13 +2676,18 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       setSkillInput={setSkillInput}
                       onAddSkill={addSkill}
                       onRemoveSkill={removeSkill}
+                      ownCompanyDisplayName={ownCompanyDisplayName}
+                      workspaceOwnerHeading={workspaceOwnerHeading}
                     />
                     <div className="mt-4">
                       <CreateJobPhase1Preview
                         form={jobDetailsFormData}
                         companyName={
-                          clientsForForm.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ??
-                          null
+                          ownCompanyClient &&
+                          jobDetailsFormData.companyId === ownCompanyClient.id
+                            ? ownCompanyDisplayName
+                            : clientsForForm.find((c) => c.id === jobDetailsFormData.companyId)
+                                ?.companyName ?? null
                         }
                         jobDescriptionHtml={draft.jobDescriptionHtml}
                         users={users}
@@ -2670,6 +2801,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         <ClientDetailsDrawer
           client={null}
           isAddMode
+          defaultRecruitmentEnabled
           stackClassName="z-[100]"
           onClose={() => setShowCreateClient(false)}
           onClientCreated={handleClientCreatedFromWizard}
@@ -2698,14 +2830,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         onClose={() => setShowLinkedInTemplateModal(false)}
         selectedTemplateId={selectedLinkedInTemplateId}
         onApply={(template) => {
-          const schema = normalizeLinkedInPostTemplateSchema(template.schema);
-          const visibility = linkedInTemplateToPublicVisibility(schema);
-          setSelectedLinkedInTemplateId(template.id);
-          setSelectedLinkedInTemplateName(template.name);
-          patchDraft({
-            publicFieldVisibility: visibility,
-            showClientNamePublicly: visibility.client !== false,
-          });
+          applyLinkedInTemplate(template);
         }}
       />
     </div>

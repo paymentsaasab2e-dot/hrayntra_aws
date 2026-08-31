@@ -305,6 +305,9 @@ export type DashboardOrgScope = {
   hierarchyPurpose?: string;
   orgUnitId?: string | null;
   homeOrgUnitId?: string | null;
+  homeOrgUnitName?: string | null;
+  homeIsOrgCompany?: boolean;
+  hasCompanies?: boolean;
   companies?: OrgCompanyOption[];
   memberIds?: string[];
 };

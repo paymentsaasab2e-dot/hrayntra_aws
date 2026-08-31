@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { ChevronDown, X, Users } from 'lucide-react';
 import type { TeamMember } from '../../types/team';
+import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 
 /** Role chip background classes — mirrors the existing palette used elsewhere. */
 const ROLE_COLOR_MAP: Record<string, string> = {
@@ -68,7 +70,7 @@ export interface LeadAssigneesMultiSelectProps {
  *   used by RBAC and downstream conversions (lead → client owner).
  */
 export function LeadAssigneesMultiSelect({
-  members,
+  members: membersProp,
   value,
   onChange,
   loading = false,
@@ -77,6 +79,8 @@ export function LeadAssigneesMultiSelect({
   ariaLabel = 'Assigned team members',
   className = '',
 }: LeadAssigneesMultiSelectProps) {
+  const assignable = useAssignableMembers(!disabled);
+  const members = assignable.canSelectCompany ? assignable.members : membersProp;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
@@ -205,17 +209,20 @@ export function LeadAssigneesMultiSelect({
               />
             </div>
             <ul className="min-h-0 flex-1 overflow-y-auto py-1">
-              {loading && (
+              {(loading || assignable.loading) && (
                 <li className="px-4 py-3 text-xs text-slate-500">Loading team members…</li>
               )}
-              {!loading && filtered.length === 0 && (
+              {!loading && !assignable.loading && assignable.canSelectCompany && !assignable.companyId && (
+                <li className="px-4 py-3 text-xs text-slate-500">Select a company to see members</li>
+              )}
+              {!loading && !assignable.loading && filtered.length === 0 && !(assignable.canSelectCompany && !assignable.companyId) && (
                 <li className="px-4 py-3 text-xs text-slate-500">
                   {members.length === 0
                     ? 'No team members found. Create members under Team first.'
                     : 'No team members match your search.'}
                 </li>
               )}
-              {!loading &&
+              {!loading && !assignable.loading &&
                 filtered.map((member) => {
                   const checked = value.includes(member.id);
                   const label = displayName(member);
@@ -264,6 +271,19 @@ export function LeadAssigneesMultiSelect({
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
+      {assignable.canSelectCompany ? (
+        <AssignCompanySelect
+          companies={assignable.companies}
+          value={assignable.companyId}
+          onChange={(id) => {
+            assignable.setCompanyId(id);
+            onChange([]);
+          }}
+          disabled={disabled}
+          className="mb-2"
+        />
+      ) : null}
+
       {selected.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {selected.map((member, idx) => (

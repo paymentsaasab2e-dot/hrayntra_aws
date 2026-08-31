@@ -2,7 +2,7 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Key, Lock, Mail, MoreVertical, Trash2, Unlock, UserMinus, UserPlus } from 'lucide-react';
+import { Key, Lock, LogIn, Mail, MoreVertical, Trash2, Unlock, UserMinus, UserPlus } from 'lucide-react';
 import type { TeamMember } from '../../types/team';
 
 const MENU_WIDTH = 208;
@@ -13,7 +13,9 @@ interface TeamMemberRowActionsMenuProps {
   open: boolean;
   canGenerateCredentials: boolean;
   canDeactivate: boolean;
+  canOpenAccount?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onOpenAccount?: (member: TeamMember) => void;
   onGenerateCredentials: (member: TeamMember) => void;
   onResetPassword: (member: TeamMember) => void;
   onResendInvite: (member: TeamMember) => void;
@@ -46,7 +48,9 @@ export function TeamMemberRowActionsMenu({
   open,
   canGenerateCredentials,
   canDeactivate,
+  canOpenAccount = false,
   onOpenChange,
+  onOpenAccount,
   onGenerateCredentials,
   onResetPassword,
   onResendInvite,
@@ -111,7 +115,7 @@ export function TeamMemberRowActionsMenu({
     };
   }, [open]);
 
-  if (!canGenerateCredentials && !canDeactivate) {
+  if (!canGenerateCredentials && !canDeactivate && !canOpenAccount) {
     return null;
   }
 
@@ -122,6 +126,19 @@ export function TeamMemberRowActionsMenu({
 
   const menuContent = (
     <>
+      {canOpenAccount && onOpenAccount ? (
+        <>
+          <button
+            type="button"
+            onClick={closeAnd(onOpenAccount)}
+            className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+          >
+            <LogIn size={14} />
+            Open account
+          </button>
+          {canGenerateCredentials || canDeactivate ? <div className="my-1 border-t border-slate-200" /> : null}
+        </>
+      ) : null}
       {canGenerateCredentials ? (
         <>
           <button

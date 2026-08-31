@@ -18,6 +18,7 @@ import {
   getMemberActivity,
   getMemberTargets,
   saveMemberTargets,
+  impersonateTeamMember,
 } from '../controllers/teamController.js';
 
 const router = express.Router();
@@ -53,7 +54,7 @@ const PERMISSIONS_TEAM_DIRECTORY_READ = [
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
-// Tenant member list for assignment pickers — scoped to same-department lower ranks.
+// Tenant member list for assignment pickers — Super Admin / HQ can assign across companies.
 router.get('/assignable', (req, res) => {
   req.teamListMode = 'assignable';
   return getAllTeamMembers(req, res);
@@ -72,6 +73,7 @@ router.post('/:id/reset-password', requirePermission('generate_credentials'), re
 router.post('/:id/resend-invite', requirePermission('generate_credentials'), resendMemberInvite);
 router.post('/:id/lock', requirePermission('add_team_member'), lockMemberAccount);
 router.post('/:id/unlock', requirePermission('add_team_member'), unlockMemberAccount);
+router.post('/:id/impersonate', impersonateTeamMember);
 router.get('/:id/login-history', requirePermission('add_team_member'), getMemberLoginHistory);
 router.get('/:id/activity', requireAnyPermission(['add_team_member', 'edit_team_member', 'assign_roles']), getMemberActivity);
 router.get('/:id/targets', requirePermission('manage_targets'), getMemberTargets);

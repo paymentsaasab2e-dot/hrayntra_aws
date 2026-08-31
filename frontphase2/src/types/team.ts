@@ -254,6 +254,8 @@ export interface TeamMemberFilters {
   managerId?: string;
   page?: number;
   limit?: number;
+  orgUnitId?: string;
+  companyId?: string;
 }
 
 export interface TeamMemberStats {

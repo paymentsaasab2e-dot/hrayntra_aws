@@ -11,6 +11,8 @@ import { formatDirectorDisplay } from '../../constants/salutations';
 import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
+import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
@@ -138,10 +140,10 @@ import {
   Lock,
   User,
   ArrowRight,
+  Send,
   UserCheck,
   Shield,
   Download,
-  Send,
   DollarSign,
   FilePlus,
   Pin,
@@ -189,6 +191,7 @@ import {
   apiHqListTeam,
   apiHqUploadCompanyLogo,
   apiUpdateClient,
+  apiSendClientToRecruitment,
   apiUpdateContact,
   apiUpdateJob,
   apiUpdateScheduledMeeting,
@@ -984,6 +987,10 @@ interface ClientDetailsDrawerProps {
   /** Keeps the clients table/list in sync after drawer saves (e.g. lead status). */
   onClientUpdated?: (patch: Partial<Client> & { id: string }) => void;
   onJobCreated?: () => void;
+  /** When true, newly created clients are immediately available in Recruitment / Add Job. */
+  defaultRecruitmentEnabled?: boolean;
+  onSendToRecruitment?: (client: Client) => void;
+  sendingToRecruitment?: boolean;
   /**
    * Optional create path (e.g. HQ clients). When set, replaces `apiCreateClient`
    * and skips tenant contact/file uploads that need a CRM session.
@@ -1018,6 +1025,9 @@ export function ClientDetailsDrawer({
   onClientCreated,
   onClientUpdated,
   onJobCreated,
+  defaultRecruitmentEnabled = false,
+  onSendToRecruitment,
+  sendingToRecruitment = false,
   createClientOverride,
   updateClientOverride,
   onCreateTenant,
@@ -1026,6 +1036,7 @@ export function ClientDetailsDrawer({
   const drawerIsOpen = Boolean(client) || propIsAddMode;
   const clientAiGate = useAiCoinGate('ai.client_chat');
   const isHqOverrideMode = Boolean(createClientOverride || updateClientOverride);
+  const assignable = useAssignableMembers(!isHqOverrideMode);
   usePageDrawerLifecycle(drawerIsOpen);
   const [clientPanelPortalReady, setClientPanelPortalReady] = useState(false);
   useEffect(() => {
@@ -1982,10 +1993,19 @@ export function ClientDetailsDrawer({
   const { hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
 
-  const openCreateJobDrawer = () => {
+  const openCreateJobDrawer = async () => {
     if (!canCreateJob) {
       toast.error("You don't have permission to create jobs.");
       return;
+    }
+    if (client?.id && !client.recruitmentEnabled && !isHqOverrideMode) {
+      try {
+        await apiSendClientToRecruitment(client.id);
+        onClientUpdated?.({ id: client.id, recruitmentEnabled: true });
+      } catch (error: unknown) {
+        toast.error(error instanceof Error ? error.message : 'Could not send this client to Recruitment.');
+        return;
+      }
     }
     setActiveTab('jobs');
     setDuplicateFromJobId(null);
@@ -2692,6 +2712,7 @@ export function ClientDetailsDrawer({
           phones: contactChannels.phones,
           ...agreementTermsApiPayload(overviewEditForm),
           ...postServiceKycFormApiPayload(overviewEditForm.postServiceKycForm),
+          recruitmentEnabled: defaultRecruitmentEnabled || undefined,
         };
 
         let createdClientPayload: BackendClient | null | undefined = null;
@@ -4190,7 +4211,7 @@ export function ClientDetailsDrawer({
                     <>
                       <button
                         type="button"
-                        onClick={() => { setActiveTab('jobs'); openCreateJobDrawer(); }}
+                        onClick={() => { setActiveTab('jobs'); void openCreateJobDrawer(); }}
                         disabled={!canCreateJob}
                         className={`p-2 rounded-lg transition-colors ${
                           canCreateJob
@@ -4201,6 +4222,28 @@ export function ClientDetailsDrawer({
                       >
                         <Briefcase size={18} />
                       </button>
+                      {onSendToRecruitment ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!client || sendingToRecruitment) return;
+                            onSendToRecruitment(client);
+                          }}
+                          disabled={!client || sendingToRecruitment}
+                          className={`p-2 rounded-lg transition-colors ${
+                            client?.recruitmentEnabled
+                              ? 'text-amber-500 hover:text-amber-700 hover:bg-amber-50'
+                              : 'text-slate-400 hover:text-amber-700 hover:bg-amber-50'
+                          }`}
+                          title={
+                            client?.recruitmentEnabled
+                              ? 'Forward to more members in Recruitment'
+                              : 'Send to Recruitment'
+                          }
+                        >
+                          <Send size={18} />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={openSendMessageForm}
@@ -4231,6 +4274,12 @@ export function ClientDetailsDrawer({
                   <Briefcase size={14} className="text-slate-500" />
                     Open Jobs: {client?.openJobs || 0}
                 </span>
+                {client?.recruitmentEnabled ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 text-xs font-semibold">
+                    <Send size={14} className="text-amber-600" />
+                    In Recruitment
+                  </span>
+                ) : null}
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-semibold">
                   <Award size={14} className="text-indigo-500" />
                     Placements: {client?.placements || 0}
@@ -4543,7 +4592,6 @@ export function ClientDetailsDrawer({
                       onOpenChange={() => toggleAddClientSection('contacts')}
                     >
                       <div className="space-y-4">
-                        <div className="rounded-xl border border-violet-100/80 bg-violet-50/30 p-3">
                           <DirectorContactFields
                             directorSalutation={overviewEditForm.directorSalutation}
                             contactPerson={overviewEditForm.directorName}
@@ -4593,8 +4641,6 @@ export function ClientDetailsDrawer({
                               }));
                             }}
                           />
-                        </div>
-                        <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3">
                           <TeamMemberOptionalFields
                             requireTeamName={false}
                             countryCode={overviewEditForm.countryCode}
@@ -4604,7 +4650,6 @@ export function ClientDetailsDrawer({
                               setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))
                             }
                           />
-                        </div>
                       </div>
                     </DrawerSectionCard>
 
@@ -6391,6 +6436,20 @@ export function ClientDetailsDrawer({
                             <div className="space-y-4 pt-2">
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
+                                {assignable.canSelectCompany ? (
+                                  <AssignCompanySelect
+                                    companies={assignable.companies}
+                                    value={assignable.companyId}
+                                    onChange={(id) => {
+                                      assignable.setCompanyId(id);
+                                      setOverviewEditForm((p) => ({
+                                        ...p,
+                                        ...assignedToSelectionFromId(''),
+                                      }));
+                                    }}
+                                    className="mb-2"
+                                  />
+                                ) : null}
                                 <div className="relative">
                                   <button
                                     type="button"
@@ -6400,7 +6459,7 @@ export function ClientDetailsDrawer({
                                     <span className="flex items-center gap-2">
                                       {overviewEditForm.assignedToId ? (
                                         (() => {
-                                          const selectedUser = users.find(u => u.id === overviewEditForm.assignedToId);
+                                          const selectedUser = (assignable.canSelectCompany ? assignable.users : users).find(u => u.id === overviewEditForm.assignedToId);
                                           return selectedUser ? (
                                             <>
                                               {selectedUser.avatar ? (
@@ -6426,9 +6485,11 @@ export function ClientDetailsDrawer({
                                     <>
                                       <div className="fixed inset-0 z-10" onClick={() => setAssignedToDropdownOpen(false)} aria-hidden />
                                       <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
-                                        {loadingUsers ? (
+                                        {assignable.canSelectCompany && !assignable.companyId ? (
+                                          <li className="px-4 py-2.5 text-sm text-slate-500 text-center">Select a company to see members</li>
+                                        ) : (assignable.canSelectCompany ? assignable.loading : loadingUsers) ? (
                                           <li className="px-4 py-2.5 text-sm text-slate-500 text-center">Loading users...</li>
-                                        ) : users.length === 0 ? (
+                                        ) : (assignable.canSelectCompany ? assignable.users : users).length === 0 ? (
                                           <li className="px-4 py-2.5 text-sm text-slate-500 text-center">No users available</li>
                                         ) : (
                                           <>
@@ -6447,7 +6508,7 @@ export function ClientDetailsDrawer({
                                                 <span className="text-slate-400">Unassigned</span>
                                               </button>
                                             </li>
-                                            {users.map((user) => (
+                                            {(assignable.canSelectCompany ? assignable.users : users).map((user) => (
                                               <li key={user.id}>
                                                 <button
                                                   type="button"
@@ -6598,7 +6659,7 @@ export function ClientDetailsDrawer({
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
-                          onClick={() => { setActiveTab('jobs'); openCreateJobDrawer(); }}
+                          onClick={() => { setActiveTab('jobs'); void openCreateJobDrawer(); }}
                           disabled={!canCreateJob}
                           title={canCreateJob ? 'Add Job Requirement' : "You don't have permission to create jobs"}
                           className={`flex items-center justify-center gap-2 py-3 px-4 border rounded-xl text-sm font-medium shadow-sm active:scale-[0.98] transition-all ${
@@ -6610,6 +6671,29 @@ export function ClientDetailsDrawer({
                           <Briefcase size={16} className={canCreateJob ? 'text-slate-600' : 'text-slate-400'} />
                           Add Job Requirement
                         </button>
+                        {onSendToRecruitment ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!client || sendingToRecruitment) return;
+                              onSendToRecruitment(client);
+                            }}
+                            disabled={!client || sendingToRecruitment}
+                            className={`flex items-center justify-center gap-2 py-3 px-4 border rounded-xl text-sm font-medium shadow-sm active:scale-[0.98] transition-all ${
+                              client?.recruitmentEnabled
+                                ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-amber-50 hover:border-amber-200'
+                            }`}
+                            title={
+                              client?.recruitmentEnabled
+                                ? 'Forward to more members in Recruitment'
+                                : 'Send this client to Recruitment'
+                            }
+                          >
+                            <Send size={16} className={client?.recruitmentEnabled ? 'text-amber-600' : 'text-slate-600'} />
+                            {client?.recruitmentEnabled ? 'Forward in Recruitment' : 'Send to Recruitment'}
+                          </button>
+                        ) : null}
                         <button type="button" className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] transition-all">
                           <UserPlus size={16} className="text-slate-600" />
                           Add Contact
@@ -7085,7 +7169,7 @@ export function ClientDetailsDrawer({
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Jobs</h4>
                         <button
                           type="button"
-                          onClick={openCreateJobDrawer}
+                          onClick={() => void openCreateJobDrawer()}
                           disabled={!canCreateJob}
                           title={canCreateJob ? 'Add Job' : "You don't have permission to create jobs"}
                           className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${

@@ -125,6 +125,12 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
 
   // ══ Administration ═════════════════════════════════════════════════════
   { permissionName: 'view_team', module: 'Team', description: 'View team directory' },
+  {
+    permissionName: 'view_cross_company_members',
+    module: 'Team',
+    description:
+      'Allows users to view and assign members from other companies within their current tenant. Super Admin has this by default. Never grants access to other tenants.',
+  },
   { permissionName: 'add_team_member', module: 'Team', description: 'Add team members' },
   { permissionName: 'edit_team_member', module: 'Team', description: 'Edit or deactivate team members' },
   { permissionName: 'assign_roles', module: 'Team', description: 'Assign roles to members' },

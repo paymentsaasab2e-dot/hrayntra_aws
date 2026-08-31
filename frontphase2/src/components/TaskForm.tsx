@@ -19,7 +19,8 @@ import {
   MOCK_JOBS,
   MOCK_CLIENTS,
 } from '../app/Task&Activites/types';
-import { apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, apiGetTaskAssignableMembers, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
+import { apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
+import { useAssignableMembers } from '../hooks/useAssignableMembers';
 import { clampDateToMinLocal, getLocalDateInputMinToday, getLocalTimeInputMinNow, isLocalDateTimeNotPast } from '../utils/dateInputConstraints';
 import { CrossDepartmentAssignSection } from './team/CrossDepartmentAssignSection';
 
@@ -93,63 +94,48 @@ export function TaskForm({
   const [showCompletedConfirm, setShowCompletedConfirm] = useState(false);
   
   // Real data from API
-  const [assignees, setAssignees] = useState<TaskAssignee[]>(MOCK_ASSIGNEES);
   const [candidates, setCandidates] = useState<RelatedEntity[]>(MOCK_CANDIDATES);
   const [jobs, setJobs] = useState<RelatedEntity[]>(MOCK_JOBS);
   const [clients, setClients] = useState<RelatedEntity[]>(MOCK_CLIENTS);
   const [interviews, setInterviews] = useState<RelatedEntity[]>([]);
   const [loadingEntities, setLoadingEntities] = useState(false);
+  const assignable = useAssignableMembers(true);
+  const assignees = useMemo<TaskAssignee[]>(() => {
+    if (!assignable.members.length) return [];
+    return assignable.members.map((m) => ({
+      id: m.id,
+      name:
+        [m.firstName, m.lastName].filter(Boolean).join(' ').trim() ||
+        m.email ||
+        'Unknown',
+      avatar: undefined,
+      role: m.role?.roleName,
+    }));
+  }, [assignable.members]);
 
-  // Fetch real data from API
+  useEffect(() => {
+    if (mode !== 'create' || values.assigneeId || values.crossDepartmentRequest) return;
+    if (assignable.canSelectCompany) return;
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('currentUser') : null;
+    if (!raw) return;
+    try {
+      const current = JSON.parse(raw) as { id?: string };
+      if (current?.id && assignees.some((a) => a.id === current.id)) {
+        onChange({ ...values, assigneeId: current.id });
+      }
+    } catch {
+      // ignore
+    }
+  }, [assignable.canSelectCompany, assignees, mode, onChange, values]);
+
   useEffect(() => {
     const fetchData = async () => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-      if (!token) {
-        // Use mock data if not authenticated
-        return;
-      }
+      if (!token) return;
 
       try {
         setLoadingEntities(true);
-        
-        // Fetch users allowed for task assignment (hierarchy + self)
-        try {
-          const res = await apiGetTaskAssignableMembers();
-          const members = Array.isArray(res.data) ? res.data : [];
-          const mappedAssignees: TaskAssignee[] = members.map((m) => {
-            const name =
-              [m.firstName, m.lastName].filter(Boolean).join(' ').trim() ||
-              m.name ||
-              m.email ||
-              'Unknown';
-            return {
-              id: m.id,
-              name,
-              avatar: undefined,
-              role: m.role?.roleName,
-            };
-          });
-          if (mappedAssignees.length > 0) {
-            setAssignees(mappedAssignees);
-          }
-          if (mode === 'create' && !values.assigneeId && !values.crossDepartmentRequest) {
-            const raw = typeof window !== 'undefined' ? localStorage.getItem('currentUser') : null;
-            if (raw) {
-              try {
-                const current = JSON.parse(raw) as { id?: string };
-                if (current?.id && mappedAssignees.some((a) => a.id === current.id)) {
-                  onChange({ ...values, assigneeId: current.id });
-                }
-              } catch {
-                // ignore
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Failed to fetch task assignees:', err);
-        }
 
-        // Fetch candidates
         try {
           const candidatesResponse = await apiGetCandidates({ limit: 100 });
           const candidatesList = Array.isArray(candidatesResponse.data)
@@ -165,7 +151,6 @@ export function TaskForm({
           console.error('Failed to fetch candidates:', err);
         }
 
-        // Fetch jobs
         try {
           const jobsResponse = await apiGetJobs({ limit: 100 });
           const jobsList = Array.isArray(jobsResponse.data)
@@ -181,7 +166,6 @@ export function TaskForm({
           console.error('Failed to fetch jobs:', err);
         }
 
-        // Fetch clients
         try {
           const clientsResponse = await apiGetClients({ limit: 100 });
           const clientsList = Array.isArray(clientsResponse.data)
@@ -197,7 +181,6 @@ export function TaskForm({
           console.error('Failed to fetch clients:', err);
         }
 
-        // Fetch interviews
         try {
           const interviewsResponse = await apiGetInterviews({ limit: 100 });
           const interviewsList = Array.isArray(interviewsResponse.data)
@@ -223,7 +206,7 @@ export function TaskForm({
       }
     };
 
-    fetchData();
+    void fetchData();
   }, []);
 
   const initial = useMemo(() => initialValues ?? { ...DEFAULT_FORM_VALUES }, [initialValues]);
@@ -421,7 +404,11 @@ export function TaskForm({
           noPermission={assignNoPermission}
           placeholder="Search or select user"
           required
-          searchLoading={loadingEntities}
+          searchLoading={assignable.loading || loadingEntities}
+          canSelectCompany={assignable.canSelectCompany}
+          companies={assignable.companies}
+          companyId={assignable.companyId}
+          onCompanyChange={assignable.setCompanyId}
         />
         ) : null}
 

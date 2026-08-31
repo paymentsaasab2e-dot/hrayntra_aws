@@ -170,4 +170,13 @@ export const teamMemberController = {
       sendError(res, 400, error.message, error);
     }
   },
+
+  async impersonate(req, res) {
+    try {
+      const data = await teamMemberService.impersonateMember(req.params.id, req.user);
+      sendResponse(res, 200, 'Opened team member account', data);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
 };

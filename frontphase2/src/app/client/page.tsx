@@ -36,6 +36,7 @@ import {
 } from '../../hooks/usePersistedColumnVisibility';
 import { CLIENT_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { ClientHandoffModal } from '../../components/team/ClientHandoffModal';
+import { SendToRecruitmentModal } from '../../components/clients/SendToRecruitmentModal';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
@@ -68,10 +69,12 @@ import {
   apiUpdateClient,
   apiGetClientLeadStatusCatalog,
   apiGetClientAssignableMembers,
+  apiSendClientToRecruitment,
   type BackendClient,
   type BackendUser,
   type UpdateClientData,
 } from '../../lib/api';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useCanHandoffClient } from '../../hooks/useCanHandoffClient';
@@ -289,6 +292,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     phones: Array.isArray(backendClient.phones) && backendClient.phones.length > 0 ? backendClient.phones : undefined,
     leadStatusValue: backendClient.leadStatus || undefined,
     otherDetails: Array.isArray(backendClient.otherDetails) ? backendClient.otherDetails : undefined,
+    recruitmentEnabled: backendClient.recruitmentEnabled === true,
     avgTimeToFill: backendClient.avgTimeToFill || undefined,
     healthStatus: backendClient.healthStatus as Client['healthStatus'] || undefined,
     billingTotalRevenue: backendClient.billingTotalRevenue || undefined,
@@ -342,6 +346,9 @@ export default function App() {
   const { hasAnyPermission, hasPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
   const canUpdateClient = hasAnyPermission(['clients_update']);
+  const isRecruitmentScope = searchParams.get('scope') === 'recruitment';
+  const canSendToRecruitment =
+    canUpdateClient || canCreateJob;
   const canHandoffFromServer = useCanHandoffClient();
   const canHandoffClient =
     canHandoffFromServer || hasPermission('clients_handoff');
@@ -372,6 +379,8 @@ export default function App() {
   const clientAiGate = useAiCoinGate('ai.client_chat');
   const [showCreateJobDrawer, setShowCreateJobDrawer] = useState(false);
   const [clientIdForJob, setClientIdForJob] = useState<string | null>(null);
+  const [sendingToRecruitmentIds, setSendingToRecruitmentIds] = useState<string[]>([]);
+  const [recruitmentForwardClient, setRecruitmentForwardClient] = useState<Client | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
   const [showImportDrawer, setShowImportDrawer] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
@@ -566,7 +575,7 @@ export default function App() {
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         if (!token) return;
-        const response = await apiGetClientAssignableMembers();
+        const response = await apiGetClientAssignableMembers(getActiveOrgUnitId() || undefined);
         const members = Array.isArray(response.data) ? response.data : [];
         setTeamMembers(
           members.map((member) => ({
@@ -647,6 +656,7 @@ export default function App() {
           matchingClientIds: smartSearchClientIds,
           includeContacts: false,
           includeLeadFields: false,
+          recruitmentEnabled: isRecruitmentScope || undefined,
         }),
       );
 
@@ -678,7 +688,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearchQuery, smartSearchClientIds]);
+  }, [debouncedSearchQuery, smartSearchClientIds, isRecruitmentScope]);
 
   useEffect(() => {
     fetchClients();
@@ -741,6 +751,43 @@ export default function App() {
   const handleRefresh = useCallback(async () => {
     await fetchClients();
   }, [fetchClients]);
+
+  const ensureClientInRecruitment = useCallback(
+    async (client: Client) => {
+      if (client.recruitmentEnabled) return true;
+      try {
+        setSendingToRecruitmentIds((ids) => (ids.includes(client.id) ? ids : [...ids, client.id]));
+        await apiSendClientToRecruitment(client.id);
+        patchClientInList(client.id, { recruitmentEnabled: true });
+        return true;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Could not send this client to Recruitment.';
+        toast.error(message);
+        return false;
+      } finally {
+        setSendingToRecruitmentIds((ids) => ids.filter((id) => id !== client.id));
+      }
+    },
+    [patchClientInList],
+  );
+
+  const handleSendToRecruitment = useCallback((client: Client) => {
+    setRecruitmentForwardClient(client);
+  }, []);
+
+  const handleCreateJobForClient = useCallback(
+    async (client: Client) => {
+      if (!canCreateJob) {
+        toast.error("You don't have permission to create jobs.");
+        return;
+      }
+      const ok = await ensureClientInRecruitment(client);
+      if (!ok) return;
+      setClientIdForJob(client.id);
+      setShowCreateJobDrawer(true);
+    },
+    [canCreateJob, ensureClientInRecruitment],
+  );
 
   const handleDeleteClient = async (id: string) => {
     const client = clients.find(c => c.id === id);
@@ -880,6 +927,7 @@ export default function App() {
           limit,
           includeContacts: false,
           includeLeadFields: false,
+          recruitmentEnabled: isRecruitmentScope || undefined,
         });
         const backendClients = response.data ? extractBackendClients(response.data) : [];
         const mappedClients = (Array.isArray(backendClients) ? backendClients : []).map(mapBackendClientToFrontend);
@@ -901,7 +949,7 @@ export default function App() {
     });
 
     return applyExportClientFilters(all);
-  }, [applyExportClientFilters, debouncedSearchQuery]);
+  }, [applyExportClientFilters, debouncedSearchQuery, isRecruitmentScope]);
 
   const openExportModal = async () => {
     setExportClientsLoading(true);
@@ -1072,11 +1120,26 @@ export default function App() {
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
-              <Building2 className="h-5 w-5" strokeWidth={2.2} />
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-lg ring-1 ring-white/20 ${
+              isRecruitmentScope
+                ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 shadow-amber-500/30'
+                : 'bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 shadow-indigo-500/30'
+            }`}>
+              {isRecruitmentScope ? (
+                <Briefcase className="h-5 w-5" strokeWidth={2.2} />
+              ) : (
+                <Building2 className="h-5 w-5" strokeWidth={2.2} />
+              )}
             </div>
             <div>
-              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-none">Clients</h1>
+              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-none">
+                {isRecruitmentScope ? 'Recruitment Clients' : 'Clients'}
+              </h1>
+              {isRecruitmentScope ? (
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  Clients sent from CRM. Jobs are created under these accounts.
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1362,6 +1425,15 @@ export default function App() {
                     onDeleteClient={handleDeleteClient}
                     onLogoUpdated={handleRefresh}
                     canCreateJob={canCreateJob}
+                    canSendToRecruitment={canSendToRecruitment && !isRecruitmentScope}
+                    sendingToRecruitmentIds={sendingToRecruitmentIds}
+                    onSendToRecruitment={
+                      canSendToRecruitment && !isRecruitmentScope
+                        ? (client) => {
+                            void handleSendToRecruitment(client);
+                          }
+                        : undefined
+                    }
                     clientStatusOptions={clientStatusOptions}
                     canUpdateClientStatus={canUpdateClient && clientFieldVisibility.status}
                     showStatusColumn={clientFieldVisibility.status}
@@ -1370,12 +1442,7 @@ export default function App() {
                       void handleInlineClientStatusChange(clientId, newStatus);
                     }}
                     onCreateJob={(client) => {
-                      if (!canCreateJob) {
-                        toast.error("You don't have permission to create jobs.");
-                        return;
-                      }
-                      setClientIdForJob(client.id);
-                      setShowCreateJobDrawer(true);
+                      void handleCreateJobForClient(client);
                     }}
                     onHandoffClient={
                       canHandoffClient
@@ -1418,6 +1485,19 @@ export default function App() {
           )}
         </div>
 
+        <SendToRecruitmentModal
+          isOpen={Boolean(recruitmentForwardClient)}
+          clientId={recruitmentForwardClient?.id ?? null}
+          clientName={recruitmentForwardClient?.name ?? 'Client'}
+          onClose={() => setRecruitmentForwardClient(null)}
+          onSent={() => {
+            if (recruitmentForwardClient?.id) {
+              patchClientInList(recruitmentForwardClient.id, { recruitmentEnabled: true });
+            }
+            void fetchClients();
+          }}
+        />
+
         <ClientHandoffModal
           isOpen={Boolean(handoffClient)}
           clientId={handoffClient?.id ?? null}
@@ -1436,6 +1516,17 @@ export default function App() {
           isAddMode={showAddClientDrawer}
           initialOpenAiChat={addClientWithAi}
           initialMode={selectedClientDrawerMode}
+          defaultRecruitmentEnabled={isRecruitmentScope}
+          onSendToRecruitment={
+            canSendToRecruitment && !isRecruitmentScope
+              ? (client) => {
+                  void handleSendToRecruitment(client);
+                }
+              : undefined
+          }
+          sendingToRecruitment={
+            selectedClient ? sendingToRecruitmentIds.includes(selectedClient.id) : false
+          }
           onClose={() => {
             setSelectedClientId(null);
             setSelectedClientDrawerMode('view');

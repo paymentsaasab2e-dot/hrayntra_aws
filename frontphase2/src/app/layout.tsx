@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import ActiveSessionManager from "../components/session/ActiveSessionManager";
+import { TenantImpersonationBanner } from "../components/team/TenantImpersonationBanner";
 import { FloatingBotMount } from "../components/FloatingBotMount";
 import { GlobalAlertHost } from "../components/GlobalAlertHost";
 import { PageTitleSync } from "../components/PageTitleSync";
@@ -29,6 +30,7 @@ export default function RootLayout({
     <html lang="en-GB" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <TenantCoinsProvider>
+          <TenantImpersonationBanner />
           {children}
           <PageTitleSync />
           <UserPermissionsSync />

@@ -23,6 +23,7 @@ import {
   type BackendJob,
   type BackendUser,
 } from '../lib/api';
+import { getActiveOrgUnitId } from '../lib/org/orgWorkspaceStorage';
 import { formatDateDMY, formatDateTimeDMY } from '../utils/dateDisplay';
 import { MY_JOBS_LIST_PARAMS } from '../lib/myJobsListParams';
 import {
@@ -437,7 +438,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     const settled = await Promise.allSettled([
       apiGetCandidates({ limit: 100 }),
       apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
-      apiGetUsers({ assignable: true, isActive: true, limit: 100 }),
+      apiGetUsers({ assignable: true, isActive: true, limit: 100, companyId: getActiveOrgUnitId() || undefined }),
       apiGetInterviews({ limit: 500 }),
     ]);
 

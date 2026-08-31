@@ -130,7 +130,7 @@ import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/docum
 import { filterKycFiles, uploadKycDocuments } from '../../lib/kycDocuments';
 import { useFiles } from '../../hooks/useFiles';
 import { apiGetLeadAssignableMembers } from '../../lib/api';
-import { getTeamMembers } from '../../lib/api/teamApi';
+import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
@@ -1405,8 +1405,13 @@ export function LeadDetailsDrawer({
           return;
         }
 
-        // Tenant Assigned To = same members as Team → Members (never HQ platform users).
-        const teamRes = await getTeamMembers({ status: 'ACTIVE', limit: 100 });
+        // Tenant Assigned To = all members Super Admin / HQ may assign, including
+        // people in other companies created under Organization.
+        const teamMembers = await getAllTeamMembersForAssign();
+        const companyNames = new Set(
+          (teamMembers || []).map((member) => member.orgUnit?.name).filter(Boolean),
+        );
+        const showCompany = companyNames.size > 1;
         let members: Array<{
           id: string;
           firstName?: string;
@@ -1415,26 +1420,32 @@ export function LeadDetailsDrawer({
           email?: string;
           role?: { id?: string; roleName?: string; color?: string };
           department?: { id?: string; name?: string };
-        }> = (teamRes.data || []).map((member) => ({
-          id: member.id,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          name:
-            `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
-            (member as TeamMember & { name?: string }).name ||
-            member.email,
-          email: member.email,
-          role: member.role
-            ? {
-                id: member.role.id,
-                roleName: member.role.roleName,
-                color: member.role.color,
-              }
-            : undefined,
-          department: member.department
-            ? { id: member.department.id, name: member.department.name }
-            : undefined,
-        }));
+        }> = (teamMembers || [])
+          .filter((member) => String(member.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
+          .map((member) => {
+            const baseName =
+              `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
+              (member as TeamMember & { name?: string }).name ||
+              member.email;
+            const company = showCompany && member.orgUnit?.name ? ` · ${member.orgUnit.name}` : '';
+            return {
+              id: member.id,
+              firstName: member.firstName,
+              lastName: member.lastName,
+              name: `${baseName}${company}`,
+              email: member.email,
+              role: member.role
+                ? {
+                    id: member.role.id,
+                    roleName: member.role.roleName,
+                    color: member.role.color,
+                  }
+                : undefined,
+              department: member.department
+                ? { id: member.department.id, name: member.department.name }
+                : undefined,
+            };
+          });
 
         // Secondary: assignable-members API (now tenant-scoped on backend).
         if (members.length === 0) {
@@ -4430,7 +4441,6 @@ export function LeadDetailsDrawer({
                     accent="violet"
                   >
                     <div className="space-y-4">
-                      <div className="rounded-xl border border-violet-100/80 bg-violet-50/30 p-3">
                         <DirectorContactFields
                           directorSalutation={addLeadForm.directorSalutation}
                           contactPerson={addLeadForm.contactPerson}
@@ -4501,8 +4511,6 @@ export function LeadDetailsDrawer({
                             }));
                           }}
                         />
-                      </div>
-                      <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3">
                         <TeamMemberOptionalFields
                           requireTeamName={false}
                           countryCode={addLeadForm.countryCode}
@@ -4512,7 +4520,6 @@ export function LeadDetailsDrawer({
                             setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
                           }
                         />
-                      </div>
                     </div>
                   </AddLeadSectionCard>
                   ) : null}
@@ -5526,7 +5533,6 @@ export function LeadDetailsDrawer({
                             accent="violet"
                           >
                             <div className="space-y-4">
-                            <div className="rounded-xl border border-violet-100/80 bg-violet-50/30 p-3">
                               <DirectorContactFields
                                 directorSalutation={overviewEditForm.directorSalutation}
                                 contactPerson={overviewEditForm.contactPerson}
@@ -5590,8 +5596,6 @@ export function LeadDetailsDrawer({
                                 emailError={overviewEditErrors.email}
                                 phoneError={overviewEditErrors.phone}
                               />
-                            </div>
-                            <div className="rounded-xl border border-violet-100/80 bg-violet-50/20 p-3">
                               <TeamMemberOptionalFields
                                 requireTeamName={false}
                                 countryCode={overviewEditForm.countryCode}
@@ -5601,7 +5605,6 @@ export function LeadDetailsDrawer({
                                   setOverviewEditForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
                                 }
                               />
-                            </div>
                             </div>
                           </AddLeadSectionCard>
 

@@ -8084,14 +8084,17 @@ export type CrmAssignableMember = {
   email?: string;
   role?: { id?: string; roleName?: string; color?: string };
   department?: { id?: string; name?: string };
+  orgUnit?: { id?: string; name?: string; kind?: string } | null;
 };
 
-export const apiGetLeadAssignableMembers = async () => {
-  return apiFetch<CrmAssignableMember[]>(`/leads/assignable-members`, { auth: true });
+export const apiGetLeadAssignableMembers = async (companyId?: string) => {
+  const query = companyId ? `?companyId=${encodeURIComponent(companyId)}` : '';
+  return apiFetch<CrmAssignableMember[]>(`/leads/assignable-members${query}`, { auth: true });
 };
 
-export const apiGetClientAssignableMembers = async () => {
-  return apiFetch<CrmAssignableMember[]>(`/clients/assignable-members`, { auth: true });
+export const apiGetClientAssignableMembers = async (companyId?: string) => {
+  const query = companyId ? `?companyId=${encodeURIComponent(companyId)}` : '';
+  return apiFetch<CrmAssignableMember[]>(`/clients/assignable-members${query}`, { auth: true });
 };
 
 export interface ConvertLeadToClientData {
@@ -8205,6 +8208,10 @@ export interface BackendClient {
   billingTotalRevenue?: string | null;
   billingOutstanding?: string | null;
   billingPaid?: string | null;
+  /** When true, this client appears in Recruitment Clients and Add Job. */
+  recruitmentEnabled?: boolean | null;
+  recruitmentEnabledAt?: string | null;
+  recruitmentEnabledBy?: string | null;
   contacts?: Array<{
     id: string;
     firstName?: string | null;
@@ -8235,6 +8242,7 @@ export const apiGetClients = async (params: {
   ids?: string;
   includeContacts?: boolean;
   includeLeadFields?: boolean;
+  recruitmentEnabled?: boolean;
 } = {}) => {
   const query = new URLSearchParams();
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -8249,6 +8257,37 @@ export const apiGetClients = async (params: {
 
 export const apiGetClient = async (id: string) => {
   return apiFetch<BackendClient>(`/clients/${id}`, { auth: true });
+};
+
+export const apiSendClientToRecruitment = async (id: string, memberIds?: string[]) => {
+  return apiFetch<BackendClient>(`/clients/${id}/send-to-recruitment`, {
+    method: 'POST',
+    body: { memberIds: Array.isArray(memberIds) ? memberIds : [] },
+    auth: true,
+  });
+};
+
+export type RecruitmentForwardMember = {
+  id: string;
+  name: string;
+  email?: string;
+  isSelf?: boolean;
+};
+
+export type RecruitmentForwardOrganization = {
+  id: string;
+  name: string;
+  members: RecruitmentForwardMember[];
+};
+
+export type RecruitmentForwardTargets = {
+  companyName?: string;
+  hasCompanies?: boolean;
+  organizations?: RecruitmentForwardOrganization[];
+};
+
+export const apiGetRecruitmentForwardTargets = async () => {
+  return apiFetch<RecruitmentForwardTargets>('/clients/recruitment-forward-targets', { auth: true });
 };
 
 export interface ClientMetrics {
@@ -9031,6 +9070,7 @@ export interface CreateClientData {
   agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
   postServiceKycForm?: PostServiceKycFormValues | null;
   otherDetails?: Array<{ label: string; value: string }>;
+  recruitmentEnabled?: boolean;
 }
 
 export interface UpdateClientData {
@@ -9083,6 +9123,7 @@ export interface UpdateClientData {
   agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
   postServiceKycForm?: PostServiceKycFormValues | null;
   otherDetails?: Array<{ label: string; value: string }>;
+  recruitmentEnabled?: boolean;
 }
 
 export const apiCreateClient = async (data: CreateClientData) => {
@@ -9105,6 +9146,8 @@ export const apiGetUsers = async (params?: {
   limit?: number;
   /** When true, returns only this tenant’s assignable team (excludes HQ / platform accounts). */
   assignable?: boolean;
+  companyId?: string;
+  orgUnitId?: string;
 }) => {
   const queryParams = new URLSearchParams();
   if (params?.role) queryParams.append('role', params.role);
@@ -9113,6 +9156,8 @@ export const apiGetUsers = async (params?: {
   if (params?.page) queryParams.append('page', String(params.page));
   if (params?.limit) queryParams.append('limit', String(params.limit));
   if (params?.assignable) queryParams.append('assignable', 'true');
+  if (params?.companyId) queryParams.append('companyId', params.companyId);
+  if (params?.orgUnitId) queryParams.append('orgUnitId', params.orgUnitId);
 
   const path = `/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
   return apiFetch<BackendUser[] | { data: BackendUser[]; pagination?: any }>(path, {
@@ -9360,10 +9405,12 @@ export type TaskAssignableMember = {
   email?: string;
   role?: { id?: string; roleName?: string; color?: string };
   department?: { id?: string; name?: string };
+  orgUnit?: { id?: string; name?: string; kind?: string } | null;
 };
 
-export const apiGetTaskAssignableMembers = async () => {
-  return apiFetch<TaskAssignableMember[]>('/tasks/assignable-members', { auth: true });
+export const apiGetTaskAssignableMembers = async (companyId?: string) => {
+  const query = companyId ? `?companyId=${encodeURIComponent(companyId)}` : '';
+  return apiFetch<TaskAssignableMember[]>(`/tasks/assignable-members${query}`, { auth: true });
 };
 
 export const apiCreateTask = async (data: CreateTaskData) => {

@@ -3,19 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Plus, Search, X } from 'lucide-react';
 import { JobPublicVisibilityDefaultsPanel } from '../jobs/JobPublicVisibilityDefaultsPanel';
-import {
-  isJobFieldPubliclyVisible,
-  mergeClientVisibility,
-  parseJobPublicFieldVisibility,
-  toggleJobPublicFieldVisibility,
-  type JobPublicFieldVisibility,
-  type JobPublicVisibilityField,
-} from '../../lib/jobPublicFieldVisibility';
+import type { JobPublicFieldVisibility } from '../../lib/jobPublicFieldVisibility';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/LanguageProficiencySuggestInput';
 import { JobLocationFields } from '../location/JobLocationFields';
 import { EditDateField } from '../candidates/EditDateField';
 import { isOwnCompanyWorkspaceClient, type BackendClient, type BackendUser } from '../../lib/api';
+import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import {
   listCustomJobSalaryCurrencies,
   mergeJobSalaryCurrencyOptions,
@@ -86,6 +81,10 @@ interface CreateJobDetailsFormProps {
   /** Standalone tenants use an internal workspace company — hide client picker. */
   hideCompanyField?: boolean;
   standaloneWorkspaceName?: string;
+  /** Overlay for own-company / workspace name: org unit when companies exist, else tenant company. */
+  ownCompanyDisplayName?: string;
+  /** Standalone banner heading — Organization vs Company. */
+  workspaceOwnerHeading?: string;
   /** Standalone / request flow: job is owned by a Line Manager. */
   useLineManagerPicker?: boolean;
   lineManagerOptions?: BackendUser[];
@@ -247,19 +246,26 @@ export function CreateJobDetailsForm({
   onRemoveSkill,
   hideCompanyField = false,
   standaloneWorkspaceName,
+  ownCompanyDisplayName,
+  workspaceOwnerHeading,
   useLineManagerPicker = false,
   lineManagerOptions = [],
   loadingLineManagers = false,
 }: CreateJobDetailsFormProps) {
-  const managerOptions = useLineManagerPicker ? lineManagerOptions : users;
+  const assignable = useAssignableMembers(true);
+  const recruiterUsers = assignable.canSelectCompany || assignable.users.length ? assignable.users : users;
+  const loadingRecruiters = assignable.canSelectCompany ? assignable.loading : loadingUsers;
+  const managerOptions = useLineManagerPicker ? lineManagerOptions : recruiterUsers;
   const loadingManagerOptions = useLineManagerPicker ? loadingLineManagers : loadingUsers;
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
+  const ownCompanyName = (client: BackendClient) =>
+    ownCompanyDisplayName || client.companyName || 'Your organization';
   const companyValueLabel = selectedCompany
     ? isOwnCompanyWorkspaceClient(selectedCompany)
-      ? `Own company · ${selectedCompany.companyName}`
+      ? `Own company · ${ownCompanyName(selectedCompany)}`
       : selectedCompany.companyName
     : undefined;
-  const selectedRecruiter = users.find((u) => u.id === formData.assignedToId);
+  const selectedRecruiter = recruiterUsers.find((u) => u.id === formData.assignedToId);
   const selectedManager = managerOptions.find((u) => u.id === formData.managerId);
   const selectedContact =
     contacts.find((c) => c.id === formData.contactPersonId) ||
@@ -312,7 +318,9 @@ export function CreateJobDetailsForm({
       const industry = client.industry?.toLowerCase() || '';
       const location = client.location?.toLowerCase() || '';
       const website = client.website?.toLowerCase() || '';
-      const ownLabel = isOwnCompanyWorkspaceClient(client) ? 'own company' : '';
+      const ownLabel = isOwnCompanyWorkspaceClient(client)
+        ? `own company ${ownCompanyDisplayName || ''}`.toLowerCase()
+        : '';
       return (
         name.includes(query) ||
         industry.includes(query) ||
@@ -321,7 +329,7 @@ export function CreateJobDetailsForm({
         ownLabel.includes(query)
       );
     });
-  }, [clients, clientSearch]);
+  }, [clients, clientSearch, ownCompanyDisplayName]);
 
   const currencyOptions = useMemo(
     () => mergeJobSalaryCurrencyOptions(customCurrencies),
@@ -364,36 +372,6 @@ export function CreateJobDetailsForm({
     return true;
   };
 
-  const visibility = parseJobPublicFieldVisibility(formData.publicFieldVisibility);
-
-  const isFieldVisible = (field: JobPublicVisibilityField) =>
-    isJobFieldPubliclyVisible(
-      visibility,
-      field,
-      field === 'client' ? formData.showClientNamePublicly : undefined,
-    );
-
-  const toggleFieldVisibility = (field: JobPublicVisibilityField) => {
-    if (field === 'client') {
-      const nextShow = !formData.showClientNamePublicly;
-      patchForm({
-        showClientNamePublicly: nextShow,
-        publicFieldVisibility: mergeClientVisibility(visibility, nextShow),
-      });
-      return;
-    }
-    patchForm({
-      publicFieldVisibility: toggleJobPublicFieldVisibility(visibility, field),
-    });
-  };
-
-  const visibilityAction = (field: JobPublicVisibilityField) => (
-    <PublicVisibilityToggle
-      visible={isFieldVisible(field)}
-      onToggle={() => toggleFieldVisibility(field)}
-    />
-  );
-
   const addLanguageRow = () => {
     setFormData({
       languages: [...formData.languages, { language: '', proficiency: 'Conversational' }],
@@ -421,7 +399,7 @@ export function CreateJobDetailsForm({
       />
 
       <div>
-        <FieldLabelRow label="Nationality" labelAction={visibilityAction('nationality')} />
+        <FieldLabelRow label="Nationality" />
         <input
           type="text"
           value={formData.nationality}
@@ -432,7 +410,7 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <FieldLabelRow label="Job Title" required labelAction={visibilityAction('jobTitle')} />
+        <FieldLabelRow label="Job Title" required />
         <input
           type="text"
           value={formData.jobTitle}
@@ -443,7 +421,7 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <FieldLabelRow label="Priority (optional)" labelAction={visibilityAction('priority')} />
+        <FieldLabelRow label="Priority (optional)" />
         <select
           value={formData.priority}
           onChange={(e) => patchForm({ priority: e.target.value })}
@@ -460,10 +438,13 @@ export function CreateJobDetailsForm({
       {hideCompanyField ? (
         <div className="rounded-xl border border-indigo-100/80 bg-indigo-50/40 px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700/70">
-            Organization
+            {workspaceOwnerHeading || 'Company'}
           </p>
           <p className="mt-1 text-sm font-medium text-slate-800">
-            {standaloneWorkspaceName || selectedCompany?.companyName || 'Your organization'}
+            {standaloneWorkspaceName ||
+              ownCompanyDisplayName ||
+              selectedCompany?.companyName ||
+              'Your organization'}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             Jobs under your own company are visible to all team members in this tenant.
@@ -482,7 +463,6 @@ export function CreateJobDetailsForm({
           searchQuery={clientSearch}
           onSearchQueryChange={setClientSearch}
           searchPlaceholder="Search companies…"
-          labelAction={visibilityAction('client')}
         >
           {loadingClients ? (
             <li className="px-4 py-2 text-sm text-slate-500">Loading…</li>
@@ -509,7 +489,7 @@ export function CreateJobDetailsForm({
                   }`}
                 >
                   {isOwnCompanyWorkspaceClient(client)
-                    ? `Own company · ${client.companyName}`
+                    ? `Own company · ${ownCompanyName(client)}`
                     : client.companyName}
                 </button>
               </li>
@@ -557,7 +537,6 @@ export function CreateJobDetailsForm({
       {!hideCompanyField ? (
       <DropdownField
         label="Contact Person (optional)"
-        labelAction={visibilityAction('contactPerson')}
         placeholder={formData.companyId ? 'Select contact' : 'Select a client first'}
         valueLabel={selectedContact?.name || formData.contactPersonName || undefined}
         openKey="contact"
@@ -615,7 +594,7 @@ export function CreateJobDetailsForm({
       ) : null}
 
       <div>
-        <FieldLabelRow label="No of Positions" required labelAction={visibilityAction('openings')} />
+        <FieldLabelRow label="No of Positions" required />
         <input
           type="number"
           min={1}
@@ -628,7 +607,6 @@ export function CreateJobDetailsForm({
       <div>
         <FieldLabelRow
           label="Location (Country / State / City)"
-          labelAction={visibilityAction('location')}
         />
         <JobLocationFields
           country={formData.country}
@@ -641,7 +619,7 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <FieldLabelRow label="Industry Type (optional)" labelAction={visibilityAction('industryType')} />
+        <FieldLabelRow label="Industry Type (optional)" />
         <IndustryMultiSelect
           value={formData.industryType}
           onChange={(industryType) => patchForm({ industryType })}
@@ -653,7 +631,6 @@ export function CreateJobDetailsForm({
       <div>
         <FieldLabelRow
           label="Employment Type (optional)"
-          labelAction={visibilityAction('employmentType')}
         />
         <select
           value={formData.employmentType}
@@ -673,7 +650,6 @@ export function CreateJobDetailsForm({
         <FieldLabelRow
           label="Target Hire Date"
           required
-          labelAction={visibilityAction('targetHireDate')}
         />
         <EditDateField
           label="Target Hire Date"
@@ -688,7 +664,6 @@ export function CreateJobDetailsForm({
       <div>
         <FieldLabelRow
           label="Years of Experience (optional)"
-          labelAction={visibilityAction('experience')}
         />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
@@ -717,7 +692,7 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <FieldLabelRow label="Salary range (optional)" labelAction={visibilityAction('salary')} />
+        <FieldLabelRow label="Salary range (optional)" />
         <div className="flex max-w-2xl flex-wrap items-center gap-3">
           <div className="relative">
             <button
@@ -890,15 +865,14 @@ export function CreateJobDetailsForm({
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <label className={labelClass}>Language & Proficiency</label>
           <div className="flex flex-wrap items-center gap-2">
-            {visibilityAction('languages')}
-          <button
-            type="button"
-            onClick={addLanguageRow}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-[#28A8E1] hover:text-[#1f8fc4]"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add language
-          </button>
+            <button
+              type="button"
+              onClick={addLanguageRow}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#28A8E1] hover:text-[#1f8fc4]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add language
+            </button>
           </div>
         </div>
         {formData.languages.length === 0 ? (
@@ -939,7 +913,6 @@ export function CreateJobDetailsForm({
         value={formData.keyResponsibilitiesText}
         onChange={(value) => patchForm({ keyResponsibilitiesText: value })}
         placeholder={'e.g. Design and develop features\nCollaborate with cross-functional teams'}
-        labelAction={visibilityAction('keyResponsibilities')}
       />
 
       <ListTextareaField
@@ -947,7 +920,6 @@ export function CreateJobDetailsForm({
         value={formData.qualificationsExperienceText}
         onChange={(value) => patchForm({ qualificationsExperienceText: value })}
         placeholder={'e.g. B.Tech in Computer Science\n3+ years in React development'}
-        labelAction={visibilityAction('qualifications')}
       />
 
       <ListTextareaField
@@ -955,7 +927,6 @@ export function CreateJobDetailsForm({
         value={formData.candidateRequirementsText}
         onChange={(value) => patchForm({ candidateRequirementsText: value })}
         placeholder={'e.g. Must be available to join within 30 days\nValid work authorization required'}
-        labelAction={visibilityAction('candidateRequirements')}
       />
 
       <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
@@ -1037,7 +1008,7 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <FieldLabelRow label="Skills" labelAction={visibilityAction('skills')} />
+        <FieldLabelRow label="Skills" />
         <div className="flex gap-2">
           <input
             type="text"
@@ -1125,7 +1096,7 @@ export function CreateJobDetailsForm({
       ) : null}
 
       <div>
-        <FieldLabelRow label="About Company" labelAction={visibilityAction('aboutCompany')} />
+        <FieldLabelRow label="About Company" />
         <textarea
           value={formData.aboutCompany || ''}
           onChange={(e) => patchForm({ aboutCompany: e.target.value })}
@@ -1135,15 +1106,25 @@ export function CreateJobDetailsForm({
         />
         <p className="mt-1 text-xs text-slate-500">
           Shown as <span className="font-medium">About the company</span> on the public job page when
-          Visible to public.
+          About Company is visible under Public Visibility.
         </p>
       </div>
 
       <div>
         <FieldLabelRow
           label="Assign team member"
-          labelAction={visibilityAction('recruiterProfile')}
         />
+        {assignable.canSelectCompany ? (
+          <AssignCompanySelect
+            companies={assignable.companies}
+            value={assignable.companyId}
+            onChange={(id) => {
+              assignable.setCompanyId(id);
+              patchForm({ assignedToId: '' });
+            }}
+            className="mb-2"
+          />
+        ) : null}
         <div className="relative">
           <button
             type="button"
@@ -1160,8 +1141,10 @@ export function CreateJobDetailsForm({
                 onClick={() => setDropdownsOpen((prev) => ({ ...prev, recruiter: false }))}
               />
               <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-52 overflow-y-auto">
-                {loadingUsers ? (
+                {loadingRecruiters ? (
                   <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
+                ) : assignable.canSelectCompany && !assignable.companyId ? (
+                  <li className="px-4 py-2 text-sm text-slate-500">Select a company to see members</li>
                 ) : (
                   <>
                     <li>
@@ -1176,7 +1159,7 @@ export function CreateJobDetailsForm({
                         Unassigned
                       </button>
                     </li>
-                    {users.map((user) => (
+                    {recruiterUsers.map((user) => (
                       <li key={user.id}>
                         <button
                           type="button"

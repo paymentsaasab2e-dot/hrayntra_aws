@@ -20,6 +20,7 @@ import {
   apiUndoPlacement,
 } from '../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../lib/api/teamApi';
+import { getActiveOrgUnitId } from '../lib/org/orgWorkspaceStorage';
 import { PLACEMENT_FORM_JOBS_PARAMS } from '../lib/myJobsListParams';
 import type {
   CreatePlacementPayload,
@@ -115,7 +116,7 @@ export function usePlacements(filters: PlacementFilters) {
         apiGetCandidates({ page: 1, limit: 500 }),
         apiGetJobs(PLACEMENT_FORM_JOBS_PARAMS),
         apiGetClients({ page: 1, limit: 500 }),
-        getAllTeamMembersForAssign(),
+        getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined),
       ]);
 
       const candidates = unwrapCollection(candidatesRes.data as any);

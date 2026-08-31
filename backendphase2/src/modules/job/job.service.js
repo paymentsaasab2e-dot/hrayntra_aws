@@ -164,15 +164,14 @@ function mapStageToMatchStatus(stage) {
   return 'REVIEWED';
 }
 
-const JOB_SALARY_CURRENCY_CODES = new Set(['USD', 'INR', 'EUR', 'GBP', 'AUD', 'CAD', 'SGD', 'AED', 'JPY']);
-
 function normalizeSalaryCurrencyCode(raw) {
   const trimmed = String(raw || '').trim();
   if (!trimmed) return undefined;
   const upper = trimmed.toUpperCase();
-  if (/^[A-Z]{3}$/.test(upper) && JOB_SALARY_CURRENCY_CODES.has(upper)) return upper;
+  // Any ISO-4217 style code wins over label heuristics (XAF, UGX, etc. must stay XAF, not INR).
+  if (/^[A-Z]{3}$/.test(upper)) return upper;
   const lower = trimmed.toLowerCase();
-  if (lower.includes('rupee') || lower.includes('₹') || lower.includes('india')) return 'INR';
+  if (lower.includes('rupee') || lower.includes('₹')) return 'INR';
   if (lower.includes('dollar') || lower.includes('$') || lower.includes('usd')) return 'USD';
   if (lower.includes('euro') || lower.includes('€') || lower.includes('eur')) return 'EUR';
   if (lower.includes('pound') || lower.includes('£') || lower.includes('gbp')) return 'GBP';
@@ -181,7 +180,7 @@ function normalizeSalaryCurrencyCode(raw) {
   if (lower.includes('aud')) return 'AUD';
   if (lower.includes('cad')) return 'CAD';
   if (lower.includes('jpy') || lower.includes('yen')) return 'JPY';
-  return upper.length === 3 ? upper : undefined;
+  return undefined;
 }
 
 function normalizeSalaryData(salary) {

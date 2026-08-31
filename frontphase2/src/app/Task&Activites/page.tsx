@@ -37,6 +37,7 @@ import { TaskSLAAlertBadge, TaskSLAAlertsPanel } from '../../components/TaskSLAA
 import { MOCK_TASK_COMMUNICATIONS, MOCK_CANDIDATE_INTERACTIONS, MOCK_AI_TASK_SUGGESTIONS } from './types';
 import { mapBackendActivityToTaskEvent } from '../../lib/taskActivityMapper';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import type { TaskFormValues, TaskActivityEvent } from './types';
 import {
   apiGetTasks,
@@ -548,7 +549,7 @@ export default function App() {
 
   useEffect(() => {
     setCurrentUserId(readCurrentUserId());
-    void getAllTeamMembersForAssign()
+    void getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined)
       .then((members) => {
         const opts = members.map((m) => ({
           id: m.id,

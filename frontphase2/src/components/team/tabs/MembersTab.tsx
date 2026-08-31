@@ -10,6 +10,7 @@ import {
   Users,
   Building2,
   XCircle,
+  LogIn,
 } from 'lucide-react';
 import { downloadCsv } from '../../../utils/csv';
 import { ExportColumnsModal } from '../../export/ExportColumnsModal';
@@ -31,6 +32,7 @@ import {
   resendInvite,
   lockAccount,
   unlockAccount,
+  impersonateTeamMember,
 } from '../../../lib/api/teamApi';
 import type { TeamMember, Role, Department, UserStatus } from '../../../types/team';
 import { AddMemberDrawer } from '../AddMemberDrawer';
@@ -38,6 +40,8 @@ import { EditMemberDrawer } from '../EditMemberDrawer';
 import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { TeamMemberRowActionsMenu } from '../TeamMemberRowActionsMenu';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { useUser } from '../../../hooks/useUser';
+import { enterTenantImpersonation, getTenantImpersonationMeta } from '../../../lib/sessionAuth';
 import { useWorkspaceEntityAlerts } from '../../../hooks/useWorkspaceEntityAlerts';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../ai/WorkspaceAlertTableCell';
 import { requestConfirm } from '../../../lib/appDialog';
@@ -118,7 +122,8 @@ type MembersTabProps = {
 };
 
 export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) => {
-  const { hasPermission } = usePermissions();
+  const { hasPermission, isSuperAdmin } = usePermissions();
+  const { user } = useUser();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -312,6 +317,48 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
   const handleEdit = (member: TeamMember) => {
     setSelectedMember(member);
     setShowEditDrawer(true);
+  };
+
+  const canOpenMemberAccount = (member: TeamMember) => {
+    if (!isSuperAdmin()) return false;
+    if (getTenantImpersonationMeta()) return false;
+    if (!user?.id || member.id === user.id) return false;
+    if (member.status !== 'ACTIVE') return false;
+    const roleName = String(member.role?.roleName || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+    if (roleName === 'super admin') return false;
+    return true;
+  };
+
+  const handleOpenAccount = async (member: TeamMember) => {
+    const name = `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.email;
+    const confirmed = await requestConfirm(
+      `Open ${name}'s account? They will stay signed in. You can return to your Super Admin account anytime.`,
+      { confirmLabel: 'Open account', cancelLabel: 'Cancel' },
+    );
+    if (!confirmed) return;
+    try {
+      const res = await impersonateTeamMember(member.id);
+      const data = res.data;
+      if (!data?.accessToken) {
+        throw new Error('Could not open this account');
+      }
+      enterTenantImpersonation({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        tenantDbName: data.tenantDbName,
+        user: data.user,
+        permissions: data.permissions,
+        impersonation: {
+          memberId: data.impersonation.memberId,
+          memberName: data.impersonation.memberName,
+          memberEmail: data.impersonation.memberEmail,
+          actorName: data.impersonation.actorName,
+        },
+      });
+      window.location.href = '/dashboard';
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to open account');
+    }
   };
 
   const handleDeactivate = async (member: TeamMember) => {
@@ -756,6 +803,16 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                                 <Edit size={16} strokeWidth={2.25} />
                               </button>
                             ) : null}
+                            {canOpenMemberAccount(member) ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleOpenAccount(member)}
+                                className="flex h-8 w-8 items-center justify-center rounded-xl text-indigo-600 transition-all hover:bg-white hover:text-indigo-800 hover:shadow-sm"
+                                title="Open account"
+                              >
+                                <LogIn size={16} strokeWidth={2.25} />
+                              </button>
+                            ) : null}
                             <TeamMemberRowActionsMenu
                               member={member}
                               open={openActionsMenuMemberId === member.id}
@@ -764,6 +821,8 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                               }
                               canGenerateCredentials={hasPermission('generate_credentials')}
                               canDeactivate={hasPermission('deactivate_team_member')}
+                              canOpenAccount={canOpenMemberAccount(member)}
+                              onOpenAccount={(m) => void handleOpenAccount(m)}
                               onGenerateCredentials={handleGenerateCredentials}
                               onResetPassword={handleResetPassword}
                               onResendInvite={handleResendInvite}

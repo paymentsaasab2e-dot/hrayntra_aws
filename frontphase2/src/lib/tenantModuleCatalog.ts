@@ -40,7 +40,7 @@ export type TenantModuleDef = {
 /** Full catalog HQ can enable / disable for any tenant (including after create). */
 export const ALL_TENANT_MODULES: TenantModuleDef[] = [
   { id: 'leads', label: 'Leads', icon: Target, lines: ['crm'] },
-  { id: 'clients', label: 'Clients', icon: Users, lines: ['crm'] },
+  { id: 'clients', label: 'Clients', icon: Users, lines: ['crm', 'recruitment'] },
   { id: 'crm_dashboard', label: 'CRM Dashboard', icon: LayoutDashboard, lines: ['crm'] },
   { id: 'jobs', label: 'Jobs', icon: Briefcase, lines: ['recruitment'] },
   { id: 'candidates', label: 'Candidates', icon: UserRound, lines: ['recruitment'] },

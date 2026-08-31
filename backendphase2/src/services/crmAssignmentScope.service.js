@@ -6,10 +6,14 @@ import {
   isHqPlatformUser,
 } from '../utils/hqPlatformUser.js';
 import {
-  assertCanAssignTask,
   isSuperAdminUserId,
 } from './taskAssignmentScope.service.js';
-import { applyOrgCompanyUserWhere } from './orgListScope.service.js';
+import {
+  applyOrgCompanyUserWhere,
+  canViewCrossCompanyMembers,
+  labelUsersWithOrgUnit,
+  requestedAssignCompanyId,
+} from './orgListScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -22,6 +26,7 @@ const memberSelect = {
   departmentId: true,
   roleId: true,
   status: true,
+  orgUnitId: true,
   systemRole: {
     select: {
       id: true,
@@ -65,6 +70,7 @@ function normalizeMember(user) {
     status: user.status,
     role,
     department: user.departmentRelation || null,
+    orgUnitId: user.orgUnitId || null,
   };
 }
 
@@ -74,17 +80,6 @@ function sortMembers(members) {
     const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim() || b.name || '';
     return nameA.localeCompare(nameB);
   });
-}
-
-/** Same visibility rule as Team → Members for Super Admin. */
-function buildSuperAdminTeamMemberScope(actorUserId) {
-  if (!actorUserId) return null;
-  return {
-    OR: [
-      { id: actorUserId },
-      { credential: { is: { createdBy: actorUserId } } },
-    ],
-  };
 }
 
 export function currentLeadAssigneeIds(lead) {
@@ -103,8 +98,10 @@ export function newlyAddedAssigneeIds(previousIds, nextIds) {
 
 /**
  * CRM (leads/clients) assignee list for Add Lead / Assign To.
- * Matches Team → Members: tenant users only (Super Admin = self + members they created).
- * Never includes HQ platform accounts.
+ * Company members: only people in their own company.
+ * Super Admin / view_cross_company_members: people in the requested company
+ * (companyId query). No company selected → empty list.
+ * Never includes HQ platform accounts or other tenants.
  */
 export async function listCrmAssigneeCandidates(actorUserId, { req = null } = {}) {
   if (!actorUserId) return [];
@@ -113,10 +110,17 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null } = {}
     where: { id: actorUserId },
     select: memberSelect,
   });
-  if (!actor || String(actor.status || '').toUpperCase() !== 'ACTIVE') return [];
+  if (!actor) return [];
+  const actorStatus = String(actor.status || 'ACTIVE').toUpperCase();
+  if (actorStatus !== 'ACTIVE') return [];
 
   const isSuperAdmin =
     (req && isSuperAdminUser(req)) || (await isSuperAdminUserId(actorUserId));
+  const crossCompany = Boolean(req && canViewCrossCompanyMembers(req));
+
+  if (crossCompany && !requestedAssignCompanyId(req)) {
+    return [];
+  }
 
   const viewAll =
     isSuperAdmin ||
@@ -131,17 +135,14 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null } = {}
     ...(Object.keys(emailExclude).length ? [emailExclude] : []),
   ];
 
-  // Super Admin: same scope as Team page (self + credentials they created).
-  if (isSuperAdmin) {
-    const saScope = buildSuperAdminTeamMemberScope(actorUserId);
-    if (saScope) clauses.push(saScope);
+  if (isSuperAdmin || crossCompany) {
+    // Selected company is applied via applyOrgCompanyUserWhere(forAssign).
   } else if (!viewAll && actorDeptId) {
     clauses.push({ departmentId: actorDeptId });
   }
 
-  // When operating inside a company/branch, only that company's people can be assigned.
   if (req) {
-    const orgWhere = await applyOrgCompanyUserWhere(req);
+    const orgWhere = await applyOrgCompanyUserWhere(req, { forAssign: true });
     if (orgWhere) clauses.push(orgWhere);
   }
 
@@ -158,10 +159,12 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null } = {}
     const normalized = normalizeMember(row);
     if (normalized) byId.set(normalized.id, normalized);
   }
-  const self = normalizeMember(actor);
-  if (self) byId.set(self.id, self);
+  if (!crossCompany) {
+    const self = normalizeMember(actor);
+    if (self) byId.set(self.id, self);
+  }
 
-  return sortMembers([...byId.values()]);
+  return labelUsersWithOrgUnit(sortMembers([...byId.values()]));
 }
 
 export async function canAssignCrmTo(actorUserId, assigneeUserId, { req = null } = {}) {
@@ -172,13 +175,10 @@ export async function canAssignCrmTo(actorUserId, assigneeUserId, { req = null }
 
 export async function assertCanAssignCrm(actorUserId, assigneeUserId, { req = null } = {}) {
   if (await isSuperAdminUserId(actorUserId)) return;
-  if (
-    req &&
-    (canViewAllAssignments(req) ||
-      hasAnyPermission(req, ['all', 'view_all_clients', 'view_all_leads']))
-  ) {
-    return;
-  }
+  if (req && canViewCrossCompanyMembers(req)) return;
+  if (idStr(actorUserId) === idStr(assigneeUserId)) return;
+
+  if (await canAssignCrmTo(actorUserId, assigneeUserId, { req })) return;
 
   const [actor, assignee] = await Promise.all([
     prisma.user.findUnique({
@@ -199,5 +199,5 @@ export async function assertCanAssignCrm(actorUserId, assigneeUserId, { req = nu
     );
   }
 
-  return assertCanAssignTask(actorUserId, assigneeUserId);
+  throw new Error('You can only assign leads and clients to members in your company.');
 }
