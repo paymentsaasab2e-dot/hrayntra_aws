@@ -102,6 +102,11 @@ export async function loadJobVisibilityUserDefaults(): Promise<JobVisibilityUser
   try {
     const res = await apiGetJobVisibilityDefaults();
     const next = normalizeDefaults(res.data);
+    const cachedTime = Date.parse(String(cached.updatedAt || '')) || 0;
+    const nextTime = Date.parse(String(next.updatedAt || '')) || 0;
+    if (cached.updatedAt && cachedTime >= nextTime) {
+      return cached;
+    }
     writeCachedJobVisibilityUserDefaults(next);
     return next;
   } catch {
@@ -109,10 +114,10 @@ export async function loadJobVisibilityUserDefaults(): Promise<JobVisibilityUser
   }
 }
 
-export async function saveJobVisibilityUserDefaults(
+export function saveJobVisibilityUserDefaultsLocal(
   visibility: JobPublicFieldVisibility,
   showClientNamePublicly: boolean,
-): Promise<JobVisibilityUserDefaults> {
+): JobVisibilityUserDefaults {
   const payload = {
     publicFieldVisibility: parseJobPublicFieldVisibility({ ...visibility, client: showClientNamePublicly }),
     showClientNamePublicly,
@@ -120,14 +125,26 @@ export async function saveJobVisibilityUserDefaults(
   };
   const optimistic = normalizeDefaults(payload);
   writeCachedJobVisibilityUserDefaults(optimistic);
-  try {
-    const res = await apiSaveJobVisibilityDefaults(payload);
-    const saved = normalizeDefaults(res.data);
-    writeCachedJobVisibilityUserDefaults(saved);
-    return saved;
-  } catch {
-    return optimistic;
-  }
+  return optimistic;
+}
+
+export async function saveJobVisibilityUserDefaults(
+  visibility: JobPublicFieldVisibility,
+  showClientNamePublicly: boolean,
+): Promise<JobVisibilityUserDefaults> {
+  const optimistic = saveJobVisibilityUserDefaultsLocal(visibility, showClientNamePublicly);
+  void apiSaveJobVisibilityDefaults({
+    publicFieldVisibility: optimistic.visibility,
+    showClientNamePublicly: optimistic.showClient,
+    updatedAt: optimistic.updatedAt,
+  })
+    .then((res) => {
+      writeCachedJobVisibilityUserDefaults(normalizeDefaults(res.data));
+    })
+    .catch(() => {
+      /* local defaults already stored — server sync can retry next save */
+    });
+  return optimistic;
 }
 
 export function jobVisibilityDefaultsEqual(

@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Eye, Loader2, Save } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Eye, Save } from 'lucide-react';
 import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
 import { requestCornerAlert, requestError } from '../../lib/appDialog';
 import {
@@ -16,7 +16,9 @@ import {
 import {
   jobVisibilityDefaultsEqual,
   loadJobVisibilityUserDefaults,
+  readCachedJobVisibilityUserDefaults,
   saveJobVisibilityUserDefaults,
+  saveJobVisibilityUserDefaultsLocal,
   type JobVisibilityUserDefaults,
 } from '../../lib/jobVisibilityUserDefaults';
 
@@ -30,28 +32,26 @@ export function JobPublicVisibilityDefaultsPanel({
   onChange: (next: { publicFieldVisibility: JobPublicFieldVisibility; showClientNamePublicly: boolean }) => void;
 }) {
   const current = mergeClientVisibility(parseJobPublicFieldVisibility(visibility), showClientNamePublicly);
-  const [saved, setSaved] = useState<JobVisibilityUserDefaults | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<JobVisibilityUserDefaults>(() => readCachedJobVisibilityUserDefaults());
+  const skipRemoteOverwriteRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     void loadJobVisibilityUserDefaults().then((defaults) => {
-      if (!cancelled) setSaved(defaults);
+      if (cancelled || skipRemoteOverwriteRef.current) return;
+      setSaved(defaults);
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const matchesSaved = useMemo(() => {
-    if (!saved) return false;
-    return jobVisibilityDefaultsEqual(
-      current,
-      saved.visibility,
-      showClientNamePublicly,
-      saved.showClient,
-    );
-  }, [current, saved, showClientNamePublicly]);
+  const matchesSaved = useMemo(
+    () =>
+      jobVisibilityDefaultsEqual(current, saved.visibility, showClientNamePublicly, saved.showClient),
+    [current, saved, showClientNamePublicly],
+  );
+  const canSave = !matchesSaved;
 
   const toggleField = (field: JobPublicVisibilityField) => {
     const nextVisibility = toggleJobPublicFieldVisibility(current, field);
@@ -65,18 +65,16 @@ export function JobPublicVisibilityDefaultsPanel({
     });
   };
 
-  const handleSaveDefaults = async () => {
-    setSaving(true);
+  const handleSaveDefaults = () => {
+    if (!canSave) return;
     try {
-      const next = await saveJobVisibilityUserDefaults(current, showClientNamePublicly);
+      const next = saveJobVisibilityUserDefaultsLocal(current, showClientNamePublicly);
+      skipRemoteOverwriteRef.current = true;
       setSaved(next);
-      await requestCornerAlert('Saved. New jobs will use these hide / visible settings by default.', {
-        tone: 'success',
-      });
+      void saveJobVisibilityUserDefaults(current, showClientNamePublicly);
+      void requestCornerAlert('Defaults saved.', { tone: 'success', autoCloseMs: 1600, priority: 'high' });
     } catch (error) {
-      await requestError(error instanceof Error ? error.message : 'Could not save your default visibility.');
-    } finally {
-      setSaving(false);
+      void requestError(error instanceof Error ? error.message : 'Could not save your default visibility.');
     }
   };
 
@@ -89,22 +87,18 @@ export function JobPublicVisibilityDefaultsPanel({
             Public Visibility
           </p>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Choose what to show or hide on the public job page. Save these as your defaults so every
-            new job starts with the same settings. You can change and update them anytime.
+            Choose what to show or hide on the public job page. Defaults are already saved — the save
+            button turns on only after you change a setting.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => void handleSaveDefaults()}
-          disabled={saving || (matchesSaved && Boolean(saved?.updatedAt))}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#2098C8] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#1A86B3] disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={handleSaveDefaults}
+          disabled={!canSave}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#2098C8] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#1A86B3] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:opacity-100"
         >
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          {matchesSaved && saved?.updatedAt
-            ? 'Defaults saved'
-            : saved?.updatedAt
-              ? 'Update my defaults'
-              : 'Save as my defaults'}
+          <Save className="h-3.5 w-3.5" />
+          {matchesSaved ? 'Saved' : 'Save defaults'}
         </button>
       </div>
 

@@ -41,7 +41,11 @@ import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { TeamMemberRowActionsMenu } from '../TeamMemberRowActionsMenu';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { useUser } from '../../../hooks/useUser';
-import { enterTenantImpersonation, getTenantImpersonationMeta } from '../../../lib/sessionAuth';
+import {
+  enterTenantImpersonation,
+  getTenantImpersonationMeta,
+  isHqTenantSupportSession,
+} from '../../../lib/sessionAuth';
 import { useWorkspaceEntityAlerts } from '../../../hooks/useWorkspaceEntityAlerts';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../ai/WorkspaceAlertTableCell';
 import { requestConfirm } from '../../../lib/appDialog';
@@ -165,15 +169,31 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
     [debouncedSearch, selectedDepartment, selectedRole, selectedStatus, currentPage, pageSize]
   );
 
-  const fetchData = useCallback(async () => {
+  const fetchData = async ([
+    ,
+    search,
+    departmentId,
+    roleName,
+    status,
+    page,
+    limit,
+  ]: [
+    string,
+    string,
+    string,
+    string,
+    string,
+    number,
+    TablePageSize,
+  ]) => {
     const [membersRes, rolesRes, deptsRes] = await Promise.all([
       getTeamMembers({
-        search: debouncedSearch || undefined,
-        departmentId: selectedDepartment !== 'all' ? selectedDepartment : undefined,
-        roleName: selectedRole !== 'all' ? selectedRole : undefined,
-        status: selectedStatus !== 'all' ? (selectedStatus as UserStatus) : undefined,
-        page: currentPage,
-        limit: pageSize,
+        search: search || undefined,
+        departmentId: departmentId !== 'all' ? departmentId : undefined,
+        roleName: roleName !== 'all' ? roleName : undefined,
+        status: status !== 'all' ? (status as UserStatus) : undefined,
+        page,
+        limit,
       }),
       getRoles(),
       getDepartments(),
@@ -185,7 +205,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
       roles: rolesRes.data || [],
       departments: deptsRes.data || [],
     };
-  }, [debouncedSearch, selectedDepartment, selectedRole, selectedStatus, currentPage]);
+  };
 
   const { data, error, isLoading, mutate } = useSWR(swrKey, fetchData, {
     revalidateOnFocus: true,
@@ -320,10 +340,27 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
   };
 
   const canOpenMemberAccount = (member: TeamMember) => {
-    if (!isSuperAdmin()) return false;
     if (getTenantImpersonationMeta()) return false;
-    if (!user?.id || member.id === user.id) return false;
-    if (member.status !== 'ACTIVE') return false;
+    if (!isSuperAdmin() && !isHqTenantSupportSession()) return false;
+    let actorId = String(user?.id || '').trim();
+    let actorEmail = String(user?.email || '').trim().toLowerCase();
+    if (!actorId && typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(localStorage.getItem('currentUser') || '{}') as {
+          id?: string;
+          email?: string;
+        };
+        actorId = String(stored?.id || '').trim();
+        actorEmail = String(stored?.email || actorEmail).trim().toLowerCase();
+      } catch {
+        actorId = '';
+      }
+    }
+    const memberId = String(member.id || '').trim();
+    const memberEmail = String(member.email || '').trim().toLowerCase();
+    if (!actorId || memberId === actorId) return false;
+    if (actorEmail && memberEmail && actorEmail === memberEmail) return false;
+    if (String(member.status || '').toUpperCase() === 'INACTIVE') return false;
     return true;
   };
 
