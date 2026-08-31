@@ -1143,11 +1143,22 @@ export default function InboxPage() {
           if (active) setLoadError('');
         } catch (error: any) {
           if (active) {
+            const authFailed = /invalid credentials|unauthenticated|authError|401/i.test(
+              String(error?.message || '')
+            );
             setConnected(mailProvider === 'outlook' ? outlookConnected : gmailConnected);
             setEmails([]);
             setMailboxUnavailable(false);
             setConnectedEmail(mailProvider === 'outlook' ? outlookEmail : gmailEmail);
-            setLoadError(error?.message || `Could not load ${mailProvider === 'outlook' ? 'Outlook' : 'Gmail'} mail`);
+            if (authFailed) {
+              setRequiresReconnect(true);
+              setLoadError('');
+            } else {
+              setRequiresReconnect(false);
+              setLoadError(
+                error?.message || `Could not load ${mailProvider === 'outlook' ? 'Outlook' : 'Gmail'} mail`
+              );
+            }
           }
         } finally {
           if (active) setLoading(false);
@@ -1162,7 +1173,14 @@ export default function InboxPage() {
 
   // Reusable auto-refresh — re-fetch the active folder while visible/on focus.
   usePageAutoRefresh(() => {
-    if (!loading && statusReady) void loadInbox(search, activeFolder, mailProvider);
+    if (!loading && statusReady) {
+      void loadInbox(search, activeFolder, mailProvider).catch((error: any) => {
+        const authFailed = /invalid credentials|unauthenticated|authError|401/i.test(
+          String(error?.message || '')
+        );
+        if (authFailed) setRequiresReconnect(true);
+      });
+    }
   }, { events: ['jobportal:inbox-changed'] });
 
   useEffect(() => {
@@ -1283,7 +1301,15 @@ export default function InboxPage() {
       setLoadError('');
       await loadInbox(search, activeFolder);
     } catch (error: any) {
-      setLoadError(error?.message || 'Could not refresh mail');
+      const authFailed = /invalid credentials|unauthenticated|authError|401/i.test(
+        String(error?.message || '')
+      );
+      if (authFailed) {
+        setRequiresReconnect(true);
+        setLoadError('');
+      } else {
+        setLoadError(error?.message || 'Could not refresh mail');
+      }
     } finally {
       setRefreshing(false);
     }

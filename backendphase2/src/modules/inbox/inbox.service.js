@@ -161,6 +161,9 @@ async function fetchGoogleJson(url, accessToken, init = {}, attempt = 0) {
         : `Google API failed: ${message}`
     );
     error.status = response.status;
+    if (response.status === 401 || /invalid credentials|unauthenticated|authError/i.test(message)) {
+      error.code = 'GOOGLE_UNAUTHENTICATED';
+    }
     throw error;
   }
   if (response.status === 204) return null;
@@ -186,6 +189,26 @@ async function mapWithConcurrency(items, limit, mapper) {
 
 async function fetchGmailJson(accessToken, path, init = {}) {
   return fetchGoogleJson(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, accessToken, init);
+}
+
+function isGoogleAuthError(error) {
+  const message = String(error?.message || '');
+  return (
+    error?.status === 401 ||
+    error?.code === 'GOOGLE_UNAUTHENTICATED' ||
+    /invalid credentials|unauthenticated|authError|invalid.?grant|token.*expired/i.test(message)
+  );
+}
+
+function emptyGmail(oauth = null, extra = {}) {
+  return {
+    connected: false,
+    email: oauth?.googleEmail || '',
+    messages: [],
+    nextPageToken: null,
+    requiresReconnect: false,
+    ...extra,
+  };
 }
 
 function canReadGmailInbox(scopes = []) {
@@ -225,9 +248,18 @@ async function getGmailAccessContext(userId, { requireModify = false } = {}) {
     throw new Error('Gmail is not connected');
   }
 
-  const accessToken = await oauthTokenService.getValidGoogleAccessToken(userId);
+  let accessToken;
+  try {
+    accessToken = await oauthTokenService.getValidGoogleAccessToken(userId);
+  } catch (error) {
+    const reconnect = new Error('Reconnect Gmail to grant inbox access');
+    reconnect.code = 'GMAIL_RECONNECT_REQUIRED';
+    throw reconnect;
+  }
   if (!accessToken) {
-    throw new Error('Gmail access token is unavailable');
+    const error = new Error('Reconnect Gmail to grant inbox access');
+    error.code = 'GMAIL_RECONNECT_REQUIRED';
+    throw error;
   }
 
   if (!canReadGmailInbox(oauth.googleScope || [])) {
@@ -436,28 +468,21 @@ export const inboxService = {
   async getGmailMessages(userId, params = {}) {
     const oauth = await getGoogleOauthForUser(userId);
     if (!oauth?.gmailConnected) {
-      return { connected: false, email: '', messages: [], nextPageToken: null, requiresReconnect: false };
+      return emptyGmail();
     }
 
-    const accessToken = await oauthTokenService.getValidGoogleAccessToken(userId);
+    let accessToken;
+    try {
+      accessToken = await oauthTokenService.getValidGoogleAccessToken(userId);
+    } catch {
+      return emptyGmail(oauth, { connected: true, requiresReconnect: true });
+    }
     if (!accessToken) {
-      return {
-        connected: false,
-        email: oauth.googleEmail || '',
-        messages: [],
-        nextPageToken: null,
-        requiresReconnect: false,
-      };
+      return emptyGmail(oauth, { connected: true, requiresReconnect: true });
     }
 
     if (!canReadGmailInbox(oauth.googleScope || [])) {
-      return {
-        connected: true,
-        email: oauth.googleEmail || '',
-        messages: [],
-        nextPageToken: null,
-        requiresReconnect: true,
-      };
+      return emptyGmail(oauth, { connected: true, requiresReconnect: true });
     }
 
     const maxResults = Math.min(Math.max(Number(params.maxResults) || 25, 1), 50);
@@ -473,20 +498,24 @@ export const inboxService = {
       query.set('pageToken', String(params.pageToken));
     }
 
+    const loadList = (token) => fetchGmailJson(token, `messages?${query.toString()}`);
+
     let list;
     try {
-      list = await fetchGmailJson(accessToken, `messages?${query.toString()}`);
+      list = await loadList(accessToken);
     } catch (error) {
-      if (/insufficient|scope|permission|forbidden|gmail api failed/i.test(String(error?.message || ''))) {
-        return {
-          connected: true,
-          email: oauth.googleEmail || '',
-          messages: [],
-          nextPageToken: null,
-          requiresReconnect: true,
-        };
+      if (isGoogleAuthError(error)) {
+        try {
+          accessToken = await oauthTokenService.refreshGoogleAccessToken(userId);
+          list = await loadList(accessToken);
+        } catch {
+          return emptyGmail(oauth, { connected: true, requiresReconnect: true });
+        }
+      } else if (/insufficient|scope|permission|forbidden/i.test(String(error?.message || ''))) {
+        return emptyGmail(oauth, { connected: true, requiresReconnect: true });
+      } else {
+        throw error;
       }
-      throw error;
     }
     const messages = Array.isArray(list.messages) ? list.messages : [];
     const metadataQuery = new URLSearchParams({ format: 'metadata' });

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { prisma, runWithTenantContext, getActiveTenantDbName } from '../../config/prisma.js';
-import { env } from '../../config/env.js';
+import { env, getMicrosoftOAuthConfig } from '../../config/env.js';
 import { encryption } from '../../utils/encryption.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { consumeOAuthPkce, storeOAuthPkce } from '../../utils/oauth-pkce-store.js';
@@ -100,7 +100,7 @@ function getCallbackUrl(provider) {
   }
 
   if (config.family === 'microsoft') {
-    return env.MICROSOFT_REDIRECT_URI || `${env.BACKEND_PUBLIC_URL}/api/v1/oauth/microsoft/callback`;
+    return getMicrosoftOAuthConfig().redirectUri;
   }
 
   if (config.family === 'linkedin') {
@@ -292,9 +292,10 @@ export const integrationService = {
     }
 
     if (config.family === 'microsoft') {
+      const ms = getMicrosoftOAuthConfig();
       const state = createOAuthState(statePayload);
       const params = new URLSearchParams({
-        client_id: env.MICROSOFT_CLIENT_ID,
+        client_id: ms.clientId,
         response_type: 'code',
         redirect_uri: callbackUrl,
         response_mode: 'query',
@@ -302,8 +303,7 @@ export const integrationService = {
         prompt: 'select_account',
         state,
       });
-      const tenant = env.MICROSOFT_TENANT_ID || 'common';
-      return `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?${params.toString()}`;
+      return `https://login.microsoftonline.com/${ms.tenant}/oauth2/v2.0/authorize?${params.toString()}`;
     }
 
     if (config.family === 'linkedin') {
@@ -430,13 +430,13 @@ export const integrationService = {
     }
 
     if (config.family === 'microsoft') {
-      const tenant = env.MICROSOFT_TENANT_ID || 'common';
-      const response = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
+      const ms = getMicrosoftOAuthConfig();
+      const response = await fetch(`https://login.microsoftonline.com/${ms.tenant}/oauth2/v2.0/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          client_id: env.MICROSOFT_CLIENT_ID,
-          client_secret: env.MICROSOFT_CLIENT_SECRET,
+          client_id: ms.clientId,
+          client_secret: ms.clientSecret,
           code,
           redirect_uri: callbackUrl,
           grant_type: 'authorization_code',

@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -9,8 +10,33 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '../..');
+const envFilePath = path.join(projectRoot, '.env');
 
-dotenv.config({ path: path.join(projectRoot, '.env') });
+dotenv.config({ path: envFilePath });
+
+function firstNonEmptyEnvValue(key) {
+  const live = String(process.env[key] || '').trim();
+  if (live && live !== 'undefined') return live;
+  try {
+    const file = fs.readFileSync(envFilePath, 'utf8');
+    const matches = [...file.matchAll(new RegExp(`^${key}\\s*=\\s*(.*)$`, 'gm'))];
+    for (const match of matches) {
+      let value = String(match[1] || '').trim();
+      if (!value || value.startsWith('#')) continue;
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1).trim();
+      }
+      if (value && value !== 'undefined') return value;
+    }
+  } catch {
+    // .env may be absent when vars are injected by the host.
+  }
+  return '';
+}
+
+function isLoopbackHost(value) {
+  return /localhost|127\.0\.0\.1/i.test(String(value || ''));
+}
 
 const OPENAI_CHAT_MODEL = resolveOpenAiChatModel();
 
@@ -49,7 +75,37 @@ export function resolveMicrosoftOAuthTenant(raw = process.env.MICROSOFT_TENANT_I
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) {
     return 'common';
   }
-  return String(raw || 'common').trim() || 'common';
+  if (value === 'consumers' || value === 'common') return value;
+  return 'common';
+}
+
+/**
+ * Live Microsoft OAuth settings. Personal Outlook.com accounts need tenant `common`
+ * and an Azure app that allows personal Microsoft accounts.
+ */
+export function getMicrosoftOAuthConfig() {
+  const clientId = firstNonEmptyEnvValue('MICROSOFT_CLIENT_ID') || firstNonEmptyEnvValue('MS_CLIENT_ID');
+  const clientSecret =
+    firstNonEmptyEnvValue('MICROSOFT_CLIENT_SECRET') || firstNonEmptyEnvValue('MS_CLIENT_SECRET');
+  const tenant = resolveMicrosoftOAuthTenant(
+    firstNonEmptyEnvValue('MICROSOFT_TENANT_ID') || firstNonEmptyEnvValue('MS_TENANT_ID') || 'common'
+  );
+  let redirectUri = firstNonEmptyEnvValue('MICROSOFT_REDIRECT_URI');
+  const production = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!redirectUri || (production && isLoopbackHost(redirectUri))) {
+    redirectUri = `${publicBackendUrl}/api/v1/oauth/microsoft/callback`;
+  }
+  if (!clientId) {
+    throw new Error(
+      'Outlook is not configured on this server. Set MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TENANT_ID=common, and MICROSOFT_REDIRECT_URI on the Phase 2 API.'
+    );
+  }
+  if (!clientSecret) {
+    throw new Error(
+      'Outlook is not configured on this server. Set MICROSOFT_CLIENT_SECRET on the Phase 2 API.'
+    );
+  }
+  return { clientId, clientSecret, tenant, redirectUri };
 }
 
 /**
@@ -79,10 +135,11 @@ export function resolvePublicFrontendUrl() {
 }
 
 const publicFrontendUrl = resolvePublicFrontendUrl();
+const rawPublicBackendUrl = process.env.BACKEND_PUBLIC_URL || process.env.PUBLIC_BACKEND_URL;
 const publicBackendUrl = normalizePublicUrl(
-  process.env.BACKEND_PUBLIC_URL || process.env.PUBLIC_BACKEND_URL,
-  // Never fall back to localhost in production — a localhost `/uploads/...` link
-  // in a client email/review is unreachable for the external recipient.
+  process.env.NODE_ENV === 'production' && isLoopbackHost(rawPublicBackendUrl)
+    ? ''
+    : rawPublicBackendUrl,
   process.env.NODE_ENV === 'production'
     ? 'https://api2.hryantra.com'
     : `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
@@ -214,13 +271,12 @@ export const env = {
     process.env.GOOGLE_REDIRECT_URI ||
     `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/google/callback`,
 
-  // Microsoft OAuth (Outlook + Teams)
+  // Microsoft OAuth (Outlook + Teams). Always tenant "common" for personal + work accounts.
   MICROSOFT_CLIENT_ID: process.env.MICROSOFT_CLIENT_ID || process.env.MS_CLIENT_ID,
   MICROSOFT_CLIENT_SECRET: process.env.MICROSOFT_CLIENT_SECRET || process.env.MS_CLIENT_SECRET,
   MICROSOFT_TENANT_ID: resolveMicrosoftOAuthTenant(),
   MICROSOFT_REDIRECT_URI:
-    process.env.MICROSOFT_REDIRECT_URI ||
-    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/microsoft/callback`,
+    process.env.MICROSOFT_REDIRECT_URI || `${publicBackendUrl}/api/v1/oauth/microsoft/callback`,
 
   // LinkedIn OAuth (register this callback URL in LinkedIn app)
   LINKEDIN_OAUTH_REDIRECT_URI:

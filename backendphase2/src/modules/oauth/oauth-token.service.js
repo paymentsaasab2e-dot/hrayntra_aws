@@ -1,6 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { encryption } from '../../utils/encryption.js';
-import { env } from '../../config/env.js';
+import { env, getMicrosoftOAuthConfig } from '../../config/env.js';
 import jwt from 'jsonwebtoken';
 
 function enc(v) {
@@ -129,7 +129,9 @@ export const oauthTokenService = {
     if (!accessToken) return true;
     try {
       const decoded = jwt.decode(accessToken);
-      if (!decoded?.exp) return false;
+      // Google Gmail tokens are usually opaque (ya29.*), not JWTs. Treat those as expired
+      // so we refresh instead of sending a dead access token forever.
+      if (!decoded?.exp) return true;
       return decoded.exp * 1000 < Date.now() + skewSec * 1000;
     } catch {
       return true;
@@ -172,17 +174,17 @@ export const oauthTokenService = {
     const { refreshToken } = this.getDecryptedMicrosoft(row);
     if (!refreshToken) throw new Error('No Microsoft refresh token');
 
-    const tenant = env.MICROSOFT_TENANT_ID || 'common';
+    const ms = getMicrosoftOAuthConfig();
     const scopes = Array.isArray(row.microsoftScope) ? row.microsoftScope.filter(Boolean).join(' ') : '';
     const body = new URLSearchParams({
-      client_id: env.MICROSOFT_CLIENT_ID,
-      client_secret: env.MICROSOFT_CLIENT_SECRET,
+      client_id: ms.clientId,
+      client_secret: ms.clientSecret,
       scope: scopes || 'openid email profile offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send',
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     });
     const res = await fetch(
-      `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+      `https://login.microsoftonline.com/${ms.tenant}/oauth2/v2.0/token`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -211,8 +213,14 @@ export const oauthTokenService = {
     if (!row) return null;
     const { accessToken, refreshToken } = this.getDecryptedGoogle(row);
     if (!accessToken && !refreshToken) return null;
-    if (!this.isJwtExpired(accessToken) && accessToken) return accessToken;
-    return this.refreshGoogleAccessToken(userId);
+    if (accessToken && !this.isJwtExpired(accessToken)) return accessToken;
+    if (!refreshToken) return null;
+    try {
+      return await this.refreshGoogleAccessToken(userId);
+    } catch (error) {
+      console.warn('[oauth] Google token refresh failed', error?.message || error);
+      return null;
+    }
   },
 
   async getValidMicrosoftAccessToken(userId) {
