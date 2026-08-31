@@ -196,6 +196,10 @@ model Client {
   orgUnitId    String?      @db.ObjectId
   /// Users who assigned or were previously assigned — both keep list visibility after handoff.
   participantIds String[]   @default([]) @db.ObjectId
+  /// When true, this CRM client is available in Recruitment (Clients page + Add Job).
+  recruitmentEnabled   Boolean?  @default(false)
+  recruitmentEnabledAt DateTime?
+  recruitmentEnabledBy String?   @db.ObjectId
 
   // Extended fields from frontend (Company Snapshot section)
   companySize           String? // Company size (e.g., "1-50", "51-200", "201-500")
@@ -300,6 +304,7 @@ model Client {
   @@index([createdById])
   @@index([orgUnitId])
   @@index([isDeleted])
+  @@index([recruitmentEnabled])
   @@map("clients")
 }
 

@@ -9,6 +9,9 @@ import { CountryDialPhoneInput } from './CountryDialPhoneInput';
 const INPUT_CLASS =
   'rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500';
 
+/** Shared with Team Member rows so prefix / name / email / mobile columns stay aligned. */
+export const CONTACT_PERSON_ROW_GRID = 'contact-person-row';
+
 function NotAvailableCheckbox({
   checked,
   onChange,
@@ -145,7 +148,7 @@ export function DirectorContactFields({
   return (
     <div className={boxed ? 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-3' : undefined}>
       <div className="space-y-2">
-      <div className="hidden sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.1fr)_minmax(12.5rem,1.4fr)_2.5rem] sm:gap-2 sm:px-0">
+      <div className="contact-person-row-header">
         <span className="col-span-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
           <User size={12} />
           Director Name <span className="text-red-500">*</span>
@@ -164,14 +167,14 @@ export function DirectorContactFields({
         {Array.from({ length: rowCount }, (_, index) => (
           <div
             key={`director-contact-row-${index}`}
-            className="flex flex-wrap items-center gap-2 sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.1fr)_minmax(12.5rem,1.4fr)_2.5rem] sm:gap-2"
+            className={CONTACT_PERSON_ROW_GRID}
           >
             {index === 0 ? (
               <>
                 <select
                   value={directorSalutation}
                   onChange={(e) => onDirectorSalutationChange(e.target.value)}
-                  className={`w-[5.75rem] shrink-0 border bg-white px-2 ${INPUT_CLASS} ${
+                  className={`w-[5.75rem] sm:w-full border bg-white px-2 ${INPUT_CLASS} ${
                     contactPersonError ? 'border-red-300' : 'border-slate-200'
                   }`}
                   aria-label="Director salutation"
@@ -193,10 +196,11 @@ export function DirectorContactFields({
                     onContactPersonChange(name);
                   }}
                   onBlur={onContactPersonBlur}
-                  className={`min-w-[7rem] flex-1 border px-3 sm:min-w-0 ${INPUT_CLASS} ${
+                  className={`w-full min-w-0 border px-3 ${INPUT_CLASS} ${
                     contactPersonError ? 'border-red-300' : 'border-slate-200'
                   }`}
                   placeholder="Director name"
+                  size={1}
                   required
                 />
               </>
@@ -208,17 +212,18 @@ export function DirectorContactFields({
               value={emailNotAvailable ? 'Not available' : (emailRows[index] ?? '')}
               onChange={(e) => updateEmailRow(index, e.target.value)}
               disabled={emailNotAvailable || (index > 0 && emailNotAvailable)}
-              className={`min-w-[8rem] flex-[1.2] border px-3 sm:min-w-0 ${INPUT_CLASS} ${
+              className={`w-full min-w-0 border px-3 ${INPUT_CLASS} ${
                 index === 0 && emailError ? 'border-red-300' : 'border-slate-200'
               } ${emailNotAvailable ? 'bg-slate-50 text-slate-500' : ''}`}
               placeholder="Email"
+              size={1}
             />
             {phoneNotAvailable && index === 0 ? (
               <input
                 type="text"
                 value="Not available"
                 disabled
-                className={`min-w-[9rem] flex-[1.15] border px-3 sm:min-w-0 ${INPUT_CLASS} border-slate-200 bg-slate-50 text-slate-500`}
+                className={`w-full min-w-0 border px-3 ${INPUT_CLASS} border-slate-200 bg-slate-50 text-slate-500`}
                 aria-label="Mobile number not available"
               />
             ) : (
@@ -229,34 +234,37 @@ export function DirectorContactFields({
                 countryName={countryName}
                 error={index === 0 && Boolean(phoneError)}
                 disabled={phoneNotAvailable}
+                className="w-full"
                 aria-label={`Mobile number ${index + 1}`}
               />
             )}
-            {index === rowCount - 1 ? (
-              <button
-                type="button"
-                onClick={addContactRow}
-                disabled={emailNotAvailable && phoneNotAvailable}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Add email or mobile number"
-              >
-                <Plus size={16} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => removeContactRow(index)}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-                aria-label={`Remove contact row ${index + 1}`}
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              {index === rowCount - 1 ? (
+                <button
+                  type="button"
+                  onClick={addContactRow}
+                  disabled={emailNotAvailable && phoneNotAvailable}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Add email or mobile number"
+                >
+                  <Plus size={16} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => removeContactRow(index)}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                  aria-label={`Remove contact row ${index + 1}`}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
       {allowNotAvailable ? (
-        <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1 sm:grid sm:grid-cols-[5.75rem_minmax(7rem,1fr)_minmax(8rem,1.1fr)_minmax(12.5rem,1.4fr)_2.5rem] sm:gap-2">
+        <div className={`pt-1 ${CONTACT_PERSON_ROW_GRID}`}>
           <div className="hidden sm:col-span-2 sm:block" aria-hidden />
           <NotAvailableCheckbox
             checked={emailNotAvailable}

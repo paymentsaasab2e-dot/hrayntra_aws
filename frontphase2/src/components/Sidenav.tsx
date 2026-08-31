@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { useUser } from '../hooks/useUser';
@@ -532,6 +532,7 @@ const NavGroupFlyout = ({
   onNavigate,
 }: NavGroupFlyoutProps) => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [panelStyle, setPanelStyle] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -614,14 +615,18 @@ const NavGroupFlyout = ({
                 const [itemPath, itemQuery] = item.href.split('?');
                 const pathActive =
                   pathname === itemPath || (pathname || '').startsWith(`${itemPath}/`);
-                const wantedMailbox = new URLSearchParams(itemQuery || '').get('mailbox');
-                const currentMailbox =
-                  typeof window !== 'undefined'
-                    ? new URLSearchParams(window.location.search).get('mailbox')
-                    : null;
+                const wantedParams = new URLSearchParams(itemQuery || '');
+                const currentParams = searchParams;
+                const wantedMailbox = wantedParams.get('mailbox');
+                const wantedScope = wantedParams.get('scope');
+                const currentMailbox = currentParams.get('mailbox');
+                const currentScope = currentParams.get('scope');
                 const isActive = wantedMailbox
                   ? pathActive && (currentMailbox || 'gmail') === wantedMailbox
-                  : pathActive && (!itemQuery || pathname === item.href || (pathname || '').startsWith(`${item.href}/`));
+                  : wantedScope
+                    ? pathActive && currentScope === wantedScope
+                    : pathActive &&
+                      (itemPath === '/client' ? currentScope !== 'recruitment' : true);
                 return (
                   <Link
                     key={item.href}
@@ -878,6 +883,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const { hasPermission, hasAnyPermission, isAdmin, isSuperAdmin } = usePermissions();
   const { user } = useUser();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   
   // Ensure client-side only rendering to prevent hydration errors
@@ -1164,9 +1170,13 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     isAgencyMode &&
     isOrgModuleEnabled('clients') &&
     (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']));
-  const isCrmRouteActive = ['/leads', '/client', '/dashboard'].some(
-    (route) => pathname === route || (pathname || '').startsWith(`${route}/`)
-  );
+  const isCrmClientsRoute =
+    (pathname === '/client' || (pathname || '').startsWith('/client/')) &&
+    searchParams.get('scope') !== 'recruitment';
+  const isCrmRouteActive =
+    ['/leads', '/dashboard'].some(
+      (route) => pathname === route || (pathname || '').startsWith(`${route}/`),
+    ) || isCrmClientsRoute;
 
   // Recruitment group — Jobs, Candidates, Interviews, Placements, Dashboard
   const canViewJobs =
@@ -1227,16 +1237,20 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     canViewRecruitmentDashboard ||
     canViewPipeline ||
     canViewMatches;
-  const isRecruitmentRouteActive = [
-    '/job',
-    '/candidate',
-    '/interviews',
-    '/placement',
-    '/placements',
-    '/recruitment',
-    '/pipeline',
-    '/matches',
-  ].some((route) => pathname === route || (pathname || '').startsWith(`${route}/`));
+  const isRecruitmentClientsRoute =
+    pathname === '/client' && searchParams.get('scope') === 'recruitment';
+  const isRecruitmentRouteActive =
+    [
+      '/job',
+      '/candidate',
+      '/interviews',
+      '/placement',
+      '/placements',
+      '/recruitment',
+      '/pipeline',
+      '/matches',
+    ].some((route) => pathname === route || (pathname || '').startsWith(`${route}/`)) ||
+    isRecruitmentClientsRoute;
 
   useEffect(() => {
     const query = navSearch.trim();
@@ -1646,6 +1660,9 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               items={[
                 ...(canViewRecruitmentDashboard
                   ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/recruitment', accent: 'indigo' as const }]
+                  : []),
+                ...(canViewClients
+                  ? [{ icon: Users, label: 'Clients', href: '/client?scope=recruitment', accent: 'blue' as const }]
                   : []),
                 ...(canViewJobs
                   ? [{ icon: Briefcase, label: 'Jobs', href: '/job', accent: 'amber' as const }]

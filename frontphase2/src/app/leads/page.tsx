@@ -74,6 +74,7 @@ import {
   type ConvertLeadToClientData,
   type CrmAssignableMember,
 } from '../../lib/api';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
@@ -699,7 +700,7 @@ export default function RecruitmentAgencyDashboard() {
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         if (!token) return;
-        const response = await apiGetLeadAssignableMembers();
+        const response = await apiGetLeadAssignableMembers(getActiveOrgUnitId() || undefined);
         const members = Array.isArray(response.data) ? response.data : [];
         setTeamMembers(
           members.map((m: CrmAssignableMember) => ({

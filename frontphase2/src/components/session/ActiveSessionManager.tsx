@@ -12,6 +12,7 @@ import {
   getStoredSessionId,
   isIntentionalLogout,
   loginPathForCurrentPage,
+  isImpersonationAccessToken,
   type ActiveSessionView,
 } from '@/lib/sessionAuth';
 import { registerAppTab, unregisterAppTab } from '@/lib/tabSessionCoordinator';
@@ -76,6 +77,7 @@ export default function ActiveSessionManager() {
     if (isAuthRoute || typeof window === 'undefined') return;
     const token = getAccessToken();
     if (!token) return;
+    if (isImpersonationAccessToken(token)) return;
 
     const socket = io(buildSocketBaseUrl(), {
       auth: {
@@ -164,6 +166,7 @@ export default function ActiveSessionManager() {
     if (isAuthRoute || typeof window === 'undefined') return;
     const token = getAccessToken();
     if (!token) return;
+    if (isImpersonationAccessToken(token)) return;
 
     let cancelled = false;
 

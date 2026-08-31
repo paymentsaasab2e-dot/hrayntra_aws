@@ -644,7 +644,7 @@ export const taskService = {
   async getAssignableMembers(req) {
     const actorId = req?.user?.id;
     if (!actorId) return [];
-    return listTaskAssigneeCandidates(actorId);
+    return listTaskAssigneeCandidates(actorId, { req });
   },
 
   async delete(id, req = null) {

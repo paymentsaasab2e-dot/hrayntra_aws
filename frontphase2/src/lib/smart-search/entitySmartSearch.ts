@@ -33,6 +33,7 @@ export function buildClientsListApiParams(filters: {
   matchingClientIds?: string[];
   includeContacts?: boolean;
   includeLeadFields?: boolean;
+  recruitmentEnabled?: boolean;
 }) {
   if (filters.matchingClientIds && filters.matchingClientIds.length > 0) {
     return {
@@ -41,6 +42,7 @@ export function buildClientsListApiParams(filters: {
       limit: filters.limit ?? 500,
       includeContacts: filters.includeContacts ?? false,
       includeLeadFields: filters.includeLeadFields ?? false,
+      recruitmentEnabled: filters.recruitmentEnabled || undefined,
     };
   }
   return {
@@ -49,6 +51,7 @@ export function buildClientsListApiParams(filters: {
     limit: filters.limit ?? 500,
     includeContacts: filters.includeContacts ?? false,
     includeLeadFields: filters.includeLeadFields ?? false,
+    recruitmentEnabled: filters.recruitmentEnabled || undefined,
   };
 }
 

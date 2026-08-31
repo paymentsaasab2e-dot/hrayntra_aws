@@ -355,3 +355,117 @@ export async function finalizeAuthAfterTokens(data: {
   await syncOrgRecruitmentSummaryFromApi();
   return { user: userData, permissions, requirePasswordReset: data.requirePasswordReset || false };
 }
+
+const TENANT_IMPERSONATION_RETURN_KEY = 'tenantImpersonationReturn';
+const TENANT_IMPERSONATION_META_KEY = 'tenantImpersonationMeta';
+
+export type TenantImpersonationMeta = {
+  memberId: string;
+  memberName: string;
+  memberEmail?: string;
+  actorName: string;
+};
+
+export function parseAccessTokenPayload(token: string | null | undefined): Record<string, unknown> | null {
+  if (!token) return null;
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    return JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export function isImpersonationAccessToken(token?: string | null): boolean {
+  const payload = parseAccessTokenPayload(token ?? (typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null));
+  return Boolean(payload?.tenantImpersonation || payload?.hqImpersonation);
+}
+
+export function getTenantImpersonationMeta(): TenantImpersonationMeta | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(TENANT_IMPERSONATION_META_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as TenantImpersonationMeta;
+    if (!parsed?.memberId || !parsed?.memberName) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function hasTenantImpersonationReturn(): boolean {
+  if (typeof window === 'undefined') return false;
+  return Boolean(localStorage.getItem(TENANT_IMPERSONATION_RETURN_KEY));
+}
+
+function captureAuthSnapshot() {
+  if (typeof window === 'undefined') return null;
+  const accessToken = localStorage.getItem('accessToken');
+  if (!accessToken) return null;
+  return {
+    accessToken,
+    refreshToken: localStorage.getItem('refreshToken') || '',
+    tenantDbName: localStorage.getItem('tenantDbName') || '',
+    currentUser: localStorage.getItem('currentUser') || '',
+    userPermissions: localStorage.getItem('userPermissions') || '[]',
+  };
+}
+
+export function enterTenantImpersonation(data: {
+  accessToken: string;
+  refreshToken?: string;
+  tenantDbName?: string;
+  user: Record<string, unknown>;
+  permissions?: string[];
+  impersonation: TenantImpersonationMeta;
+}) {
+  if (typeof window === 'undefined') return;
+  const snapshot = captureAuthSnapshot();
+  if (snapshot) {
+    localStorage.setItem(TENANT_IMPERSONATION_RETURN_KEY, JSON.stringify(snapshot));
+  }
+  persistAuthTokens({
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    tenantDbName: data.tenantDbName,
+  });
+  const permissions = Array.isArray(data.permissions) ? data.permissions : [];
+  localStorage.setItem(
+    'currentUser',
+    JSON.stringify({
+      ...data.user,
+      permissions,
+    }),
+  );
+  localStorage.setItem('userPermissions', JSON.stringify(permissions));
+  localStorage.setItem(TENANT_IMPERSONATION_META_KEY, JSON.stringify(data.impersonation));
+}
+
+export function exitTenantImpersonation(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = localStorage.getItem(TENANT_IMPERSONATION_RETURN_KEY);
+    if (!raw) return false;
+    const snapshot = JSON.parse(raw) as {
+      accessToken?: string;
+      refreshToken?: string;
+      tenantDbName?: string;
+      currentUser?: string;
+      userPermissions?: string;
+    };
+    persistAuthTokens({
+      accessToken: snapshot.accessToken,
+      refreshToken: snapshot.refreshToken,
+      tenantDbName: snapshot.tenantDbName,
+    });
+    if (snapshot.currentUser) localStorage.setItem('currentUser', snapshot.currentUser);
+    if (snapshot.userPermissions) localStorage.setItem('userPermissions', snapshot.userPermissions);
+    localStorage.removeItem(TENANT_IMPERSONATION_RETURN_KEY);
+    localStorage.removeItem(TENANT_IMPERSONATION_META_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}

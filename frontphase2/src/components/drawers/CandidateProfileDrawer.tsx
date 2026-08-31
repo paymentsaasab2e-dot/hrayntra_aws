@@ -84,6 +84,7 @@ import {
 } from '../../lib/api';
 import { extractApiData } from '../../lib/mapCandidateProfile';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { toast } from 'sonner';
 import { requestError } from '../../lib/appDialog';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
@@ -962,7 +963,7 @@ export function ScheduleInterviewModal({
             apiGetJobs({ page: 1, limit: 500 }),
             apiGetWorkspaceClient(),
             getLineManagersForJobPicker(),
-            getAllTeamMembersForAssign(),
+            getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined),
           ]);
           if (cancelled) return;
 

@@ -758,3 +758,36 @@
 .saasa-txt-editable:focus {
   outline: none;
 }
+
+/* Add Lead / Add Client contacts: Director + Team Member share the same columns. */
+.contact-person-row,
+.contact-person-row-header {
+  width: 100%;
+  min-width: 0;
+}
+
+.contact-person-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.contact-person-row-header {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .contact-person-row,
+  .contact-person-row-header {
+    display: grid;
+    grid-template-columns: 5.75rem minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.85fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .contact-person-row > *:not(:last-child),
+  .contact-person-row-header > * {
+    min-width: 0;
+  }
+}

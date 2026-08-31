@@ -10,6 +10,11 @@ const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSiz
 router.use(authMiddleware);
 
 router.get('/assignable-members', requireAnyPermission(['clients_create', 'clients_update']), clientController.getAssignableMembers);
+router.get(
+  '/recruitment-forward-targets',
+  requireAnyPermission(['clients_update', 'clients_create', 'jobs_create', 'create_job']),
+  clientController.listRecruitmentForwardTargets,
+);
 router.get('/', requireAnyPermission(['clients_read']), clientController.getAll);
 router.get('/metrics', requireAnyPermission(['clients_read']), clientController.getMetrics);
 // Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.
@@ -24,6 +29,11 @@ router.get('/:id', requireAnyPermission(['clients_read']), clientController.getB
 router.get('/:clientId/activities', requireAnyPermission(['clients_read']), clientController.getActivities);
 router.post('/', requireAnyPermission(['clients_create']), clientController.create);
 router.patch('/:id', requireAnyPermission(['clients_update']), clientController.update);
+router.post(
+  '/:id/send-to-recruitment',
+  requireAnyPermission(['clients_update', 'clients_create', 'jobs_create', 'create_job']),
+  clientController.sendToRecruitment,
+);
 router.delete('/:id', requireAnyPermission(['clients_delete']), clientController.delete);
 
 // Notes routes

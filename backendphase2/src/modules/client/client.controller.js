@@ -111,6 +111,24 @@ export const clientController = {
     }
   },
 
+  async listRecruitmentForwardTargets(req, res) {
+    try {
+      const data = await clientService.listRecruitmentForwardTargets(req);
+      sendResponse(res, 200, 'OK', data);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async sendToRecruitment(req, res) {
+    try {
+      const client = await clientService.sendToRecruitment(req.params.id, req);
+      sendResponse(res, 200, 'Client sent to Recruitment', client);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async delete(req, res) {
     try {
       const result = await clientService.delete(req.params.id, req.user?.id, req);
@@ -335,7 +353,7 @@ export const clientController = {
       const members = await listCrmAssigneeCandidates(req.user.id, { req });
       sendResponse(res, 200, 'Assignable members retrieved', members);
     } catch (error) {
-      sendError(res, 500, error.message, error);
+      sendError(res, error?.statusCode === 403 ? 403 : 500, error.message, error);
     }
   },
 };

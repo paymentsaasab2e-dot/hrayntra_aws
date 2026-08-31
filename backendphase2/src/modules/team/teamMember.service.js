@@ -10,6 +10,8 @@ import {
 import { sendCredentialInvite, sendPasswordResetEmail } from '../../utils/emailService.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
+import { sessionService } from '../session/session.service.js';
+import { userService } from '../user/user.service.js';
 import { assertCanCreateUser } from '../setting/planAccess.service.js';
 import {
   mergeOrgCompanyUserScope,
@@ -967,5 +969,129 @@ export const teamMemberService = {
       where: { userId },
       orderBy: { createdAt: 'desc' },
     });
+  },
+
+  /**
+   * Tenant Super Admin opens a team member account without logging them out
+   * or replacing their active session.
+   */
+  async impersonateMember(memberId, actorUser) {
+    if (!isSuperAdminUser({ user: actorUser })) {
+      const err = new Error('Only the company Super Admin can open a team member account.');
+      err.statusCode = 403;
+      throw err;
+    }
+    if (actorUser?.tenantImpersonation) {
+      const err = new Error('Leave the current member account before opening another.');
+      err.statusCode = 400;
+      throw err;
+    }
+    if (String(actorUser?.id || '') === String(memberId || '')) {
+      const err = new Error('You are already in this account.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const member = await prisma.user.findUnique({
+      where: { id: memberId },
+      include: {
+        credential: true,
+        systemRole: { select: { roleName: true, color: true } },
+      },
+    });
+    if (!member) {
+      const err = new Error('Team member not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (member.isActive === false || String(member.status || '').toUpperCase() === 'INACTIVE') {
+      const err = new Error('This team member is inactive.');
+      err.statusCode = 400;
+      throw err;
+    }
+    if (isSuperAdminUser({ user: member }) && String(member.id) !== String(actorUser.id)) {
+      const err = new Error('You cannot open another Super Admin account.');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const tenantDbName = String(getActiveTenantDbName() || actorUser?.tenantDbName || '').trim();
+    const permissionsPayload = await userService.getEffectivePermissions(member.id);
+    const roleName =
+      permissionsPayload?.roleName ||
+      member.systemRole?.roleName ||
+      member.role ||
+      'Member';
+    const memberName =
+      String(member.name || `${member.firstName || ''} ${member.lastName || ''}`).trim() ||
+      member.email;
+
+    const tokenResult = await sessionService.issueHqImpersonationTokens({
+      userId: member.id,
+      tokenPayload: {
+        userId: member.id,
+        email: member.email,
+        role: member.role,
+        roleName,
+        tenantDbName: tenantDbName || undefined,
+        tenantImpersonation: true,
+        impersonatedByUserId: actorUser.id,
+        impersonatedByEmail: actorUser.email,
+      },
+      refreshPayload: {
+        userId: member.id,
+        email: member.email,
+        role: member.role,
+        roleName,
+        tenantDbName: tenantDbName || undefined,
+        tenantImpersonation: true,
+        impersonatedByUserId: actorUser.id,
+      },
+      deviceMeta: {
+        browserInfo: 'Tenant Super Admin access',
+        deviceType: 'admin-impersonation',
+        operatingSystem: '',
+        deviceId: `impersonate:${actorUser.id}`,
+        location: '',
+      },
+      hqActorEmail: actorUser.email,
+      auditAction: 'TENANT_IMPERSONATION_LOGIN',
+    });
+
+    await prisma.userActivity.create({
+      data: {
+        userId: actorUser.id,
+        action: `Opened ${memberName}'s account`,
+        module: 'Team',
+        metadata: { memberId: member.id, impersonation: true },
+      },
+    }).catch(() => null);
+
+    return {
+      accessToken: tokenResult.accessToken,
+      refreshToken: tokenResult.refreshToken,
+      tenantDbName,
+      user: {
+        id: member.id,
+        name: memberName,
+        firstName: member.firstName,
+        lastName: member.lastName,
+        email: member.email,
+        role: member.role,
+        roleName,
+        roleColor: member.systemRole?.color || '',
+        loginId: member.credential?.loginId || member.email,
+        designation: member.designation || '',
+        avatar: member.avatar || null,
+      },
+      permissions: permissionsPayload?.permissions || [],
+      impersonation: {
+        memberId: member.id,
+        memberName,
+        memberEmail: member.email,
+        actorId: actorUser.id,
+        actorName: String(actorUser.name || actorUser.email || 'Super Admin'),
+      },
+    };
   },
 };

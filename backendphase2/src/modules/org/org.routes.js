@@ -7,6 +7,8 @@ const router = express.Router();
 
 router.use(authMiddleware, attachUserPermissions);
 
+router.get('/assign-companies', orgController.assignCompanies);
+
 // Organization is an admin screen: only explicit org-structure permission (or
 // Super Admin, handled inside requireAnyPermission) may read it. `view_team` /
 // `view_dashboard` used to be enough, which showed the tab to almost everyone.

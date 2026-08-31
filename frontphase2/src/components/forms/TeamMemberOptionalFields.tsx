@@ -11,6 +11,7 @@ import {
   normalizeTeamMemberList,
 } from '../../lib/teamMemberFormDetails';
 import { CountryDialPhoneInput } from './CountryDialPhoneInput';
+import { CONTACT_PERSON_ROW_GRID } from './DirectorContactFields';
 
 export type TeamMemberOptionalFieldsProps = {
   members: TeamMemberListItem[];
@@ -52,7 +53,7 @@ export function TeamMemberOptionalFields({
     index: number,
     patch: Partial<TeamMemberListItem>,
   ) => {
-    const next = normalizeTeamMemberList(normalizedMembers).map((member, memberIndex) =>
+    const next = normalizedMembers.map((member, memberIndex) =>
       memberIndex === index ? { ...member, ...patch } : member,
     );
     onChange(next);
@@ -77,12 +78,12 @@ export function TeamMemberOptionalFields({
         {normalizedMembers.map((member, index) => (
           <div
             key={member.id || `team-member-${index}`}
-            className="flex flex-wrap items-center gap-2"
+            className={CONTACT_PERSON_ROW_GRID}
           >
             <select
               value={member.teamMemberSalutation ?? ''}
               onChange={(e) => updateMember(index, { teamMemberSalutation: e.target.value })}
-              className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              className="w-[5.75rem] min-w-0 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 sm:w-full"
               aria-label={`Team member ${index + 1} salutation`}
             >
               {NAME_SALUTATION_OPTIONS.map((opt) => (
@@ -105,44 +106,48 @@ export function TeamMemberOptionalFields({
                   teamMemberDesignation: name,
                 });
               }}
-              className="min-w-[7rem] flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              className="w-full min-w-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               placeholder="Team member name"
+              size={1}
             />
             <input
               type="email"
               value={member.teamMemberEmail ?? ''}
               onChange={(e) => updateMember(index, { teamMemberEmail: e.target.value })}
-              className="min-w-[8rem] flex-[1.2] rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              className="w-full min-w-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               placeholder="Email"
+              size={1}
             />
             <CountryDialPhoneInput
               value={member.teamMemberPhone ?? ''}
               onChange={(fullPhone) => updateMember(index, { teamMemberPhone: fullPhone })}
               countryCode={countryCode}
               countryName={countryName}
-              className="min-w-[9rem] flex-1"
+              className="w-full min-w-0"
               aria-label={`Team member ${index + 1} mobile number`}
             />
-            {index === normalizedMembers.length - 1 ? (
-              <button
-                type="button"
-                onClick={addMember}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
-                aria-label="Add team member"
-              >
-                <Plus size={16} />
-              </button>
-            ) : null}
-            {normalizedMembers.length > 1 ? (
-              <button
-                type="button"
-                onClick={() => removeMember(index)}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-                aria-label={`Remove team member ${index + 1}`}
-              >
-                <Trash2 size={16} />
-              </button>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-2">
+              {index === normalizedMembers.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={addMember}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+                  aria-label="Add team member"
+                >
+                  <Plus size={16} />
+                </button>
+              ) : null}
+              {normalizedMembers.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => removeMember(index)}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                  aria-label={`Remove team member ${index + 1}`}
+                >
+                  <Trash2 size={16} />
+                </button>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>

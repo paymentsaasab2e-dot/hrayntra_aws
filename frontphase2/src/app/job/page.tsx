@@ -152,7 +152,8 @@ import {
   resolveJobCandidateStageFromMatchRow,
 } from '../../lib/jobAppliedMatches';
 import type { InterviewPanelMember } from '../../types/interview.types';
-import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { getAllTeamMembersForAssign, getAllTeamMembersForDirectory, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import {
@@ -1715,7 +1716,19 @@ export default function JobsPage() {
             setClientOptions([]);
           }
 
-          const members = await getAllTeamMembersForAssign();
+          let members = [];
+          try {
+            members = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined);
+          } catch {
+            members = [];
+          }
+          if (!members.length) {
+            try {
+              members = await getAllTeamMembersForDirectory();
+            } catch {
+              members = [];
+            }
+          }
           if (cancelled) return;
           const usersList = teamMembersToBackendUsers(members);
           const nextRecruiters = usersList
@@ -1727,7 +1740,19 @@ export default function JobsPage() {
 
         const [clientsRes, members] = await Promise.all([
           apiGetClients({ page: 1, limit: 500 }),
-          getAllTeamMembersForAssign(),
+          (async () => {
+            try {
+              const assigned = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined);
+              if (assigned.length) return assigned;
+            } catch {
+              /* fall through to directory */
+            }
+            try {
+              return await getAllTeamMembersForDirectory();
+            } catch {
+              return [];
+            }
+          })(),
         ]);
         if (cancelled) return;
 

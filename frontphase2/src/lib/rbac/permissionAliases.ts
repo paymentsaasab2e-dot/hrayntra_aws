@@ -8,6 +8,7 @@ const PERMISSION_ALIAS_GROUPS: string[][] = [
   ['candidates_update', 'edit_candidate'],
   ['candidates_delete', 'delete_candidate'],
   ['view_activity_log', 'reports_read'],
+  ['view_cross_company_members', 'VIEW_CROSS_COMPANY_MEMBERS'],
 ];
 
 const aliasLookup = new Map<string, Set<string>>();

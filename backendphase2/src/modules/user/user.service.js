@@ -104,6 +104,7 @@ export const userService = {
         email: u.email,
         role: u.role?.roleName || '',
         department: u.department?.name || null,
+        orgUnit: u.orgUnit || null,
         isActive: String(u.status || '').toUpperCase() !== 'INACTIVE',
         status: u.status,
       }));

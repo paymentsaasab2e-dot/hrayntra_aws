@@ -4,9 +4,9 @@ import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../utils/superAd
 import { isDepartmentHeadUser } from './departmentRole.service.js';
 import { buildAssigneeVisibilityOr } from './memberVisibility.service.js';
 import {
+  applyOrgCompanyAssigneeWhere,
   getRequestOrgScope,
   isOrgHeadPurpose,
-  mergeOrgCompanyListScope,
 } from './orgListScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
@@ -41,37 +41,44 @@ export async function applyMemberClientScope(scopedWhere, req) {
     return scopedWhere;
   }
 
-  scopedWhere = await mergeOrgCompanyListScope(scopedWhere, req, {
+  const userId = idStr(req?.user?.id);
+  const orgWhere = await applyOrgCompanyAssigneeWhere(req, {
     assignedToIdField: 'assignedToId',
     createdByField: 'createdById',
   });
 
-  if (canViewAllClients(req) || !req?.user?.id) {
-    return scopedWhere;
+  if (canViewAllClients(req) || !userId) {
+    return mergeWhereWithScope(scopedWhere, orgWhere);
   }
+
+  const forwarded = {
+    AND: [{ recruitmentEnabled: true }, { participantIds: { has: userId } }],
+  };
 
   const org = await getRequestOrgScope(req);
   if (isOrgHeadPurpose(org)) {
-    return scopedWhere;
+    return mergeWhereWithScope(scopedWhere, {
+      OR: [orgWhere || { id: { not: undefined } }, forwarded],
+    });
   }
 
-  const userId = idStr(req.user.id);
-
+  let visibility = { OR: buildAssigneeVisibilityOr(userId) };
   if (await isDepartmentHeadUser(userId)) {
     const memberIds = await listActiveDepartmentMemberIds(userId);
     if (memberIds.length) {
-      return mergeWhereWithScope(scopedWhere, {
+      visibility = {
         OR: [
           { assignedToId: { in: memberIds } },
           { createdById: userId },
           { participantIds: { has: userId } },
         ],
-      });
+      };
     }
   }
 
+  const inCompany = orgWhere ? { AND: [orgWhere, visibility] } : visibility;
   return mergeWhereWithScope(scopedWhere, {
-    OR: buildAssigneeVisibilityOr(userId),
+    OR: [inCompany, forwarded],
   });
 }
 

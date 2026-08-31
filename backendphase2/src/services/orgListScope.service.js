@@ -1,8 +1,16 @@
-import { resolveViewerOrgScope } from '../modules/org/org.service.js';
-import { mergeWhereWithScope } from '../utils/superAdminScope.js';
+import {
+  ACTIVE_ORG_COMPANY_WHERE,
+  collectDescendantIds,
+  resolveViewerOrgScope,
+} from '../modules/org/org.service.js';
+import { mergeWhereWithScope, isSuperAdminUser } from '../utils/superAdminScope.js';
+import { hasPermission } from '../utils/permissionScope.js';
 import { prisma } from '../config/prisma.js';
 
 const NONE = '000000000000000000000000';
+
+export const VIEW_CROSS_COMPANY_MEMBERS = 'view_cross_company_members';
+export const VIEW_CROSS_COMPANY_MEMBERS_ALIAS = 'VIEW_CROSS_COMPANY_MEMBERS';
 
 export async function getRequestOrgScope(req) {
   try {
@@ -20,6 +28,59 @@ export function isOrgHeadPurpose(scope) {
 /** Super Admin / tenant HQ has picked a company, or a company admin is forced onto one. */
 export function isOrgCompanyScoped(scope) {
   return Boolean(scope && !scope.isTenantWide && scope.orgUnitId);
+}
+
+/** Super Admin, or a role granted View Members Across Companies (same tenant only). */
+export function canViewCrossCompanyMembers(req) {
+  if (!req) return false;
+  return Boolean(
+    isSuperAdminUser(req) ||
+      hasPermission(req, VIEW_CROSS_COMPANY_MEMBERS) ||
+      hasPermission(req, VIEW_CROSS_COMPANY_MEMBERS_ALIAS),
+  );
+}
+
+/** @deprecated use canViewCrossCompanyMembers(req) */
+export function canAssignAcrossOrgUnits(scope) {
+  return Boolean(scope?.canSwitchCompanies);
+}
+
+export function requestedAssignCompanyId(req) {
+  return String(req?.query?.companyId || req?.query?.orgUnitId || '').trim();
+}
+
+/**
+ * Companies in this tenant for Super Admin / cross-company assignment pickers.
+ * Never returns units from another tenant (tenant DB isolation).
+ */
+export async function listAssignableCompanies(req) {
+  if (!canViewCrossCompanyMembers(req)) return [];
+  const companies = await prisma.orgUnit.findMany({
+    where: ACTIVE_ORG_COMPANY_WHERE,
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, isLeaf: true },
+  });
+  return companies.map((unit) => ({
+    id: String(unit.id),
+    name: unit.name,
+    kind: 'company',
+  }));
+}
+
+/** Reject company ids that do not exist in the current tenant database. */
+export async function assertTenantOrgUnitId(unitId) {
+  const id = String(unitId || '').trim();
+  if (!id) return null;
+  const unit = await prisma.orgUnit.findFirst({
+    where: { id, status: 'active' },
+    select: { id: true },
+  });
+  if (!unit) {
+    const err = new Error('Forbidden');
+    err.statusCode = 403;
+    throw err;
+  }
+  return String(unit.id);
 }
 
 /**
@@ -62,6 +123,70 @@ function untaggedOrgUnitClause(orgUnitField, hqRootId) {
   return { OR: parts };
 }
 
+async function userWhereForUnit(unitId, { includeUntagged = false } = {}) {
+  const unitIds = await collectDescendantIds(unitId);
+  const ids = unitIds.length ? unitIds.map(String) : [NONE];
+  const or = [{ orgUnitId: { in: ids } }];
+  if (includeUntagged) {
+    let hqRootId = null;
+    try {
+      const root = await prisma.orgUnit.findFirst({
+        where: { parentId: null },
+        select: { id: true },
+      });
+      hqRootId = root ? String(root.id) : null;
+    } catch {
+      hqRootId = null;
+    }
+    or.push(untaggedOrgUnitClause('orgUnitId', hqRootId));
+  }
+  return { OR: or };
+}
+
+function emptyUserWhere() {
+  return { id: { in: [NONE] } };
+}
+
+/** Label assignable people with company/branch when the tenant has more than one company. */
+export async function labelUsersWithOrgUnit(members) {
+  if (!Array.isArray(members) || members.length === 0) return members;
+
+  const ids = [
+    ...new Set(members.map((m) => m.orgUnitId).filter(Boolean).map(String)),
+  ];
+  if (!ids.length) return members;
+
+  const [units, companyCount] = await Promise.all([
+    prisma.orgUnit.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, isLeaf: true },
+    }),
+    prisma.orgUnit.count({
+      where: ACTIVE_ORG_COMPANY_WHERE,
+    }),
+  ]);
+  const byId = new Map(units.map((u) => [String(u.id), u]));
+  const showCompany = companyCount > 1;
+
+  return members.map((member) => {
+    const unit = member.orgUnitId ? byId.get(String(member.orgUnitId)) : null;
+    const orgUnit = unit
+      ? {
+          id: String(unit.id),
+          name: unit.name,
+          kind: unit.isLeaf ? 'branch' : 'company',
+        }
+      : null;
+    const alreadyLabeled =
+      orgUnit?.name && String(member.name || '').includes(orgUnit.name);
+    const name =
+      showCompany && orgUnit?.name && !alreadyLabeled
+        ? `${member.name} · ${orgUnit.name}`
+        : member.name;
+    return { ...member, name, orgUnit };
+  });
+}
+
 /**
  * Restrict lists to the active company/site tree.
  * Primary filter: record.orgUnitId in selected unit + descendants.
@@ -82,7 +207,6 @@ export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
   const unitIds = scope.unitIds?.length ? scope.unitIds.map(String) : [NONE];
   const memberIds = scope.memberIds?.length ? scope.memberIds.map(String) : [];
   const companyCount = Array.isArray(scope.companies) ? scope.companies.length : 0;
-  // Forced company/site heads don't get the companies list — they still have one home.
   const onlyOneCompany = companyCount <= 1;
 
   let hqRootId = null;
@@ -103,7 +227,6 @@ export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
   }
 
   if (orgUnitField && onlyOneCompany) {
-    // Single-company tenant: all leftover HQ / untagged CRM rows show here.
     or.push(untaggedOrgUnitClause(orgUnitField, hqRootId));
   } else if (orgUnitField && memberIds.length) {
     const peopleOr = buildPeopleOr(memberIds, peopleOptions);
@@ -132,20 +255,53 @@ export async function mergeOrgCompanyListScope(where, req, options) {
 }
 
 /**
- * Restrict a user (team member) list to the active company/site tree.
- * Users carry the same orgUnitId that CRM rows do, so Team follows the company
- * selector exactly like Leads/Clients/Jobs.
- * Single-company tenants also see users who were never stamped, otherwise an
- * empty company stays empty until people are assigned to it.
+ * Restrict a user (team member) list to one company in this tenant.
+ *
+ * Assignment (forAssign):
+ *   - Normal users: always their home company (query companyId is ignored).
+ *   - Super Admin / view_cross_company_members: members of the requested
+ *     company only. No companyId → empty list (UI must pick a company first).
+ *
+ * Team directory:
+ *   - Without the cross-company permission: home company only.
+ *   - Super Admin / cross-company: follow the workspace company selector.
  */
-export async function applyOrgCompanyUserWhere(req) {
+export async function applyOrgCompanyUserWhere(req, { forAssign = false } = {}) {
   const scope = await getRequestOrgScope(req);
+  const cross = canViewCrossCompanyMembers(req);
+  const homeId = String(scope?.homeOrgUnitId || scope?.orgUnitId || '').trim();
+  const companyCount = Array.isArray(scope?.companies) ? scope.companies.length : 0;
+
+  if (forAssign) {
+    if (cross) {
+      const hasCompanies = Boolean(scope?.hasCompanies);
+      if (!hasCompanies) return null;
+      const requested = requestedAssignCompanyId(req);
+      if (!requested) return emptyUserWhere();
+      const unitId = await assertTenantOrgUnitId(requested);
+      return userWhereForUnit(unitId, { includeUntagged: false });
+    }
+    if (homeId) {
+      return userWhereForUnit(homeId, {
+        includeUntagged: companyCount <= 1 && !scope?.homeOrgUnitId,
+      });
+    }
+    const selfId = String(req?.user?.id || '').trim();
+    return { id: { in: selfId ? [selfId] : [NONE] } };
+  }
+
+  if (!cross) {
+    if (homeId) {
+      return userWhereForUnit(homeId, { includeUntagged: companyCount <= 1 });
+    }
+    const selfId = String(req?.user?.id || '').trim();
+    return { id: { in: selfId ? [selfId] : [NONE] } };
+  }
+
   if (!isOrgCompanyScoped(scope)) return null;
 
   const unitIds = scope.unitIds?.length ? scope.unitIds.map(String) : [NONE];
-  const companyCount = Array.isArray(scope.companies) ? scope.companies.length : 0;
   const or = [{ orgUnitId: { in: unitIds } }];
-
   if (companyCount <= 1) {
     let hqRootId = null;
     try {

@@ -9,6 +9,7 @@ import {
   apiGetLeadAssignableMembers,
   apiUpdateLead,
 } from '../lib/api';
+import { getActiveOrgUnitId } from '../lib/org/orgWorkspaceStorage';
 import { requestError, requestWarning } from '../lib/appDialog';
 import {
   buildFollowUpStatusRemark,
@@ -78,7 +79,7 @@ export function ScheduleMeetingForm({
     const load = async () => {
       setLoadingMembers(true);
       try {
-        const response = await apiGetLeadAssignableMembers();
+        const response = await apiGetLeadAssignableMembers(getActiveOrgUnitId() || undefined);
         const members = Array.isArray(response?.data) ? response.data : [];
         if (!cancelled) {
           setTeamMembers(

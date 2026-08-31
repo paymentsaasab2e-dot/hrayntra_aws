@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown, ArrowRightLeft, RefreshCcw } from 'lucide-react';
+import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown, ArrowRightLeft, RefreshCcw, Send } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../constants/tableUi';
 import { TableBrandAvatar } from './ui/TableBrandAvatar';
 import type { Client } from '@/app/client/types';
@@ -28,6 +28,9 @@ interface ClientTableProps {
   onCreateJob?: (client: Client) => void;
   /** When false, the "Create job" button is rendered disabled with a permission tooltip. */
   canCreateJob?: boolean;
+  canSendToRecruitment?: boolean;
+  sendingToRecruitmentIds?: string[];
+  onSendToRecruitment?: (client: Client) => void;
   /** @deprecated Prefer passing `onHandoffClient` only when the user may hand off. */
   canHandoffClient?: boolean;
   /** When provided, shows the hand-off action in the row toolbar. */
@@ -81,6 +84,9 @@ export function ClientTable({
   onLogoUpdated,
   onCreateJob,
   canCreateJob = true,
+  canSendToRecruitment = false,
+  sendingToRecruitmentIds = [],
+  onSendToRecruitment,
   onHandoffClient,
   getClientHandoffStatus,
   clientStatusOptions = [],
@@ -286,6 +292,11 @@ export function ClientTable({
                       >
                         {client.name}
                       </button>
+                      {client.recruitmentEnabled ? (
+                        <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                          In Recruitment
+                        </span>
+                      ) : null}
                       {(() => {
                         const handoff = getClientHandoffStatus?.(client.id);
                         if (!handoff || handoff.status === 'none') return null;
@@ -458,6 +469,35 @@ export function ClientTable({
                         title="Edit Client"
                       >
                         <Pencil size={15} strokeWidth={2.35} />
+                      </button>
+                    ) : null}
+                    {onSendToRecruitment ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!canSendToRecruitment) return;
+                          onSendToRecruitment(client);
+                        }}
+                        disabled={
+                          !canSendToRecruitment || sendingToRecruitmentIds.includes(client.id)
+                        }
+                        className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all ${
+                          client.recruitmentEnabled
+                            ? 'text-sky-500 hover:bg-white hover:text-sky-800 hover:shadow-sm'
+                            : canSendToRecruitment
+                              ? 'text-sky-600 hover:bg-white hover:text-sky-800 hover:shadow-sm'
+                              : 'cursor-not-allowed text-slate-300'
+                        }`}
+                        title={
+                          !canSendToRecruitment
+                            ? "You don't have permission to send clients to Recruitment"
+                            : client.recruitmentEnabled
+                              ? 'Forward to more members in Recruitment'
+                              : 'Send to Recruitment'
+                        }
+                        aria-disabled={!canSendToRecruitment}
+                      >
+                        <Send size={15} strokeWidth={2.35} />
                       </button>
                     ) : null}
                     <button

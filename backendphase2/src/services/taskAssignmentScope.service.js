@@ -5,6 +5,7 @@ import {
   hqPlatformUserEmailNotClause,
   isHqPlatformUser,
 } from '../utils/hqPlatformUser.js';
+import { labelUsersWithOrgUnit, applyOrgCompanyUserWhere, canViewCrossCompanyMembers, requestedAssignCompanyId } from './orgListScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -17,6 +18,7 @@ const memberSelect = {
   departmentId: true,
   roleId: true,
   status: true,
+  orgUnitId: true,
   systemRole: {
     select: {
       id: true,
@@ -50,6 +52,7 @@ function normalizeMember(user) {
     status: user.status,
     role: user.systemRole || null,
     department: user.departmentRelation || null,
+    orgUnitId: user.orgUnitId || null,
   };
 }
 
@@ -72,9 +75,9 @@ export async function isSuperAdminUserId(userId) {
  * - self (personal tasks)
  * - direct reports in the same department (Reports To = actor)
  * - same department members with a lower rank (higher rank number)
- * Super Admin: all active users
+ * Super Admin / view_cross_company_members: active members of the selected company
  */
-export async function listTaskAssigneeCandidates(actorUserId) {
+export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {}) {
   if (!actorUserId) return [];
 
   const actor = await prisma.user.findUnique({
@@ -83,17 +86,29 @@ export async function listTaskAssigneeCandidates(actorUserId) {
   });
   if (!actor || actor.status !== 'ACTIVE') return [];
 
-  if (await isSuperAdminUserId(actorUserId)) {
+  const orgWhere = req ? await applyOrgCompanyUserWhere(req, { forAssign: true }) : null;
+  const crossCompany = Boolean(req && canViewCrossCompanyMembers(req));
+
+  if (crossCompany && !requestedAssignCompanyId(req)) {
+    return [];
+  }
+
+  if ((await isSuperAdminUserId(actorUserId)) || crossCompany) {
     const all = await prisma.user.findMany({
       where: {
-        status: 'ACTIVE',
-        isActive: true,
-        ...hqPlatformUserEmailNotClause(),
+        AND: [
+          { status: 'ACTIVE' },
+          { isActive: true },
+          hqPlatformUserEmailNotClause(),
+          ...(orgWhere ? [orgWhere] : []),
+        ].filter((clause) => clause && Object.keys(clause).length),
       },
       select: memberSelect,
       orderBy: { firstName: 'asc' },
     });
-    return excludeHqPlatformUsers(all).map(normalizeMember).filter(Boolean);
+    return labelUsersWithOrgUnit(
+      excludeHqPlatformUsers(all).map(normalizeMember).filter(Boolean),
+    );
   }
 
   const actorDeptId = idStr(actor.departmentId);
@@ -101,15 +116,20 @@ export async function listTaskAssigneeCandidates(actorUserId) {
   byId.set(actor.id, normalizeMember(actor));
 
   if (!actorDeptId) {
-    return [normalizeMember(actor)].filter(Boolean);
+    return labelUsersWithOrgUnit([normalizeMember(actor)].filter(Boolean));
   }
+
+  const deptWhere = {
+    departmentId: actorDeptId,
+    status: 'ACTIVE',
+    isActive: true,
+    ...(orgWhere || {}),
+  };
 
   const directReports = await prisma.user.findMany({
     where: {
       managerId: actorUserId,
-      departmentId: actorDeptId,
-      status: 'ACTIVE',
-      isActive: true,
+      ...deptWhere,
     },
     select: memberSelect,
   });
@@ -122,11 +142,7 @@ export async function listTaskAssigneeCandidates(actorUserId) {
     const actorRank = await getDepartmentRoleRank(actorDeptId, actorRoleId);
     if (actorRank != null) {
       const lowerRankMembers = await prisma.user.findMany({
-        where: {
-          departmentId: actorDeptId,
-          status: 'ACTIVE',
-          isActive: true,
-        },
+        where: deptWhere,
         select: memberSelect,
       });
 
@@ -139,16 +155,18 @@ export async function listTaskAssigneeCandidates(actorUserId) {
     }
   }
 
-  return [...byId.values()]
-    .filter(
-      (member) =>
-        idStr(member.id) === idStr(actorUserId) || idStr(member.departmentId) === actorDeptId,
-    )
-    .sort((a, b) => {
-      const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim() || a.name || '';
-      const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim() || b.name || '';
-      return nameA.localeCompare(nameB);
-    });
+  return labelUsersWithOrgUnit(
+    [...byId.values()]
+      .filter(
+        (member) =>
+          idStr(member.id) === idStr(actorUserId) || idStr(member.departmentId) === actorDeptId,
+      )
+      .sort((a, b) => {
+        const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim() || a.name || '';
+        const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim() || b.name || '';
+        return nameA.localeCompare(nameB);
+      }),
+  );
 }
 
 export async function canAssignTaskTo(actorUserId, assigneeUserId) {

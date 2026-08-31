@@ -50,9 +50,10 @@ export function createEmptyTeamMember(id?: string): TeamMemberListItem {
 function normalizeTeamMemberItem(
   member?: TeamMemberListItem | null | undefined,
 ): TeamMemberListItem {
-  const name =
-    String(member?.teamMemberName ?? '').trim() ||
-    String(member?.teamMemberDesignation ?? '').trim();
+  const rawName = String(member?.teamMemberName ?? '');
+  const rawDesignation = String(member?.teamMemberDesignation ?? '');
+  // Do not trim while editing — trailing spaces are needed to type "First Last".
+  const name = rawName.length > 0 ? rawName : rawDesignation;
   return {
     id: member?.id,
     teamMemberSalutation: String(member?.teamMemberSalutation ?? ''),

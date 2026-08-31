@@ -51,6 +51,7 @@ import {
   apiConnectIntegration,
   apiDisconnectIntegration,
   apiGetJobApplyLink,
+  apiListLinkedInPostTemplates,
   type SocialPublishingAccount,
   getTenantDbName,
   getCachedOrgRecruitmentMode,
@@ -71,6 +72,7 @@ import {
   replaceApplyUrlInSocialPostText,
   buildLinkedInJobPost,
   buildTwitterJobPost,
+  buildFacebookJobPost,
   LINKEDIN_POST_MAX_LENGTH,
   type JobSocialPostInput,
 } from '../../lib/jobSocialPost';
@@ -90,6 +92,12 @@ import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '../../lib/jobVisibilityUserDefaults';
+import { filterClientsForAddJob } from '../../lib/recruitmentClients';
+import {
+  getStoredTenantCompanyName,
+  resolveAddJobWorkspaceLabel,
+  useOrgWorkspace,
+} from '../../lib/org/useOrgWorkspace';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 import { ApplicationFormBuilderModal } from '../jobs/ApplicationFormBuilderModal';
 import { LinkedInPostTemplateModal } from '../jobs/LinkedInPostTemplateModal';
@@ -101,8 +109,10 @@ import {
   type ApplicationFormSchema,
 } from '../../lib/applicationFormTypes';
 import {
-  linkedInTemplateToPublicVisibility,
   normalizeLinkedInPostTemplateSchema,
+  parseLinkedInPostTemplateList,
+  pickDefaultLinkedInPostTemplate,
+  rememberLinkedInTemplateId,
   type JobLinkedInPostTemplate,
   type LinkedInPostTemplateSection,
 } from '../../lib/jobLinkedInPostTemplate';
@@ -115,9 +125,7 @@ import {
   mergeClientVisibility,
   parseJobPublicFieldVisibility,
   buildPublicFieldVisibilityPayload,
-  toggleJobPublicFieldVisibility,
 } from '../../lib/jobPublicFieldVisibility';
-import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
 import {
   DrawerSectionCard,
   DRAWER_FORM_HEADER_CLASS,
@@ -889,6 +897,12 @@ export function CreateJobDrawer({
   const isDuplicateMode = !jobId && !!duplicateFromJobId;
   const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
   const useLineManagerPicker = (isStandaloneMode || !!prefillFromRequest) && !isEditMode;
+  const {
+    hasCompanies,
+    orgUnitName,
+    orgUnitId,
+    homeIsOrgCompany,
+  } = useOrgWorkspace();
   const [loading, setLoading] = useState(false);
   const [loadingJob, setLoadingJob] = useState(false);
   const [clients, setClients] = useState<BackendClient[]>([]);
@@ -979,6 +993,7 @@ export function CreateJobDrawer({
   const [uploadingLinkedInImage, setUploadingLinkedInImage] = useState(false);
   const linkedInImageUploadFeedback = useDocumentUploadFeedback(uploadingLinkedInImage);
   const [twitterPostTextTouched, setTwitterPostTextTouched] = useState(false);
+  const [facebookCaptionTouched, setFacebookCaptionTouched] = useState(false);
   const [applicationApplyUrl, setApplicationApplyUrl] = useState('');
   const [applicationApplyUrlLoading, setApplicationApplyUrlLoading] = useState(false);
   const [showLinkedInSuccess, setShowLinkedInSuccess] = useState(false);
@@ -1313,6 +1328,7 @@ export function CreateJobDrawer({
       setLinkedInImageUrl('');
       setUploadingLinkedInImage(false);
       setTwitterPostTextTouched(false);
+      setFacebookCaptionTouched(false);
       setApplicationApplyUrl('');
       setApplicationApplyUrlLoading(false);
       setShowLinkedInTemplateModal(false);
@@ -1441,6 +1457,36 @@ export function CreateJobDrawer({
       void loadData();
     }
   }, [isOpen, jobId, duplicateFromJobId, useLineManagerPicker, prefillFromRequest?.requestedById]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void apiListLinkedInPostTemplates()
+      .then((res) => {
+        if (cancelled) return;
+        const match = pickDefaultLinkedInPostTemplate(parseLinkedInPostTemplateList(res));
+        if (!match) {
+          setSelectedLinkedInTemplateId(null);
+          setSelectedLinkedInTemplateName(null);
+          setLinkedInPostSections(null);
+          return;
+        }
+        const schema = normalizeLinkedInPostTemplateSchema(match.schema);
+        setSelectedLinkedInTemplateId(match.id);
+        setSelectedLinkedInTemplateName(match.name);
+        setLinkedInPostSections(schema.sections);
+        rememberLinkedInTemplateId(match.id);
+        setLinkedInPostTextTouched(false);
+        setTwitterPostTextTouched(false);
+        setFacebookCaptionTouched(false);
+      })
+      .catch(() => {
+        /* no saved templates — social posts follow Public Visibility */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   const mapIntegrationAccounts = useCallback(
     (accounts: Array<Record<string, unknown>> = []): SocialPublishingAccount[] =>
@@ -1641,6 +1687,11 @@ export function CreateJobDrawer({
     [socialPostInput],
   );
 
+  const generatedFacebookPost = useMemo(
+    () => buildFacebookJobPost(socialPostInput),
+    [socialPostInput],
+  );
+
   /** When a field is hidden from public, social posts must drop it immediately. */
   const publicVisibilitySignature = useMemo(
     () =>
@@ -1656,8 +1707,13 @@ export function CreateJobDrawer({
     if (!formData.jobTitle || !formData.companyId) return;
     setLinkedInPostText(generatedLinkedInPost);
     setLinkedInPostTextTouched(false);
-    setFormData((prev) => ({ ...prev, twitterTweetText: generatedTwitterPost }));
+    setFormData((prev) => ({
+      ...prev,
+      twitterTweetText: generatedTwitterPost,
+      facebookCaption: generatedFacebookPost,
+    }));
     setTwitterPostTextTouched(false);
+    setFacebookCaptionTouched(false);
     // Only react to visibility toggles — form field edits keep the existing sync effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: visibility-only
   }, [publicVisibilitySignature]);
@@ -1695,22 +1751,8 @@ export function CreateJobDrawer({
     if (!twitterPostTextTouched) {
       setFormData((prev) => ({ ...prev, twitterTweetText: generatedTwitterPost }));
     }
-    if (!formData.facebookCaption) {
-      const company = clients.find((c) => c.id === formData.companyId);
-      const companyName = company?.companyName || '';
-      const showClient = isJobFieldPubliclyVisible(
-        formData.publicFieldVisibility,
-        'client',
-        formData.showClientNamePublicly,
-      );
-      const showTitle = isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobTitle');
-      const titleLabel = showTitle ? formData.jobTitle : 'a new role';
-      setFormData((prev) => ({
-        ...prev,
-        facebookCaption: showClient
-          ? `Join our team! We're looking for ${titleLabel} at ${companyName}. Apply: ${effectiveApplyUrl}`
-          : `Join our team! We're looking for ${titleLabel}. Apply: ${effectiveApplyUrl}`,
-      }));
+    if (!facebookCaptionTouched) {
+      setFormData((prev) => ({ ...prev, facebookCaption: generatedFacebookPost }));
     }
   }, [
     clients,
@@ -1718,13 +1760,14 @@ export function CreateJobDrawer({
     formData.companyId,
     formData.jobTitle,
     formData.linkedInJobTitle,
-    formData.facebookCaption,
     formData.publicFieldVisibility,
     formData.showClientNamePublicly,
     generatedLinkedInPost,
     generatedTwitterPost,
+    generatedFacebookPost,
     linkedInPostTextTouched,
     twitterPostTextTouched,
+    facebookCaptionTouched,
   ]);
 
   // Auto-populate LinkedIn Description from rich text editor
@@ -3460,36 +3503,31 @@ export function CreateJobDrawer({
           }
 
           const previewApplyUrl = buildCandidatePortalApplyUrlPreview(getTenantDbName());
-          // When a LinkedIn post template is applied, always rebuild from its section
-          // sequence so the published post matches the template order/visibility.
+          const postInput = {
+            ...socialPostInput,
+            applyUrl,
+            linkedInPostSections,
+          };
           const linkedInPublishText = replaceApplyUrlInSocialPostText(
-            linkedInPostSections
-              ? buildLinkedInJobPost({
-                  ...socialPostInput,
-                  applyUrl,
-                  linkedInPostSections,
-                })
-              : (linkedInPostText || '').trim() ||
-                  buildLinkedInJobPost({
-                    ...socialPostInput,
-                    applyUrl,
-                  }),
+            linkedInPostTextTouched && (linkedInPostText || '').trim()
+              ? linkedInPostText
+              : buildLinkedInJobPost(postInput),
             applyUrl,
             previewApplyUrl,
           );
           const twitterPublishText = replaceApplyUrlInSocialPostText(
-            (formData.twitterTweetText || '').trim() ||
-              buildTwitterJobPost({
-                ...socialPostInput,
-                applyUrl,
-              }),
+            twitterPostTextTouched && (formData.twitterTweetText || '').trim()
+              ? formData.twitterTweetText
+              : buildTwitterJobPost(postInput),
             applyUrl,
             previewApplyUrl,
           );
           const showTitle = isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobTitle');
           const showLocation = isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'location');
           const resolvedFacebookPostText = replaceApplyUrlInSocialPostText(
-            formData.facebookCaption,
+            facebookCaptionTouched && (formData.facebookCaption || '').trim()
+              ? formData.facebookCaption
+              : buildFacebookJobPost(postInput),
             applyUrl,
             previewApplyUrl,
           );
@@ -3744,9 +3782,24 @@ export function CreateJobDrawer({
     [clients],
   );
   const crmClients = useMemo(
-    () => clients.filter((client) => !isOwnCompanyWorkspaceClient(client)),
-    [clients],
+    () =>
+      filterClientsForAddJob(
+        clients.filter((client) => !isOwnCompanyWorkspaceClient(client)),
+        { includeIds: [defaultClientId, formData.companyId] },
+      ),
+    [clients, defaultClientId, formData.companyId],
   );
+  const jobWorkspaceLabel = resolveAddJobWorkspaceLabel({
+    hasCompanies,
+    orgUnitName,
+    orgUnitId,
+    homeIsOrgCompany,
+    companyName: ownCompanyClient?.companyName || getStoredTenantCompanyName(),
+  });
+  const ownCompanyDisplayName = jobWorkspaceLabel.displayName;
+  const workspaceOwnerHeading = jobWorkspaceLabel.useOrganizationLabel
+    ? 'Organization'
+    : 'Company';
 
   const jobDetailsFormData: CreateJobDetailsFormData = {
     nationality: formData.nationality,
@@ -3905,7 +3958,7 @@ export function CreateJobDrawer({
                             Own company
                           </span>
                           <span className="block truncate text-sm font-semibold text-slate-900">
-                            {ownCompanyClient.companyName || 'Your organization'}
+                            {ownCompanyDisplayName}
                           </span>
                           <span className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
                             <Users className="h-3.5 w-3.5 shrink-0 text-[#2098C8]" />
@@ -4061,21 +4114,6 @@ export function CreateJobDrawer({
                           <span className="font-normal text-slate-500">(optional)</span>
                         </h3>
                         <div className="flex flex-wrap items-center gap-2">
-                          <PublicVisibilityToggle
-                            visible={isJobFieldPubliclyVisible(
-                              formData.publicFieldVisibility,
-                              'jobDescription',
-                            )}
-                            onToggle={() =>
-                              setFormData((prev) => ({
-                                ...prev,
-                                publicFieldVisibility: toggleJobPublicFieldVisibility(
-                                  parseJobPublicFieldVisibility(prev.publicFieldVisibility),
-                                  'jobDescription',
-                                ),
-                              }))
-                            }
-                          />
                           <button
                             type="button"
                             onClick={() => smartJobFileInputRef.current?.click()}
@@ -4166,7 +4204,14 @@ export function CreateJobDrawer({
                     <CreateJobDetailsForm
                       formData={jobDetailsFormData}
                       setFormData={patchJobDetailsForm}
-                      clients={clients}
+                      clients={
+                        ownCompanyClient
+                          ? [
+                              ownCompanyClient,
+                              ...crmClients.filter((client) => client.id !== ownCompanyClient.id),
+                            ]
+                          : crmClients
+                      }
                       users={users}
                       contacts={contacts}
                       loadingClients={loadingClients}
@@ -4179,12 +4224,9 @@ export function CreateJobDrawer({
                       onAddSkill={addSkill}
                       onRemoveSkill={removeSkill}
                       hideCompanyField={isStandaloneMode}
-                      standaloneWorkspaceName={
-                        isStandaloneMode
-                          ? clients.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ||
-                            'Your organization'
-                          : undefined
-                      }
+                      standaloneWorkspaceName={isStandaloneMode ? ownCompanyDisplayName : undefined}
+                      ownCompanyDisplayName={ownCompanyDisplayName}
+                      workspaceOwnerHeading={workspaceOwnerHeading}
                       useLineManagerPicker={useLineManagerPicker}
                       lineManagerOptions={lineManagers}
                       loadingLineManagers={loadingLineManagers}
@@ -4193,7 +4235,11 @@ export function CreateJobDrawer({
                     <CreateJobPhase1Preview
                       form={jobDetailsFormData}
                       companyName={
-                        clients.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ?? null
+                        ownCompanyClient &&
+                        jobDetailsFormData.companyId === ownCompanyClient.id
+                          ? ownCompanyDisplayName
+                          : clients.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ??
+                            null
                       }
                       jobDescriptionHtml={formData.jobDescriptionHtml}
                       users={users}
@@ -4684,8 +4730,8 @@ export function CreateJobDrawer({
                               <div className="min-w-0">
                                 <p className="text-sm font-semibold text-slate-900">Post templates</p>
                                 <p className="mt-0.5 text-xs text-slate-500">
-                                  Create multiple templates, edit existing ones, and drag sections into
-                                  the order used when posting to LinkedIn.
+                                  LinkedIn, X, and Facebook posts use this template. If you have not
+                                  created one, they follow Public Visibility by default.
                                 </p>
                                 {selectedLinkedInTemplateName ? (
                                   <p className="mt-1.5 text-xs font-medium text-blue-700">
@@ -4693,7 +4739,7 @@ export function CreateJobDrawer({
                                   </p>
                                 ) : (
                                   <p className="mt-1.5 text-xs text-slate-400">
-                                    Default section order (all visible)
+                                    No template yet — posting from Public Visibility
                                   </p>
                                 )}
                               </div>
@@ -4705,7 +4751,10 @@ export function CreateJobDrawer({
                                       setSelectedLinkedInTemplateId(null);
                                       setSelectedLinkedInTemplateName(null);
                                       setLinkedInPostSections(null);
+                                      rememberLinkedInTemplateId(null);
                                       setLinkedInPostTextTouched(false);
+                                      setTwitterPostTextTouched(false);
+                                      setFacebookCaptionTouched(false);
                                     }}
                                     className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                                   >
@@ -5139,7 +5188,10 @@ export function CreateJobDrawer({
                                 <label className="block text-sm font-medium text-slate-700 mb-2">Post caption</label>
                                 <textarea
                                   value={formData.facebookCaption}
-                                  onChange={(e) => setFormData(prev => ({ ...prev, facebookCaption: e.target.value }))}
+                                  onChange={(e) => {
+                                    setFacebookCaptionTouched(true);
+                                    setFormData((prev) => ({ ...prev, facebookCaption: e.target.value }));
+                                  }}
                                   rows={4}
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
                                 />
@@ -5711,16 +5763,13 @@ export function CreateJobDrawer({
         selectedTemplateId={selectedLinkedInTemplateId}
         onApply={(template: JobLinkedInPostTemplate) => {
           const schema = normalizeLinkedInPostTemplateSchema(template.schema);
-          const visibility = linkedInTemplateToPublicVisibility(schema);
           setSelectedLinkedInTemplateId(template.id);
           setSelectedLinkedInTemplateName(template.name);
           setLinkedInPostSections(schema.sections);
-          setFormData((prev) => ({
-            ...prev,
-            publicFieldVisibility: visibility,
-            showClientNamePublicly: visibility.client !== false,
-          }));
+          rememberLinkedInTemplateId(template.id);
           setLinkedInPostTextTouched(false);
+          setTwitterPostTextTouched(false);
+          setFacebookCaptionTouched(false);
         }}
       />
     </>

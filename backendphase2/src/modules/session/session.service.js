@@ -326,11 +326,12 @@ export async function issueHqImpersonationTokens({
   refreshPayload,
   deviceMeta,
   hqActorEmail,
+  auditAction = 'HQ_IMPERSONATION_LOGIN',
 }) {
   const accessToken = signToken({ ...tokenPayload, hqImpersonation: true });
   const refreshToken = signRefreshToken({ ...refreshPayload, hqImpersonation: true });
 
-  await audit(userId, 'HQ_IMPERSONATION_LOGIN', deviceMeta, {
+  await audit(userId, auditAction, deviceMeta, {
     hqActorEmail: String(hqActorEmail || '').trim() || undefined,
     impersonation: true,
   });

@@ -21,6 +21,7 @@ import {
   type UnifiedCalendarResponse,
 } from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import { formatDateDMY } from '../../utils/dateDisplay';
 
@@ -251,7 +252,7 @@ export default function CalendarPage() {
       try {
         const [meRes, members] = await Promise.all([
           apiGetMe().catch(() => null),
-          getAllTeamMembersForAssign().catch(() => []),
+          getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined).catch(() => []),
         ]);
         if (ignore) return;
 

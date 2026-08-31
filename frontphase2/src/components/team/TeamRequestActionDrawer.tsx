@@ -13,6 +13,8 @@ import {
 } from '../../lib/api/teamApi';
 import { apiGetTaskAssignableMembers } from '../../lib/api';
 import { getLocalDateInputMinToday } from '../../utils/dateInputConstraints';
+import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 
 export type TeamRequestDrawerMode = 'approve' | 'assign' | 'view';
 
@@ -50,6 +52,7 @@ export function TeamRequestActionDrawer({
   const [assignees, setAssignees] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const assignable = useAssignableMembers(isOpen);
 
   const currentUserId = getCurrentUserRequestIdentity().id || '';
 
@@ -67,6 +70,17 @@ export function TeamRequestActionDrawer({
       return;
     }
 
+    if (assignable.canSelectCompany) {
+      setAssignees(
+        assignable.members.map((member) => ({
+          id: member.id,
+          name: memberLabel(member),
+        })),
+      );
+      setLoadingMembers(assignable.loading);
+      return;
+    }
+
     setLoadingMembers(true);
     void apiGetTaskAssignableMembers()
       .then((response) => {
@@ -80,7 +94,7 @@ export function TeamRequestActionDrawer({
       })
       .catch(() => setAssignees([]))
       .finally(() => setLoadingMembers(false));
-  }, [isOpen]);
+  }, [isOpen, assignable.canSelectCompany, assignable.loading, assignable.members]);
 
   const handleSubmit = async () => {
     if (!request) return;
@@ -239,6 +253,17 @@ export function TeamRequestActionDrawer({
                     Choose yourself or a team member who will work on this request. You can verify completion yourself when assigning to someone else.
                   </p>
                   <div>
+                    {assignable.canSelectCompany ? (
+                      <AssignCompanySelect
+                        companies={assignable.companies}
+                        value={assignable.companyId}
+                        onChange={(id) => {
+                          assignable.setCompanyId(id);
+                          setAssignToId('');
+                        }}
+                        className="mb-3"
+                      />
+                    ) : null}
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">Assign to</label>
                     <select
                       value={assignToId}

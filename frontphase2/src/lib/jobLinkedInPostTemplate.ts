@@ -48,7 +48,10 @@ export type JobLinkedInPostTemplate = {
 };
 
 /** Maps post sections → public field visibility keys used elsewhere in Create Job. */
-const SECTION_TO_VISIBILITY: Record<LinkedInPostSectionKey, Array<keyof JobPublicFieldVisibility>> = {
+export const LINKEDIN_SECTION_TO_VISIBILITY: Record<
+  LinkedInPostSectionKey,
+  Array<keyof JobPublicFieldVisibility>
+> = {
   role: ['jobTitle', 'client'],
   location: ['location'],
   openings: ['openings'],
@@ -143,7 +146,7 @@ export function linkedInTemplateToPublicVisibility(
   // Start by marking template-controlled fields; then apply section visibility.
   const controlled = new Set<keyof JobPublicFieldVisibility>();
   for (const section of schema.sections) {
-    for (const field of SECTION_TO_VISIBILITY[section.key] || []) {
+    for (const field of LINKEDIN_SECTION_TO_VISIBILITY[section.key] || []) {
       controlled.add(field);
     }
   }
@@ -152,7 +155,7 @@ export function linkedInTemplateToPublicVisibility(
   }
   for (const section of schema.sections) {
     if (!section.visible) continue;
-    for (const field of SECTION_TO_VISIBILITY[section.key] || []) {
+    for (const field of LINKEDIN_SECTION_TO_VISIBILITY[section.key] || []) {
       visibility[field] = true;
     }
   }
@@ -212,4 +215,57 @@ export function toggleLinkedInTemplateSectionVisible(
       section.key === key ? { ...section, visible: !section.visible } : section,
     ),
   };
+}
+
+function lastLinkedInTemplateStorageKey() {
+  try {
+    const tenant = String(localStorage.getItem('tenantDbName') || '').trim();
+    return tenant ? `jobLinkedInPostTemplate:lastId:${tenant}` : 'jobLinkedInPostTemplate:lastId';
+  } catch {
+    return 'jobLinkedInPostTemplate:lastId';
+  }
+}
+
+export function rememberLinkedInTemplateId(id: string | null) {
+  try {
+    const key = lastLinkedInTemplateStorageKey();
+    if (id) localStorage.setItem(key, id);
+    else localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readRememberedLinkedInTemplateId(): string | null {
+  try {
+    return localStorage.getItem(lastLinkedInTemplateStorageKey()) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function parseLinkedInPostTemplateList(res: unknown): JobLinkedInPostTemplate[] {
+  const rows = (res as { data?: unknown })?.data ?? res;
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const item = row as Record<string, unknown>;
+      return {
+        id: String(item.id || ''),
+        name: String(item.name || 'Untitled'),
+        schema: normalizeLinkedInPostTemplateSchema(item.schema),
+        createdAt: item.createdAt ? String(item.createdAt) : undefined,
+        updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
+      };
+    })
+    .filter((row) => row.id);
+}
+
+/** Last-used template, else the most recently updated saved template. */
+export function pickDefaultLinkedInPostTemplate(
+  templates: JobLinkedInPostTemplate[],
+): JobLinkedInPostTemplate | null {
+  if (!templates.length) return null;
+  const remembered = readRememberedLinkedInTemplateId();
+  return templates.find((row) => row.id === remembered) || templates[0];
 }

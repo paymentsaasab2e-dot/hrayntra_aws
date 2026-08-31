@@ -27,9 +27,18 @@ import { applyMemberClientScope } from '../../services/clientMemberScope.service
 import {
   mergeOrgCompanyListScope,
   resolveWriteOrgUnitId,
+  canViewCrossCompanyMembers,
 } from '../../services/orgListScope.service.js';
 import {
+  ACTIVE_ORG_COMPANY_WHERE,
+  collectDescendantIds,
+  resolveViewerOrgScope,
+} from '../org/org.service.js';
+import { getOrganizationName } from '../setting/recruitmentMode.service.js';
+import { isHqPlatformUser, hqPlatformUserEmailNotClause } from '../../utils/hqPlatformUser.js';
+import {
   buildInitialParticipantIds,
+  appendParticipantIds,
   stampVisibilityOnAssigneeChange,
 } from '../../services/memberVisibility.service.js';
 import {
@@ -488,6 +497,9 @@ export const clientService = {
     }
     if (req.query.hot !== undefined) where.hot = req.query.hot === 'true';
     if (req.query.tags) where.tags = { hasSome: Array.isArray(req.query.tags) ? req.query.tags : [req.query.tags] };
+    if (String(req.query.recruitmentEnabled || '').toLowerCase() === 'true') {
+      where.recruitmentEnabled = true;
+    }
     // Recycle Bin: hide soft-deleted rows from the normal Clients page.
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
@@ -872,6 +884,12 @@ export const clientService = {
       ...buildAgreementTermsCreateFields(data),
       ...buildPostServiceKycFormCreateFields(data),
       otherDetails: normalizeClientOtherDetails(data.otherDetails),
+      recruitmentEnabled: data.recruitmentEnabled === true ? true : undefined,
+      recruitmentEnabledAt: data.recruitmentEnabled === true ? new Date() : undefined,
+      recruitmentEnabledBy:
+        data.recruitmentEnabled === true && /^[a-fA-F0-9]{24}$/.test(String(data.performedById || ''))
+          ? data.performedById
+          : undefined,
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
       // billingEmail, billingPhone, billingAddress, notes, tags, hot (not in schema)
@@ -973,6 +991,9 @@ export const clientService = {
         sla: true,
         clientSince: true,
         nextFollowUpDue: true,
+        recruitmentEnabled: true,
+        recruitmentEnabledAt: true,
+        recruitmentEnabledBy: true,
       },
     });
 
@@ -1083,6 +1104,23 @@ export const clientService = {
     if (data.otherDetails !== undefined) {
       updateData.otherDetails = normalizeClientOtherDetails(data.otherDetails);
     }
+    if (data.recruitmentEnabled !== undefined) {
+      const enabled = data.recruitmentEnabled === true;
+      updateData.recruitmentEnabled = enabled;
+      if (enabled && currentClient.recruitmentEnabled !== true) {
+        updateData.recruitmentEnabledAt = new Date();
+        if (/^[a-fA-F0-9]{24}$/.test(String(data.performedById || ''))) {
+          updateData.recruitmentEnabledBy = data.performedById;
+        }
+      }
+      if (!enabled) {
+        updateData.recruitmentEnabledAt = null;
+        updateData.recruitmentEnabledBy = null;
+      }
+    }
+    if (Array.isArray(data.participantIds)) {
+      updateData.participantIds = appendParticipantIds(data.participantIds);
+    }
 
     // Remove undefined values to avoid Prisma errors
     Object.keys(updateData).forEach(key => {
@@ -1192,6 +1230,186 @@ export const clientService = {
     });
 
     return updated;
+  },
+
+  async listRecruitmentForwardTargets(req) {
+    const actorId = String(req?.user?.id || '').trim();
+    const tenantName = String((await getOrganizationName()) || '').trim() || 'Company';
+    const scope = await resolveViewerOrgScope(req);
+    const companies = await prisma.orgUnit.findMany({
+      where: ACTIVE_ORG_COMPANY_WHERE,
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    });
+
+    const emailExclude = hqPlatformUserEmailNotClause();
+    const users = await prisma.user.findMany({
+      where: {
+        AND: [
+          { isActive: true },
+          { OR: [{ status: 'ACTIVE' }, { status: null }] },
+          ...(Object.keys(emailExclude).length ? [emailExclude] : []),
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        orgUnitId: true,
+        role: true,
+        systemRole: { select: { roleName: true } },
+      },
+      orderBy: [{ name: 'asc' }, { firstName: 'asc' }],
+    });
+
+    const mapMember = (user) => {
+      const name =
+        String(user.name || '').trim() ||
+        [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+        user.email ||
+        'Member';
+      return {
+        id: String(user.id),
+        name,
+        email: user.email || '',
+        isSelf: actorId && String(user.id) === actorId,
+      };
+    };
+
+    const members = users.filter((user) => !isHqPlatformUser(user)).map((user) => ({
+      ...mapMember(user),
+      orgUnitId: user.orgUnitId ? String(user.orgUnitId) : '',
+    }));
+
+    if (!companies.length) {
+      return {
+        companyName: tenantName,
+        hasCompanies: false,
+        organizations: [
+          {
+            id: 'tenant',
+            name: tenantName,
+            members,
+          },
+        ],
+      };
+    }
+
+    const descendantByCompany = new Map();
+    for (const company of companies) {
+      descendantByCompany.set(String(company.id), await collectDescendantIds(company.id));
+    }
+
+    const cross = canViewCrossCompanyMembers(req);
+    const allowedUnitIds = new Set((scope?.unitIds || []).map(String));
+    const visibleCompanies = cross
+      ? companies
+      : companies.filter((company) => allowedUnitIds.has(String(company.id)));
+
+    const organizations = visibleCompanies.map((company) => {
+      const cid = String(company.id);
+      const tree = new Set(descendantByCompany.get(cid) || []);
+      return {
+        id: cid,
+        name: company.name,
+        members: members.filter((member) => tree.has(member.orgUnitId)),
+      };
+    });
+
+    const assignedIds = new Set(
+      organizations.flatMap((org) => org.members.map((member) => member.id)),
+    );
+    const leftover = members.filter((member) => !assignedIds.has(member.id));
+    const leftoverForViewer = cross ? leftover : leftover.filter((member) => member.isSelf);
+    if (leftoverForViewer.length) {
+      organizations.unshift({
+        id: 'hq',
+        name: tenantName,
+        members: leftoverForViewer,
+      });
+    }
+
+    return {
+      companyName: tenantName,
+      hasCompanies: true,
+      organizations: organizations.filter((org) => org.members.length > 0),
+    };
+  },
+
+  async sendToRecruitment(id, req = null) {
+    const performerId = req?.user?.id || null;
+    const targets = await this.listRecruitmentForwardTargets(req);
+    const allowedIds = new Set(
+      (targets.organizations || []).flatMap((org) => (org.members || []).map((member) => String(member.id))),
+    );
+    const requested = Array.isArray(req?.body?.memberIds) ? req.body.memberIds : [];
+    const memberIds = appendParticipantIds(requested, performerId).filter(
+      (memberId) => allowedIds.has(memberId) || memberId === performerId,
+    );
+    if (!memberIds.length) {
+      throw new Error('Select at least one team member.');
+    }
+
+    const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
+    let accessWhere = mergeWhereWithScope({ id, isDeleted: { not: true } }, scope);
+    accessWhere = await applyMemberClientScope(accessWhere, req);
+    const current = await prisma.client.findFirst({
+      where: accessWhere,
+      select: {
+        id: true,
+        companyName: true,
+        assignedToId: true,
+        createdById: true,
+        participantIds: true,
+        recruitmentEnabled: true,
+        recruitmentEnabledAt: true,
+        recruitmentEnabledBy: true,
+      },
+    });
+    if (!current) {
+      throw new Error('Client not found');
+    }
+
+    const nextParticipants = appendParticipantIds(
+      current.participantIds,
+      current.assignedToId,
+      current.createdById,
+      performerId,
+      ...memberIds,
+    );
+
+    await prisma.client.update({
+      where: { id },
+      data: {
+        recruitmentEnabled: true,
+        recruitmentEnabledAt: current.recruitmentEnabled ? current.recruitmentEnabledAt : new Date(),
+        recruitmentEnabledBy: current.recruitmentEnabled
+          ? current.recruitmentEnabledBy
+          : /^[a-fA-F0-9]{24}$/.test(String(performerId || ''))
+            ? performerId
+            : current.recruitmentEnabledBy,
+        participantIds: nextParticipants,
+      },
+    });
+
+    if (performerId) {
+      try {
+        await activityService.logClientActivity({
+          entityId: id,
+          performedById: performerId,
+          action: 'Sent to Recruitment',
+          description: `Sent ${current.companyName || 'client'} to Recruitment for ${memberIds.length} team member${memberIds.length === 1 ? '' : 's'}.`,
+          clientId: id,
+          metadata: { memberIds },
+        });
+      } catch {
+        /* activity is optional */
+      }
+    }
+
+    return this.getById(id, req);
   },
 
   async delete(id, performedById, req = null) {

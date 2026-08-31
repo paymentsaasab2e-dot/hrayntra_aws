@@ -203,6 +203,8 @@ export interface Client {
   agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
   postServiceKycForm?: PostServiceKycFormValues | null;
   otherDetails?: Array<{ label: string; value: string }>;
+  /** True after this CRM client is forwarded to Recruitment. */
+  recruitmentEnabled?: boolean;
 }
 
 export const INITIAL_CLIENTS: Client[] = [

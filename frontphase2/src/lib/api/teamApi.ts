@@ -178,11 +178,14 @@ const TEAM_LIST_MAX_PAGE_SIZE = 100;
  * Maps tenant team members to the legacy `BackendUser` shape used by assignment dropdowns.
  */
 export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] {
+  const companyNames = new Set(members.map((m) => m.orgUnit?.name).filter(Boolean));
+  const showCompany = companyNames.size > 1;
   return members.map((m) => {
     const name = [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email;
+    const company = showCompany && m.orgUnit?.name ? ` · ${m.orgUnit.name}` : '';
     return {
       id: m.id,
-      name,
+      name: `${name}${company}`,
       email: m.email,
       role: m.role?.roleName || '',
       department: m.department?.name,
@@ -195,12 +198,15 @@ export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] 
 /**
  * Load every team member for “Assigned to” / owner pickers (follows pagination until complete).
  */
-async function getAllTeamMembersPaginated(assignmentDirectory: boolean): Promise<TeamMember[]> {
+async function getAllTeamMembersPaginated(assignmentDirectory: boolean, companyId?: string): Promise<TeamMember[]> {
   const limit = TEAM_LIST_MAX_PAGE_SIZE;
   const all: TeamMember[] = [];
   let page = 1;
   for (;;) {
-    const res = await getTeamMembers({ limit, page }, { assignmentDirectory });
+    const res = await getTeamMembers(
+      { limit, page, ...(companyId ? { companyId, orgUnitId: companyId } : {}) },
+      { assignmentDirectory },
+    );
     const batch = res.data || [];
     all.push(...batch);
     const total = res.pagination?.total;
@@ -212,7 +218,11 @@ async function getAllTeamMembersPaginated(assignmentDirectory: boolean): Promise
   return all;
 }
 
-export async function getAllTeamMembersForAssign(): Promise<TeamMember[]> {
+export async function getAllTeamMembersForAssign(companyId?: string): Promise<TeamMember[]> {
+  const orgUnitId = String(companyId || '').trim();
+  if (orgUnitId) {
+    return getAllTeamMembersPaginated(true, orgUnitId);
+  }
   return getAllTeamMembersPaginated(true);
 }
 
@@ -519,6 +529,44 @@ export async function setTeamMemberPassword(id: string, newPassword: string) {
   }
 
   return { data: json.data, success: json.success };
+}
+
+export type TeamMemberImpersonationResult = {
+  accessToken: string;
+  refreshToken?: string;
+  tenantDbName?: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role?: string;
+    roleName?: string;
+    loginId?: string;
+    designation?: string;
+    avatar?: string | null;
+  };
+  permissions: string[];
+  impersonation: {
+    memberId: string;
+    memberName: string;
+    memberEmail?: string;
+    actorId: string;
+    actorName: string;
+  };
+};
+
+/** Super Admin: open a member account without logging the member out. */
+export async function impersonateTeamMember(id: string) {
+  const path = buildPath(`/team/${id}/impersonate`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'POST',
+    headers: getTeamAuthHeaders(),
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return { data: json.data as TeamMemberImpersonationResult, success: Boolean(json.success) };
 }
 
 /**

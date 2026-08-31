@@ -38,6 +38,19 @@ export type OrgTreePayload = {
   unassignedPeople?: OrgPerson[];
 };
 
+export async function apiGetAssignCompanies() {
+  const res = await apiFetch<{ companies: Array<{ id: string; name: string; kind?: string }> }>(
+    '/org-units/assign-companies',
+    { auth: true },
+  );
+  const data = res.data as { companies?: Array<{ id: string; name: string; kind?: string }> } | unknown;
+  if (Array.isArray(data)) return data as Array<{ id: string; name: string; kind?: string }>;
+  if (data && typeof data === 'object' && Array.isArray((data as { companies?: unknown }).companies)) {
+    return (data as { companies: Array<{ id: string; name: string; kind?: string }> }).companies;
+  }
+  return [];
+}
+
 export async function apiOrgTree() {
   const res = await apiFetch<OrgTreePayload>('/org-units/tree', { auth: true });
   return res.data;

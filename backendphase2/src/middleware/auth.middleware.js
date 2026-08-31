@@ -86,6 +86,11 @@ export const authMiddleware = async (req, res, next) => {
             ? tokenPayload.hqPermissionIds.map(String)
             : null,
           isHqTeamMember: Boolean(tokenPayload?.hqTeamMemberId),
+          hqImpersonation: Boolean(tokenPayload?.hqImpersonation),
+          tenantImpersonation: Boolean(tokenPayload?.tenantImpersonation),
+          impersonatedByUserId: tokenPayload?.impersonatedByUserId
+            ? String(tokenPayload.impersonatedByUserId)
+            : null,
         };
         setTenantAuditUser(user);
         return next();

@@ -138,6 +138,12 @@ export const DEFAULT_PERMISSIONS = [
   // ══ Administration ═════════════════════════════════════════════════════
   // Team
   { permissionName: 'view_team', module: 'Team', description: 'View team directory' },
+  {
+    permissionName: 'view_cross_company_members',
+    module: 'Team',
+    description:
+      'Allows users to view and assign members from other companies within their current tenant. Super Admin has this by default. Never grants access to other tenants.',
+  },
   { permissionName: 'add_team_member', module: 'Team', description: 'Add team members' },
   { permissionName: 'edit_team_member', module: 'Team', description: 'Edit or deactivate team members' },
   { permissionName: 'assign_roles', module: 'Team', description: 'Assign roles to members' },
@@ -289,7 +295,8 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
       n !== 'view_team_activity' &&
       n !== 'dash_full_scope' &&
       n !== 'dash_dept_scope' &&
-      n !== 'dash_company_scope',
+      n !== 'dash_company_scope' &&
+      n !== 'view_cross_company_members',
   ),
   'Senior Recruiter': [
     'leads_read', 'leads_create', 'leads_update', 'convert_lead',

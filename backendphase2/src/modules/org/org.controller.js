@@ -10,9 +10,19 @@ import {
   listTransferableData,
   transferOrgUnitData,
 } from './org.service.js';
+import { listAssignableCompanies } from '../../services/orgListScope.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 
 export const orgController = {
+  async assignCompanies(req, res) {
+    try {
+      const companies = await listAssignableCompanies(req);
+      sendResponse(res, 200, 'OK', { companies });
+    } catch (error) {
+      sendError(res, error?.statusCode === 403 ? 403 : 400, error.message, error);
+    }
+  },
+
   async list(req, res) {
     try {
       const data = await listOrgStructure(req);

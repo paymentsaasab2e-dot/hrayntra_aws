@@ -26,8 +26,12 @@ import {
 } from '../utils/hqPlatformUser.js';
 import {
   applyOrgCompanyUserWhere,
+  canViewCrossCompanyMembers,
+  requestedAssignCompanyId,
   resolveWriteOrgUnitId,
 } from '../services/orgListScope.service.js';
+
+const EMPTY_OBJECT_ID = '000000000000000000000000';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -52,6 +56,8 @@ function getTeamListCacheKey(req) {
   const tenant = getActiveTenantDbName() || 'default';
   const page = Math.max(Number.parseInt(String(req.query.page || '1'), 10) || 1, 1);
   const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit || '20'), 10) || 20, 1), 100);
+  const assignableOnly = Boolean(req.teamListMode === 'assignable');
+  const assignAcrossOrgs = Boolean(assignableOnly && canViewCrossCompanyMembers(req));
   const keyPayload = {
     search: req.query.search || '',
     departmentId: req.query.departmentId || '',
@@ -60,10 +66,12 @@ function getTeamListCacheKey(req) {
     managerId: req.query.managerId || '',
     superAdmin: Boolean(isSuperAdminUser(req)),
     userId: req.user?.id || '',
-    assignableOnly: Boolean(req.teamListMode === 'assignable'),
+    assignableOnly,
+    assignAcrossOrgs,
     hqExcluded: 1,
-    // Team follows the company selector, so cached pages must be per company.
-    orgUnitId: String(req.query.orgUnitId || req.headers?.['x-org-unit-id'] || ''),
+    orgUnitId: assignableOnly
+      ? requestedAssignCompanyId(req)
+      : String(req.query.orgUnitId || req.headers?.['x-org-unit-id'] || ''),
     page,
     limit,
   };
@@ -173,7 +181,7 @@ export async function getAllTeamMembers(req, res) {
       const candidates = await listCrmAssigneeCandidates(req.user.id, { req });
       const allowedIds = candidates.map((member) => member.id).filter(Boolean);
       const existingAnd = Array.isArray(where.AND) ? where.AND : [];
-      where.AND = [...existingAnd, { id: { in: allowedIds.length ? allowedIds : ['__none__'] } }];
+      where.AND = [...existingAnd, { id: { in: allowedIds.length ? allowedIds : [EMPTY_OBJECT_ID] } }];
     } else {
       const superAdminScope = getSuperAdminMemberScope(req);
       if (superAdminScope) {
@@ -182,9 +190,9 @@ export async function getAllTeamMembers(req, res) {
       }
     }
 
-    // Users carry the same orgUnitId as CRM rows, so the Team list splits per
-    // company/branch whenever the viewer is operating inside one.
-    const orgUserWhere = await applyOrgCompanyUserWhere(req);
+    // Users follow their company. Assign pickers for Super Admin / cross-company
+    // permission require companyId and return that company's members only.
+    const orgUserWhere = await applyOrgCompanyUserWhere(req, { forAssign: isAssignableList });
     if (orgUserWhere) {
       const existingAnd = Array.isArray(where.AND) ? where.AND : [];
       where.AND = [...existingAnd, orgUserWhere];
@@ -298,6 +306,9 @@ export async function getAllTeamMembers(req, res) {
     res.setHeader('Cache-Control', 'private, no-store');
     return res.status(200).json(responsePayload);
   } catch (error) {
+    if (error?.statusCode === 403) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
     logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to fetch team members' });
     return res.status(500).json({
       success: false,
@@ -1785,6 +1796,24 @@ export async function saveMemberTargets(req, res) {
     return res.status(500).json({
       success: false,
       message: 'Failed to save targets',
+    });
+  }
+}
+
+export async function impersonateTeamMember(req, res) {
+  try {
+    const { teamMemberService } = await import('../modules/team/teamMember.service.js');
+    const data = await teamMemberService.impersonateMember(req.params.id, req.user);
+    return res.status(200).json({
+      success: true,
+      message: 'Opened team member account',
+      data,
+    });
+  } catch (error) {
+    logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to open member account' });
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message || 'Failed to open member account',
     });
   }
 }

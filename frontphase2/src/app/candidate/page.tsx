@@ -124,6 +124,7 @@ import {
 } from '../../lib/api';
 import { shouldIncludePhase1CommonPool } from '../../lib/phase1CommonPoolAccess';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -1001,7 +1002,7 @@ function CandidatesPageContent() {
         const [allJobsRes, clientsRes, members] = await Promise.all([
           apiGetJobs({ page: 1, limit: 500 }),
           apiGetClients({ page: 1, limit: 500 }),
-          getAllTeamMembersForAssign(),
+          getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined),
         ]);
         if (cancelled) return;
 
