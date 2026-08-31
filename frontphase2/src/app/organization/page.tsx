@@ -356,10 +356,20 @@ function StructureUnitRow({
                       {p.email ? <p className="truncate text-[11px] text-slate-400">{p.email}</p> : null}
                     </div>
                   </div>
-                  <span className="shrink-0 rounded-md bg-slate-50 px-2 py-0.5 text-[11px] text-slate-500">
+                  <span
+                    className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] ${
+                      p.purposeLabel === 'HQ'
+                        ? 'bg-violet-50 text-violet-700'
+                        : p.unassigned
+                          ? 'bg-amber-50 text-amber-800'
+                          : 'bg-slate-50 text-slate-500'
+                    }`}
+                  >
                     {p.unassigned
-                      ? 'Not in a company yet'
-                      : `${p.roleName || 'No role'} · ${p.purposeLabel || 'Member'}`}
+                      ? 'HQ · not in a company'
+                      : p.purposeLabel === 'HQ'
+                        ? `${p.roleName || 'Super Admin'} · HQ`
+                        : `${p.roleName || 'No role'} · ${p.purposeLabel || 'Member'}`}
                   </span>
                 </li>
               ))}

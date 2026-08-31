@@ -1444,7 +1444,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     <>
       {/* ── Top Navigation Bar ─────────────────────────────────────────── */}
       <nav
-        className="fixed top-0 left-0 right-0 h-14 flex items-center px-5 z-50"
+        className="fixed left-0 right-0 h-14 flex items-center px-5 z-50 top-[var(--ph2-impersonation-banner-h,0px)]"
         style={{ backgroundColor: '#0b1220', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
         {/* Logo area — keep the collapse/expand button in its own slot so it
@@ -1612,9 +1612,10 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         initial={false}
         animate={{ width: SIDEBAR_W }}
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-        className="ph2-sidenav-aside fixed left-0 top-14 flex flex-col z-40 overflow-hidden"
+        className="ph2-sidenav-aside fixed left-0 flex flex-col z-40 overflow-hidden"
         style={{
-          height: 'calc(100vh - 56px)',
+          top: 'calc(3.5rem + var(--ph2-impersonation-banner-h, 0px))',
+          height: 'calc(100vh - 3.5rem - var(--ph2-impersonation-banner-h, 0px))',
           backgroundColor: '#0b1220',
           borderRight: '1px solid rgba(255,255,255,0.05)',
         }}
@@ -1896,7 +1897,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
       <motion.main
         animate={{ marginLeft: SIDEBAR_W }}
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-        className="ph2-main-surface min-h-screen pt-14 overflow-y-auto"
+        className="ph2-main-surface min-h-screen overflow-y-auto pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]"
       >
         {children || (
           <div className="p-6">
@@ -1919,8 +1920,13 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
 function SidenavShellFallback({ children }: { children?: React.ReactNode }) {
   return (
     <>
-      <div className="fixed inset-x-0 top-0 z-50 h-14 bg-[#0b1220]" aria-hidden />
-      <div className="ph2-main-surface min-h-screen pt-14">{children}</div>
+      <div
+        className="fixed inset-x-0 z-50 h-14 bg-[#0b1220] top-[var(--ph2-impersonation-banner-h,0px)]"
+        aria-hidden
+      />
+      <div className="ph2-main-surface min-h-screen pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]">
+        {children}
+      </div>
     </>
   );
 }

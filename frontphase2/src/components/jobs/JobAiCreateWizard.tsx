@@ -72,6 +72,7 @@ import {
   customJdSectionsToHtml,
   extractAdditionalJdSectionsFromHtml,
   mergeCustomJdSections,
+  mergeDescriptionWithCustomJdSections,
   type JobCustomJdSection,
 } from '@/lib/jobCustomJdSections';
 import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
@@ -1511,18 +1512,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       const descriptionHtml = (() => {
         const base = draft.jobDescriptionHtml.trim();
         if (!base) return customSectionsHtml || undefined;
-        if (!customSectionsHtml) return base;
-        const existingTitles = new Set(
-          extractAdditionalJdSectionsFromHtml(base).map((s) => s.title.trim().toLowerCase()),
-        );
-        const missing = (draft.customJdSections || []).filter(
-          (section) =>
-            section.title.trim() &&
-            !existingTitles.has(section.title.trim().toLowerCase()) &&
-            section.body.trim(),
-        );
-        if (!missing.length) return base;
-        return `${base}${customJdSectionsToHtml(missing)}`;
+        return mergeDescriptionWithCustomJdSections(base, draft.customJdSections) || undefined;
       })();
 
       const locationParts = [draft.city, draft.state, draft.country]
@@ -1690,6 +1680,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             showClientNamePublicly: draft.showClientNamePublicly,
             publicFieldVisibility: draft.publicFieldVisibility,
             linkedInPostSections,
+            customJdSections: draft.customJdSections,
           });
 
           const socialResult = await apiPublishSocialJob({

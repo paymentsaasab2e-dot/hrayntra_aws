@@ -152,9 +152,14 @@ export function mergeCustomJdSections(
   return merged;
 }
 
+export function filledCustomJdSections(sections?: JobCustomJdSection[] | null): JobCustomJdSection[] {
+  return (sections || []).filter(
+    (section) => String(section?.title || '').trim() || String(section?.body || '').trim(),
+  );
+}
+
 export function customJdSectionsToHtml(sections: JobCustomJdSection[]): string {
-  return (sections || [])
-    .filter((section) => section.title.trim() || section.body.trim())
+  return filledCustomJdSections(sections)
     .map((section) => {
       const title = section.title.trim() || 'Additional section';
       const lines = section.body
@@ -162,16 +167,36 @@ export function customJdSectionsToHtml(sections: JobCustomJdSection[]): string {
         .map((line) => line.replace(/^[\-\u2022]\s*/, '').trim())
         .filter(Boolean);
       if (lines.length > 1) {
-        return `<h3>${escapeHtml(title)}</h3><ul>${lines
+        return `<h2>${escapeHtml(title)}</h2><ul>${lines
           .map((line) => `<li>${escapeHtml(line)}</li>`)
           .join('')}</ul>`;
       }
       if (lines.length === 1) {
-        return `<h3>${escapeHtml(title)}</h3><p>${escapeHtml(lines[0])}</p>`;
+        return `<h2>${escapeHtml(title)}</h2><p>${escapeHtml(lines[0])}</p>`;
       }
-      return `<h3>${escapeHtml(title)}</h3>`;
+      return `<h2>${escapeHtml(title)}</h2>`;
     })
     .join('');
+}
+
+/** Append additional JD headings that are not already present in the HTML body. */
+export function mergeDescriptionWithCustomJdSections(
+  baseHtml: string,
+  sections?: JobCustomJdSection[] | null,
+): string {
+  const customHtml = customJdSectionsToHtml(sections || []);
+  const base = String(baseHtml || '').trim();
+  if (!base) return customHtml;
+  if (!customHtml) return base;
+  const existingTitles = new Set(
+    extractAdditionalJdSectionsFromHtml(base).map((section) => section.title.trim().toLowerCase()),
+  );
+  const missing = filledCustomJdSections(sections).filter((section) => {
+    const title = section.title.trim().toLowerCase();
+    return section.body.trim() && (!title || !existingTitles.has(title));
+  });
+  if (!missing.length) return base;
+  return `${base}${customJdSectionsToHtml(missing)}`;
 }
 
 function escapeHtml(value: string): string {

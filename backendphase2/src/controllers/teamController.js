@@ -68,7 +68,7 @@ function getTeamListCacheKey(req) {
     userId: req.user?.id || '',
     assignableOnly,
     assignAcrossOrgs,
-    hqExcluded: 1,
+    hqExcluded: 2,
     orgUnitId: assignableOnly
       ? requestedAssignCompanyId(req)
       : String(req.query.orgUnitId || req.headers?.['x-org-unit-id'] || ''),
@@ -88,19 +88,6 @@ function getPermissionCachePattern() {
   return `permission:check:${tenant}:*`;
 }
 
-function getSuperAdminMemberScope(req) {
-  if (!isSuperAdminUser(req) || !req?.user?.id) {
-    return null;
-  }
-
-  return {
-    OR: [
-      { id: req.user.id },
-      { credential: { is: { createdBy: req.user.id } } },
-    ],
-  };
-}
-
 async function findAccessibleMember(req, memberId) {
   const member = await prisma.user.findUnique({
     where: { id: memberId },
@@ -111,12 +98,7 @@ async function findAccessibleMember(req, memberId) {
   });
 
   if (!member) return null;
-  if (!isSuperAdminUser(req) || !req?.user?.id) return member;
-
-  const allowed =
-    member.id === req.user.id || member.credential?.createdBy === req.user.id;
-
-  return allowed ? member : null;
+  return member;
 }
 
 /**
@@ -182,12 +164,6 @@ export async function getAllTeamMembers(req, res) {
       const allowedIds = candidates.map((member) => member.id).filter(Boolean);
       const existingAnd = Array.isArray(where.AND) ? where.AND : [];
       where.AND = [...existingAnd, { id: { in: allowedIds.length ? allowedIds : [EMPTY_OBJECT_ID] } }];
-    } else {
-      const superAdminScope = getSuperAdminMemberScope(req);
-      if (superAdminScope) {
-        const existingAnd = Array.isArray(where.AND) ? where.AND : [];
-        where.AND = [...existingAnd, superAdminScope];
-      }
     }
 
     // Users follow their company. Assign pickers for Super Admin / cross-company

@@ -1,5 +1,6 @@
 import type { CreateJobDetailsFormData } from '../components/drawers/CreateJobDetailsForm';
 import type { PublicJobOverviewJob } from '../components/jobs/PublicJobOverviewPanel';
+import { mergeDescriptionWithCustomJdSections } from './jobCustomJdSections';
 
 function linesToList(text: string): string[] {
   return String(text || '')
@@ -33,14 +34,19 @@ export function buildPhase1JobPreviewFromForm(
   const location = formatPreviewLocation(form.city, form.state, form.country);
   const experienceRequired = formatExperienceRequired(form.minExperience, form.maxExperience);
 
+  const descriptionHtml = mergeDescriptionWithCustomJdSections(
+    options?.jobDescriptionHtml || '',
+    form.customJdSections,
+  );
+
   return {
     title: form.jobTitle?.trim() || undefined,
     company: options?.companyName?.trim() || undefined,
     showClientNamePublicly: form.showClientNamePublicly,
     publicFieldVisibility: form.publicFieldVisibility,
     location: location || undefined,
-    description: options?.jobDescriptionHtml?.trim() || undefined,
-    overview: options?.jobDescriptionHtml?.trim() || undefined,
+    description: descriptionHtml || undefined,
+    overview: descriptionHtml || undefined,
     keyResponsibilities: linesToList(form.keyResponsibilitiesText),
     requirements: linesToList(form.qualificationsExperienceText),
     candidateRequirements: linesToList(form.candidateRequirementsText),

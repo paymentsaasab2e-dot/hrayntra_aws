@@ -83,17 +83,6 @@ export const teamMemberService = {
       });
     }
 
-    // Super Admin data isolation:
-    // show only the Super Admin account itself + members created by this Super Admin.
-    if (isSuperAdminUser(req) && req?.user?.id) {
-      andFilters.push({
-        OR: [
-          { id: req.user.id },
-          { credential: { is: { createdBy: req.user.id } } },
-        ],
-      });
-    }
-
     const baseWhere = andFilters.length ? { AND: andFilters } : {};
     // Team follows the company selector: users are filtered by the same
     // orgUnitId that CRM/recruitment rows use.
@@ -278,12 +267,6 @@ export const teamMemberService = {
 
     if (!member) {
       return null;
-    }
-
-    if (isSuperAdminUser(reqUser) && reqUser?.id && member.id !== reqUser.id) {
-      if (member.credential?.createdBy !== reqUser.id) {
-        return null;
-      }
     }
 
     return {

@@ -10,6 +10,8 @@ import {
   type LinkedInPostSectionKey,
   type LinkedInPostTemplateSection,
 } from './jobLinkedInPostTemplate';
+import type { JobCustomJdSection } from './jobCustomJdSections';
+import { filledCustomJdSections } from './jobCustomJdSections';
 
 export type JobSocialPostInput = {
   jobTitle: string;
@@ -44,6 +46,8 @@ export type JobSocialPostInput = {
   publicFieldVisibility?: JobPublicFieldVisibility | null;
   /** Optional section order / visibility from a LinkedIn post template. */
   linkedInPostSections?: LinkedInPostTemplateSection[] | null;
+  /** Extra JD blocks from Additional JD sections — included on LinkedIn/Facebook when filled. */
+  customJdSections?: JobCustomJdSection[] | null;
 };
 
 /** LinkedIn organic posts allow up to 3000 characters. */
@@ -274,18 +278,35 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
 
   templateSections.forEach((section) => appendSectionByKey(section.key));
 
+  const filledAdditionalJd = filledCustomJdSections(input.customJdSections);
   const hasStructuredJd =
     Boolean(String(input.keyResponsibilitiesText || '').trim()) ||
     Boolean(String(input.qualificationsExperienceText || '').trim()) ||
     Boolean(String(input.candidateRequirementsText || '').trim()) ||
     Boolean(String(input.jobSummary || '').trim()) ||
-    Boolean(formatEducation(input));
+    Boolean(formatEducation(input)) ||
+    filledAdditionalJd.length > 0;
 
+  let dumpedHtml = '';
   if (!hasStructuredJd && isSocialSectionIncluded(input, 'overview')) {
-    const description = stripHtml(input.jobDescriptionHtml || '');
-    if (description) {
+    dumpedHtml = stripHtml(input.jobDescriptionHtml || '');
+    if (dumpedHtml) {
       lines.push('');
-      lines.push(description);
+      lines.push(dumpedHtml);
+    }
+  }
+
+  const includeAdditionalJd = isJobFieldPubliclyVisible(
+    parseJobPublicFieldVisibility(input.publicFieldVisibility),
+    'jobDescription',
+    input.showClientNamePublicly !== false,
+  );
+  if (includeAdditionalJd) {
+    const dumpedLower = dumpedHtml.toLowerCase();
+    for (const section of filledAdditionalJd) {
+      const title = String(section.title || '').trim() || 'Additional section';
+      if (dumpedLower && dumpedLower.includes(title.toLowerCase())) continue;
+      appendSection(lines, title, section.body);
     }
   }
 

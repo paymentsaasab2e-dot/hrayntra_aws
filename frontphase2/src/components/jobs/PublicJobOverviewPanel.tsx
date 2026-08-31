@@ -96,9 +96,15 @@ export function parseHtmlJobSections(html: string): JobDescriptionSection[] {
     if (node.nodeType !== Node.ELEMENT_NODE) continue;
     const el = node as HTMLElement;
     const tag = el.tagName.toLowerCase();
-    if (tag === 'h1' || tag === 'h2') {
+    if (tag === 'h1' || tag === 'h2' || tag === 'h3' || tag === 'h4') {
       flush();
-      currentTitle = (el.textContent || 'Section').trim() || 'Section';
+      const raw = (el.textContent || 'Section').trim() || 'Section';
+      const isFirst = sections.length === 0;
+      const looksNamedJdSection =
+        /responsibilities|qualifications|requirements|overview|benefits|skills|compensation/i.test(
+          raw,
+        );
+      currentTitle = isFirst && !looksNamedJdSection ? 'Overview' : raw;
     } else {
       buffer.push(el.outerHTML);
     }
