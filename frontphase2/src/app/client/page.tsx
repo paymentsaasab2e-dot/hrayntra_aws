@@ -355,6 +355,7 @@ export default function App() {
     canHandoffFromServer || hasPermission('clients_handoff');
   const { getStatusForClient, refresh: refreshHandoffStatuses } = useClientHandoffStatuses();
   const canOpenClientTrash = hasAnyPermission(['clients_delete']);
+  const canViewClientAgreements = hasAnyPermission(['agreements_read', 'agreements_manage']);
   const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState('all');
   const [clientSortBy, setClientSortBy] = useState<'activity' | 'name'>('activity');
@@ -1076,8 +1077,13 @@ export default function App() {
   }, [exportClients, sortedClients]);
 
   const exportColumns = useMemo(
-    () => [...CLIENTS_EXPORT_COLUMNS, ...exportKycColumns, ...exportDynamicColumns],
-    [exportDynamicColumns, exportKycColumns]
+    () => {
+      const base = canViewClientAgreements
+        ? CLIENTS_EXPORT_COLUMNS
+        : CLIENTS_EXPORT_COLUMNS.filter((col) => !col.id.startsWith('agreement'));
+      return [...base, ...exportKycColumns, ...exportDynamicColumns];
+    },
+    [canViewClientAgreements, exportDynamicColumns, exportKycColumns]
   );
 
   const handleExportClientsCsv = (selectedColumnIds: string[]) => {

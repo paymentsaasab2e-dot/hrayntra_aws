@@ -16,6 +16,21 @@ export function hasAnyPermission(req, permissionNames = []) {
   return permissionNames.some((permissionName) => permissions.includes(permissionName));
 }
 
+function isFullAccessUser(req) {
+  return Boolean(isSuperAdminUser(req) || req?.userWithPermissions?.isSuperAdmin);
+}
+
+/** Client/lead Agreements & Terms section — hide from roles without this permission. */
+export function canViewAgreementTerms(req) {
+  if (isFullAccessUser(req)) return true;
+  return hasAnyPermission(req, ['agreements_read', 'agreements_manage']);
+}
+
+export function canManageAgreementTerms(req) {
+  if (isFullAccessUser(req)) return true;
+  return hasPermission(req, 'agreements_manage');
+}
+
 /** Tenant-wide CRM lists: Super Admin, system_select_all, manage_settings — not assign_roles (use view_all_* instead). */
 export function canViewAllAssignments(req) {
   if (isSuperAdminOwnWork(req)) return false;

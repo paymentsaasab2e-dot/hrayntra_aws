@@ -17,6 +17,7 @@ import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/supe
 import {
   applyAgreementTermsUpdateFields,
   buildAgreementTermsCreateFields,
+  stripAgreementTermsFromRecord,
 } from '../../utils/agreementTermsFields.js';
 import {
   applyPostServiceKycFormUpdateFields,
@@ -52,6 +53,10 @@ import {
 } from '../../utils/listAuditMeta.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
+import {
+  canViewAgreementTerms,
+  canManageAgreementTerms,
+} from '../../utils/permissionScope.js';
 import {
   queueAiEntryRecommendation,
   buildEntitySnapshot,
@@ -192,6 +197,9 @@ export async function mergeDuplicateClientsByCompanyName() {
   let merged = 0;
   for (const group of groups.values()) {
     if (group.length < 2) continue;
+    // CRM Excel imports can legally have several same-name clients. Only collapse
+    // auto-created job-post duplicates (at least one row in the group has jobs).
+    if (group.every((row) => (row._count?.jobs || 0) === 0)) continue;
     group.sort((a, b) => {
       const byJobs = (b._count?.jobs || 0) - (a._count?.jobs || 0);
       if (byJobs) return byJobs;
@@ -291,7 +299,10 @@ const CLIENT_IMPORT_DUPLICATE_COMPARE_FIELDS = [
 ];
 
 function normalizeClientImportValue(value) {
-  return String(value ?? '').trim();
+  return String(value ?? '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeClientImportPriority(value) {
@@ -675,7 +686,10 @@ export const clientService = {
       : clients;
 
     const withAudit = await prepareListWithAuditMeta(mergedClients, ENTITY_TYPES.CLIENT);
-    return formatPaginationResponse(withAudit, page, limit, total);
+    const visible = canViewAgreementTerms(req)
+      ? withAudit
+      : withAudit.map((row) => stripAgreementTermsFromRecord(row));
+    return formatPaginationResponse(visible, page, limit, total);
   },
 
   async getById(id, req = null) {
@@ -801,8 +815,11 @@ export const clientService = {
     }
 
     const [withUpdater] = await enrichListWithLastUpdater([mergedClient], ENTITY_TYPES.CLIENT);
+    const presented = canViewAgreementTerms(req)
+      ? withUpdater
+      : stripAgreementTermsFromRecord(withUpdater);
     return {
-      ...withUpdater,
+      ...presented,
       auditMeta: buildAuditMeta(withUpdater),
     };
   },
@@ -932,13 +949,16 @@ export const clientService = {
       phones: contactChannels.phones,
       // Lead-style next follow-up timestamp (Add Client form uses datetime-local now).
       nextFollowUpDue: data.nextFollowUpDue ? new Date(data.nextFollowUpDue) : undefined,
-      // Agreements & Terms — single primary document attached during onboarding.
-      agreementsFileName: data.agreementsFileName ?? undefined,
-      agreementsFileUrl: data.agreementsFileUrl ?? undefined,
-      agreementsUploadedAt: data.agreementsUploadedAt
-        ? new Date(data.agreementsUploadedAt)
-        : (data.agreementsFileUrl ? new Date() : undefined),
-      ...buildAgreementTermsCreateFields(data),
+      ...(canManageAgreementTerms(req)
+        ? {
+            agreementsFileName: data.agreementsFileName ?? undefined,
+            agreementsFileUrl: data.agreementsFileUrl ?? undefined,
+            agreementsUploadedAt: data.agreementsUploadedAt
+              ? new Date(data.agreementsUploadedAt)
+              : (data.agreementsFileUrl ? new Date() : undefined),
+            ...buildAgreementTermsCreateFields(data),
+          }
+        : {}),
       ...buildPostServiceKycFormCreateFields(data),
       otherDetails: normalizeClientOtherDetails(data.otherDetails),
       recruitmentEnabled: data.recruitmentEnabled === true ? true : undefined,
@@ -1141,22 +1161,24 @@ export const clientService = {
     }
 
     // Agreements & Terms (single primary document) — only patch when the caller sent the field.
-    if (data.agreementsFileName !== undefined) {
-      updateData.agreementsFileName = data.agreementsFileName || null;
-    }
-    if (data.agreementsFileUrl !== undefined) {
-      updateData.agreementsFileUrl = data.agreementsFileUrl || null;
-      // Stamp uploadedAt automatically when a URL is set/cleared and caller didn't send one.
-      if (data.agreementsUploadedAt === undefined) {
-        updateData.agreementsUploadedAt = data.agreementsFileUrl ? new Date() : null;
+    if (canManageAgreementTerms(req)) {
+      if (data.agreementsFileName !== undefined) {
+        updateData.agreementsFileName = data.agreementsFileName || null;
       }
+      if (data.agreementsFileUrl !== undefined) {
+        updateData.agreementsFileUrl = data.agreementsFileUrl || null;
+        // Stamp uploadedAt automatically when a URL is set/cleared and caller didn't send one.
+        if (data.agreementsUploadedAt === undefined) {
+          updateData.agreementsUploadedAt = data.agreementsFileUrl ? new Date() : null;
+        }
+      }
+      if (data.agreementsUploadedAt !== undefined) {
+        updateData.agreementsUploadedAt = data.agreementsUploadedAt
+          ? new Date(data.agreementsUploadedAt)
+          : null;
+      }
+      applyAgreementTermsUpdateFields(data, updateData);
     }
-    if (data.agreementsUploadedAt !== undefined) {
-      updateData.agreementsUploadedAt = data.agreementsUploadedAt
-        ? new Date(data.agreementsUploadedAt)
-        : null;
-    }
-    applyAgreementTermsUpdateFields(data, updateData);
     applyPostServiceKycFormUpdateFields(data, updateData);
     if (data.otherDetails !== undefined) {
       updateData.otherDetails = normalizeClientOtherDetails(data.otherDetails);
@@ -1816,6 +1838,7 @@ export const clientService = {
     const existingClientByName = new Map(
       preloadedClients.map((client) => [String(client.companyName || '').trim().toLowerCase(), client])
     );
+    const claimedExistingIds = new Set();
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index] || {};
@@ -1937,7 +1960,9 @@ export const clientService = {
           req._bypassClientScope = true;
         }
 
-        if (existing && duplicateRule === 'update') {
+        const alreadyReplacedThisImport = existing && claimedExistingIds.has(existing.id);
+
+        if (existing && duplicateRule === 'update' && !alreadyReplacedThisImport) {
           const existingWithDetails = await prisma.client.findUnique({
             where: { id: existing.id },
             select: { otherDetails: true, assignedToId: true, participantIds: true },
@@ -1960,7 +1985,14 @@ export const clientService = {
             },
             req,
           );
-          await upsertPrimaryContact(existing.id);
+          claimedExistingIds.add(existing.id);
+          try {
+            await upsertPrimaryContact(existing.id);
+          } catch (contactError) {
+            results.errors.push(
+              `Row ${index + 1}: client updated, but contact was skipped (${contactError.message})`,
+            );
+          }
           results.updated += 1;
           continue;
         }
@@ -1999,11 +2031,16 @@ export const clientService = {
           );
           continue;
         }
-        existingClientByName.set(normalizedCompanyName, {
-          id: createdClient.id,
-          companyName: createdClient.companyName,
-        });
-        await upsertPrimaryContact(createdClient.id);
+        if (createdClient?.id) {
+          claimedExistingIds.add(createdClient.id);
+        }
+        try {
+          await upsertPrimaryContact(createdClient.id);
+        } catch (contactError) {
+          results.errors.push(
+            `Row ${index + 1}: client created, but contact was skipped (${contactError.message})`,
+          );
+        }
         results.created += 1;
       } catch (error) {
         results.failed += 1;

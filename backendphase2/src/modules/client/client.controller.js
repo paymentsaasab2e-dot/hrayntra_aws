@@ -4,9 +4,15 @@ import { clientFileService } from './client-file.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
 import * as XLSX from 'xlsx';
+import {
+  filterMeaningfulImportColumns,
+  parseImportSheetRows,
+  pickImportWorksheet,
+  slimImportRows,
+} from '../../utils/importSpreadsheet.js';
 
 const CLIENT_IMPORT_FIELD_ALIASES = {
-  name: ['company', 'company name', 'client name', 'organization', 'organisation', 'account name'],
+  name: ['name', 'company', 'company name', 'client name', 'client', 'organization', 'organisation', 'account name'],
   industry: ['industry', 'sector', 'business type'],
   location: ['location', 'address', 'region', 'office location'],
   city: ['city'],
@@ -47,7 +53,10 @@ const suggestClientImportMapping = (columns = []) => {
     }
 
     const partial = normalizedColumns.find(({ normalized }) =>
-      normalizedAliases.some((alias) => normalized.includes(alias) || alias.includes(normalized))
+      normalizedAliases.some((alias) => {
+        if (alias === 'name' || alias.length < 4) return false;
+        return normalized.includes(alias) || (alias.length >= 6 && alias.includes(normalized));
+      })
     );
     if (partial) {
       mapping[fieldId] = partial.column;
@@ -282,16 +291,17 @@ export const clientController = {
       }
 
       const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-      const firstSheetName = workbook.SheetNames[0];
-      const firstSheet = workbook.Sheets[firstSheetName];
+      const { sheetName: firstSheetName, sheet: firstSheet } = pickImportWorksheet(workbook);
 
       if (!firstSheet) {
         return sendError(res, 400, 'Unable to read the uploaded file');
       }
 
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
-      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-      const previewRows = rows.slice(0, 8);
+      const rows = parseImportSheetRows(firstSheet, { defval: '' });
+      const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const columns = filterMeaningfulImportColumns(rawColumns, rows);
+      const slimRows = slimImportRows(rows, columns);
+      const previewRows = slimRows.slice(0, 8);
       const suggestedMapping = suggestClientImportMapping(columns);
       const columnStats = Object.fromEntries(
         columns.map((column) => [
@@ -308,7 +318,7 @@ export const clientController = {
         sheetName: firstSheetName,
         columns,
         previewRows,
-        rows,
+        rows: slimRows,
         totalRows: rows.length,
         columnStats,
         suggestedMapping,
