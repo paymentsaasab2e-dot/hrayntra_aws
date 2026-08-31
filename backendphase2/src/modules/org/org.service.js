@@ -322,13 +322,21 @@ export async function listOrgStructure(req) {
   });
 
   const allowed = scope.isTenantWide ? null : new Set(scope.unitIds);
+  const companyOrBranchIds = new Set(
+    units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)),
+  );
   const peopleByUnit = new Map();
+  const hqPeople = [];
   const unassignedPeople = [];
   for (const user of users) {
-    const uid = user.orgUnitId ? String(user.orgUnitId) : '';
     const person = mapPerson(user);
-    if (!uid) {
-      if (!isSuperAdminRow(user)) unassignedPeople.push(person);
+    if (isSuperAdminRow(user)) {
+      hqPeople.push({ ...person, purposeLabel: 'HQ' });
+      continue;
+    }
+    const uid = user.orgUnitId ? String(user.orgUnitId) : '';
+    if (!uid || !companyOrBranchIds.has(uid)) {
+      unassignedPeople.push(person);
       continue;
     }
     if (!peopleByUnit.has(uid)) peopleByUnit.set(uid, []);
@@ -340,7 +348,7 @@ export async function listOrgStructure(req) {
     .map((u) => {
       const people = peopleByUnit.get(String(u.id)) || [];
       const combined = !u.parentId
-        ? [...people, ...unassignedPeople.map((p) => ({ ...p, unassigned: true }))]
+        ? [...hqPeople, ...people, ...unassignedPeople.map((p) => ({ ...p, unassigned: true }))]
         : people;
       return mapUnit(u, {
         levelName: seeded.levels.find((l) => l.levelOrder === u.levelOrder)?.displayName || '',

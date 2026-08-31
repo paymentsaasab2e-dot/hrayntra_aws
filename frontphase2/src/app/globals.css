@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  --ph2-impersonation-banner-h: 0px;
+}
+
 /* Tenant + HQ dashboards: Jakarta letters/signs, Inter digits */
 .dash-ui {
   font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;

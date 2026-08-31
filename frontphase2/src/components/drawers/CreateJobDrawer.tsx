@@ -84,6 +84,7 @@ import {
   customJdSectionsToHtml,
   extractAdditionalJdSectionsFromHtml,
   mergeCustomJdSections,
+  mergeDescriptionWithCustomJdSections,
   type JobCustomJdSection,
 } from '../../lib/jobCustomJdSections';
 import { CreateJobPhase1Preview } from '../jobs/CreateJobPhase1Preview';
@@ -1674,6 +1675,7 @@ export function CreateJobDrawer({
       showClientNamePublicly: formData.showClientNamePublicly,
       publicFieldVisibility: formData.publicFieldVisibility,
       linkedInPostSections,
+      customJdSections: formData.customJdSections,
     };
   }, [clients, effectiveApplyUrl, formData, linkedInPostSections]);
 
@@ -3311,23 +3313,12 @@ export function CreateJobDrawer({
         .filter(Boolean)
         .join('');
 
-      const descriptionWithCustomSections = (() => {
-        const base = formData.jobDescriptionHtml.trim();
-        if (!base) return composedDescription;
-        if (!customSectionsHtml) return base;
-        // Prefer full HTML JD; append any custom sections not already present as headings.
-        const existingTitles = new Set(
-          extractAdditionalJdSectionsFromHtml(base).map((s) => s.title.trim().toLowerCase()),
-        );
-        const missing = (formData.customJdSections || []).filter(
-          (section) =>
-            section.title.trim() &&
-            !existingTitles.has(section.title.trim().toLowerCase()) &&
-            section.body.trim(),
-        );
-        if (!missing.length) return base;
-        return `${base}${customJdSectionsToHtml(missing)}`;
-      })();
+      const descriptionWithCustomSections = formData.jobDescriptionHtml.trim()
+        ? mergeDescriptionWithCustomJdSections(
+            formData.jobDescriptionHtml.trim(),
+            formData.customJdSections,
+          )
+        : composedDescription;
 
       const applicationFormLogoStored =
         formData.logoOption === 'custom' && formData.applicationLogoUrl.trim()
