@@ -1,4 +1,4 @@
-import type { CrmOverview } from '@/lib/dashboard/api';
+import { asList, type CrmOverview } from '@/lib/dashboard/api';
 import { formatMoneyCompact } from './crmShared';
 
 export type CrmInsightCategory = 'leads' | 'clients' | 'team';
@@ -51,14 +51,14 @@ function daysSince(iso?: string | null) {
 }
 
 function stageCount(leads: CrmOverview['leadsTable'], pattern: RegExp) {
-  return (leads || []).filter((l) => pattern.test(String(l.status || ''))).length;
+  return asList(leads).filter((l) => pattern.test(String(l.status || ''))).length;
 }
 
 function stageFromCharts(overview: CrmOverview | null | undefined, pattern: RegExp) {
   const slices = [
-    ...(overview?.leadStagePie || []),
-    ...(overview?.leadStatusBars || []),
-    ...(overview?.pipeline || []).map((p) => ({ name: p.stage, value: p.count })),
+    ...asList<{ name?: string; value?: number }>(overview?.leadStagePie),
+    ...asList<{ name?: string; value?: number }>(overview?.leadStatusBars),
+    ...asList(overview?.pipeline).map((p) => ({ name: p.stage, value: p.count })),
   ];
   const hit = slices.find((s) => pattern.test(String(s.name || '')));
   return hit ? Number(hit.value || 0) : null;
@@ -66,10 +66,10 @@ function stageFromCharts(overview: CrmOverview | null | undefined, pattern: RegE
 
 export function buildCrmComboMetrics(overview: CrmOverview | null | undefined): CrmComboMetric[] {
   const k = overview?.kpis || {};
-  const leads = overview?.leadsTable || [];
-  const clients = overview?.clientsTable || [];
+  const leads = asList(overview?.leadsTable);
+  const clients = asList(overview?.clientsTable);
   const fu = overview?.followups || {};
-  const lb = overview?.leaderboard || [];
+  const lb = asList(overview?.leaderboard);
   const b = overview?.businessSummary;
 
   const totalLeads = Number(k.totalLeads ?? leads.length) || leads.length;
@@ -115,7 +115,7 @@ export function buildCrmComboMetrics(overview: CrmOverview | null | undefined): 
       : 0;
   const stalePct = totalLeads > 0 ? Math.round((staleLeads / totalLeads) * 100) : 0;
 
-  const sources = [...(overview?.leadSources || [])].sort(
+  const sources = [...asList(overview?.leadSources)].sort(
     (a, b) => Number(b.value) - Number(a.value),
   );
   const topSource = sources[0];
@@ -250,8 +250,8 @@ export function buildCrmComboMetrics(overview: CrmOverview | null | undefined): 
 export function buildCrmTeamStats(
   overview: CrmOverview | null | undefined,
 ): CrmComboMetric[] {
-  const lb = overview?.leaderboard || [];
-  const leads = overview?.leadsTable || [];
+  const lb = asList(overview?.leaderboard);
+  const leads = asList(overview?.leadsTable);
   const comm = overview?.communication;
   const fu = overview?.followups || {};
 
@@ -381,8 +381,8 @@ export function buildCrmPipelineStats(
   overview: CrmOverview | null | undefined,
 ): CrmComboMetric[] {
   const k = overview?.kpis || {};
-  const leads = overview?.leadsTable || [];
-  const clients = overview?.clientsTable || [];
+  const leads = asList(overview?.leadsTable);
+  const clients = asList(overview?.clientsTable);
   const fu = overview?.followups || {};
   const b = overview?.businessSummary;
 
@@ -605,7 +605,7 @@ export function buildCrmInsightCategories(overview: CrmOverview | null | undefin
   const activeClients = Number(k.activeClients || 0);
   const hotClients = Number(k.hotClients || 0);
 
-  const leadsRaw = overview?.leadsTable || [];
+  const leadsRaw = asList(overview?.leadsTable);
   const unassignedCount = leadsRaw.filter(
     (l) => !l.assignee || /unassigned/i.test(String(l.assignee)),
   ).length;

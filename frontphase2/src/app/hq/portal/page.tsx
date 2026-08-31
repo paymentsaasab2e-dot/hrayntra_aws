@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Eye, EyeOff, Globe, Loader2, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Globe, Loader2, RefreshCw, Rss, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { requestConfirm } from '@/lib/appDialog';
 import {
@@ -10,11 +10,12 @@ import {
   HQ_TABLE_CARD_CLASS,
   HQ_TOOLBAR_ROW_CLASS,
 } from '@/components/hq/HqModulePageLayout';
-import { HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
+import { HqPrimaryButton, HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import { HqPhase1ConnectionBar } from '@/components/hq/HqPhase1ConnectionBar';
 import {
   apiHqDeletePortalJob,
   apiHqListPortal,
+  apiHqPushJobsToExternalFeeds,
   apiHqSetPortalJobClientVisibility,
   type HqPortalJobRow,
   type HqPortalStats,
@@ -88,6 +89,7 @@ export default function HqPortalPage() {
   const [deletingJobKey, setDeletingJobKey] = useState<string | null>(null);
   const [visibilityJobKey, setVisibilityJobKey] = useState<string | null>(null);
   const [bulkHiding, setBulkHiding] = useState(false);
+  const [pushingFeeds, setPushingFeeds] = useState(false);
 
   const loadPortal = useCallback(async () => {
     setLoading(true);
@@ -218,6 +220,37 @@ export default function HqPortalPage() {
     }
   };
 
+  const handlePushAllJobsToFeeds = async () => {
+    const confirmed = await requestConfirm(
+      `Push every currently open/published job into the public Adzuna and Careerjet feeds?\n\nThis uses the existing feed URLs — it does not create a new URL per job:\nhttps://api1.hryantra.com/api/adzuna/jobs.xml\nhttps://api1.hryantra.com/api/careerjet/jobs.xml\n\nDraft, deleted, closed, expired, and internal jobs stay out.`,
+      {
+        tone: 'info',
+        title: 'Push jobs to Adzuna & Careerjet',
+        confirmLabel: 'Push all jobs',
+        cancelLabel: 'Cancel',
+      },
+    );
+    if (!confirmed) return;
+
+    setPushingFeeds(true);
+    try {
+      const result = await apiHqPushJobsToExternalFeeds();
+      const data = result.data;
+      const pushed = (data?.updated ?? 0) + (data?.alreadyInFeed ?? 0);
+      toast.success(
+        `Feeds updated. ${pushed} open job(s) will appear on Adzuna and Careerjet.` +
+          (data?.skipped
+            ? ` ${data.skipped} skipped (draft, closed, expired, or not public).`
+            : ''),
+      );
+      void loadPortal();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to push jobs to the feeds');
+    } finally {
+      setPushingFeeds(false);
+    }
+  };
+
   const handleDeleteJob = async (row: HqPortalJobRow) => {
     const label = row.title || 'this job';
     const scope = row.tenantDbName
@@ -267,6 +300,14 @@ export default function HqPortalPage() {
       icon={<Globe className="h-5 w-5" />}
       actions={
         <>
+          <HqPrimaryButton
+            onClick={() => void handlePushAllJobsToFeeds()}
+            disabled={loading || pushingFeeds || bulkHiding}
+            loading={pushingFeeds}
+          >
+            <Rss className="h-4 w-4" />
+            Push all jobs to Adzuna & Careerjet
+          </HqPrimaryButton>
           <HqSecondaryButton
             onClick={() => void handleBulkHideClientNames(true)}
             disabled={loading || bulkHiding || hiddenClientCount === 0}

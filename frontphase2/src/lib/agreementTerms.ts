@@ -37,6 +37,22 @@ export const AGREEMENT_REPLACEMENT_UNIT_OPTIONS: { value: AgreementFreeReplaceme
 export const DEFAULT_AGREEMENT_PAYMENT_TERMS =
   'Payment to be made by the client after the candidate has joined';
 
+export function toAgreementDateInputValue(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const ymd = raw.match(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/);
+  if (ymd) {
+    return `${ymd[1]}-${String(ymd[2]).padStart(2, '0')}-${String(ymd[3]).padStart(2, '0')}`;
+  }
+  const dmy = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmy) {
+    return `${dmy[3]}-${String(dmy[2]).padStart(2, '0')}-${String(dmy[1]).padStart(2, '0')}`;
+  }
+  return raw.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+}
+
 export function emptyAgreementTerms(): AgreementTermsFormValues {
   return {
     agreementLevel: '',
@@ -51,12 +67,20 @@ export function emptyAgreementTerms(): AgreementTermsFormValues {
   };
 }
 
+type AgreementTermsRecord = {
+  [K in Exclude<
+    keyof AgreementTermsFormValues,
+    'agreementFreeReplacementValue' | 'agreementFreeReplacementUnit'
+  >]?: AgreementTermsFormValues[K] | null;
+} & {
+  agreementFreeReplacementValue?: number | string | null;
+  agreementFreeReplacementUnit?: AgreementFreeReplacementUnit | '' | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementTotalPayment?: string | null;
+};
+
 export function agreementTermsFromRecord(
-  record?: Partial<AgreementTermsFormValues> & {
-    agreementFreeReplacementValue?: number | string | null;
-    agreementAdvancePaymentPercent?: string | null;
-    agreementTotalPayment?: string | null;
-  } | null,
+  record?: AgreementTermsRecord | null,
 ): AgreementTermsFormValues {
   const base = emptyAgreementTerms();
   if (!record) return base;
@@ -71,14 +95,12 @@ export function agreementTermsFromRecord(
       (record as { agreementContractValidity?: string | null }).agreementContractValidity != null
         ? String((record as { agreementContractValidity?: string | null }).agreementContractValidity)
         : '',
-    agreementContractStartDate:
-      (record as { agreementContractStartDate?: string | null }).agreementContractStartDate != null
-        ? String((record as { agreementContractStartDate?: string | null }).agreementContractStartDate)
-        : '',
-    agreementContractEndDate:
-      (record as { agreementContractEndDate?: string | null }).agreementContractEndDate != null
-        ? String((record as { agreementContractEndDate?: string | null }).agreementContractEndDate)
-        : '',
+    agreementContractStartDate: toAgreementDateInputValue(
+      (record as { agreementContractStartDate?: string | null }).agreementContractStartDate,
+    ),
+    agreementContractEndDate: toAgreementDateInputValue(
+      (record as { agreementContractEndDate?: string | null }).agreementContractEndDate,
+    ),
     agreementTimePeriod: record.agreementTimePeriod != null ? String(record.agreementTimePeriod) : '',
     agreementAdvancePaymentPercent:
       record.agreementAdvancePaymentPercent != null && record.agreementAdvancePaymentPercent !== ''
@@ -124,6 +146,27 @@ export function agreementTermsApiPayload(values: AgreementTermsFormValues) {
   };
 }
 
+export function filledAgreementTermKeys(values: Partial<AgreementTermsFormValues>): (keyof AgreementTermsFormValues)[] {
+  const keys: (keyof AgreementTermsFormValues)[] = [
+    'agreementLevel',
+    'agreementServiceChargePercent',
+    'agreementContractStartDate',
+    'agreementContractEndDate',
+    'agreementTimePeriod',
+    'agreementAdvancePaymentPercent',
+    'agreementFreeReplacementValue',
+    'agreementFreeReplacementUnit',
+  ];
+  return keys.filter((key) => {
+    const value = values[key];
+    if (value == null || String(value).trim() === '') return false;
+    if (key === 'agreementFreeReplacementUnit' && !String(values.agreementFreeReplacementValue || '').trim()) {
+      return false;
+    }
+    return true;
+  });
+}
+
 /** Apply non-empty values parsed from an uploaded agreement document. */
 export function mergeExtractedAgreementTerms(
   current: AgreementTermsFormValues,
@@ -144,6 +187,11 @@ export function mergeExtractedAgreementTerms(
   for (const key of keys) {
     const value = extracted[key];
     if (value != null && String(value).trim() !== '') {
+      if (key === 'agreementContractStartDate' || key === 'agreementContractEndDate') {
+        const date = toAgreementDateInputValue(value);
+        if (date) next[key] = date;
+        continue;
+      }
       next[key] = value as AgreementTermsFormValues[typeof key];
     }
   }

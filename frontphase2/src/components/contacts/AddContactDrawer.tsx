@@ -102,8 +102,8 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
           formData.email,
           formatDirectorDisplay(formData.salutation, `${formData.firstName} ${formData.lastName}`.trim()),
         );
-        if (response.data?.data?.duplicates && response.data.data.duplicates.length > 0) {
-          setDuplicateWarning(response.data.data.duplicates[0].contact);
+        if (response.data?.duplicates && response.data.duplicates.length > 0) {
+          setDuplicateWarning(response.data.duplicates[0].contact);
         } else {
           setDuplicateWarning(null);
         }

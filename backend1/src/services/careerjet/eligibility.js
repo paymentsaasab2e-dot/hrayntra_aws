@@ -1,4 +1,13 @@
-const CLOSED_STATUSES = new Set(['CLOSED', 'FILLED', 'DRAFT', 'ON_HOLD']);
+const CLOSED_STATUSES = new Set([
+  'CLOSED',
+  'FILLED',
+  'DRAFT',
+  'ON_HOLD',
+  'REJECTED',
+  'UNPUBLISHED',
+  'INACTIVE',
+  'PAUSED',
+]);
 const { resolveCountryName } = require('./countries');
 
 function envFlag(name) {
@@ -51,8 +60,12 @@ function evaluateEligibility(job, { includeAll = envFlag('CAREERJET_FEED_INCLUDE
   if (status === 'ON_HOLD') return { ok: false, reason: 'on_hold' };
   if (status === 'CLOSED') return { ok: false, reason: 'closed' };
   if (status === 'FILLED') return { ok: false, reason: 'filled' };
+  if (status === 'REJECTED') return { ok: false, reason: 'rejected' };
+  if (status === 'UNPUBLISHED') return { ok: false, reason: 'unpublished' };
+  if (status === 'INACTIVE' || status === 'PAUSED') return { ok: false, reason: 'inactive' };
   if (isExpired(job)) return { ok: false, reason: 'expired' };
-  if (!includeAll && !wantsCareerjetPublish(job)) return { ok: false, reason: 'careerjet_not_enabled' };
+  const requireOptIn = envFlag('CAREERJET_FEED_REQUIRE_OPT_IN') && !includeAll;
+  if (requireOptIn && !wantsCareerjetPublish(job)) return { ok: false, reason: 'careerjet_not_enabled' };
   return { ok: true };
 }
 

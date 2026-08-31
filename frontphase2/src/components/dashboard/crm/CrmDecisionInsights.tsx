@@ -39,7 +39,7 @@ function buildNextSteps(
   opts: { manager: boolean; userName?: string },
 ): NextStep[] {
   if (!overview) return [];
-  const alerts = overview.alerts || [];
+  const alerts = Array.isArray(overview.alerts) ? overview.alerts : [];
   const isDup = (text: string) => {
     const n = normalizeText(text);
     if (!n) return true;
@@ -50,7 +50,7 @@ function buildNextSteps(
   };
 
   const steps: NextStep[] = [];
-  const leads = overview.leadsTable || [];
+  const leads = Array.isArray(overview.leadsTable) ? overview.leadsTable : [];
   const myName = (opts.userName || '').toLowerCase();
   const mine = myName
     ? leads.filter((l) => String(l.assignee || '').toLowerCase().includes(myName.split(/\s+/)[0] || ''))
@@ -63,7 +63,7 @@ function buildNextSteps(
   const cold = coldPool.filter((l) => !Number(l.totalMeetings)).length;
   const overdue = Number(overview.followups?.overdue || overview.kpis?.overdueFollowups || 0);
   const todayFu = Number(overview.followups?.today || overview.todaySummary?.followupsPending || 0);
-  const teamOverdue = (overview.leaderboard || []).reduce(
+  const teamOverdue = (Array.isArray(overview.leaderboard) ? overview.leaderboard : []).reduce(
     (s, r) => s + Number(r.overdueFollowups || 0),
     0,
   );
@@ -141,7 +141,7 @@ function buildNextSteps(
     }
   }
 
-  (overview.recommendations || []).forEach((rec, i) => {
+  (Array.isArray(overview.recommendations) ? overview.recommendations : []).forEach((rec, i) => {
     push({
       id: rec.id || `rec-${i}`,
       title: rec.text,

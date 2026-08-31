@@ -191,7 +191,20 @@ export function ClientImportDrawer({
 
       importProgress.finish();
       const result = response.data;
-      toast.success(formatImportSuccessToast('Clients', result));
+      const created = result?.created ?? 0;
+      const updated = result?.updated ?? 0;
+      if (created === 0 && updated === 0) {
+        toast.error(
+          result?.failed
+            ? `No new clients appeared on the list (${result.failed} failed)`
+            : 'No clients were created. Check the file and try again.',
+        );
+      } else {
+        toast.success(formatImportSuccessToast('Clients', result));
+      }
+      if (Array.isArray(result?.errors) && result.errors.length) {
+        toast.error(result.errors.slice(0, 3).join('\n'));
+      }
       onImportComplete?.(result);
       await new Promise((r) => setTimeout(r, 400));
       handleClose();

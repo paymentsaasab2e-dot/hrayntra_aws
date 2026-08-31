@@ -123,7 +123,9 @@ import {
   agreementTermsApiPayload,
   agreementTermsFromRecord,
   emptyAgreementTerms,
+  filledAgreementTermKeys,
   formatAgreementTermsSummary,
+  mergeExtractedAgreementTerms,
   type AgreementTermsFormValues,
 } from '../../lib/agreementTerms';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
@@ -1332,6 +1334,9 @@ export function LeadDetailsDrawer({
   const addLeadAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   /** Pending Agreements & Terms file selected in the Overview edit form (uploaded immediately on save). */
   const [pendingOverviewAgreementsFile, setPendingOverviewAgreementsFile] = useState<File | null>(null);
+  const applyExtractedLeadAgreementTerms = useCallback((terms: AgreementTermsFormValues) => {
+    setOverviewEditForm((p) => ({ ...p, ...mergeExtractedAgreementTerms(p, terms) }));
+  }, []);
   const [pendingOverviewKycFiles, setPendingOverviewKycFiles] = useState<File[]>([]);
   const [pendingOverviewTeamMemberKycFiles, setPendingOverviewTeamMemberKycFiles] = useState<File[]>([]);
   const overviewAgreementsInputRef = useRef<HTMLInputElement | null>(null);
@@ -6365,8 +6370,7 @@ export function LeadDetailsDrawer({
                                           setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
                                         }
                                       }}
-                                      currentTerms={overviewEditForm}
-                                      onTermsExtracted={(terms) => setOverviewEditForm((p) => ({ ...p, ...terms }))}
+                                      onTermsExtracted={applyExtractedLeadAgreementTerms}
                                       isUploading={uploadingAgreements}
                                       uploadSuccess={agreementsUploadFeedback.uploadSuccess}
                                       uploadPercent={agreementsUploadFeedback.uploadPercent}

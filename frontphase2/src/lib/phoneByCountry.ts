@@ -85,17 +85,26 @@ let cachedDialOptions: PhoneDialOption[] | null = null;
 
 export function getPhoneDialOptions(): PhoneDialOption[] {
   if (cachedDialOptions) return cachedDialOptions;
-  cachedDialOptions = Country.getAllCountries()
-    .map((country) => {
-      const dialCode = normalizeDialCode(country.phonecode);
-      return {
-        isoCode: String(country.isoCode || '').toUpperCase(),
-        countryName: country.name,
-        dialCode,
-      };
-    })
-    .filter((option) => option.isoCode && option.dialCode)
-    .sort((a, b) => a.countryName.localeCompare(b.countryName));
+  try {
+    const countries = Country?.getAllCountries?.();
+    if (!Array.isArray(countries)) {
+      cachedDialOptions = [];
+      return cachedDialOptions;
+    }
+    cachedDialOptions = countries
+      .map((country) => {
+        const dialCode = normalizeDialCode(country.phonecode);
+        return {
+          isoCode: String(country.isoCode || '').toUpperCase(),
+          countryName: country.name,
+          dialCode,
+        };
+      })
+      .filter((option) => option.isoCode && option.dialCode)
+      .sort((a, b) => a.countryName.localeCompare(b.countryName));
+  } catch {
+    cachedDialOptions = [];
+  }
   return cachedDialOptions;
 }
 

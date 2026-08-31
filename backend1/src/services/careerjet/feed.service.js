@@ -6,18 +6,18 @@ const {
   wantsCareerjetPublish,
   evaluateEligibility,
 } = require('./eligibility');
-
-function portalFrontendBase() {
-  const raw =
-    process.env.JOB_PORTAL_FRONTEND_URL ||
-    process.env.PHASE1_FRONTEND_URL ||
-    process.env.FRONTEND_URL ||
-    'http://localhost:3000';
-  return String(raw).trim().replace(/\/+$/, '');
-}
+const { fetchAllPortalJobs } = require('../job-feeds/fetchPortalJobs');
+const {
+  portalFrontendBase,
+  publicJobDetailUrl,
+  assertPublicJobUrl,
+  xmlContainsForbiddenHosts,
+  isUsablePublicOrigin,
+} = require('../job-feeds/publicPortalUrl');
+const { recordFeedRun } = require('../job-feeds/diagnosticsStore');
 
 function publicJobUrl(jobId, portalBase = portalFrontendBase()) {
-  return `${portalBase}/explore-jobs?job=${encodeURIComponent(jobId)}&utm_source=careerjet`;
+  return publicJobDetailUrl(jobId, { portalBase, utmSource: 'careerjet' });
 }
 
 function stripTags(html) {
@@ -71,10 +71,11 @@ function shouldShowCompany(job) {
 }
 
 function companyName(job) {
-  if (!shouldShowCompany(job)) return '';
+  if (!shouldShowCompany(job)) return 'Confidential';
   return (
     String(job.client?.companyName || '').trim() ||
-    String(job.company?.name || '').trim()
+    String(job.company?.name || '').trim() ||
+    'Confidential'
   );
 }
 
@@ -82,8 +83,13 @@ function companyUrl(job) {
   if (!shouldShowCompany(job)) return '';
   const raw = String(job.client?.website || job.company?.website || '').trim();
   if (!raw) return '';
-  if (/^https?:\/\//i.test(raw)) return raw;
-  return `https://${raw.replace(/^\/+/, '')}`;
+  const absolute = /^https?:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/+/, '')}`;
+  if (!isUsablePublicOrigin(absolute, { requireHttps: false })) return '';
+  if (/^http:\/\//i.test(absolute) && !/^https:\/\//i.test(absolute)) {
+    const asHttps = absolute.replace(/^http:/i, 'https:');
+    return isUsablePublicOrigin(asHttps, { requireHttps: true }) ? asHttps : '';
+  }
+  return isUsablePublicOrigin(absolute, { requireHttps: true }) ? absolute : '';
 }
 
 function cityLine(job) {
@@ -110,7 +116,8 @@ function salaryDisplay(job) {
   const salary = job.salary && typeof job.salary === 'object' ? job.salary : {};
   const min = Number(salary.min ?? job.salaryMin);
   const max = Number(salary.max ?? job.salaryMax);
-  const currency = String(salary.currency || job.salaryCurrency || '').trim();
+  const currencyRaw = String(salary.currency || job.salaryCurrency || '').trim().toUpperCase();
+  const currency = /^[A-Z]{3}$/.test(currencyRaw) ? currencyRaw : '';
   const hasMin = Number.isFinite(min) && min > 0;
   const hasMax = Number.isFinite(max) && max > 0;
   if (!hasMin && !hasMax) return '';
@@ -120,60 +127,8 @@ function salaryDisplay(job) {
   return `${base}${salaryFrequencySuffix(job)}`;
 }
 
-function mongoId(value) {
-  if (!value) return '';
-  if (typeof value === 'string') return value;
-  if (value.$oid) return String(value.$oid);
-  return String(value);
-}
-
-function normalizeRawJob(doc, clientById = new Map()) {
-  const id = mongoId(doc._id) || mongoId(doc.id);
-  const clientId = mongoId(doc.clientId);
-  return {
-    ...doc,
-    id,
-    clientId: clientId || null,
-    client: clientById.get(clientId) || doc.client || null,
-    company: doc.company || null,
-  };
-}
-
 async function findRawJobs(prismaClient) {
-  if (typeof prismaClient?.$runCommandRaw !== 'function') {
-    return prismaClient.job.findMany({
-      take: 2000,
-      include: {
-        client: { select: { companyName: true, website: true } },
-        company: { select: { name: true, website: true } },
-      },
-    });
-  }
-  const result = await prismaClient.$runCommandRaw({
-    find: 'jobs',
-    filter: {},
-    sort: { postedDate: -1 },
-    limit: 2000,
-  });
-  const docs = result?.cursor?.firstBatch || result?.documents || [];
-  const clientIds = [
-    ...new Set(docs.map((doc) => mongoId(doc.clientId)).filter((id) => /^[a-fA-F0-9]{24}$/.test(id))),
-  ];
-  const clientById = new Map();
-  if (clientIds.length) {
-    const clients = await prismaClient.$runCommandRaw({
-      find: 'clients',
-      filter: { _id: { $in: clientIds.map((id) => ({ $oid: id })) } },
-      projection: { companyName: 1, website: 1 },
-    });
-    for (const row of clients?.cursor?.firstBatch || clients?.documents || []) {
-      clientById.set(mongoId(row._id), {
-        companyName: row.companyName || '',
-        website: row.website || '',
-      });
-    }
-  }
-  return docs.map((doc) => normalizeRawJob(doc, clientById));
+  return fetchAllPortalJobs(prismaClient);
 }
 
 function validateExportableJob(job, portalBase) {
@@ -184,9 +139,11 @@ function validateExportableJob(job, portalBase) {
   if (!stripTags(description)) return { ok: false, reason: 'missing_description' };
   if (!String(portalBase || '').trim()) return { ok: false, reason: 'missing_url' };
   const url = publicJobUrl(id, portalBase);
-  if (!url || !url.includes('/explore-jobs?job=')) return { ok: false, reason: 'missing_url' };
+  const urlCheck = assertPublicJobUrl(url);
+  if (!urlCheck.ok) return { ok: false, reason: urlCheck.reason };
   if (!cityLine(job) && !regionLine(job)) return { ok: false, reason: 'missing_location' };
   if (!resolveCountryName(job)) return { ok: false, reason: 'missing_country' };
+  if (!companyName(job)) return { ok: false, reason: 'missing_company' };
   return { ok: true, description, url };
 }
 
@@ -273,11 +230,20 @@ async function generateCareerjetFeed(prismaClient) {
   try {
     const jobs = await findRawJobs(prismaClient);
     const result = buildFeedFromJobs(jobs);
+    if (xmlContainsForbiddenHosts(result.xml)) {
+      throw new Error('Feed contained a localhost or private URL');
+    }
+    const durationMs = Date.now() - started;
+    recordFeedRun('careerjet', {
+      scanned: jobs.length,
+      ...result.stats,
+      durationMs,
+    });
     console.info(
-      `[careerjet-feed] scanned=${jobs.length} eligible=${result.stats.totalEligible} exported=${result.stats.exported} skipped=${result.stats.skipped} validationFailures=${result.stats.validationFailures} ms=${Date.now() - started}`,
+      `[careerjet-feed] scanned=${jobs.length} eligible=${result.stats.totalEligible} exported=${result.stats.exported} skipped=${result.stats.skipped} validationFailures=${result.stats.validationFailures} ms=${durationMs}`,
       result.stats.skipReasons,
     );
-    return result;
+    return { ...result, scanned: jobs.length, durationMs };
   } catch (error) {
     console.error('[careerjet-feed] XML generation error:', error?.message || error);
     throw error;

@@ -1625,20 +1625,37 @@ export default function RecruitmentAgencyDashboard() {
     }
   };
 
-  const handleRefresh = async (options?: { silent?: boolean }) => {
+  const handleRefresh = async (options?: { silent?: boolean; resetFilters?: boolean }) => {
+    const nextStatus: LeadStatus | 'All' = options?.resetFilters ? 'All' : statusFilter;
+    const nextSource = options?.resetFilters ? '' : sourceFilter;
+    const nextRecruiter = options?.resetFilters ? '' : recruiterFilter;
+    const nextPriority = options?.resetFilters ? '' : priorityFilter;
+    const nextSearch = options?.resetFilters ? '' : searchQuery;
+    const nextPage = options?.resetFilters ? 1 : currentPage;
+
+    if (options?.resetFilters) {
+      setStatusFilter('All');
+      setSourceFilter('');
+      setRecruiterFilter('');
+      setPriorityFilter('');
+      setSearchQuery('');
+      setSmartSearchLeadIds([]);
+      setCurrentPage(1);
+    }
+
     try {
       if (!options?.silent) {
         setLoading(true);
       }
       const response = await apiGetLeads(
         buildLeadsListApiParams({
-          statusFilter,
-          sourceFilter,
-          recruiterFilter,
-          priorityFilter,
-          searchQuery,
-          matchingLeadIds: smartSearchLeadIds,
-          currentPage,
+          statusFilter: nextStatus,
+          sourceFilter: nextSource,
+          recruiterFilter: nextRecruiter,
+          priorityFilter: nextPriority,
+          searchQuery: nextSearch,
+          matchingLeadIds: options?.resetFilters ? [] : smartSearchLeadIds,
+          currentPage: nextPage,
           pageSize,
         }),
       );
@@ -2886,7 +2903,7 @@ export default function RecruitmentAgencyDashboard() {
             onClose={() => setImportDrawerOpen(false)}
             onImportComplete={async () => {
               setImportDrawerOpen(false);
-              await handleRefresh({ silent: true });
+              await handleRefresh({ silent: true, resetFilters: true });
             }}
           />
         )}

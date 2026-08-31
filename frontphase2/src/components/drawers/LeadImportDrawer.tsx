@@ -279,14 +279,25 @@ export function LeadImportDrawer({
       const result = response.data;
       const created = result?.created ?? 0;
       const updated = result?.updated ?? 0;
+      const skipped = result?.skipped ?? 0;
+      const failed = result?.failed ?? 0;
       const parts: string[] = [];
       if (created > 0) parts.push(`${created} created`);
       if (updated > 0) parts.push(`${updated} updated`);
-      toast.success(
-        parts.length > 0
-          ? `Leads imported successfully (${parts.join(', ')})`
-          : 'Leads imported successfully'
-      );
+      if (skipped > 0) parts.push(`${skipped} skipped`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      if (created === 0 && updated === 0) {
+        toast.error(
+          parts.length
+            ? `No new leads appeared on the list (${parts.join(', ')})`
+            : 'No leads were created. Check the file and try again.',
+        );
+      } else {
+        toast.success(`Leads imported successfully (${parts.join(', ')})`);
+      }
+      if (Array.isArray(result?.errors) && result.errors.length) {
+        toast.error(result.errors.slice(0, 3).join('\n'));
+      }
 
       onImportComplete?.(result);
       await new Promise((r) => setTimeout(r, 400));

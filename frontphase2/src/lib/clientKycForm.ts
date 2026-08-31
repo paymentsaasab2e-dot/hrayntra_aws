@@ -398,7 +398,9 @@ export function postServiceKycFormApiPayload(values: PostServiceKycFormValues) {
   };
 
   return {
-    postServiceKycForm: postServiceKycFormHasAnyValue(values) ? normalized : null,
+    postServiceKycForm: (postServiceKycFormHasAnyValue(values) ? normalized : null) as
+      | PostServiceKycFormValues
+      | null,
   };
 }
 

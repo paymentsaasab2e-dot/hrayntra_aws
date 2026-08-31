@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { parseAgreementTermsFromText } from '../utils/parseAgreementTermsFromText.js';
+import { parseAgreementTermsFromText, toIsoDate } from '../utils/parseAgreementTermsFromText.js';
 import { runAgreementPipeline } from './agreementPipeline.service.js';
 import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 
@@ -46,20 +46,6 @@ function stripPercent(value) {
     .trim();
 }
 
-function normalizeDateLike(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (iso) {
-    return `${iso[1]}-${String(iso[2]).padStart(2, '0')}-${String(iso[3]).padStart(2, '0')}`;
-  }
-  const dmy = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  if (dmy) {
-    return `${dmy[3]}-${String(dmy[2]).padStart(2, '0')}-${String(dmy[1]).padStart(2, '0')}`;
-  }
-  return raw;
-}
-
 function mapFreeReplacement(parsed = {}) {
   const value =
     parsed.agreementFreeReplacementValue ??
@@ -95,10 +81,10 @@ function mapAiTerms(parsed = {}) {
       parsed.agreementServiceChargePercent ?? parsed.serviceChargePercent ?? '',
     ),
     agreementContractValidity: String(parsed.agreementContractValidity ?? parsed.contractValidity ?? '').trim(),
-    agreementContractStartDate: normalizeDateLike(
+    agreementContractStartDate: toIsoDate(
       parsed.agreementContractStartDate ?? parsed.contractStartDate ?? parsed.startDate ?? '',
     ),
-    agreementContractEndDate: normalizeDateLike(
+    agreementContractEndDate: toIsoDate(
       parsed.agreementContractEndDate ?? parsed.contractEndDate ?? parsed.endDate ?? '',
     ),
     agreementTimePeriod: String(
@@ -148,13 +134,13 @@ Return ONLY one valid JSON object with these keys (use null if not found):
 - agreementLevel: one of "Level 1", "Level 2", "Level 3", "Level 4", "Executive"
   Map document tiers: Entry Level -> Level 1, Middle Level -> Level 2, Top Level -> Level 3. Do NOT use "Executive" from arbitration text.
 - agreementServiceChargePercent: string number only without % (e.g. "10" for Middle Level). Use the fee table under PROFESSIONAL FEES when present.
-- agreementContractStartDate: string in YYYY-MM-DD when present
-- agreementContractEndDate: string in YYYY-MM-DD when present
+- agreementContractStartDate: string in YYYY-MM-DD when present (start / effective / commencement / dated)
+- agreementContractEndDate: string in YYYY-MM-DD when present (end / expiry). If only a duration is given (e.g. 12 months) and a start date exists, compute the end date.
 - agreementContractValidity: string summary of the contract validity period (if available)
 - agreementPaymentTerms: string — when/how the client pays (e.g. "Payment due after candidate joins")
 - agreementAdvancePaymentPercent: string number only without % for advance/upfront payment
-- agreementFreeReplacementValue: string integer (e.g. "3")
-- agreementFreeReplacementUnit: "MONTHS" or "DAYS"
+- agreementFreeReplacementValue: string integer for the free-replacement / guarantee window (e.g. "3")
+- agreementFreeReplacementUnit: "MONTHS" or "DAYS" for that replacement window
 
 Document file name: ${fileName}
 

@@ -35,6 +35,8 @@ type Props = {
   showTitle?: boolean;
   /** When provided, Level uses the same add/delete catalog dropdown as client Status. */
   levelCatalog?: AgreementLevelCatalogProps;
+  /** Keys just filled from an uploaded document — briefly highlighted. */
+  extractedKeys?: Array<keyof AgreementTermsFormValues>;
 };
 
 const labelClass = 'block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1';
@@ -50,8 +52,11 @@ export function AgreementTermsSection({
   showContractValidity = false,
   showTitle = true,
   levelCatalog,
+  extractedKeys = [],
 }: Props) {
   const locked = disabled || readOnly;
+  const flash = (key: keyof AgreementTermsFormValues) =>
+    extractedKeys.includes(key) ? ' ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50/40' : '';
 
   return (
     <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/40 p-4">
@@ -91,6 +96,7 @@ export function AgreementTermsSection({
                 placeholder="Select level"
                 onSelect={(level) => onChange({ agreementLevel: level })}
                 onDelete={locked ? undefined : levelCatalog.onDelete}
+                buttonClassName={flash('agreementLevel')}
               />
               {levelCatalog.showAddInput ? (
                 <div className="mt-2 flex items-center gap-2">
@@ -123,7 +129,7 @@ export function AgreementTermsSection({
               value={values.agreementLevel}
               onChange={(e) => onChange({ agreementLevel: e.target.value })}
               disabled={locked}
-              className={inputClass}
+              className={`${inputClass}${flash('agreementLevel')}`}
             >
               <option value="">Select level</option>
               {AGREEMENT_LEVEL_OPTIONS.map((level) => (
@@ -146,7 +152,7 @@ export function AgreementTermsSection({
               value={values.agreementServiceChargePercent}
               onChange={(e) => onChange({ agreementServiceChargePercent: e.target.value })}
               disabled={locked}
-              className={`${inputClass} pr-9`}
+              className={`${inputClass} pr-9${flash('agreementServiceChargePercent')}`}
               placeholder="e.g. 8.5"
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
@@ -164,7 +170,7 @@ export function AgreementTermsSection({
                 value={values.agreementContractStartDate}
                 onChange={(e) => onChange({ agreementContractStartDate: e.target.value })}
                 disabled={locked}
-                className={inputClass}
+                className={`${inputClass}${flash('agreementContractStartDate')}`}
               />
             </div>
             <div>
@@ -174,7 +180,7 @@ export function AgreementTermsSection({
                 value={values.agreementContractEndDate}
                 onChange={(e) => onChange({ agreementContractEndDate: e.target.value })}
                 disabled={locked}
-                className={inputClass}
+                className={`${inputClass}${flash('agreementContractEndDate')}`}
               />
             </div>
           </>
@@ -187,7 +193,7 @@ export function AgreementTermsSection({
             value={values.agreementTimePeriod}
             onChange={(e) => onChange({ agreementTimePeriod: e.target.value })}
             disabled={locked}
-            className={`${inputClass} resize-y min-h-[4.5rem]`}
+            className={`${inputClass} resize-y min-h-[4.5rem]${flash('agreementTimePeriod')}`}
             placeholder={DEFAULT_AGREEMENT_PAYMENT_TERMS}
           />
           <p className="mt-1 text-[11px] text-slate-500">
@@ -206,7 +212,7 @@ export function AgreementTermsSection({
               value={values.agreementAdvancePaymentPercent}
               onChange={(e) => onChange({ agreementAdvancePaymentPercent: e.target.value })}
               disabled={locked}
-              className={`${inputClass} pr-9`}
+              className={`${inputClass} pr-9${flash('agreementAdvancePaymentPercent')}`}
               placeholder="e.g. 30"
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
@@ -224,7 +230,7 @@ export function AgreementTermsSection({
             value={values.agreementFreeReplacementValue}
             onChange={(e) => onChange({ agreementFreeReplacementValue: e.target.value })}
             disabled={locked}
-            className={inputClass}
+            className={`${inputClass}${flash('agreementFreeReplacementValue')}`}
             placeholder="e.g. 3"
           />
         </div>
@@ -239,7 +245,7 @@ export function AgreementTermsSection({
               })
             }
             disabled={locked}
-            className={inputClass}
+            className={`${inputClass}${flash('agreementFreeReplacementUnit')}`}
           >
             {AGREEMENT_REPLACEMENT_UNIT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>

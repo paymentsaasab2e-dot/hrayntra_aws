@@ -783,6 +783,15 @@ export const hqController = {
     }
   },
 
+  async pushEligibleJobsToExternalFeeds(req, res) {
+    try {
+      const result = await hqService.pushEligibleJobsToExternalFeeds(req.user);
+      sendResponse(res, 200, 'Jobs pushed to Adzuna and Careerjet feeds', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
   async deleteTenant(req, res) {
     try {
       // Accept email via body, URL params, or query — the HQ UI uses the

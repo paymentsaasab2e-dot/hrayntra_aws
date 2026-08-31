@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { escapeXml, cdata, wrapJobsXml, jobToXml } = require('./xml');
 const { mapAdzunaCategory } = require('./categories');
 const { evaluateEligibility, resolveCountry } = require('./eligibility');
-const { buildFeedFromJobs, validateExportableJob } = require('./feed.service');
+const { buildFeedFromJobs, validateExportableJob, generateAdzunaFeed } = require('./feed.service');
 
 describe('Adzuna XML helpers', () => {
   it('escapes special characters', () => {
@@ -34,20 +34,21 @@ describe('Adzuna eligibility', () => {
     publishToAdzuna: true,
   };
 
-  it('excludes closed, draft, deleted, expired, and inactive jobs', () => {
+  it('excludes closed, draft, deleted, expired, inactive, rejected, and unpublished jobs', () => {
     assert.equal(evaluateEligibility({ ...base, status: 'CLOSED' }).reason, 'closed');
     assert.equal(evaluateEligibility({ ...base, status: 'DRAFT' }).reason, 'draft');
     assert.equal(evaluateEligibility({ ...base, isDeleted: true }).reason, 'deleted');
     assert.equal(evaluateEligibility({ ...base, isActive: false }).reason, 'inactive');
+    assert.equal(evaluateEligibility({ ...base, status: 'REJECTED' }).reason, 'rejected');
+    assert.equal(evaluateEligibility({ ...base, status: 'UNPUBLISHED' }).reason, 'unpublished');
     assert.equal(
       evaluateEligibility({ ...base, expectedClosureDate: '2020-01-01T00:00:00.000Z' }).reason,
       'expired',
     );
   });
 
-  it('requires Adzuna opt-in unless includeAll is set', () => {
-    assert.equal(evaluateEligibility({ ...base, publishToAdzuna: false }).reason, 'adzuna_not_enabled');
-    assert.equal(evaluateEligibility({ ...base, publishToAdzuna: false }, { includeAll: true }).ok, true);
+  it('includes all public portal jobs without requiring an Adzuna API key or per-job opt-in', () => {
+    assert.equal(evaluateEligibility({ ...base, publishToAdzuna: false }).ok, true);
     assert.equal(
       evaluateEligibility({ ...base, publishToAdzuna: false, distributionPlatforms: { adzuna: true } }).ok,
       true,
@@ -77,7 +78,7 @@ describe('Adzuna category mapping', () => {
 });
 
 describe('Adzuna feed builder', () => {
-  const portalBase = 'http://localhost:3000';
+  const portalBase = 'https://www.hryantra.com';
 
   it('exports a valid open opted-in job and skips invalid ones', () => {
     const jobs = [
@@ -122,8 +123,8 @@ describe('Adzuna feed builder', () => {
     assert.match(xml, /<company>Acme &amp; Co<\/company>/);
     assert.match(xml, /<remote>1<\/remote>/);
     assert.doesNotMatch(xml, /Closed Role/);
-    assert.doesNotMatch(xml, /app_id|app_key|ADZUNA_APP/);
-    assert.match(xml, /explore-jobs\?job=64b000000000000000000001&amp;utm_source=adzuna/);
+    assert.match(xml, /https:\/\/www\.hryantra\.com\/explore-jobs\?job=64b000000000000000000001&amp;utm_source=adzuna/);
+    assert.doesNotMatch(xml, /localhost|127\.0\.0\.1|app_id|app_key|ADZUNA_APP|<api_key>|<adzuna_key>/);
   });
 
   it('exports jobs whose dates come back as Mongo $date objects', () => {
@@ -160,5 +161,51 @@ describe('Adzuna feed builder', () => {
       ['id', '1'],
     ]);
     assert.match(xml, /<title>A &amp; B<\/title>/);
+  });
+
+  it('includes every eligible job with unique ids and no pagination cap', () => {
+    const jobs = Array.from({ length: 120 }, (_, i) => ({
+      id: `64b00000000000000000${String(i).padStart(4, '0')}`,
+      title: i === 0 ? 'C++ Developer' : `Role ${i}`,
+      description: `<p>Build APIs with Node.js & MongoDB for role ${i}. Description must be long enough for a real job posting.</p>`,
+      location: 'Mumbai',
+      country: 'India',
+      status: 'OPEN',
+      isActive: true,
+      client: { companyName: 'A & B Technologies' },
+    }));
+    jobs.push({
+      ...jobs[0],
+      id: 'dup-1',
+      status: 'DRAFT',
+      title: 'Draft Role',
+    });
+    const { xml, stats } = buildFeedFromJobs(jobs, { portalBase });
+    assert.equal(stats.exported, 120);
+    assert.equal((xml.match(/<job>/g) || []).length, 120);
+    const ids = [...xml.matchAll(/<id>([^<]+)<\/id>/g)].map((m) => m[1]);
+    assert.equal(new Set(ids).size, ids.length);
+    assert.match(xml, /<title>C\+\+ Developer<\/title>/);
+    assert.match(xml, /<company>A &amp; B Technologies<\/company>/);
+    assert.doesNotMatch(xml, /Draft Role/);
+  });
+
+  it('drops duplicate ids after the first occurrence', () => {
+    const job = {
+      id: 'same-id',
+      title: 'Software Engineer',
+      description: '<p>Build and ship backend APIs for our hiring platform with Node.js and MongoDB.</p>',
+      location: 'Pune',
+      country: 'IN',
+      status: 'OPEN',
+      isActive: true,
+    };
+    const { stats } = buildFeedFromJobs([job, { ...job, title: 'Copy' }], { portalBase });
+    assert.equal(stats.exported, 1);
+    assert.equal(stats.skipReasons.duplicate_id, 1);
+  });
+
+  it('returns a server error when the database cannot list jobs', async () => {
+    await assert.rejects(() => generateAdzunaFeed(null), /unavailable|cannot list/i);
   });
 });

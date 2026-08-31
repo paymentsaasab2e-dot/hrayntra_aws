@@ -35,14 +35,18 @@ function findCountry(country?: string, countryCode?: string): ICountry | undefin
     .trim()
     .toUpperCase();
   if (code.length === 2) {
-    const byCode = Country.getCountryByCode(code);
-    if (byCode) return byCode;
+    try {
+      const byCode = Country?.getCountryByCode?.(code);
+      if (byCode) return byCode;
+    } catch {
+      /* ignore broken country-state-city export */
+    }
   }
 
   const key = normalizeKey(country || '');
   if (!key) return undefined;
 
-  const all = Country.getAllCountries();
+  const all = Array.isArray(Country?.getAllCountries?.()) ? Country.getAllCountries() : [];
   const exact = all.find((c) => normalizeKey(c.name) === key);
   if (exact) return exact;
 

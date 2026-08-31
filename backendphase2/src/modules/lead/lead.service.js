@@ -458,10 +458,26 @@ function buildLeadImportUpdatePayload(payload) {
 }
 
 function prefixDuplicateCopyCompanyName(companyName, fallback = '') {
-  const base = stripNbsp(companyName || fallback).trim();
-  if (!base) return 'Copy';
-  if (/^copy\b/i.test(base)) return base;
-  return `Copy ${base}`;
+  const raw = stripNbsp(companyName || fallback).trim() || 'Lead';
+  const root = raw.replace(/\s+copy(?:\s+\d+)?$/i, '').trim() || raw;
+  return `${root} copy`;
+}
+
+async function uniqueLeadCopyName(companyName, fallback = '') {
+  const base = prefixDuplicateCopyCompanyName(companyName, fallback);
+  const root = base.replace(/\s+copy(?:\s+\d+)?$/i, '').trim() || base;
+  for (let n = 1; n <= 100; n += 1) {
+    const candidate = n === 1 ? `${root} copy` : `${root} copy ${n}`;
+    const hit = await prisma.lead.findFirst({
+      where: {
+        isDeleted: { not: true },
+        companyName: { equals: escapePrismaRegex(candidate), mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    if (!hit) return candidate;
+  }
+  return `${root} copy ${Date.now()}`;
 }
 
 function buildLeadImportPayload(row = {}, mapping = {}, { performedById } = {}) {
@@ -610,6 +626,8 @@ async function findExistingLeadImportDuplicate(payload) {
       notes: true,
       otherDetails: true,
       createdAt: true,
+      assignedToId: true,
+      assignedToIds: true,
       assignedTo: {
         select: { id: true, name: true, email: true },
       },
@@ -1209,6 +1227,11 @@ export const leadService = {
     if (data.convertedToClientId !== undefined) updateData.convertedToClientId = data.convertedToClientId || null;
     if (data.convertedToCandidateId !== undefined) updateData.convertedToCandidateId = data.convertedToCandidateId || null;
     if (data.convertedAt !== undefined) updateData.convertedAt = data.convertedAt ? new Date(data.convertedAt) : null;
+    if (data.isDeleted === false) {
+      updateData.isDeleted = false;
+      updateData.deletedAt = null;
+      updateData.deletedBy = null;
+    }
 
     // Status → Converted without a linked client: create Client + link (same as POST /leads/:id/convert).
     if (data.status === 'Converted' && !currentLead.convertedToClientId) {
@@ -2097,11 +2120,28 @@ export const leadService = {
           continue;
         }
 
+        if (req) {
+          req._bypassLeadScope = true;
+        }
+
         if (existing && duplicateRule === 'update') {
+          const existingAssigneeIds = Array.isArray(existing.assignedToIds)
+            ? existing.assignedToIds
+            : [];
+          const nextAssigneeIds = [
+            ...new Set(
+              [...existingAssigneeIds, existing.assignedToId, performedById]
+                .map((id) => String(id || '').trim())
+                .filter(Boolean),
+            ),
+          ];
           await this.update(
             existing.id,
             buildLeadImportUpdatePayload({
               ...payload,
+              isDeleted: false,
+              assignedToId: existing.assignedToId || performedById,
+              assignedToIds: nextAssigneeIds,
               otherDetails: mergeLeadImportOtherDetails(existing.otherDetails, payload.otherDetails),
             }),
             req,
@@ -2114,14 +2154,29 @@ export const leadService = {
           existing && duplicateRule === 'create'
             ? {
                 ...payload,
-                companyName: prefixDuplicateCopyCompanyName(
+                companyName: await uniqueLeadCopyName(
                   payload.companyName,
-                  existing.companyName || existing.contactPerson || 'Lead'
+                  existing.companyName || existing.contactPerson || payload.companyName || 'Lead',
                 ),
               }
             : payload;
 
-        await this.create({ ...createPayload, performedByRole }, req);
+        const importerIds = performedById ? [performedById] : [];
+        const nextAssignedToIds =
+          Array.isArray(createPayload.assignedToIds) && createPayload.assignedToIds.length
+            ? [...new Set([...createPayload.assignedToIds, ...importerIds])]
+            : importerIds;
+
+        await this.create(
+          {
+            ...createPayload,
+            performedByRole,
+            performedById,
+            assignedToId: createPayload.assignedToId || performedById,
+            assignedToIds: nextAssignedToIds,
+          },
+          req,
+        );
         results.created += 1;
       } catch (error) {
         results.failed += 1;

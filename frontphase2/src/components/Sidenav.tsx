@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { Suspense, useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -856,7 +856,7 @@ interface SidenavProps {
   children?: React.ReactNode;
 }
 
-export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps) {
+function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
@@ -1913,6 +1913,23 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
         onClose={() => setNotificationDrawerOpen(false)}
       />
     </>
+  );
+}
+
+function SidenavShellFallback({ children }: { children?: React.ReactNode }) {
+  return (
+    <>
+      <div className="fixed inset-x-0 top-0 z-50 h-14 bg-[#0b1220]" aria-hidden />
+      <div className="ph2-main-surface min-h-screen pt-14">{children}</div>
+    </>
+  );
+}
+
+export function Sidenav(props: SidenavProps) {
+  return (
+    <Suspense fallback={<SidenavShellFallback>{props.children}</SidenavShellFallback>}>
+      <SidenavInner {...props} />
+    </Suspense>
   );
 }
 

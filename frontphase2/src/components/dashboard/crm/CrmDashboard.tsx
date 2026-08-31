@@ -7,6 +7,7 @@ import { ExternalLink, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiCrmDashboardOverview,
+  normalizeCrmOverview,
   type CrmOverview,
 } from '@/lib/dashboard/api';
 import { useDashboardLayoutStore } from '@/lib/dashboard/DashboardLayoutProvider';
@@ -52,7 +53,7 @@ function CrmDrillDownModal() {
 
   if (!mounted || !drillDown) return null;
 
-  const rows = drillDown.rows || [];
+  const rows = Array.isArray(drillDown.rows) ? drillDown.rows : [];
   const columns = rows.length
     ? Array.from(
         rows.reduce((set, row) => {
@@ -157,7 +158,7 @@ function CrmDashboardInner() {
   const access = useDashboardAccess();
   const [overview, setOverview] = useState<CrmOverview | null>(() => {
     const cached = readCrmOverviewCache({ dateRange: 'last_30_days', category: 'insights' });
-    return cached?.data ? (cached.data as CrmOverview) : null;
+    return cached?.data ? normalizeCrmOverview(cached.data) : null;
   });
   const [loading, setLoading] = useState(
     () => !readCrmOverviewCache({ dateRange: 'last_30_days', category: 'insights' })?.data,
@@ -174,7 +175,7 @@ function CrmDashboardInner() {
     const query =
       category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
     const cached = readCrmOverviewCache({ ...query, category } as Record<string, string | undefined | null>);
-    if (cached?.data) setOverview(cached.data as CrmOverview);
+    if (cached?.data) setOverview(normalizeCrmOverview(cached.data));
   }, [category, filters]);
 
   const load = useCallback(async () => {
@@ -187,7 +188,7 @@ function CrmDashboardInner() {
     try {
       const data = await apiCrmDashboardOverview(query);
       setOverview(data);
-      writeCrmOverviewCache(data as Record<string, unknown>, cacheFilters);
+      if (data) writeCrmOverviewCache(data as Record<string, unknown>, cacheFilters);
     } catch (error: unknown) {
       if (!cached?.data) setOverview(null);
       const message = error instanceof Error ? error.message : 'Failed to load CRM dashboard';
@@ -210,7 +211,7 @@ function CrmDashboardInner() {
       void apiCrmDashboardOverview(query)
         .then((data) => {
           setOverview(data);
-          writeCrmOverviewCache(data as Record<string, unknown>, cacheFilters);
+          if (data) writeCrmOverviewCache(data as Record<string, unknown>, cacheFilters);
         })
         .catch(() => undefined);
     }, POLL_MS);
@@ -315,7 +316,7 @@ function CrmDashboardWithLayout() {
 
   return (
     <CrmDashboardProvider
-      initialHidden={layout.crm?.hiddenSections || []}
+      initialHidden={Array.isArray(layout.crm?.hiddenSections) ? layout.crm.hiddenSections : []}
       onHiddenChange={onHiddenChange}
     >
       <CrmDashboardInner />

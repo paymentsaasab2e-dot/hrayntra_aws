@@ -126,7 +126,8 @@ function pickFreeReplacement(text) {
     /free\s*(?:of\s*)?cost[^.]{0,80}?within\s*(\d{1,3})\s*(months?|days?)/i,
     /re-?\s*conduct\s*the\s*search[^.]{0,120}?within\s*(\d{1,3})\s*(months?|days?)/i,
     /free\s*replacement\s*[:\-]?\s*(\d{1,3})\s*(months?|days?)/i,
-    /replacement\s*period\s*[:\-]?\s*(\d{1,3})\s*(months?|days?)/i,
+    /replacement\s*(?:period|guarantee|warranty)\s*[:\-]?\s*(\d{1,3})\s*(months?|days?)/i,
+    /guarantee\s*(?:period|of)?\s*[:\-]?\s*(\d{1,3})\s*(months?|days?)/i,
     /(\d{1,3})\s*(months?|days?)\s*free\s*replacement/i,
     /replacement\s*within\s*(\d{1,3})\s*(months?|days?)/i,
   ];
@@ -196,29 +197,66 @@ function pickContractValiditySummary(text) {
   return '';
 }
 
-function toIsoDate(token) {
+const MONTH_INDEX = {
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12,
+};
+
+function padIsoDate(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return '';
+  if (y < 1900 || m < 1 || m > 12 || d < 1 || d > 31) return '';
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+export function toIsoDate(token) {
   const raw = String(token || '').trim();
   if (!raw) return '';
   const normalized = raw.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const directIso = normalized.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (directIso) {
-    const y = Number(directIso[1]);
-    const m = Number(directIso[2]);
-    const d = Number(directIso[3]);
-    if (y >= 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-      return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    }
-  }
+  const isoDateTime = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  if (isoDateTime) return padIsoDate(isoDateTime[1], isoDateTime[2], isoDateTime[3]);
+
+  const directIso = normalized.match(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/);
+  if (directIso) return padIsoDate(directIso[1], directIso[2], directIso[3]);
 
   const dmy = normalized.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  if (dmy) {
-    const d = Number(dmy[1]);
-    const m = Number(dmy[2]);
-    const y = Number(dmy[3]);
-    if (y >= 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-      return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    }
+  if (dmy) return padIsoDate(dmy[3], dmy[2], dmy[1]);
+
+  const dayMonthYear = normalized.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})$/);
+  if (dayMonthYear) {
+    const month = MONTH_INDEX[String(dayMonthYear[2]).toLowerCase()];
+    if (month) return padIsoDate(dayMonthYear[3], month, dayMonthYear[1]);
+  }
+
+  const monthDayYear = normalized.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(\d{4})$/);
+  if (monthDayYear) {
+    const month = MONTH_INDEX[String(monthDayYear[1]).toLowerCase()];
+    if (month) return padIsoDate(monthDayYear[3], month, monthDayYear[2]);
   }
 
   return '';
@@ -226,18 +264,30 @@ function toIsoDate(token) {
 
 function pickAgreementDates(text) {
   const dateToken =
-    '(?:\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}|\\d{1,2}[./-]\\d{1,2}[./-]\\d{4})';
+    '(?:\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}|\\d{1,2}[./-]\\d{1,2}[./-]\\d{4}|\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Za-z]{3,9}\\s+\\d{4}|[A-Za-z]{3,9}\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+\\d{4})';
 
   let start = '';
   let end = '';
 
+  const range = text.match(
+    new RegExp(
+      `(?:valid|period|term|agreement)[^\\n]{0,40}?(?:from|between)\\s+(${dateToken})\\s+(?:to|till|until|and)\\s+(${dateToken})`,
+      'i',
+    ),
+  );
+  if (range?.[1] && range?.[2]) {
+    start = toIsoDate(range[1]) || start;
+    end = toIsoDate(range[2]) || end;
+  }
+
   const startPatterns = [
-    new RegExp(`(?:start\\s*date|effective\\s*date|entering\\s*the\\s*contract)\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
+    new RegExp(`(?:start\\s*date|effective\\s*date|commencement\\s*date|entering\\s*the\\s*contract)\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
     new RegExp(`valid\\s*from\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
     new RegExp(`date\\s*of\\s*entering\\s*the\\s*contract\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
+    new RegExp(`(?:this\\s+)?agreement\\s+dated\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
   ];
   const endPatterns = [
-    new RegExp(`(?:end\\s*date|expiry\\s*date|expiration\\s*date)\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
+    new RegExp(`(?:end\\s*date|expiry\\s*date|expiration\\s*date|termination\\s*date)\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
     new RegExp(`valid\\s*(?:till|until|to)\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
   ];
 

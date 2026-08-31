@@ -20,6 +20,16 @@ function filtersToQuery(filters?: WidgetFilters | Record<string, string | undefi
   return qs ? `?${qs}` : '';
 }
 
+/** Chart/table fields from cache or a partial API payload must be real arrays before spread/map. */
+export function asList<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function asRecord<T extends Record<string, unknown>>(value: unknown): T | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return value as T;
+}
+
 export type DashboardInsight = {
   id: string;
   severity: 'high' | 'medium' | 'info' | string;
@@ -368,12 +378,67 @@ export async function apiDashboardAccess() {
   return res.data;
 }
 
+export function normalizeCrmOverview(raw: unknown): CrmOverview | null {
+  const o = asRecord<CrmOverview>(raw);
+  if (!o) return null;
+  const followups = asRecord<NonNullable<CrmOverview['followups']>>(o.followups);
+  const entityCompare = asRecord<NonNullable<CrmOverview['entityCompare']>>(o.entityCompare);
+  const leadsCompare = asRecord<NonNullable<NonNullable<CrmOverview['entityCompare']>['leads']>>(
+    entityCompare?.leads,
+  );
+  const clientsCompare = asRecord<NonNullable<NonNullable<CrmOverview['entityCompare']>['clients']>>(
+    entityCompare?.clients,
+  );
+  const myWork = asRecord<NonNullable<CrmOverview['myWork']>>(o.myWork);
+  return {
+    ...o,
+    kpis: asRecord<CrmOverview['kpis']>(o.kpis) || {},
+    insights: asList(o.insights),
+    recommendations: asList(o.recommendations),
+    alerts: asList(o.alerts),
+    pipeline: asList(o.pipeline),
+    leadSources: asList(o.leadSources),
+    leadStatusBars: asList(o.leadStatusBars),
+    leadStagePie: asList(o.leadStagePie),
+    clientStatusPie: asList(o.clientStatusPie),
+    industries: asList(o.industries),
+    countries: asList(o.countries),
+    clientGrowth: asList(o.clientGrowth),
+    leadSpark: asList(o.leadSpark),
+    leadsTable: asList(o.leadsTable),
+    clientsTable: asList(o.clientsTable),
+    calendar: asList(o.calendar),
+    activityTimeline: asList(o.activityTimeline),
+    leaderboard: asList(o.leaderboard),
+    teamOptions: asList(o.teamOptions),
+    followups: followups
+      ? { ...followups, upcoming: asList(followups.upcoming) }
+      : o.followups,
+    entityCompare: entityCompare
+      ? {
+          ...entityCompare,
+          leads: leadsCompare
+            ? { ...leadsCompare, days: asList(leadsCompare.days), lines: asList(leadsCompare.lines) }
+            : entityCompare.leads,
+          clients: clientsCompare
+            ? {
+                ...clientsCompare,
+                days: asList(clientsCompare.days),
+                lines: asList(clientsCompare.lines),
+              }
+            : entityCompare.clients,
+        }
+      : o.entityCompare,
+    myWork: myWork ? { ...myWork, approvals: asList(myWork.approvals) } : o.myWork,
+  };
+}
+
 export async function apiCrmDashboardOverview(filters?: CrmDashboardFilters) {
   const res = await apiFetch<CrmOverview>(
     `/dashboard/crm-overview${filtersToQuery(filters)}`,
     { auth: true },
   );
-  return res.data;
+  return normalizeCrmOverview(res.data);
 }
 
 export type RecruitmentOverview = {
@@ -495,19 +560,51 @@ export type RecruitmentDashboardFilters = {
   orgUnitId?: string;
 };
 
+export function normalizeRecruitmentOverview(raw: unknown): RecruitmentOverview | null {
+  const o = asRecord<RecruitmentOverview>(raw);
+  if (!o) return null;
+  const myWork = asRecord<NonNullable<RecruitmentOverview['myWork']>>(o.myWork);
+  return {
+    ...o,
+    kpis: asRecord<RecruitmentOverview['kpis']>(o.kpis) || {},
+    insights: asList(o.insights),
+    recommendations: asList(o.recommendations),
+    alerts: asList(o.alerts),
+    pipeline: asList(o.pipeline),
+    jobStatusPie: asList(o.jobStatusPie),
+    candidateStatusPie: asList(o.candidateStatusPie),
+    interviewStatusPie: asList(o.interviewStatusPie),
+    placementStatusPie: asList(o.placementStatusPie),
+    candidateSources: asList(o.candidateSources),
+    jobsByDepartment: asList(o.jobsByDepartment),
+    jobsByClient: asList(o.jobsByClient),
+    jobSpark: asList(o.jobSpark),
+    sourceSpark: asList(o.sourceSpark),
+    jobsTable: asList(o.jobsTable),
+    candidatesTable: asList(o.candidatesTable),
+    interviewsTable: asList(o.interviewsTable),
+    placementsTable: asList(o.placementsTable),
+    schedule: asList(o.schedule),
+    activityTimeline: asList(o.activityTimeline),
+    leaderboard: asList(o.leaderboard),
+    teamOptions: asList(o.teamOptions),
+    myWork: myWork ? { ...myWork, approvals: asList(myWork.approvals) } : o.myWork,
+  };
+}
+
 export async function apiRecruitmentDashboardOverview(filters?: RecruitmentDashboardFilters) {
   const res = await apiFetch<RecruitmentOverview>(
     `/dashboard/recruitment-overview${filtersToQuery(filters)}`,
     { auth: true },
   );
-  return res.data;
+  return normalizeRecruitmentOverview(res.data);
 }
 
 export async function apiDashboardCatalog(): Promise<DashboardCatalog> {
   const res = await apiFetch<DashboardCatalog>('/dashboard/catalog', { auth: true });
   return {
-    datasets: res.data.datasets || [],
-    modules: res.data.modules || [],
+    datasets: asList(res.data?.datasets),
+    modules: asList(res.data?.modules),
   };
 }
 
@@ -532,7 +629,7 @@ export async function apiDashboardGetLayout(): Promise<DashboardLayoutV2 | Dashb
   const res = await apiFetch<{ layout?: unknown; widgets?: unknown }>('/dashboard/layout', {
     auth: true,
   });
-  return (res.data.layout ?? res.data.widgets ?? { version: 2, modules: {} }) as
+  return (res.data?.layout ?? res.data?.widgets ?? { version: 2, modules: {} }) as
     | DashboardLayoutV2
     | DashboardWidget[];
 }

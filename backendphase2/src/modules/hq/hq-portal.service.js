@@ -10,8 +10,16 @@ import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import {
   invalidatePortalJobsListCache,
   jobService,
+  refreshJobPortalMirror,
   removeJobFromPortalDatabases,
 } from '../job/job.service.js';
+import {
+  PUBLIC_ADZUNA_FEED_URL,
+  PUBLIC_CAREERJET_FEED_URL,
+  alreadyOptedIntoExternalFeeds,
+  feedSkipReason,
+  mergeFeedDistributionPlatforms,
+} from './hq-portal-feed-push.util.js';
 
 const LIST_LIMIT = Math.min(
   10000,
@@ -77,6 +85,83 @@ function notSoftDeletedWhere() {
 
 function jobKey(id, tenantDbName = '') {
   return `${tenantDbName || 'phase1'}:${id}`;
+}
+
+const JOB_FEED_PUSH_SELECT = {
+  id: true,
+  status: true,
+  isDeleted: true,
+  expectedClosureDate: true,
+  visibility: true,
+  distributionPlatforms: true,
+  publishToAdzuna: true,
+  publishToCareerjet: true,
+  tenantDbName: true,
+};
+
+const FEED_PUSH_PAGE = 250;
+const FEED_PUSH_MAX = 250000;
+
+async function listJobsPaged(client, extraWhere = {}) {
+  const out = [];
+  let cursorId = null;
+  for (;;) {
+    const rows = await client.job.findMany({
+      where: { ...notSoftDeletedWhere(), ...extraWhere },
+      take: FEED_PUSH_PAGE,
+      ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
+      orderBy: { id: 'asc' },
+      select: JOB_FEED_PUSH_SELECT,
+    });
+    if (!rows.length) break;
+    out.push(...rows);
+    cursorId = rows[rows.length - 1].id;
+    if (rows.length < FEED_PUSH_PAGE) break;
+    if (out.length >= FEED_PUSH_MAX) break;
+  }
+  return out;
+}
+
+function bumpReason(bag, reason) {
+  bag[reason] = (bag[reason] || 0) + 1;
+}
+
+async function writeFeedOptIn(client, job) {
+  await client.job.update({
+    where: { id: job.id },
+    data: {
+      publishToAdzuna: true,
+      publishToCareerjet: true,
+      distributionPlatforms: mergeFeedDistributionPlatforms(job.distributionPlatforms),
+    },
+  });
+}
+
+async function writePortalFeedOptIn(job) {
+  const portalDb = getJobPortalPrismaClient();
+  const defaultDb = getDefaultPrismaClient();
+  const clients = portalDb === defaultDb ? [portalDb] : [portalDb, defaultDb];
+  let updated = false;
+  for (const client of clients) {
+    try {
+      const row = await client.job.findUnique({
+        where: { id: job.id },
+        select: { id: true, distributionPlatforms: true },
+      });
+      if (!row) continue;
+      await writeFeedOptIn(client, {
+        id: row.id,
+        distributionPlatforms: job.distributionPlatforms || row.distributionPlatforms,
+      });
+      updated = true;
+    } catch (error) {
+      console.warn(
+        `[hq-portal] feed opt-in portal update failed for job ${job.id}:`,
+        error?.message || error,
+      );
+    }
+  }
+  return updated;
 }
 
 function evaluatePortalKyc(candidate, profile) {
@@ -405,6 +490,130 @@ export const hqPortalService = {
       tenantDbName: tenant,
       deletedFromTenant,
       deletedFromPortal,
+    };
+  },
+
+  /**
+   * One HQ action: mark every eligible open/published job for the public
+   * Adzuna + Careerjet XML feeds (still one feed URL per platform).
+   * Does not create per-job feed URLs or store API keys on jobs.
+   */
+  async pushEligibleJobsToExternalFeeds() {
+    const portal = getJobPortalPrismaClient();
+    const tenantDbNames = await resolveTenantDbNames();
+    const skippedByReason = {};
+    const seen = new Set();
+    let scanned = 0;
+    let eligible = 0;
+    let updated = 0;
+    let alreadyInFeed = 0;
+    let mirroredToPortal = 0;
+    let skipped = 0;
+
+    const portalJobs = await listJobsPaged(portal);
+    const portalById = new Map(portalJobs.map((job) => [String(job.id), job]));
+
+    for (const tenantDbName of tenantDbNames) {
+      try {
+        await runWithTenantContext(tenantDbName, async () => {
+          const tenantJobs = await listJobsPaged(prisma, { status: 'OPEN' });
+          for (const job of tenantJobs) {
+            const id = String(job.id);
+            scanned += 1;
+            seen.add(id);
+            const reason = feedSkipReason(job);
+            if (reason) {
+              skipped += 1;
+              bumpReason(skippedByReason, reason);
+              continue;
+            }
+            eligible += 1;
+            const portalJob = portalById.get(id);
+            const tenantReady = alreadyOptedIntoExternalFeeds(job);
+            const portalReady =
+              portalJob &&
+              alreadyOptedIntoExternalFeeds(portalJob) &&
+              !feedSkipReason(portalJob);
+            if (tenantReady && portalReady) {
+              alreadyInFeed += 1;
+              continue;
+            }
+
+            if (!tenantReady) {
+              await writeFeedOptIn(prisma, job);
+            }
+
+            const needsMirror = !portalJob || Boolean(feedSkipReason(portalJob));
+            if (needsMirror) {
+              try {
+                await refreshJobPortalMirror(id);
+                mirroredToPortal += 1;
+                updated += 1;
+              } catch (error) {
+                console.warn(
+                  `[hq-portal] feed remirror failed for job ${id}:`,
+                  error?.message || error,
+                );
+                skipped += 1;
+                bumpReason(skippedByReason, 'mirror_failed');
+              }
+            } else {
+              const wrote = await writePortalFeedOptIn(job);
+              if (wrote) updated += 1;
+            }
+          }
+        });
+      } catch (error) {
+        console.warn(
+          `[hq-portal] feed push skipped tenant ${tenantDbName}:`,
+          error?.message || error,
+        );
+      }
+    }
+
+    for (const job of portalJobs) {
+      const id = String(job.id);
+      if (seen.has(id)) continue;
+      scanned += 1;
+      seen.add(id);
+      const reason = feedSkipReason(job);
+      if (reason) {
+        skipped += 1;
+        bumpReason(skippedByReason, reason);
+        continue;
+      }
+      eligible += 1;
+      if (alreadyOptedIntoExternalFeeds(job)) {
+        alreadyInFeed += 1;
+        continue;
+      }
+      const wrote = await writePortalFeedOptIn(job);
+      if (wrote) updated += 1;
+    }
+
+    await invalidatePortalJobsListCache();
+
+    console.log('[hq-portal] pushed eligible jobs to Adzuna/Careerjet feeds', {
+      scanned,
+      eligible,
+      updated,
+      alreadyInFeed,
+      mirroredToPortal,
+      skipped,
+    });
+
+    return {
+      scanned,
+      eligible,
+      updated,
+      alreadyInFeed,
+      mirroredToPortal,
+      skipped,
+      skippedByReason,
+      feedUrls: {
+        adzuna: PUBLIC_ADZUNA_FEED_URL,
+        careerjet: PUBLIC_CAREERJET_FEED_URL,
+      },
     };
   },
 

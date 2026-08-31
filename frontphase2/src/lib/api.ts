@@ -43,6 +43,9 @@ const LONG_RUNNING_API_PATH_PREFIXES = [
   '/candidates/parse-resume',
   '/candidates/bulk-import',
   '/jobs/process-jd-file',
+  '/hq/portal/jobs/push-to-feeds',
+  '/agreements/parse-document',
+  '/kyc/parse-document',
 ];
 
 function isLongRunningApiPath(path: string): boolean {
@@ -3999,6 +4002,27 @@ export async function apiHqSetPortalJobClientVisibility(
   });
 }
 
+export type HqPushJobsToFeedsResult = {
+  scanned: number;
+  eligible: number;
+  updated: number;
+  alreadyInFeed: number;
+  mirroredToPortal: number;
+  skipped: number;
+  skippedByReason: Record<string, number>;
+  feedUrls: {
+    adzuna: string;
+    careerjet: string;
+  };
+};
+
+export async function apiHqPushJobsToExternalFeeds() {
+  return apiFetch<HqPushJobsToFeedsResult>('/hq/portal/jobs/push-to-feeds', {
+    method: 'POST',
+    auth: true,
+  });
+}
+
 export async function apiHqAssignTenantPlan(body: {
   email: string;
   billingCycle?: 'monthly' | 'annual';
@@ -5201,6 +5225,23 @@ export interface BackendJob {
   preScreenAssessments?: unknown[];
   applyLinkToken?: string | null;
   applyUrl?: string | null;
+  matches?: Array<{
+    id?: string;
+    candidateId?: string;
+    score?: number;
+    stage?: string;
+    interviewStatus?: string;
+    updatedAt?: string;
+    createdAt?: string;
+    recruiter?: { name?: string };
+    candidate?: {
+      id?: string;
+      firstName?: string | null;
+      lastName?: string | null;
+      stage?: string;
+      recruiter?: { name?: string };
+    };
+  }>;
   pipelineStages?: Array<{
     id: string;
     name: string;
@@ -9014,7 +9055,7 @@ export const apiDetectContactDuplicates = async (email?: string, name?: string) 
   const query = new URLSearchParams();
   if (email) query.append('email', email);
   if (name) query.append('name', name);
-  return apiFetch<ApiResponse<{ duplicates: Array<{ match: string; contact: BackendContact }> }>>(
+  return apiFetch<{ duplicates: Array<{ match: string; contact: BackendContact }> }>(
     `/contacts/duplicates?${query.toString()}`,
     { auth: true }
   );

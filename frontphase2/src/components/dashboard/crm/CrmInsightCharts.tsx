@@ -84,10 +84,10 @@ function EmptyChart({ label }: { label: string }) {
 export function CrmInsightCharts({ overview }: Props) {
   const { openDrillDown } = useCrmDashboard();
 
-  const leadSpark = overview?.leadSpark || [];
-  const clientGrowth = overview?.clientGrowth || [];
+  const leadSpark = Array.isArray(overview?.leadSpark) ? overview.leadSpark : [];
+  const clientGrowth = Array.isArray(overview?.clientGrowth) ? overview.clientGrowth : [];
   const fu = overview?.followups;
-  const leads = overview?.leadsTable || [];
+  const leads = Array.isArray(overview?.leadsTable) ? overview.leadsTable : [];
 
   const followupPie = useMemo(() => {
     const rows = [
