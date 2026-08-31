@@ -8,6 +8,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { useUser } from '../hooks/useUser';
 import { OrgWorkspaceSwitcher } from './org/OrgWorkspaceSwitcher';
+import { SuperAdminWorkSwitcher } from './org/SuperAdminWorkSwitcher';
 import {
   apiGetUnifiedCalendar,
   apiLogout,
@@ -1534,6 +1535,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
 
         {/* Right icons */}
         <div className="flex items-center gap-4 shrink-0">
+          {mounted ? <SuperAdminWorkSwitcher variant="header" /> : null}
           {mounted ? <OrgWorkspaceSwitcher variant="header" /> : null}
           <div className="flex items-center gap-4 pr-4 border-r border-white/10">
             <Tooltip content="Calendar">

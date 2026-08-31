@@ -261,6 +261,22 @@ function getActiveOrgUnitIdFromStorage() {
   }
 }
 
+function getSuperAdminWorkScopeFromStorage(): 'own' | 'all' {
+  if (typeof window === 'undefined') return 'all';
+  try {
+    const raw = String(localStorage.getItem('superAdminWorkScope') || 'all').trim().toLowerCase();
+    return raw === 'own' ? 'own' : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
+function attachWorkScopeHeader(headers: Record<string, string>) {
+  if (getSuperAdminWorkScopeFromStorage() === 'own') {
+    headers['x-work-scope'] = 'own';
+  }
+}
+
 /** Persist workspace DB name so API calls (including login) send `x-tenant-db-name`. */
 export function syncTenantDbName(value: string | null | undefined) {
   if (typeof window === 'undefined') return;
@@ -394,6 +410,9 @@ export async function apiFetch<T>(
   const orgUnitId = getActiveOrgUnitIdFromStorage();
   if (orgUnitId && (options.auth || options.includeTenantHeader)) {
     headers['x-org-unit-id'] = orgUnitId;
+  }
+  if (options.auth || options.includeTenantHeader) {
+    attachWorkScopeHeader(headers);
   }
 
   // Debug: Log request headers (only when debug enabled)
@@ -4448,6 +4467,9 @@ export async function apiFetchFormData<T>(
   const orgUnitId = getActiveOrgUnitIdFromStorage();
   if (orgUnitId && (options.auth || options.includeTenantHeader)) {
     headers['x-org-unit-id'] = orgUnitId;
+  }
+  if (options.auth || options.includeTenantHeader) {
+    attachWorkScopeHeader(headers);
   }
 
   const longRunning = isLongRunningApiPath(path);
