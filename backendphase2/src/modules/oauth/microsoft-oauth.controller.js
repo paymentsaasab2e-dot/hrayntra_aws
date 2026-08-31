@@ -1,4 +1,4 @@
-import { env } from '../../config/env.js';
+import { env, getMicrosoftOAuthConfig } from '../../config/env.js';
 import { getActiveTenantDbName } from '../../config/prisma.js';
 import { sendResponse } from '../../utils/response.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
@@ -21,26 +21,30 @@ export const microsoftOAuthController = {
     if (!req.user?.id) {
       return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
-    const mode =
-      req.query.scope === 'outlook' || req.query.scope === 'teams' ? req.query.scope : 'both';
-    const state = createOAuthState({
-      userId: req.user.id,
-      service: 'microsoft',
-      tenantDbName: getActiveTenantDbName(),
-      extraScopes: [mode],
-    });
-    const tenant = env.MICROSOFT_TENANT_ID || 'common';
-    const params = new URLSearchParams({
-      client_id: env.MICROSOFT_CLIENT_ID,
-      response_type: 'code',
-      redirect_uri: env.MICROSOFT_REDIRECT_URI,
-      response_mode: 'query',
-      scope: buildScope(mode),
-      prompt: 'select_account',
-      state,
-    });
-    const url = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?${params.toString()}`;
-    return sendResponse(res, 200, 'OAuth URL ready', { url });
+    try {
+      const ms = getMicrosoftOAuthConfig();
+      const mode =
+        req.query.scope === 'outlook' || req.query.scope === 'teams' ? req.query.scope : 'both';
+      const state = createOAuthState({
+        userId: req.user.id,
+        service: 'microsoft',
+        tenantDbName: getActiveTenantDbName(),
+        extraScopes: [mode],
+      });
+      const params = new URLSearchParams({
+        client_id: ms.clientId,
+        response_type: 'code',
+        redirect_uri: ms.redirectUri,
+        response_mode: 'query',
+        scope: buildScope(mode),
+        prompt: 'select_account',
+        state,
+      });
+      const url = `https://login.microsoftonline.com/${ms.tenant}/oauth2/v2.0/authorize?${params.toString()}`;
+      return sendResponse(res, 200, 'OAuth URL ready', { url });
+    } catch (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
   },
 
   async callback(req, res) {
@@ -66,17 +70,17 @@ export const microsoftOAuthController = {
       }
 
       const mode = extraScopes[0] || 'both';
-      const tenant = env.MICROSOFT_TENANT_ID || 'common';
+      const ms = getMicrosoftOAuthConfig();
 
       const body = new URLSearchParams({
-        client_id: env.MICROSOFT_CLIENT_ID,
-        client_secret: env.MICROSOFT_CLIENT_SECRET,
+        client_id: ms.clientId,
+        client_secret: ms.clientSecret,
         code,
-        redirect_uri: env.MICROSOFT_REDIRECT_URI,
+        redirect_uri: ms.redirectUri,
         grant_type: 'authorization_code',
       });
       const tokenRes = await fetch(
-        `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+        `https://login.microsoftonline.com/${ms.tenant}/oauth2/v2.0/token`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
