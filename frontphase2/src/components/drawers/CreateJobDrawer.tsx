@@ -110,6 +110,7 @@ import {
   type ApplicationFormSchema,
 } from '../../lib/applicationFormTypes';
 import {
+  linkedInTemplateToPublicVisibility,
   normalizeLinkedInPostTemplateSchema,
   parseLinkedInPostTemplateList,
   pickDefaultLinkedInPostTemplate,
@@ -1473,10 +1474,16 @@ export function CreateJobDrawer({
           return;
         }
         const schema = normalizeLinkedInPostTemplateSchema(match.schema);
+        const visibility = linkedInTemplateToPublicVisibility(schema);
         setSelectedLinkedInTemplateId(match.id);
         setSelectedLinkedInTemplateName(match.name);
         setLinkedInPostSections(schema.sections);
         rememberLinkedInTemplateId(match.id);
+        setFormData((prev) => ({
+          ...prev,
+          publicFieldVisibility: visibility,
+          showClientNamePublicly: visibility.client !== false,
+        }));
         setLinkedInPostTextTouched(false);
         setTwitterPostTextTouched(false);
         setFacebookCaptionTouched(false);
@@ -3499,10 +3506,11 @@ export function CreateJobDrawer({
             applyUrl,
             linkedInPostSections,
           };
+          const hasTemplate = Array.isArray(linkedInPostSections) && linkedInPostSections.length > 0;
           const linkedInPublishText = replaceApplyUrlInSocialPostText(
-            linkedInPostTextTouched && (linkedInPostText || '').trim()
-              ? linkedInPostText
-              : buildLinkedInJobPost(postInput),
+            hasTemplate || !(linkedInPostTextTouched && (linkedInPostText || '').trim())
+              ? buildLinkedInJobPost(postInput)
+              : linkedInPostText,
             applyUrl,
             previewApplyUrl,
           );
@@ -5754,10 +5762,16 @@ export function CreateJobDrawer({
         selectedTemplateId={selectedLinkedInTemplateId}
         onApply={(template: JobLinkedInPostTemplate) => {
           const schema = normalizeLinkedInPostTemplateSchema(template.schema);
+          const visibility = linkedInTemplateToPublicVisibility(schema);
           setSelectedLinkedInTemplateId(template.id);
           setSelectedLinkedInTemplateName(template.name);
           setLinkedInPostSections(schema.sections);
           rememberLinkedInTemplateId(template.id);
+          setFormData((prev) => ({
+            ...prev,
+            publicFieldVisibility: visibility,
+            showClientNamePublicly: visibility.client !== false,
+          }));
           setLinkedInPostTextTouched(false);
           setTwitterPostTextTouched(false);
           setFacebookCaptionTouched(false);

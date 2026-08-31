@@ -278,6 +278,7 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
 
   templateSections.forEach((section) => appendSectionByKey(section.key));
 
+  const usingTemplate = hasCustomLinkedInTemplate(input);
   const filledAdditionalJd = filledCustomJdSections(input.customJdSections);
   const hasStructuredJd =
     Boolean(String(input.keyResponsibilitiesText || '').trim()) ||
@@ -288,7 +289,7 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
     filledAdditionalJd.length > 0;
 
   let dumpedHtml = '';
-  if (!hasStructuredJd && isSocialSectionIncluded(input, 'overview')) {
+  if (!usingTemplate && !hasStructuredJd && isSocialSectionIncluded(input, 'overview')) {
     dumpedHtml = stripHtml(input.jobDescriptionHtml || '');
     if (dumpedHtml) {
       lines.push('');
@@ -296,11 +297,13 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
     }
   }
 
-  const includeAdditionalJd = isJobFieldPubliclyVisible(
-    parseJobPublicFieldVisibility(input.publicFieldVisibility),
-    'jobDescription',
-    input.showClientNamePublicly !== false,
-  );
+  const includeAdditionalJd = usingTemplate
+    ? false
+    : isJobFieldPubliclyVisible(
+        parseJobPublicFieldVisibility(input.publicFieldVisibility),
+        'jobDescription',
+        input.showClientNamePublicly !== false,
+      );
   if (includeAdditionalJd) {
     const dumpedLower = dumpedHtml.toLowerCase();
     for (const section of filledAdditionalJd) {
@@ -318,13 +321,20 @@ export function buildLinkedInJobPost(
   maxLength = LINKEDIN_POST_MAX_LENGTH,
 ): string {
   const applyUrl = String(input.applyUrl || '').trim();
-  const { header } = socialHeadline(input);
-  const bodyLines = buildJobSocialDetailLines(input);
+  const bodyLines = buildJobSocialDetailLines(input).filter((line, index, rows) => {
+    if (line !== '') return true;
+    return index > 0 && rows[index - 1] !== '';
+  });
+  const body = bodyLines.join('\n').replace(/^\n+/, '').trim();
   const footer = applyUrl
     ? `\n\nApply now:\n${applyUrl}\n\n#hiring #jobs #careers`
     : '\n\n#hiring #jobs #careers';
 
-  const post = `${header}\n\n${bodyLines.join('\n')}${footer}`;
+  const usingTemplate = hasCustomLinkedInTemplate(input);
+  const { header } = socialHeadline(input);
+  const post = usingTemplate
+    ? `${body}${footer}`
+    : `${header}\n\n${body}${footer}`;
   if (post.length <= maxLength) return post;
   return `${post.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }

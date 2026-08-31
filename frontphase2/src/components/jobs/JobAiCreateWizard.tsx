@@ -668,24 +668,19 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
 
   const linkedInRefreshStatus = linkedIn.refreshStatus;
 
-  const applyLinkedInTemplate = useCallback(
-    (template: JobLinkedInPostTemplate, options?: { syncVisibility?: boolean }) => {
-      const schema = normalizeLinkedInPostTemplateSchema(template.schema);
-      setSelectedLinkedInTemplateId(template.id);
-      setSelectedLinkedInTemplateName(template.name);
-      setLinkedInPostSections(schema.sections);
-      rememberLinkedInTemplateId(template.id);
-      if (options?.syncVisibility) {
-        const visibility = linkedInTemplateToPublicVisibility(schema);
-        setDraft((prev) => ({
-          ...prev,
-          publicFieldVisibility: visibility,
-          showClientNamePublicly: visibility.client !== false,
-        }));
-      }
-    },
-    [],
-  );
+  const applyLinkedInTemplate = useCallback((template: JobLinkedInPostTemplate) => {
+    const schema = normalizeLinkedInPostTemplateSchema(template.schema);
+    setSelectedLinkedInTemplateId(template.id);
+    setSelectedLinkedInTemplateName(template.name);
+    setLinkedInPostSections(schema.sections);
+    rememberLinkedInTemplateId(template.id);
+    const visibility = linkedInTemplateToPublicVisibility(schema);
+    setDraft((prev) => ({
+      ...prev,
+      publicFieldVisibility: visibility,
+      showClientNamePublicly: visibility.client !== false,
+    }));
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;

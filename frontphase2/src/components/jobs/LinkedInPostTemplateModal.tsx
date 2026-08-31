@@ -157,6 +157,9 @@ export function LinkedInPostTemplateModal({
       { title: activeId ? 'Template updated' : 'Template created' },
     );
     await loadTemplates();
+    if (!selectedTemplateId || selectedTemplateId === saved.id) {
+      onApply(saved);
+    }
     setMode('list');
   };
 

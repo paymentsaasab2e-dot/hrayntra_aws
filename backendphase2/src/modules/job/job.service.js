@@ -5,7 +5,7 @@ import {
   getJobPortalPrismaClient,
 } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
-import { mergeDuplicateClientsByCompanyName } from '../client/client.service.js';
+import { mergeDuplicateClientsByCompanyName, markClientRecruitmentEnabledFromJob } from '../client/client.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
@@ -1568,6 +1568,7 @@ export const jobService = {
         throw new Error('Selected client was not found. Refresh and pick the existing client.');
       }
       jobData.client = { connect: { id: liveClient.id } };
+      void markClientRecruitmentEnabledFromJob(liveClient.id, createdByUserId);
     }
 
     if (data.assignedToId) {
@@ -2117,6 +2118,11 @@ export const jobService = {
     });
 
     console.log(`✅ Job updated successfully (ID: ${id})\n`);
+
+    const linkedClientId = updated?.clientId || data.clientId || currentJob.clientId;
+    if (linkedClientId) {
+      void markClientRecruitmentEnabledFromJob(linkedClientId, data.performedById);
+    }
 
     if (data.performedById && hasFieldUpdates) {
       await activityService.logJobFieldChanges({

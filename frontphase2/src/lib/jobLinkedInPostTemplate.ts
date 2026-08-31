@@ -127,7 +127,8 @@ export function normalizeLinkedInPostTemplateSchema(raw: unknown): LinkedInPostT
       existing || {
         key: key as LinkedInPostSectionKey,
         label: def?.label || key,
-        visible: true,
+        // New section types must not appear on templates the user already configured.
+        visible: false,
         order: sections.length,
       },
     );

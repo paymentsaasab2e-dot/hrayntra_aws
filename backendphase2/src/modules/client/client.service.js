@@ -133,6 +133,36 @@ async function mergePortalDuplicateClientsByCompanyName() {
   }
 }
 
+async function listClientIdsThatHaveJobs() {
+  const rows = await prisma.job.findMany({
+    where: { clientId: { not: null } },
+    select: { clientId: true },
+  });
+  return [
+    ...new Set(
+      rows
+        .map((row) => String(row.clientId || '').trim())
+        .filter((id) => /^[a-fA-F0-9]{24}$/.test(id)),
+    ),
+  ];
+}
+
+/** Creating a job (including jobs made before recruitmentEnabled) puts that client on Recruitment Clients. */
+export async function markClientRecruitmentEnabledFromJob(clientId, performedById = null) {
+  const id = String(clientId || '').trim();
+  if (!/^[a-fA-F0-9]{24}$/.test(id)) return;
+  const data = { recruitmentEnabled: true, recruitmentEnabledAt: new Date() };
+  if (/^[a-fA-F0-9]{24}$/.test(String(performedById || ''))) {
+    data.recruitmentEnabledBy = performedById;
+  }
+  await prisma.client
+    .updateMany({
+      where: { id, isDeleted: { not: true }, recruitmentEnabled: { not: true } },
+      data,
+    })
+    .catch(() => null);
+}
+
 /** Collapse same-name live clients created by repeated job posts. */
 export async function mergeDuplicateClientsByCompanyName() {
   const tenant = String(getActiveTenantDbName() || 'default').trim();
@@ -508,13 +538,33 @@ export const clientService = {
     }
     if (req.query.hot !== undefined) where.hot = req.query.hot === 'true';
     if (req.query.tags) where.tags = { hasSome: Array.isArray(req.query.tags) ? req.query.tags : [req.query.tags] };
-    if (String(req.query.recruitmentEnabled || '').toLowerCase() === 'true') {
-      where.recruitmentEnabled = true;
+    const recruitmentOnly = String(req.query.recruitmentEnabled || '').toLowerCase() === 'true';
+    const recruitmentMatch = [];
+    if (recruitmentOnly) {
+      const jobClientIds = await listClientIdsThatHaveJobs();
+      recruitmentMatch.push({
+        OR: [
+          { recruitmentEnabled: true },
+          ...(jobClientIds.length ? [{ id: { in: jobClientIds } }] : []),
+        ],
+      });
+      if (jobClientIds.length) {
+        prisma.client
+          .updateMany({
+            where: {
+              id: { in: jobClientIds },
+              isDeleted: { not: true },
+              recruitmentEnabled: { not: true },
+            },
+            data: { recruitmentEnabled: true, recruitmentEnabledAt: new Date() },
+          })
+          .catch(() => null);
+      }
     }
     // Recycle Bin: hide soft-deleted rows from the normal Clients page.
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
-    where = { AND: [where, { isDeleted: { not: true } }] };
+    where = { AND: [where, { isDeleted: { not: true } }, ...recruitmentMatch] };
     where = applySystemWorkspaceExclusion(where, includeSystemClients);
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
