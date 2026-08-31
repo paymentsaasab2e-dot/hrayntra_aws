@@ -382,6 +382,15 @@ export function isImpersonationAccessToken(token?: string | null): boolean {
   return Boolean(payload?.tenantImpersonation || payload?.hqImpersonation);
 }
 
+/** HQ opened a tenant workspace, but is not already inside a nested team-member account. */
+export function isHqTenantSupportSession(): boolean {
+  if (typeof window === 'undefined') return false;
+  const payload = parseAccessTokenPayload(localStorage.getItem('accessToken'));
+  if (!payload) return false;
+  if (payload.tenantImpersonation) return false;
+  return Boolean(payload.hqImpersonation);
+}
+
 export function getTenantImpersonationMeta(): TenantImpersonationMeta | null {
   if (typeof window === 'undefined') return null;
   try {

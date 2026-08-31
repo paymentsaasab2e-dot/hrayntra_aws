@@ -976,7 +976,7 @@ export const teamMemberService = {
    * or replacing their active session.
    */
   async impersonateMember(memberId, actorUser) {
-    if (!isSuperAdminUser({ user: actorUser })) {
+    if (!isSuperAdminUser({ user: actorUser }) && !actorUser?.hqImpersonation) {
       const err = new Error('Only the company Super Admin can open a team member account.');
       err.statusCode = 403;
       throw err;
