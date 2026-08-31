@@ -19,7 +19,8 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "test:adzuna": "node --test src/services/adzuna/feed.test.js",
-    "test:careerjet": "node --test src/services/careerjet/feed.test.js"
+    "test:careerjet": "node --test src/services/careerjet/feed.test.js",
+    "test:job-feeds": "node --test src/services/adzuna/feed.test.js src/services/careerjet/feed.test.js src/services/job-feeds/publicPortalUrl.test.js src/services/job-feeds/fetchPortalJobs.test.js"
   },
   "keywords": [
     "job-portal",

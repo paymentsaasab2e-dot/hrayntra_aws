@@ -7,6 +7,7 @@ import { ExternalLink, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiRecruitmentDashboardOverview,
+  normalizeRecruitmentOverview,
   type RecruitmentOverview,
 } from '@/lib/dashboard/api';
 import { useDashboardLayoutStore } from '@/lib/dashboard/DashboardLayoutProvider';
@@ -157,7 +158,7 @@ function RecruitmentDashboardInner() {
   const access = useDashboardAccess();
   const [overview, setOverview] = useState<RecruitmentOverview | null>(() => {
     const cached = readRecOverviewCache({ dateRange: 'last_30_days', category: 'insights' });
-    return cached?.data ? (cached.data as RecruitmentOverview) : null;
+    return cached?.data ? normalizeRecruitmentOverview(cached.data) : null;
   });
   const [loading, setLoading] = useState(
     () => !readRecOverviewCache({ dateRange: 'last_30_days', category: 'insights' })?.data,
@@ -174,7 +175,7 @@ function RecruitmentDashboardInner() {
     const query =
       category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
     const cached = readRecOverviewCache({ ...query, category } as Record<string, string | undefined | null>);
-    if (cached?.data) setOverview(cached.data as RecruitmentOverview);
+    if (cached?.data) setOverview(normalizeRecruitmentOverview(cached.data));
   }, [category, filters]);
 
   const load = useCallback(async () => {
@@ -187,7 +188,7 @@ function RecruitmentDashboardInner() {
     try {
       const data = await apiRecruitmentDashboardOverview(query);
       setOverview(data);
-      writeRecOverviewCache(data as Record<string, unknown>, cacheFilters);
+      if (data) writeRecOverviewCache(data as Record<string, unknown>, cacheFilters);
     } catch (error: unknown) {
       if (!cached?.data) setOverview(null);
       const message = error instanceof Error ? error.message : 'Failed to load recruitment dashboard';
@@ -210,7 +211,7 @@ function RecruitmentDashboardInner() {
       void apiRecruitmentDashboardOverview(query)
         .then((data) => {
           setOverview(data);
-          writeRecOverviewCache(data as Record<string, unknown>, cacheFilters);
+          if (data) writeRecOverviewCache(data as Record<string, unknown>, cacheFilters);
         })
         .catch(() => undefined);
     }, POLL_MS);
@@ -309,7 +310,7 @@ function RecruitmentDashboardWithLayout() {
 
   return (
     <RecDashboardProvider
-      initialHidden={layout.recruitment?.hiddenSections || []}
+      initialHidden={Array.isArray(layout.recruitment?.hiddenSections) ? layout.recruitment.hiddenSections : []}
       onHiddenChange={onHiddenChange}
     >
       <RecruitmentDashboardInner />

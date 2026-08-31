@@ -5,9 +5,9 @@ const { evaluateEligibility } = require('./eligibility');
 const { resolveCountryName } = require('./countries');
 const { mapContractType, mapWorkingHours } = require('./employment');
 const { careerjetCategoryText } = require('./categories');
-const { buildFeedFromJobs, validateExportableJob, salaryDisplay } = require('./feed.service');
+const { buildFeedFromJobs, validateExportableJob, salaryDisplay, generateCareerjetFeed } = require('./feed.service');
 
-const portalBase = 'http://localhost:3000';
+const portalBase = 'https://www.hryantra.com';
 
 function validJob(overrides = {}) {
   return {
@@ -51,12 +51,14 @@ describe('Careerjet XML helpers', () => {
 });
 
 describe('Careerjet eligibility', () => {
-  it('excludes draft, closed, filled, deleted, expired, inactive, and on-hold jobs', () => {
+  it('excludes draft, closed, filled, deleted, expired, inactive, rejected, unpublished, and on-hold jobs', () => {
     const base = validJob();
     assert.equal(evaluateEligibility({ ...base, status: 'DRAFT' }).reason, 'draft');
     assert.equal(evaluateEligibility({ ...base, status: 'CLOSED' }).reason, 'closed');
     assert.equal(evaluateEligibility({ ...base, status: 'FILLED' }).reason, 'filled');
     assert.equal(evaluateEligibility({ ...base, status: 'ON_HOLD' }).reason, 'on_hold');
+    assert.equal(evaluateEligibility({ ...base, status: 'REJECTED' }).reason, 'rejected');
+    assert.equal(evaluateEligibility({ ...base, status: 'UNPUBLISHED' }).reason, 'unpublished');
     assert.equal(evaluateEligibility({ ...base, isDeleted: true }).reason, 'deleted');
     assert.equal(evaluateEligibility({ ...base, isActive: false }).reason, 'inactive');
     assert.equal(
@@ -65,14 +67,9 @@ describe('Careerjet eligibility', () => {
     );
   });
 
-  it('requires Careerjet opt-in unless includeAll is set', () => {
+  it('includes public portal jobs without a Careerjet API key or per-job opt-in', () => {
     const base = validJob({ publishToCareerjet: false });
-    assert.equal(evaluateEligibility(base).reason, 'careerjet_not_enabled');
-    assert.equal(evaluateEligibility(base, { includeAll: true }).ok, true);
-    assert.equal(
-      evaluateEligibility({ ...base, distributionPlatforms: { careerjet: true } }).ok,
-      true,
-    );
+    assert.equal(evaluateEligibility(base).ok, true);
   });
 });
 
@@ -113,10 +110,11 @@ describe('Careerjet feed builder', () => {
     assert.match(xml, /<contract_type><!\[CDATA\[permanent]]><\/contract_type>/);
     assert.match(xml, /<working_hours><!\[CDATA\[full-time]]><\/working_hours>/);
     assert.match(xml, /<salary><!\[CDATA\[INR 800000 - 1200000 per year]]><\/salary>/);
-    assert.match(xml, /explore-jobs\?job=64b000000000000000000011/);
+    assert.match(xml, /https:\/\/www\.hryantra\.com\/explore-jobs\?job=64b000000000000000000011/);
+    assert.doesNotMatch(xml, /localhost|127\.0\.0\.1/);
     assert.doesNotMatch(xml, /<category>/);
     assert.doesNotMatch(xml, /careerjet-apply-data/);
-    assert.doesNotMatch(xml, /CAREERJET_API|apply_key|password|app_id|app_key/);
+    assert.doesNotMatch(xml, /CAREERJET_API|apply_key|password|app_id|app_key|<api_key>|<careerjet_key>/);
   });
 
   it('exports multiple valid jobs with unique ids', () => {
@@ -130,7 +128,7 @@ describe('Careerjet feed builder', () => {
     assert.match(xml, /<id><!\[CDATA\[a2]]><\/id>/);
   });
 
-  it('excludes draft, closed, filled, deleted, expired, and Careerjet-disabled jobs', () => {
+  it('excludes draft, closed, filled, deleted, expired, rejected, and unpublished jobs', () => {
     const jobs = [
       validJob(),
       validJob({ id: '2', status: 'CLOSED', title: 'Closed Role' }),
@@ -142,11 +140,15 @@ describe('Careerjet feed builder', () => {
         expectedClosureDate: '2020-01-01T00:00:00.000Z',
         title: 'Expired Role',
       }),
-      validJob({ id: '7', publishToCareerjet: false, title: 'Disabled Role' }),
+      validJob({ id: '8', status: 'REJECTED', title: 'Rejected Role' }),
+      validJob({ id: '9', status: 'UNPUBLISHED', title: 'Unpublished Role' }),
     ];
     const { xml, stats } = buildFeedFromJobs(jobs, { portalBase });
     assert.equal(stats.exported, 1);
-    assert.doesNotMatch(xml, /Closed Role|Filled Role|Draft Role|Deleted Role|Expired Role|Disabled Role/);
+    assert.doesNotMatch(
+      xml,
+      /Closed Role|Filled Role|Draft Role|Deleted Role|Expired Role|Rejected Role|Unpublished Role/,
+    );
   });
 
   it('skips jobs missing title, description, url, location, or country', () => {
@@ -210,5 +212,13 @@ describe('Careerjet feed builder', () => {
       'USD 10 - 20 per month',
     );
     assert.equal(salaryDisplay({}), '');
+  });
+
+  it('does not truncate a large eligible set and rejects a missing database', async () => {
+    const jobs = Array.from({ length: 80 }, (_, i) => validJob({ id: `job-${i}`, title: `Role ${i}` }));
+    const { stats, xml } = buildFeedFromJobs(jobs, { portalBase });
+    assert.equal(stats.exported, 80);
+    assert.equal((xml.match(/<job>/g) || []).length, 80);
+    await assert.rejects(() => generateCareerjetFeed(null), /unavailable|cannot list/i);
   });
 });

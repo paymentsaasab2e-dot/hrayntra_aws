@@ -1337,6 +1337,11 @@ export const hqService = {
     });
   },
 
+  async pushEligibleJobsToExternalFeeds(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqPortalService.pushEligibleJobsToExternalFeeds();
+  },
+
   async listPackages(reqUser) {
     assertPlatformProvisioner(reqUser);
     const packages = await hqPackagesService.listPackages();

@@ -139,6 +139,11 @@ router.put('/roles/:id', authMiddleware, hqController.updateHqRole);
 router.delete('/roles/:id', authMiddleware, hqController.deleteHqRole);
 
 router.get('/portal', authMiddleware, hqController.getPortalOverview);
+router.post(
+  '/portal/jobs/push-to-feeds',
+  authMiddleware,
+  hqController.pushEligibleJobsToExternalFeeds,
+);
 router.get('/candidates', authMiddleware, hqController.listAllCandidates);
 router.get('/kyc-interviewers', authMiddleware, hqController.listKycInterviewers);
 router.post('/kyc-interviewers/:id/verify', authMiddleware, hqController.verifyKycInterviewer);

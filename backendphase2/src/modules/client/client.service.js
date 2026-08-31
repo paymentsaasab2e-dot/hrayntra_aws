@@ -66,7 +66,7 @@ export async function findLiveClientByCompanyName(companyName) {
   return prisma.client.findFirst({
     where: {
       isDeleted: { not: true },
-      companyName: { equals: name, mode: 'insensitive' },
+      companyName: { equals: escapePrismaRegex(name), mode: 'insensitive' },
     },
   });
 }
@@ -285,10 +285,20 @@ function parseClientImportDateValue(value) {
 }
 
 function prefixDuplicateCopyClientName(companyName, fallback = '') {
-  const base = normalizeClientImportValue(companyName || fallback);
-  if (!base) return 'Copy';
-  if (/^copy\b/i.test(base)) return base;
-  return `Copy ${base}`;
+  const raw = normalizeClientImportValue(companyName || fallback) || 'Client';
+  const root = raw.replace(/\s+copy(?:\s+\d+)?$/i, '').trim() || raw;
+  return `${root} copy`;
+}
+
+async function uniqueClientCopyName(companyName, fallback = '') {
+  const base = prefixDuplicateCopyClientName(companyName, fallback);
+  const root = base.replace(/\s+copy(?:\s+\d+)?$/i, '').trim() || base;
+  for (let n = 1; n <= 100; n += 1) {
+    const candidate = n === 1 ? `${root} copy` : `${root} copy ${n}`;
+    const hit = await findLiveClientByCompanyName(candidate);
+    if (!hit) return candidate;
+  }
+  return `${root} copy ${Date.now()}`;
 }
 
 function buildClientImportComparisonSnapshot(source = {}) {
@@ -405,7 +415,7 @@ function buildClientImportPayload(row = {}, mapping = {}) {
     leadStatus: leadStatus || undefined,
     nextFollowUpDue: nextFollowUpDue || undefined,
     address: notes || undefined,
-    status: 'PROSPECT',
+    status: 'ACTIVE',
     contactPerson,
     email,
     phone,
@@ -421,6 +431,7 @@ async function findExistingClientImportDuplicate(companyName) {
   if (!normalizedCompanyName) return null;
   return prisma.client.findFirst({
     where: {
+      isDeleted: { not: true },
       companyName: {
         equals: escapePrismaRegex(normalizedCompanyName),
         mode: 'insensitive',
@@ -1119,7 +1130,15 @@ export const clientService = {
       }
     }
     if (Array.isArray(data.participantIds)) {
-      updateData.participantIds = appendParticipantIds(data.participantIds);
+      updateData.participantIds = appendParticipantIds(
+        currentClient.participantIds,
+        ...data.participantIds,
+      );
+    }
+    if (data.isDeleted === false) {
+      updateData.isDeleted = false;
+      updateData.deletedAt = null;
+      updateData.deletedBy = null;
     }
 
     // Remove undefined values to avoid Prisma errors
@@ -1737,13 +1756,14 @@ export const clientService = {
     const preloadedClients = normalizedImportNames.length
       ? await prisma.client.findMany({
           where: {
+            isDeleted: { not: true },
             companyName: {
               in: rows
                 .map((row) => String(row?.[nameColumn] ?? '').trim())
                 .filter(Boolean),
             },
           },
-          select: { id: true, companyName: true },
+          select: { id: true, companyName: true, isDeleted: true },
         })
       : [];
 
@@ -1852,6 +1872,7 @@ export const clientService = {
       try {
         const normalizedCompanyName = companyName.toLowerCase();
         let existing = existingClientByName.get(normalizedCompanyName) || null;
+        if (existing?.isDeleted === true) existing = null;
 
         if (!existing) {
           existing = await findExistingClientImportDuplicate(companyName);
@@ -1866,15 +1887,24 @@ export const clientService = {
           continue;
         }
 
+        if (req) {
+          req._bypassClientScope = true;
+        }
+
         if (existing && duplicateRule === 'update') {
           const existingWithDetails = await prisma.client.findUnique({
             where: { id: existing.id },
-            select: { otherDetails: true },
+            select: { otherDetails: true, assignedToId: true, participantIds: true },
           });
           await this.update(
             existing.id,
             {
               ...payload,
+              status: payload.status || 'ACTIVE',
+              leadStatus: payload.leadStatus || 'Active',
+              isDeleted: false,
+              participantIds: [performedById].filter(Boolean),
+              assignedToId: payload.assignedToId || existingWithDetails?.assignedToId || performedById,
               otherDetails: mergeClientImportOtherDetails(
                 existingWithDetails?.otherDetails,
                 payload.otherDetails
@@ -1889,26 +1919,40 @@ export const clientService = {
           continue;
         }
 
+        const liveTwin = existing || (await findLiveClientByCompanyName(companyName));
         const createPayload =
-          existing && duplicateRule === 'create'
+          liveTwin
             ? {
                 ...payload,
-                companyName: prefixDuplicateCopyClientName(
+                companyName: await uniqueClientCopyName(
                   payload.companyName,
-                  existing.companyName || payload.companyName || 'Client'
+                  liveTwin.companyName || payload.companyName || 'Client',
                 ),
+                forceNew: true,
               }
-            : payload;
+            : { ...payload, forceNew: true };
 
         const createdClient = await this.create(
           {
             ...createPayload,
+            status: createPayload.status || 'ACTIVE',
+            leadStatus: createPayload.leadStatus || 'Active',
+            assignedToId: createPayload.assignedToId || performedById,
+            createdById: performedById,
             performedById,
             performedByRole,
             skipSideEffects: true,
+            forceNew: true,
           },
           req,
         );
+        if (liveTwin && createdClient?.id === liveTwin.id) {
+          results.failed += 1;
+          results.errors.push(
+            `Row ${index + 1}: could not create a new client for "${companyName}" because the existing record was reused`,
+          );
+          continue;
+        }
         existingClientByName.set(normalizedCompanyName, {
           id: createdClient.id,
           companyName: createdClient.companyName,

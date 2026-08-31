@@ -1,6 +1,8 @@
 const { Router } = require('express');
 const { createCandidateNotification } = require('../services/notification.service');
 const { notifyHighFitCandidatesForJob } = require('../services/job-match-alert.service');
+const { requireSystemAdmin } = require('../middleware/system-admin.middleware');
+const { collectJobFeedDiagnostics } = require('../services/job-feeds/diagnostics.service');
 
 const router = Router();
 
@@ -108,6 +110,20 @@ router.post('/job-match-alerts', sharedSecretMiddleware, async (req, res) => {
   } catch (error) {
     console.error('[internal] job-match-alerts failed:', error);
     return res.status(500).json({ success: false, message: 'Failed to process job match alerts' });
+  }
+});
+
+/**
+ * GET /api/internal/job-feeds/diagnostics
+ * Admin-only. Not the public XML feed.
+ */
+router.get('/job-feeds/diagnostics', requireSystemAdmin, async (req, res) => {
+  try {
+    const data = await collectJobFeedDiagnostics();
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('[internal] job-feed diagnostics failed:', error?.message || error);
+    return res.status(500).json({ success: false, message: 'Failed to collect job feed diagnostics' });
   }
 });
 

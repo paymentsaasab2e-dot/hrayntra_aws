@@ -25,13 +25,14 @@ const FUNNEL_STAGE_ORDER = [
   'inactive',
 ];
 
-function sortFunnelStages(data: Array<{ name: string; value: number }>) {
+function sortFunnelStages(data: Array<{ name: string; value: number }> | null | undefined) {
+  const rows = Array.isArray(data) ? data : [];
   const rank = (name: string) => {
-    const key = name.trim().toLowerCase();
+    const key = String(name || '').trim().toLowerCase();
     const idx = FUNNEL_STAGE_ORDER.findIndex((s) => key.includes(s));
     return idx === -1 ? 99 : idx;
   };
-  return [...data].sort((a, b) => rank(a.name) - rank(b.name || '') || b.value - a.value);
+  return [...rows].sort((a, b) => rank(a.name) - rank(b.name || '') || b.value - a.value);
 }
 
 type Props = {
@@ -62,7 +63,8 @@ export function PieBlock({
   compact?: boolean;
   stack?: boolean;
 }) {
-  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const slices = Array.isArray(data) ? data : [];
+  const total = slices.reduce((s, d) => s + d.value, 0) || 1;
   const chartSize = compact ? 128 : 168;
   const inner = compact ? 44 : 58;
   const outer = compact ? 58 : 74;
@@ -95,17 +97,17 @@ export function PieBlock({
           className={`relative shrink-0 ${stack ? 'mx-auto' : 'mx-auto sm:mx-0'}`}
           style={{ width: chartSize, height: chartSize }}
         >
-          {data.length ? (
+          {slices.length ? (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={data}
+                  data={slices}
                   dataKey="value"
                   nameKey="name"
                   innerRadius={inner}
                   outerRadius={outer}
-                  paddingAngle={data.length > 1 ? 2.5 : 0}
-                  cornerRadius={data.length > 1 ? 6 : 0}
+                  paddingAngle={slices.length > 1 ? 2.5 : 0}
+                  cornerRadius={slices.length > 1 ? 6 : 0}
                   stroke="#fff"
                   strokeWidth={2}
                   onClick={(entry: { name?: string }) => {
@@ -113,7 +115,7 @@ export function PieBlock({
                   }}
                   className={onSliceClick ? 'cursor-pointer' : undefined}
                 >
-                  {data.map((_, i) => (
+                  {slices.map((_, i) => (
                     <Cell
                       key={i}
                       fill={CHART_COLORS[i % CHART_COLORS.length]}
@@ -153,8 +155,8 @@ export function PieBlock({
         </div>
 
         <ul className={`min-w-0 space-y-2.5 ${stack ? 'w-full max-w-sm' : 'flex-1'}`}>
-          {data.length ? (
-            data.map((d, i) => {
+          {slices.length ? (
+            slices.map((d, i) => {
               const pct = (d.value / total) * 100;
               const fill = CHART_COLORS[i % CHART_COLORS.length];
               return (
@@ -337,13 +339,15 @@ export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
   const showCharts = isPortfolio || mode === 'charts' || mode === 'all';
   const showScope = isPortfolio || mode === 'tables' || mode === 'all';
 
-  const leadPie =
-    overview?.leadStagePie?.length
+  const leadPie = Array.isArray(overview?.leadStagePie) && overview.leadStagePie.length
       ? overview.leadStagePie
-      : (overview?.leadStatusBars || []).map((r) => ({ name: r.name, value: r.value }));
+      : (Array.isArray(overview?.leadStatusBars) ? overview.leadStatusBars : []).map((r) => ({
+          name: r.name,
+          value: r.value,
+        }));
 
   const clientPie =
-    overview?.clientStatusPie?.length
+    Array.isArray(overview?.clientStatusPie) && overview.clientStatusPie.length
       ? overview.clientStatusPie
       : [
           { name: 'Active', value: Number(overview?.kpis?.activeClients || 0) },
@@ -352,8 +356,8 @@ export function CrmChartsAndTables({ overview, loading, mode = 'all' }: Props) {
           { name: 'Prospect', value: Number(overview?.kpis?.prospectClients || 0) },
         ].filter((x) => x.value > 0);
 
-  const sourcePie = overview?.leadSources || [];
-  const industryPie = overview?.industries || [];
+  const sourcePie = Array.isArray(overview?.leadSources) ? overview.leadSources : [];
+  const industryPie = Array.isArray(overview?.industries) ? overview.industries : [];
   const useIndustryChart = clientPie.length <= 1 && industryPie.length > 1;
   const clientChartData = useIndustryChart ? industryPie : clientPie;
   const clientChartTitle = useIndustryChart ? 'Industries' : 'Client mix';

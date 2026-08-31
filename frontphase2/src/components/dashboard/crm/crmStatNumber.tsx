@@ -41,7 +41,7 @@ export function CrmFigureText({ value }: { value: React.ReactNode }) {
 export function sparkDelta(
   series?: Array<{ value?: number } | number> | null,
 ): number | null {
-  if (!series || series.length < 2) return null;
+  if (!Array.isArray(series) || series.length < 2) return null;
   const nums = series.map((s) => (typeof s === 'number' ? s : Number(s?.value || 0)));
   const prev = nums[0];
   const curr = nums[nums.length - 1];
@@ -53,7 +53,7 @@ export function sparkDelta(
 }
 
 export function sparkValues(series?: Array<{ value?: number } | number> | null): number[] {
-  if (!series?.length) return [];
+  if (!Array.isArray(series) || !series.length) return [];
   return series.map((s) => (typeof s === 'number' ? s : Number(s?.value || 0)));
 }
 

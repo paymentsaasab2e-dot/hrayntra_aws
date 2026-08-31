@@ -1,11 +1,11 @@
-import type { CrmOverview, DrillDownPayload } from '@/lib/dashboard/api';
+import { asList, type CrmOverview, type DrillDownPayload } from '@/lib/dashboard/api';
 
 function leadRows(overview: CrmOverview | null | undefined) {
-  return overview?.leadsTable || [];
+  return asList(overview?.leadsTable);
 }
 
 function clientRows(overview: CrmOverview | null | undefined) {
-  return overview?.clientsTable || [];
+  return asList(overview?.clientsTable);
 }
 
 function matchStatus(value: string | undefined, needle: string) {
@@ -111,7 +111,7 @@ export function buildKpiDrillDown(
       title: label,
       href: '/dashboard',
       metricKey,
-      rows: (overview?.alerts || []).map((alert) => ({
+      rows: asList(overview?.alerts).map((alert) => ({
         Alert: alert.text,
         Severity: alert.severity || 'info',
         Action: alert.action || '—',
@@ -122,7 +122,7 @@ export function buildKpiDrillDown(
   if (metricKey === 'teamMembers') {
     const team = overview?.leaderboard?.length
       ? overview.leaderboard
-      : (overview?.teamOptions || []).map((t) => ({
+      : asList(overview?.teamOptions).map((t) => ({
           id: t.id,
           name: t.name,
           email: '',
@@ -156,7 +156,7 @@ export function buildKpiDrillDown(
 
   if (metricKey === 'overdueFollowups' || metricKey === 'followupRisk') {
     const overdue = overview?.followups?.overdue ?? overview?.kpis?.overdueFollowups;
-    const upcoming = overview?.followups?.upcoming || [];
+    const upcoming = asList(overview?.followups?.upcoming);
     return {
       title: label,
       href,
@@ -234,7 +234,7 @@ export function buildKpiDrillDown(
   }
 
   if (metricKey === 'topSource') {
-    const sources = overview?.leadSources || [];
+    const sources = asList(overview?.leadSources);
     const top = [...sources].sort((a, b) => Number(b.value) - Number(a.value))[0];
     const filtered = top
       ? leads.filter((row) =>
@@ -256,7 +256,7 @@ export function buildKpiDrillDown(
   }
 
   if (metricKey === 'teamOverdue') {
-    const team = overview?.leaderboard || [];
+    const team = asList(overview?.leaderboard);
     return {
       title: label,
       href,
@@ -273,7 +273,7 @@ export function buildKpiDrillDown(
   }
 
   if (metricKey === 'avgCompletion') {
-    const team = overview?.leaderboard || [];
+    const team = asList(overview?.leaderboard);
     return {
       title: label,
       href,
@@ -288,7 +288,7 @@ export function buildKpiDrillDown(
   }
 
   if (metricKey === 'topCloser') {
-    const team = [...(overview?.leaderboard || [])].sort(
+    const team = [...asList(overview?.leaderboard)].sort(
       (a, b) => (b.conversions || 0) - (a.conversions || 0),
     );
     return {
@@ -335,7 +335,7 @@ export function buildKpiDrillDown(
   }
 
   if (metricKey === 'revenuePerRep') {
-    const team = overview?.leaderboard || [];
+    const team = asList(overview?.leaderboard);
     return {
       title: label,
       href,

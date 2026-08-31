@@ -62,7 +62,10 @@ import {
   agreementTermsApiPayload,
   agreementTermsFromRecord,
   emptyAgreementTerms,
+  filledAgreementTermKeys,
   formatAgreementTermsSummary,
+  mergeExtractedAgreementTerms,
+  type AgreementTermsFormValues,
 } from '../../lib/agreementTerms';
 import type { AgreementLevelCatalogProps } from '../agreements/AgreementTermsSection';
 import {
@@ -521,13 +524,33 @@ function mergeBackendClientRecord(existing: Client, backend: BackendClient): Cli
     agreementsFileName: backend.agreementsFileName || existing.agreementsFileName,
     agreementsFileUrl: backend.agreementsFileUrl || existing.agreementsFileUrl,
     agreementsUploadedAt: backend.agreementsUploadedAt || existing.agreementsUploadedAt,
-    agreementContractValidity: backend.agreementContractValidity || existing.agreementContractValidity,
-    agreementContractStartDate: backend.agreementContractStartDate || existing.agreementContractStartDate,
-    agreementContractEndDate: backend.agreementContractEndDate || existing.agreementContractEndDate,
     postServiceKycForm: backend.postServiceKycForm || existing.postServiceKycForm,
     otherDetails: Array.isArray(backend.otherDetails) ? backend.otherDetails : existing.otherDetails,
-    ...agreementTermsFromRecord(backend),
-  } as Client;
+    ...(() => {
+      const terms = agreementTermsFromRecord(backend);
+      const parsedReplacement = terms.agreementFreeReplacementValue.trim()
+        ? Number.parseInt(terms.agreementFreeReplacementValue, 10)
+        : NaN;
+      return {
+        agreementLevel: terms.agreementLevel || existing.agreementLevel,
+        agreementServiceChargePercent:
+          terms.agreementServiceChargePercent || existing.agreementServiceChargePercent,
+        agreementContractValidity: terms.agreementContractValidity || existing.agreementContractValidity,
+        agreementContractStartDate: terms.agreementContractStartDate || existing.agreementContractStartDate,
+        agreementContractEndDate: terms.agreementContractEndDate || existing.agreementContractEndDate,
+        agreementTimePeriod: terms.agreementTimePeriod || existing.agreementTimePeriod,
+        agreementAdvancePaymentPercent:
+          terms.agreementAdvancePaymentPercent || existing.agreementAdvancePaymentPercent,
+        agreementFreeReplacementValue: Number.isFinite(parsedReplacement)
+          ? parsedReplacement
+          : existing.agreementFreeReplacementValue,
+        agreementFreeReplacementUnit:
+          terms.agreementFreeReplacementUnit === 'DAYS' || terms.agreementFreeReplacementUnit === 'MONTHS'
+            ? terms.agreementFreeReplacementUnit
+            : existing.agreementFreeReplacementUnit,
+      };
+    })(),
+  };
 }
 
 type ClientOverviewForm = {
@@ -849,11 +872,14 @@ function hasPendingPostServiceKycFiles(value: PendingPostServiceKycFiles) {
 
 function syncClientTeamMembers(
   members?: Array<TeamMemberListItem | null | undefined> | null,
-) {
+): Pick<ClientOverviewForm, 'teamMembers' | 'teamMemberDesignation' | 'teamMemberEmail' | 'teamMemberPhone'> {
   const teamMembers = normalizeTeamMemberList(members);
+  const primary = primaryTeamMemberFromList(teamMembers);
   return {
     teamMembers,
-    ...primaryTeamMemberFromList(teamMembers),
+    teamMemberDesignation: primary.teamMemberDesignation ?? '',
+    teamMemberEmail: primary.teamMemberEmail ?? '',
+    teamMemberPhone: primary.teamMemberPhone ?? '',
   };
 }
 
@@ -1281,6 +1307,10 @@ export function ClientDetailsDrawer({
   const [newAgreementLevelValue, setNewAgreementLevelValue] = useState('');
   const [savingAgreementLevel, setSavingAgreementLevel] = useState(false);
   const [deletingAgreementLevel, setDeletingAgreementLevel] = useState(false);
+  const [extractedAgreementKeys, setExtractedAgreementKeys] = useState<
+    Array<keyof AgreementTermsFormValues>
+  >([]);
+  const extractedAgreementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clientLeadStatusOptions = useMemo(
     () => mergeCatalogOptions(DEFAULT_CLIENT_STATUS_LABELS, clientLeadStatusCatalog, overviewEditForm.leadStatusValue),
     [clientLeadStatusCatalog, overviewEditForm.leadStatusValue],
@@ -1635,7 +1665,11 @@ export function ClientDetailsDrawer({
         : 'Never',
       avatar: contact.avatar || undefined,
       preferredChannel: (contact.preferredChannel as ClientContact['preferredChannel']) || undefined,
-      notes: contact.notes || undefined,
+      notes:
+        contact.notesText ||
+        (Array.isArray(contact.notes)
+          ? contact.notes.map((note) => note.note).filter(Boolean).join('\n') || undefined
+          : undefined),
       activity: [],
     };
   }, []);
@@ -1883,7 +1917,9 @@ export function ClientDetailsDrawer({
       try {
         const dupResponse = await apiDetectContactDuplicates(email);
         const duplicates = dupResponse.data?.duplicates || [];
-        const emailMatch = duplicates.find((item) => item.match === 'email')?.contact || duplicates[0]?.contact;
+        const emailMatch =
+          duplicates.find((item: { match: string; contact: BackendContact }) => item.match === 'email')?.contact ||
+          duplicates[0]?.contact;
         if (emailMatch) {
           if (String(emailMatch.companyId || '') === String(clientId)) {
             await updateExisting(emailMatch.id, true);
@@ -2198,7 +2234,7 @@ export function ClientDetailsDrawer({
   const [changeStageReasonDropdownOpen, setChangeStageReasonDropdownOpen] = useState(false);
   const [changeStageForm, setChangeStageForm] = useState<{ stage: ClientStage; reason: string }>({ stage: 'Active', reason: '' });
 
-  const CLIENT_STAGES: ClientStage[] = ['Active', 'On Hold', 'Inactive', 'Hot Clients ðŸ”¥'];
+  const CLIENT_STAGES: ClientStage[] = ['Active', 'On Hold', 'Inactive', 'Hot Clients 🔥'];
   const STAGE_REASONS = ['Hiring paused', 'No response', 'Contract ended', 'Payment issue', 'Other'];
   const needsReason = changeStageForm.stage === 'On Hold' || changeStageForm.stage === 'Inactive';
 
@@ -2719,7 +2755,7 @@ export function ClientDetailsDrawer({
         if (createClientOverride) {
           createdClientPayload = await createClientOverride(createData as CreateClientData);
         } else {
-          const createdClient = await apiCreateClient(createData);
+          const createdClient = await apiCreateClient(createData as CreateClientData);
           createdClientPayload = createdClient.data;
         }
 
@@ -2729,13 +2765,13 @@ export function ClientDetailsDrawer({
             if (createClientOverride) {
               const uploadResponse = await apiHqUploadCompanyLogo(createdClientId, pendingClientLogoFile);
               const logoUrl = String(uploadResponse.data?.logo || uploadResponse.data?.company?.logo || '').trim();
-              if (logoUrl) {
+              if (logoUrl && createdClientPayload) {
                 createdClientPayload = { ...createdClientPayload, logo: logoUrl };
               }
             } else {
               const uploadResponse = await filesApiUpload('client', createdClientId, pendingClientLogoFile, 'LOGO');
               const logoUrl = uploadResponse.data?.fileUrl;
-              if (logoUrl) {
+              if (logoUrl && createdClientPayload) {
                 await apiUpdateClient(createdClientId, { logo: logoUrl });
                 createdClientPayload = { ...createdClientPayload, logo: logoUrl };
               }
@@ -3456,7 +3492,7 @@ export function ClientDetailsDrawer({
         window.dispatchEvent(new CustomEvent('jobportal:client-catalog-changed'));
       }
     } catch (error) {
-      requestError(error, 'Failed to add status');
+      void requestError((error as Error)?.message || 'Failed to add status');
     } finally {
       setSavingClientLeadStatus(false);
     }
@@ -3491,7 +3527,7 @@ export function ClientDetailsDrawer({
         window.dispatchEvent(new CustomEvent('jobportal:client-catalog-changed'));
       }
     } catch (error) {
-      requestError(error, 'Failed to delete status');
+      void requestError((error as Error)?.message || 'Failed to delete status');
     } finally {
       setDeletingClientLeadStatus(false);
     }
@@ -3514,7 +3550,7 @@ export function ClientDetailsDrawer({
       setShowAddClientPriorityInput(false);
       toast.success(`Interest level "${priority}" added.`);
     } catch (error) {
-      requestError(error, 'Failed to add interest level');
+      void requestError((error as Error)?.message || 'Failed to add interest level');
     } finally {
       setSavingClientPriority(false);
     }
@@ -3546,7 +3582,7 @@ export function ClientDetailsDrawer({
       onSelect(fallback);
       toast.success(`Interest level "${normalized}" deleted.`);
     } catch (error) {
-      requestError(error, 'Failed to delete interest level');
+      void requestError((error as Error)?.message || 'Failed to delete interest level');
     } finally {
       setDeletingClientPriority(false);
     }
@@ -3572,7 +3608,7 @@ export function ClientDetailsDrawer({
         window.dispatchEvent(new CustomEvent('jobportal:client-catalog-changed'));
       }
     } catch (error) {
-      requestError(error, 'Failed to add level');
+      void requestError((error as Error)?.message || 'Failed to add level');
     } finally {
       setSavingAgreementLevel(false);
     }
@@ -3606,11 +3642,39 @@ export function ClientDetailsDrawer({
         window.dispatchEvent(new CustomEvent('jobportal:client-catalog-changed'));
       }
     } catch (error) {
-      requestError(error, 'Failed to delete level');
+      void requestError((error as Error)?.message || 'Failed to delete level');
     } finally {
       setDeletingAgreementLevel(false);
     }
   };
+
+  const applyExtractedAgreementTerms = useCallback((terms: AgreementTermsFormValues) => {
+    const filled = filledAgreementTermKeys(terms);
+    setOverviewEditForm((p) => ({ ...p, ...mergeExtractedAgreementTerms(p, terms) }));
+    if (terms.agreementLevel?.trim()) {
+      setAgreementLevelCatalog((prev) => {
+        const level = terms.agreementLevel.trim();
+        if (prev.some((item) => item.toLowerCase() === level.toLowerCase())) return prev;
+        return [...prev, level];
+      });
+    }
+    if (extractedAgreementTimerRef.current) {
+      clearTimeout(extractedAgreementTimerRef.current);
+    }
+    setExtractedAgreementKeys(filled);
+    extractedAgreementTimerRef.current = setTimeout(() => {
+      setExtractedAgreementKeys([]);
+      extractedAgreementTimerRef.current = null;
+    }, 4000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (extractedAgreementTimerRef.current) {
+        clearTimeout(extractedAgreementTimerRef.current);
+      }
+    };
+  }, []);
 
   const agreementLevelCatalogProps: AgreementLevelCatalogProps = {
     options: agreementLevelOptions,
@@ -4955,6 +5019,7 @@ export function ClientDetailsDrawer({
                                 showContractValidity
                                 showTitle={false}
                                 levelCatalog={agreementLevelCatalogProps}
+                                extractedKeys={extractedAgreementKeys}
                                 uploadSlot={
                                   <AgreementDocumentUpload
                                     description=""
@@ -4965,8 +5030,7 @@ export function ClientDetailsDrawer({
                                         setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
                                       }
                                     }}
-                                    currentTerms={overviewEditForm}
-                                    onTermsExtracted={(terms) => setOverviewEditForm((p) => ({ ...p, ...terms }))}
+                                    onTermsExtracted={applyExtractedAgreementTerms}
                                     isUploading={uploadingAgreements}
                                     uploadSuccess={agreementsUploadFeedback.uploadSuccess}
                                     uploadPercent={agreementsUploadFeedback.uploadPercent}
@@ -6118,6 +6182,7 @@ export function ClientDetailsDrawer({
                               disabled={uploadingKyc || uploadingAgreements}
                               showContractValidity
                               levelCatalog={agreementLevelCatalogProps}
+                              extractedKeys={extractedAgreementKeys}
                               uploadSlot={
                                 <>
                                   {overviewEditForm.agreementsFileUrl && !pendingAgreementsFile ? (
@@ -6159,7 +6224,7 @@ export function ClientDetailsDrawer({
                                       }
                                     }}
                                     currentTerms={overviewEditForm}
-                                    onTermsExtracted={(terms) => setOverviewEditForm((p) => ({ ...p, ...terms }))}
+                                    onTermsExtracted={applyExtractedAgreementTerms}
                                     isUploading={uploadingAgreements}
                                     uploadSuccess={agreementsUploadFeedback.uploadSuccess}
                                     uploadPercent={agreementsUploadFeedback.uploadPercent}
@@ -7484,7 +7549,7 @@ export function ClientDetailsDrawer({
                   return (
                   <div className="space-y-4">
                     <EntityAuditSummary
-                      audit={client?.auditMeta ?? extractAuditMeta(client as Record<string, unknown> | undefined)}
+                      audit={client?.auditMeta ?? extractAuditMeta(client ? (client as unknown as Record<string, unknown>) : undefined)}
                     />
                     {/* Timeline filters - same soft card layout as Billing */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">

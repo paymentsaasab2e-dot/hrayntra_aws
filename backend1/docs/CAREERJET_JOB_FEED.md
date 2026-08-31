@@ -30,33 +30,28 @@ Content-Type: `application/xml; charset=UTF-8`
 
 The XML never contains API keys or passwords.
 
-## Job eligibility
-
-Exported only when all of these are true:
-
-1. Job exists in the portal Mongo `jobs` collection
-2. Not deleted (`isDeleted` is not true)
-3. Not inactive (`isActive` is not false)
-4. Status is not `DRAFT`, `ON_HOLD`, `CLOSED`, or `FILLED`
-5. `expectedClosureDate` is missing or still in the future
-6. Careerjet is enabled: `publishToCareerjet === true` or `distributionPlatforms.careerjet === true`
-7. Required fields: id, title, description, public URL, location, country
-
-Closed, filled, draft, deleted, expired, and Careerjet-disabled jobs drop out of the next request automatically. The feed is generated from Mongo on every GET.
-
-Enable Careerjet on **Create Job → External platforms → Careerjet**.
-
-`CAREERJET_FEED_INCLUDE_ALL=true` lists every open portal job (not recommended).
-
 ## Public job URL
 
 ```
-{JOB_PORTAL_FRONTEND_URL}/explore-jobs?job={jobId}&utm_source=careerjet
+https://www.hryantra.com/explore-jobs?job={jobId}&utm_source=careerjet
 ```
 
-Local: `http://localhost:3000/explore-jobs?job=...`
+Override with `JOB_PORTAL_FRONTEND_URL` (public HTTPS only). Localhost is never written into the feed.
 
-Production feeds must use the public HTTPS portal host, not localhost. Set `JOB_PORTAL_FRONTEND_URL`.
+## Job eligibility
+
+Exported when the job is currently listable on the public job portal:
+
+1. Job exists in the portal Mongo `jobs` collection
+2. Not deleted (`isDeleted` is not true)
+3. Not inactive (`isActive` is not false; status not `INACTIVE` / `PAUSED`)
+4. Status is not `DRAFT`, `ON_HOLD`, `CLOSED`, `FILLED`, `REJECTED`, or `UNPUBLISHED`
+5. `expectedClosureDate` is missing or still in the future
+6. Required fields: id, title, description, public HTTPS URL, location, country, company
+
+The Create Job Careerjet checkbox is unchanged. It is not required unless `CAREERJET_FEED_REQUIRE_OPT_IN=true`.
+
+Closed, filled, draft, deleted, expired, rejected, unpublished, and inactive jobs drop out of the next request automatically. There is no static XML file and no 2,000-job cap.
 
 ## XML fields (Careerjet official schema)
 
@@ -115,7 +110,7 @@ No Careerjet Search API key is required for this feed. Do not put keys in XML, f
 
 1. Deploy backend1 on HTTPS.
 2. Confirm `JOB_PORTAL_FRONTEND_URL` is the public portal.
-3. Send `https://YOUR_API_HOST/api/careerjet/jobs.xml` to Careerjet ATS / feed review ([mediakit/ats](https://www.careerjet.com/mediakit/ats)).
+3. Send `https://api1.hryantra.com/api/careerjet/jobs.xml` to Careerjet ATS / feed review ([mediakit/ats](https://www.careerjet.com/mediakit/ats)).
 4. They crawl at least daily. Jobs not in the feed are delisted.
 
 ## Known limitations

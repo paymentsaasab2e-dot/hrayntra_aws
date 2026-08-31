@@ -1581,6 +1581,7 @@ export default function App() {
             setSelectedClients([]);
             setSearchQuery('');
             setDebouncedSearchQuery('');
+            setTeamMemberFilterId('');
             setCurrentPage(1);
             void fetchClients({ page: 1, search: '' });
           }}

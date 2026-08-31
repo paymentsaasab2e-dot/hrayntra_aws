@@ -7,8 +7,8 @@ const router = express.Router();
 async function sendAdzunaXml(req, res) {
   try {
     const { xml } = await generateAdzunaFeed(prisma);
-    res.setHeader('Content-Type', 'application/xml; charset=UTF-8');
-    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
     return res.status(200).send(xml);
   } catch (error) {
     console.error('[adzuna-feed] endpoint failed:', error?.message || error);

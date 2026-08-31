@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import type { CrmOverview } from '@/lib/dashboard/api';
+import { asList, type CrmOverview } from '@/lib/dashboard/api';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { buildKpiDrillDown } from './crmDrillDown';
 import { buildCrmPipelineStats, type CrmComboMetric } from './crmInsights';
@@ -135,13 +135,13 @@ function SynthoStatCard({
 
 function stageCountFromOverview(overview: CrmOverview | null, pattern: RegExp) {
   const slices = [
-    ...(overview?.leadStagePie || []),
-    ...(overview?.leadStatusBars || []),
-    ...(overview?.pipeline || []).map((p) => ({ name: p.stage, value: p.count })),
+    ...asList<{ name?: string; value?: number }>(overview?.leadStagePie),
+    ...asList<{ name?: string; value?: number }>(overview?.leadStatusBars),
+    ...asList(overview?.pipeline).map((p) => ({ name: p.stage, value: p.count })),
   ];
   const hit = slices.find((s) => pattern.test(String(s.name || '')));
   if (hit) return Number(hit.value || 0);
-  return (overview?.leadsTable || []).filter((l) => pattern.test(String(l.status || ''))).length;
+  return asList(overview?.leadsTable).filter((l) => pattern.test(String(l.status || ''))).length;
 }
 
 type GaugeItem = {
@@ -270,7 +270,7 @@ export function CrmPipelineIntelligence({ overview, section = 'leads', leadChart
     },
   );
 
-  const clients = overview?.clientsTable || [];
+  const clients = asList(overview?.clientsTable);
   const unassignedClients = clients.filter(
     (c) => !c.assignee || /unassigned/i.test(String(c.assignee)),
   ).length;

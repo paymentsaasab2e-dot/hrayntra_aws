@@ -8,15 +8,18 @@ import { ImportProgressBar } from '../import/importDrawerUi';
 import { apiParseAgreementDocument } from '../../lib/api';
 import {
   agreementTermsFromRecord,
-  mergeExtractedAgreementTerms,
+  filledAgreementTermKeys,
   type AgreementTermsFormValues,
 } from '../../lib/agreementTerms';
 
 const DEFAULT_ACCEPT =
   'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx';
 
+const EXTRACT_HINT =
+  'Upload a PDF or Word agreement. Level, service charge, dates, payment terms, advance, and replacement fill in automatically.';
+
 export type AgreementDocumentUploadProps = {
-  description: string;
+  description?: string;
   pendingFile: File | null;
   onPendingFileChange: (file: File | null) => void;
   /** When set, PDF/DOC/DOCX text is parsed and non-empty fields are merged into the form. */
@@ -35,7 +38,6 @@ export function AgreementDocumentUpload({
   pendingFile,
   onPendingFileChange,
   onTermsExtracted,
-  currentTerms,
   isUploading = false,
   isExtracting: isExtractingProp,
   uploadSuccess = false,
@@ -60,13 +62,14 @@ export function AgreementDocumentUpload({
       try {
         const data = await apiParseAgreementDocument(file, { signal: controller.signal });
         const parsed = agreementTermsFromRecord(data?.terms);
-        const base = currentTerms ?? parsed;
-        const merged = mergeExtractedAgreementTerms(base, parsed);
-        onTermsExtracted(merged);
+        onTermsExtracted(parsed);
 
-        const filled = data?.filledCount ?? 0;
+        const filledKeys = filledAgreementTermKeys(parsed);
+        const filled = data?.filledCount ?? filledKeys.length;
         if (filled > 0) {
-          toast.success(`Filled ${filled} field${filled === 1 ? '' : 's'} from the agreement document`);
+          toast.success(
+            `Filled ${filled} field${filled === 1 ? '' : 's'} from the agreement document`,
+          );
         } else {
           toast.info('Document added. Could not detect terms automatically — enter them manually.');
         }
@@ -80,12 +83,13 @@ export function AgreementDocumentUpload({
         }
       }
     },
-    [currentTerms, onTermsExtracted],
+    [onTermsExtracted],
   );
 
   const handleFilesSelected = useCallback(
     (files: FileList | File[]) => {
-      const file = (Array.isArray(files) ? files[0] : files[0]) ?? null;
+      const list = Array.isArray(files) ? files : Array.from(files || []);
+      const file = list[0] ?? null;
       onPendingFileChange(file);
       if (file) {
         void runExtract(file);
@@ -99,7 +103,7 @@ export function AgreementDocumentUpload({
 
   return (
     <div>
-      {description ? <p className="text-xs text-slate-500 mb-2">{description}</p> : null}
+      <p className="mb-2 text-xs text-slate-500">{description?.trim() || EXTRACT_HINT}</p>
       {pendingFile ? (
         <div className="mb-2 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           <CheckCircle size={14} className="shrink-0 text-emerald-600" />
@@ -117,14 +121,14 @@ export function AgreementDocumentUpload({
         </div>
       ) : null}
       {isExtracting ? (
-        <div className="mb-2 flex items-center gap-2 text-xs text-slate-500">
+        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-blue-700">
           <Loader2 size={14} className="animate-spin text-blue-500" />
-          Extracting terms from document…
+          Extracting terms and filling the form…
         </div>
       ) : null}
       <DocumentUploadButton
         variant="secondary"
-        label={pendingFile ? 'Replace file' : 'Upload file'}
+        label={pendingFile ? 'Replace file' : 'Upload agreement'}
         isUploading={isUploading}
         uploadSuccess={uploadSuccess && !pendingFile}
         uploadPercent={uploadPercent}

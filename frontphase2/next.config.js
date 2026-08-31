@@ -23,7 +23,6 @@ const nextConfig = {
       '@emotion/styled',
       'motion',
       'date-fns',
-      'country-state-city',
     ],
   },
   // Avoid re-bundling heavy CJS libs during compile when possible

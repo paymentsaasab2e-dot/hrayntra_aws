@@ -1,4 +1,13 @@
-const CLOSED_STATUSES = new Set(['CLOSED', 'FILLED', 'DRAFT', 'ON_HOLD']);
+const CLOSED_STATUSES = new Set([
+  'CLOSED',
+  'FILLED',
+  'DRAFT',
+  'ON_HOLD',
+  'REJECTED',
+  'UNPUBLISHED',
+  'INACTIVE',
+  'PAUSED',
+]);
 const ADZUNA_COUNTRIES = new Set([
   'AU', 'AT', 'BE', 'BR', 'CA', 'CH', 'FR', 'DE', 'ES', 'IN', 'IT', 'MX', 'NL', 'NZ', 'PL', 'SG', 'ZA', 'UK', 'US',
 ]);
@@ -124,8 +133,14 @@ function evaluateEligibility(job, { includeAll = envFlag('ADZUNA_FEED_INCLUDE_AL
   if (status === 'ON_HOLD') return { ok: false, reason: 'on_hold' };
   if (status === 'CLOSED') return { ok: false, reason: 'closed' };
   if (status === 'FILLED') return { ok: false, reason: 'filled' };
+  if (status === 'REJECTED') return { ok: false, reason: 'rejected' };
+  if (status === 'UNPUBLISHED') return { ok: false, reason: 'unpublished' };
+  if (status === 'INACTIVE' || status === 'PAUSED') return { ok: false, reason: 'inactive' };
   if (isExpired(job)) return { ok: false, reason: 'expired' };
-  if (!includeAll && !wantsAdzunaPublish(job)) return { ok: false, reason: 'adzuna_not_enabled' };
+  // Create Job still has an Adzuna checkbox, but both public feeds include every
+  // portal-visible job unless ADZUNA_FEED_REQUIRE_OPT_IN=true.
+  const requireOptIn = envFlag('ADZUNA_FEED_REQUIRE_OPT_IN') && !includeAll;
+  if (requireOptIn && !wantsAdzunaPublish(job)) return { ok: false, reason: 'adzuna_not_enabled' };
   if (!isOpenPublished(job)) return { ok: false, reason: 'not_published' };
   return { ok: true };
 }

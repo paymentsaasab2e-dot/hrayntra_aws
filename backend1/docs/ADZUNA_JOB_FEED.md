@@ -33,33 +33,32 @@ Content-Type: `application/xml; charset=UTF-8`
 
 The XML never contains Application ID or Application Key.
 
-## Which jobs are exported
-
-A job is exported only when all of these are true:
-
-1. It exists in the **job portal** Mongo `jobs` collection (Phase 2 mirrors published jobs here).
-2. It is not deleted (`isDeleted` is not true). Deleted CRM jobs are removed from the portal mirror.
-3. It is not inactive (`isActive` is not false).
-4. Status is not `DRAFT`, `ON_HOLD`, `CLOSED`, or `FILLED`.
-5. `expectedClosureDate` is missing or still in the future.
-6. Adzuna publishing is enabled: `publishToAdzuna === true` or `distributionPlatforms.adzuna === true`.
-7. Required fields pass validation: id, title, description, public URL, location, country.
-
-Closed, filled, draft, deleted, expired, and incomplete jobs are skipped. They disappear from the next crawl automatically because the feed is generated live.
-
-Set `ADZUNA_FEED_INCLUDE_ALL=true` only if every open portal job should be listed (not recommended for agencies).
-
-Employers enable Adzuna on **Create Job → External platforms → Adzuna**. That flag is stored on the job and mirrored to the portal DB.
-
 ## Public job URL
 
-`<url>` uses the existing candidate portal deep link:
+`<url>` uses the candidate portal deep link:
 
 ```
-{JOB_PORTAL_FRONTEND_URL}/explore-jobs?job={jobId}&utm_source=adzuna
+https://www.hryantra.com/explore-jobs?job={jobId}&utm_source=adzuna
 ```
 
-Local frontend: `http://localhost:3000/explore-jobs?job=...`
+Override with `JOB_PORTAL_FRONTEND_URL` (must be public HTTPS). Localhost is never written into the feed.
+
+## Which jobs are exported
+
+A job is exported when it is currently listable on the public job portal:
+
+1. Portal Mongo `jobs` collection
+2. Not deleted (`isDeleted` is not true)
+3. Not inactive (`isActive` is not false, status is not `INACTIVE` / `PAUSED`)
+4. Status is not `DRAFT`, `ON_HOLD`, `CLOSED`, `FILLED`, `REJECTED`, or `UNPUBLISHED`
+5. `expectedClosureDate` is missing or still in the future
+6. Required fields: id, title, description, public HTTPS URL, location, country, company
+
+The Create Job Adzuna checkbox is unchanged in the UI. It is **not** required for the public feed unless `ADZUNA_FEED_REQUIRE_OPT_IN=true`.
+
+Closed, filled, draft, deleted, expired, rejected, unpublished, and inactive jobs disappear automatically because the XML is generated live from Mongo on each request. There is no static `jobs.xml` file and no 2,000-job cap.
+
+Admin diagnostics (not public): `GET /api/internal/job-feeds/diagnostics` with `x-internal-admin-key`.
 
 ## XML fields
 
@@ -98,8 +97,8 @@ Server only. Placeholders belong in `.env.example`, never commit real keys.
 ADZUNA_APP_ID=          # Search API only; not used by the XML feed
 ADZUNA_APP_KEY=         # Search API only; not used by the XML feed
 ADZUNA_COUNTRY=in       # Search API country hint only
-ADZUNA_FEED_INCLUDE_ALL=false
-JOB_PORTAL_FRONTEND_URL=http://localhost:3000
+ADZUNA_FEED_REQUIRE_OPT_IN=false
+JOB_PORTAL_FRONTEND_URL=https://www.hryantra.com
 ```
 
 ## How to test locally

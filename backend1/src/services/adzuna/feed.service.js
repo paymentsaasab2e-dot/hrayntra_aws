@@ -8,6 +8,14 @@ const {
   evaluateEligibility,
   toIsoDateString,
 } = require('./eligibility');
+const { fetchAllPortalJobs } = require('../job-feeds/fetchPortalJobs');
+const {
+  portalFrontendBase,
+  publicJobDetailUrl,
+  assertPublicJobUrl,
+  xmlContainsForbiddenHosts,
+} = require('../job-feeds/publicPortalUrl');
+const { recordFeedRun } = require('../job-feeds/diagnosticsStore');
 
 function timingSafeEqual(a, b) {
   const left = Buffer.from(String(a || ''), 'utf8');
@@ -23,17 +31,8 @@ function isFeedTokenValid(req) {
   return timingSafeEqual(got, expected);
 }
 
-function portalFrontendBase() {
-  const raw =
-    process.env.JOB_PORTAL_FRONTEND_URL ||
-    process.env.PHASE1_FRONTEND_URL ||
-    process.env.FRONTEND_URL ||
-    'http://localhost:3000';
-  return String(raw).trim().replace(/\/+$/, '');
-}
-
 function publicJobUrl(jobId, portalBase = portalFrontendBase()) {
-  return `${portalBase}/explore-jobs?job=${encodeURIComponent(jobId)}&utm_source=adzuna`;
+  return publicJobDetailUrl(jobId, { portalBase, utmSource: 'adzuna' });
 }
 
 function stripTags(html) {
@@ -87,10 +86,12 @@ function shouldShowCompany(job) {
 }
 
 function companyName(job) {
-  if (!shouldShowCompany(job)) return '';
+  const hidden = !shouldShowCompany(job);
+  if (hidden) return 'Confidential';
   return (
     String(job.client?.companyName || '').trim() ||
-    String(job.company?.name || '').trim()
+    String(job.company?.name || '').trim() ||
+    'Confidential'
   );
 }
 
@@ -130,7 +131,8 @@ function salaryFields(job) {
   const salary = job.salary && typeof job.salary === 'object' ? job.salary : {};
   const min = Number(salary.min ?? job.salaryMin);
   const max = Number(salary.max ?? job.salaryMax);
-  const currency = String(salary.currency || job.salaryCurrency || '').trim();
+  const currencyRaw = String(salary.currency || job.salaryCurrency || '').trim().toUpperCase();
+  const currency = /^[A-Z]{3}$/.test(currencyRaw) ? currencyRaw : '';
   const freqRaw = String(salary.frequency || job.salaryType || '').toLowerCase();
   const frequency = /hour/.test(freqRaw)
     ? 'hour'
@@ -149,57 +151,8 @@ function salaryFields(job) {
   return out;
 }
 
-function mongoId(value) {
-  if (!value) return '';
-  if (typeof value === 'string') return value;
-  if (value.$oid) return String(value.$oid);
-  return String(value);
-}
-
-function normalizeRawJob(doc, clientById = new Map()) {
-  const id = mongoId(doc._id) || mongoId(doc.id);
-  const clientId = mongoId(doc.clientId);
-  return {
-    ...doc,
-    id,
-    clientId: clientId || null,
-    client: clientById.get(clientId) || doc.client || null,
-    company: doc.company || null,
-  };
-}
-
 async function findRawJobs(prismaClient) {
-  if (typeof prismaClient?.$runCommandRaw !== 'function') {
-    return prismaClient.job.findMany({
-      take: 2000,
-      include: {
-        client: { select: { companyName: true } },
-        company: { select: { name: true } },
-      },
-    });
-  }
-  const result = await prismaClient.$runCommandRaw({
-    find: 'jobs',
-    filter: {},
-    sort: { postedDate: -1 },
-    limit: 2000,
-  });
-  const docs = result?.cursor?.firstBatch || result?.documents || [];
-  const clientIds = [
-    ...new Set(docs.map((doc) => mongoId(doc.clientId)).filter((id) => /^[a-fA-F0-9]{24}$/.test(id))),
-  ];
-  const clientById = new Map();
-  if (clientIds.length) {
-    const clients = await prismaClient.$runCommandRaw({
-      find: 'clients',
-      filter: { _id: { $in: clientIds.map((id) => ({ $oid: id })) } },
-      projection: { companyName: 1 },
-    });
-    for (const row of clients?.cursor?.firstBatch || clients?.documents || []) {
-      clientById.set(mongoId(row._id), { companyName: row.companyName || '' });
-    }
-  }
-  return docs.map((doc) => normalizeRawJob(doc, clientById));
+  return fetchAllPortalJobs(prismaClient);
 }
 
 function validateExportableJob(job, portalBase) {
@@ -209,9 +162,11 @@ function validateExportableJob(job, portalBase) {
   const description = buildDescriptionHtml(job);
   if (!stripTags(description)) return { ok: false, reason: 'missing_description' };
   const url = publicJobUrl(id, portalBase);
-  if (!url) return { ok: false, reason: 'missing_url' };
+  const urlCheck = assertPublicJobUrl(url);
+  if (!urlCheck.ok) return { ok: false, reason: urlCheck.reason };
   if (!locationLine(job)) return { ok: false, reason: 'missing_location' };
   if (!resolveCountry(job)) return { ok: false, reason: 'missing_country' };
+  if (!companyName(job)) return { ok: false, reason: 'missing_company' };
   return { ok: true, description, url };
 }
 
@@ -309,11 +264,20 @@ async function generateAdzunaFeed(prismaClient) {
   try {
     const jobs = await findRawJobs(prismaClient);
     const result = buildFeedFromJobs(jobs);
+    if (xmlContainsForbiddenHosts(result.xml)) {
+      throw new Error('Feed contained a localhost or private URL');
+    }
+    const durationMs = Date.now() - started;
+    recordFeedRun('adzuna', {
+      scanned: jobs.length,
+      ...result.stats,
+      durationMs,
+    });
     console.info(
-      `[adzuna-feed] scanned=${jobs.length} eligible=${result.stats.totalEligible} exported=${result.stats.exported} skipped=${result.stats.skipped} validationFailures=${result.stats.validationFailures} ms=${Date.now() - started}`,
+      `[adzuna-feed] scanned=${jobs.length} eligible=${result.stats.totalEligible} exported=${result.stats.exported} skipped=${result.stats.skipped} validationFailures=${result.stats.validationFailures} ms=${durationMs}`,
       result.stats.skipReasons,
     );
-    return result;
+    return { ...result, scanned: jobs.length, durationMs };
   } catch (error) {
     console.error('[adzuna-feed] XML generation error:', error?.message || error);
     throw error;
