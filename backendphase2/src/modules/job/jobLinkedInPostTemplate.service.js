@@ -70,7 +70,7 @@ export function normalizeLinkedInPostTemplateSchema(raw) {
       existing || {
         key,
         label: def?.label || key,
-        visible: true,
+        visible: false,
         order: sections.length,
       },
     );
