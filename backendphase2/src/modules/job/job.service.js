@@ -2405,7 +2405,8 @@ export const jobService = {
 
     const mineFilter = req?.query?.mine === 'true' || req?.query?.mine === '1';
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    const ownCompany = ownCompanyJobClause(await resolveOwnCompanyClientId());
+    const ownCompanyClientId = await resolveOwnCompanyClientId();
+    const ownCompany = ownCompanyJobClause(ownCompanyClientId);
     const memberVisibilityOr = req?.user?.id
       ? [...buildAssigneeVisibilityOr(req.user.id), ...(ownCompany ? [ownCompany] : [])]
       : [];
@@ -2419,7 +2420,9 @@ export const jobService = {
 
     // Recycle Bin: exclude soft-deleted jobs from every metric so counts match
     // the Jobs list. `not: true` matches false, null, and legacy missing-field rows.
-    const scope = { AND: [ownerScope, { isDeleted: { not: true } }] };
+    // Org/company switcher must match getAll — an empty company stays at 0.
+    let scope = { AND: [ownerScope, { isDeleted: { not: true } }] };
+    scope = await mergeJobOrgScope(scope, req, ownCompanyClientId);
 
     // Active Jobs (status = OPEN)
     const activeJobs = await prisma.job.count({
