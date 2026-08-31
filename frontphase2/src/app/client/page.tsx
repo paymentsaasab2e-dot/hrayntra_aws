@@ -247,7 +247,8 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     } : { name: 'Unassigned', avatar: '' },
     assignedToId: backendClient.assignedTo?.id || undefined,
     lastActivity: backendClient.updatedAt ? formatDateDMY(backendClient.updatedAt) : 'Never',
-    updatedAt: backendClient.updatedAt || undefined,
+    updatedAt: backendClient.updatedAt || backendClient.createdAt || undefined,
+    createdAt: backendClient.createdAt || undefined,
     auditMeta: extractAuditMeta(backendClient as Record<string, unknown>),
     logo: backendClient.logo || '',
     revenue: backendClient.revenueGenerated || undefined,
@@ -517,8 +518,8 @@ export default function App() {
         const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
         return clientNameSortOrder === 'asc' ? comparison : -comparison;
       }
-      const aTime = new Date(a.updatedAt || 0).getTime();
-      const bTime = new Date(b.updatedAt || 0).getTime();
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
       return bTime - aTime;
     });
     return list;
@@ -634,7 +635,7 @@ export default function App() {
     };
   }, [clients, mergeClientOptimistically, searchParams]);
 
-  const fetchClients = useCallback(async (overrides?: { page?: number; search?: string }) => {
+  const fetchClients = useCallback(async (overrides?: { page?: number; search?: string; matchingClientIds?: string[] }) => {
     try {
       setLoading(true);
       setError(null);
@@ -653,7 +654,7 @@ export default function App() {
           search: effectiveSearch,
           page: 1,
           limit: FETCH_LIMIT,
-          matchingClientIds: smartSearchClientIds,
+          matchingClientIds: overrides?.matchingClientIds ?? smartSearchClientIds,
           includeContacts: false,
           includeLeadFields: false,
           recruitmentEnabled: isRecruitmentScope || undefined,
@@ -1547,7 +1548,7 @@ export default function App() {
           onClientUpdated={(patch) => {
             patchClientInList(patch.id, patch);
           }}
-          onClientCreated={() => {
+          onClientCreated={(created) => {
             setShowAddClientDrawer(false);
             setAddClientWithAi(false);
             setSelectedClientId(null);
@@ -1555,8 +1556,13 @@ export default function App() {
             setSelectedClients([]);
             setSearchQuery('');
             setDebouncedSearchQuery('');
+            setSmartSearchClientIds([]);
+            setTeamMemberFilterId('');
             setCurrentPage(1);
-            void fetchClients({ page: 1, search: '' });
+            if (created?.id && created.companyName) {
+              mergeClientOptimistically(mapBackendClientToFrontend(created));
+            }
+            void fetchClients({ page: 1, search: '', matchingClientIds: [] });
           }}
           onJobCreated={handleRefresh}
         />
@@ -1583,7 +1589,8 @@ export default function App() {
             setDebouncedSearchQuery('');
             setTeamMemberFilterId('');
             setCurrentPage(1);
-            void fetchClients({ page: 1, search: '' });
+            setSmartSearchClientIds([]);
+            void fetchClients({ page: 1, search: '', matchingClientIds: [] });
           }}
         />
 

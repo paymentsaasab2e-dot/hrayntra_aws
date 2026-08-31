@@ -132,6 +132,7 @@ export interface Client {
   lastActivity: string;
   /** ISO timestamp used for recent-activity table ordering. */
   updatedAt?: string;
+  createdAt?: string;
   auditMeta?: AuditMeta;
   logo: string;
   revenue?: string;

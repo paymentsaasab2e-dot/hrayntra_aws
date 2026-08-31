@@ -11,6 +11,35 @@ import {
 
 const idStr = (id) => String(id || '').trim();
 
+/**
+ * Hide the synthetic own-company “Workspace” row from CRM client lists.
+ *
+ * Prisma MongoDB rewrites `NOT: { OR: [industry, website startsWith] }` into
+ * AND-of-NOTs. `{ website: { $not: /^tenant:\\/\\// } }` does **not** match
+ * documents where website/industry is missing, so new/imported clients vanish
+ * from /client. Explicitly keep unset/null fields.
+ */
+export function systemWorkspaceClientExclusionWhere() {
+  return {
+    AND: [
+      {
+        OR: [
+          { industry: { isSet: false } },
+          { industry: { equals: null } },
+          { industry: { not: 'Workspace' } },
+        ],
+      },
+      {
+        OR: [
+          { website: { isSet: false } },
+          { website: { equals: null } },
+          { NOT: { website: { startsWith: 'tenant://' } } },
+        ],
+      },
+    ],
+  };
+}
+
 async function listActiveDepartmentMemberIds(userId) {
   const actor = await prisma.user.findUnique({
     where: { id: userId },
@@ -85,17 +114,7 @@ export async function applyMemberClientScope(scopedWhere, req) {
 export async function buildClientsListScopeWhere(req) {
   let where = { isDeleted: { not: true } };
   where = {
-    AND: [
-      where,
-      {
-        NOT: {
-          OR: [
-            { industry: 'Workspace' },
-            { website: { startsWith: 'tenant://' } },
-          ],
-        },
-      },
-    ],
+    AND: [where, systemWorkspaceClientExclusionWhere()],
   };
   const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
   let scopedWhere = mergeWhereWithScope(where, superAdminScope);
