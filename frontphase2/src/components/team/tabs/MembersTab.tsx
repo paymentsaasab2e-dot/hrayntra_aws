@@ -324,8 +324,6 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
     if (getTenantImpersonationMeta()) return false;
     if (!user?.id || member.id === user.id) return false;
     if (member.status !== 'ACTIVE') return false;
-    const roleName = String(member.role?.roleName || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
-    if (roleName === 'super admin') return false;
     return true;
   };
 

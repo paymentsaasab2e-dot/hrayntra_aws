@@ -1009,11 +1009,6 @@ export const teamMemberService = {
       err.statusCode = 400;
       throw err;
     }
-    if (isSuperAdminUser({ user: member }) && String(member.id) !== String(actorUser.id)) {
-      const err = new Error('You cannot open another Super Admin account.');
-      err.statusCode = 403;
-      throw err;
-    }
 
     const tenantDbName = String(getActiveTenantDbName() || actorUser?.tenantDbName || '').trim();
     const permissionsPayload = await userService.getEffectivePermissions(member.id);
