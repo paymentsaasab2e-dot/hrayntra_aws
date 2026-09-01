@@ -12,7 +12,7 @@ import { AddRoleDrawer } from '../AddRoleDrawer';
 import { EditRoleDrawer } from '../EditRoleDrawer';
 import { RoleMembersDrawer } from '../RoleMembersDrawer';
 import { RoleDetailDrawer } from '../RoleDetailDrawer';
-import { mergePermissionMaps, RBAC_CATALOG_TOTAL } from '../permissionCatalog';
+import { mergePermissionMaps, RBAC_CATALOG_TOTAL, formatModuleLabel } from '../permissionCatalog';
 import { PH2_TABLE_CARD_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
 
@@ -27,14 +27,6 @@ const roleColorMap: Record<string, string> = {
   red: 'bg-red-500',
   indigo: 'bg-indigo-500',
   gray: 'bg-gray-500',
-};
-
-// Format permission name to human-readable
-const formatPermissionName = (name: string): string => {
-  return name
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 };
 
 const getSafeRoleColorClass = (color?: string | null) => {
@@ -294,7 +286,7 @@ export const RolesTab: React.FC = () => {
                                     key={module}
                                     className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200/80"
                                   >
-                                    {module}
+                                    {formatModuleLabel(module)}
                                   </span>
                                 ))}
                               </div>

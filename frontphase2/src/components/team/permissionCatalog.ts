@@ -4,6 +4,8 @@ import {
   RBAC_MODULE_GROUPS,
   RBAC_MODULE_ORDER,
   RBAC_PERMISSION_SEED,
+  MODULE_DISPLAY_LABELS,
+  PERMISSION_DISPLAY_LABELS,
   rbacGroupForModule,
 } from '../../lib/rbac/permissions';
 
@@ -12,11 +14,33 @@ export {
   RBAC_MODULE_GROUPS,
   RBAC_MODULE_ORDER,
   RBAC_PERMISSION_SEED,
+  MODULE_DISPLAY_LABELS,
+  PERMISSION_DISPLAY_LABELS,
   rbacGroupForModule,
 };
 
 /** @deprecated use RBAC_PERMISSION_SEED */
 export const DEFAULT_PERMISSION_SEED = RBAC_PERMISSION_SEED;
+
+/** Pre-ticked on every new role (matches backend DEFAULT_EVERYONE_PERMISSIONS). */
+export const DEFAULT_EVERYONE_PERMISSION_NAMES = ['access_integrations'];
+
+export function permissionIdsForNames(
+  permissions: Record<string, Permission[]>,
+  names: string[],
+): string[] {
+  const want = new Set(names);
+  return Object.values(permissions || {})
+    .flat()
+    .filter((permission) => want.has(permission.permissionName))
+    .map((permission) => permission.id);
+}
+
+export function defaultEveryonePermissionIds(
+  permissions: Record<string, Permission[]>,
+): string[] {
+  return permissionIdsForNames(permissions, DEFAULT_EVERYONE_PERMISSION_NAMES);
+}
 
 export function buildFallbackPermissionsMap(): Record<string, Permission[]> {
   return RBAC_PERMISSION_SEED.reduce<Record<string, Permission[]>>((acc, permission) => {
@@ -40,13 +64,18 @@ export function mergePermissionMaps(
 
   Object.entries(apiPermissions || {}).forEach(([module, permissions]) => {
     if (!Array.isArray(permissions) || permissions.length === 0) return;
-    merged[module] = permissions.map((permission) => ({
-      ...permission,
-      id: permission.id || permission.permissionName,
-      permissionName: permission.permissionName || permission.id,
-      module: permission.module || module,
-      description: permission.description || undefined,
-    }));
+    merged[module] = permissions.map((permission) => {
+      const catalog = RBAC_PERMISSION_SEED.find(
+        (row) => row.permissionName === (permission.permissionName || permission.id),
+      );
+      return {
+        ...permission,
+        id: permission.id || permission.permissionName,
+        permissionName: permission.permissionName || permission.id,
+        module: permission.module || module,
+        description: catalog?.description || permission.description || undefined,
+      };
+    });
   });
 
   return merged;
@@ -63,42 +92,33 @@ export function sortModules(modules: string[]): string[] {
   });
 }
 
+export function formatModuleLabel(module: string): string {
+  const key = String(module || '').trim();
+  return MODULE_DISPLAY_LABELS[key] || key;
+}
+
 export function formatPermissionLabel(name: string): string {
-  const special: Record<string, string> = {
-    dash_dept_scope: 'Dashboard level: My department',
-    dash_company_scope: 'Dashboard level: This company',
-    dash_full_scope: 'Dashboard level: Whole tenant',
-    dash_mine_approvals: 'My work: approvals',
-    convert_lead: 'Convert lead to client',
-    publish_job: 'Publish job',
-    interviews_feedback: 'Record interview feedback',
-    events_read: 'View events',
-    events_manage: 'Manage events',
-    approve_requests: 'Approve requests',
-    behavior_read: 'View behaviour analytics',
-    behavior_manage: 'Configure behaviour tracking',
-    manage_subscription: 'Manage subscription',
-    manage_departments: 'Manage departments',
-    view_cross_company_members: 'View Members Across Companies',
-    VIEW_CROSS_COMPANY_MEMBERS: 'View Members Across Companies',
-    view_all_companies: 'Full access of all companies',
-    view_all_jobs: 'View all jobs in my organization',
-    view_all_leads: 'View all leads in my organization',
-    view_all_clients: 'View all clients in my organization',
-    view_all_candidates: 'View all candidates in my organization',
-    view_all_requests: 'View all requests in my organization',
-    company_page_read: 'View company page',
-    company_page_manage: 'Manage company page',
-  };
-  if (special[name]) return special[name];
-  const normalized = String(name || '')
-    .replace(/^hq_/, '')
-    .trim();
-  return normalized
+  const key = String(name || '').trim();
+  if (PERMISSION_DISPLAY_LABELS[key]) return PERMISSION_DISPLAY_LABELS[key];
+  if (key.startsWith('hq_')) {
+    return key
+      .replace(/^hq_/, '')
+      .split('_')
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+  return key
     .split('_')
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+export function formatPermissionDescription(name: string, fallback?: string): string {
+  const key = String(name || '').trim();
+  const catalog = RBAC_PERMISSION_SEED.find((row) => row.permissionName === key);
+  return catalog?.description || fallback || '';
 }
 
 /** Scope permissions controlled by the Dashboard level dropdown (hidden from tick list). */

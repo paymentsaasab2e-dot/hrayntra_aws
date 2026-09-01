@@ -10,7 +10,7 @@ import {
   resolveTenantOrganizationName,
 } from '../setting/recruitmentMode.service.js';
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
-import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions, syncDefaultRolePresets, syncMissingRolePresetPermissions } from '../role/permission-sync.service.js';
+import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions, syncDefaultRolePresets, syncMissingRolePresetPermissions, syncEveryoneDefaultPermissions } from '../role/permission-sync.service.js';
 import { revokeAllSessionsForUser, sessionService } from '../session/session.service.js';
 import { verifyHqImpersonationToken } from '../../utils/hqImpersonationToken.js';
 import {
@@ -253,6 +253,7 @@ async function ensureSuperAdminRoleAndDepartment() {
   await ensureDefaultSystemRoles();
   await syncDefaultRolePresets();
   await syncMissingRolePresetPermissions();
+  await syncEveryoneDefaultPermissions();
   const superAdminRole = await prisma.systemRole.findUnique({
     where: { roleName: 'Super Admin' },
   });

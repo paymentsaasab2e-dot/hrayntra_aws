@@ -8276,6 +8276,8 @@ export interface BackendClient {
   recruitmentEnabled?: boolean | null;
   recruitmentEnabledAt?: string | null;
   recruitmentEnabledBy?: string | null;
+  /** Created from Recruitment Clients — omitted from the CRM Clients list. */
+  createdInRecruitment?: boolean | null;
   contacts?: Array<{
     id: string;
     firstName?: string | null;

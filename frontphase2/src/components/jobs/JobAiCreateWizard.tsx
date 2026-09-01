@@ -886,18 +886,25 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const loadClients = useCallback(async () => {
     setLoadingClients(true);
     try {
-      const [res, workspaceRes] = await Promise.all([
-        apiGetClients({ page: 1, limit: 200 }),
+      const [recRes, workspaceRes] = await Promise.all([
+        apiGetClients({ recruitmentEnabled: true, page: 1, limit: 200 }),
         apiGetWorkspaceClient().catch(() => null),
       ]);
-      const raw = res.data as unknown;
-      const list = Array.isArray(raw)
-        ? raw
-        : Array.isArray((raw as { data?: BackendClient[] })?.data)
-          ? (raw as { data: BackendClient[] }).data
-          : Array.isArray((raw as { items?: BackendClient[] })?.items)
-            ? (raw as { items: BackendClient[] }).items
-            : [];
+      const unwrap = (res: Awaited<ReturnType<typeof apiGetClients>>) => {
+        const raw = res.data as unknown;
+        return Array.isArray(raw)
+          ? raw
+          : Array.isArray((raw as { data?: BackendClient[] })?.data)
+            ? (raw as { data: BackendClient[] }).data
+            : Array.isArray((raw as { items?: BackendClient[] })?.items)
+              ? (raw as { items: BackendClient[] }).items
+              : [];
+      };
+      let list = unwrap(recRes);
+      if (list.length === 0) {
+        const crmRes = await apiGetClients({ page: 1, limit: 200 });
+        list = unwrap(crmRes);
+      }
       const workspace =
         (workspaceRes as { data?: { workspaceClient?: BackendClient | null } } | null)?.data
           ?.workspaceClient || null;

@@ -12,26 +12,26 @@
 export const DEFAULT_PERMISSIONS = [
   // ══ CRM ═══════════════════════════════════════════════════════════════
   // Leads
-  { permissionName: 'leads_create', module: 'Leads', description: 'Create leads' },
-  { permissionName: 'leads_read', module: 'Leads', description: 'View leads' },
-  { permissionName: 'leads_update', module: 'Leads', description: 'Update leads' },
-  { permissionName: 'leads_delete', module: 'Leads', description: 'Delete leads' },
-  { permissionName: 'view_all_leads', module: 'Leads', description: 'View all leads in my organization' },
-  { permissionName: 'convert_lead', module: 'Leads', description: 'Convert a lead into a client' },
+  { permissionName: 'leads_create', module: 'Leads', description: 'Leads page — create' },
+  { permissionName: 'leads_read', module: 'Leads', description: 'Leads page' },
+  { permissionName: 'leads_update', module: 'Leads', description: 'Leads page — update' },
+  { permissionName: 'leads_delete', module: 'Leads', description: 'Leads page — delete' },
+  { permissionName: 'view_all_leads', module: 'Leads', description: 'Leads page — all records in the organization' },
+  { permissionName: 'convert_lead', module: 'Leads', description: 'Leads page — convert a lead into a client' },
 
   // Clients
-  { permissionName: 'clients_create', module: 'Clients', description: 'Create clients' },
-  { permissionName: 'clients_read', module: 'Clients', description: 'View clients' },
-  { permissionName: 'clients_update', module: 'Clients', description: 'Update clients' },
-  { permissionName: 'clients_delete', module: 'Clients', description: 'Delete clients' },
-  { permissionName: 'view_all_clients', module: 'Clients', description: 'View all clients in my organization' },
-  { permissionName: 'clients_handoff', module: 'Clients', description: 'Hand off clients to another department' },
+  { permissionName: 'clients_create', module: 'Clients', description: 'Clients page — create' },
+  { permissionName: 'clients_read', module: 'Clients', description: 'Clients page' },
+  { permissionName: 'clients_update', module: 'Clients', description: 'Clients page — update' },
+  { permissionName: 'clients_delete', module: 'Clients', description: 'Clients page — delete' },
+  { permissionName: 'view_all_clients', module: 'Clients', description: 'Clients page — all records in the organization' },
+  { permissionName: 'clients_handoff', module: 'Clients', description: 'Clients page — hand off to another department' },
 
   // Contacts
-  { permissionName: 'contacts_create', module: 'Contacts', description: 'Create contacts' },
-  { permissionName: 'contacts_read', module: 'Contacts', description: 'View contacts' },
-  { permissionName: 'contacts_update', module: 'Contacts', description: 'Update contacts' },
-  { permissionName: 'contacts_delete', module: 'Contacts', description: 'Delete contacts' },
+  { permissionName: 'contacts_create', module: 'Contacts', description: 'Contacts page — create' },
+  { permissionName: 'contacts_read', module: 'Contacts', description: 'Contacts page' },
+  { permissionName: 'contacts_update', module: 'Contacts', description: 'Contacts page — update' },
+  { permissionName: 'contacts_delete', module: 'Contacts', description: 'Contacts page — delete' },
 
   // Agreements
   { permissionName: 'agreements_read', module: 'Agreements', description: 'View Agreements & Terms on clients and leads' },
@@ -45,44 +45,44 @@ export const DEFAULT_PERMISSIONS = [
 
   // ══ Recruitment ════════════════════════════════════════════════════════
   // Jobs
-  { permissionName: 'jobs_create', module: 'Jobs', description: 'Create jobs' },
-  { permissionName: 'jobs_read', module: 'Jobs', description: 'View jobs' },
-  { permissionName: 'jobs_update', module: 'Jobs', description: 'Update jobs' },
-  { permissionName: 'jobs_delete', module: 'Jobs', description: 'Delete jobs' },
-  { permissionName: 'assign_job', module: 'Jobs', description: 'Assign jobs to recruiters' },
-  { permissionName: 'view_all_jobs', module: 'Jobs', description: 'View all jobs in my organization' },
-  { permissionName: 'publish_job', module: 'Jobs', description: 'Publish jobs to the portal and social channels' },
+  { permissionName: 'jobs_create', module: 'Jobs', description: 'Jobs page — create' },
+  { permissionName: 'jobs_read', module: 'Jobs', description: 'Jobs page' },
+  { permissionName: 'jobs_update', module: 'Jobs', description: 'Jobs page — update' },
+  { permissionName: 'jobs_delete', module: 'Jobs', description: 'Jobs page — delete' },
+  { permissionName: 'assign_job', module: 'Jobs', description: 'Jobs page — assign to recruiters' },
+  { permissionName: 'view_all_jobs', module: 'Jobs', description: 'Jobs page — all records in the organization' },
+  { permissionName: 'publish_job', module: 'Jobs', description: 'Jobs page — publish to the portal and social channels' },
 
   // Candidates
-  { permissionName: 'candidates_create', module: 'Candidates', description: 'Create candidates' },
-  { permissionName: 'candidates_read', module: 'Candidates', description: 'View candidates' },
-  { permissionName: 'candidates_update', module: 'Candidates', description: 'Update candidates' },
-  { permissionName: 'candidates_delete', module: 'Candidates', description: 'Delete candidates' },
-  { permissionName: 'view_all_candidates', module: 'Candidates', description: 'View all candidates in my organization' },
-  { permissionName: 'view_assigned_candidates', module: 'Candidates', description: 'View only assigned candidates' },
-  { permissionName: 'move_pipeline', module: 'Candidates', description: 'Move candidates in pipeline' },
-  { permissionName: 'submit_candidate', module: 'Candidates', description: 'Submit candidates to jobs' },
+  { permissionName: 'candidates_create', module: 'Candidates', description: 'Candidates page — create' },
+  { permissionName: 'candidates_read', module: 'Candidates', description: 'Candidates page' },
+  { permissionName: 'candidates_update', module: 'Candidates', description: 'Candidates page — update' },
+  { permissionName: 'candidates_delete', module: 'Candidates', description: 'Candidates page — delete' },
+  { permissionName: 'view_all_candidates', module: 'Candidates', description: 'Candidates page — all records in the organization' },
+  { permissionName: 'view_assigned_candidates', module: 'Candidates', description: 'Candidates page — assigned records only' },
+  { permissionName: 'move_pipeline', module: 'Candidates', description: 'Pipeline page — move candidates' },
+  { permissionName: 'submit_candidate', module: 'Candidates', description: 'Candidates page — submit to Jobs' },
 
   // Matches
-  { permissionName: 'matches_read', module: 'Matches', description: 'View candidate–job matches' },
-  { permissionName: 'matches_manage', module: 'Matches', description: 'Save, submit, or reject matches' },
+  { permissionName: 'matches_read', module: 'Matches', description: 'Matches page' },
+  { permissionName: 'matches_manage', module: 'Matches', description: 'Matches page — save, submit, or reject' },
 
   // Pipeline
-  { permissionName: 'pipeline_read', module: 'Pipeline', description: 'View pipeline boards' },
-  { permissionName: 'pipeline_manage', module: 'Pipeline', description: 'Move stages and manage pipeline' },
+  { permissionName: 'pipeline_read', module: 'Pipeline', description: 'Pipeline page' },
+  { permissionName: 'pipeline_manage', module: 'Pipeline', description: 'Pipeline page — manage stages' },
 
   // Interviews
-  { permissionName: 'interviews_create', module: 'Interviews', description: 'Schedule interviews' },
-  { permissionName: 'interviews_read', module: 'Interviews', description: 'View interviews' },
-  { permissionName: 'interviews_update', module: 'Interviews', description: 'Update interviews' },
-  { permissionName: 'interviews_delete', module: 'Interviews', description: 'Cancel or delete interviews' },
-  { permissionName: 'interviews_feedback', module: 'Interviews', description: 'Record interview feedback and outcomes' },
+  { permissionName: 'interviews_create', module: 'Interviews', description: 'Interviews page — schedule' },
+  { permissionName: 'interviews_read', module: 'Interviews', description: 'Interviews page' },
+  { permissionName: 'interviews_update', module: 'Interviews', description: 'Interviews page — update' },
+  { permissionName: 'interviews_delete', module: 'Interviews', description: 'Interviews page — cancel or delete' },
+  { permissionName: 'interviews_feedback', module: 'Interviews', description: 'Interviews page — record feedback' },
 
   // Placements
-  { permissionName: 'placements_create', module: 'Placements', description: 'Create placements' },
-  { permissionName: 'placements_read', module: 'Placements', description: 'View placements' },
-  { permissionName: 'placements_update', module: 'Placements', description: 'Update placements' },
-  { permissionName: 'placements_delete', module: 'Placements', description: 'Delete placements' },
+  { permissionName: 'placements_create', module: 'Placements', description: 'Placements page — create' },
+  { permissionName: 'placements_read', module: 'Placements', description: 'Placements page' },
+  { permissionName: 'placements_update', module: 'Placements', description: 'Placements page — update' },
+  { permissionName: 'placements_delete', module: 'Placements', description: 'Placements page — delete' },
 
   // Recruitment dashboard tabs — breadth is set by the Dashboard level.
   { permissionName: 'dash_rec_insights', module: 'Recruitment Dashboard', description: 'Recruitment dashboard tab: Insights & actions' },
@@ -92,71 +92,71 @@ export const DEFAULT_PERMISSIONS = [
 
   // ══ Workspace ══════════════════════════════════════════════════════════
   // Tasks
-  { permissionName: 'tasks_create', module: 'Tasks', description: 'Create tasks' },
-  { permissionName: 'tasks_read', module: 'Tasks', description: 'View tasks' },
-  { permissionName: 'tasks_update', module: 'Tasks', description: 'Update tasks' },
-  { permissionName: 'tasks_delete', module: 'Tasks', description: 'Delete tasks' },
+  { permissionName: 'tasks_create', module: 'Tasks', description: 'Tasks & Activities — create' },
+  { permissionName: 'tasks_read', module: 'Tasks', description: 'Tasks & Activities' },
+  { permissionName: 'tasks_update', module: 'Tasks', description: 'Tasks & Activities — update' },
+  { permissionName: 'tasks_delete', module: 'Tasks', description: 'Tasks & Activities — delete' },
 
   // Calendar
-  { permissionName: 'calendar_read', module: 'Calendar', description: 'View calendar' },
-  { permissionName: 'calendar_manage', module: 'Calendar', description: 'Create or edit calendar events' },
+  { permissionName: 'calendar_read', module: 'Calendar', description: 'Calendar' },
+  { permissionName: 'calendar_manage', module: 'Calendar', description: 'Calendar — create or edit' },
 
   // Events
-  { permissionName: 'events_read', module: 'Events', description: 'View events and registrations' },
-  { permissionName: 'events_manage', module: 'Events', description: 'Create, edit, or cancel events' },
+  { permissionName: 'events_read', module: 'Events', description: 'Portal Events' },
+  { permissionName: 'events_manage', module: 'Events', description: 'Portal Events — create, edit, or cancel' },
 
   // Inbox
-  { permissionName: 'inbox_read', module: 'Inbox', description: 'View inbox messages' },
-  { permissionName: 'inbox_manage', module: 'Inbox', description: 'Send and manage inbox messages' },
+  { permissionName: 'inbox_read', module: 'Inbox', description: 'Inbox → Gmail and Outlook' },
+  { permissionName: 'inbox_manage', module: 'Inbox', description: 'Chat tab on Leads, Clients, Candidates, Jobs, and other records — send messages' },
 
   // Request
-  { permissionName: 'requests_create', module: 'Request', description: 'Send requests' },
-  { permissionName: 'requests_read', module: 'Request', description: 'View requests' },
-  { permissionName: 'requests_update', module: 'Request', description: 'Update request status' },
-  { permissionName: 'requests_delete', module: 'Request', description: 'Cancel or delete requests' },
-  { permissionName: 'view_all_requests', module: 'Request', description: 'View all requests in my organization' },
-  { permissionName: 'approve_requests', module: 'Request', description: 'Approve or reject requests raised to you' },
+  { permissionName: 'requests_create', module: 'Request', description: 'Requests — send' },
+  { permissionName: 'requests_read', module: 'Request', description: 'Requests' },
+  { permissionName: 'requests_update', module: 'Request', description: 'Requests — update' },
+  { permissionName: 'requests_delete', module: 'Request', description: 'Requests — delete' },
+  { permissionName: 'view_all_requests', module: 'Request', description: 'Requests — all records in the organization' },
+  { permissionName: 'approve_requests', module: 'Request', description: 'Requests — Approvals' },
 
   // ══ Insights & Finance ═════════════════════════════════════════════════
   // Reports
-  { permissionName: 'reports_create', module: 'Reports / Analytics', description: 'Create custom reports' },
-  { permissionName: 'reports_read', module: 'Reports / Analytics', description: 'View reports and analytics' },
-  { permissionName: 'reports_update', module: 'Reports / Analytics', description: 'Update reports' },
-  { permissionName: 'reports_delete', module: 'Reports / Analytics', description: 'Delete reports' },
+  { permissionName: 'reports_create', module: 'Reports / Analytics', description: 'Reports — create' },
+  { permissionName: 'reports_read', module: 'Reports / Analytics', description: 'Reports' },
+  { permissionName: 'reports_update', module: 'Reports / Analytics', description: 'Reports — update' },
+  { permissionName: 'reports_delete', module: 'Reports / Analytics', description: 'Reports — delete' },
 
   // Behaviour analytics (/thebehave, /tenant-behave)
   { permissionName: 'behavior_read', module: 'Behaviour', description: 'View behaviour and engagement analytics' },
   { permissionName: 'behavior_manage', module: 'Behaviour', description: 'Configure behaviour tracking and scoring rules' },
 
   // Billing
-  { permissionName: 'access_billing', module: 'Billing', description: 'Access billing module' },
-  { permissionName: 'create_invoice', module: 'Billing', description: 'Create and send invoices' },
-  { permissionName: 'record_payment', module: 'Billing', description: 'Record payments' },
-  { permissionName: 'manage_billing_settings', module: 'Billing', description: 'Manage billing settings' },
-  { permissionName: 'manage_subscription', module: 'Billing', description: 'View and change the tenant subscription plan' },
+  { permissionName: 'access_billing', module: 'Billing', description: 'Billing page' },
+  { permissionName: 'create_invoice', module: 'Billing', description: 'Billing → Invoices' },
+  { permissionName: 'record_payment', module: 'Billing', description: 'Billing → Payments' },
+  { permissionName: 'manage_billing_settings', module: 'Billing', description: 'Settings → Invoice template (also Billing → Billing Settings)' },
+  { permissionName: 'manage_subscription', module: 'Billing', description: 'Settings → Subscription & Plan (also Subscription in the sidenav)' },
 
   // ══ Administration ═════════════════════════════════════════════════════
   // Team
-  { permissionName: 'view_team', module: 'Team', description: 'View team directory' },
+  { permissionName: 'view_team', module: 'Team', description: 'Team → Members' },
   {
     permissionName: 'view_cross_company_members',
     module: 'Team',
     description:
-      'Allows users to view and assign members from other companies within their current tenant. Super Admin has this by default. Never grants access to other tenants.',
+      'Team — view and assign members from other companies in this tenant. Super Admin has this by default.',
   },
-  { permissionName: 'add_team_member', module: 'Team', description: 'Add team members' },
-  { permissionName: 'edit_team_member', module: 'Team', description: 'Edit or deactivate team members' },
-  { permissionName: 'assign_roles', module: 'Team', description: 'Assign roles to members' },
-  { permissionName: 'manage_roles', module: 'Team', description: 'Create and edit roles & permissions' },
-  { permissionName: 'manage_departments', module: 'Team', description: 'Create and edit departments and their role ranks' },
-  { permissionName: 'generate_credentials', module: 'Team', description: 'Generate login credentials' },
-  { permissionName: 'manage_commission', module: 'Team', description: 'Manage commission rules' },
-  { permissionName: 'manage_targets', module: 'Team', description: 'Manage recruiter targets' },
-  { permissionName: 'view_team_activity', module: 'Team', description: 'View team login and activity logs' },
+  { permissionName: 'add_team_member', module: 'Team', description: 'Team → Members — add member' },
+  { permissionName: 'edit_team_member', module: 'Team', description: 'Team → Members — edit or deactivate' },
+  { permissionName: 'assign_roles', module: 'Team', description: 'Team → Roles' },
+  { permissionName: 'manage_roles', module: 'Team', description: 'Team → Roles — create and edit roles' },
+  { permissionName: 'manage_departments', module: 'Team', description: 'Team → Departments' },
+  { permissionName: 'generate_credentials', module: 'Team', description: 'Team → Credentials' },
+  { permissionName: 'manage_commission', module: 'Team', description: 'Settings → Commission slabs' },
+  { permissionName: 'manage_targets', module: 'Team', description: 'Team → Targets & KPI' },
+  { permissionName: 'view_team_activity', module: 'Team', description: 'Team member Activity' },
 
   // Organization
-  { permissionName: 'org_structure', module: 'Organization', description: 'Create and edit the company tree (HQ, companies, sites)' },
-  { permissionName: 'node_org_structure', module: 'Organization', description: 'Manage sites and people under your own company node' },
+  { permissionName: 'org_structure', module: 'Organization', description: 'Open Organization — edit the company tree (HQ, companies, sites)' },
+  { permissionName: 'node_org_structure', module: 'Organization', description: 'Organization — manage sites and people under your own company' },
   {
     permissionName: 'switch_companies',
     module: 'Organization',
@@ -171,16 +171,16 @@ export const DEFAULT_PERMISSIONS = [
   },
 
   // Company page (public tenant profile)
-  { permissionName: 'company_page_read', module: 'Company Page', description: 'View the public company page' },
-  { permissionName: 'company_page_manage', module: 'Company Page', description: 'Edit the public company page and its job listings' },
+  { permissionName: 'company_page_read', module: 'Company Page', description: 'Company Page' },
+  { permissionName: 'company_page_manage', module: 'Company Page', description: 'Company Page — edit' },
 
   // System
-  { permissionName: 'manage_settings', module: 'System', description: 'Manage organization settings' },
-  { permissionName: 'access_integrations', module: 'System', description: 'Access integrations' },
-  { permissionName: 'export_data', module: 'System', description: 'Export data to CSV or files' },
-  { permissionName: 'view_activity_log', module: 'System', description: 'View company activity feed' },
-  { permissionName: 'recycle_bin_manage', module: 'System', description: 'Restore or purge recycle bin items' },
-  { permissionName: 'view_dashboard', module: 'System', description: 'View main dashboard' },
+  { permissionName: 'manage_settings', module: 'System', description: 'Settings → Notifications Trigger Points, Alerts Management, Recruitment workflow, Data & Security, Customization' },
+  { permissionName: 'access_integrations', module: 'System', description: 'Settings → Communication & Integrations' },
+  { permissionName: 'export_data', module: 'System', description: 'Export from lists and Reports' },
+  { permissionName: 'view_activity_log', module: 'System', description: 'Activity log (sidenav) and Settings → Activity Log' },
+  { permissionName: 'recycle_bin_manage', module: 'System', description: 'Recycle Bin' },
+  { permissionName: 'view_dashboard', module: 'System', description: 'CRM → Dashboard and Recruitment → Dashboard' },
   {
     permissionName: 'dash_dept_scope',
     module: 'System',
@@ -208,6 +208,13 @@ export const DEFAULT_PERMISSIONS = [
 ];
 
 export const DEFAULT_PERMISSION_NAMES = DEFAULT_PERMISSIONS.map((p) => p.permissionName);
+
+/** Ticked on every role unless an admin later turns it off. */
+export const DEFAULT_EVERYONE_PERMISSIONS = ['access_integrations'];
+
+function withEveryoneDefaults(names = []) {
+  return [...new Set([...(names || []), ...DEFAULT_EVERYONE_PERMISSIONS])];
+}
 
 export const RBAC_MODULE_ORDER = [
   // CRM
@@ -296,16 +303,18 @@ export const DEFAULT_SYSTEM_ROLES = [
 
 /** Default permission sets for seeded non–Super Admin roles (by role name). */
 export const DEFAULT_ROLE_PERMISSION_PRESETS = {
-  Admin: DEFAULT_PERMISSION_NAMES.filter(
-    (n) =>
-      n !== 'view_team_activity' &&
-      n !== 'dash_full_scope' &&
-      n !== 'dash_dept_scope' &&
-      n !== 'dash_company_scope' &&
-      n !== 'view_cross_company_members' &&
-      n !== 'view_all_companies',
+  Admin: withEveryoneDefaults(
+    DEFAULT_PERMISSION_NAMES.filter(
+      (n) =>
+        n !== 'view_team_activity' &&
+        n !== 'dash_full_scope' &&
+        n !== 'dash_dept_scope' &&
+        n !== 'dash_company_scope' &&
+        n !== 'view_cross_company_members' &&
+        n !== 'view_all_companies',
+    ),
   ),
-  'Senior Recruiter': [
+  'Senior Recruiter': withEveryoneDefaults([
     'leads_read', 'leads_create', 'leads_update', 'convert_lead',
     'clients_read', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff',
     'contacts_read', 'contacts_create', 'contacts_update',
@@ -327,8 +336,8 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team',
     'dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team',
     'view_activity_log',
-  ],
-  Recruiter: [
+  ]),
+  Recruiter: withEveryoneDefaults([
     'leads_read', 'clients_read', 'contacts_read',
     'jobs_read',
     'view_assigned_candidates', 'candidates_read', 'candidates_create', 'candidates_update',
@@ -343,8 +352,8 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'company_page_read',
     'view_dashboard',
     'dash_rec_insights', 'dash_rec_pipeline',
-  ],
-  'Account Manager': [
+  ]),
+  'Account Manager': withEveryoneDefaults([
     'leads_read', 'leads_create', 'leads_update', 'view_all_leads', 'convert_lead',
     'clients_read', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff',
     'contacts_read', 'contacts_create', 'contacts_update',
@@ -357,15 +366,15 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'company_page_read', 'company_page_manage',
     'view_dashboard',
     'dash_crm_insights', 'dash_crm_pipeline',
-  ],
-  Finance: [
+  ]),
+  Finance: withEveryoneDefaults([
     'clients_read', 'placements_read',
     'access_billing', 'create_invoice', 'record_payment', 'manage_billing_settings',
     'manage_subscription',
     'agreements_read',
     'reports_read', 'export_data', 'view_dashboard',
-  ],
-  Manager: [
+  ]),
+  Manager: withEveryoneDefaults([
     'view_team', 'add_team_member', 'edit_team_member', 'manage_targets', 'view_team_activity',
     'leads_read', 'clients_read', 'contacts_read', 'jobs_read',
     'view_all_candidates', 'view_all_jobs', 'view_all_clients', 'view_all_leads',
@@ -381,8 +390,8 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'dash_mine_approvals',
     // Organization (company/branch tree) stays with Admin — Managers get it only
     // when an admin ticks org_structure for them.
-  ],
-  'Line Manager': [
+  ]),
+  'Line Manager': withEveryoneDefaults([
     'requests_create',
     'requests_read',
     'requests_update',
@@ -392,8 +401,8 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'view_dashboard',
     'view_team',
     'dash_mine_approvals',
-  ],
-  Viewer: [
+  ]),
+  Viewer: withEveryoneDefaults([
     'leads_read', 'clients_read', 'contacts_read', 'agreements_read',
     'jobs_read', 'candidates_read', 'view_assigned_candidates',
     'matches_read', 'pipeline_read', 'interviews_read', 'placements_read',
@@ -401,5 +410,5 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'requests_read', 'requests_update',
     'company_page_read',
     'reports_read', 'view_dashboard',
-  ],
+  ]),
 };

@@ -89,3 +89,21 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/thebehave': MODULE_ACCESS_MAP.Behaviour,
   '/tenant-behave': MODULE_ACCESS_MAP.Behaviour,
 };
+
+/** Settings → Communication & Integrations: who can open the page. */
+export const COMMUNICATION_SETTINGS_NAV_PERMISSIONS = [
+  'manage_settings',
+  'access_integrations',
+  ...MODULE_ACCESS_MAP.Inbox,
+  ...MODULE_ACCESS_MAP.Interviews,
+  'publish_job',
+];
+
+/** Gmail, Outlook, Google Calendar — Inbox page access. */
+export const COMMUNICATION_INBOX_INTEGRATION_PERMISSIONS = MODULE_ACCESS_MAP.Inbox;
+
+/** Zoom, Google Meet, Microsoft Teams — Interviews page access. */
+export const COMMUNICATION_INTERVIEW_INTEGRATION_PERMISSIONS = MODULE_ACCESS_MAP.Interviews;
+
+/** LinkedIn, X, Facebook — Jobs publish / social posting. */
+export const COMMUNICATION_JOB_POSTING_INTEGRATION_PERMISSIONS = ['publish_job'];

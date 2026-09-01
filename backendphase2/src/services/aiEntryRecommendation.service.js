@@ -3,7 +3,10 @@ import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 import { createUserNotification } from '../modules/notification/notification.service.js';
+import { isAlertEmailEnabled, isAlertPortalEnabled } from '../modules/setting/alert-settings.js';
 import { sendAiRecommendationEmail } from './emailService.js';
+
+export const AI_ENTRY_RECOMMENDATION_ALERT_ID = 'ai.entry_recommendation';
 
 const COLLECTION = 'ai_recommendations';
 const AI_TAG = 'AI Recommendation';
@@ -237,33 +240,38 @@ export async function generateAiEntryRecommendation({
 
   if (userId) {
     const path = entityActionPath(type, id);
-    await createUserNotification(userId, {
-      category: type,
-      title: `AI recommendation: ${label}`,
-      description: ai.summary,
-      actionLabel: 'View record',
-      actionPath: path,
-      entityType: type,
-      entityId: id,
-      metadata: { tags: ai.tags, priority: ai.priority, recommendationId: row.id },
-    });
+    if (await isAlertPortalEnabled(AI_ENTRY_RECOMMENDATION_ALERT_ID, userId)) {
+      await createUserNotification(userId, {
+        category: type,
+        title: `AI recommendation: ${label}`,
+        description: ai.summary,
+        actionLabel: 'View record',
+        actionPath: path,
+        entityType: type,
+        entityId: id,
+        metadata: { tags: ai.tags, priority: ai.priority, recommendationId: row.id },
+      });
+    }
 
     if (recipient?.email && recipient.isActive !== false) {
-      try {
-        await sendAiRecommendationEmail({
-          toEmail: recipient.email,
-          recipientName: recipient.name || 'there',
-          entityType: type,
-          entityLabel: label,
-          summary: ai.summary,
-          actions: ai.actions,
-          tags: ai.tags,
-          priority: ai.priority,
-          actionPath: `${env.FRONTEND_URL || 'http://localhost:3001'}${path}`,
-        });
-        row.emailSent = true;
-      } catch (err) {
-        console.warn('[ai-recommendation] email failed:', err?.message || err);
+      const emailEnabled = await isAlertEmailEnabled(AI_ENTRY_RECOMMENDATION_ALERT_ID, userId);
+      if (emailEnabled) {
+        try {
+          await sendAiRecommendationEmail({
+            toEmail: recipient.email,
+            recipientName: recipient.name || 'there',
+            entityType: type,
+            entityLabel: label,
+            summary: ai.summary,
+            actions: ai.actions,
+            tags: ai.tags,
+            priority: ai.priority,
+            actionPath: `${env.FRONTEND_URL || 'http://localhost:3001'}${path}`,
+          });
+          row.emailSent = true;
+        } catch (err) {
+          console.warn('[ai-recommendation] email failed:', err?.message || err);
+        }
       }
     }
   }

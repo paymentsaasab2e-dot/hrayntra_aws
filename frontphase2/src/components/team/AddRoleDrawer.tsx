@@ -7,6 +7,7 @@ import { createRole } from '../../lib/api/teamApi';
 import type { Permission } from '../../types/team';
 import {
   buildFallbackPermissionsMap,
+  defaultEveryonePermissionIds,
   isDashboardHiddenTickPermission,
   mergePermissionMaps,
 } from './permissionCatalog';
@@ -63,6 +64,17 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [moduleSelectAll, setModuleSelectAll] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const defaultIds = defaultEveryonePermissionIds(effectivePermissions);
+    if (!defaultIds.length) return;
+    setFormData((prev) => {
+      const next = new Set(prev.selectedPermissions);
+      defaultIds.forEach((id) => next.add(id));
+      return { ...prev, selectedPermissions: next };
+    });
+  }, [isOpen, effectivePermissions]);
 
   // Initialize module select all state
   useEffect(() => {

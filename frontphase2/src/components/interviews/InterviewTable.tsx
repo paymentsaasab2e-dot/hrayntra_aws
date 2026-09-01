@@ -389,8 +389,8 @@ export function InterviewTable({
                 </th>
               ) : null}
               {show('panel') ? (
-                <th className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2 text-center sm:py-2" title="Interviewers">
-                  INT
+                <th className="min-w-[7rem] max-w-[9rem] shrink-0 px-3 py-2 text-center sm:py-2">
+                  Interviewers
                 </th>
               ) : null}
               {show('status') ? (

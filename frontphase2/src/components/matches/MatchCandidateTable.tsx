@@ -130,10 +130,10 @@ export default function MatchCandidateTable({
               <th className={DRAWER_TABLE_TH}>Candidate</th>
               {showScoreCol ? <th className={`${DRAWER_TABLE_TH} text-center`}>Match</th> : null}
               {show('roleCompany') ? <th className={DRAWER_TABLE_TH}>Role / company</th> : null}
-              {show('experience') ? <th className={`${DRAWER_TABLE_TH} text-center`}>Exp</th> : null}
+              {show('experience') ? <th className={`${DRAWER_TABLE_TH} text-center`}>Experience</th> : null}
               {show('location') ? <th className={DRAWER_TABLE_TH}>Location</th> : null}
               {show('status') ? <th className={DRAWER_TABLE_TH}>Status</th> : null}
-              {show('noticePeriod') ? <th className={DRAWER_TABLE_TH}>Notice</th> : null}
+              {show('noticePeriod') ? <th className={DRAWER_TABLE_TH}>Notice period</th> : null}
               {show('salary') ? <th className={DRAWER_TABLE_TH}>Expected salary</th> : null}
               {show('email') ? <th className={DRAWER_TABLE_TH}>Email</th> : null}
               {show('phone') ? <th className={DRAWER_TABLE_TH}>Phone</th> : null}

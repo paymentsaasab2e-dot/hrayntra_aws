@@ -80,6 +80,41 @@ export async function findLiveClientByCompanyName(companyName) {
 }
 
 const mergedDuplicateTenants = new Set();
+const recruitmentOriginBackfilledTenants = new Set();
+
+/** Mark clients that were created on Recruitment (enabled at create time) so they stay off CRM. */
+async function backfillRecruitmentNativeOrigin() {
+  const tenant = String(getActiveTenantDbName() || 'default').trim();
+  if (recruitmentOriginBackfilledTenants.has(tenant)) return;
+  recruitmentOriginBackfilledTenants.add(tenant);
+  try {
+    const rows = await prisma.client.findMany({
+      where: {
+        isDeleted: { not: true },
+        recruitmentEnabled: { equals: true },
+        createdInRecruitment: { not: true },
+      },
+      select: { id: true, createdAt: true, recruitmentEnabledAt: true },
+    });
+    const nativeIds = rows
+      .filter((row) => {
+        const created = row.createdAt ? new Date(row.createdAt).getTime() : NaN;
+        const enabled = row.recruitmentEnabledAt
+          ? new Date(row.recruitmentEnabledAt).getTime()
+          : created;
+        if (!Number.isFinite(created) || !Number.isFinite(enabled)) return false;
+        return Math.abs(enabled - created) <= 5 * 60 * 1000;
+      })
+      .map((row) => row.id);
+    if (!nativeIds.length) return;
+    await prisma.client.updateMany({
+      where: { id: { in: nativeIds } },
+      data: { createdInRecruitment: true },
+    });
+  } catch {
+    recruitmentOriginBackfilledTenants.delete(tenant);
+  }
+}
 
 async function reassignClientOwnedRecords(fromId, toId) {
   if (!fromId || !toId || fromId === toId) return;
@@ -161,6 +196,14 @@ function recruitmentEnabledCreateFields(performedById = null) {
     data.recruitmentEnabledBy = performedById;
   }
   return data;
+}
+
+/** New clients created on Recruitment Clients (not CRM handoffs). */
+function recruitmentNativeCreateFields(performedById = null) {
+  return {
+    ...recruitmentEnabledCreateFields(performedById),
+    createdInRecruitment: true,
+  };
 }
 
 function wantsRecruitmentClient(data, req = null) {
@@ -585,6 +628,11 @@ export const clientService = {
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     where = { AND: [where, { isDeleted: { not: true } }, ...recruitmentMatch] };
+    if (!recruitmentOnly) {
+      await backfillRecruitmentNativeOrigin();
+      // Recruitment-native clients (created/imported on Recruitment Clients) stay off the CRM list.
+      where = { AND: [where, { createdInRecruitment: { not: true } }] };
+    }
     where = applySystemWorkspaceExclusion(where, includeSystemClients);
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
@@ -974,7 +1022,7 @@ export const clientService = {
         : {}),
       ...buildPostServiceKycFormCreateFields(data),
       otherDetails: normalizeClientOtherDetails(data.otherDetails),
-      ...(wantsRecruitmentClient(data, req) ? recruitmentEnabledCreateFields(data.performedById) : {}),
+      ...(wantsRecruitmentClient(data, req) ? recruitmentNativeCreateFields(data.performedById) : {}),
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
       // billingEmail, billingPhone, billingAddress, notes, tags, hot (not in schema)

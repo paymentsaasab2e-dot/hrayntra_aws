@@ -7,6 +7,7 @@ import type { SystemRole } from '../../types/team';
 import { PortalHost } from './PortalHost';
 import {
   formatPermissionLabel,
+  formatModuleLabel,
   mergePermissionMaps,
   RBAC_CATALOG_TOTAL,
   sortModules,
@@ -116,12 +117,11 @@ export const RoleDetailDrawer: React.FC<RoleDetailDrawerProps> = ({
                   if (!perms.length) return null;
                   return (
                     <div key={module} className="rounded-xl border border-slate-100 p-3">
-                      <p className="text-sm font-semibold text-slate-900 mb-2">{module}</p>
+                      <p className="text-sm font-semibold text-slate-900 mb-2">{formatModuleLabel(module)}</p>
                       <ul className="space-y-1.5">
                         {perms.map((p) => (
-                          <li key={p.id} className="text-xs text-slate-600 flex justify-between gap-2">
-                            <span>{formatPermissionLabel(p.permissionName)}</span>
-                            <code className="text-[10px] text-slate-400 shrink-0">{p.permissionName}</code>
+                          <li key={p.id} className="text-xs text-slate-600">
+                            {formatPermissionLabel(p.permissionName)}
                           </li>
                         ))}
                       </ul>

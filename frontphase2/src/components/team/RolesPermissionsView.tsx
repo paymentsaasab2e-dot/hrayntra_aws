@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Check, X, ShieldCheck } from 'lucide-react';
 import { getRoles } from '../../lib/api/teamApi';
 import type { SystemRole, Permission } from '../../types/team';
+import { formatModuleLabel, formatPermissionLabel, formatPermissionDescription } from './permissionCatalog';
 
 export const RolesPermissionsView: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -97,7 +98,7 @@ export const RolesPermissionsView: React.FC = () => {
                     colSpan={roles.length + 1}
                     className="px-6 py-3 text-xs font-bold text-slate-700 uppercase tracking-wider"
                   >
-                    {module}
+                    {formatModuleLabel(module)}
                   </td>
                 </tr>
                 {/* Permissions in this module */}
@@ -105,10 +106,12 @@ export const RolesPermissionsView: React.FC = () => {
                   <tr key={permission.id} className="hover:bg-slate-50">
                     <td className="px-6 py-4 text-sm text-slate-900 sticky left-0 bg-white z-10">
                       <div>
-                        <p className="font-medium">{permission.permissionName}</p>
-                        {permission.description && (
-                          <p className="text-xs text-slate-500 mt-0.5">{permission.description}</p>
-                        )}
+                        <p className="font-medium">{formatPermissionLabel(permission.permissionName)}</p>
+                        {formatPermissionDescription(permission.permissionName, permission.description) ? (
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {formatPermissionDescription(permission.permissionName, permission.description)}
+                          </p>
+                        ) : null}
                       </div>
                     </td>
                     {roles.map((role) => (

@@ -200,6 +200,9 @@ model Client {
   recruitmentEnabled   Boolean?  @default(false)
   recruitmentEnabledAt DateTime?
   recruitmentEnabledBy String?   @db.ObjectId
+  /// Created from Recruitment Clients (or recruitment Excel import). Hidden from the CRM Clients list.
+  /// CRM clients that are later sent to Recruitment stay false so they remain on both pages.
+  createdInRecruitment Boolean?  @default(false)
 
   // Extended fields from frontend (Company Snapshot section)
   companySize           String? // Company size (e.g., "1-50", "51-200", "201-500")
@@ -305,6 +308,7 @@ model Client {
   @@index([orgUnitId])
   @@index([isDeleted])
   @@index([recruitmentEnabled])
+  @@index([createdInRecruitment])
   @@map("clients")
 }
 

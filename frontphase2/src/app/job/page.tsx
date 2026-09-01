@@ -827,7 +827,7 @@ const JobsListView = ({
             {show('jobLocationType') ? <th className="px-3 py-2 sm:px-4">Location type</th> : null}
             {show('hot') ? <th className="px-3 py-2 sm:px-4">Hot</th> : null}
             {show('aiMatch') ? <th className="px-3 py-2 sm:px-4">AI match</th> : null}
-            {show('experienceRequired') ? <th className="px-3 py-2 sm:px-4">Exp. required</th> : null}
+            {show('experienceRequired') ? <th className="px-3 py-2 sm:px-4">Experience required</th> : null}
             {show('industry') ? <th className="px-3 py-2 sm:px-4">Category</th> : null}
             {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
             {show('audit') ? <TableAuditColumnHeader /> : null}

@@ -2,7 +2,7 @@ import { prisma, getActiveTenantDbName } from '../config/prisma.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import { getCache, setCache, deleteCacheByPattern } from '../cache/redis.js';
 import logger from '../utils/logger.js';
-import { DEFAULT_PERMISSIONS } from '../modules/role/default-permissions.js';
+import { DEFAULT_PERMISSIONS, DEFAULT_EVERYONE_PERMISSIONS } from '../modules/role/default-permissions.js';
 import {
   ensureSuperAdminHasAllPermissions,
   ensureDefaultSystemRoles,
@@ -10,6 +10,7 @@ import {
   syncDefaultRolePresets,
   syncMissingRolePresetPermissions,
   syncAgencySalesHeadHandoffPermissions,
+  syncEveryoneDefaultPermissions,
 } from '../modules/role/permission-sync.service.js';
 import activityService from '../services/activityService.js';
 
@@ -40,6 +41,7 @@ export async function getAllRoles(req, res) {
     await syncDefaultRolePresets();
     await syncMissingRolePresetPermissions();
     await syncAgencySalesHeadHandoffPermissions();
+    await syncEveryoneDefaultPermissions();
     await deleteCacheByPattern(getPermissionCachePattern());
 
     const page = Math.max(Number.parseInt(String(req.query.page || '1'), 10) || 1, 1);
@@ -267,9 +269,14 @@ export async function createRole(req, res) {
       },
     });
 
-    // Create role-permission relationships if permissionIds provided
-    if (permissionIds && Array.isArray(permissionIds) && permissionIds.length > 0) {
-      const rawPermissionValues = [...new Set(permissionIds.map((id) => String(id).trim()).filter(Boolean))];
+    // Create role-permission relationships (Communication & Integrations is always included).
+    const rawPermissionValues = [
+      ...new Set([
+        ...(Array.isArray(permissionIds) ? permissionIds : []).map((id) => String(id).trim()).filter(Boolean),
+        ...DEFAULT_EVERYONE_PERMISSIONS,
+      ]),
+    ];
+    if (rawPermissionValues.length > 0) {
       const permissionRecords = await prisma.permission.findMany({
         where: {
           OR: [
@@ -613,6 +620,7 @@ export async function getAllPermissions(req, res) {
     await syncDefaultRolePresets();
     await syncMissingRolePresetPermissions();
     await syncAgencySalesHeadHandoffPermissions();
+    await syncEveryoneDefaultPermissions();
     await deleteCacheByPattern(getPermissionCachePattern());
 
     const permissions = await prisma.permission.findMany({

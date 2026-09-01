@@ -23,11 +23,18 @@ import {
   type IntegrationStatusResponse,
 } from '@/lib/api';
 import { ServiceConnectionCard } from './ServiceConnectionCard';
+import { usePermissions } from '@/hooks/usePermissions';
+import {
+  COMMUNICATION_INBOX_INTEGRATION_PERMISSIONS,
+  COMMUNICATION_INTERVIEW_INTEGRATION_PERMISSIONS,
+  COMMUNICATION_JOB_POSTING_INTEGRATION_PERMISSIONS,
+} from '@/lib/rbac/moduleAccess';
 
 type IntegrationSection = {
   id: string;
   title: string;
   description: string;
+  requiredPermissions: string[];
   items: Array<{
     provider: IntegrationProvider;
     serviceName: string;
@@ -43,8 +50,9 @@ type IntegrationSection = {
 const INTEGRATION_SECTIONS: IntegrationSection[] = [
   {
     id: 'email-calendar',
-    title: 'Email & Calendar',
-    description: 'Mailboxes and calendars for messaging, scheduling, and follow-ups.',
+    title: 'Inbox',
+    description: 'Gmail, Outlook, and Google Calendar — shown when you have Inbox access.',
+    requiredPermissions: COMMUNICATION_INBOX_INTEGRATION_PERMISSIONS,
     items: [
       {
         provider: 'gmail',
@@ -83,8 +91,9 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
   },
   {
     id: 'meetings',
-    title: 'Meetings',
-    description: 'Create interview and client meetings from your own accounts.',
+    title: 'Interviews',
+    description: 'Zoom, Google Meet, and Microsoft Teams — shown when you have Interviews access.',
+    requiredPermissions: COMMUNICATION_INTERVIEW_INTEGRATION_PERMISSIONS,
     items: [
       {
         provider: 'zoom',
@@ -123,8 +132,9 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
   },
   {
     id: 'social-media',
-    title: 'Social job posting',
-    description: 'Publish hiring updates from your own social channels.',
+    title: 'Job posting',
+    description: 'LinkedIn, X, and Facebook — shown when you can publish jobs.',
+    requiredPermissions: COMMUNICATION_JOB_POSTING_INTEGRATION_PERMISSIONS,
     items: [
       {
         provider: 'linkedin',
@@ -245,9 +255,34 @@ function humanizeScope(scope: string) {
 }
 
 export function CommunicationSettings() {
+  const { hasAnyPermission, isSuperAdmin } = usePermissions();
   const [loading, setLoading] = useState(true);
   const [statuses, setStatuses] = useState<IntegrationStatusResponse>(EMPTY_STATUS);
   const [busyProvider, setBusyProvider] = useState<IntegrationProvider | null>(null);
+
+  const canManageAllIntegrations = isSuperAdmin() || hasAnyPermission(['manage_settings']);
+  const canSeeInboxIntegrations =
+    canManageAllIntegrations || hasAnyPermission(COMMUNICATION_INBOX_INTEGRATION_PERMISSIONS);
+  const canSeeInterviewIntegrations =
+    canManageAllIntegrations || hasAnyPermission(COMMUNICATION_INTERVIEW_INTEGRATION_PERMISSIONS);
+  const canSeeJobPostingIntegrations =
+    canManageAllIntegrations || hasAnyPermission(COMMUNICATION_JOB_POSTING_INTEGRATION_PERMISSIONS);
+
+  const visibleSections = useMemo(
+    () =>
+      INTEGRATION_SECTIONS.filter((section) => {
+        if (section.id === 'email-calendar') return canSeeInboxIntegrations;
+        if (section.id === 'meetings') return canSeeInterviewIntegrations;
+        if (section.id === 'social-media') return canSeeJobPostingIntegrations;
+        return hasAnyPermission(section.requiredPermissions);
+      }),
+    [
+      canSeeInboxIntegrations,
+      canSeeInterviewIntegrations,
+      canSeeJobPostingIntegrations,
+      hasAnyPermission,
+    ],
+  );
 
   const reload = useCallback(async () => {
     const [integrationResult, communicationResult] = await Promise.allSettled([
@@ -318,13 +353,16 @@ export function CommunicationSettings() {
   }, [reload]);
 
   const connectedCount = useMemo(
-    () => Object.values(statuses).filter((item) => item?.connected).length,
-    [statuses]
+    () =>
+      visibleSections
+        .flatMap((section) => section.items)
+        .filter((item) => statuses[item.provider]?.connected).length,
+    [statuses, visibleSections]
   );
 
   const totalCount = useMemo(
-    () => INTEGRATION_SECTIONS.reduce((sum, section) => sum + section.items.length, 0),
-    []
+    () => visibleSections.reduce((sum, section) => sum + section.items.length, 0),
+    [visibleSections]
   );
 
   const gmailConnected = !!statuses.gmail?.connected;
@@ -387,8 +425,9 @@ export function CommunicationSettings() {
               Connect your work accounts
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Link Gmail, calendar, meetings, and social channels you already use. Each connection
-              uses your own OAuth consent, and tokens stay encrypted on the server.
+              Connect only the tools that match your page access: Inbox (Gmail, Outlook, Google
+              Calendar), Interviews (Zoom, Google Meet, Microsoft Teams), and job posting (LinkedIn,
+              X, Facebook). Each connection uses your own OAuth consent.
             </p>
           </div>
 
@@ -402,7 +441,7 @@ export function CommunicationSettings() {
                 <span className="text-sm font-medium text-slate-400"> / {totalCount}</span>
               </p>
             </div>
-            {gmailConnected || outlookConnected ? (
+            {canSeeInboxIntegrations && (gmailConnected || outlookConnected) ? (
               <a
                 href="/inbox"
                 className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:brightness-110"
@@ -415,7 +454,14 @@ export function CommunicationSettings() {
         </div>
       </section>
 
-      {INTEGRATION_SECTIONS.map((section) => {
+      {visibleSections.length === 0 ? (
+        <p className="rounded-2xl border border-slate-200 bg-white px-5 py-8 text-sm text-slate-500">
+          No integrations are available for your role. Inbox, Interviews, or Jobs — publish access
+          is needed to connect accounts here.
+        </p>
+      ) : null}
+
+      {visibleSections.map((section) => {
         const sectionConnected = section.items.filter((item) => statuses[item.provider]?.connected)
           .length;
 

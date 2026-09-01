@@ -3,6 +3,7 @@
 import React from 'react';
 import type { AuditMeta } from '../../types/audit';
 import { formatAuditDate, formatAuditUserLabel } from '../../utils/auditMeta';
+import { TABLE_AUDIT_COLUMN_LABEL } from '../../lib/tableColumns/columnLabels';
 
 interface TableAuditCellProps {
   audit?: AuditMeta | null;
@@ -16,7 +17,7 @@ const TABLE_AUDIT_HEADER_CLASS =
 export function TableAuditColumnHeader({ className = '' }: { className?: string }) {
   return (
     <th className={`px-3 py-2 sm:px-4 ${TABLE_AUDIT_HEADER_CLASS} ${className}`.trim()}>
-      Record log
+      {TABLE_AUDIT_COLUMN_LABEL}
     </th>
   );
 }
@@ -74,7 +75,7 @@ export function EntityAuditSummary({ audit, className = '' }: EntityAuditSummary
     <div
       className={`rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 ${className}`.trim()}
     >
-      <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Record log</p>
+      <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">{TABLE_AUDIT_COLUMN_LABEL}</p>
       <div className="grid gap-2 sm:grid-cols-2">
         <div>
           <span className="text-[11px] font-semibold uppercase text-slate-400">Created</span>

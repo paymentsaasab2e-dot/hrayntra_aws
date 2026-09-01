@@ -6,6 +6,7 @@ import type { DepartmentRoleInput, Permission, Role } from '../../types/team';
 import { PermissionPicker } from './PermissionPicker';
 import {
   buildFallbackPermissionsMap,
+  defaultEveryonePermissionIds,
   isDashboardHiddenTickPermission,
   mergePermissionMaps,
 } from './permissionCatalog';
@@ -158,7 +159,7 @@ export const DepartmentRolesEditor: React.FC<DepartmentRolesEditorProps> = ({
         roleName: '',
         description: '',
         color: 'blue',
-        permissionIds: new Set(),
+        permissionIds: new Set(defaultEveryonePermissionIds(effectivePermissions)),
         rank: nextRank,
         expanded: true,
       },

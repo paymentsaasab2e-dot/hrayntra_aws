@@ -328,7 +328,8 @@ function AlertSection({
           </div>
           {isAi ? (
             <p className="mt-1 text-sm text-slate-500">
-              AI brief, tables, drawers, email, and portal alerts from Analyze now.
+              Per-record “AI recommendation” emails, plus Analyze brief, tables, drawers, and portal
+              alerts.
             </p>
           ) : (
             <p className="mt-1 text-sm text-slate-500">

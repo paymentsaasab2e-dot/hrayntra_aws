@@ -2222,16 +2222,24 @@ export function CreateJobDrawer({
         return;
       }
 
-      const response = await apiGetClients({});
-      let backendClients: BackendClient[] = [];
-      if (response.data) {
-        if (Array.isArray(response.data)) {
-          backendClients = response.data;
-        } else if (response.data && Array.isArray(response.data.data)) {
-          backendClients = response.data.data;
-        } else if (response.data && 'items' in response.data && Array.isArray((response.data as any).items)) {
-          backendClients = (response.data as any).items;
+      const extractClients = (response: Awaited<ReturnType<typeof apiGetClients>>): BackendClient[] => {
+        let backendClients: BackendClient[] = [];
+        if (response.data) {
+          if (Array.isArray(response.data)) {
+            backendClients = response.data;
+          } else if (response.data && Array.isArray(response.data.data)) {
+            backendClients = response.data.data;
+          } else if (response.data && 'items' in response.data && Array.isArray((response.data as any).items)) {
+            backendClients = (response.data as any).items;
+          }
         }
+        return backendClients;
+      };
+
+      const recResponse = await apiGetClients({ recruitmentEnabled: true, page: 1, limit: 500 });
+      let backendClients = extractClients(recResponse);
+      if (backendClients.length === 0) {
+        backendClients = extractClients(await apiGetClients({ page: 1, limit: 500 }));
       }
       const crmClients = backendClients.filter(
         (client) =>
