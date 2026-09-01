@@ -681,28 +681,21 @@ export default function App() {
         return;
       }
 
-      const mappedClients = backendClients.map(mapBackendClientToFrontend);
-      const fromApi = new Map<string, Client>();
-      mappedClients.forEach((client) => {
-        const id = String(client.id);
-        fromApi.set(id, { ...client, id });
-      });
-      setClients((prev) => {
-        const clientMap = new Map(fromApi);
-        prev.forEach((client) => {
-          if (clientMap.has(client.id)) return;
-          if (isRecruitmentScope && !client.recruitmentEnabled && !client.createdInRecruitment) return;
-          if (!isRecruitmentScope && client.createdInRecruitment) return;
-          clientMap.set(client.id, client);
-        });
-        const uniqueClients = Array.from(clientMap.values()).sort((a, b) => {
+      const mappedClients = backendClients
+        .map(mapBackendClientToFrontend)
+        .filter((client) =>
+          isRecruitmentScope
+            ? Boolean(client.recruitmentEnabled || client.createdInRecruitment)
+            : !client.createdInRecruitment,
+        )
+        .sort((a, b) => {
           const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
           const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
           return bTime - aTime;
         });
-        setIsEmpty(uniqueClients.length === 0);
-        return uniqueClients;
-      });
+      const fromApi = new Map(mappedClients.map((client) => [String(client.id), client]));
+      setClients(mappedClients);
+      setIsEmpty(mappedClients.length === 0);
       setSelectedClients((prev) => prev.filter((id) => fromApi.has(id)));
     } catch (err: any) {
       console.error('Failed to fetch clients:', err);
@@ -713,6 +706,12 @@ export default function App() {
       setLoading(false);
     }
   }, [debouncedSearchQuery, smartSearchClientIds, isRecruitmentScope]);
+
+  useEffect(() => {
+    setClients([]);
+    setSelectedClients([]);
+    setCurrentPage(1);
+  }, [isRecruitmentScope]);
 
   useEffect(() => {
     fetchClients();
