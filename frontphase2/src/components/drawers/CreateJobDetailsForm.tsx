@@ -238,7 +238,7 @@ export function CreateJobDetailsForm({
   users,
   contacts,
   loadingClients,
-  loadingUsers,
+  loadingUsers: _loadingUsers,
   loadingContacts,
   dropdownsOpen,
   setDropdownsOpen,
@@ -257,8 +257,8 @@ export function CreateJobDetailsForm({
   const assignable = useAssignableMembers(true, 'Jobs', {
     initialCompanyId: formData.assignedToCompanyId,
   });
-  const recruiterUsers = assignable.canSelectCompany || assignable.users.length ? assignable.users : users;
-  const loadingRecruiters = assignable.canSelectCompany ? assignable.loading : loadingUsers;
+  const recruiterUsers = assignable.users;
+  const loadingRecruiters = assignable.loading;
   const managerOptions = lineManagerOptions;
   const loadingManagerOptions = loadingLineManagers;
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
@@ -1098,7 +1098,19 @@ export function CreateJobDetailsForm({
             onClick={() => setDropdownsOpen((prev) => ({ ...prev, recruiter: !prev.recruiter }))}
             className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
           >
-            {selectedRecruiterLabel ? <span>{selectedRecruiterLabel}</span> : <span className="text-slate-400">Unassigned</span>}
+            {selectedRecruiterLabel ? (
+              <span>{selectedRecruiterLabel}</span>
+            ) : (
+              <span className="text-slate-400">
+                {assignable.canSelectCompany && !assignable.companyId
+                  ? 'Select a company first'
+                  : loadingRecruiters
+                    ? 'Loading team…'
+                    : recruiterUsers.length === 0
+                      ? 'No team members with access'
+                      : 'Select team member'}
+              </span>
+            )}
             <ChevronDown size={16} className="text-slate-400 shrink-0" />
           </button>
           {dropdownsOpen.recruiter ? (
@@ -1112,20 +1124,24 @@ export function CreateJobDetailsForm({
                   <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
                 ) : assignable.canSelectCompany && !assignable.companyId ? (
                   <li className="px-4 py-2 text-sm text-slate-500">Select a company to see members</li>
+                ) : recruiterUsers.length === 0 ? (
+                  <li className="px-4 py-2 text-sm text-slate-500">No team members with access in this company</li>
                 ) : (
                   <>
-                    <li>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          patchForm({ assignedToId: '', assignedToName: '' });
-                          setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
-                        }}
-                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
-                      >
-                        Unassigned
-                      </button>
-                    </li>
+                    {formData.assignedToId ? (
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            patchForm({ assignedToId: '', assignedToName: '' });
+                            setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
+                        >
+                          Clear assignment
+                        </button>
+                      </li>
+                    ) : null}
                     {recruiterUsers.map((user) => (
                       <li key={user.id}>
                         <button

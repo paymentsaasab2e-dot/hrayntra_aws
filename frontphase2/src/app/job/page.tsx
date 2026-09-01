@@ -1719,7 +1719,7 @@ export default function JobsPage() {
 
           let members = [];
           try {
-            members = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined);
+            members = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Jobs');
           } catch {
             members = [];
           }
@@ -1743,7 +1743,7 @@ export default function JobsPage() {
           apiGetClients({ page: 1, limit: 500 }),
           (async () => {
             try {
-              const assigned = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined);
+              const assigned = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Jobs');
               if (assigned.length) return assigned;
             } catch {
               /* fall through to directory */

@@ -38,6 +38,11 @@ const memberSelect = {
       id: true,
       roleName: true,
       color: true,
+      rolePermissions: {
+        select: {
+          permission: { select: { permissionName: true, module: true } },
+        },
+      },
     },
   },
   departmentRelation: {

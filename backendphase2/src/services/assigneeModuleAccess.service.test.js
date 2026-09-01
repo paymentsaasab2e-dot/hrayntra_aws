@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  assignmentRoleNameOf,
   filterCompanyOptionsByEligibleUnits,
   isSuperAdminRoleName,
   resolveAssignmentModules,
@@ -214,5 +215,40 @@ describe('assignee module access — eligibility', () => {
       [{ id: 'co-a', parentId: null }],
     );
     assert.deepEqual(visible, []);
+  });
+
+  it('15. legacy Prisma Role enum SUPER_ADMIN does not count as assignment Super Admin', () => {
+    assert.equal(assignmentRoleNameOf({ role: 'SUPER_ADMIN' }), '');
+    assert.equal(
+      assignmentRoleNameOf({ role: 'SUPER_ADMIN', systemRole: { roleName: 'Recruiter' } }),
+      'Recruiter',
+    );
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: [],
+        roleName: assignmentRoleNameOf({ role: 'SUPER_ADMIN' }),
+        modules: ['Jobs'],
+      }),
+      false,
+    );
+  });
+
+  it('16. Jobs module on the role grants Jobs assignment even with custom permission names', () => {
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: ['custom_jobs_access'],
+        permissionModules: ['Jobs'],
+        modules: ['Jobs'],
+      }),
+      true,
+    );
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: ['leads_read'],
+        permissionModules: ['Leads'],
+        modules: ['Jobs'],
+      }),
+      false,
+    );
   });
 });

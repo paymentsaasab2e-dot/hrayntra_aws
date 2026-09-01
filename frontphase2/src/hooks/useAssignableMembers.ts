@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { apiGetAssignCompanies } from '@/lib/org/orgApi';
+import { getActiveOrgUnitId, ORG_WORKSPACE_EVENT } from '@/lib/org/orgWorkspaceStorage';
 import {
   getAllTeamMembersForAssign,
   teamMembersToBackendUsers,
@@ -22,6 +23,7 @@ export function useAssignableMembers(
     isSuperAdmin() ||
     hasAnyPermission(['view_cross_company_members', 'VIEW_CROSS_COMPANY_MEMBERS']);
   const initialCompanyId = String(options?.initialCompanyId || '').trim();
+  const [workspaceCompanyId, setWorkspaceCompanyId] = useState('');
 
   const [companies, setCompanies] = useState<AssignCompanyOption[]>([]);
   const [companiesReady, setCompaniesReady] = useState(!mayPickCompany);
@@ -33,13 +35,22 @@ export function useAssignableMembers(
   const seededCompanyRef = useRef('');
 
   useEffect(() => {
+    const syncWorkspace = () => setWorkspaceCompanyId(getActiveOrgUnitId());
+    syncWorkspace();
+    window.addEventListener(ORG_WORKSPACE_EVENT, syncWorkspace);
+    return () => window.removeEventListener(ORG_WORKSPACE_EVENT, syncWorkspace);
+  }, []);
+
+  const preferredCompanyId = initialCompanyId || workspaceCompanyId;
+
+  useEffect(() => {
     if (!enabled || !canSelectCompany || !companiesReady || companyId) return;
-    if (!initialCompanyId) return;
-    if (!companies.some((row) => row.id === initialCompanyId)) return;
-    if (seededCompanyRef.current === initialCompanyId) return;
-    seededCompanyRef.current = initialCompanyId;
-    setCompanyId(initialCompanyId);
-  }, [enabled, canSelectCompany, companiesReady, companies, companyId, initialCompanyId]);
+    if (!preferredCompanyId) return;
+    if (!companies.some((row) => row.id === preferredCompanyId)) return;
+    if (seededCompanyRef.current === preferredCompanyId) return;
+    seededCompanyRef.current = preferredCompanyId;
+    setCompanyId(preferredCompanyId);
+  }, [enabled, canSelectCompany, companiesReady, companies, companyId, preferredCompanyId]);
 
   useEffect(() => {
     if (!enabled || !mayPickCompany) {
@@ -85,7 +96,8 @@ export function useAssignableMembers(
     }
     let cancelled = false;
     setLoading(true);
-    void getAllTeamMembersForAssign(canSelectCompany ? companyId : undefined, module)
+    const requestedCompanyId = canSelectCompany ? companyId : '';
+    void getAllTeamMembersForAssign(requestedCompanyId || undefined, module)
       .then((rows) => {
         if (!cancelled) setMembers(rows || []);
       })
