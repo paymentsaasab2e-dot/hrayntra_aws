@@ -82,55 +82,20 @@ export async function findLiveClientByCompanyName(companyName) {
 const mergedDuplicateTenants = new Set();
 const recruitmentOriginBackfilledTenants = new Set();
 
-function collectSentToRecruitmentClientIds(rows = []) {
-  return new Set(
-    rows
-      .flatMap((row) => [row.clientId, row.entityId])
-      .map((id) => String(id || '').trim())
-      .filter((id) => /^[a-fA-F0-9]{24}$/.test(id)),
-  );
-}
-
 /**
- * Existing mixed clients: anyone already on Recruitment (flag or jobs) leaves CRM,
- * except clients that were explicitly sent from CRM.
+ * Undo the job-based hide that emptied CRM Clients.
+ * Existing clients return to CRM. New Recruitment creates still set
+ * createdInRecruitment at save time and stay off this list.
  */
-async function backfillRecruitmentNativeOrigin() {
+async function restoreClientsHiddenByRecruitmentBackfill() {
   const tenant = String(getActiveTenantDbName() || 'default').trim();
-  const tenantKey = `${tenant}:v2`;
+  const tenantKey = `${tenant}:restore-v3`;
   if (recruitmentOriginBackfilledTenants.has(tenantKey)) return;
   recruitmentOriginBackfilledTenants.add(tenantKey);
   try {
-    const jobClientIds = await listClientIdsThatHaveJobs();
-    const rows = await prisma.client.findMany({
-      where: {
-        isDeleted: { not: true },
-        createdInRecruitment: { not: true },
-        OR: [
-          { recruitmentEnabled: { equals: true } },
-          ...(jobClientIds.length ? [{ id: { in: jobClientIds } }] : []),
-        ],
-      },
-      select: { id: true },
-    });
-    const candidateIds = rows.map((row) => row.id).filter(Boolean);
-    if (!candidateIds.length) return;
-
-    const sentRows = await prisma.activity
-      .findMany({
-        where: {
-          action: { contains: 'Sent to Recruitment' },
-          OR: [{ clientId: { in: candidateIds } }, { entityId: { in: candidateIds } }],
-        },
-        select: { clientId: true, entityId: true },
-      })
-      .catch(() => []);
-    const sentIds = collectSentToRecruitmentClientIds(sentRows);
-    const nativeIds = candidateIds.filter((id) => !sentIds.has(String(id)));
-    if (!nativeIds.length) return;
     await prisma.client.updateMany({
-      where: { id: { in: nativeIds } },
-      data: { createdInRecruitment: true, recruitmentEnabled: true },
+      where: { createdInRecruitment: { equals: true } },
+      data: { createdInRecruitment: false },
     });
   } catch {
     recruitmentOriginBackfilledTenants.delete(tenantKey);
@@ -649,7 +614,7 @@ export const clientService = {
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     where = { AND: [where, { isDeleted: { not: true } }, ...recruitmentMatch] };
-    await backfillRecruitmentNativeOrigin();
+    await restoreClientsHiddenByRecruitmentBackfill();
     if (!recruitmentOnly) {
       // Recruitment-native clients (created/imported on Recruitment Clients) stay off the CRM list.
       where = { AND: [where, { createdInRecruitment: { not: true } }] };
