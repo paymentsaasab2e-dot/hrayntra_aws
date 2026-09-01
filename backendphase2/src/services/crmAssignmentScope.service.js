@@ -16,6 +16,7 @@ import {
 } from './orgListScope.service.js';
 import {
   assertUserHasAssignmentAccess,
+  filterUsersByAssignableCompany,
   filterUsersByAssignmentAccess,
   resolveAssignmentModules,
   resolveAssignmentModulesFromReq,
@@ -142,20 +143,25 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
 
   const actorDeptId = idStr(actor.departmentId);
   const emailExclude = hqPlatformUserEmailNotClause();
+  const requestedCompany = requestedAssignCompanyId(req);
+  const requiredModules = resolveAssignmentModules(
+    modules?.length ? modules : resolveAssignmentModulesFromReq(req),
+  );
   const clauses = [
     { OR: [{ status: 'ACTIVE' }, { status: null }] },
     ...(Object.keys(emailExclude).length ? [emailExclude] : []),
   ];
 
-  if (isSuperAdmin || crossCompany) {
-    // Selected company is applied via applyOrgCompanyUserWhere(forAssign).
-  } else if (!viewAll && actorDeptId) {
-    clauses.push({ departmentId: actorDeptId });
-  }
+  const useCompanyWalk = Boolean((isSuperAdmin || crossCompany) && requestedCompany);
 
-  if (req) {
-    const orgWhere = await applyOrgCompanyUserWhere(req, { forAssign: true });
-    if (orgWhere) clauses.push(orgWhere);
+  if (!useCompanyWalk) {
+    if (!(isSuperAdmin || crossCompany) && !viewAll && actorDeptId) {
+      clauses.push({ departmentId: actorDeptId });
+    }
+    if (req) {
+      const orgWhere = await applyOrgCompanyUserWhere(req, { forAssign: true });
+      if (orgWhere) clauses.push(orgWhere);
+    }
   }
 
   const where = clauses.length === 1 ? clauses[0] : { AND: clauses };
@@ -165,7 +171,6 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
     select: memberSelect,
     orderBy: [{ firstName: 'asc' }, { name: 'asc' }],
   });
-
   const byId = new Map();
   for (const row of rows) {
     const normalized = normalizeMember(row);
@@ -176,8 +181,13 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
     if (self) byId.set(self.id, self);
   }
 
-  const labeled = labelUsersWithOrgUnit(sortMembers([...byId.values()]));
-  const requiredModules = resolveAssignmentModules(modules?.length ? modules : resolveAssignmentModulesFromReq(req));
+  let labeled = await labelUsersWithOrgUnit(sortMembers([...byId.values()]));
+  if (useCompanyWalk) {
+    const orgUnits = await prisma.orgUnit.findMany({
+      select: { id: true, parentId: true },
+    });
+    labeled = filterUsersByAssignableCompany(labeled, requestedCompany, orgUnits);
+  }
   if (!requiredModules.length) return labeled;
   return filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
 }

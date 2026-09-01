@@ -5,6 +5,7 @@ import {
   hqPlatformUserEmailNotClause,
 } from '../../utils/hqPlatformUser.js';
 import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
+import { resolveAssignmentModulesFromReq } from '../../services/assigneeModuleAccess.service.js';
 import { resolveTenantOrganizationName } from '../setting/recruitmentMode.service.js';
 
 const JOB_VISIBILITY_DEFAULTS_KEY = 'jobPublicVisibilityDefaults';
@@ -84,7 +85,10 @@ export const userService = {
       String(req.query.assignable || req.query.forAssign || '') === '1';
 
     if (assignableOnly && req.user?.id) {
-      const candidates = await listCrmAssigneeCandidates(req.user.id, { req });
+      const candidates = await listCrmAssigneeCandidates(req.user.id, {
+        req,
+        modules: resolveAssignmentModulesFromReq(req),
+      });
       let filtered = candidates;
       if (search) {
         const q = String(search).trim().toLowerCase();

@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   assignmentRoleNameOf,
   filterCompanyOptionsByEligibleUnits,
+  filterUsersByAssignableCompany,
   isSuperAdminRoleName,
   resolveAssignmentModules,
   userSatisfiesAssignmentAccess,
@@ -268,6 +269,71 @@ describe('assignee module access — eligibility', () => {
         modules: ['Jobs'],
       }),
       false,
+    );
+  });
+
+  it('18. missing Delete job does not hide someone who has the other Jobs tab ticks', () => {
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: [
+          'jobs_create',
+          'jobs_read',
+          'jobs_update',
+          'assign_job',
+          'view_all_jobs',
+          'publish_job',
+        ],
+        modules: ['Jobs'],
+      }),
+      true,
+    );
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: ['JOBS_READ'],
+        modules: ['Jobs'],
+      }),
+      true,
+    );
+  });
+
+  it('19. role catalog module Jobs matches even when DB stores a different module label', () => {
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: ['jobs_read'],
+        permissionModules: ['Recruitment'],
+        modules: ['Jobs'],
+      }),
+      true,
+    );
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: ['create_job'],
+        permissionModules: ['job'],
+        modules: ['Jobs'],
+      }),
+      true,
+    );
+  });
+
+  it('20. people list uses the same company walk as Select Company', () => {
+    const orgUnits = [
+      { id: 'india', parentId: 'hq' },
+      { id: 'india-site', parentId: 'india' },
+      { id: 'rayno', parentId: 'hq' },
+    ];
+    const users = [
+      { id: 'u-india', orgUnitId: 'india' },
+      { id: 'u-site', orgUnitId: 'india-site' },
+      { id: 'u-rayno', orgUnitId: 'rayno' },
+      { id: 'u-none', orgUnitId: null },
+    ];
+    assert.deepEqual(
+      filterUsersByAssignableCompany(users, 'india', orgUnits).map((row) => row.id),
+      ['u-india', 'u-site'],
+    );
+    assert.deepEqual(
+      filterUsersByAssignableCompany(users, 'rayno', orgUnits).map((row) => row.id),
+      ['u-rayno'],
     );
   });
 });

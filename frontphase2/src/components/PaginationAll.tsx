@@ -110,7 +110,7 @@ export default function PaginationAll({
           <span aria-hidden="true" className="text-black">
             ←
           </span>
-          <span className="text-black">prev</span>
+          <span className="hidden sm:inline">prev</span>
         </button>
 
         {pageItems.map((item, index) =>
@@ -144,7 +144,7 @@ export default function PaginationAll({
           className="flex items-center gap-1 rounded-md px-2 py-1 font-semibold transition-colors duration-150 hover:text-black disabled:cursor-not-allowed disabled:hover:text-black"
           aria-label="Next page"
         >
-          <span className="text-black">next</span>
+          <span className="hidden text-black sm:inline">next</span>
           <span aria-hidden="true" className="text-black">
             →
           </span>

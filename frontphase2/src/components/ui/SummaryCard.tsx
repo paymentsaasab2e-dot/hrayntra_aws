@@ -102,7 +102,7 @@ export function SummaryCard({ label, count, color, icon, active = false, onClick
     <Element
       type={isInteractive ? 'button' : undefined}
       onClick={onClick}
-      className={`group relative w-full overflow-hidden rounded-xl border p-3 sm:p-4 text-left shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-12px_rgba(59,130,246,0.22)] ${
+      className={`group relative w-full min-w-0 overflow-hidden rounded-xl border p-2.5 sm:p-4 text-left shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-12px_rgba(59,130,246,0.22)] ${
         isInteractive ? 'cursor-pointer' : ''
       } ${s.panel} ${s.ring} ${active ? s.activeRing : ''}`}
       aria-pressed={isInteractive ? active : undefined}
@@ -110,14 +110,14 @@ export function SummaryCard({ label, count, color, icon, active = false, onClick
       <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-white/40 blur-2xl" aria-hidden />
       <div className="relative flex items-start justify-between gap-2">
         <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-105 ${s.iconWrap}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-105 sm:h-9 sm:w-9 ${s.iconWrap}`}
         >
           {icon}
         </div>
-        <span className={`text-2xl font-semibold tabular-nums tracking-tight ${s.text}`}>{count}</span>
+        <span className={`min-w-0 break-all text-xl font-semibold tabular-nums tracking-tight sm:text-2xl ${s.text}`}>{count}</span>
       </div>
-      <div className="relative mt-3 flex items-end justify-between gap-2">
-        <p className={`text-[10px] font-bold uppercase tracking-[0.12em] leading-snug opacity-85 ${s.text}`}>{label}</p>
+      <div className="relative mt-2 flex items-end justify-between gap-2 sm:mt-3">
+        <p className={`min-w-0 break-words text-[10px] font-bold uppercase tracking-[0.12em] leading-snug opacity-85 ${s.text}`}>{label}</p>
         {active ? (
           <span
             className={`shrink-0 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ring-1 ring-black/5 ${s.text}`}

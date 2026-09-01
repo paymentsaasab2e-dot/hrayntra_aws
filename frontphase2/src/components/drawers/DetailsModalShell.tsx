@@ -51,7 +51,7 @@ export function DetailsModalShell({
         data-drawer-skip-dirty="true"
       />
       <div
-        className={`pointer-events-none fixed inset-0 ${zIndexClass} flex items-center justify-center p-3 sm:p-6`}
+        className={`pointer-events-none fixed inset-0 ${zIndexClass} flex items-center justify-center p-2 sm:p-6`}
       >
         <motion.div
           key="details-modal-panel"
@@ -64,7 +64,7 @@ export function DetailsModalShell({
           aria-modal="true"
           aria-labelledby={dialogTitleId}
           onClick={(e) => e.stopPropagation()}
-          className={`pointer-events-auto relative flex h-[min(92vh,920px)] w-full ${maxWidth} flex-col overflow-hidden rounded-[1.35rem] border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10 ${panelClassName}`.trim()}
+          className={`pointer-events-auto relative flex h-[min(100dvh-16px,920px)] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10 sm:h-[min(92vh,920px)] sm:rounded-[1.35rem] ${panelClassName}`.trim()}
         >
           {children}
         </motion.div>

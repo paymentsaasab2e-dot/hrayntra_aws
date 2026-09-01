@@ -20,6 +20,11 @@ import {
   attachDepartmentRankToMember,
 } from '../services/departmentRole.service.js';
 import { listCrmAssigneeCandidates } from '../services/crmAssignmentScope.service.js';
+import { resolveAssignmentModulesFromReq } from '../services/assigneeModuleAccess.service.js';
+import {
+  excludeHqPlatformUsers,
+  hqPlatformUserEmailNotClause,
+} from '../utils/hqPlatformUser.js';
 import {
   applyOrgCompanyUserWhere,
   canViewCrossCompanyMembers,
@@ -119,7 +124,10 @@ export async function getAllTeamMembers(req, res) {
     }
 
     if (isAssignableList && req.user?.id) {
-      const candidates = await listCrmAssigneeCandidates(req.user.id, { req });
+      const candidates = await listCrmAssigneeCandidates(req.user.id, {
+        req,
+        modules: resolveAssignmentModulesFromReq(req),
+      });
       const data = excludeHqPlatformUsers(candidates).map((member) => ({
         ...member,
         role: member.role || null,

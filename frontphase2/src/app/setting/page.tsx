@@ -179,7 +179,7 @@ export default function SettingsPage() {
     <>
       <Toaster position="top-right" richColors />
 
-      <div className="flex min-h-[calc(100dvh-3.5rem)] bg-gradient-to-br from-slate-50 via-indigo-50/20 to-violet-50/15">
+      <div className="flex min-h-[calc(100dvh-3.5rem)] min-w-0 flex-col bg-gradient-to-br from-slate-50 via-indigo-50/20 to-violet-50/15 lg:flex-row">
         <SettingsSidebar
           activeSection={activeSection}
           setActiveSection={(id) => {
@@ -192,22 +192,22 @@ export default function SettingsPage() {
         <div className="min-w-0 flex-1 overflow-y-auto">
           {/* Full-bleed: settings panels use the whole area next to the sidebar
               instead of being capped to a narrow centred column. */}
-          <div className="w-full px-6 py-8 lg:px-10">
-            <header className="mb-8 border-b border-slate-200 pb-6">
-              <nav className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-400">
+          <div className="w-full min-w-0 px-3 py-5 sm:px-6 sm:py-8 lg:px-10">
+            <header className="mb-6 border-b border-slate-200 pb-4 sm:mb-8 sm:pb-6">
+              <nav className="mb-2 hidden items-center gap-2 text-xs font-medium text-slate-400 sm:flex">
                 <span>Dashboard</span>
                 <span aria-hidden>/</span>
                 <span>Settings</span>
                 <span aria-hidden>/</span>
                 <span className="font-semibold text-indigo-700">{sectionTitle}</span>
               </nav>
-              <div className="rounded-xl border border-indigo-100/60 bg-white/80 px-5 py-4 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.16)] backdrop-blur-sm sm:px-6">
+              <div className="rounded-xl border border-indigo-100/60 bg-white/80 px-4 py-3 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.16)] backdrop-blur-sm sm:px-6 sm:py-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20 sm:h-10 sm:w-10">
                     <SettingsIcon className="h-5 w-5" />
                   </div>
-                  <div>
-                    <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                  <div className="min-w-0">
+                    <h2 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                       {sectionTitle}
                     </h2>
                     {activeSection !== 'alerts-management' ? (

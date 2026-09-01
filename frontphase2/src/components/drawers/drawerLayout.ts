@@ -23,10 +23,10 @@ export const RIGHT_DRAWER_BACKDROP_CLASS = 'absolute inset-0 bg-slate-900/50';
 
 /** Centered modal panel classes (Lead / Client style). */
 export const DETAILS_MODAL_PANEL_CLASS =
-  'pointer-events-auto relative flex h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5';
+  'pointer-events-auto relative flex h-[min(100dvh-16px,920px)] sm:h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5';
 
 export const DETAILS_MODAL_CENTER_CLASS =
-  'pointer-events-none fixed inset-0 flex items-center justify-center p-4 sm:p-6';
+  'pointer-events-none fixed inset-0 flex items-center justify-center p-2 sm:p-6';
 
 export const DETAILS_MODAL_BACKDROP_CLASS =
   'fixed inset-0 bg-slate-900/45 backdrop-blur-[2px] pointer-events-auto';

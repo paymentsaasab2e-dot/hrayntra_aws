@@ -799,10 +799,9 @@ function getAddLeadDrawerMaxWidth(viewportWidth = typeof window !== 'undefined' 
 }
 
 function clampAddLeadDrawerWidth(width: number, viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280) {
-  return Math.min(
-    getAddLeadDrawerMaxWidth(viewportWidth),
-    Math.max(ADD_LEAD_DRAWER_MIN_WIDTH, Math.round(width)),
-  );
+  const maxW = Math.min(getAddLeadDrawerMaxWidth(viewportWidth), viewportWidth);
+  const minW = Math.min(ADD_LEAD_DRAWER_MIN_WIDTH, viewportWidth);
+  return Math.min(maxW, Math.max(minW, Math.round(width)));
 }
 
 function getInitialAddLeadDrawerWidth(): number {
@@ -878,7 +877,7 @@ function LeadDetailsPanelShell({
       exit={{ x: '100%' }}
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className="pointer-events-auto fixed right-0 top-0 z-[56] flex h-full flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl"
-      style={{ width: drawerWidth }}
+      style={{ width: drawerWidth, maxWidth: '100vw' }}
     >
       <div
         role="separator"
@@ -886,7 +885,7 @@ function LeadDetailsPanelShell({
         aria-label="Resize lead drawer"
         title="Drag to resize drawer"
         onMouseDown={onBeginResize}
-        className="group absolute left-0 top-0 z-20 flex h-full w-3 -translate-x-1/2 cursor-col-resize items-center justify-center hover:bg-blue-500/5 active:bg-blue-500/10"
+        className="group absolute left-0 top-0 z-20 hidden h-full w-3 -translate-x-1/2 cursor-col-resize items-center justify-center hover:bg-blue-500/5 active:bg-blue-500/10 sm:flex"
       >
         <div className="flex h-14 w-4 items-center justify-center rounded-full border border-slate-200/80 bg-white shadow-sm transition-colors group-hover:border-blue-200 group-hover:bg-blue-50 group-active:border-blue-300">
           <GripVertical

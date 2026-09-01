@@ -11,18 +11,37 @@
  */
 import { prisma } from '../config/prisma.js';
 import { DASHBOARD_MODULE_PERMISSIONS } from '../modules/dashboard/dashboardModuleAccess.js';
-import { DEFAULT_ROLE_PERMISSION_PRESETS } from '../modules/role/default-permissions.js';
-import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
+import {
+  DEFAULT_PERMISSIONS,
+  DEFAULT_ROLE_PERMISSION_PRESETS,
+} from '../modules/role/default-permissions.js';
+import { expandPermissionName } from '../modules/role/permission-aliases.js';
 import { excludeHqPlatformUsers, hqPlatformUserEmailNotClause } from '../utils/hqPlatformUser.js';
 import { isSuperAdminUserId } from './taskAssignmentScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
+/**
+ * Same permission names the Jobs sidenav tab / MODULE_ACCESS_MAP.Jobs use.
+ * Any one of these grants the Jobs tab — `jobs_delete` is not required.
+ */
+export const JOBS_TAB_PERMISSIONS = [
+  'jobs_create', 'jobs_read', 'jobs_update', 'jobs_delete', 'assign_job',
+  'view_all_jobs', 'publish_job', 'create_job', 'edit_job', 'delete_job', 'view_jobs',
+];
+
+const CATALOG_MODULE_BY_PERMISSION = new Map(
+  (DEFAULT_PERMISSIONS || []).map((row) => [
+    String(row.permissionName || '').trim().toLowerCase(),
+    String(row.module || '').trim(),
+  ]),
+);
+
 /** Canonical module → permissions that grant that module (aligned with MODULE_ACCESS_MAP). */
 export const ASSIGNMENT_MODULE_PERMISSIONS = {
   Leads: [...(DASHBOARD_MODULE_PERMISSIONS.Leads || []), 'convert_lead'],
   Clients: [...(DASHBOARD_MODULE_PERMISSIONS.Clients || [])],
-  Jobs: [...(DASHBOARD_MODULE_PERMISSIONS.Jobs || []), 'publish_job'],
+  Jobs: [...JOBS_TAB_PERMISSIONS],
   Candidates: [...(DASHBOARD_MODULE_PERMISSIONS.Candidates || [])],
   Interviews: [...(DASHBOARD_MODULE_PERMISSIONS.Interviews || []), 'interviews_feedback'],
   Placements: [...(DASHBOARD_MODULE_PERMISSIONS.Placements || [])],
@@ -82,9 +101,68 @@ export function resolveAssignmentModulesFromReq(req, fallback = []) {
   return resolveAssignmentModules(req?.query?.module || req?.query?.modules || fallback);
 }
 
+/** Case-insensitive alias match — same groups the sidenav / routes use. */
+function assignmentHasAnyPermission(userNames = [], requiredNames = []) {
+  const names = (Array.isArray(userNames) ? userNames : [])
+    .map((name) => String(name || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (names.includes('all')) return true;
+
+  const granted = new Set();
+  for (const name of names) {
+    granted.add(name);
+    for (const alias of expandPermissionName(name)) {
+      granted.add(String(alias || '').trim().toLowerCase());
+    }
+  }
+
+  return (Array.isArray(requiredNames) ? requiredNames : []).some((required) => {
+    const key = String(required || '').trim().toLowerCase();
+    if (!key) return false;
+    if (granted.has(key)) return true;
+    return expandPermissionName(key).some((alias) => granted.has(String(alias || '').trim().toLowerCase()));
+  });
+}
+
+function catalogModuleForPermissionName(permissionName) {
+  return CATALOG_MODULE_BY_PERMISSION.get(String(permissionName || '').trim().toLowerCase()) || '';
+}
+
+export function buildOrgParentById(orgUnits = []) {
+  const parentById = new Map();
+  for (const unit of orgUnits || []) {
+    const unitId = idStr(unit?.id);
+    if (!unitId) continue;
+    parentById.set(unitId, unit?.parentId ? String(unit.parentId) : '');
+  }
+  return parentById;
+}
+
+/** Walk site → company until `companyId` (same walk Select Company uses). */
+export function orgUnitWalksToCompany(orgUnitId, companyId, parentById) {
+  const target = idStr(companyId);
+  if (!target) return false;
+  let current = idStr(orgUnitId);
+  const seen = new Set();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current === target) return true;
+    current = parentById?.get(current) || '';
+  }
+  return false;
+}
+
+export function filterUsersByAssignableCompany(users = [], companyId, orgUnits = []) {
+  const target = idStr(companyId);
+  if (!target) return [];
+  const parentById = buildOrgParentById(orgUnits);
+  return (users || []).filter((user) => orgUnitWalksToCompany(user?.orgUnitId, target, parentById));
+}
+
 /**
  * Pure eligibility check — used by list filters, write asserts, and tests.
  * Super Admin / permission `all` matches existing unrestricted access.
+ * Any one Jobs-tab permission is enough; missing Delete job does not hide the person.
  */
 export function userSatisfiesAssignmentAccess({
   permissionNames = [],
@@ -95,30 +173,42 @@ export function userSatisfiesAssignmentAccess({
 } = {}) {
   if (isSuperAdminRoleName(roleName)) return true;
   const names = Array.isArray(permissionNames)
-    ? permissionNames.map((name) => String(name || '').trim()).filter(Boolean)
+    ? permissionNames.map((name) => String(name || '').trim().toLowerCase()).filter(Boolean)
     : [];
   if (names.includes('all')) return true;
 
   const grantedModules = new Set();
   for (const raw of Array.isArray(permissionModules) ? permissionModules : []) {
     const label = String(raw || '').trim();
-    if (label) grantedModules.add(label);
+    if (label) {
+      grantedModules.add(label);
+      grantedModules.add(label.toLowerCase());
+    }
     for (const aliased of resolveAssignmentModules(label)) grantedModules.add(aliased);
+  }
+  for (const name of names) {
+    const catalogModule = catalogModuleForPermissionName(name);
+    if (catalogModule) {
+      grantedModules.add(catalogModule);
+      for (const aliased of resolveAssignmentModules(catalogModule)) grantedModules.add(aliased);
+    }
   }
 
   const requiredModules = resolveAssignmentModules(modules);
   for (const moduleName of requiredModules) {
-    if (grantedModules.has(moduleName)) continue;
-    const modulePerms = ASSIGNMENT_MODULE_PERMISSIONS[moduleName] || [];
+    if (grantedModules.has(moduleName) || grantedModules.has(moduleName.toLowerCase())) continue;
+    const modulePerms = (ASSIGNMENT_MODULE_PERMISSIONS[moduleName] || []).map((name) =>
+      String(name).toLowerCase(),
+    );
     if (!modulePerms.length) continue;
-    if (!userHasAnyPermission(names, modulePerms)) return false;
+    if (!assignmentHasAnyPermission(names, modulePerms)) return false;
   }
 
   const mustHave = Array.isArray(requiredPermissions)
     ? requiredPermissions.map((name) => String(name || '').trim()).filter(Boolean)
     : [];
   for (const permissionName of mustHave) {
-    if (!userHasAnyPermission(names, [permissionName])) return false;
+    if (!assignmentHasAnyPermission(names, [permissionName])) return false;
   }
 
   return true;
@@ -134,7 +224,9 @@ function emptyRoleAccess() {
 
 function pushPermissionAccess(access, permission) {
   const name = String(permission?.permissionName || '').trim();
-  const moduleName = String(permission?.module || '').trim();
+  const dbModule = String(permission?.module || '').trim();
+  const catalogModule = catalogModuleForPermissionName(name);
+  const moduleName = catalogModule || dbModule;
   if (name) access.names.push(name);
   if (moduleName) access.modules.push(moduleName);
 }
@@ -204,16 +296,17 @@ export async function filterUsersByAssignmentAccess(
   users = [],
   { modules = [], requiredPermissions = [] } = {},
 ) {
+  const list = typeof users?.then === 'function' ? await users : users;
   const requiredModules = resolveAssignmentModules(modules);
   const mustHave = Array.isArray(requiredPermissions)
     ? requiredPermissions.map((name) => String(name || '').trim()).filter(Boolean)
     : [];
-  if (!requiredModules.length && !mustHave.length) return users;
+  if (!requiredModules.length && !mustHave.length) return list;
 
-  const roleIds = users.map((user) => user.roleId || user.role?.id).filter(Boolean);
+  const roleIds = list.map((user) => user.roleId || user.role?.id).filter(Boolean);
   const accessByRole = await loadRoleAccessByRoleId(roleIds);
 
-  return users.filter((user) => {
+  return list.filter((user) => {
     const access = assignmentAccessOf(user, accessByRole);
     return userSatisfiesAssignmentAccess({
       permissionNames: access.names,
