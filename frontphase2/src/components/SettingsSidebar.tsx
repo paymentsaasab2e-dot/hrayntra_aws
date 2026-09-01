@@ -19,7 +19,8 @@ import {
 import { usePermissions } from '../hooks/usePermissions';
 
 /**
- * Profile, Customization, and Subscription & Plan are visible to any signed-in user.
+ * Profile, Customization, Communication & Integrations, and Subscription & Plan
+ * are visible to any signed-in user.
  * The remaining sections expose org-wide configuration and are restricted to
  * users with `manage_settings` (or the listed permissions).
  */
@@ -43,7 +44,6 @@ const baseSettingsNav: SettingsNavItem[] = [
     id: 'communication',
     label: 'Communication & Integrations',
     icon: Share2,
-    anyPermissions: ['manage_settings', 'access_integrations'],
   },
   {
     id: 'notifications-triggers',

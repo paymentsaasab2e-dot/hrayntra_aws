@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { generateCredentials, getRoles } from '../../lib/api/teamApi';
 import type { TeamMember, SystemRole } from '../../types/team';
 import { PortalHost } from './PortalHost';
+import { formatModuleLabel } from './permissionCatalog';
 
 interface GenerateCredentialsDrawerProps {
   isOpen: boolean;
@@ -290,7 +291,7 @@ export const GenerateCredentialsDrawer: React.FC<GenerateCredentialsDrawerProps>
                           ) : (
                             <X className="size-4 text-gray-400" />
                           )}
-                          <span className={hasAccess ? 'text-slate-900' : 'text-slate-400'}>{module}</span>
+                          <span className={hasAccess ? 'text-slate-900' : 'text-slate-400'}>{formatModuleLabel(module)}</span>
                         </div>
                       );
                     })}

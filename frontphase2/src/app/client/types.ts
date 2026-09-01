@@ -206,6 +206,8 @@ export interface Client {
   otherDetails?: Array<{ label: string; value: string }>;
   /** True after this CRM client is forwarded to Recruitment. */
   recruitmentEnabled?: boolean;
+  /** Created on Recruitment Clients — hidden from the CRM Clients list. */
+  createdInRecruitment?: boolean;
 }
 
 export const INITIAL_CLIENTS: Client[] = [

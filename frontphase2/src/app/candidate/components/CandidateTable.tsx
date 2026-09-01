@@ -357,7 +357,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 <th className="px-3 py-3 text-center sm:px-4">Match</th>
               ) : null}
               {show('roleCompany') ? <th className="px-3 py-3 sm:px-4">Role / company</th> : null}
-              {show('experience') ? <th className="px-3 py-3 text-center sm:px-4">Exp</th> : null}
+              {show('experience') ? <th className="px-3 py-3 text-center sm:px-4">Experience</th> : null}
               {show('location') ? <th className="px-3 py-3 sm:px-4">Location</th> : null}
               {show('assignedJob') ? <th className="px-3 py-3 sm:px-4">Assigned job</th> : null}
               {show('stage') ? <th className="px-3 py-3 sm:px-4">Stage</th> : null}

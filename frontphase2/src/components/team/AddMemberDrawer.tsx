@@ -32,6 +32,7 @@ import {
   type DepartmentWithRoles,
 } from '../../lib/teamReporting';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
+import { formatModuleLabel } from './permissionCatalog';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KNOWN_DOMAINS = [
@@ -608,7 +609,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                             {modules.map((module) => (
                               <div key={module} className="flex items-center gap-2 text-sm text-slate-700">
                                 <Check size={14} className="text-green-600" />
-                                <span>{module}</span>
+                                <span>{formatModuleLabel(module)}</span>
                               </div>
                             ))}
                           </div>

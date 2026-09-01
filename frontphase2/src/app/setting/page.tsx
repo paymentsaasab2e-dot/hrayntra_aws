@@ -45,9 +45,8 @@ export default function SettingsPage() {
       switch (section) {
         case 'profile':
         case 'customization':
-          return true;
         case 'communication':
-          return hasAnyPermission(['manage_settings', 'access_integrations']);
+          return true;
         case 'notifications-triggers':
         case 'alerts-management':
           return hasAnyPermission(['manage_settings']);

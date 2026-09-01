@@ -294,6 +294,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     leadStatusValue: backendClient.leadStatus || undefined,
     otherDetails: Array.isArray(backendClient.otherDetails) ? backendClient.otherDetails : undefined,
     recruitmentEnabled: backendClient.recruitmentEnabled === true,
+    createdInRecruitment: backendClient.createdInRecruitment === true,
     avgTimeToFill: backendClient.avgTimeToFill || undefined,
     healthStatus: backendClient.healthStatus as Client['healthStatus'] || undefined,
     billingTotalRevenue: backendClient.billingTotalRevenue || undefined,
@@ -422,13 +423,19 @@ export default function App() {
 
   const mergeClientOptimistically = useCallback((incoming: Client) => {
     setClients((prev) => {
+      if (!isRecruitmentScope && incoming.createdInRecruitment) {
+        return prev.filter((client) => client.id !== incoming.id);
+      }
+      if (isRecruitmentScope && !incoming.recruitmentEnabled && !incoming.createdInRecruitment) {
+        return prev;
+      }
       const exists = prev.some((client) => client.id === incoming.id);
       if (exists) {
         return prev.map((client) => (client.id === incoming.id ? { ...client, ...incoming } : client));
       }
       return [incoming, ...prev];
     });
-  }, []);
+  }, [isRecruitmentScope]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const pendingDeepLinkClientIdRef = useRef<string | null>(null);
@@ -457,6 +464,9 @@ export default function App() {
 
   const filteredClients = useMemo(() => {
     let list = filterClientsByTab(clients, activeTab);
+    list = list.filter((client) =>
+      isRecruitmentScope ? Boolean(client.recruitmentEnabled || client.createdInRecruitment) : !client.createdInRecruitment,
+    );
     if (teamMemberFilterId) {
       const selectedMember = teamMembers.find((member) => member.id === teamMemberFilterId);
       const selectedName = String(selectedMember?.name || '').trim().toLowerCase();
@@ -467,7 +477,7 @@ export default function App() {
       });
     }
     return list;
-  }, [clients, activeTab, teamMemberFilterId, teamMembers]);
+  }, [clients, activeTab, teamMemberFilterId, teamMembers, isRecruitmentScope]);
   const clientSmartSearch = useSmartSearch({
     parsePrompt: parseClientsSmartSearchPrompt,
     parsePromptWithAi: async (text) => {
@@ -681,7 +691,8 @@ export default function App() {
         const clientMap = new Map(fromApi);
         prev.forEach((client) => {
           if (clientMap.has(client.id)) return;
-          if (isRecruitmentScope && !client.recruitmentEnabled) return;
+          if (isRecruitmentScope && !client.recruitmentEnabled && !client.createdInRecruitment) return;
+          if (!isRecruitmentScope && client.createdInRecruitment) return;
           clientMap.set(client.id, client);
         });
         const uniqueClients = Array.from(clientMap.values()).sort((a, b) => {
@@ -902,6 +913,11 @@ export default function App() {
   const applyExportClientFilters = useCallback(
     (source: Client[]) => {
       let filtered = filterClientsByTab(source, activeTab);
+      filtered = filtered.filter((client) =>
+        isRecruitmentScope
+          ? Boolean(client.recruitmentEnabled || client.createdInRecruitment)
+          : !client.createdInRecruitment,
+      );
       if (teamMemberFilterId) {
         const selectedMember = teamMembers.find((member) => member.id === teamMemberFilterId);
         const selectedName = String(selectedMember?.name || '').trim().toLowerCase();
@@ -923,7 +939,7 @@ export default function App() {
       });
       return list;
     },
-    [activeTab, clientSortBy, clientNameSortOrder, teamMemberFilterId, teamMembers],
+    [activeTab, clientSortBy, clientNameSortOrder, teamMemberFilterId, teamMembers, isRecruitmentScope],
   );
 
   const fetchAllClientsForExport = useCallback(async (): Promise<Client[]> => {
@@ -1581,6 +1597,7 @@ export default function App() {
               mergeClientOptimistically({
                 ...mapped,
                 recruitmentEnabled: isRecruitmentScope ? true : mapped.recruitmentEnabled,
+                createdInRecruitment: isRecruitmentScope ? true : mapped.createdInRecruitment,
               });
             }
             void fetchClients({ page: 1, search: '', matchingClientIds: [] });

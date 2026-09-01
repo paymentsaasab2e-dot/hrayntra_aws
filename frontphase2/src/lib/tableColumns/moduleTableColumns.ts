@@ -1,4 +1,5 @@
 import type { TableColumnDef } from '../../hooks/usePersistedColumnVisibility';
+import { TABLE_AUDIT_COLUMN_LABEL } from './columnLabels';
 
 /** Extra optional columns (off by default) from drawer / list row data. */
 const extra = (id: string, label: string): TableColumnDef => ({
@@ -11,7 +12,7 @@ export const CANDIDATE_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'select', label: 'Select', locked: true },
   { id: 'candidate', label: 'Candidate', locked: true },
   { id: 'roleCompany', label: 'Role / company' },
-  { id: 'experience', label: 'Exp' },
+  { id: 'experience', label: 'Experience' },
   { id: 'location', label: 'Location' },
   { id: 'assignedJob', label: 'Assigned job' },
   { id: 'stage', label: 'Stage' },
@@ -28,7 +29,7 @@ export const CANDIDATE_TABLE_COLUMNS: TableColumnDef[] = [
   extra('preferredLocation', 'Preferred location'),
   extra('education', 'Education'),
   extra('availability', 'Availability'),
-  { id: 'audit', label: 'Audit' },
+  { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
 ];
 
@@ -49,9 +50,9 @@ export const JOB_TABLE_COLUMNS: TableColumnDef[] = [
   extra('jobLocationType', 'Location type'),
   extra('hot', 'Hot'),
   extra('aiMatch', 'AI match'),
-  extra('experienceRequired', 'Exp. required'),
+  extra('experienceRequired', 'Experience required'),
   extra('industry', 'Category'),
-  { id: 'audit', label: 'Audit' },
+  { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
 ];
 
@@ -75,7 +76,7 @@ export const LEAD_TABLE_COLUMNS: TableColumnDef[] = [
   extra('expectedValue', 'Expected value'),
   extra('createdDate', 'Created'),
   extra('convertedClient', 'Converted client'),
-  { id: 'audit', label: 'Audit' },
+  { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
 ];
 
@@ -97,7 +98,7 @@ export const CLIENT_TABLE_COLUMNS: TableColumnDef[] = [
   extra('website', 'Website'),
   extra('timezone', 'Timezone'),
   extra('sla', 'SLA'),
-  { id: 'audit', label: 'Audit' },
+  { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
 ];
 
@@ -120,7 +121,7 @@ export const CONTACT_TABLE_COLUMNS: TableColumnDef[] = [
   extra('tags', 'Tags'),
   extra('isPrimary', 'Primary'),
   extra('createdAt', 'Created'),
-  { id: 'audit', label: 'Audit' },
+  { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
 ];
 
@@ -129,7 +130,7 @@ export const INTERVIEW_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'candidate', label: 'Candidate', locked: true },
   { id: 'job', label: 'Job / client' },
   { id: 'round', label: 'Round' },
-  { id: 'panel', label: 'INT' },
+  { id: 'panel', label: 'Interviewers' },
   { id: 'status', label: 'Status' },
   extra('scheduled', 'Date / time'),
   extra('duration', 'Duration'),
@@ -140,7 +141,7 @@ export const INTERVIEW_TABLE_COLUMNS: TableColumnDef[] = [
   extra('feedback', 'Feedback'),
   extra('createdBy', 'Created by'),
   extra('candidateStage', 'Candidate stage'),
-  { id: 'audit', label: 'Audit' },
+  { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
 ];
 
@@ -161,7 +162,7 @@ export const PLACEMENT_TABLE_COLUMNS: TableColumnDef[] = [
   extra('actualJoiningDate', 'Actual join'),
   extra('candidateEmail', 'Candidate email'),
   extra('reportingTo', 'Reporting to'),
-  { id: 'audit', label: 'Audit' },
+  { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
 ];
 
@@ -170,10 +171,10 @@ export const MATCH_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'candidate', label: 'Candidate', locked: true },
   { id: 'score', label: 'Match' },
   { id: 'roleCompany', label: 'Role / company' },
-  { id: 'experience', label: 'Exp' },
+  { id: 'experience', label: 'Experience' },
   { id: 'location', label: 'Location' },
   { id: 'status', label: 'Status' },
-  extra('noticePeriod', 'Notice'),
+  extra('noticePeriod', 'Notice period'),
   extra('salary', 'Expected salary'),
   extra('email', 'Email'),
   extra('phone', 'Phone'),
@@ -195,7 +196,7 @@ export const TASK_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'delegated', label: 'Delegated to' },
   extra('time', 'Due time'),
   extra('relatedType', 'Related type'),
-  { id: 'audit', label: 'Audit' },
+  { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
 ];
 

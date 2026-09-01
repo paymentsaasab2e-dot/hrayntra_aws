@@ -6,6 +6,18 @@
 export const ALERT_CATALOG = [
   // ── AI Analysis (workspace brief / Analyze) ──
   {
+    id: 'ai.entry_recommendation',
+    module: 'AI Analysis',
+    label: 'Per-record AI Recommendation',
+    description:
+      'Email titled “AI recommendation: [company/name]” when a lead, client, job, candidate, interview, task, or placement is created or updated. This is separate from Analyze / Workspace Brief.',
+    emailTriggerId: 'alert.ai_recommendation',
+    category: 'SYSTEM',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
     id: 'ai.workspace_brief',
     module: 'AI Analysis',
     label: 'Workspace Brief Summary',

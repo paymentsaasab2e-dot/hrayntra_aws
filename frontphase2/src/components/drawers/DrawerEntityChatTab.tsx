@@ -208,7 +208,7 @@ export function DrawerEntityChatTab({
             </button>
           </div>
         ) : (
-          <p className="text-xs text-slate-500">You can read messages but need inbox manage permission to send.</p>
+          <p className="text-xs text-slate-500">You can read messages but need the Chat permission to send.</p>
         )}
       </div>
     </div>

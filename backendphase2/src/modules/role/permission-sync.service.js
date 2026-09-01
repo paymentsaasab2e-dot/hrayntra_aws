@@ -4,6 +4,7 @@ import {
   DEFAULT_PERMISSION_NAMES,
   DEFAULT_ROLE_PERMISSION_PRESETS,
   DEFAULT_SYSTEM_ROLES,
+  DEFAULT_EVERYONE_PERMISSIONS,
 } from './default-permissions.js';
 
 const SYNC_TTL_MS = 5 * 60 * 1000;
@@ -212,6 +213,30 @@ export async function syncAgencySalesHeadHandoffPermissions() {
 
     await prisma.rolePermission.create({
       data: { roleId: role.id, permissionId: handoffId },
+    });
+  }
+}
+
+/** Grant Communication & Integrations (and any other everyone-defaults) to every role. */
+export async function syncEveryoneDefaultPermissions() {
+  const permissionIds = await resolvePermissionIdsByNames(DEFAULT_EVERYONE_PERMISSIONS);
+  if (!permissionIds.length) return;
+
+  const roles = await prisma.systemRole.findMany({
+    select: { id: true },
+  });
+
+  for (const role of roles) {
+    const existing = await prisma.rolePermission.findMany({
+      where: { roleId: role.id, permissionId: { in: permissionIds } },
+      select: { permissionId: true },
+    });
+    const existingIds = new Set(existing.map((row) => row.permissionId));
+    const missingIds = permissionIds.filter((permissionId) => !existingIds.has(permissionId));
+    if (!missingIds.length) continue;
+
+    await prisma.rolePermission.createMany({
+      data: missingIds.map((permissionId) => ({ roleId: role.id, permissionId })),
     });
   }
 }

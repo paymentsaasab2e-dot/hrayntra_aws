@@ -9,6 +9,8 @@ import {
   DASHBOARD_LEVEL_PERMISSIONS,
   DASHBOARD_PEOPLE_FOLLOW_TEAM,
   formatPermissionLabel,
+  formatPermissionDescription,
+  formatModuleLabel,
   isDashboardHiddenTickPermission,
   RBAC_MODULE_GROUPS,
   sortModules,
@@ -244,7 +246,7 @@ export function PermissionPicker({
               <div key={module} className="rounded-lg border border-slate-200 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900">{module}</h4>
+                    <h4 className="text-sm font-semibold text-slate-900">{formatModuleLabel(module)}</h4>
                     <p className="text-[10px] text-slate-400">
                       {modulePermissions.filter((p) => selectedIds.has(p.id)).length} /{' '}
                       {modulePermissions.length} selected
@@ -261,7 +263,12 @@ export function PermissionPicker({
                   ) : null}
                 </div>
                 <div className="grid grid-cols-1 gap-1">
-                  {modulePermissions.map((permission) => (
+                  {modulePermissions.map((permission) => {
+                    const description = formatPermissionDescription(
+                      permission.permissionName,
+                      permission.description,
+                    );
+                    return (
                     <label
                       key={permission.id}
                       className={`flex items-start gap-2 rounded-lg p-2 transition-colors ${
@@ -281,17 +288,13 @@ export function PermissionPicker({
                         <span className="block text-sm font-medium text-slate-800">
                           {formatPermissionLabel(permission.permissionName)}
                         </span>
-                        {permission.description ? (
-                          <span className="block text-[11px] text-slate-500">
-                            {permission.description}
-                          </span>
+                        {description ? (
+                          <span className="block text-[11px] text-slate-500">{description}</span>
                         ) : null}
-                        <span className="block text-[10px] font-mono text-slate-400 mt-0.5">
-                          {permission.permissionName}
-                        </span>
                       </span>
                     </label>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );

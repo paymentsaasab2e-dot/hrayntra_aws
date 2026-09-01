@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, X } from 'lucide-react';
 import type { SystemRole } from '../../types/team';
+import { formatModuleLabel } from './permissionCatalog';
 
 interface PortalAccessPreviewProps {
   role?: SystemRole | null;
@@ -30,7 +31,7 @@ export const PortalAccessPreview: React.FC<PortalAccessPreviewProps> = ({ role }
       <div className="space-y-3">
         {Object.entries(modules).map(([module, permissions]) => (
           <div key={module} className="space-y-1.5">
-            <p className="text-xs font-medium text-slate-600 uppercase tracking-wide">{module}</p>
+            <p className="text-xs font-medium text-slate-600 uppercase tracking-wide">{formatModuleLabel(module)}</p>
             <div className="flex items-center gap-2">
               <Check className="size-4 text-green-600" />
               <span className="text-sm text-slate-700">

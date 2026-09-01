@@ -4,6 +4,13 @@
  */
 export const ALERT_EXAMPLE_PREVIEWS = {
   // ── AI Analysis ──
+  'ai.entry_recommendation': {
+    portalTitle: 'AI recommendation: Globex Industries',
+    portalBody:
+      'AI Recommendation · HIGH · Globex Industries · CLIENT. Follow up this week and confirm next commercial steps.',
+    emailSubject: 'AI recommendation: Globex Industries',
+    shownIn: 'Windows/Outlook mail toast • Inbox email • Bell when a record is created or updated',
+  },
   'ai.workspace_brief': {
     portalTitle: '3 follow-ups overdue — review your workspace',
     portalBody:
