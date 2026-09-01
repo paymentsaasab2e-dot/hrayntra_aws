@@ -87,6 +87,7 @@ export function resolveAssignmentModulesFromReq(req, fallback = []) {
  */
 export function userSatisfiesAssignmentAccess({
   permissionNames = [],
+  permissionModules = [],
   roleName = '',
   modules = [],
   requiredPermissions = [],
@@ -97,8 +98,16 @@ export function userSatisfiesAssignmentAccess({
     : [];
   if (names.includes('all')) return true;
 
+  const grantedModules = new Set();
+  for (const raw of Array.isArray(permissionModules) ? permissionModules : []) {
+    const label = String(raw || '').trim();
+    if (label) grantedModules.add(label);
+    for (const aliased of resolveAssignmentModules(label)) grantedModules.add(aliased);
+  }
+
   const requiredModules = resolveAssignmentModules(modules);
   for (const moduleName of requiredModules) {
+    if (grantedModules.has(moduleName)) continue;
     const modulePerms = ASSIGNMENT_MODULE_PERMISSIONS[moduleName] || [];
     if (!modulePerms.length) continue;
     if (!userHasAnyPermission(names, modulePerms)) return false;
@@ -114,7 +123,29 @@ export function userSatisfiesAssignmentAccess({
   return true;
 }
 
+const ROLE_PERMISSION_SELECT = {
+  permission: { select: { permissionName: true, module: true } },
+};
+
+function emptyRoleAccess() {
+  return { names: [], modules: [] };
+}
+
+function pushPermissionAccess(access, permission) {
+  const name = String(permission?.permissionName || '').trim();
+  const moduleName = String(permission?.module || '').trim();
+  if (name) access.names.push(name);
+  if (moduleName) access.modules.push(moduleName);
+}
+
 export async function loadPermissionNamesByRoleId(roleIds = []) {
+  const accessByRole = await loadRoleAccessByRoleId(roleIds);
+  const map = new Map();
+  for (const [roleId, access] of accessByRole) map.set(roleId, access.names);
+  return map;
+}
+
+export async function loadRoleAccessByRoleId(roleIds = []) {
   const ids = [...new Set((roleIds || []).map(idStr).filter(Boolean))];
   const map = new Map();
   if (!ids.length) return map;
@@ -123,26 +154,46 @@ export async function loadPermissionNamesByRoleId(roleIds = []) {
     where: { roleId: { in: ids } },
     select: {
       roleId: true,
-      permission: { select: { permissionName: true } },
+      ...ROLE_PERMISSION_SELECT,
     },
   });
 
   for (const row of rows) {
     const roleId = idStr(row.roleId);
-    if (!map.has(roleId)) map.set(roleId, []);
-    const name = String(row.permission?.permissionName || '').trim();
-    if (name) map.get(roleId).push(name);
+    if (!map.has(roleId)) map.set(roleId, emptyRoleAccess());
+    pushPermissionAccess(map.get(roleId), row.permission);
   }
   return map;
 }
 
-function roleNameOf(user) {
-  return (
-    user?.systemRole?.roleName ||
-    user?.role?.roleName ||
-    (typeof user?.role === 'string' ? user.role : '') ||
-    ''
-  );
+function accessFromNestedRolePermissions(user) {
+  const rows =
+    user?.systemRole?.rolePermissions ||
+    (user?.role && typeof user.role === 'object' ? user.role.rolePermissions : null) ||
+    [];
+  const access = emptyRoleAccess();
+  for (const row of rows) pushPermissionAccess(access, row?.permission);
+  return access;
+}
+
+function assignmentAccessOf(user, accessByRole) {
+  const roleId = idStr(user?.roleId || user?.role?.id);
+  const fromRole = (roleId && accessByRole.get(roleId)) || emptyRoleAccess();
+  const nested = accessFromNestedRolePermissions(user);
+  return {
+    names: [...fromRole.names, ...nested.names],
+    modules: [...fromRole.modules, ...nested.modules],
+  };
+}
+
+/** SystemRole name only — ignore the legacy Prisma Role enum (SUPER_ADMIN/RECRUITER). */
+export function assignmentRoleNameOf(user) {
+  const fromSystem = String(user?.systemRole?.roleName || '').trim();
+  if (fromSystem) return fromSystem;
+  if (user?.role && typeof user.role === 'object') {
+    return String(user.role.roleName || '').trim();
+  }
+  return '';
 }
 
 export async function filterUsersByAssignmentAccess(
@@ -156,16 +207,18 @@ export async function filterUsersByAssignmentAccess(
   if (!requiredModules.length && !mustHave.length) return users;
 
   const roleIds = users.map((user) => user.roleId || user.role?.id).filter(Boolean);
-  const permsByRole = await loadPermissionNamesByRoleId(roleIds);
+  const accessByRole = await loadRoleAccessByRoleId(roleIds);
 
-  return users.filter((user) =>
-    userSatisfiesAssignmentAccess({
-      permissionNames: permsByRole.get(idStr(user.roleId || user.role?.id)) || [],
-      roleName: roleNameOf(user),
+  return users.filter((user) => {
+    const access = assignmentAccessOf(user, accessByRole);
+    return userSatisfiesAssignmentAccess({
+      permissionNames: access.names,
+      permissionModules: access.modules,
+      roleName: assignmentRoleNameOf(user),
       modules: requiredModules,
       requiredPermissions: mustHave,
-    }),
-  );
+    });
+  });
 }
 
 export async function assertUserHasAssignmentAccess(
@@ -187,8 +240,12 @@ export async function assertUserHasAssignmentAccess(
     where: { id },
     select: {
       roleId: true,
-      role: true,
-      systemRole: { select: { roleName: true } },
+      systemRole: {
+        select: {
+          roleName: true,
+          rolePermissions: { select: ROLE_PERMISSION_SELECT },
+        },
+      },
     },
   });
   if (!user) {
@@ -197,10 +254,12 @@ export async function assertUserHasAssignmentAccess(
     throw err;
   }
 
-  const permsByRole = await loadPermissionNamesByRoleId([user.roleId].filter(Boolean));
+  const accessByRole = await loadRoleAccessByRoleId([user.roleId].filter(Boolean));
+  const access = assignmentAccessOf(user, accessByRole);
   const ok = userSatisfiesAssignmentAccess({
-    permissionNames: permsByRole.get(idStr(user.roleId)) || [],
-    roleName: user.systemRole?.roleName || user.role || '',
+    permissionNames: access.names,
+    permissionModules: access.modules,
+    roleName: assignmentRoleNameOf(user),
     modules: requiredModules,
     requiredPermissions: mustHave,
   });
@@ -228,38 +287,29 @@ export function filterCompanyOptionsByEligibleUnits(
   );
   if (!companies?.length || !eligibleSet.size) return [];
 
-  const childrenByParent = new Map();
+  const companyIds = new Set(companies.map((company) => idStr(company?.id)).filter(Boolean));
+  const parentById = new Map();
   for (const unit of orgUnits || []) {
     const unitId = idStr(unit?.id);
     if (!unitId) continue;
-    const parentKey = unit?.parentId ? String(unit.parentId) : '';
-    if (!childrenByParent.has(parentKey)) childrenByParent.set(parentKey, []);
-    childrenByParent.get(parentKey).push(unitId);
+    parentById.set(unitId, unit?.parentId ? String(unit.parentId) : '');
   }
 
-  const descendantsOf = (rootId) => {
-    const out = new Set([String(rootId)]);
-    const stack = [String(rootId)];
-    while (stack.length) {
-      const current = stack.pop();
-      for (const child of childrenByParent.get(current) || []) {
-        if (out.has(child)) continue;
-        out.add(child);
-        stack.push(child);
+  const eligibleCompanyIds = new Set();
+  for (const unitId of eligibleSet) {
+    let current = unitId;
+    const seen = new Set();
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      if (companyIds.has(current)) {
+        eligibleCompanyIds.add(current);
+        break;
       }
+      current = parentById.get(current) || '';
     }
-    return out;
-  };
+  }
 
-  return companies.filter((company) => {
-    const id = idStr(company?.id);
-    if (!id) return false;
-    const tree = descendantsOf(id);
-    for (const unitId of tree) {
-      if (eligibleSet.has(unitId)) return true;
-    }
-    return false;
-  });
+  return companies.filter((company) => eligibleCompanyIds.has(idStr(company?.id)));
 }
 
 export async function filterCompaniesWithEligibleAssignees(companies = [], { modules = [] } = {}) {
@@ -285,12 +335,16 @@ export async function filterCompaniesWithEligibleAssignees(companies = [], { mod
         id: true,
         orgUnitId: true,
         roleId: true,
-        role: true,
         email: true,
         firstName: true,
         lastName: true,
         name: true,
-        systemRole: { select: { roleName: true } },
+        systemRole: {
+          select: {
+            roleName: true,
+            rolePermissions: { select: ROLE_PERMISSION_SELECT },
+          },
+        },
         credential: { select: { loginId: true } },
       },
     }),
