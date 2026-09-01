@@ -11,6 +11,7 @@
  */
 import { prisma } from '../config/prisma.js';
 import { DASHBOARD_MODULE_PERMISSIONS } from '../modules/dashboard/dashboardModuleAccess.js';
+import { DEFAULT_ROLE_PERMISSION_PRESETS } from '../modules/role/default-permissions.js';
 import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
 import { excludeHqPlatformUsers, hqPlatformUserEmailNotClause } from '../utils/hqPlatformUser.js';
 import { isSuperAdminUserId } from './taskAssignmentScope.service.js';
@@ -180,10 +181,13 @@ function assignmentAccessOf(user, accessByRole) {
   const roleId = idStr(user?.roleId || user?.role?.id);
   const fromRole = (roleId && accessByRole.get(roleId)) || emptyRoleAccess();
   const nested = accessFromNestedRolePermissions(user);
-  return {
-    names: [...fromRole.names, ...nested.names],
-    modules: [...fromRole.modules, ...nested.modules],
-  };
+  const names = [...fromRole.names, ...nested.names];
+  const modules = [...fromRole.modules, ...nested.modules];
+  if (!names.length && !modules.length) {
+    const preset = DEFAULT_ROLE_PERMISSION_PRESETS[assignmentRoleNameOf(user)];
+    if (Array.isArray(preset) && preset.length) names.push(...preset);
+  }
+  return { names, modules };
 }
 
 /** SystemRole name only — ignore the legacy Prisma Role enum (SUPER_ADMIN/RECRUITER). */

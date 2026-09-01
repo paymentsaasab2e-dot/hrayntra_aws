@@ -1128,20 +1128,18 @@ export function CreateJobDetailsForm({
                   <li className="px-4 py-2 text-sm text-slate-500">No team members with access in this company</li>
                 ) : (
                   <>
-                    {formData.assignedToId ? (
-                      <li>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            patchForm({ assignedToId: '', assignedToName: '' });
-                            setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
-                          }}
-                          className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
-                        >
-                          Clear assignment
-                        </button>
-                      </li>
-                    ) : null}
+                    <li>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          patchForm({ assignedToId: '', assignedToName: '' });
+                          setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
+                        }}
+                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
+                      >
+                        Unassigned
+                      </button>
+                    </li>
                     {recruiterUsers.map((user) => (
                       <li key={user.id}>
                         <button
