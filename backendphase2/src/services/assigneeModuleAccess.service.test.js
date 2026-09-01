@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  filterCompanyOptionsByEligibleUnits,
   isSuperAdminRoleName,
   resolveAssignmentModules,
   userSatisfiesAssignmentAccess,
@@ -181,5 +182,37 @@ describe('assignee module access — eligibility', () => {
       }),
       true,
     );
+  });
+
+  it('13. Select Company hides companies with no eligible assignees', () => {
+    const companies = [
+      { id: 'co-jobs', name: 'Jobs Co' },
+      { id: 'co-leads', name: 'Leads Co' },
+      { id: 'co-empty', name: 'Empty Co' },
+    ];
+    const orgUnits = [
+      { id: 'co-jobs', parentId: null },
+      { id: 'site-jobs', parentId: 'co-jobs' },
+      { id: 'co-leads', parentId: null },
+      { id: 'co-empty', parentId: null },
+    ];
+    const visible = filterCompanyOptionsByEligibleUnits(
+      companies,
+      ['site-jobs'],
+      orgUnits,
+    );
+    assert.deepEqual(
+      visible.map((row) => row.id),
+      ['co-jobs'],
+    );
+  });
+
+  it('14. no eligible units: company dropdown is empty', () => {
+    const visible = filterCompanyOptionsByEligibleUnits(
+      [{ id: 'co-a', name: 'A' }],
+      [],
+      [{ id: 'co-a', parentId: null }],
+    );
+    assert.deepEqual(visible, []);
   });
 });

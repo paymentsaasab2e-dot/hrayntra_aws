@@ -13,6 +13,7 @@ import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
+import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
@@ -3376,6 +3377,35 @@ export function ClientDetailsDrawer({
     };
     fetchUsers();
   }, [isHqOverrideMode]);
+
+  useEffect(() => {
+    const assignedId = String(overviewEditForm.assignedToId || '').trim();
+    const ownerName =
+      formatAssigneeDisplayName({
+        id: assignedId,
+        name: client?.owner?.name,
+      }) || String(client?.owner?.name || '').trim();
+    if (!assignedId || !ownerName) return;
+    const parts = ownerName.split(/\s+/).filter(Boolean);
+    setRecruiters((prev) => {
+      if (prev.some((member) => member.id === assignedId)) return prev;
+      return [
+        ...prev,
+        {
+          id: assignedId,
+          firstName: parts[0] || ownerName,
+          lastName: parts.slice(1).join(' '),
+          name: ownerName,
+          email: '',
+          status: 'ACTIVE',
+        } as unknown as TeamMember,
+      ];
+    });
+    setUsers((prev) => {
+      if (prev.some((user) => user.id === assignedId)) return prev;
+      return [...prev, { id: assignedId, name: ownerName, email: '' } as BackendUser];
+    });
+  }, [overviewEditForm.assignedToId, client?.owner?.name]);
 
   useEffect(() => {
     if (!propIsAddMode && !client) return;

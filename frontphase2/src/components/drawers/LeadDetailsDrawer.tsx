@@ -135,6 +135,7 @@ import { apiGetLeadAssignableMembers } from '../../lib/api';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
+import { assigneeCompanyId, formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
 import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
@@ -1478,9 +1479,30 @@ export function LeadDetailsDrawer({
           );
         });
 
+        // Keep currently assigned people in the name lookup even if the company
+        // picker has not loaded that organization's members yet.
+        const currentAssignees = [
+          ...(Array.isArray(lead?.assignedToUsers) ? lead.assignedToUsers : []),
+          ...(lead?.assignedTo?.id ? [lead.assignedTo] : []),
+        ];
+        for (const user of currentAssignees) {
+          if (!user?.id || members.some((member) => member.id === user.id)) continue;
+          const named = formatAssigneeDisplayName(user) || user.name || user.email || '';
+          const parts = String(named).split(/\s+/).filter(Boolean);
+          members.push({
+            id: user.id,
+            firstName: (user as { firstName?: string }).firstName || parts[0] || '',
+            lastName: (user as { lastName?: string }).lastName || parts.slice(1).join(' ') || '',
+            name: named,
+            email: user.email || '',
+            orgUnitId: assigneeCompanyId(user as { assignCompanyId?: string; orgUnitId?: string }),
+          });
+        }
+
         setRecruiters(
           members.map((member) => {
             const name =
+              formatAssigneeDisplayName(member) ||
               member.name ||
               `${member.firstName || ''} ${member.lastName || ''}`.trim() ||
               member.email ||
@@ -1492,6 +1514,7 @@ export function LeadDetailsDrawer({
               lastName: member.lastName || parts.slice(1).join(' ') || '',
               name,
               email: member.email || '',
+              orgUnitId: (member as { orgUnitId?: string }).orgUnitId || undefined,
               role: member.role
                 ? {
                     id: member.role.id || 'role',
@@ -5333,8 +5356,8 @@ export function LeadDetailsDrawer({
                                 iconClassName="text-sky-500"
                                 value={
                                   Array.isArray(lead?.assignedToUsers) && lead!.assignedToUsers!.length > 0
-                                    ? lead!.assignedToUsers!.map((u) => u.name).join(', ')
-                                    : (lead?.assignedTo?.name ?? '')
+                                    ? lead!.assignedToUsers!.map((u) => formatAssigneeDisplayName(u) || u.name).filter(Boolean).join(', ')
+                                    : (formatAssigneeDisplayName(lead?.assignedTo) || lead?.assignedTo?.name || '')
                                 }
                               />
                             </div>
@@ -6210,8 +6233,8 @@ export function LeadDetailsDrawer({
                               label="Lead Owner"
                               value={
                                 Array.isArray(lead?.assignedToUsers) && lead!.assignedToUsers!.length > 0
-                                  ? lead!.assignedToUsers!.map((u) => u.name).join(', ')
-                                  : (lead?.assignedTo?.name ?? '')
+                                  ? lead!.assignedToUsers!.map((u) => formatAssigneeDisplayName(u) || u.name).filter(Boolean).join(', ')
+                                  : (formatAssigneeDisplayName(lead?.assignedTo) || lead?.assignedTo?.name || '')
                               }
                             />
                             <FieldRow label="Lead Status" value={lead?.status ?? ''} />

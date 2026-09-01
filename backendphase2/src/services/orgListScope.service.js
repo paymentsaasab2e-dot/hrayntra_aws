@@ -49,6 +49,50 @@ export function requestedAssignCompanyId(req) {
   return String(req?.query?.companyId || req?.query?.orgUnitId || '').trim();
 }
 
+/** Prefer first+last name, then name, then email — never a raw user id. */
+export function formatUserDisplayName(user) {
+  if (!user) return '';
+  const id = String(user.id || '').trim();
+  const full = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+  const named = String(user.name || '').trim();
+  const email = String(user.email || '').trim();
+  const pick = full || named || email;
+  if (!pick) return '';
+  if (id && pick === id) return email && email !== id ? email : '';
+  if (/^[a-f\d]{24}$/i.test(pick) && !full) return email && email !== pick ? email : '';
+  return pick;
+}
+
+/** Walk site → company so Select Company can preselect the assignee's organization. */
+export async function resolveAssignableCompanyIdFromOrgUnitId(orgUnitId) {
+  let currentId = String(orgUnitId || '').trim();
+  const seen = new Set();
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId);
+    const unit = await prisma.orgUnit.findUnique({
+      where: { id: currentId },
+      select: { id: true, parentId: true, levelOrder: true, isLeaf: true, status: true },
+    });
+    if (!unit) return null;
+    const active = String(unit.status || 'active').toLowerCase() === 'active';
+    if (active && Number(unit.levelOrder) === 2 && unit.isLeaf === false) {
+      return String(unit.id);
+    }
+    currentId = unit.parentId ? String(unit.parentId) : '';
+  }
+  return null;
+}
+
+export async function decorateAssigneeUser(user) {
+  if (!user) return user;
+  const assignCompanyId = await resolveAssignableCompanyIdFromOrgUnitId(user.orgUnitId);
+  return {
+    ...user,
+    name: formatUserDisplayName(user) || user.name || '',
+    assignCompanyId: assignCompanyId || null,
+  };
+}
+
 /**
  * Companies in this tenant for Super Admin / cross-company assignment pickers.
  * Never returns units from another tenant (tenant DB isolation).

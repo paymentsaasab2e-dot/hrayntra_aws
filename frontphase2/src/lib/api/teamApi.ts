@@ -17,7 +17,7 @@ import type {
   CreateTeamRequestPayload,
   UpdateTeamRequestPayload,
 } from '../../types/team';
-import { buildFallbackPermissionsMap } from '../../components/team/permissionCatalog';
+import { formatAssigneeDisplayName } from '../assigneeDisplay';
 
 const getApiConfig = () => {
   const isLocalBrowser =
@@ -184,7 +184,7 @@ export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] 
   const companyNames = new Set(members.map((m) => m.orgUnit?.name).filter(Boolean));
   const showCompany = companyNames.size > 1;
   return members.map((m) => {
-    const name = [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email;
+    const name = formatAssigneeDisplayName(m) || m.email || '';
     const company = showCompany && m.orgUnit?.name ? ` · ${m.orgUnit.name}` : '';
     return {
       id: m.id,

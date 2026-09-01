@@ -62,6 +62,7 @@ import {
   type BackendUser,
 } from '../../lib/api';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, linkTeamRequestToJob, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { assigneeCompanyId, formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import type { TeamRequestJobPrefill } from '../../types/team';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LinkedInPostPreview } from '../LinkedInPostPreview';
@@ -1044,6 +1045,8 @@ export function CreateJobDrawer({
     languages: [] as { language: string; proficiency: string }[],
     /** Assigned recruiter / owner (User id) */
     assignedToId: '',
+    assignedToName: '',
+    assignedToCompanyId: '',
     
     // Job Description
     aboutCompany: '',
@@ -1236,6 +1239,8 @@ export function CreateJobDrawer({
         managerId: '',
         languages: [],
         assignedToId: '',
+        assignedToName: '',
+        assignedToCompanyId: '',
         aboutCompany: '',
         jobDescriptionHtml: '',
         jobLocation: '',
@@ -2175,6 +2180,11 @@ export function CreateJobDrawer({
         preScreenAssessments: preScreenAssessmentLinks,
         assignedToId:
           (job as { assignedToId?: string }).assignedToId || (job as { assignedTo?: { id: string } }).assignedTo?.id || '',
+        assignedToName: formatAssigneeDisplayName((job as { assignedTo?: Parameters<typeof formatAssigneeDisplayName>[0] }).assignedTo) ||
+          String((job as { assignedTo?: { name?: string } }).assignedTo?.name || ''),
+        assignedToCompanyId: assigneeCompanyId(
+          (job as { assignedTo?: { assignCompanyId?: string; orgUnitId?: string; orgUnit?: { id?: string } } }).assignedTo,
+        ),
         aboutCompany: String((job as { aboutCompany?: string }).aboutCompany || ''),
       }));
       

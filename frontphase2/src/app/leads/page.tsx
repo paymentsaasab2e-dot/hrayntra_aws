@@ -75,6 +75,7 @@ import {
   type CrmAssignableMember,
 } from '../../lib/api';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
+import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
@@ -384,14 +385,26 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     convertedClientName: backendLead.client?.companyName || undefined,
     assignedTo: backendLead.assignedTo ? {
       id: backendLead.assignedTo.id,
-      name: backendLead.assignedTo.name,
+      name: formatAssigneeDisplayName(backendLead.assignedTo) || backendLead.assignedTo.name,
       avatar: backendLead.assignedTo.avatar || '',
     } : { name: 'Unassigned', avatar: '' },
     assignedToId: backendLead.assignedTo?.id,
     assignedToIds: Array.isArray(backendLead.assignedToIds) ? backendLead.assignedToIds : (backendLead.assignedTo?.id ? [backendLead.assignedTo.id] : []),
     assignedToUsers: Array.isArray(backendLead.assignedToUsers)
-      ? backendLead.assignedToUsers.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar || '', email: u.email }))
-      : (backendLead.assignedTo ? [{ id: backendLead.assignedTo.id, name: backendLead.assignedTo.name, avatar: backendLead.assignedTo.avatar || '', email: backendLead.assignedTo.email }] : []),
+      ? backendLead.assignedToUsers.map((u) => ({
+          id: u.id,
+          name: formatAssigneeDisplayName(u) || u.name,
+          avatar: u.avatar || '',
+          email: u.email,
+        }))
+      : (backendLead.assignedTo
+          ? [{
+              id: backendLead.assignedTo.id,
+              name: formatAssigneeDisplayName(backendLead.assignedTo) || backendLead.assignedTo.name,
+              avatar: backendLead.assignedTo.avatar || '',
+              email: backendLead.assignedTo.email,
+            }]
+          : []),
     lastFollowUp: backendLead.lastFollowUp || '',
     nextFollowUp: backendLead.nextFollowUp || undefined,
     priority: backendLead.priority,

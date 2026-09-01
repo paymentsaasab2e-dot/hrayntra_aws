@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { apiGetAssignCompanies } from '@/lib/org/orgApi';
 import {
@@ -12,11 +12,16 @@ import type { BackendUser } from '@/lib/api';
 
 export type AssignCompanyOption = { id: string; name: string; kind?: string };
 
-export function useAssignableMembers(enabled = true, module?: string) {
+export function useAssignableMembers(
+  enabled = true,
+  module?: string,
+  options?: { initialCompanyId?: string },
+) {
   const { isSuperAdmin, hasAnyPermission } = usePermissions();
   const mayPickCompany =
     isSuperAdmin() ||
     hasAnyPermission(['view_cross_company_members', 'VIEW_CROSS_COMPANY_MEMBERS']);
+  const initialCompanyId = String(options?.initialCompanyId || '').trim();
 
   const [companies, setCompanies] = useState<AssignCompanyOption[]>([]);
   const [companiesReady, setCompaniesReady] = useState(!mayPickCompany);
@@ -25,6 +30,16 @@ export function useAssignableMembers(enabled = true, module?: string) {
   const [loading, setLoading] = useState(false);
 
   const canSelectCompany = mayPickCompany && companies.length > 0;
+  const seededCompanyRef = useRef('');
+
+  useEffect(() => {
+    if (!enabled || !canSelectCompany || !companiesReady || companyId) return;
+    if (!initialCompanyId) return;
+    if (!companies.some((row) => row.id === initialCompanyId)) return;
+    if (seededCompanyRef.current === initialCompanyId) return;
+    seededCompanyRef.current = initialCompanyId;
+    setCompanyId(initialCompanyId);
+  }, [enabled, canSelectCompany, companiesReady, companies, companyId, initialCompanyId]);
 
   useEffect(() => {
     if (!enabled || !mayPickCompany) {
@@ -34,7 +49,7 @@ export function useAssignableMembers(enabled = true, module?: string) {
     }
     let cancelled = false;
     setCompaniesReady(false);
-    void apiGetAssignCompanies()
+    void apiGetAssignCompanies(module)
       .then((rows) => {
         if (cancelled) return;
         const next = (Array.isArray(rows) ? rows : []).filter(
@@ -52,7 +67,13 @@ export function useAssignableMembers(enabled = true, module?: string) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, mayPickCompany]);
+  }, [enabled, mayPickCompany, module]);
+
+  useEffect(() => {
+    if (!companyId) return;
+    if (companies.some((row) => row.id === companyId)) return;
+    setCompanyId('');
+  }, [companies, companyId]);
 
   useEffect(() => {
     if (!enabled) return;
