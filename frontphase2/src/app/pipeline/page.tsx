@@ -828,7 +828,7 @@ export default function App() {
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="w-full min-h-screen bg-white font-sans text-slate-900">
+      <div className="w-full min-w-0 max-w-full min-h-screen overflow-x-hidden bg-white font-sans text-slate-900">
         {/* Page Header (Pipeline specific) */}
           <header className="px-8 py-6 border-b border-slate-100 bg-white z-20">
             <div className="flex items-start justify-between mb-6">

@@ -118,7 +118,7 @@ export function CrmKpiGrid({ overview, loading }: Props) {
 
   if (loading && !overview) {
     return (
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="h-32 animate-pulse rounded-2xl bg-white" />
         ))}
@@ -127,7 +127,7 @@ export function CrmKpiGrid({ overview, loading }: Props) {
   }
 
   return (
-    <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
       {defs.map((def, idx) => {
         const Icon = def.icon;
         const value = def.resolveValue ? def.resolveValue(overview) : k[def.key];
@@ -184,7 +184,7 @@ export function CrmKpiGrid({ overview, loading }: Props) {
               spark={def.key === 'newLeads' ? sparkValues(spark) : undefined}
               invertDelta={def.key === 'overdueFollowups' || def.key === 'alerts'}
             />
-            <p className="mt-1 truncate text-[10px] text-slate-400">
+            <p className="mt-1 text-[10px] leading-snug text-slate-400">
               {def.subtitle?.(overview) || 'Click for details'}
             </p>
           </motion.div>

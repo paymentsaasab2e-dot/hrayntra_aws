@@ -70,6 +70,7 @@ html {
 
   body {
     font-family: inherit;
+    max-width: 100%;
   }
 
   :where(h1) {
@@ -276,7 +277,14 @@ html {
 
   /** Main content shell — subtle cool gradient behind all portal pages */
   .ph2-main-surface {
+    min-width: 0;
+    max-width: 100%;
     background: linear-gradient(165deg, #f8fafc 0%, #f1f5f9 45%, #eef2ff 100%);
+  }
+
+  .ph2-page-shell {
+    min-width: 0;
+    max-width: 100%;
   }
 
   /* Viewport-locked CRM list pages — only the table panel scrolls */
@@ -493,9 +501,47 @@ html {
 /* CRM list tables — vertical scroll in-panel */
 .ph2-table-body-scroll,
 .leads-table-body-scroll {
+  max-width: 100%;
   scrollbar-width: thin;
   scrollbar-color: rgba(100, 116, 139, 0.55) rgba(241, 245, 249, 0.6);
   overscroll-behavior: contain;
+}
+
+/*
+  Below md: sidebar is an overlay drawer. Main content stays full width so
+  the 220px rail never crushes Jobs / Leads / Settings on phones.
+*/
+.ph2-sidenav-backdrop {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .ph2-sidenav-aside {
+    width: min(16.5rem, 86vw) !important;
+    transform: translateX(-100%);
+    z-index: 46 !important;
+    transition: transform 0.22s ease;
+  }
+
+  .ph2-sidenav-aside.ph2-sidenav-open {
+    transform: translateX(0);
+    box-shadow: 16px 0 48px rgba(2, 8, 23, 0.45);
+  }
+
+  .ph2-sidenav-backdrop {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    background: rgba(2, 8, 23, 0.45);
+    top: calc(3.5rem + var(--ph2-impersonation-banner-h, 0px));
+  }
+
+  .ph2-main-surface {
+    margin-left: 0 !important;
+  }
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar {

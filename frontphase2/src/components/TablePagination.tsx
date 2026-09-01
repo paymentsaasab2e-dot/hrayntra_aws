@@ -37,18 +37,18 @@ export function TablePagination({ currentPage, totalPages, onPageChange }: Table
   };
 
   return (
-    <div className="mt-4 flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm sm:gap-2 sm:p-3">
       <button
         type="button"
         onClick={goPrev}
         disabled={safeCurrentPage === 1}
-        className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-full px-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 sm:gap-2 sm:px-3 sm:py-2"
       >
         <ArrowLeft className="h-4 w-4" />
-        prev
+        <span className="hidden sm:inline">prev</span>
       </button>
 
-      <div className="flex items-center gap-1">
+      <div className="hidden items-center gap-1 sm:flex">
         {getPaginationItems().map((item, index) => (
           item === '...' ? (
             <span key={`ellipsis-${index}`} className="px-2 text-slate-400">
@@ -71,13 +71,17 @@ export function TablePagination({ currentPage, totalPages, onPageChange }: Table
         ))}
       </div>
 
+      <p className="min-w-0 px-2 text-sm font-semibold tabular-nums text-slate-700 sm:hidden">
+        {safeCurrentPage} / {totalPages}
+      </p>
+
       <button
         type="button"
         onClick={goNext}
         disabled={safeCurrentPage === totalPages}
-        className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-full px-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 sm:gap-2 sm:px-3 sm:py-2"
       >
-        next
+        <span className="hidden sm:inline">next</span>
         <ArrowRight className="h-4 w-4" />
       </button>
     </div>

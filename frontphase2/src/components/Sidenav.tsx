@@ -68,6 +68,7 @@ import {
   ChevronDown,
   Building2,
   Menu,
+  X,
   User,
   LogOut,
   Repeat,
@@ -518,6 +519,8 @@ interface NavGroupFlyoutProps {
   active?: boolean;
   items: NavFlyoutItemConfig[];
   onNavigate?: () => void;
+  /** Mobile overlay: expand children in the drawer instead of a side flyout. */
+  expandInline?: boolean;
 }
 
 const FLYOUT_PANEL_WIDTH = 188;
@@ -531,6 +534,7 @@ const NavGroupFlyout = ({
   active = false,
   items,
   onNavigate,
+  expandInline = false,
 }: NavGroupFlyoutProps) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -547,8 +551,10 @@ const NavGroupFlyout = ({
     const rect = trigger.getBoundingClientRect();
     const viewportH = window.innerHeight;
     const estimatedHeight = Math.max(items.length * 48 + 16, 100);
+    const viewportW = window.innerWidth;
     const top = Math.max(8, Math.min(rect.top, viewportH - estimatedHeight - 8));
-    setPanelStyle({ top, left: rect.right + FLYOUT_GAP });
+    const left = Math.max(8, Math.min(rect.right + FLYOUT_GAP, viewportW - FLYOUT_PANEL_WIDTH - 8));
+    setPanelStyle({ top, left });
   }, [items.length]);
 
   const clearCloseTimer = () => {
@@ -678,9 +684,13 @@ const NavGroupFlyout = ({
     <>
       <div
         ref={triggerRef}
-        onMouseEnter={openFlyout}
-        onMouseLeave={scheduleClose}
+        onMouseEnter={expandInline ? undefined : openFlyout}
+        onMouseLeave={expandInline ? undefined : scheduleClose}
         onClick={() => {
+          if (expandInline) {
+            setOpen((prev) => !prev);
+            return;
+          }
           if (open) {
             setOpen(false);
           } else {
@@ -730,7 +740,20 @@ const NavGroupFlyout = ({
           )}
         </div>
       </div>
-      {flyoutPanel}
+      {expandInline && open
+        ? items.map((item) => (
+            <NavItem
+              key={item.href}
+              icon={item.icon}
+              label={item.label}
+              href={item.href}
+              collapsed={false}
+              onNavigate={onNavigate}
+              accent={item.accent || accent}
+              nested
+            />
+          ))
+        : flyoutPanel}
     </>
   );
 };
@@ -859,6 +882,7 @@ interface SidenavProps {
 
 function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
@@ -1004,7 +1028,20 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         inline: 'nearest',
       });
     }
-  }, [pathname, mounted, isCollapsed]);
+  }, [pathname, mounted, isCollapsed, mobileNavOpen]);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileNavOpen]);
 
   useEffect(() => {
     return () => {
@@ -1032,6 +1069,11 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     } catch {
       // Ignore storage failures.
     }
+  };
+
+  const handleNavigate = () => {
+    persistScrollPosition();
+    setMobileNavOpen(false);
   };
 
   // Keep wheel / trackpad scroll on the fixed sidebar from bubbling to `motion.main`
@@ -1152,6 +1194,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
   };
 
   const SIDEBAR_W = isCollapsed ? 60 : 220;
+  const navCollapsed = mobileNavOpen ? false : isCollapsed;
 
   // CRM group visibility + auto-expansion when the user is on one of its routes.
   // HQ `enabledModules` gates tabs even for tenant Super Admins.
@@ -1445,40 +1488,41 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     <>
       {/* ── Top Navigation Bar ─────────────────────────────────────────── */}
       <nav
-        className="fixed left-0 right-0 h-14 flex items-center px-5 z-50 top-[var(--ph2-impersonation-banner-h,0px)]"
+        className="fixed left-0 right-0 z-50 flex h-14 min-w-0 items-center gap-1.5 px-2 sm:gap-2 sm:px-4 lg:px-5 top-[var(--ph2-impersonation-banner-h,0px)]"
         style={{ backgroundColor: '#0b1220', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
-        {/* Logo area — keep the collapse/expand button in its own slot so it
-            stays clickable when the sidebar is collapsed (the logo no longer
-            shares horizontal space with it). */}
-        <div
-          className="flex items-center gap-2 shrink-0 transition-all duration-300"
-          style={{ width: SIDEBAR_W - 20 }}
-        >
+        <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2 md:transition-all md:duration-300">
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen((prev) => !prev)}
+            aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileNavOpen}
+            className="relative z-10 grid h-9 w-9 shrink-0 place-items-center rounded-md bg-white/5 text-slate-200 transition-colors hover:bg-white/15 hover:text-white md:hidden"
+          >
+            {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
           <button
             type="button"
             onClick={() => setIsCollapsed((prev) => !prev)}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-expanded={!isCollapsed}
             title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="relative z-10 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-white/5 text-slate-200 transition-colors hover:bg-white/15 hover:text-white"
+            className="relative z-10 hidden h-8 w-8 shrink-0 place-items-center rounded-md bg-white/5 text-slate-200 transition-colors hover:bg-white/15 hover:text-white md:grid"
           >
             {isCollapsed ? <Menu size={16} /> : <ChevronLeft size={16} />}
           </button>
-          {!isCollapsed && (
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <ImageWithFallback
-                src="/hryantra-logo.png"
-                alt="HRYANTRA"
-                className="h-8 w-auto object-contain"
-              />
-            </div>
-          )}
+          <div className={`min-w-0 ${isCollapsed ? 'md:hidden' : ''}`}>
+            <ImageWithFallback
+              src="/hryantra-logo.png"
+              alt="HRYANTRA"
+              className="h-7 w-auto object-contain sm:h-8"
+            />
+          </div>
         </div>
 
-        <div className="flex flex-1 justify-center px-4">
+        <div className="flex min-w-0 flex-1 justify-center px-1 sm:px-3 lg:px-4">
           <div className="relative w-full max-w-2xl">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-400" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-400 sm:left-3.5" />
             <input
               type="text"
               value={navSearch}
@@ -1497,15 +1541,16 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                   setSearchResults([]);
                 }
               }}
-              placeholder="Search candidates, jobs, clients, team, tasks…"
-              className="h-9 w-full rounded-full border border-white/15 bg-white py-0 pl-10 pr-3.5 text-[13px] leading-none text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-white/30 focus:ring-2 focus:ring-white/20"
+              placeholder="Search candidates, jobs, clients…"
+              aria-label="Search candidates, jobs, clients, team, tasks"
+              className="h-9 w-full min-w-0 rounded-full border border-white/15 bg-white py-0 pl-8 pr-3 text-[13px] leading-none text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-white/30 focus:ring-2 focus:ring-white/20 sm:pl-10 sm:pr-3.5"
             />
             {searchFocused && (searchLoading || searchResults.length > 0) && (
-              <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-[70] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+              <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-[70] max-h-[min(60vh,320px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
                 {searchLoading ? (
                   <div className="px-4 py-3 text-sm text-slate-500">Searching...</div>
                 ) : (
-                  <div className="max-h-[320px] overflow-auto py-2">
+                  <div className="max-h-[min(60vh,320px)] overflow-auto py-2">
                     {searchResults.map((result) => (
                       <button
                         key={`${result.kind}-${result.id}`}
@@ -1533,31 +1578,30 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           </div>
         </div>
 
-        {/* Right icons */}
-        <div className="flex items-center gap-4 shrink-0">
-          {mounted ? <SuperAdminWorkSwitcher variant="header" /> : null}
-          {mounted ? <OrgWorkspaceSwitcher variant="header" /> : null}
-          <div className="flex items-center gap-4 pr-4 border-r border-white/10">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-4">
+          <div className="hidden lg:block">{mounted ? <SuperAdminWorkSwitcher variant="header" /> : null}</div>
+          <div className="hidden md:block">{mounted ? <OrgWorkspaceSwitcher variant="header" /> : null}</div>
+          <div className="flex items-center gap-1.5 border-r border-white/10 pr-1.5 sm:gap-3 sm:pr-3 lg:gap-4 lg:pr-4">
             <Tooltip content="Calendar">
-              <Link href="/calendar" className="text-amber-400/90 hover:text-amber-300 transition-colors">
-                <Calendar className="w-5 h-5" />
+              <Link href="/calendar" className="grid h-9 w-9 place-items-center text-amber-400/90 transition-colors hover:text-amber-300">
+                <Calendar className="h-5 w-5" />
               </Link>
             </Tooltip>
             <Tooltip content={tenantCoins > 0 ? `${tenantCoins} AI coins — click to buy more` : 'No coins — click to purchase'}>
               <button
                 type="button"
                 onClick={() => openPurchase({ balance: tenantCoins })}
-                className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition hover:scale-[1.02] ${
+                className={`flex h-9 items-center gap-1 rounded-full px-1.5 transition hover:scale-[1.02] sm:gap-1.5 sm:px-2.5 ${
                   tenantCoins > 0 ? 'bg-amber-500/15' : 'bg-rose-500/15'
                 }`}
               >
                 {tenantCoins > 0 ? (
                   <TokenCoinIcon className="h-4 w-4" />
                 ) : (
-                  <Lock className="w-4 h-4 text-rose-400" />
+                  <Lock className="h-4 w-4 text-rose-400" />
                 )}
                 <span
-                  className={`text-xs font-bold ${
+                  className={`text-xs font-bold tabular-nums ${
                     tenantCoins > 0 ? 'text-amber-300' : 'text-rose-300'
                   }`}
                 >
@@ -1569,19 +1613,19 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
               <button
                 type="button"
                 onClick={() => setNotificationDrawerOpen(true)}
-                className="relative text-rose-400/90 hover:text-rose-300 transition-colors"
+                className="relative grid h-9 w-9 place-items-center text-rose-400/90 transition-colors hover:text-rose-300"
               >
-                <Bell className="w-5 h-5" />
+                <Bell className="h-5 w-5" />
                 {notificationCount > 0 ? (
-                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 rounded-full bg-red-500 px-1 text-[9px] font-bold text-white flex items-center justify-center">
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
                     {notificationCount > 9 ? '9+' : notificationCount}
                   </span>
                 ) : null}
               </button>
             </Tooltip>
             <Tooltip content="What's New">
-              <button className="text-violet-400/90 hover:text-violet-300 transition-colors">
-                <Gift className="w-5 h-5" />
+              <button type="button" className="hidden h-9 w-9 place-items-center text-violet-400/90 transition-colors hover:text-violet-300 sm:grid">
+                <Gift className="h-5 w-5" />
               </button>
             </Tooltip>
             <Tooltip content="Help Center">
@@ -1589,10 +1633,10 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                 href="/help-center"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-cyan-400/90 hover:text-cyan-300 transition-colors"
+                className="hidden h-9 w-9 place-items-center text-cyan-400/90 transition-colors hover:text-cyan-300 sm:grid"
                 aria-label="Open Help Center"
               >
-                <HelpCircle className="w-5 h-5" />
+                <HelpCircle className="h-5 w-5" />
               </Link>
             </Tooltip>
           </div>
@@ -1608,13 +1652,24 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         </div>
       </nav>
 
+      {mobileNavOpen ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          className="ph2-sidenav-backdrop md:hidden"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      ) : null}
+
       {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <motion.aside
         ref={asideRef}
         initial={false}
         animate={{ width: SIDEBAR_W }}
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-        className="ph2-sidenav-aside fixed left-0 flex flex-col z-40 overflow-hidden"
+        className={`ph2-sidenav-aside fixed left-0 z-40 flex flex-col overflow-hidden ${
+          mobileNavOpen ? 'ph2-sidenav-open' : ''
+        }`}
         style={{
           top: 'calc(3.5rem + var(--ph2-impersonation-banner-h, 0px))',
           height: 'calc(100vh - 3.5rem - var(--ph2-impersonation-banner-h, 0px))',
@@ -1633,10 +1688,11 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             <NavGroupFlyout
               icon={Building2}
               label="CRM"
-              collapsed={isCollapsed}
+              collapsed={navCollapsed}
               accent="sky"
               active={isCrmRouteActive}
-              onNavigate={persistScrollPosition}
+              onNavigate={handleNavigate}
+              expandInline={mobileNavOpen}
               items={[
                 ...(canViewDashboard
                   ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard', accent: 'sky' as const }]
@@ -1656,10 +1712,11 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             <NavGroupFlyout
               icon={Briefcase}
               label="Recruitment"
-              collapsed={isCollapsed}
+              collapsed={navCollapsed}
               accent="amber"
               active={isRecruitmentRouteActive}
-              onNavigate={persistScrollPosition}
+              onNavigate={handleNavigate}
+              expandInline={mobileNavOpen}
               items={[
                 ...(canViewRecruitmentDashboard
                   ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/recruitment', accent: 'indigo' as const }]
@@ -1692,27 +1749,28 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           <Divider />
 
           {(mounted && isOrgModuleEnabled('tasks_activities') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Tasks))) && (
-            <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="lime" />
+            <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={navCollapsed} onNavigate={handleNavigate} accent="lime" />
           )}
 
           {(mounted && isOrgModuleEnabled('events') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Events))) && (
-            <NavItem icon={CalendarDays} label="Portal Events" href="/events" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
+            <NavItem icon={CalendarDays} label="Portal Events" href="/events" collapsed={navCollapsed} onNavigate={handleNavigate} accent="sky" />
           )}
 
           {(mounted &&
             (isOrgModuleEnabled('clients') || isOrgModuleEnabled('jobs')) &&
             (showAll || hasAnyPermission(MODULE_ACCESS_MAP.CompanyPage))) && (
-            <NavItem icon={Building2} label="Company Page" href="/company-page" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
+            <NavItem icon={Building2} label="Company Page" href="/company-page" collapsed={navCollapsed} onNavigate={handleNavigate} accent="blue" />
           )}
 
           {(mounted && isOrgModuleEnabled('inbox') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Inbox))) && (
             <NavGroupFlyout
               icon={Mail}
               label="Inbox"
-              collapsed={isCollapsed}
+              collapsed={navCollapsed}
               accent="fuchsia"
               active={(pathname || '') === '/inbox' || (pathname || '').startsWith('/inbox/')}
-              onNavigate={persistScrollPosition}
+              onNavigate={handleNavigate}
+              expandInline={mobileNavOpen}
               items={[
                 { icon: Mail, label: 'Gmail', href: '/inbox?mailbox=gmail', accent: 'rose' },
                 { icon: Mail, label: 'Outlook', href: '/inbox?mailbox=outlook', accent: 'sky' },
@@ -1721,19 +1779,19 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           )}
 
           {(mounted && isOrgModuleEnabled('contacts') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Contacts))) && (
-            <NavItem icon={Contact} label="Contacts" href="/contacts" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="teal" />
+            <NavItem icon={Contact} label="Contacts" href="/contacts" collapsed={navCollapsed} onNavigate={handleNavigate} accent="teal" />
           )}
 
           <Divider />
 
           {/* Reports */}
           {(mounted && isOrgModuleEnabled('reports') && (showAll || hasAnyPermission(['reports_read', 'reports_create', 'reports_update', 'reports_delete']))) && (
-            <NavItem icon={BarChart3} label="Reports" href="/reports" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="pink" />
+            <NavItem icon={BarChart3} label="Reports" href="/reports" collapsed={navCollapsed} onNavigate={handleNavigate} accent="pink" />
           )}
           
           {/* Billing - show if Super Admin or has access_billing */}
           {(mounted && isOrgModuleEnabled('billing') && billingNavEnabled && (showAll || hasPermission('access_billing'))) && (
-            <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
+            <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={navCollapsed} onNavigate={handleNavigate} accent="amber" />
           )}
 
           {/* Recycle Bin — soft-deleted leads / clients / candidates / jobs land here.
@@ -1747,11 +1805,11 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             'jobs_delete',
             'delete_job',
           ]))) && (
-            <NavItem icon={Trash2} label="Recycle Bin" href="/recycle-bin" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
+            <NavItem icon={Trash2} label="Recycle Bin" href="/recycle-bin" collapsed={navCollapsed} onNavigate={handleNavigate} accent="slate" />
           )}
 
           {mounted && isOrgModuleEnabled('activity_feed') ? (
-            <NavItem icon={History} label="Activity log" href="/activity-feed" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="violet" />
+            <NavItem icon={History} label="Activity log" href="/activity-feed" collapsed={navCollapsed} onNavigate={handleNavigate} accent="violet" />
           ) : null}
 
           <div className="h-4" />
@@ -1764,27 +1822,27 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
               hasAnyPermission(MODULE_ACCESS_MAP.Request) ||
               hasAnyPermission(MODULE_ACCESS_MAP.Organization)) && (
             <>
-              <SectionLabel label="Team Management" collapsed={isCollapsed} />
+              <SectionLabel label="Team Management" collapsed={navCollapsed} />
               {(isOrgModuleEnabled('team') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Team))) && (
-                <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
+                <NavItem icon={UserPlus} label="Team" href="/team" collapsed={navCollapsed} onNavigate={handleNavigate} accent="blue" />
               )}
               {(isOrgModuleEnabled('team') &&
                 (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Organization))) && (
-                <NavItem icon={GitBranch} label="Organization" href="/organization" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="teal" />
+                <NavItem icon={GitBranch} label="Organization" href="/organization" collapsed={navCollapsed} onNavigate={handleNavigate} accent="teal" />
               )}
               {((isOrgModuleEnabled('requests') || isOrgModuleEnabled('approvals')) &&
                 (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Request))) && (
-                <NavItem icon={MessageSquarePlus} label="Requests" href="/request" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
+                <NavItem icon={MessageSquarePlus} label="Requests" href="/request" collapsed={navCollapsed} onNavigate={handleNavigate} accent="indigo" />
               )}
               {showAll ? (
-                <NavItem icon={Coins} label="Subscription" href="/subscription" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
+                <NavItem icon={Coins} label="Subscription" href="/subscription" collapsed={navCollapsed} onNavigate={handleNavigate} accent="amber" />
               ) : null}
             </>
           )}
 
           {/* Settings — gated by HQ modules when restricted; otherwise always available. */}
           {mounted && isOrgModuleEnabled('settings') && (
-            <NavItem icon={Settings} label="Settings" href="/setting" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
+            <NavItem icon={Settings} label="Settings" href="/setting" collapsed={navCollapsed} onNavigate={handleNavigate} accent="slate" />
           )}
           
         </div>
@@ -1792,7 +1850,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         {/* Footer */}
         <div className="shrink-0 px-3 pb-3 pt-2 border-t border-white/5">
           {/* Plan / Trial banner — read from client cache only after mount to avoid hydration mismatch. */}
-          {!isCollapsed ? (
+          {!navCollapsed ? (
             !mounted ? (
               <div className="mb-3 h-[88px] rounded-lg bg-white/5 border border-white/10 animate-pulse" aria-hidden />
             ) : orgSubscriptionPlan?.isTrial ? (
@@ -1882,7 +1940,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
               placement="top"
               align="left"
             />
-            {!isCollapsed && (
+            {!navCollapsed && (
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-semibold text-white truncate">{profile.name}</p>
                 {profile.companyName ? (
@@ -1899,7 +1957,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
       <motion.main
         animate={{ marginLeft: SIDEBAR_W }}
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-        className="ph2-main-surface min-h-screen overflow-y-auto pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]"
+        className="ph2-main-surface min-h-screen min-w-0 max-w-full overflow-y-auto pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]"
       >
         {children || (
           <div className="p-6">
@@ -1926,7 +1984,7 @@ function SidenavShellFallback({ children }: { children?: React.ReactNode }) {
         className="fixed inset-x-0 z-50 h-14 bg-[#0b1220] top-[var(--ph2-impersonation-banner-h,0px)]"
         aria-hidden
       />
-      <div className="ph2-main-surface min-h-screen pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]">
+      <div className="ph2-main-surface min-h-screen min-w-0 max-w-full pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]">
         {children}
       </div>
     </>

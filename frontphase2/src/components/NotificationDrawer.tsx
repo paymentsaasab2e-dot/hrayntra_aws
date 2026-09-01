@@ -315,7 +315,7 @@ export function NotificationDrawer({ isOpen, onClose }: NotificationDrawerProps)
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 28 }}
             transition={{ duration: 0.18 }}
-            className="fixed right-5 top-16 z-[80] flex h-[calc(100vh-88px)] w-full max-w-[460px] flex-col overflow-hidden overscroll-contain rounded-[28px] border border-slate-200 bg-white shadow-2xl"
+            className="fixed inset-x-3 top-[calc(3.5rem+0.5rem)] z-[80] flex h-[calc(100dvh-5rem)] w-auto max-w-none flex-col overflow-hidden overscroll-contain rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-x-auto sm:right-5 sm:top-16 sm:h-[calc(100vh-88px)] sm:w-full sm:max-w-[460px] sm:rounded-[28px]"
           >
             <div className="shrink-0 border-b border-slate-100 px-6 py-5">
               <div className="flex items-start justify-between gap-3">

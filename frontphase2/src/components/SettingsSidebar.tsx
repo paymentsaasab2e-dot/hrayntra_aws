@@ -121,8 +121,8 @@ export function SettingsSidebar({
   });
 
   return (
-    <aside className="flex w-[17.5rem] shrink-0 flex-col border-r border-indigo-100/60 bg-white/90 backdrop-blur-md">
-      <div className="border-b border-indigo-100/50 bg-gradient-to-br from-white via-indigo-50/30 to-violet-50/20 px-5 py-5">
+    <aside className="flex w-full shrink-0 flex-col border-b border-indigo-100/60 bg-white/90 backdrop-blur-md lg:w-[17.5rem] lg:border-b-0 lg:border-r">
+      <div className="border-b border-indigo-100/50 bg-gradient-to-br from-white via-indigo-50/30 to-violet-50/20 px-4 py-4 sm:px-5 sm:py-5">
         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-400">
           Workspace
         </p>
@@ -130,8 +130,8 @@ export function SettingsSidebar({
         <p className="mt-1 text-sm leading-snug text-slate-500">Manage platform preferences</p>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Settings sections">
-        <ul className="flex flex-col gap-1">
+      <nav className="overflow-x-auto overflow-y-auto px-3 py-3 lg:flex-1 lg:py-4" aria-label="Settings sections">
+        <ul className="flex flex-row gap-1 lg:flex-col">
           {settingsNav.map((item) => {
             const isActive = activeSection === item.id;
             const Icon = item.icon;
@@ -141,7 +141,7 @@ export function SettingsSidebar({
                   type="button"
                   onClick={() => setActiveSection(item.id)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all ${
+                  className={`group flex w-full min-w-[12rem] shrink-0 items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2.5 text-left transition-all lg:min-w-0 lg:whitespace-normal ${
                     isActive
                       ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30'
                       : 'text-slate-600 hover:bg-indigo-50/60 hover:text-indigo-900'
@@ -166,7 +166,7 @@ export function SettingsSidebar({
         </ul>
       </nav>
 
-      <div className="border-t border-indigo-100/50 p-4">
+      <div className="hidden border-t border-indigo-100/50 p-4 lg:block">
         <div className="rounded-2xl border border-indigo-100/70 bg-gradient-to-br from-white via-indigo-50/40 to-violet-50/30 p-4">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-400">
             Support

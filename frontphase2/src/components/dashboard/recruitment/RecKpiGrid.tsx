@@ -118,7 +118,7 @@ export function RecKpiGrid({ overview, loading }: Props) {
 
   if (loading && !overview) {
     return (
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="h-[108px] animate-pulse rounded-2xl bg-white" />
         ))}
@@ -127,7 +127,7 @@ export function RecKpiGrid({ overview, loading }: Props) {
   }
 
   return (
-    <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
       {defs.map((def, idx) => {
         const Icon = def.icon;
         const value = k[def.key];
