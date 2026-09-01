@@ -37,7 +37,7 @@ function isManagerLike(role?: string | null, roleName?: string | null) {
 
 function buildNextSteps(overview: RecruitmentOverview | null, opts: { manager: boolean }): NextStep[] {
   if (!overview) return [];
-  const alerts = overview.alerts || [];
+  const alerts = Array.isArray(overview.alerts) ? overview.alerts : [];
   const isDup = (text: string) => {
     const n = normalizeText(text);
     if (!n) return true;
@@ -109,7 +109,7 @@ function buildNextSteps(overview: RecruitmentOverview | null, opts: { manager: b
     }
   }
 
-  (overview.recommendations || []).forEach((rec, i) => {
+  (Array.isArray(overview.recommendations) ? overview.recommendations : []).forEach((rec, i) => {
     push({
       id: rec.id || `rec-${i}`,
       title: rec.text,

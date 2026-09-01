@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { isStaleClientBundleError, reloadOnceForStaleBundle } from '@/lib/staleClientBundle';
 
 export default function AppError({
   error,
@@ -11,6 +12,9 @@ export default function AppError({
 }) {
   useEffect(() => {
     console.error(error);
+    if (isStaleClientBundleError(error)) {
+      reloadOnceForStaleBundle();
+    }
   }, [error]);
 
   return (
@@ -24,7 +28,10 @@ export default function AppError({
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
-            onClick={() => reset()}
+            onClick={() => {
+              if (isStaleClientBundleError(error) && reloadOnceForStaleBundle()) return;
+              reset();
+            }}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
             Try again
