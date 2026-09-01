@@ -11,13 +11,19 @@ import {
   transferOrgUnitData,
 } from './org.service.js';
 import { listAssignableCompanies } from '../../services/orgListScope.service.js';
+import {
+  filterCompaniesWithEligibleAssignees,
+  resolveAssignmentModulesFromReq,
+} from '../../services/assigneeModuleAccess.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 
 export const orgController = {
   async assignCompanies(req, res) {
     try {
       const companies = await listAssignableCompanies(req);
-      sendResponse(res, 200, 'OK', { companies });
+      const modules = resolveAssignmentModulesFromReq(req);
+      const visible = await filterCompaniesWithEligibleAssignees(companies, { modules });
+      sendResponse(res, 200, 'OK', { companies: visible });
     } catch (error) {
       sendError(res, error?.statusCode === 403 ? 403 : 400, error.message, error);
     }

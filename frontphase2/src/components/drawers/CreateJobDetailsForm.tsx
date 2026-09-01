@@ -11,6 +11,7 @@ import { EditDateField } from '../candidates/EditDateField';
 import { isOwnCompanyWorkspaceClient, type BackendClient, type BackendUser } from '../../lib/api';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
+import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import {
   listCustomJobSalaryCurrencies,
   mergeJobSalaryCurrencyOptions,
@@ -56,7 +57,8 @@ export interface CreateJobDetailsFormData {
   videoMediaLink: string;
   forecastRevenue: string;
   managerId: string;
-  assignedToId: string;
+  assignedToName?: string;
+  assignedToCompanyId?: string;
   aboutCompany: string;
   publicFieldVisibility: JobPublicFieldVisibility;
 }
@@ -252,7 +254,9 @@ export function CreateJobDetailsForm({
   lineManagerOptions = [],
   loadingLineManagers = false,
 }: CreateJobDetailsFormProps) {
-  const assignable = useAssignableMembers(true, 'Jobs');
+  const assignable = useAssignableMembers(true, 'Jobs', {
+    initialCompanyId: formData.assignedToCompanyId,
+  });
   const recruiterUsers = assignable.canSelectCompany || assignable.users.length ? assignable.users : users;
   const loadingRecruiters = assignable.canSelectCompany ? assignable.loading : loadingUsers;
   const managerOptions = lineManagerOptions;
@@ -265,7 +269,15 @@ export function CreateJobDetailsForm({
       ? `Own company · ${ownCompanyName(selectedCompany)}`
       : selectedCompany.companyName
     : undefined;
-  const selectedRecruiter = recruiterUsers.find((u) => u.id === formData.assignedToId);
+  const selectedRecruiter =
+    recruiterUsers.find((u) => u.id === formData.assignedToId) ||
+    users.find((u) => u.id === formData.assignedToId) ||
+    (formData.assignedToId && formData.assignedToName
+      ? { id: formData.assignedToId, name: formData.assignedToName }
+      : undefined);
+  const selectedRecruiterLabel = selectedRecruiter
+    ? formatAssigneeDisplayName(selectedRecruiter) || selectedRecruiter.name
+    : '';
   const selectedManager = managerOptions.find((u) => u.id === formData.managerId);
   const selectedContact =
     contacts.find((c) => c.id === formData.contactPersonId) ||
@@ -1073,7 +1085,9 @@ export function CreateJobDetailsForm({
             value={assignable.companyId}
             onChange={(id) => {
               assignable.setCompanyId(id);
-              patchForm({ assignedToId: '' });
+              if (id !== assignable.companyId) {
+                patchForm({ assignedToId: '', assignedToName: '', assignedToCompanyId: id });
+              }
             }}
             className="mb-2"
           />
@@ -1084,7 +1098,7 @@ export function CreateJobDetailsForm({
             onClick={() => setDropdownsOpen((prev) => ({ ...prev, recruiter: !prev.recruiter }))}
             className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
           >
-            {selectedRecruiter ? <span>{selectedRecruiter.name}</span> : <span className="text-slate-400">Unassigned</span>}
+            {selectedRecruiterLabel ? <span>{selectedRecruiterLabel}</span> : <span className="text-slate-400">Unassigned</span>}
             <ChevronDown size={16} className="text-slate-400 shrink-0" />
           </button>
           {dropdownsOpen.recruiter ? (
@@ -1104,7 +1118,7 @@ export function CreateJobDetailsForm({
                       <button
                         type="button"
                         onClick={() => {
-                          patchForm({ assignedToId: '' });
+                          patchForm({ assignedToId: '', assignedToName: '' });
                           setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
                         }}
                         className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
@@ -1117,14 +1131,18 @@ export function CreateJobDetailsForm({
                         <button
                           type="button"
                           onClick={() => {
-                            patchForm({ assignedToId: user.id });
+                            patchForm({
+                              assignedToId: user.id,
+                              assignedToName: formatAssigneeDisplayName(user) || user.name,
+                              assignedToCompanyId: assignable.companyId || formData.assignedToCompanyId,
+                            });
                             setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
                           }}
                           className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
                             formData.assignedToId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
                           }`}
                         >
-                          <span className="block font-medium">{user.name}</span>
+                          <span className="block font-medium">{formatAssigneeDisplayName(user) || user.name}</span>
                           <span className="block text-xs text-slate-500 truncate">{user.email}</span>
                         </button>
                       </li>

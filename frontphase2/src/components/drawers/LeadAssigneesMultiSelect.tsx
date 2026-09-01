@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, X, Users } from 'lucide-react';
 import type { TeamMember } from '../../types/team';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
-import { AssignCompanySelect } from '../assign/AssignCompanySelect';
+import { assigneeCompanyId, formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 
 /** Role chip background classes — mirrors the existing palette used elsewhere. */
 const ROLE_COLOR_MAP: Record<string, string> = {
@@ -28,9 +28,7 @@ function initials(first?: string, last?: string): string {
 }
 
 function displayName(member: TeamMember): string {
-  const full = `${member.firstName || ''} ${member.lastName || ''}`.trim();
-  const named = (member as TeamMember & { name?: string }).name;
-  return full || named || member.email || 'Team member';
+  return formatAssigneeDisplayName(member) || 'Team member';
 }
 
 function colorForMember(member: TeamMember): string {
@@ -82,11 +80,21 @@ export function LeadAssigneesMultiSelect({
   className = '',
   assignmentModule,
 }: LeadAssigneesMultiSelectProps) {
-  const assignable = useAssignableMembers(!disabled, assignmentModule);
-  const members =
+  const knownCompanyId = useMemo(() => {
+    for (const member of membersProp) {
+      const company = assigneeCompanyId(member as TeamMember & { assignCompanyId?: string });
+      if (company) return company;
+    }
+    return '';
+  }, [membersProp]);
+  const assignable = useAssignableMembers(!disabled, assignmentModule, {
+    initialCompanyId: knownCompanyId,
+  });
+  const optionMembers =
     assignable.canSelectCompany || Boolean(assignmentModule)
       ? assignable.members
       : membersProp;
+  const [selectedById, setSelectedById] = useState<Map<string, TeamMember>>(() => new Map());
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
@@ -97,25 +105,47 @@ export function LeadAssigneesMultiSelect({
   const memberById = useMemo(() => {
     const m = new Map<string, TeamMember>();
     for (const member of membersProp) m.set(member.id, member);
-    for (const member of members) m.set(member.id, member);
+    for (const member of optionMembers) m.set(member.id, member);
+    selectedById.forEach((member, id) => {
+      if (!m.has(id)) m.set(id, member);
+    });
     return m;
-  }, [members, membersProp]);
+  }, [membersProp, optionMembers, selectedById]);
+
+  useEffect(() => {
+    setSelectedById((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const member of [...membersProp, ...optionMembers]) {
+        if (!member?.id || !value.includes(member.id)) continue;
+        const existing = next.get(member.id);
+        if (existing && formatAssigneeDisplayName(existing) && !formatAssigneeDisplayName(member)) continue;
+        if (existing === member) continue;
+        next.set(member.id, member);
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [membersProp, optionMembers, value]);
 
   const selected = useMemo(
-    () => value.map((id) => memberById.get(id)).filter(Boolean) as TeamMember[],
+    () =>
+      value
+        .map((id) => memberById.get(id))
+        .filter((member): member is TeamMember => Boolean(member && formatAssigneeDisplayName(member))),
     [value, memberById],
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return members;
-    return members.filter((m) => {
-      const named = (m as TeamMember & { name?: string }).name || '';
+    if (!q) return optionMembers;
+    return optionMembers.filter((m) => {
+      const named = formatAssigneeDisplayName(m);
       const haystack =
-        `${m.firstName ?? ''} ${m.lastName ?? ''} ${named} ${m.email ?? ''} ${m.role?.roleName ?? ''}`.toLowerCase();
+        `${named} ${m.firstName ?? ''} ${m.lastName ?? ''} ${m.email ?? ''} ${m.role?.roleName ?? ''}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [members, query]);
+  }, [optionMembers, query]);
 
   const updateMenuPosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -224,7 +254,7 @@ export function LeadAssigneesMultiSelect({
               )}
               {!loading && !assignable.loading && filtered.length === 0 && !(assignable.canSelectCompany && !assignable.companyId) && (
                 <li className="px-4 py-3 text-xs text-slate-500">
-                  {members.length === 0
+                  {optionMembers.length === 0
                     ? 'No team members found. Create members under Team first.'
                     : 'No team members match your search.'}
                 </li>
@@ -284,7 +314,7 @@ export function LeadAssigneesMultiSelect({
           value={assignable.companyId}
           onChange={(id) => {
             assignable.setCompanyId(id);
-            onChange([]);
+            if (id !== assignable.companyId) onChange([]);
           }}
           disabled={disabled}
           className="mb-2"

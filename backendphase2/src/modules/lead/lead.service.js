@@ -17,6 +17,7 @@ import { applyMemberLeadScope, buildLeadAccessWhere } from '../../services/leadM
 import {
   mergeOrgCompanyListScope,
   resolveWriteOrgUnitId,
+  decorateAssigneeUser,
 } from '../../services/orgListScope.service.js';
 import { stampLeadAssigneeVisibility } from '../../services/memberVisibility.service.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
@@ -703,15 +704,27 @@ async function attachAssignees(leads) {
   }
   const users = await prisma.user.findMany({
     where: { id: { in: Array.from(allIds) } },
-    select: { id: true, name: true, email: true, avatar: true },
+    select: {
+      id: true,
+      name: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      avatar: true,
+      orgUnitId: true,
+    },
   });
-  const byId = new Map(users.map((u) => [u.id, u]));
+  const decorated = await Promise.all(users.map((user) => decorateAssigneeUser(user)));
+  const byId = new Map(decorated.map((u) => [u.id, u]));
   for (const lead of list) {
     if (!lead) continue;
     const ids = Array.isArray(lead.assignedToIds) && lead.assignedToIds.length
       ? lead.assignedToIds
       : (lead.assignedToId ? [lead.assignedToId] : []);
     lead.assignedToUsers = ids.map((id) => byId.get(id)).filter(Boolean);
+    if (lead.assignedTo && byId.has(lead.assignedTo.id)) {
+      lead.assignedTo = { ...lead.assignedTo, ...byId.get(lead.assignedTo.id) };
+    }
   }
   return isArray ? list : list[0];
 }

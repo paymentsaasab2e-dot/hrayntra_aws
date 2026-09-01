@@ -16,6 +16,8 @@ import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/supe
 import { canViewAllAssignments, canViewAllJobs } from '../../utils/permissionScope.js';
 import {
   applyOrgCompanyAssigneeWhere,
+  decorateAssigneeUser,
+  formatUserDisplayName,
   getRequestOrgScope,
   isOrgCompanyScoped,
   isOrgHeadPurpose,
@@ -80,6 +82,7 @@ async function enrichJobWithApplyLink(job) {
 
 async function enrichJobWithAssessments(job) {
   if (!job?.id) return enrichJobWithApplyLink(job);
+  await decorateJobAssignedTo(job);
   const enriched = await enrichJobWithApplyLink(job);
   const links = await preScreenAssessmentService.getJobLinks(job.id).catch(() => []);
   return { ...enriched, preScreenAssessments: links };
@@ -336,6 +339,23 @@ async function persistTenantJobPublicProfile(jobId, { aboutCompany, recruiterPro
   }
 }
 
+const JOB_ASSIGNEE_SELECT = {
+  id: true,
+  name: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  avatar: true,
+  designation: true,
+  orgUnitId: true,
+};
+
+async function decorateJobAssignedTo(job) {
+  if (!job?.assignedTo) return job;
+  job.assignedTo = await decorateAssigneeUser(job.assignedTo);
+  return job;
+}
+
 async function loadJobForPortalSync(jobId) {
   if (!jobId) return null;
   return prisma.job.findUnique({
@@ -345,7 +365,7 @@ async function loadJobForPortalSync(jobId) {
         select: { id: true, companyName: true, industry: true, logo: true, location: true },
       },
       assignedTo: {
-        select: { id: true, name: true, email: true, avatar: true, designation: true },
+        select: JOB_ASSIGNEE_SELECT,
       },
     },
   });
@@ -1299,7 +1319,7 @@ export const jobService = {
             },
           },
           assignedTo: {
-            select: { id: true, name: true, email: true, avatar: true },
+            select: JOB_ASSIGNEE_SELECT,
           },
           createdBy: {
             select: USER_BRIEF_SELECT,
@@ -1328,6 +1348,11 @@ export const jobService = {
     ]);
 
     if (jobs.length) {
+      for (const job of jobs) {
+        if (job.assignedTo) {
+          job.assignedTo.name = formatUserDisplayName(job.assignedTo) || job.assignedTo.name;
+        }
+      }
       const appliedCountMap = await getMergedAppliedCountByJobId(jobs.map((job) => job.id));
       const mergedJobs = attachAppliedCountsToJobs(jobs, appliedCountMap);
       const withAudit = await prepareListWithAuditMeta(mergedJobs, ENTITY_TYPES.JOB);
@@ -1359,7 +1384,7 @@ export const jobService = {
       include: {
         client: true,
         assignedTo: {
-          select: { id: true, name: true, email: true, avatar: true },
+          select: JOB_ASSIGNEE_SELECT,
         },
         createdBy: {
           select: USER_BRIEF_SELECT,
@@ -1625,7 +1650,7 @@ export const jobService = {
           select: { id: true, companyName: true, industry: true, logo: true },
         },
         assignedTo: {
-          select: { id: true, name: true, email: true, avatar: true, designation: true },
+          select: JOB_ASSIGNEE_SELECT,
         },
       },
     });
@@ -1938,7 +1963,7 @@ export const jobService = {
             select: { id: true, companyName: true, industry: true, logo: true },
           },
           assignedTo: {
-            select: { id: true, name: true, email: true },
+            select: JOB_ASSIGNEE_SELECT,
           },
         },
       });
@@ -2031,7 +2056,7 @@ export const jobService = {
             select: { id: true, companyName: true, industry: true, logo: true },
           },
           assignedTo: {
-            select: { id: true, name: true, email: true },
+            select: JOB_ASSIGNEE_SELECT,
           },
         },
       });
@@ -2343,7 +2368,7 @@ export const jobService = {
               },
             },
           },
-          assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
+          assignedTo: { select: JOB_ASSIGNEE_SELECT },
           createdBy: { select: USER_BRIEF_SELECT },
         },
       }),

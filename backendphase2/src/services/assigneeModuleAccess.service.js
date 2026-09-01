@@ -12,6 +12,7 @@
 import { prisma } from '../config/prisma.js';
 import { DASHBOARD_MODULE_PERMISSIONS } from '../modules/dashboard/dashboardModuleAccess.js';
 import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
+import { excludeHqPlatformUsers, hqPlatformUserEmailNotClause } from '../utils/hqPlatformUser.js';
 import { isSuperAdminUserId } from './taskAssignmentScope.service.js';
 
 const idStr = (id) => String(id || '').trim();
@@ -211,4 +212,96 @@ export async function assertUserHasAssignmentAccess(
     err.statusCode = 403;
     throw err;
   }
+}
+
+/**
+ * Keep a company in Select Company only when someone in that company tree
+ * (company + sites/departments) is eligible for the assignment module.
+ */
+export function filterCompanyOptionsByEligibleUnits(
+  companies = [],
+  eligibleOrgUnitIds = [],
+  orgUnits = [],
+) {
+  const eligibleSet = new Set(
+    (eligibleOrgUnitIds || []).map((id) => idStr(id)).filter(Boolean),
+  );
+  if (!companies?.length || !eligibleSet.size) return [];
+
+  const childrenByParent = new Map();
+  for (const unit of orgUnits || []) {
+    const unitId = idStr(unit?.id);
+    if (!unitId) continue;
+    const parentKey = unit?.parentId ? String(unit.parentId) : '';
+    if (!childrenByParent.has(parentKey)) childrenByParent.set(parentKey, []);
+    childrenByParent.get(parentKey).push(unitId);
+  }
+
+  const descendantsOf = (rootId) => {
+    const out = new Set([String(rootId)]);
+    const stack = [String(rootId)];
+    while (stack.length) {
+      const current = stack.pop();
+      for (const child of childrenByParent.get(current) || []) {
+        if (out.has(child)) continue;
+        out.add(child);
+        stack.push(child);
+      }
+    }
+    return out;
+  };
+
+  return companies.filter((company) => {
+    const id = idStr(company?.id);
+    if (!id) return false;
+    const tree = descendantsOf(id);
+    for (const unitId of tree) {
+      if (eligibleSet.has(unitId)) return true;
+    }
+    return false;
+  });
+}
+
+export async function filterCompaniesWithEligibleAssignees(companies = [], { modules = [] } = {}) {
+  const requiredModules = resolveAssignmentModules(modules);
+  if (!requiredModules.length) return companies || [];
+  if (!companies?.length) return [];
+
+  const emailExclude = hqPlatformUserEmailNotClause();
+  const clauses = [
+    { OR: [{ status: 'ACTIVE' }, { status: null }] },
+    ...(Object.keys(emailExclude).length ? [emailExclude] : []),
+  ];
+  const where = clauses.length === 1 ? clauses[0] : { AND: clauses };
+
+  const [orgUnits, users] = await Promise.all([
+    prisma.orgUnit.findMany({
+      where: { status: 'active' },
+      select: { id: true, parentId: true },
+    }),
+    prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        orgUnitId: true,
+        roleId: true,
+        role: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        name: true,
+        systemRole: { select: { roleName: true } },
+        credential: { select: { loginId: true } },
+      },
+    }),
+  ]);
+
+  const eligible = await filterUsersByAssignmentAccess(excludeHqPlatformUsers(users), {
+    modules: requiredModules,
+  });
+  return filterCompanyOptionsByEligibleUnits(
+    companies,
+    eligible.map((user) => user.orgUnitId),
+    orgUnits,
+  );
 }

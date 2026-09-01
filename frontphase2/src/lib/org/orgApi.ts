@@ -38,9 +38,10 @@ export type OrgTreePayload = {
   unassignedPeople?: OrgPerson[];
 };
 
-export async function apiGetAssignCompanies() {
+export async function apiGetAssignCompanies(module?: string) {
+  const query = module ? `?module=${encodeURIComponent(module)}` : '';
   const res = await apiFetch<{ companies: Array<{ id: string; name: string; kind?: string }> }>(
-    '/org-units/assign-companies',
+    `/org-units/assign-companies${query}`,
     { auth: true },
   );
   const data = res.data as { companies?: Array<{ id: string; name: string; kind?: string }> } | unknown;

@@ -153,6 +153,7 @@ import {
 } from '../../lib/jobAppliedMatches';
 import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, getAllTeamMembersForDirectory, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -320,7 +321,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
       : backendJob.createdAt
         ? backendJob.createdAt.split('T')[0]
         : job?.createdDate,
-    recruiter: backendJob.assignedTo?.name || job?.owner,
+    recruiter: formatAssigneeDisplayName(backendJob.assignedTo) || backendJob.assignedTo?.name || job?.owner,
     hiringManager: backendJob.hiringManager || undefined,
     applied:
       typeof backendJob.appliedCount === 'number'
@@ -330,7 +331,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     offered: 0,
     joined: backendJob._count?.placements || job?.joined || 0,
     openings: backendJob.openings || job?.openings || 0,
-    owner: backendJob.assignedTo?.name || job?.owner || '',
+    owner: formatAssigneeDisplayName(backendJob.assignedTo) || backendJob.assignedTo?.name || job?.owner || '',
     createdDate: backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job?.createdDate || '',
     jobCategory: backendJob.jobCategory || undefined,
     jobLocationType: backendJob.jobLocationType || undefined,
@@ -1151,7 +1152,7 @@ function mapBackendJob(job: BackendJob): Job {
     offered: 0,
     joined,
     openings: job.openings,
-    owner: job.assignedTo?.name ?? 'Unassigned',
+    owner: formatAssigneeDisplayName(job.assignedTo) || job.assignedTo?.name || 'Unassigned',
     recruiterId: job.assignedToId || job.assignedTo?.id,
     createdDate: job.createdAt ? formatDateDMY(job.createdAt) : '-',
     hot: (job as any).hot ?? false,
