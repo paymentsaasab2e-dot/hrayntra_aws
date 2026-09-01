@@ -251,4 +251,23 @@ describe('assignee module access — eligibility', () => {
       false,
     );
   });
+
+  it('17. Recruiter role tab includes Jobs so recruiters appear in job assign lists', () => {
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: ['jobs_read', 'candidates_read'],
+        roleName: 'Recruiter',
+        modules: ['Jobs'],
+      }),
+      true,
+    );
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: ['leads_read', 'clients_read'],
+        roleName: 'Account Manager',
+        modules: ['Jobs'],
+      }),
+      false,
+    );
+  });
 });

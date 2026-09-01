@@ -336,7 +336,7 @@ export async function applyOrgCompanyUserWhere(req, { forAssign = false } = {}) 
       const requested = requestedAssignCompanyId(req);
       if (!requested) return emptyUserWhere();
       const unitId = await assertTenantOrgUnitId(requested);
-      return userWhereForUnit(unitId, { includeUntagged: false });
+      return userWhereForUnit(unitId, { includeUntagged: true });
     }
     if (homeId) {
       return userWhereForUnit(homeId, {

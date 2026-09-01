@@ -21,17 +21,11 @@ import {
 } from '../services/departmentRole.service.js';
 import { listCrmAssigneeCandidates } from '../services/crmAssignmentScope.service.js';
 import {
-  excludeHqPlatformUsers,
-  hqPlatformUserEmailNotClause,
-} from '../utils/hqPlatformUser.js';
-import {
   applyOrgCompanyUserWhere,
   canViewCrossCompanyMembers,
   requestedAssignCompanyId,
   resolveWriteOrgUnitId,
 } from '../services/orgListScope.service.js';
-
-const EMPTY_OBJECT_ID = '000000000000000000000000';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -69,7 +63,7 @@ function getTeamListCacheKey(req) {
     assignableOnly,
     assignAcrossOrgs,
     assignmentModule: String(req.query.module || req.query.modules || ''),
-    hqExcluded: 4,
+    hqExcluded: 5,
     orgUnitId: assignableOnly
       ? requestedAssignCompanyId(req)
       : String(req.query.orgUnitId || req.headers?.['x-org-unit-id'] || ''),
@@ -113,12 +107,37 @@ export async function getAllTeamMembers(req, res) {
     const skip = (page - 1) * limit;
     const { search, departmentId, roleName, status, managerId } = req.query;
     const cacheKey = getTeamListCacheKey(req);
+    const isAssignableList = req.teamListMode === 'assignable';
 
-    const cached = await getCache(cacheKey);
-    if (cached) {
-      const parsed = JSON.parse(cached);
+    if (!isAssignableList) {
+      const cached = await getCache(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.status(200).json(parsed);
+      }
+    }
+
+    if (isAssignableList && req.user?.id) {
+      const candidates = await listCrmAssigneeCandidates(req.user.id, { req });
+      const data = excludeHqPlatformUsers(candidates).map((member) => ({
+        ...member,
+        role: member.role || null,
+        department: member.department || null,
+        orgUnit: member.orgUnit || null,
+        status: member.status || 'ACTIVE',
+      }));
       res.setHeader('Cache-Control', 'private, no-store');
-      return res.status(200).json(parsed);
+      return res.status(200).json({
+        success: true,
+        data,
+        pagination: {
+          page: 1,
+          limit: Math.max(data.length, 1),
+          total: data.length,
+          totalPages: 1,
+        },
+      });
     }
 
     const where = {
@@ -159,17 +178,9 @@ export async function getAllTeamMembers(req, res) {
       where.managerId = managerId;
     }
 
-    const isAssignableList = req.teamListMode === 'assignable';
-    if (isAssignableList && req.user?.id) {
-      const candidates = await listCrmAssigneeCandidates(req.user.id, { req });
-      const allowedIds = candidates.map((member) => member.id).filter(Boolean);
-      const existingAnd = Array.isArray(where.AND) ? where.AND : [];
-      where.AND = [...existingAnd, { id: { in: allowedIds.length ? allowedIds : [EMPTY_OBJECT_ID] } }];
-    }
-
     // Users follow their company. Assign pickers for Super Admin / cross-company
     // permission require companyId and return that company's members only.
-    const orgUserWhere = await applyOrgCompanyUserWhere(req, { forAssign: isAssignableList });
+    const orgUserWhere = await applyOrgCompanyUserWhere(req, { forAssign: false });
     if (orgUserWhere) {
       const existingAnd = Array.isArray(where.AND) ? where.AND : [];
       where.AND = [...existingAnd, orgUserWhere];
