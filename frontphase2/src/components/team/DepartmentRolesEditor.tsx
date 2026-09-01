@@ -2,7 +2,8 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { DepartmentRoleInput, Permission, Role } from '../../types/team';
+import type { DepartmentRoleInput, Permission, Role, RoleCompanyAccess } from '../../types/team';
+import { emptyRoleCompanyAccess } from '../../types/team';
 import { PermissionPicker } from './PermissionPicker';
 import {
   buildFallbackPermissionsMap,
@@ -19,6 +20,7 @@ export type DepartmentRoleDraft = {
   description?: string;
   color: string;
   permissionIds: Set<string>;
+  companyAccess?: RoleCompanyAccess;
   rank: number;
   expanded?: boolean;
 };
@@ -55,6 +57,7 @@ export function departmentRoleDraftsToPayload(drafts: DepartmentRoleDraft[]): De
           description: draft.description?.trim() || undefined,
           color: draft.color,
           permissionIds: Array.from(draft.permissionIds),
+          companyAccess: draft.companyAccess || emptyRoleCompanyAccess(),
         }),
   }));
 }
@@ -160,6 +163,7 @@ export const DepartmentRolesEditor: React.FC<DepartmentRolesEditorProps> = ({
         description: '',
         color: 'blue',
         permissionIds: new Set(defaultEveryonePermissionIds(effectivePermissions)),
+        companyAccess: emptyRoleCompanyAccess(),
         rank: nextRank,
         expanded: true,
       },
@@ -520,6 +524,8 @@ function DepartmentRolePermissionsPanel({
           onUpdate({ permissionIds: next });
         }}
         onSelectionChange={(next) => onUpdate({ permissionIds: next })}
+        companyAccess={draft.companyAccess || emptyRoleCompanyAccess()}
+        onCompanyAccessChange={(next) => onUpdate({ companyAccess: next })}
         maxHeightClass="max-h-[min(36rem,calc(100vh-14rem))]"
       />
     </div>

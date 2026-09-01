@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Shield, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { createRole } from '../../lib/api/teamApi';
-import type { Permission } from '../../types/team';
+import type { Permission, RoleCompanyAccess } from '../../types/team';
+import { emptyRoleCompanyAccess } from '../../types/team';
 import {
   buildFallbackPermissionsMap,
   defaultEveryonePermissionIds,
@@ -59,6 +60,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
     description: '',
     color: '',
     selectedPermissions: new Set<string>(),
+    companyAccess: emptyRoleCompanyAccess() as RoleCompanyAccess,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -156,6 +158,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
         description: formData.description.trim() || undefined,
         color: formData.color,
         permissionIds: Array.from(formData.selectedPermissions),
+        companyAccess: formData.companyAccess,
       });
 
       toast.success('Role created successfully');
@@ -179,6 +182,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
       description: '',
       color: '',
       selectedPermissions: new Set<string>(),
+      companyAccess: emptyRoleCompanyAccess(),
     });
     setErrors({});
     onClose();
@@ -269,6 +273,10 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
             onModuleSelectAll={handleModuleSelectAll}
             onSelectionChange={(next) =>
               setFormData((prev) => ({ ...prev, selectedPermissions: next }))
+            }
+            companyAccess={formData.companyAccess}
+            onCompanyAccessChange={(next) =>
+              setFormData((prev) => ({ ...prev, companyAccess: next }))
             }
           />
         </div>

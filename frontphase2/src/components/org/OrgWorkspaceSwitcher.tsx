@@ -10,7 +10,7 @@ type Props = {
 };
 
 /**
- * Company switcher — Super Admin / switch_companies only.
+ * Company switcher — Super Admin / switch_companies with selected organizations.
  * Custom menu (not native <select>) so “All companies” stays readable in the dark header.
  */
 export function OrgWorkspaceSwitcher({ variant = 'light' }: Props) {

@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { apiDashboardAccess } from '@/lib/dashboard/api';
 import type { OrgCompanyOption } from '@/lib/dashboard/api';
 import { usePermissions } from '@/hooks/usePermissions';
+import { orgSideFromPathname } from './orgSide';
 import {
   clearActiveOrgUnit,
   getActiveOrgUnitId,
@@ -47,11 +49,13 @@ export function resolveAddJobWorkspaceLabel(opts: {
 }
 
 export function useOrgWorkspace() {
+  const pathname = usePathname();
+  const side = orgSideFromPathname(pathname);
   const { isSuperAdmin, hasPermission } = usePermissions();
   const [orgUnitId, setOrgUnitId] = useState('');
   const [orgUnitName, setOrgUnitName] = useState('');
-  const [companies, setCompanies] = useState<OrgCompanyOption[]>([]);
-  const [canSwitchCompanies, setCanSwitchCompanies] = useState(false);
+  const [companiesCrm, setCompaniesCrm] = useState<OrgCompanyOption[]>([]);
+  const [companiesRecruitment, setCompaniesRecruitment] = useState<OrgCompanyOption[]>([]);
   const [purpose, setPurpose] = useState('member');
   const [accessLoaded, setAccessLoaded] = useState(false);
   const [hasCompanies, setHasCompanies] = useState(false);
@@ -59,6 +63,22 @@ export function useOrgWorkspace() {
 
   const localMaySwitch =
     isSuperAdmin() || hasPermission('switch_companies') || hasPermission('all');
+
+  const companies = useMemo(() => {
+    if (side === 'crm') return companiesCrm;
+    if (side === 'recruitment') return companiesRecruitment;
+    const byId = new Map<string, OrgCompanyOption>();
+    [...companiesCrm, ...companiesRecruitment].forEach((company) => {
+      if (company?.id) byId.set(company.id, company);
+    });
+    return [...byId.values()];
+  }, [side, companiesCrm, companiesRecruitment]);
+
+  const canSwitchCompanies = Boolean(accessLoaded && localMaySwitch && companies.length > 0);
+  const effectiveOrgUnitId = companies.some((c) => c.id === orgUnitId) ? orgUnitId : '';
+  const effectiveOrgUnitName = effectiveOrgUnitId
+    ? companies.find((c) => c.id === orgUnitId)?.name || orgUnitName
+    : '';
 
   useEffect(() => {
     const sync = () => {
@@ -76,42 +96,40 @@ export function useOrgWorkspace() {
       .then((data) => {
         if (cancelled) return;
         const org = data?.org;
-        const serverAllows = Boolean(org?.canSwitchCompanies);
-        const allowed = Boolean(serverAllows && localMaySwitch);
-        setCanSwitchCompanies(allowed);
-        setCompanies(allowed ? org?.companies || [] : []);
+        const crm = Array.isArray(org?.companiesCrm) ? org.companiesCrm : null;
+        const recruitment = Array.isArray(org?.companiesRecruitment)
+          ? org.companiesRecruitment
+          : null;
+        const fallback = org?.companies || [];
+        setCompaniesCrm(crm || fallback);
+        setCompaniesRecruitment(recruitment || fallback);
         setPurpose(String(org?.hierarchyPurpose || 'member'));
-        setHasCompanies(Boolean(org?.hasCompanies) || (org?.companies || []).length > 0);
+        setHasCompanies(
+          Boolean(org?.hasCompanies) ||
+            (crm || []).length > 0 ||
+            (recruitment || []).length > 0 ||
+            fallback.length > 0,
+        );
         setHomeIsOrgCompany(Boolean(org?.homeIsOrgCompany));
         setAccessLoaded(true);
 
-        if (!allowed) {
-          if (getActiveOrgUnitId()) clearActiveOrgUnit({ reload: false });
-          setOrgUnitId('');
-          const homeLabel =
-            String(org?.homeOrgUnitName || '').trim() ||
-            getActiveOrgUnitName();
-          setOrgUnitName(homeLabel);
-          return;
-        }
-
+        const granted = [...(crm || []), ...(recruitment || []), ...fallback];
         const saved = getActiveOrgUnitId();
-        if (saved) {
-          const match = (org?.companies || []).find((c) => c.id === saved);
-          if (match?.name) {
-            setOrgUnitName(match.name);
-          } else {
-            // Stale company id (deleted Comp B, etc.) — drop it so Structure/lists stay consistent.
-            clearActiveOrgUnit({ reload: false });
-            setOrgUnitId('');
-            setOrgUnitName('');
-          }
+        if (saved && !granted.some((c) => c.id === saved)) {
+          clearActiveOrgUnit({ reload: false });
+          setOrgUnitId('');
+          setOrgUnitName(String(org?.homeOrgUnitName || '').trim());
+        } else if (saved) {
+          const match = granted.find((c) => c.id === saved);
+          if (match?.name) setOrgUnitName(match.name);
+        } else if (!localMaySwitch) {
+          setOrgUnitName(String(org?.homeOrgUnitName || '').trim() || getActiveOrgUnitName());
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setCanSwitchCompanies(false);
-          setCompanies([]);
+          setCompaniesCrm([]);
+          setCompaniesRecruitment([]);
           setHasCompanies(false);
           setHomeIsOrgCompany(false);
           setAccessLoaded(true);
@@ -123,10 +141,10 @@ export function useOrgWorkspace() {
   }, [localMaySwitch]);
 
   return {
-    orgUnitId,
-    orgUnitName,
+    orgUnitId: effectiveOrgUnitId,
+    orgUnitName: effectiveOrgUnitName || orgUnitName,
     companies,
-    canSwitchCompanies: accessLoaded ? canSwitchCompanies : false,
+    canSwitchCompanies,
     hasCompanies,
     homeIsOrgCompany,
     purpose,

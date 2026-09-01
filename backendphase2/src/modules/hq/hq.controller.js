@@ -137,6 +137,27 @@ export const hqController = {
     }
   },
 
+  async issueTenantJobsApiKey(req, res) {
+    try {
+      const result = await hqService.issueTenantJobsApiKey(req.body, req.user);
+      sendResponse(res, 200, 'Jobs API key issued', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async revokeTenantJobsApiKey(req, res) {
+    try {
+      const result = await hqService.revokeTenantJobsApiKey(
+        { email: req.body?.email || req.query?.email },
+        req.user,
+      );
+      sendResponse(res, 200, 'Jobs API key revoked', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async updateTenantModules(req, res) {
     try {
       const result = await hqService.updateTenantModules(req.body, req.user);

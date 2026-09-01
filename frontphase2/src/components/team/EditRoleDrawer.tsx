@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Shield, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateRole } from '../../lib/api/teamApi';
-import type { SystemRole, Permission } from '../../types/team';
+import type { SystemRole, Permission, RoleCompanyAccess } from '../../types/team';
+import { emptyRoleCompanyAccess } from '../../types/team';
 import {
   buildFallbackPermissionsMap,
   isDashboardHiddenTickPermission,
@@ -62,6 +63,7 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
     description: role.description || '',
     color: role.color,
     selectedPermissions: new Set<string>(),
+    companyAccess: emptyRoleCompanyAccess() as RoleCompanyAccess,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -86,6 +88,12 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
       description: role.description || '',
       color: role.color,
       selectedPermissions: selected,
+      companyAccess: role.companyAccess
+        ? {
+            crm: [...(role.companyAccess.crm || [])],
+            recruitment: [...(role.companyAccess.recruitment || [])],
+          }
+        : emptyRoleCompanyAccess(),
     }));
   }, [isOpen, role, isSuperAdmin, effectivePermissions]);
 
@@ -166,6 +174,7 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
         description: formData.description.trim() || undefined,
         color: formData.color,
         permissionIds: Array.from(formData.selectedPermissions),
+        companyAccess: formData.companyAccess,
       });
 
       toast.success('Role updated successfully');
@@ -283,6 +292,10 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
             onModuleSelectAll={handleModuleSelectAll}
             onSelectionChange={(next) =>
               setFormData((prev) => ({ ...prev, selectedPermissions: next }))
+            }
+            companyAccess={formData.companyAccess}
+            onCompanyAccessChange={(next) =>
+              setFormData((prev) => ({ ...prev, companyAccess: next }))
             }
             disabled={isSuperAdmin}
           />

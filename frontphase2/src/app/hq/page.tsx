@@ -999,6 +999,7 @@ function TenantsPanel({
                 <th>Billing</th>
                 <th>Start</th>
                 <th>End</th>
+                <th>Jobs API</th>
                 <th>Status</th>
                 <th className="text-right">Actions</th>
               </tr>
@@ -1115,6 +1116,15 @@ function TenantsPanel({
                   </td>
                   <td className="py-3 pr-3 text-xs text-slate-600">
                     {formatDateDMY(t.subscriptionPlan?.planEndDate) || '—'}
+                  </td>
+                  <td className="py-3 pr-3">
+                    {t.jobsApiKey ? (
+                      <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 ring-1 ring-sky-100">
+                        Issued
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="py-3 pr-3">
                     {isTenantPaused(t) ? (

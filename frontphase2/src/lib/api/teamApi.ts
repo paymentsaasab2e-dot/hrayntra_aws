@@ -1,4 +1,5 @@
 import { apiFetch, refreshLocalUserPermissions, type BackendUser } from '../api';
+import { orgSideFromPathname } from '../org/orgSide';
 import type {
   TeamMember,
   TeamMemberDetail,
@@ -65,6 +66,8 @@ function getTeamAuthHeaders(): Record<string, string> {
   if (tenant) headers['x-tenant-db-name'] = tenant;
   const orgUnit = localStorage.getItem('activeOrgUnitId');
   if (orgUnit) headers['x-org-unit-id'] = orgUnit;
+  const orgSide = orgSideFromPathname();
+  if (orgSide === 'crm' || orgSide === 'recruitment') headers['x-org-side'] = orgSide;
   if (String(localStorage.getItem('superAdminWorkScope') || '').trim().toLowerCase() === 'own') {
     headers['x-work-scope'] = 'own';
   }
@@ -988,7 +991,13 @@ export async function getAllPermissions() {
 /**
  * Create a new role
  */
-export async function createRole(payload: { roleName: string; description?: string; color: string; permissionIds: string[] }) {
+export async function createRole(payload: {
+  roleName: string;
+  description?: string;
+  color: string;
+  permissionIds: string[];
+  companyAccess?: { crm: string[]; recruitment: string[] };
+}) {
   const path = buildPath('/roles');
   const headers = getTeamAuthHeaders();
 
@@ -1009,7 +1018,16 @@ export async function createRole(payload: { roleName: string; description?: stri
 /**
  * Update a role
  */
-export async function updateRole(id: string, payload: { roleName?: string; description?: string; color?: string; permissionIds?: string[] }) {
+export async function updateRole(
+  id: string,
+  payload: {
+    roleName?: string;
+    description?: string;
+    color?: string;
+    permissionIds?: string[];
+    companyAccess?: { crm: string[]; recruitment: string[] };
+  },
+) {
   const path = buildPath(`/roles/${id}`);
   const headers = getTeamAuthHeaders();
 
@@ -1030,6 +1048,33 @@ export async function updateRole(id: string, payload: { roleName?: string; descr
   void refreshLocalUserPermissions();
 
   return { data: json.data, success: json.success };
+}
+
+export type RoleOrgCompany = { id: string; name: string };
+
+/** Organizations for the nested CRM / Recruitment picker under Switch companies. */
+export async function getRoleOrgCompanies(): Promise<RoleOrgCompany[]> {
+  const path = buildRolesPath('/org-companies');
+  const headers = getTeamAuthHeaders();
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'GET',
+    headers,
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  const data = json.data;
+  if (Array.isArray(data)) {
+    return data
+      .map((row) => {
+        const item = row as { id?: string; name?: string };
+        return { id: String(item.id || '').trim(), name: String(item.name || '').trim() };
+      })
+      .filter((row) => row.id && row.name);
+  }
+  return [];
 }
 
 /**

@@ -1,7 +1,10 @@
 'use client';
 
-import React, { useMemo } from 'react';
-import type { Permission } from '../../types/team';
+import React, { useEffect, useMemo, useState } from 'react';
+import type { Permission, RoleCompanyAccess } from '../../types/team';
+import { emptyRoleCompanyAccess } from '../../types/team';
+import { isOrgModuleEnabled } from '../../lib/api';
+import { getRoleOrgCompanies, type RoleOrgCompany } from '../../lib/api/teamApi';
 import {
   applyDashboardLevelToSelectedIds,
   dashboardLevelFromSelectedIds,
@@ -28,6 +31,8 @@ type PermissionPickerProps = {
   maxHeightClass?: string;
   /** Optional module order (HQ Team uses sidebar-aligned order). */
   moduleOrder?: string[];
+  companyAccess?: RoleCompanyAccess;
+  onCompanyAccessChange?: (next: RoleCompanyAccess) => void;
 };
 
 export function PermissionPicker({
@@ -39,6 +44,8 @@ export function PermissionPicker({
   disabled = false,
   maxHeightClass = 'max-h-[420px]',
   moduleOrder,
+  companyAccess,
+  onCompanyAccessChange,
 }: PermissionPickerProps) {
   const modules = moduleOrder?.length
     ? [...Object.keys(permissionsByModule)].sort((a, b) => {
@@ -112,16 +119,37 @@ export function PermissionPicker({
     return next;
   };
 
+  const switchPermission = useMemo(() => {
+    for (const list of Object.values(permissionsByModule)) {
+      const found = (list || []).find((p) => p.permissionName === 'switch_companies');
+      if (found) return found;
+    }
+    return null;
+  }, [permissionsByModule]);
+
+  const switchSelected = Boolean(switchPermission && selectedIds.has(switchPermission.id));
+
+  const commitSelection = (next: Set<string>) => {
+    const synced = syncPeopleWithTeam(next);
+    if (onSelectionChange) onSelectionChange(synced);
+    if (switchPermission && !synced.has(switchPermission.id)) {
+      onCompanyAccessChange?.(emptyRoleCompanyAccess());
+    }
+  };
+
   const handleToggle = (permissionId: string) => {
     if (disabled) return;
     if (!onSelectionChange) {
       onToggle(permissionId);
+      if (switchPermission && permissionId === switchPermission.id && selectedIds.has(permissionId)) {
+        onCompanyAccessChange?.(emptyRoleCompanyAccess());
+      }
       return;
     }
     const next = new Set(selectedIds);
     if (next.has(permissionId)) next.delete(permissionId);
     else next.add(permissionId);
-    onSelectionChange(syncPeopleWithTeam(next));
+    commitSelection(next);
   };
 
   const handleModuleSelectAll = (module: string) => {
@@ -139,7 +167,7 @@ export function PermissionPicker({
       if (allSelected) next.delete(p.id);
       else next.add(p.id);
     });
-    onSelectionChange(syncPeopleWithTeam(next));
+    commitSelection(next);
   };
 
   const handleGroupSelectAll = (groupModules: string[]) => {
@@ -152,7 +180,7 @@ export function PermissionPicker({
       if (allSelected) next.delete(p.id);
       else next.add(p.id);
     });
-    onSelectionChange(syncPeopleWithTeam(next));
+    commitSelection(next);
   };
 
   const setDashboardLevel = (level: RoleDashboardLevelChoice) => {
@@ -269,8 +297,8 @@ export function PermissionPicker({
                       permission.description,
                     );
                     return (
+                    <div key={permission.id} className="space-y-1">
                     <label
-                      key={permission.id}
                       className={`flex items-start gap-2 rounded-lg p-2 transition-colors ${
                         disabled
                           ? 'cursor-not-allowed opacity-60'
@@ -293,6 +321,16 @@ export function PermissionPicker({
                         ) : null}
                       </span>
                     </label>
+                    {permission.permissionName === 'switch_companies' &&
+                    switchSelected &&
+                    onCompanyAccessChange ? (
+                      <SwitchCompanyAccessPanel
+                        disabled={disabled}
+                        value={companyAccess || emptyRoleCompanyAccess()}
+                        onChange={onCompanyAccessChange}
+                      />
+                    ) : null}
+                    </div>
                     );
                   })}
                 </div>
@@ -301,6 +339,156 @@ export function PermissionPicker({
           })}
         </div>
       ))}
+    </div>
+  );
+}
+
+function crmModulesEnabled() {
+  return (
+    isOrgModuleEnabled('leads') ||
+    isOrgModuleEnabled('clients') ||
+    isOrgModuleEnabled('contacts') ||
+    isOrgModuleEnabled('crm_dashboard')
+  );
+}
+
+function recruitmentModulesEnabled() {
+  return (
+    isOrgModuleEnabled('jobs') ||
+    isOrgModuleEnabled('candidates') ||
+    isOrgModuleEnabled('interviews') ||
+    isOrgModuleEnabled('placements') ||
+    isOrgModuleEnabled('pipeline') ||
+    isOrgModuleEnabled('matches')
+  );
+}
+
+function SwitchCompanyAccessPanel({
+  disabled,
+  value,
+  onChange,
+}: {
+  disabled?: boolean;
+  value: RoleCompanyAccess;
+  onChange?: (next: RoleCompanyAccess) => void;
+}) {
+  const [companies, setCompanies] = useState<RoleOrgCompany[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [openSide, setOpenSide] = useState<'crm' | 'recruitment' | null>(null);
+  const showCrm = crmModulesEnabled();
+  const showRecruitment = recruitmentModulesEnabled();
+
+  useEffect(() => {
+    let cancelled = false;
+    void getRoleOrgCompanies()
+      .then((rows) => {
+        if (!cancelled) {
+          setCompanies(rows);
+          setLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCompanies([]);
+          setLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleCompany = (side: 'crm' | 'recruitment', id: string) => {
+    if (disabled || !onChange) return;
+    const current = new Set(value[side] || []);
+    if (current.has(id)) current.delete(id);
+    else current.add(id);
+    onChange({ ...value, [side]: [...current] });
+  };
+
+  const setAll = (side: 'crm' | 'recruitment', selected: boolean) => {
+    if (disabled || !onChange) return;
+    onChange({
+      ...value,
+      [side]: selected ? companies.map((c) => c.id) : [],
+    });
+  };
+
+  const sides: Array<{ key: 'crm' | 'recruitment'; label: string; show: boolean }> = [
+    { key: 'crm', label: 'CRM', show: showCrm },
+    { key: 'recruitment', label: 'Recruitment', show: showRecruitment },
+  ].filter((s) => s.show);
+
+  if (!sides.length) return null;
+
+  return (
+    <div className="ml-6 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+      <p className="text-[11px] text-slate-500">
+        Open CRM or Recruitment, then tick the organizations this role can switch into. That
+        grants full access of those companies — no separate “full access” tick.
+      </p>
+      {sides.map((side) => {
+        const selected = new Set(value[side.key] || []);
+        const open = openSide === side.key;
+        return (
+          <div key={side.key} className="rounded-md border border-slate-200 bg-white">
+            <button
+              type="button"
+              onClick={() => setOpenSide(open ? null : side.key)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+            >
+              <span className="text-sm font-semibold text-slate-800">{side.label}</span>
+              <span className="text-[11px] text-slate-500">
+                {loaded
+                  ? `${selected.size} / ${companies.length} organizations`
+                  : 'Loading…'}
+              </span>
+            </button>
+            {open ? (
+              <div className="border-t border-slate-100 px-3 py-2 space-y-2">
+                {!loaded ? (
+                  <p className="text-[11px] text-slate-500">Loading organizations…</p>
+                ) : companies.length === 0 ? (
+                  <p className="text-[11px] text-slate-500">
+                    No organizations yet. Add companies in Organization, then pick them here.
+                  </p>
+                ) : (
+                  <>
+                    {!disabled && onChange ? (
+                      <button
+                        type="button"
+                        onClick={() => setAll(side.key, selected.size < companies.length)}
+                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                      >
+                        {selected.size === companies.length ? 'Clear all' : 'Select all'}
+                      </button>
+                    ) : null}
+                    <div className="grid grid-cols-1 gap-1">
+                      {companies.map((company) => (
+                        <label
+                          key={company.id}
+                          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                            disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected.has(company.id)}
+                            onChange={() => toggleCompany(side.key, company.id)}
+                            disabled={disabled}
+                            className="size-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-slate-800">{company.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

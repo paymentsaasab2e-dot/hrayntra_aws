@@ -26,35 +26,23 @@ export type AiCoinGateResult = {
  * When coins are spent, opens the demo purchase modal.
  */
 export function useAiCoinGate(featureId: string): AiCoinGateResult {
-  // HQ users should be able to use AI/features without paying tenant coins.
-  // We treat any `/hq/*` route as HQ context for UI gating purposes.
   const pathname = usePathname();
-  if (String(pathname || '').startsWith('/hq')) {
-    return {
-      cost: 0,
-      coins: 0,
-      locked: false,
-      refresh: async () => undefined,
-      confirmAndUnlock: () => true,
-      runWithUnlock: async <T,>(fn: () => T | Promise<T>) => fn(),
-      openPurchase: () => {},
-    };
-  }
-
+  const isHq = String(pathname || '').startsWith('/hq');
   const { coins, getFeatureCost, isFeatureLocked, refresh, openPurchase } = useTenantCoins();
-  const cost = getFeatureCost(featureId);
-  const locked = isFeatureLocked(featureId);
+  const cost = isHq ? 0 : getFeatureCost(featureId);
+  const locked = isHq ? false : isFeatureLocked(featureId);
 
   const openPurchaseForFeature = useCallback(() => {
+    if (isHq) return;
     openPurchase({
       featureId,
       required: cost,
       balance: coins,
     });
-  }, [openPurchase, featureId, cost, coins]);
+  }, [isHq, openPurchase, featureId, cost, coins]);
 
   const confirmAndUnlock = useCallback(() => {
-    if (cost <= 0) return true;
+    if (isHq || cost <= 0) return true;
     if (locked || coins < cost) {
       openAiCoinPurchaseModal({
         featureId,
@@ -72,10 +60,11 @@ export function useAiCoinGate(featureId: string): AiCoinGateResult {
       notifyTenantCoinsChanged({ spent: cost });
     }
     return ok;
-  }, [cost, locked, coins, featureId, refresh]);
+  }, [isHq, cost, locked, coins, featureId, refresh]);
 
   const runWithUnlock = useCallback(
     async <T,>(fn: () => T | Promise<T>): Promise<T | undefined> => {
+      if (isHq) return fn();
       if (!confirmAndUnlock()) return undefined;
       try {
         return await fn();
@@ -83,14 +72,14 @@ export function useAiCoinGate(featureId: string): AiCoinGateResult {
         void refresh();
       }
     },
-    [confirmAndUnlock, refresh]
+    [isHq, confirmAndUnlock, refresh]
   );
 
   return {
     cost,
-    coins,
+    coins: isHq ? 0 : coins,
     locked,
-    refresh,
+    refresh: isHq ? async () => undefined : refresh,
     confirmAndUnlock,
     runWithUnlock,
     openPurchase: openPurchaseForFeature,

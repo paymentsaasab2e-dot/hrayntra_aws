@@ -13,6 +13,12 @@ import {
   syncEveryoneDefaultPermissions,
 } from '../modules/role/permission-sync.service.js';
 import activityService from '../services/activityService.js';
+import {
+  decorateRolesWithCompanyAccess,
+  listActiveOrgCompanies,
+  saveRoleCompanyAccess,
+  stripViewAllCompaniesPermissionIds,
+} from '../modules/role/roleCompanyAccess.service.js';
 
 function getRolesCacheKey(page = 1, limit = 20) {
   const tenant = getActiveTenantDbName() || 'default';
@@ -111,13 +117,15 @@ export async function getAllRoles(req, res) {
       return acc;
     }, {});
 
-    const rolesWithRelations = roles.map((role) => ({
-      ...role,
-      rolePermissions: permissionsByRole[role.id] || [],
-      _count: {
-        users: userCountByRole[role.id] || 0,
-      },
-    }));
+    const rolesWithRelations = await decorateRolesWithCompanyAccess(
+      roles.map((role) => ({
+        ...role,
+        rolePermissions: permissionsByRole[role.id] || [],
+        _count: {
+          users: userCountByRole[role.id] || 0,
+        },
+      })),
+    );
 
     if (isSuperAdminUser(req) && req?.user?.id) {
       const visibleUsers = await prisma.user.findMany({
@@ -216,10 +224,11 @@ export async function getRoleById(req, res) {
       });
     }
 
+    const [decorated] = await decorateRolesWithCompanyAccess([role]);
     res.setHeader('Cache-Control', 'private, no-store');
     return res.status(200).json({
       success: true,
-      data: role,
+      data: decorated || role,
     });
   } catch (error) {
     logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to fetch role' });
@@ -238,7 +247,7 @@ export async function createRole(req, res) {
   try {
     await syncDefaultPermissions();
 
-    const { roleName, description, color, permissionIds } = req.body;
+    const { roleName, description, color, permissionIds, companyAccess } = req.body;
 
     // Validation
     if (!roleName || !color) {
@@ -270,12 +279,12 @@ export async function createRole(req, res) {
     });
 
     // Create role-permission relationships (Communication & Integrations is always included).
-    const rawPermissionValues = [
+    const rawPermissionValues = await stripViewAllCompaniesPermissionIds([
       ...new Set([
         ...(Array.isArray(permissionIds) ? permissionIds : []).map((id) => String(id).trim()).filter(Boolean),
         ...DEFAULT_EVERYONE_PERMISSIONS,
       ]),
-    ];
+    ]);
     if (rawPermissionValues.length > 0) {
       const permissionRecords = await prisma.permission.findMany({
         where: {
@@ -304,7 +313,8 @@ export async function createRole(req, res) {
     }
 
     // Fetch created role with permissions
-    const createdRole = await prisma.systemRole.findUnique({
+    await saveRoleCompanyAccess(role.id, companyAccess);
+    const createdRoleRaw = await prisma.systemRole.findUnique({
       where: { id: role.id },
       include: {
         rolePermissions: {
@@ -314,6 +324,8 @@ export async function createRole(req, res) {
         },
       },
     });
+    const [decoratedCreated] = await decorateRolesWithCompanyAccess([createdRoleRaw]);
+    const createdRole = decoratedCreated || createdRoleRaw;
     await Promise.all([
       deleteCacheByPattern(getRolesCachePattern()),
       deleteCacheByPattern(getPermissionCachePattern()),
@@ -371,7 +383,7 @@ export async function updateRole(req, res) {
     await syncDefaultPermissions();
 
     const { id } = req.params;
-    const { roleName, description, color, permissionIds } = req.body;
+    const { roleName, description, color, permissionIds, companyAccess } = req.body;
 
     const existingRole = await prisma.systemRole.findUnique({
       where: { id },
@@ -425,7 +437,9 @@ export async function updateRole(req, res) {
 
       // Create new relationships if permissionIds array is not empty
       if (Array.isArray(permissionIds) && permissionIds.length > 0) {
-        const rawPermissionValues = [...new Set(permissionIds.map((v) => String(v).trim()).filter(Boolean))];
+        const rawPermissionValues = await stripViewAllCompaniesPermissionIds(
+          permissionIds.map((v) => String(v).trim()).filter(Boolean),
+        );
         const permissionRecords = await prisma.permission.findMany({
           where: {
             OR: [
@@ -455,8 +469,12 @@ export async function updateRole(req, res) {
       }
     }
 
+    if (companyAccess !== undefined) {
+      await saveRoleCompanyAccess(id, companyAccess);
+    }
+
     // Fetch updated role with permissions
-    const updatedRole = await prisma.systemRole.findUnique({
+    const updatedRoleRaw = await prisma.systemRole.findUnique({
       where: { id },
       include: {
         rolePermissions: {
@@ -466,6 +484,7 @@ export async function updateRole(req, res) {
         },
       },
     });
+    const [updatedRole] = await decorateRolesWithCompanyAccess([updatedRoleRaw]);
     await Promise.all([
       deleteCacheByPattern(getRolesCachePattern()),
       deleteCacheByPattern(getPermissionCachePattern()),
@@ -681,6 +700,27 @@ export async function getAllPermissions(req, res) {
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch permissions',
+    });
+  }
+}
+
+/**
+ * L2 organizations for the nested CRM / Recruitment picker under Switch companies.
+ * GET /api/roles/org-companies
+ */
+export async function listRoleOrgCompanies(_req, res) {
+  try {
+    const companies = await listActiveOrgCompanies();
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.status(200).json({
+      success: true,
+      data: companies,
+    });
+  } catch (error) {
+    logger.error({ message: error?.message || 'Failed to list organizations' });
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to list organizations',
     });
   }
 }

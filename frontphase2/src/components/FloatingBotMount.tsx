@@ -2,12 +2,16 @@
 
 import dynamic from 'next/dynamic';
 
+function FloatingMountUnavailable() {
+  return null;
+}
+
 /** ARIA — existing AI System Operator (OpenAI-backed). */
 const FloatingBotButton = dynamic(
   () =>
     import('./FloatingBotButton')
       .then((mod) => mod.FloatingBotButton)
-      .catch(() => () => null),
+      .catch(() => FloatingMountUnavailable),
   {
     ssr: false,
     loading: () => null,
@@ -19,7 +23,7 @@ const HrYantraAiFloatingButton = dynamic(
   () =>
     import('./HrYantraAiFloatingButton')
       .then((mod) => mod.HrYantraAiFloatingButton)
-      .catch(() => () => null),
+      .catch(() => FloatingMountUnavailable),
   {
     ssr: false,
     loading: () => null,

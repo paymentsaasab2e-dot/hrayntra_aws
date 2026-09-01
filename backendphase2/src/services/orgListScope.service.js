@@ -25,9 +25,13 @@ export function isOrgHeadPurpose(scope) {
   return purpose === 'company_head' || purpose === 'site_head';
 }
 
-/** Super Admin / tenant HQ has picked a company, or a company admin is forced onto one. */
+/** Super Admin / tenant HQ has picked a company, a company admin is forced onto one,
+ *  or Switch companies granted a subset of organizations (including none). */
 export function isOrgCompanyScoped(scope) {
-  return Boolean(scope && !scope.isTenantWide && scope.orgUnitId);
+  if (!scope || scope.isTenantWide) return false;
+  if (scope.orgUnitId) return true;
+  if (Array.isArray(scope.unitIds) && scope.unitIds.length) return true;
+  return Boolean(scope.restrictToSelectedCompanies);
 }
 
 /** Super Admin, or a role granted View Members Across Companies (same tenant only). */

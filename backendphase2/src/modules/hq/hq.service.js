@@ -25,6 +25,7 @@ import { hqTrialService } from './hq-trial.service.js';
 import { hqHelpTicketsService } from './hq-help-tickets.service.js';
 import { hqBillingService } from './hq-billing.service.js';
 import { hqReportsService } from './hq-reports.service.js';
+import { tenantJobsFeedUrl } from '../public/tenant-jobs.service.js';
 
 async function resolvePlanInput(raw, billingCycle, planStartDate, planEndDate) {
   const plan = await hqPackagesService.resolvePlanInput(
@@ -208,6 +209,9 @@ function mapTenantForHqResponse(tenant) {
     subscriptionPlan: tenant.subscriptionPlan,
     tenantDbName: tenant.tenantDbName,
     tenantProvisioningMode: tenant.tenantProvisioningMode,
+    jobsApiKey: tenant.jobsApiKey || '',
+    jobsApiKeyIssuedAt: tenant.jobsApiKeyIssuedAt || null,
+    jobsApiUrl: tenantJobsFeedUrl(tenant.jobsApiKey || ''),
     status: tenant.status || 'ACTIVE',
     pausedAt: tenant.pausedAt || null,
     pausedBy: tenant.pausedBy || '',
@@ -901,6 +905,34 @@ export const hqService = {
       status: updated.status,
       pausedAt: updated.pausedAt,
       pausedBy: updated.pausedBy,
+    };
+  },
+
+  async issueTenantJobsApiKey(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email is required');
+    const updated = await headquartersAuthService.issueJobsApiKeyForEmail(email);
+    if (!updated) throw new Error('Tenant not found');
+    return {
+      email: updated.email,
+      jobsApiKey: updated.jobsApiKey,
+      jobsApiKeyIssuedAt: updated.jobsApiKeyIssuedAt,
+      jobsApiUrl: tenantJobsFeedUrl(updated.jobsApiKey),
+    };
+  },
+
+  async revokeTenantJobsApiKey(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email is required');
+    const updated = await headquartersAuthService.revokeJobsApiKeyForEmail(email);
+    if (!updated) throw new Error('Tenant not found');
+    return {
+      email: updated.email,
+      jobsApiKey: '',
+      jobsApiKeyIssuedAt: null,
+      jobsApiUrl: tenantJobsFeedUrl(''),
     };
   },
 

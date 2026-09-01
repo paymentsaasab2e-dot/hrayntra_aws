@@ -321,6 +321,8 @@ export type DashboardOrgScope = {
   companyCount?: number;
   canViewAllCompanies?: boolean;
   companies?: OrgCompanyOption[];
+  companiesCrm?: OrgCompanyOption[];
+  companiesRecruitment?: OrgCompanyOption[];
   memberIds?: string[];
 };
 

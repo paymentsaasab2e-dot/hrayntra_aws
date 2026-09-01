@@ -206,9 +206,9 @@ export function AiCoinLockBanner({
   className?: string;
 }) {
   const pathname = usePathname();
+  const { coins, isFeatureLocked, getFeatureCost, openPurchase } = useTenantCoins();
   if (String(pathname || '').startsWith('/hq')) return null;
 
-  const { coins, isFeatureLocked, getFeatureCost, openPurchase } = useTenantCoins();
   const locked = featureId ? isFeatureLocked(featureId) : coins <= 0;
   if (!locked) return null;
   const cost = featureId ? getFeatureCost(featureId) : 0;

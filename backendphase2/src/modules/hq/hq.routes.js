@@ -54,6 +54,8 @@ router.post('/tenants/impersonate', authMiddleware, hqController.createTenantImp
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.put('/tenants/coins', authMiddleware, hqController.setTenantCoins);
 router.put('/tenants/pause', authMiddleware, hqController.setTenantPause);
+router.post('/tenants/jobs-api-key', authMiddleware, hqController.issueTenantJobsApiKey);
+router.delete('/tenants/jobs-api-key', authMiddleware, hqController.revokeTenantJobsApiKey);
 router.put('/tenants/modules', authMiddleware, hqController.updateTenantModules);
 router.put('/tenants/organization-name', authMiddleware, hqController.updateTenantOrganizationName);
 router.get('/ai-features', authMiddleware, hqController.listAiFeatures);

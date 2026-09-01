@@ -161,13 +161,13 @@ export const DEFAULT_PERMISSIONS = [
     permissionName: 'switch_companies',
     module: 'Organization',
     description:
-      'Show the company/branch switcher and operate CRM/recruitment across companies. Super Admin has this by default; grant only to HQ users who may work across companies.',
+      'Show the company switcher. After ticking this, choose CRM and/or Recruitment organizations below — the role then has full access of those companies. Super Admin has this by default.',
   },
   {
     permissionName: 'view_all_companies',
     module: 'Organization',
     description:
-      'Full access of all companies — see jobs, leads, clients, candidates, and related lists across every company in this tenant. Without this, View all is limited to the member’s own organization.',
+      'Retired — use Switch companies, then pick CRM and Recruitment organizations. Kept for Super Admin and existing roles until they are saved again.',
   },
 
   // Company page (public tenant profile)
