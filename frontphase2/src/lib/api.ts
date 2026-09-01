@@ -24,6 +24,7 @@ import type {
 import type { PostServiceKycFormValues } from './clientKycForm';
 import type { InterviewClientReviewContext } from './clientReviewTypes';
 import { cacheClientPageFieldVisibility, normalizeClientPageFieldVisibility } from './clientPageFieldVisibility';
+import { orgSideFromPathname } from './org/orgSide';
 
 export type { BillingSettingsSnapshot, CreatePlacementInvoicePayload };
 
@@ -277,6 +278,13 @@ function attachWorkScopeHeader(headers: Record<string, string>) {
   }
 }
 
+function attachOrgSideHeader(headers: Record<string, string>) {
+  const side = orgSideFromPathname();
+  if (side === 'crm' || side === 'recruitment') {
+    headers['x-org-side'] = side;
+  }
+}
+
 /** Persist workspace DB name so API calls (including login) send `x-tenant-db-name`. */
 export function syncTenantDbName(value: string | null | undefined) {
   if (typeof window === 'undefined') return;
@@ -413,6 +421,7 @@ export async function apiFetch<T>(
   }
   if (options.auth || options.includeTenantHeader) {
     attachWorkScopeHeader(headers);
+    attachOrgSideHeader(headers);
   }
 
   // Debug: Log request headers (only when debug enabled)
@@ -1543,6 +1552,10 @@ export interface HqTenantRow {
   subscriptionPlan: HqTenantSubscriptionPlan | null;
   tenantDbName: string;
   tenantProvisioningMode: string;
+  /** Public jobs integration key. Give this to the tenant so they can pull their posted jobs. */
+  jobsApiKey?: string;
+  jobsApiKeyIssuedAt?: string | null;
+  jobsApiUrl?: string;
   status?: string;
   pausedAt?: string | null;
   pausedBy?: string;
@@ -4212,6 +4225,28 @@ export async function apiHqSetTenantPause(body: { email: string; paused: boolean
   }>('/hq/tenants/pause', { method: 'PUT', auth: true, body });
 }
 
+export async function apiHqIssueTenantJobsApiKey(body: { email: string }) {
+  return apiFetch<{
+    email: string;
+    jobsApiKey: string;
+    jobsApiKeyIssuedAt?: string | null;
+    jobsApiUrl: string;
+  }>('/hq/tenants/jobs-api-key', { method: 'POST', auth: true, body });
+}
+
+export async function apiHqRevokeTenantJobsApiKey(body: { email: string }) {
+  return apiFetch<{
+    email: string;
+    jobsApiKey: string;
+    jobsApiKeyIssuedAt?: string | null;
+    jobsApiUrl: string;
+  }>(`/hq/tenants/jobs-api-key?email=${encodeURIComponent(body.email)}`, {
+    method: 'DELETE',
+    auth: true,
+    body,
+  });
+}
+
 export async function apiHqUpdateTenantModules(body: {
   email: string;
   productLine?: 'crm' | 'recruitment';
@@ -4470,6 +4505,7 @@ export async function apiFetchFormData<T>(
   }
   if (options.auth || options.includeTenantHeader) {
     attachWorkScopeHeader(headers);
+    attachOrgSideHeader(headers);
   }
 
   const longRunning = isLongRunningApiPath(path);

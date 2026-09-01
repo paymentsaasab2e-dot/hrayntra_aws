@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { SettingsSidebar } from '../../components/SettingsSidebar';
 import { CommunicationSettings } from '../../components/settings/CommunicationSettings';
+import { PublicVisibilitySettings } from '../../components/settings/PublicVisibilitySettings';
+import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
 import { NotificationTriggerSettings } from '../../components/settings/NotificationTriggerSettings';
 import { AlertsManagementSettings } from '../../components/settings/AlertsManagementSettings';
 import { RecruitmentWorkflowSettings } from '../../components/settings/RecruitmentWorkflowSettings';
@@ -47,6 +49,8 @@ export default function SettingsPage() {
         case 'customization':
         case 'communication':
           return true;
+        case 'public-visibility':
+          return hasAnyPermission([...MODULE_ACCESS_MAP.Jobs, 'manage_settings']);
         case 'notifications-triggers':
         case 'alerts-management':
           return hasAnyPermission(['manage_settings']);
@@ -93,6 +97,7 @@ export default function SettingsPage() {
     const allowedSections = [
       'profile',
       'communication',
+      'public-visibility',
       'notifications-triggers',
       'alerts-management',
       'recruitment',
@@ -135,6 +140,8 @@ export default function SettingsPage() {
         return <ProfileSettings onDirtyChange={setProfileDirty} />;
       case 'communication':
         return <CommunicationSettings />;
+      case 'public-visibility':
+        return <PublicVisibilitySettings />;
       case 'notifications-triggers':
         return <NotificationTriggerSettings />;
       case 'alerts-management':
@@ -161,6 +168,7 @@ export default function SettingsPage() {
   const sectionTitleMap: Record<string, string> = {
     profile: 'Personal Profile',
     communication: 'Communication & Integrations',
+    'public-visibility': 'Public Visibility',
     'notifications-triggers': 'Notifications Trigger Points',
     'alerts-management': 'Alerts Management',
     recruitment: 'Recruitment workflow',
@@ -209,13 +217,17 @@ export default function SettingsPage() {
                     <h2 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                       {sectionTitle}
                     </h2>
-                    {activeSection !== 'alerts-management' ? (
+                    {activeSection === 'alerts-management' ? (
                       <p className="mt-0.5 text-sm text-slate-500">
-                        Configure {sectionTitle.toLowerCase()} for your workspace.
+                        Choose which alerts reach email and the portal for your team.
+                      </p>
+                    ) : activeSection === 'public-visibility' ? (
+                      <p className="mt-0.5 text-sm text-slate-500">
+                        Choose which job fields appear on the public job page, portal, and social posts.
                       </p>
                     ) : (
                       <p className="mt-0.5 text-sm text-slate-500">
-                        Choose which alerts reach email and the portal for your team.
+                        Configure {sectionTitle.toLowerCase()} for your workspace.
                       </p>
                     )}
                   </div>

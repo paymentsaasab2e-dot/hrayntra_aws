@@ -8,6 +8,7 @@ import {
   updateRole,
   deleteRole,
   getAllPermissions,
+  listRoleOrgCompanies,
 } from '../controllers/rolesController.js';
 
 const router = express.Router();
@@ -17,6 +18,7 @@ router.use(authMiddleware);
 
 // Role routes
 router.get('/', getAllRoles);
+router.get('/org-companies', requireAnyPermission(['manage_roles', 'assign_roles', 'manage_departments']), listRoleOrgCompanies);
 router.get('/:id', getRoleById);
 router.post('/', requireAnyPermission(['manage_roles', 'assign_roles']), createRole);
 router.patch('/:id', requireAnyPermission(['manage_roles', 'assign_roles']), updateRole);

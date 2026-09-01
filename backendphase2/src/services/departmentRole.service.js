@@ -1,5 +1,9 @@
 import { prisma } from '../config/prisma.js';
 import { syncDefaultPermissions } from '../modules/role/permission-sync.service.js';
+import {
+  saveRoleCompanyAccess,
+  stripViewAllCompaniesPermissionIds,
+} from '../modules/role/roleCompanyAccess.service.js';
 
 const ROLE_LINK_INCLUDE = {
   role: {
@@ -94,6 +98,7 @@ export async function applyDepartmentRoles(departmentId, roles, client = prisma)
       description: entry.description ? String(entry.description).trim() : undefined,
       color: entry.color ? String(entry.color).trim() : 'blue',
       permissionIds: Array.isArray(entry.permissionIds) ? entry.permissionIds : [],
+      companyAccess: entry.companyAccess,
       rank: Number.isFinite(Number(entry.rank)) ? Number(entry.rank) : index + 1,
     }))
     .filter((entry) => entry.roleId || entry.roleName);
@@ -131,7 +136,9 @@ export async function applyDepartmentRoles(departmentId, roles, client = prisma)
         roleId = created.id;
 
         if (entry.permissionIds.length > 0) {
-          const rawPermissionValues = [...new Set(entry.permissionIds.map((id) => String(id).trim()).filter(Boolean))];
+          const rawPermissionValues = await stripViewAllCompaniesPermissionIds(
+            entry.permissionIds.map((id) => String(id).trim()).filter(Boolean),
+          );
           const permissionRecords = await client.permission.findMany({
             where: {
               OR: [{ id: { in: rawPermissionValues } }, { permissionName: { in: rawPermissionValues } }],
@@ -155,6 +162,9 @@ export async function applyDepartmentRoles(departmentId, roles, client = prisma)
               })),
             });
           }
+        }
+        if (entry.companyAccess) {
+          await saveRoleCompanyAccess(roleId, entry.companyAccess);
         }
       }
     } else {

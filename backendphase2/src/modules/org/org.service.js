@@ -1,7 +1,11 @@
 import { prisma } from '../../config/prisma.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
-import { hasPermission, canViewAllCompanies } from '../../utils/permissionScope.js';
+import { hasPermission } from '../../utils/permissionScope.js';
 import { teamMemberService } from '../team/teamMember.service.js';
+import {
+  getRoleCompanyAccess,
+  resolveOrgSide,
+} from '../role/roleCompanyAccess.service.js';
 
 export const HIERARCHY_PURPOSES = ['member', 'company_head', 'site_head'];
 
@@ -160,6 +164,32 @@ export async function collectDescendantIds(unitId, { includePending = false } = 
   return out;
 }
 
+export async function collectDescendantIdsMany(unitIds, { includePending = false } = {}) {
+  const starts = [...new Set((unitIds || []).map(oid).filter(Boolean))];
+  if (!starts.length) return [];
+  const units = await prisma.orgUnit.findMany({
+    where: includePending ? {} : { status: 'active' },
+    select: { id: true, parentId: true, status: true },
+  });
+  const byParent = new Map();
+  for (const unit of units) {
+    const pid = unit.parentId ? String(unit.parentId) : '';
+    if (!byParent.has(pid)) byParent.set(pid, []);
+    byParent.get(pid).push(String(unit.id));
+  }
+  const out = [];
+  const seen = new Set();
+  const stack = [...starts];
+  while (stack.length) {
+    const current = stack.pop();
+    if (seen.has(current)) continue;
+    seen.add(current);
+    out.push(current);
+    for (const child of byParent.get(current) || []) stack.push(child);
+  }
+  return out;
+}
+
 export async function userIdsInOrgScope(unitId) {
   const ids = await collectDescendantIds(unitId);
   if (!ids.length) return [];
@@ -222,20 +252,21 @@ export async function resolveViewerOrgScope(req) {
   const userId = oid(req?.user?.id || req?.user?._id);
   if (req?._orgViewerScope) return req._orgViewerScope;
 
-  const requested = oid(
+  const requestedRaw = oid(
     req?.query?.orgUnitId || req?.body?.orgUnitId || req?.headers?.['x-org-unit-id'],
   );
   let viewer = null;
   if (userId) {
     viewer = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, orgUnitId: true, hierarchyPurpose: true, role: true },
+      select: { id: true, orgUnitId: true, hierarchyPurpose: true, role: true, roleId: true },
     });
   }
 
   const purpose = String(viewer?.hierarchyPurpose || 'member');
   const homeId = viewer?.orgUnitId ? String(viewer.orgUnitId) : '';
   const isCompanyScopedHead = purpose === 'company_head' || purpose === 'site_head';
+  const isSA = isSuperAdminUser(req);
 
   let homeOrgUnitName = null;
   let homeIsOrgCompany = false;
@@ -248,58 +279,93 @@ export async function resolveViewerOrgScope(req) {
     homeIsOrgCompany = Boolean(homeUnit && Number(homeUnit.levelOrder) >= 2);
   }
 
-  const mayViewAllCompanies = canViewAllCompanies(req);
-  // Company members with View all (jobs/leads/…) stay in their own organization
-  // unless they also have Full access of all companies.
-  const pinToHomeCompany = Boolean(homeId && homeIsOrgCompany && !mayViewAllCompanies);
+  const companies = await prisma.orgUnit.findMany({
+    where: ACTIVE_ORG_COMPANY_WHERE,
+    orderBy: { name: 'asc' },
+  });
+  const allCompanyIds = companies.map((c) => String(c.id));
+  const orgSide = resolveOrgSide(req);
+  const roleId = oid(viewer?.roleId || req?.user?.roleId);
 
-  // Cross-company selector: Super Admin, or roles explicitly granted switch_companies.
-  // Do not treat org_structure alone as switch access (Managers had org_structure and saw the selector).
-  const canSwitchCompaniesRaw =
-    isSuperAdminUser(req) || hasPermission(req, 'switch_companies');
-  const canSwitchCompanies = Boolean(canSwitchCompaniesRaw && !pinToHomeCompany);
-  // HQ org tree editors (without being locked to a company_head home).
+  let access = { crm: [], recruitment: [] };
+  if (isSA) {
+    access = { crm: [...allCompanyIds], recruitment: [...allCompanyIds] };
+  } else if (roleId) {
+    access = await getRoleCompanyAccess(roleId, allCompanyIds);
+    if (!access.crm.length && !access.recruitment.length && hasPermission(req, 'view_all_companies')) {
+      access = { crm: [...allCompanyIds], recruitment: [...allCompanyIds] };
+    }
+  } else if (hasPermission(req, 'view_all_companies')) {
+    access = { crm: [...allCompanyIds], recruitment: [...allCompanyIds] };
+  }
+
+  const allowedForSide =
+    orgSide === 'crm'
+      ? access.crm
+      : orgSide === 'recruitment'
+        ? access.recruitment
+        : [...new Set([...access.crm, ...access.recruitment])];
+
+  const hasSwitchPerm = Boolean(isSA || hasPermission(req, 'switch_companies'));
+  const hasGranted = allowedForSide.length > 0;
+  const selectedAllForSide = Boolean(
+    isSA || (allCompanyIds.length > 0 && allCompanyIds.every((id) => allowedForSide.includes(id))),
+  );
+
+  // Company-home users stay in their own org unless Switch companies + selected orgs.
+  const pinToHomeCompany = Boolean(
+    homeId && homeIsOrgCompany && !isSA && !(hasSwitchPerm && hasGranted),
+  );
+
+  const canSwitchCompanies = Boolean(hasSwitchPerm && hasGranted && !pinToHomeCompany);
   const isTenantAdmin =
     canSwitchCompanies ||
     (hasPermission(req, 'org_structure') && !isCompanyScopedHead && !pinToHomeCompany);
 
+  const requested =
+    canSwitchCompanies && requestedRaw && allowedForSide.includes(requestedRaw) ? requestedRaw : '';
+
   const forced =
-    pinToHomeCompany ||
-    (!mayViewAllCompanies &&
-      !canSwitchCompanies &&
-      (isCompanyScopedHead || Boolean(homeId)));
+    pinToHomeCompany || (!canSwitchCompanies && (isCompanyScopedHead || Boolean(homeId)));
 
   let scopeUnitId = null;
   if (forced && homeId) scopeUnitId = homeId;
-  else if (canSwitchCompanies && requested) scopeUnitId = requested;
+  else if (requested) scopeUnitId = requested;
 
   const isTenantWide = Boolean(
-    (canSwitchCompanies || mayViewAllCompanies) && !scopeUnitId && !pinToHomeCompany,
+    canSwitchCompanies && selectedAllForSide && !scopeUnitId && !pinToHomeCompany,
   );
+  const restrictToSelectedCompanies = Boolean(hasSwitchPerm && !isSA && !isTenantWide);
+
   let unitIds = [];
   let memberIds = [];
   if (scopeUnitId) {
     unitIds = await collectDescendantIds(scopeUnitId);
     memberIds = await userIdsInOrgScope(scopeUnitId);
-    // Company/site heads must always see their own rows.
     if (forced && userId && !memberIds.includes(userId)) {
       memberIds = [userId, ...memberIds];
-    } else if (canSwitchCompanies && userId && !memberIds.includes(userId)) {
-      // Never inject HQ Super Admin into a selected company. Empty Company B must
-      // stay empty — SA rows (createdBy/assignedTo) belong to HQ / other companies.
+    }
+  } else if (!isTenantWide && canSwitchCompanies && allowedForSide.length) {
+    unitIds = await collectDescendantIdsMany(allowedForSide);
+    if (unitIds.length) {
+      const users = await prisma.user.findMany({
+        where: { orgUnitId: { in: unitIds } },
+        select: { id: true },
+      });
+      memberIds = users.map((u) => String(u.id));
     }
   }
 
-  const companies = await prisma.orgUnit.findMany({
-    where: ACTIVE_ORG_COMPANY_WHERE,
-    orderBy: { name: 'asc' },
-  });
+  const mapAllowed = (ids) =>
+    companies.filter((c) => ids.includes(String(c.id))).map((c) => mapUnit(c));
 
   const payload = {
     isTenantAdmin,
     isTenantWide,
     canSwitchCompanies: Boolean(canSwitchCompanies),
-    canViewAllCompanies: Boolean(mayViewAllCompanies),
+    canViewAllCompanies: Boolean(isSA || selectedAllForSide),
+    restrictToSelectedCompanies,
+    orgSide,
     hierarchyPurpose: purpose,
     orgUnitId: scopeUnitId,
     homeOrgUnitId: homeId || null,
@@ -307,8 +373,9 @@ export async function resolveViewerOrgScope(req) {
     homeIsOrgCompany,
     unitIds,
     memberIds,
-    // Only expose full company list to users who may switch.
-    companies: canSwitchCompanies ? companies.map((c) => mapUnit(c)) : [],
+    companies: canSwitchCompanies ? mapAllowed(allowedForSide) : [],
+    companiesCrm: hasSwitchPerm ? mapAllowed(access.crm) : [],
+    companiesRecruitment: hasSwitchPerm ? mapAllowed(access.recruitment) : [],
     hasCompanies: companies.length > 0,
     companyCount: companies.length,
   };

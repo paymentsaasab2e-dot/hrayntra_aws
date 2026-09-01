@@ -42,6 +42,15 @@ export interface Department {
   departmentRoles?: DepartmentRoleLink[];
 }
 
+export interface RoleCompanyAccess {
+  crm: string[];
+  recruitment: string[];
+}
+
+export function emptyRoleCompanyAccess(): RoleCompanyAccess {
+  return { crm: [], recruitment: [] };
+}
+
 /** Role assignment when creating or updating a department */
 export interface DepartmentRoleInput {
   roleId?: string;
@@ -49,6 +58,7 @@ export interface DepartmentRoleInput {
   description?: string;
   color?: string;
   permissionIds?: string[];
+  companyAccess?: RoleCompanyAccess;
   rank: number;
 }
 
@@ -72,6 +82,7 @@ export interface SystemRole extends Role {
   rolePermissions?: Array<{
     permission: Permission;
   }>;
+  companyAccess?: RoleCompanyAccess;
   _count?: {
     users: number;
   };

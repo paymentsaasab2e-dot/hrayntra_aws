@@ -1,4 +1,5 @@
 import { MongoClient, ObjectId } from 'mongodb';
+import crypto from 'node:crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -436,6 +437,12 @@ function normalizeHeadquartersUser(document) {
     tenantDbName: String(document.tenantDbName || ''),
     tenantDatabaseUrl: String(document.tenantDatabaseUrl || ''),
     tenantProvisioningMode: String(document.tenantProvisioningMode || 'DEDICATED'),
+    jobsApiKey: String(document.jobsApiKey || '').trim(),
+    jobsApiKeyIssuedAt: document.jobsApiKeyIssuedAt
+      ? document.jobsApiKeyIssuedAt instanceof Date
+        ? document.jobsApiKeyIssuedAt.toISOString()
+        : String(document.jobsApiKeyIssuedAt)
+      : null,
     createdAt: document.createdAt || null,
     updatedAt: document.updatedAt || null,
     isDeleted: Boolean(document.isDeleted),
@@ -685,6 +692,67 @@ export const headquartersAuthService = {
       }
     }
     return this.findTenantByDbName(tenantDbName);
+  },
+
+  async findWorkspaceUserByJobsApiKey(apiKey) {
+    const collection = await getCollection();
+    const key = String(apiKey || '').trim();
+    if (!collection || !key) return null;
+    const doc = await collection.findOne({
+      jobsApiKey: key,
+      isDeleted: { $ne: true },
+    });
+    return normalizeHeadquartersUser(doc);
+  },
+
+  async issueJobsApiKeyForEmail(email) {
+    const collection = await getCollection();
+    const normalizedEmail = normalizeEmail(email);
+    if (!collection || !normalizedEmail) {
+      throw new Error('Tenant email is required');
+    }
+    let jobsApiKey = '';
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const candidate = `hryj_${crypto.randomBytes(24).toString('base64url')}`;
+      const clash = await collection.findOne({ jobsApiKey: candidate });
+      if (!clash) {
+        jobsApiKey = candidate;
+        break;
+      }
+    }
+    if (!jobsApiKey) throw new Error('Could not generate a unique jobs API key');
+    const issuedAt = new Date();
+    const result = await collection.updateOne(
+      { email: normalizedEmail, isDeleted: { $ne: true } },
+      { $set: { jobsApiKey, jobsApiKeyIssuedAt: issuedAt, updatedAt: issuedAt } },
+    );
+    if (!result.matchedCount) throw new Error('Tenant not found');
+    const doc = await collection.findOne({
+      email: normalizedEmail,
+      isDeleted: { $ne: true },
+    });
+    return normalizeHeadquartersUser(doc);
+  },
+
+  async revokeJobsApiKeyForEmail(email) {
+    const collection = await getCollection();
+    const normalizedEmail = normalizeEmail(email);
+    if (!collection || !normalizedEmail) {
+      throw new Error('Tenant email is required');
+    }
+    const result = await collection.updateOne(
+      { email: normalizedEmail, isDeleted: { $ne: true } },
+      {
+        $unset: { jobsApiKey: '', jobsApiKeyIssuedAt: '' },
+        $set: { updatedAt: new Date() },
+      },
+    );
+    if (!result.matchedCount) throw new Error('Tenant not found');
+    const doc = await collection.findOne({
+      email: normalizedEmail,
+      isDeleted: { $ne: true },
+    });
+    return normalizeHeadquartersUser(doc);
   },
 
   async findWorkspaceUserByEmail(email) {

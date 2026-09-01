@@ -81,6 +81,7 @@ import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
 import notificationRoutes from './modules/notification/notification.routes.js';
 import preScreenAssessmentRoutes from './modules/pre-screen-assessment/assessment.routes.js';
 import publicLandingRoutes from './modules/public/public.routes.js';
+import publicTenantJobsRoutes from './modules/public/tenant-jobs.routes.js';
 
 const app = express();
 
@@ -98,19 +99,30 @@ const allowedOrigins = (
   .map((v) => v.trim())
   .filter(Boolean);
 
-app.use(cors({
-  origin(origin, callback) {
-    // Allow server-to-server / curl requests without Origin header
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
-  },
-  credentials: true,
-  // `x-org-unit-id` carries the active company/branch from the workspace switcher.
-  // Without it here the browser blocks every request made while a company is selected.
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-db-name', 'x-org-unit-id'],
-  exposedHeaders: ['X-Coin-Balance', 'X-Coins-Spent'],
-}));
+app.use(
+  cors((req, callback) => {
+    const origin = req.header('Origin');
+    const publicTenantJobs = String(req.path || '').startsWith('/api/v1/public/tenant-jobs');
+    if (publicTenantJobs) {
+      callback(null, {
+        origin: true,
+        credentials: false,
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Api-Key'],
+      });
+      return;
+    }
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, {
+        origin: true,
+        credentials: true,
+        allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-db-name', 'x-org-unit-id', 'x-org-side', 'X-Api-Key'],
+        exposedHeaders: ['X-Coin-Balance', 'X-Coins-Spent'],
+      });
+      return;
+    }
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  }),
+);
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '15mb';
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: jsonBodyLimit }));
@@ -227,6 +239,7 @@ app.use('/api/v1/internal', portalSyncRoutes);
 app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
 app.use('/api/v1/public/uploads', publicUploadsRoutes);
 app.use('/api/v1/resume-preview', resumePreviewRoutes);
+app.use('/api/v1/public/tenant-jobs', publicTenantJobsRoutes);
 app.use('/api/v1/public', publicLandingRoutes);
 app.use('/api/v1/auth', authRoutes);
 // HQ routes include a public pricing endpoint and must be mounted before

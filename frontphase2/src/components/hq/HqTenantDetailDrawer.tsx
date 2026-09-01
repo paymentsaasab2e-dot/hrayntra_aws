@@ -15,11 +15,19 @@ import {
   Play,
   Settings2,
   Building2,
+  KeyRound,
+  Copy,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
 import {
   apiHqSetTenantCoins,
   apiHqUpdateTenantModules,
   apiHqUpdateTenantOrganizationName,
+  apiHqIssueTenantJobsApiKey,
+  apiHqRevokeTenantJobsApiKey,
   type HqSubscriptionPackage,
   type HqTenantRow,
 } from '@/lib/api';
@@ -41,7 +49,7 @@ import { formatDateDMY } from '@/utils/dateDisplay';
 import { DrawerCloseButton } from '../drawers/DrawerCloseButton';
 import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { HqPrimaryButton, HqSecondaryButton, HQ_SELECT_CLASS } from './hqUi';
-import { requestSuccess } from '@/lib/appDialog';
+import { requestConfirm, requestSuccess } from '@/lib/appDialog';
 import { HqTenantBehaviorAnalyticsPanel } from './HqTenantBehaviorDrawer';
 
 type DetailTab = 'overview' | 'pricing' | 'analytics' | 'tabs' | 'status';
@@ -134,6 +142,9 @@ export function HqTenantDetailDrawer({
   const [companyNameDraft, setCompanyNameDraft] = useState('');
   const [savingCompanyName, setSavingCompanyName] = useState(false);
   const [companyNameError, setCompanyNameError] = useState('');
+  const [jobsApiBusy, setJobsApiBusy] = useState(false);
+  const [jobsApiError, setJobsApiError] = useState('');
+  const [jobsApiKeyVisible, setJobsApiKeyVisible] = useState(false);
 
   const packagesWithPricing = useMemo(
     () => subscriptionPackagesWithPricing(planOptions),
@@ -169,6 +180,11 @@ export function HqTenantDetailDrawer({
     setSavingCompanyName(false);
     setCompanyNameError('');
   }, [open, tenant]);
+
+  useEffect(() => {
+    setJobsApiKeyVisible(false);
+    setJobsApiError('');
+  }, [tenant?.email]);
 
   useEffect(() => {
     if (!open) return;
@@ -273,6 +289,57 @@ export function HqTenantDetailDrawer({
       setCompanyNameError(err instanceof Error ? err.message : 'Failed to update company name');
     } finally {
       setSavingCompanyName(false);
+    }
+  };
+
+  const handleIssueJobsApiKey = async (rotate: boolean) => {
+    if (!tenant?.email) return;
+    if (rotate) {
+      const ok = await requestConfirm(
+        'Generate a new jobs API key? The previous key will stop working immediately.',
+      );
+      if (!ok) return;
+    }
+    setJobsApiBusy(true);
+    setJobsApiError('');
+    try {
+      await apiHqIssueTenantJobsApiKey({ email: tenant.email });
+      setJobsApiKeyVisible(true);
+      void requestSuccess(rotate ? 'New jobs API key generated.' : 'Jobs API key created.');
+      onSaved();
+    } catch (err) {
+      setJobsApiError(err instanceof Error ? err.message : 'Failed to issue jobs API key');
+    } finally {
+      setJobsApiBusy(false);
+    }
+  };
+
+  const handleRevokeJobsApiKey = async () => {
+    if (!tenant?.email) return;
+    const ok = await requestConfirm(
+      'Revoke this jobs API key? Any website or integration using it will stop receiving jobs.',
+    );
+    if (!ok) return;
+    setJobsApiBusy(true);
+    setJobsApiError('');
+    try {
+      await apiHqRevokeTenantJobsApiKey({ email: tenant.email });
+      setJobsApiKeyVisible(false);
+      void requestSuccess('Jobs API key revoked.');
+      onSaved();
+    } catch (err) {
+      setJobsApiError(err instanceof Error ? err.message : 'Failed to revoke jobs API key');
+    } finally {
+      setJobsApiBusy(false);
+    }
+  };
+
+  const copyText = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      void requestSuccess(`${label} copied.`);
+    } catch {
+      setJobsApiError(`Could not copy ${label.toLowerCase()}.`);
     }
   };
 
@@ -453,6 +520,111 @@ export function HqTenantDetailDrawer({
                         </>
                       )}
                     </div>
+
+                    <div className="sm:col-span-2 rounded-xl border border-sky-200 bg-sky-50/60 px-4 py-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                            <KeyRound className="h-3.5 w-3.5" />
+                            Jobs API key
+                          </p>
+                          <p className="mt-1 max-w-xl text-[11px] leading-snug text-slate-600">
+                            This key only serves this tenant’s posted jobs. Do not paste the key in Google.
+                            Open the jobs link below in the browser address bar.
+                          </p>
+                        </div>
+                      </div>
+                      {readOnly ? (
+                        <p className="mt-3 text-xs text-amber-700">
+                          Provision the tenant workspace first, then generate a key.
+                        </p>
+                      ) : tenant.jobsApiKey ? (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <code className="min-w-0 flex-1 break-all rounded-lg border border-sky-100 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
+                              {jobsApiKeyVisible
+                                ? tenant.jobsApiKey
+                                : `${tenant.jobsApiKey.slice(0, 8)}${'•'.repeat(18)}${tenant.jobsApiKey.slice(-4)}`}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => setJobsApiKeyVisible((v) => !v)}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                              title={jobsApiKeyVisible ? 'Hide key' : 'Show key'}
+                            >
+                              {jobsApiKeyVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void copyText(tenant.jobsApiKey || '', 'API key')}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                              title="Copy API key"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          {tenant.jobsApiUrl ? (
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                Open this in the browser
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <code className="min-w-0 flex-1 break-all rounded-lg border border-sky-100 bg-white px-3 py-2 font-mono text-[11px] text-slate-600">
+                                  {tenant.jobsApiUrl}
+                                </code>
+                                <button
+                                  type="button"
+                                  onClick={() => void copyText(tenant.jobsApiUrl || '', 'Jobs link')}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                  title="Copy jobs link"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </button>
+                                <a
+                                  href={tenant.jobsApiUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-50"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  Open
+                                </a>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div className="flex flex-wrap gap-2">
+                            <HqSecondaryButton
+                              type="button"
+                              disabled={jobsApiBusy}
+                              onClick={() => void handleIssueJobsApiKey(true)}
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${jobsApiBusy ? 'animate-spin' : ''}`} />
+                              Regenerate
+                            </HqSecondaryButton>
+                            <HqSecondaryButton
+                              type="button"
+                              disabled={jobsApiBusy}
+                              onClick={() => void handleRevokeJobsApiKey()}
+                            >
+                              Revoke
+                            </HqSecondaryButton>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-3">
+                          <HqPrimaryButton
+                            type="button"
+                            disabled={jobsApiBusy}
+                            loading={jobsApiBusy}
+                            onClick={() => void handleIssueJobsApiKey(false)}
+                          >
+                            Generate API key
+                          </HqPrimaryButton>
+                        </div>
+                      )}
+                      {jobsApiError ? <p className="mt-2 text-xs text-rose-600">{jobsApiError}</p> : null}
+                    </div>
+
                     <InfoCard label="Database" value={tenant.tenantDbName || '—'} mono />
                     <InfoCard
                       label="Source"

@@ -138,6 +138,7 @@ export const DASHBOARD_HIDDEN_TICK_PERMISSIONS = [
   ...DASHBOARD_LEVEL_PERMISSIONS,
   'dash_crm_people',
   'dash_rec_people',
+  'view_all_companies',
 ] as const;
 
 /** @deprecated use DASHBOARD_LEVEL_PERMISSIONS */

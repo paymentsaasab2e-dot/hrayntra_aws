@@ -39,9 +39,8 @@ export function canViewAllAssignments(req) {
 }
 
 /**
- * See jobs/leads/clients/candidates across every company in this tenant.
- * Without this, View all (jobs/leads/clients/candidates) is limited to the
- * member’s own organization. Super Admin has this; manage_settings does not.
+ * Legacy tenant-wide company access. Super Admin still has this.
+ * Other roles now pick companies under Switch companies (CRM / Recruitment).
  */
 export function canViewAllCompanies(req) {
   if (isSuperAdminOwnWork(req)) return false;

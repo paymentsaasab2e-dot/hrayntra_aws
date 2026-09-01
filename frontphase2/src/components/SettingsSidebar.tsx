@@ -15,8 +15,10 @@ import {
   History,
   Percent,
   FileText,
+  Eye,
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
+import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 
 /**
  * Profile, Customization, Communication & Integrations, and Subscription & Plan
@@ -44,6 +46,12 @@ const baseSettingsNav: SettingsNavItem[] = [
     id: 'communication',
     label: 'Communication & Integrations',
     icon: Share2,
+  },
+  {
+    id: 'public-visibility',
+    label: 'Public Visibility',
+    icon: Eye,
+    anyPermissions: [...MODULE_ACCESS_MAP.Jobs, 'manage_settings'],
   },
   {
     id: 'notifications-triggers',
