@@ -26,6 +26,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
+import { asList } from '@/lib/dashboard/api';
 import { crmCard, dashCard, formatInr, formatNum, relativeTime, useCrmDashboard } from './crmShared';
 import { CrmStatNumber } from './crmStatNumber';
 
@@ -35,12 +36,12 @@ type Props = { overview: CrmOverview | null; loading?: boolean; compact?: boolea
 
 export function CrmAnalyticsRow({ overview }: Props) {
   const { openDrillDown } = useCrmDashboard();
-  const pipeline = overview?.pipeline || [];
-  const sources = overview?.leadSources || [];
-  const statusBars = overview?.leadStatusBars || [];
-  const industries = overview?.industries || [];
-  const countries = overview?.countries || [];
-  const growth = overview?.clientGrowth || [];
+  const pipeline = asList(overview?.pipeline);
+  const sources = asList(overview?.leadSources);
+  const statusBars = asList(overview?.leadStatusBars);
+  const industries = asList(overview?.industries);
+  const countries = asList(overview?.countries);
+  const growth = asList(overview?.clientGrowth);
   const k = overview?.kpis || {};
 
   return (

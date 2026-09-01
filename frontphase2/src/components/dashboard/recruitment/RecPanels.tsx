@@ -181,7 +181,7 @@ export function RecSchedulePanel({ overview, loading }: Props) {
 
 export function RecTeamLeaderboard({ overview, loading }: Props) {
   const rows = overview?.leaderboard || [];
-  const recommendations = overview?.recommendations || [];
+  const recommendations = Array.isArray(overview?.recommendations) ? overview.recommendations : [];
 
   if (loading && !overview) {
     return <div className="h-64 animate-pulse rounded-2xl bg-white" />;
@@ -270,7 +270,7 @@ export function RecTeamLeaderboard({ overview, loading }: Props) {
 }
 
 export function RecAlertsPanel({ overview, loading }: Props) {
-  const alerts = overview?.alerts || [];
+  const alerts = Array.isArray(overview?.alerts) ? overview.alerts : [];
 
   if (loading && !overview) {
     return <div className="h-[320px] animate-pulse rounded-2xl bg-white" />;

@@ -26,7 +26,8 @@ export function HqDashCategoryTabs({
   className = '',
   instanceId,
 }: Props) {
-  const active = tabs.find((t) => t.id === value) || tabs[0];
+  const safeTabs = Array.isArray(tabs) ? tabs : [];
+  const active = safeTabs.find((t) => t.id === value) || safeTabs[0];
   const autoId = useId();
   const layoutKey = `hq-dash-tab-pill-${instanceId || autoId}`;
   const trackRef = useRef<HTMLDivElement>(null);
@@ -51,7 +52,7 @@ export function HqDashCategoryTabs({
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [value, tabs]);
+  }, [value, safeTabs]);
 
   return (
     <div className={`mb-4 ${className}`}>
@@ -77,7 +78,7 @@ export function HqDashCategoryTabs({
           />
         ) : null}
 
-        {tabs.map((tab) => {
+        {safeTabs.map((tab) => {
           const on = tab.id === value;
           return (
             <button

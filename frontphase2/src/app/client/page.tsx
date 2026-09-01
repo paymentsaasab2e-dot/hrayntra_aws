@@ -110,6 +110,16 @@ function getClientDynamicFieldValue(client: Client, label: string): string {
   return String(match?.value || '').trim();
 }
 
+function clientsForCurrentScope(list: Client[], recruitmentScope: boolean): Client[] {
+  const rows = Array.isArray(list) ? list : [];
+  if (recruitmentScope) {
+    return rows.filter((client) => Boolean(client.recruitmentEnabled || client.createdInRecruitment));
+  }
+  const crmVisible = rows.filter((client) => !client.createdInRecruitment);
+  // Never blank CRM Clients when records exist (legacy mixed flags).
+  return crmVisible.length > 0 || rows.length === 0 ? crmVisible : rows;
+}
+
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   switch (activeTab) {
     case 'active':
@@ -384,7 +394,7 @@ export default function App() {
   const [clientIdForJob, setClientIdForJob] = useState<string | null>(null);
   const [sendingToRecruitmentIds, setSendingToRecruitmentIds] = useState<string[]>([]);
   const [recruitmentForwardClient, setRecruitmentForwardClient] = useState<Client | null>(null);
-  const [isEmpty, setIsEmpty] = useState(false);
+  const fetchRequestIdRef = useRef(0);
   const [showImportDrawer, setShowImportDrawer] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
@@ -463,10 +473,7 @@ export default function App() {
   }, [availableDynamicColumnLabels, setSelectedDynamicColumnLabels]);
 
   const filteredClients = useMemo(() => {
-    let list = filterClientsByTab(clients, activeTab);
-    list = list.filter((client) =>
-      isRecruitmentScope ? Boolean(client.recruitmentEnabled || client.createdInRecruitment) : !client.createdInRecruitment,
-    );
+    let list = filterClientsByTab(clientsForCurrentScope(clients, isRecruitmentScope), activeTab);
     if (teamMemberFilterId) {
       const selectedMember = teamMembers.find((member) => member.id === teamMemberFilterId);
       const selectedName = String(selectedMember?.name || '').trim().toLowerCase();
@@ -646,15 +653,24 @@ export default function App() {
     };
   }, [clients, mergeClientOptimistically, searchParams]);
 
-  const fetchClients = useCallback(async (overrides?: { page?: number; search?: string; matchingClientIds?: string[] }) => {
+  const fetchClients = useCallback(async (overrides?: {
+    page?: number;
+    search?: string;
+    matchingClientIds?: string[];
+    silent?: boolean;
+  }) => {
+    const requestId = ++fetchRequestIdRef.current;
+    const silent = overrides?.silent === true;
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
 
       const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
       if (!token) {
-        setClients(INITIAL_CLIENTS);
-        setIsEmpty(INITIAL_CLIENTS.length === 0);
+        if (requestId !== fetchRequestIdRef.current) return;
+        if (!silent) setLoading(false);
         return;
       }
 
@@ -671,50 +687,43 @@ export default function App() {
           recruitmentEnabled: isRecruitmentScope || undefined,
         }),
       );
+      if (requestId !== fetchRequestIdRef.current) return;
 
       const backendClients = response.data ? extractBackendClients(response.data) : [];
 
       if (!Array.isArray(backendClients)) {
-        setError('Unexpected API response format.');
-        setClients(INITIAL_CLIENTS);
-        setIsEmpty(INITIAL_CLIENTS.length === 0);
+        if (!silent) setError('Unexpected API response format.');
         return;
       }
 
-      const mappedClients = backendClients
-        .map(mapBackendClientToFrontend)
-        .filter((client) =>
-          isRecruitmentScope
-            ? Boolean(client.recruitmentEnabled || client.createdInRecruitment)
-            : !client.createdInRecruitment,
-        )
-        .sort((a, b) => {
-          const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
-          const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
-          return bTime - aTime;
-        });
+      const mappedClients = clientsForCurrentScope(
+        backendClients.map(mapBackendClientToFrontend),
+        isRecruitmentScope,
+      ).sort((a, b) => {
+        const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return bTime - aTime;
+      });
       const fromApi = new Map(mappedClients.map((client) => [String(client.id), client]));
       setClients(mappedClients);
-      setIsEmpty(mappedClients.length === 0);
       setSelectedClients((prev) => prev.filter((id) => fromApi.has(id)));
+      setError(null);
     } catch (err: any) {
+      if (requestId !== fetchRequestIdRef.current) return;
       console.error('Failed to fetch clients:', err);
-      setError(err?.message || 'Failed to fetch clients');
-      setClients(INITIAL_CLIENTS);
-      setIsEmpty(INITIAL_CLIENTS.length === 0);
+      if (!silent) {
+        setError(err?.message || 'Failed to fetch clients');
+      }
     } finally {
-      setLoading(false);
+      if (requestId === fetchRequestIdRef.current && !silent) {
+        setLoading(false);
+      }
     }
   }, [debouncedSearchQuery, smartSearchClientIds, isRecruitmentScope]);
 
   useEffect(() => {
-    setClients([]);
-    setSelectedClients([]);
     setCurrentPage(1);
-  }, [isRecruitmentScope]);
-
-  useEffect(() => {
-    fetchClients();
+    void fetchClients();
   }, [fetchClients]);
 
   const fetchClientStatusCatalog = useCallback(async () => {
@@ -762,10 +771,10 @@ export default function App() {
   // Reusable auto-refresh: poll while visible + refresh on focus + on
   // `jobportal:clients-changed` / `jobportal:jobs-changed`.
   const clientsAutoLoad = useCallback(
-    () => {
-      void fetchClients();
+    (opts?: { silent?: boolean }) => {
+      void fetchClients({ silent: opts?.silent === true });
     },
-    [fetchClients]
+    [fetchClients],
   );
   usePageAutoRefresh(clientsAutoLoad, {
     events: ['jobportal:clients-changed', 'jobportal:jobs-changed'],
@@ -911,12 +920,7 @@ export default function App() {
 
   const applyExportClientFilters = useCallback(
     (source: Client[]) => {
-      let filtered = filterClientsByTab(source, activeTab);
-      filtered = filtered.filter((client) =>
-        isRecruitmentScope
-          ? Boolean(client.recruitmentEnabled || client.createdInRecruitment)
-          : !client.createdInRecruitment,
-      );
+      let filtered = filterClientsByTab(clientsForCurrentScope(source, isRecruitmentScope), activeTab);
       if (teamMemberFilterId) {
         const selectedMember = teamMembers.find((member) => member.id === teamMemberFilterId);
         const selectedName = String(selectedMember?.name || '').trim().toLowerCase();
@@ -1307,7 +1311,7 @@ export default function App() {
             <div className="mb-0 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-rose-200/70 bg-white p-8 text-center text-xs font-medium text-rose-600 shadow-sm">
               Error: {error}
             </div>
-          ) : isEmpty ? (
+          ) : clients.length === 0 ? (
             <div className="min-h-0 flex-1 overflow-auto">
               <EmptyState
                 onImportClick={() => setShowImportDrawer(true)}
