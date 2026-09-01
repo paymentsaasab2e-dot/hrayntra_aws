@@ -398,6 +398,7 @@ export function LeadFollowUpScheduler({
               members={teamMembers}
               value={value.followUpAttendeeIds || []}
               loading={loadingMembers}
+              assignmentModule="Leads"
               onChange={(ids) => onChange({ followUpAttendeeIds: ids })}
               placeholder="Select people who will join"
               ariaLabel="Meet attendees"

@@ -19,7 +19,7 @@ export function AssignCompanySelect({
   label = 'Select Company',
   className = '',
 }: AssignCompanySelectProps) {
-  if (!companies.length) return null;
+  if (!companies?.length) return null;
 
   return (
     <div className={className}>
