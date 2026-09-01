@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, X, Users } from 'lucide-react';
 import type { TeamMember } from '../../types/team';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { assigneeCompanyId, formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 
 /** Role chip background classes — mirrors the existing palette used elsewhere. */
@@ -70,7 +71,7 @@ export interface LeadAssigneesMultiSelectProps {
  *   used by RBAC and downstream conversions (lead → client owner).
  */
 export function LeadAssigneesMultiSelect({
-  members: membersProp,
+  members: membersProp = [],
   value,
   onChange,
   loading = false,
@@ -81,7 +82,7 @@ export function LeadAssigneesMultiSelect({
   assignmentModule,
 }: LeadAssigneesMultiSelectProps) {
   const knownCompanyId = useMemo(() => {
-    for (const member of membersProp) {
+    for (const member of membersProp || []) {
       const company = assigneeCompanyId(member as TeamMember & { assignCompanyId?: string });
       if (company) return company;
     }
