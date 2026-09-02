@@ -1,4 +1,5 @@
 import { apiFetch } from '../api';
+import { dedupeByCompanyName } from '../companyNameKey';
 
 export type OrgPerson = {
   id: string;
@@ -38,6 +39,26 @@ export type OrgTreePayload = {
   unassignedPeople?: OrgPerson[];
 };
 
+export type OrgWorkspaceScope = {
+  isTenantAdmin?: boolean;
+  isTenantWide?: boolean;
+  canSwitchCompanies?: boolean;
+  hierarchyPurpose?: string;
+  orgUnitId?: string | null;
+  homeOrgUnitId?: string | null;
+  homeOrgUnitName?: string | null;
+  homeIsOrgCompany?: boolean;
+  hasCompanies?: boolean;
+  companies?: Array<{ id: string; name: string }>;
+  companiesCrm?: Array<{ id: string; name: string }>;
+  companiesRecruitment?: Array<{ id: string; name: string }>;
+};
+
+export async function apiOrgWorkspace() {
+  const res = await apiFetch<OrgWorkspaceScope>('/org-units/workspace', { auth: true });
+  return res.data;
+}
+
 export async function apiGetAssignCompanies(module?: string) {
   const query = module ? `?module=${encodeURIComponent(module)}` : '';
   const res = await apiFetch<{ companies: Array<{ id: string; name: string; kind?: string }> }>(
@@ -45,9 +66,14 @@ export async function apiGetAssignCompanies(module?: string) {
     { auth: true },
   );
   const data = res.data as { companies?: Array<{ id: string; name: string; kind?: string }> } | unknown;
-  if (Array.isArray(data)) return data as Array<{ id: string; name: string; kind?: string }>;
+  if (Array.isArray(data)) {
+    return dedupeByCompanyName(data as Array<{ id: string; name: string; kind?: string }>, (company) => company.name);
+  }
   if (data && typeof data === 'object' && Array.isArray((data as { companies?: unknown }).companies)) {
-    return (data as { companies: Array<{ id: string; name: string; kind?: string }> }).companies;
+    return dedupeByCompanyName(
+      (data as { companies: Array<{ id: string; name: string; kind?: string }> }).companies,
+      (company) => company.name,
+    );
   }
   return [];
 }
@@ -137,7 +163,7 @@ export async function apiStampUntaggedToOrgUnit(orgUnitId: string, userIds?: str
   return res.data;
 }
 
-export type TransferableType = 'leads' | 'clients' | 'jobs' | 'candidates';
+export type TransferableType = 'leads' | 'clients' | 'jobs' | 'candidates' | 'members';
 
 export type TransferableItem = {
   id: string;
@@ -169,7 +195,7 @@ export type TransferResult = {
   total: number;
 };
 
-/** Duplicate or move selected rows into another company/branch (empty target = leave with no company). */
+/** Duplicate records, or move records and team members, between companies. */
 export async function apiTransferOrgData(body: {
   fromOrgUnitId: string;
   toOrgUnitId: string;

@@ -23,7 +23,7 @@ export default function AppError({
         <p className="text-xs font-bold uppercase tracking-wider text-slate-400">HRYANTRA</p>
         <h1 className="mt-2 text-xl font-bold text-slate-900">This page couldn’t load</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Something went wrong in the employer workspace. You can retry this screen without signing in again.
+          Something went wrong in the entrepreneur workspace. You can retry this screen without signing in again.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
           <button

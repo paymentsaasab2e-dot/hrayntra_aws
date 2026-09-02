@@ -19,6 +19,7 @@ import type {
   UpdateTeamRequestPayload,
 } from '../../types/team';
 import { formatAssigneeDisplayName } from '../assigneeDisplay';
+import { sanitizeMojibakeDeep } from '../sanitizeMojibake';
 
 const getApiConfig = () => {
   const isLocalBrowser =
@@ -84,7 +85,7 @@ async function parseTeamFetchJson(res: Response): Promise<Record<string, unknown
     );
   }
   try {
-    return JSON.parse(text) as Record<string, unknown>;
+    return sanitizeMojibakeDeep(JSON.parse(text) as Record<string, unknown>);
   } catch {
     throw new Error(
       res.ok

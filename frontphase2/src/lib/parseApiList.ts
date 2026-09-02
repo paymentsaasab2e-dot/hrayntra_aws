@@ -1,4 +1,5 @@
 import type { BackendClient, BackendJob } from './api';
+import { dedupeByCompanyName } from './companyNameKey';
 
 /** Unwrap paginated list responses from apiFetch (`{ success, data: { data, pagination } }`). */
 export function parseJobsListFromResponse(res: { data?: unknown }): BackendJob[] {
@@ -14,11 +15,12 @@ export function parseJobsListFromResponse(res: { data?: unknown }): BackendJob[]
 
 export function parseClientsListFromResponse(res: { data?: unknown }): BackendClient[] {
   const payload = res?.data;
-  if (Array.isArray(payload)) return payload as BackendClient[];
-  if (payload && typeof payload === 'object') {
+  let clients: BackendClient[] = [];
+  if (Array.isArray(payload)) clients = payload as BackendClient[];
+  else if (payload && typeof payload === 'object') {
     const inner = payload as { data?: BackendClient[]; items?: BackendClient[] };
-    if (Array.isArray(inner.data)) return inner.data;
-    if (Array.isArray(inner.items)) return inner.items;
+    if (Array.isArray(inner.data)) clients = inner.data;
+    else if (Array.isArray(inner.items)) clients = inner.items;
   }
-  return [];
+  return dedupeByCompanyName(clients, (client) => client.companyName);
 }

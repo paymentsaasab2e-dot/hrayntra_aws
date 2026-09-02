@@ -1,7 +1,4 @@
-/**
- * Fast in-tab page cache: memory first, sessionStorage for hard refresh.
- * Sync reads so useState initializers can paint immediately.
- */
+import { sanitizeMojibakeDeep } from './sanitizeMojibake';
 
 export type SessionCacheRecord<T> = {
   data: T;
@@ -29,7 +26,7 @@ export function createSessionCache<T>(opts: {
     try {
       const raw = sessionStorage.getItem(storageKey(id));
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as SessionCacheRecord<T>;
+      const parsed = sanitizeMojibakeDeep(JSON.parse(raw) as SessionCacheRecord<T>);
       if (!parsed || typeof parsed.updatedAt !== 'number' || !isValid(parsed.data)) return null;
       memory.set(id, parsed);
       return parsed;

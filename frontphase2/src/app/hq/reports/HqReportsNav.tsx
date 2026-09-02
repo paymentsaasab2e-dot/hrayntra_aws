@@ -24,7 +24,7 @@ export function HqReportsDashNav({
             item.pillar === 'employees'
               ? 'Portal candidates, KYC, courses, jobs, events, tokens and help tickets'
               : item.pillar === 'employers'
-                ? 'Tenants, companies, plans, employer tickets and recycle bin'
+                ? 'Tenants, companies, plans, entrepreneur tickets and recycle bin'
                 : item.pillar === 'crm'
                   ? 'HQ leads, clients, demos and trial conversion'
                   : item.pillar === 'ops'

@@ -177,7 +177,7 @@ export function PreScreenAssessmentSection({
     setCreatingType(type);
     setEditingAssessmentId(null);
     setExpandedId('__new__');
-    setDraft(newAssessmentDraft(type));
+    setDraft(newAssessmentDraft(type, jobTitle));
   };
 
   const startEdit = (link: JobPreScreenAssessmentLink) => {
@@ -186,7 +186,7 @@ export function PreScreenAssessmentSection({
     setCreatingType(null);
     setEditingAssessmentId(assessment.id);
     setExpandedId(link.assessmentId);
-    setDraft(assessmentToDraft(assessment));
+    setDraft(assessmentToDraft(assessment, jobTitle));
   };
 
   const resolveAssessment = (link: JobPreScreenAssessmentLink): PreScreenAssessment | undefined => {

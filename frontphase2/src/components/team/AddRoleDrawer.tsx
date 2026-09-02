@@ -12,7 +12,7 @@ import {
   isDashboardHiddenTickPermission,
   mergePermissionMaps,
 } from './permissionCatalog';
-import { PermissionPicker } from './PermissionPicker';
+import { PermissionPicker, selectedSetHasSwitchCompanies, companyAccessHasPicks } from './PermissionPicker';
 import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
@@ -141,6 +141,13 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
     }
     if (formData.selectedPermissions.size === 0) {
       newErrors.permissions = 'At least one permission is required';
+    }
+    if (
+      selectedSetHasSwitchCompanies(formData.selectedPermissions, effectivePermissions) &&
+      !companyAccessHasPicks(formData.companyAccess)
+    ) {
+      newErrors.permissions =
+        'Switch companies needs at least one CRM or Recruitment organization ticked below it';
     }
 
     setErrors(newErrors);

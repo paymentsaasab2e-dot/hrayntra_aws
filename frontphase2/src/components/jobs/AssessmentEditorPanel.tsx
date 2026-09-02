@@ -43,10 +43,13 @@ export type AssessmentDraft = {
   config: AssessmentConfig;
 };
 
-export function assessmentToDraft(assessment: PreScreenAssessment): AssessmentDraft {
+export function assessmentToDraft(
+  assessment: PreScreenAssessment,
+  jobTitle?: string,
+): AssessmentDraft {
   const type = assessment.type || 'MCQ';
   return {
-    title: assessment.title || defaultTitleForType(type),
+    title: assessment.title || defaultTitleForType(type, jobTitle),
     type,
     durationMinutes: assessment.durationMinutes ?? defaultDurationForType(type),
     passScorePercent: assessment.passScorePercent ?? defaultPassScoreForType(type),
@@ -54,9 +57,9 @@ export function assessmentToDraft(assessment: PreScreenAssessment): AssessmentDr
   };
 }
 
-export function newAssessmentDraft(type: PreScreenAssessmentType): AssessmentDraft {
+export function newAssessmentDraft(type: PreScreenAssessmentType, jobTitle?: string): AssessmentDraft {
   return {
-    title: defaultTitleForType(type),
+    title: defaultTitleForType(type, jobTitle),
     type,
     durationMinutes: defaultDurationForType(type),
     passScorePercent: defaultPassScoreForType(type),
@@ -1481,7 +1484,7 @@ export function AssessmentEditorPanel({
           className={fieldClass}
           value={draft.title}
           disabled={disabled}
-          placeholder="Frontend Developer Screening"
+          placeholder={defaultTitleForType(draft.type, jobTitle)}
           onChange={(e) => patchDraft({ title: e.target.value })}
         />
       </div>
@@ -1493,7 +1496,9 @@ export function AssessmentEditorPanel({
           jobTitle={jobTitle}
           skills={skills}
           jobDescription={jobDescription}
-          onAssessmentMetaChange={(meta) => patchDraft(meta)}
+          onAssessmentMetaChange={(meta) =>
+            patchDraft(draft.title.trim() ? { ...meta, title: undefined } : meta)
+          }
           onAiBusyChange={setMcqAiBusy}
           onChange={(c) => patchConfig(c)}
         />
@@ -1527,7 +1532,9 @@ export function AssessmentEditorPanel({
           jobTitle={jobTitle}
           skills={skills}
           jobDescription={jobDescription}
-          onAssessmentMetaChange={(meta) => patchDraft(meta)}
+          onAssessmentMetaChange={(meta) =>
+            patchDraft(draft.title.trim() ? { ...meta, title: undefined } : meta)
+          }
           onAiBusyChange={setCodingAiBusy}
           onChange={(c) => patchConfig(c)}
         />

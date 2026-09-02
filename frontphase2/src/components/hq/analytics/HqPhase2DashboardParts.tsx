@@ -229,7 +229,7 @@ export function HqPhase2Navbar() {
           </div>
           <div className="leading-tight">
             <div className="text-sm font-bold tracking-tight">HRYANTRA HQ</div>
-            <div className="text-[11px] text-[#6B7280]">Phase 2 · Employers</div>
+            <div className="text-[11px] text-[#6B7280]">Phase 2 · Entrepreneurs</div>
           </div>
         </div>
 
@@ -338,7 +338,7 @@ export function HqPhase2PageHeader({
           </span>
         </div>
         <h1 className="hq-display text-[1.75rem] font-bold tracking-tight text-slate-900 sm:text-[2rem]">
-          Employers dashboard
+          Entrepreneurs dashboard
         </h1>
         <p className="mt-1.5 text-sm font-medium text-slate-500">
           HQ management · platform usage, monetization &amp; tenant health

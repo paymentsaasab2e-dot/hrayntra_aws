@@ -115,7 +115,7 @@ app.use(
       callback(null, {
         origin: true,
         credentials: true,
-        allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-db-name', 'x-org-unit-id', 'x-org-side', 'X-Api-Key'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-db-name', 'x-org-unit-id', 'x-org-side', 'x-work-scope', 'X-Api-Key'],
         exposedHeaders: ['X-Coin-Balance', 'X-Coins-Spent'],
       });
       return;

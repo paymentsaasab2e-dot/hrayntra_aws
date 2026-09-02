@@ -1,5 +1,6 @@
 import type { BackendClient, BackendContact } from './api';
 import { formatDirectorDisplay } from '../constants/salutations';
+import { dedupeVisibleContacts } from './clientContactDedupe';
 import {
   mergeTeamMembersWithContacts,
   normalizeTeamMemberList,
@@ -191,13 +192,14 @@ export function buildJobContactPersonOptions(
   contacts: BackendContact[],
   client?: BackendClient | null,
 ): JobContactPersonOption[] {
+  const uniqueContacts = dedupeVisibleContacts(contacts);
   const directors: JobContactPersonOption[] = [];
   const teamMembers: JobContactPersonOption[] = [];
   const others: JobContactPersonOption[] = [];
   const usedIds = new Set<string>();
-  const directorIdentity = buildDirectorIdentity(contacts, client);
+  const directorIdentity = buildDirectorIdentity(uniqueContacts, client);
 
-  for (const contact of contacts) {
+  for (const contact of uniqueContacts) {
     const id = String(contact.id || '').trim();
     if (!id || !isDirectorContact(contact)) continue;
     directors.push({
@@ -208,7 +210,7 @@ export function buildJobContactPersonOptions(
     usedIds.add(id);
   }
 
-  const teamContacts = contacts
+  const teamContacts = uniqueContacts
     .filter(isClientTeamMemberContact)
     .filter((contact) => !contactMatchesDirector(contact, directorIdentity, client));
 
@@ -252,7 +254,7 @@ export function buildJobContactPersonOptions(
     usedIds.add(synthId);
   }
 
-  for (const contact of contacts) {
+  for (const contact of uniqueContacts) {
     const id = String(contact.id || '').trim();
     if (!id || usedIds.has(id)) continue;
     if (isDirectorContact(contact) || isClientTeamMemberContact(contact)) continue;

@@ -170,25 +170,35 @@ export function WritingAssistHost() {
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const targetRef = useRef<AssistEl | null>(null);
 
+  const dismiss = useCallback(() => {
+    setTarget(null);
+    setActive(null);
+    setPos(null);
+    targetRef.current = null;
+  }, []);
+
+  const isTooltipFocus = useCallback((node: EventTarget | Node | null) => {
+    return Boolean(node instanceof Node && tooltipRef.current?.contains(node));
+  }, []);
+
   const refresh = useCallback((el: AssistEl | null) => {
     if (isEmployerPublicAuthPath(pathname)) {
-      setTarget(null);
-      setActive(null);
-      setPos(null);
-      targetRef.current = null;
+      dismiss();
       return;
     }
-    if (!el || document.activeElement === tooltipRef.current) return;
+    if (isTooltipFocus(document.activeElement)) return;
+
+    if (!el || !el.isConnected) {
+      dismiss();
+      return;
+    }
 
     const focused =
-      !!el &&
-      (document.activeElement === el || (document.activeElement instanceof Node && el.contains(document.activeElement)));
+      document.activeElement === el ||
+      (document.activeElement instanceof Node && el.contains(document.activeElement));
 
-    if (!el || !focused) {
-      setTarget(null);
-      setActive(null);
-      setPos(null);
-      targetRef.current = null;
+    if (!focused) {
+      dismiss();
       return;
     }
 
@@ -212,40 +222,69 @@ export function WritingAssistHost() {
       left: Math.min(Math.max(8, rect.left), window.innerWidth - tooltipW - 8),
       top: Math.min(rect.top + rect.height + 6, window.innerHeight - 56),
     });
-  }, [pathname]);
+  }, [dismiss, isTooltipFocus, pathname]);
+
+  useEffect(() => {
+    dismiss();
+  }, [dismiss, pathname]);
 
   useEffect(() => {
     const onFocusIn = (e: FocusEvent) => {
       const el = closestAssistable(e.target);
-      if (el) refresh(el);
+      if (el) {
+        refresh(el);
+        return;
+      }
+      if (!isTooltipFocus(e.target)) dismiss();
     };
 
-    const onFocusOut = () => {
+    const onFocusOut = (e: FocusEvent) => {
+      if (isTooltipFocus(e.relatedTarget)) return;
       window.setTimeout(() => {
         const next = document.activeElement;
-        if (tooltipRef.current?.contains(next)) return;
+        if (isTooltipFocus(next)) return;
         const el = closestAssistable(next);
         if (el) {
           refresh(el);
           return;
         }
-        refresh(null);
-      }, 140);
+        dismiss();
+      }, 80);
     };
 
     const onMaybeRefresh = (e: Event) => {
       const el = closestAssistable(e.target);
-      if (el) refresh(el);
+      if (el) {
+        refresh(el);
+        return;
+      }
+      if (isTooltipFocus(e.target)) return;
+      const current = targetRef.current;
+      if (!current || !(e.target instanceof Node) || !current.contains(e.target)) {
+        dismiss();
+      }
     };
 
-    const onViewport = () => refresh(targetRef.current);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dismiss();
+    };
+
+    const onViewport = () => {
+      const el = targetRef.current;
+      if (!el?.isConnected) {
+        dismiss();
+        return;
+      }
+      refresh(el);
+    };
 
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     document.addEventListener('input', onMaybeRefresh, true);
     document.addEventListener('keyup', onMaybeRefresh, true);
-    document.addEventListener('click', onMaybeRefresh, true);
+    document.addEventListener('pointerdown', onMaybeRefresh, true);
     document.addEventListener('select', onMaybeRefresh, true);
+    document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('resize', onViewport);
     window.addEventListener('scroll', onViewport, true);
 
@@ -254,12 +293,36 @@ export function WritingAssistHost() {
       document.removeEventListener('focusout', onFocusOut);
       document.removeEventListener('input', onMaybeRefresh, true);
       document.removeEventListener('keyup', onMaybeRefresh, true);
-      document.removeEventListener('click', onMaybeRefresh, true);
+      document.removeEventListener('pointerdown', onMaybeRefresh, true);
       document.removeEventListener('select', onMaybeRefresh, true);
+      document.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('resize', onViewport);
       window.removeEventListener('scroll', onViewport, true);
     };
-  }, [refresh]);
+  }, [dismiss, isTooltipFocus, refresh]);
+
+  useEffect(() => {
+    if (!target) return undefined;
+    const checkStillOpen = () => {
+      const el = targetRef.current;
+      if (!el?.isConnected) {
+        dismiss();
+        return;
+      }
+      const ae = document.activeElement;
+      if (isTooltipFocus(ae)) return;
+      if (ae !== el && !(ae instanceof Node && el.contains(ae))) {
+        dismiss();
+      }
+    };
+    const mo = new MutationObserver(checkStillOpen);
+    mo.observe(document.body, { childList: true, subtree: true });
+    const id = window.setInterval(checkStillOpen, 250);
+    return () => {
+      mo.disconnect();
+      window.clearInterval(id);
+    };
+  }, [dismiss, isTooltipFocus, target]);
 
   if (isEmployerPublicAuthPath(pathname)) return null;
   if (!target || !active || !pos) return null;

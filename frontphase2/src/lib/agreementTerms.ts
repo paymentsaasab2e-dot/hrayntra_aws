@@ -27,6 +27,7 @@ export const AGREEMENT_LEVEL_OPTIONS = [
   'Level 3',
   'Level 4',
   'Executive',
+  'All levels',
 ] as const;
 
 export const AGREEMENT_REPLACEMENT_UNIT_OPTIONS: { value: AgreementFreeReplacementUnit; label: string }[] = [
@@ -85,30 +86,61 @@ export function agreementTermsFromRecord(
   const base = emptyAgreementTerms();
   if (!record) return base;
 
-  const unit = String(record.agreementFreeReplacementUnit || '').toUpperCase();
+  const src = record as AgreementTermsRecord & {
+    terms?: AgreementTermsRecord;
+    level?: string | null;
+    serviceChargePercent?: string | number | null;
+    paymentTerms?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    contractStartDate?: string | null;
+    contractEndDate?: string | null;
+  };
+  const nested = src.terms && typeof src.terms === 'object' ? src.terms : null;
+  const row = nested ? { ...src, ...nested } : src;
+
+  const unit = String(row.agreementFreeReplacementUnit || '').toUpperCase();
 
   return {
-    agreementLevel: record.agreementLevel != null ? String(record.agreementLevel) : '',
+    agreementLevel:
+      row.agreementLevel != null && String(row.agreementLevel).trim()
+        ? String(row.agreementLevel)
+        : row.level != null
+          ? String(row.level)
+          : '',
     agreementServiceChargePercent:
-      record.agreementServiceChargePercent != null ? String(record.agreementServiceChargePercent) : '',
+      row.agreementServiceChargePercent != null && String(row.agreementServiceChargePercent).trim()
+        ? String(row.agreementServiceChargePercent)
+        : row.serviceChargePercent != null
+          ? String(row.serviceChargePercent)
+          : '',
     agreementContractValidity:
-      (record as { agreementContractValidity?: string | null }).agreementContractValidity != null
-        ? String((record as { agreementContractValidity?: string | null }).agreementContractValidity)
+      (row as { agreementContractValidity?: string | null }).agreementContractValidity != null
+        ? String((row as { agreementContractValidity?: string | null }).agreementContractValidity)
         : '',
     agreementContractStartDate: toAgreementDateInputValue(
-      (record as { agreementContractStartDate?: string | null }).agreementContractStartDate,
+      (row as { agreementContractStartDate?: string | null }).agreementContractStartDate ||
+        row.contractStartDate ||
+        row.startDate,
     ),
     agreementContractEndDate: toAgreementDateInputValue(
-      (record as { agreementContractEndDate?: string | null }).agreementContractEndDate,
+      (row as { agreementContractEndDate?: string | null }).agreementContractEndDate ||
+        row.contractEndDate ||
+        row.endDate,
     ),
-    agreementTimePeriod: record.agreementTimePeriod != null ? String(record.agreementTimePeriod) : '',
+    agreementTimePeriod:
+      row.agreementTimePeriod != null && String(row.agreementTimePeriod).trim()
+        ? String(row.agreementTimePeriod)
+        : row.paymentTerms != null
+          ? String(row.paymentTerms)
+          : '',
     agreementAdvancePaymentPercent:
-      record.agreementAdvancePaymentPercent != null && record.agreementAdvancePaymentPercent !== ''
-        ? String(record.agreementAdvancePaymentPercent)
+      row.agreementAdvancePaymentPercent != null && row.agreementAdvancePaymentPercent !== ''
+        ? String(row.agreementAdvancePaymentPercent)
         : '',
     agreementFreeReplacementValue:
-      record.agreementFreeReplacementValue != null && record.agreementFreeReplacementValue !== ''
-        ? String(record.agreementFreeReplacementValue)
+      row.agreementFreeReplacementValue != null && row.agreementFreeReplacementValue !== ''
+        ? String(row.agreementFreeReplacementValue)
         : '',
     agreementFreeReplacementUnit:
       unit === 'DAYS' || unit === 'MONTHS' ? (unit as AgreementFreeReplacementUnit) : 'MONTHS',

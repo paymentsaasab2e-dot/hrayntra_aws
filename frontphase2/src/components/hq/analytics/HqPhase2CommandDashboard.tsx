@@ -254,7 +254,7 @@ const EMPLOYER_CATEGORY_TABS = [
   {
     id: 'live',
     label: 'Live tracking',
-    blurb: 'Live Phase 2 behaviour engine — all employers, or search one tenant for the same Analytics tabs as Users',
+    blurb: 'Live Phase 2 behaviour engine — all entrepreneurs, or search one tenant for the same Analytics tabs as Users',
   },
 ] as const;
 
@@ -1450,7 +1450,7 @@ export function HqPhase2CommandDashboard({
       sparkData: seriesToSpark(demoAnalytics),
       sparkColor: WARNING,
       compareLabel: `${paid} paid accounts`,
-        info: 'Inbound demo / trial / purchase requests from the employer funnel.',
+        info: 'Inbound demo / trial / purchase requests from the entrepreneur funnel.',
     },
     {
       label: 'Active Jobs',
@@ -1578,7 +1578,7 @@ export function HqPhase2CommandDashboard({
 
   return (
     <HqModulePageLayout
-      title="Employers dashboard"
+      title="Entrepreneurs dashboard"
       subtitle="HQ management · platform usage, monetization & tenant health"
       icon={<LayoutDashboard className="h-5 w-5" />}
       locked={false}
@@ -2557,7 +2557,7 @@ export function HqPhase2CommandDashboard({
                     setLiveSuggestOpen(true);
                   }}
                   onFocus={() => setLiveSuggestOpen(true)}
-                  placeholder="Search employer by company, db, or plan…"
+                  placeholder="Search entrepreneur by company, db, or plan…"
                   className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none ring-blue-200 placeholder:text-slate-400 focus:bg-white focus:ring-2"
                   autoComplete="off"
                 />
@@ -2586,7 +2586,7 @@ export function HqPhase2CommandDashboard({
                   </ul>
                 ) : liveSuggestOpen && liveSearch.trim() ? (
                   <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] text-slate-400 shadow-lg">
-                    No matching employers
+                    No matching entrepreneurs
                   </div>
                 ) : null}
               </div>
@@ -2620,8 +2620,8 @@ export function HqPhase2CommandDashboard({
               {liveSingleTenant
                 ? `Tenant utilization · ${liveSingleTenant.row.name || liveSingleTenant.row.tenantDbName} · `
                 : liveSearchScoped
-                  ? `Searched employers · ${liveBehaviorPulse.tenants} match · `
-                  : 'All employers · '}
+                  ? `Searched entrepreneurs · ${liveBehaviorPulse.tenants} match · `
+                  : 'All entrepreneurs · '}
               {liveRange === 'today'
                 ? 'today'
                 : liveRange === 'week'
@@ -2639,7 +2639,7 @@ export function HqPhase2CommandDashboard({
             <Card className="col-span-12 xl:col-span-5">
               <Title
                 title={liveSingleTenant ? 'Tenant utilization' : 'Platform utilization'}
-                info="Same tenant behaviour engine as employer portals. HQ sees totals only: users created, loaded, tracked, visits, and actions. Team ranks and names stay on the tenant side."
+                info="Same tenant behaviour engine as entrepreneur portals. HQ sees totals only: users created, loaded, tracked, visits, and actions. Team ranks and names stay on the tenant side."
               />
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {[
@@ -2674,7 +2674,7 @@ export function HqPhase2CommandDashboard({
 
             <Card className="col-span-12 xl:col-span-7">
               <Title
-                title={liveSingleTenant ? 'Module use · this tenant' : 'Module use · all employers'}
+                title={liveSingleTenant ? 'Module use · this tenant' : 'Module use · all entrepreneurs'}
                 info="Visits and actions by CRM module. Aggregated numbers only — no people."
               />
               {liveModuleUtil.length ? (
@@ -2709,7 +2709,7 @@ export function HqPhase2CommandDashboard({
 
             <Card className="col-span-12">
               <Title
-                title={liveSearchScoped ? 'Matching employers' : 'Employers'}
+                title={liveSearchScoped ? 'Matching entrepreneurs' : 'Entrepreneurs'}
                 info="Per-tenant counts from the behaviour engine. User ranks and names are private on the tenant portal."
               />
               {liveBehaviorRows.length ? (
@@ -2770,7 +2770,7 @@ export function HqPhase2CommandDashboard({
                 </ul>
               ) : (
                 <p className="py-10 text-center text-sm text-slate-400">
-                  {liveScopeActive ? 'No employers match this search' : 'No tenant rows yet'}
+                  {liveScopeActive ? 'No entrepreneurs match this search' : 'No tenant rows yet'}
                 </p>
               )}
           </Card>

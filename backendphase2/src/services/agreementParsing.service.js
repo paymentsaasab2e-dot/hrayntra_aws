@@ -3,12 +3,25 @@ import { parseAgreementTermsFromText, toIsoDate } from '../utils/parseAgreementT
 import { runAgreementPipeline } from './agreementPipeline.service.js';
 import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 
-const LEVEL_OPTIONS = ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Executive'];
+const LEVEL_OPTIONS = ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Executive', 'All levels'];
 
 function safeJsonParse(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = (fenced ? fenced[1] : text).trim();
   try {
-    return JSON.parse(raw);
+    return JSON.parse(candidate);
   } catch {
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(candidate.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }
@@ -18,6 +31,10 @@ function normalizeLevel(value) {
   if (!v) return '';
 
   const lower = v.toLowerCase();
+  if (/\ball\s+levels?\b/.test(lower) || lower === 'all' || lower === 'any level') {
+    return 'All levels';
+  }
+
   const tierMap = [
     { keys: ['entry level', 'entry'], level: 'Level 1' },
     { keys: ['middle level', 'middle'], level: 'Level 2' },
@@ -98,14 +115,23 @@ function mapAiTerms(parsed = {}) {
 
 function mergeAgreementTerms(aiTerms, regexTerms) {
   const merged = { ...regexTerms };
+  const regexLevel = String(regexTerms.agreementLevel || '').trim();
   const protectLevelFromBadAi =
-    regexTerms.agreementLevel &&
-    ['Level 1', 'Level 2', 'Level 3', 'Level 4'].includes(regexTerms.agreementLevel) &&
-    String(aiTerms?.agreementLevel || '').trim() === 'Executive';
+    regexLevel &&
+    (regexLevel === 'All levels' ||
+      ['Level 1', 'Level 2', 'Level 3', 'Level 4'].includes(regexLevel)) &&
+    (String(aiTerms?.agreementLevel || '').trim() === 'Executive' ||
+      (regexLevel === 'All levels' && String(aiTerms?.agreementLevel || '').trim() !== 'All levels'));
 
   for (const [key, value] of Object.entries(aiTerms || {})) {
     if (value == null || String(value).trim() === '') continue;
     if (protectLevelFromBadAi && key === 'agreementLevel') continue;
+    if (
+      regexTerms.agreementContractStartDate &&
+      (key === 'agreementContractStartDate' || key === 'agreementContractEndDate')
+    ) {
+      continue;
+    }
     if (
       protectLevelFromBadAi &&
       key === 'agreementServiceChargePercent' &&
@@ -131,14 +157,17 @@ async function extractAgreementTermsWithAi(cleanedText, fileName = 'agreement') 
   const prompt = `Extract recruitment agreement commercial terms from the document text below.
 
 Return ONLY one valid JSON object with these keys (use null if not found):
-- agreementLevel: one of "Level 1", "Level 2", "Level 3", "Level 4", "Executive"
-  Map document tiers: Entry Level -> Level 1, Middle Level -> Level 2, Top Level -> Level 3. Do NOT use "Executive" from arbitration text.
-- agreementServiceChargePercent: string number only without % (e.g. "10" for Middle Level). Use the fee table under PROFESSIONAL FEES when present.
-- agreementContractStartDate: string in YYYY-MM-DD when present (start / effective / commencement / dated)
-- agreementContractEndDate: string in YYYY-MM-DD when present (end / expiry). If only a duration is given (e.g. 12 months) and a start date exists, compute the end date.
+- agreementLevel: one of "All levels", "Level 1", "Level 2", "Level 3", "Level 4", "Executive"
+  Map document tiers: Entry Level -> Level 1, Middle Level -> Level 2, Top Level -> Level 3.
+  If the fee applies to all levels (e.g. "for all levels", "8.33% ... all levels"), use "All levels".
+  Do NOT default to Level 2 when there is no Entry/Middle/Top table.
+  Do NOT use "Executive" from arbitration text (e.g. "Senior executive rank").
+- agreementServiceChargePercent: string number only without % (e.g. "8.33"). Use the single stated professional fee when there is no tier table.
+- agreementContractStartDate: string in YYYY-MM-DD when present (start / effective / commencement / dated). If the document has no calendar date but is valid for a period from signing/entering the contract, use today's date.
+- agreementContractEndDate: string in YYYY-MM-DD when present (end / expiry). If only a duration is given (e.g. 12 months) and a start date exists (including today), compute the end date.
 - agreementContractValidity: string summary of the contract validity period (if available)
-- agreementPaymentTerms: string — when/how the client pays (e.g. "Payment due after candidate joins")
-- agreementAdvancePaymentPercent: string number only without % for advance/upfront payment
+- agreementPaymentTerms: string — when/how the client pays (e.g. "Professional fee is payable within 30 days from the date of joining by the candidate")
+- agreementAdvancePaymentPercent: string number only without % for advance/upfront payment. Null if the document does not mention an advance.
 - agreementFreeReplacementValue: string integer for the free-replacement / guarantee window (e.g. "3")
 - agreementFreeReplacementUnit: "MONTHS" or "DAYS" for that replacement window
 
@@ -162,11 +191,15 @@ ${capped}`;
       ],
     },
     'agreement-parse',
-    { quiet: true },
+    { quiet: false },
   );
 
   const parsed = safeJsonParse(completion.choices?.[0]?.message?.content || '{}');
-  return parsed ? mapAiTerms(parsed) : null;
+  if (!parsed) {
+    console.warn('[agreement-parse] AI returned non-JSON content');
+    return null;
+  }
+  return mapAiTerms(parsed);
 }
 
 /**
@@ -179,9 +212,9 @@ export async function parseAgreementDocumentFromUpload(multerFile) {
 
   const stage = await runAgreementPipeline(multerFile);
   const cleaned = stage.cleaned || '';
-  if (cleaned.length < 20) {
+  if (cleaned.replace(/\s+/g, '').length < 40) {
     throw new Error(
-      'Could not read enough text from this document. Try a text-based PDF or Word file.',
+      'Could not read enough text from this document. Try a text-based PDF or Word file, or a clearer scan.',
     );
   }
 
@@ -194,8 +227,8 @@ export async function parseAgreementDocumentFromUpload(multerFile) {
     if (aiTerms) {
       terms = mergeAgreementTerms(aiTerms, terms);
     }
-  } catch {
-    /* keep regex-only result */
+  } catch (error) {
+    console.warn('[agreement-parse] AI extract failed:', error?.message || error);
   }
 
   return {

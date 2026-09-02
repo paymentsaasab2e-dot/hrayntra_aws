@@ -25,6 +25,8 @@ import type { PostServiceKycFormValues } from './clientKycForm';
 import type { InterviewClientReviewContext } from './clientReviewTypes';
 import { cacheClientPageFieldVisibility, normalizeClientPageFieldVisibility } from './clientPageFieldVisibility';
 import { orgSideFromPathname } from './org/orgSide';
+import { dedupeCompanyNamedPayload } from './companyNameKey';
+import { dedupeContactsPayload } from './clientContactDedupe';
 
 export type { BillingSettingsSnapshot, CreatePlacementInvoicePayload };
 
@@ -1828,11 +1830,15 @@ export type HqLeadRemark = {
 };
 
 export async function apiHqListLeads() {
-  return apiFetch<{
+  const response = await apiFetch<{
     leads: HqLeadApiRow[];
     stats: HqLeadStats;
     storage: HqLeadStorageInfo;
   }>('/hq/leads', { auth: true });
+  return {
+    ...response,
+    data: dedupeCompanyNamedPayload(response.data),
+  };
 }
 
 export async function apiHqListDemoRequests() {
@@ -2101,11 +2107,15 @@ export type HqCompanyStats = {
 };
 
 export async function apiHqListCompanies() {
-  return apiFetch<{
+  const response = await apiFetch<{
     companies: HqCompanyApiRow[];
     stats: HqCompanyStats;
     storage: HqLeadStorageInfo;
   }>('/hq/companies', { auth: true });
+  return {
+    ...response,
+    data: dedupeCompanyNamedPayload(response.data),
+  };
 }
 
 export type HqSupportTicketPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -6422,7 +6432,10 @@ export const apiParseAgreementDocument = async (
     auth: true,
     signal: options.signal,
   });
-  return res.data;
+  const payload = (res?.data || res) as AgreementDocumentParseData & { data?: AgreementDocumentParseData };
+  if (payload?.terms) return payload;
+  if (payload?.data?.terms) return payload.data;
+  return payload;
 };
 
 export type KycDocumentParseData = {
@@ -7944,7 +7957,11 @@ export const apiGetLeads = async (params: {
   const qs = query.toString();
   const path = `/leads${qs ? `?${qs}` : ''}`;
   // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
-  return apiFetch<{ data: BackendLead[]; pagination?: any } | BackendLead[]>(path, { auth: true });
+  const response = await apiFetch<{ data: BackendLead[]; pagination?: any } | BackendLead[]>(path, { auth: true });
+  return {
+    ...response,
+    data: dedupeCompanyNamedPayload(response.data),
+  };
 };
 
 export const apiGetLead = async (id: string) => {
@@ -8354,7 +8371,11 @@ export const apiGetClients = async (params: {
   });
   const qs = query.toString();
   const path = `/clients${qs ? `?${qs}` : ''}`;
-  return apiFetch<{ data: BackendClient[]; pagination?: any } | BackendClient[]>(path, { auth: true });
+  const response = await apiFetch<{ data: BackendClient[]; pagination?: any } | BackendClient[]>(path, { auth: true });
+  return {
+    ...response,
+    data: dedupeCompanyNamedPayload(response.data),
+  };
 };
 
 export const apiGetClient = async (id: string) => {
@@ -9003,7 +9024,11 @@ export const apiGetContacts = async (filters?: ContactFilters) => {
     }
   });
 
-  return apiFetch<ApiResponse<BackendContact[]>>(`/contacts?${query.toString()}`, { auth: true });
+  const response = await apiFetch<ApiResponse<BackendContact[]>>(`/contacts?${query.toString()}`, { auth: true });
+  return {
+    ...response,
+    data: dedupeContactsPayload(response.data),
+  };
 };
 
 export const apiGetContact = async (id: string) => {

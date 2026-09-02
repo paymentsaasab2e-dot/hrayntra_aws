@@ -93,6 +93,7 @@ import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tab
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
+import { dedupeCompanyNameLabels } from '../../lib/companyNameKey';
 import {
   apiAddCandidateNote,
   apiAddCandidateTag,
@@ -259,10 +260,11 @@ function toJobFilterOptions(jobs: BackendJob[]): CandidateJobFilterOption[] {
 }
 
 function clientNamesFromApiResponse(res: { data?: unknown }): string[] {
-  return parseClientsListFromResponse(res)
-    .map((client) => String(client.companyName || '').trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b));
+  return dedupeCompanyNameLabels(
+    parseClientsListFromResponse(res)
+      .map((client) => String(client.companyName || '').trim())
+      .filter(Boolean),
+  );
 }
 
 function flattenCandidateJsonForSearch(value: unknown): string {

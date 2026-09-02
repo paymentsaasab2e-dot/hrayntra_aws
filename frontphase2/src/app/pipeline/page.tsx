@@ -52,6 +52,7 @@ import {
   type BackendJob,
   type BackendUser,
 } from "../../lib/api";
+import { dedupeByCompanyName } from "../../lib/companyNameKey";
 import { shouldIncludePhase1CommonPool } from "../../lib/phase1CommonPoolAccess";
 import {
   candidateHasRealJobAssignment,
@@ -580,7 +581,7 @@ export default function App() {
         if (!mounted) return;
 
         setJobs(extractItems<BackendJob>(jobsRes.data));
-        setClients(extractItems<BackendClient>(clientsRes.data));
+        setClients(dedupeByCompanyName(extractItems<BackendClient>(clientsRes.data), (client) => client.companyName));
         setOwners(extractItems<BackendUser>(ownersRes.data));
         if (meRes?.data?.id) setCurrentUserId(meRes.data.id);
         if (meRes?.data?.name) setCurrentUserName(meRes.data.name);

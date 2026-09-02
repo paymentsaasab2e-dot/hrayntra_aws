@@ -45,7 +45,7 @@ export const HQ_REPORT_NAV: Array<{
   },
   {
     pillar: 'employers',
-    label: 'Employers',
+    label: 'Entrepreneurs',
     pages: [
       { id: 'er-overview', label: 'Overview' },
       { id: 'er-companies', label: 'Companies' },

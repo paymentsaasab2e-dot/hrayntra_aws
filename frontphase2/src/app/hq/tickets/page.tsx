@@ -39,10 +39,10 @@ export default function HqTicketsPage() {
 
   return (
     <HqModulePageLayout
-      title={isEmployer ? 'Employer tickets' : 'Employee tickets'}
+      title={isEmployer ? 'Entrepreneur tickets' : 'Employee tickets'}
       subtitle={
         isEmployer
-          ? 'Tenant Help Center support queue for employer workspaces.'
+          ? 'Tenant Help Center support queue for entrepreneur workspaces.'
           : 'Candidate portal /help support queue.'
       }
       icon={<Ticket className="h-5 w-5" />}

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronDown, X, Filter } from 'lucide-react';
 import type { ContactFilters } from '../../lib/api';
 import { apiGetClients, apiGetUsers } from '../../lib/api';
+import { mapUniqueClientOptions } from '../../lib/companyNameKey';
 import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
 
 interface ContactsFilterBarProps {
@@ -36,7 +37,7 @@ export function ContactsFilterBar({
 
         if (clientsRes.data) {
           const clientsData = Array.isArray(clientsRes.data) ? clientsRes.data : clientsRes.data.data || [];
-          setClients(clientsData.map((c: any) => ({ id: c.id, companyName: c.companyName || c.name })));
+          setClients(mapUniqueClientOptions(clientsData));
         }
 
         if (ownersRes.data) {

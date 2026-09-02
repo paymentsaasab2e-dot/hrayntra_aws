@@ -183,6 +183,10 @@ export function AgreementTermsSection({
                 className={`${inputClass}${flash('agreementContractEndDate')}`}
               />
             </div>
+            <p className="sm:col-span-2 text-[11px] text-slate-500">
+              If the document only states a validity period (for example 12 months from signing), start is
+              set to today and end is calculated from that period.
+            </p>
           </>
         ) : null}
 

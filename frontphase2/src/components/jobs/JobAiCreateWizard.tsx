@@ -51,15 +51,17 @@ import {
   type TenantCompanyPage,
 } from '@/lib/company-page-api';
 import { filterClientsForAddJob } from '@/lib/recruitmentClients';
+import { dedupeByCompanyName } from '@/lib/companyNameKey';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api/teamApi';
 import { RichTextEditor } from '@/components/RichTextEditor';
-import { CreateJobPhase1Preview } from '@/components/jobs/CreateJobPhase1Preview';
 import { PreScreenAssessmentSection } from '@/components/jobs/PreScreenAssessmentSection';
 import { LinkedInPostTemplateModal } from '@/components/jobs/LinkedInPostTemplateModal';
 import { LinkedInAccountsModal } from '@/components/jobs/LinkedInAccountsModal';
 import {
-  linkedInTemplateToPublicVisibility,
+  applyDefaultLinkedInPostTemplate,
   normalizeLinkedInPostTemplateSchema,
+  readRememberedLinkedInTemplateId,
+  subscribeLinkedInTemplateDefaultChanged,
   type JobLinkedInPostTemplate,
   type LinkedInPostTemplateSection,
 } from '@/lib/jobLinkedInPostTemplate';
@@ -207,33 +209,6 @@ const EMPTY_SOCIAL_CONNECTIONS: SocialPlatformConnection = {
 
 function isSocialAuthPlatform(platformId: string) {
   return SOCIAL_AUTH_PLATFORM_IDS.has(platformId);
-}
-
-function lastLinkedInTemplateStorageKey() {
-  try {
-    const tenant = String(localStorage.getItem('tenantDbName') || '').trim();
-    return tenant ? `jobLinkedInPostTemplate:lastId:${tenant}` : 'jobLinkedInPostTemplate:lastId';
-  } catch {
-    return 'jobLinkedInPostTemplate:lastId';
-  }
-}
-
-function rememberLinkedInTemplateId(id: string | null) {
-  try {
-    const key = lastLinkedInTemplateStorageKey();
-    if (id) localStorage.setItem(key, id);
-    else localStorage.removeItem(key);
-  } catch {
-    /* ignore */
-  }
-}
-
-function readRememberedLinkedInTemplateId(): string | null {
-  try {
-    return localStorage.getItem(lastLinkedInTemplateStorageKey()) || null;
-  } catch {
-    return null;
-  }
 }
 
 function unwrapLinkedInTemplates(res: unknown): JobLinkedInPostTemplate[] {
@@ -668,19 +643,26 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
 
   const linkedInRefreshStatus = linkedIn.refreshStatus;
 
-  const applyLinkedInTemplate = useCallback((template: JobLinkedInPostTemplate) => {
+  const applyLinkedInTemplate = useCallback((template: JobLinkedInPostTemplate, persistDefault = true) => {
     const schema = normalizeLinkedInPostTemplateSchema(template.schema);
     setSelectedLinkedInTemplateId(template.id);
     setSelectedLinkedInTemplateName(template.name);
     setLinkedInPostSections(schema.sections);
-    rememberLinkedInTemplateId(template.id);
-    const visibility = linkedInTemplateToPublicVisibility(schema);
-    setDraft((prev) => ({
-      ...prev,
-      publicFieldVisibility: visibility,
-      showClientNamePublicly: visibility.client !== false,
-    }));
+    if (persistDefault) applyDefaultLinkedInPostTemplate(template);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    return subscribeLinkedInTemplateDefaultChanged((template) => {
+      if (!template) {
+        setSelectedLinkedInTemplateId(null);
+        setSelectedLinkedInTemplateName(null);
+        setLinkedInPostSections(null);
+        return;
+      }
+      applyLinkedInTemplate(template, false);
+    });
+  }, [isOpen, applyLinkedInTemplate]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -691,8 +673,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         const rows = unwrapLinkedInTemplates(res).filter((row) => row.id);
         if (!rows.length) return;
         const remembered = readRememberedLinkedInTemplateId();
-        const match = rows.find((row) => row.id === remembered) || rows[0];
-        applyLinkedInTemplate(match);
+        const match = remembered ? rows.find((row) => row.id === remembered) : null;
+        if (match) applyLinkedInTemplate(match, false);
       })
       .catch(() => {
         /* keep default LinkedIn section order */
@@ -914,7 +896,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           (!workspace?.id || client.id !== workspace.id),
       );
       setOwnCompanyClient(workspace);
-      setClients(crmList);
+      setClients(dedupeByCompanyName(crmList, (client) => client.companyName));
       return crmList;
     } catch {
       setError('Could not load clients.');
@@ -2270,7 +2252,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                                 setSelectedLinkedInTemplateId(null);
                                 setSelectedLinkedInTemplateName(null);
                                 setLinkedInPostSections(null);
-                                rememberLinkedInTemplateId(null);
+                                applyDefaultLinkedInPostTemplate(null);
                               }}
                               className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                             >
@@ -2672,20 +2654,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       ownCompanyDisplayName={ownCompanyDisplayName}
                       workspaceOwnerHeading={workspaceOwnerHeading}
                     />
-                    <div className="mt-4">
-                      <CreateJobPhase1Preview
-                        form={jobDetailsFormData}
-                        companyName={
-                          ownCompanyClient &&
-                          jobDetailsFormData.companyId === ownCompanyClient.id
-                            ? ownCompanyDisplayName
-                            : clientsForForm.find((c) => c.id === jobDetailsFormData.companyId)
-                                ?.companyName ?? null
-                        }
-                        jobDescriptionHtml={draft.jobDescriptionHtml}
-                        users={users}
-                      />
-                    </div>
                   </div>
                 </div>
               </motion.div>

@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { apiDashboardAccess } from '@/lib/dashboard/api';
+import { apiOrgWorkspace } from '@/lib/org/orgApi';
 import type { OrgCompanyOption } from '@/lib/dashboard/api';
 import { usePermissions } from '@/hooks/usePermissions';
 import { orgSideFromPathname } from './orgSide';
+import { dedupeByCompanyName } from '../companyNameKey';
 import {
   clearActiveOrgUnit,
   getActiveOrgUnitId,
@@ -61,6 +62,8 @@ export function useOrgWorkspace() {
   const [hasCompanies, setHasCompanies] = useState(false);
   const [homeIsOrgCompany, setHomeIsOrgCompany] = useState(false);
 
+  const [apiCanSwitch, setApiCanSwitch] = useState(false);
+
   const localMaySwitch =
     isSuperAdmin() || hasPermission('switch_companies') || hasPermission('all');
 
@@ -74,7 +77,9 @@ export function useOrgWorkspace() {
     return [...byId.values()];
   }, [side, companiesCrm, companiesRecruitment]);
 
-  const canSwitchCompanies = Boolean(accessLoaded && localMaySwitch && companies.length > 0);
+  const canSwitchCompanies = Boolean(
+    accessLoaded && (localMaySwitch || apiCanSwitch) && companies.length > 0,
+  );
   const effectiveOrgUnitId = companies.some((c) => c.id === orgUnitId) ? orgUnitId : '';
   const effectiveOrgUnitName = effectiveOrgUnitId
     ? companies.find((c) => c.id === orgUnitId)?.name || orgUnitName
@@ -92,17 +97,16 @@ export function useOrgWorkspace() {
 
   useEffect(() => {
     let cancelled = false;
-    void apiDashboardAccess()
-      .then((data) => {
+    void apiOrgWorkspace()
+      .then((org) => {
         if (cancelled) return;
-        const org = data?.org;
         const crm = Array.isArray(org?.companiesCrm) ? org.companiesCrm : null;
         const recruitment = Array.isArray(org?.companiesRecruitment)
           ? org.companiesRecruitment
           : null;
         const fallback = org?.companies || [];
-        setCompaniesCrm(crm || fallback);
-        setCompaniesRecruitment(recruitment || fallback);
+        setCompaniesCrm(dedupeByCompanyName(crm || fallback, (company) => company.name));
+        setCompaniesRecruitment(dedupeByCompanyName(recruitment || fallback, (company) => company.name));
         setPurpose(String(org?.hierarchyPurpose || 'member'));
         setHasCompanies(
           Boolean(org?.hasCompanies) ||
@@ -111,6 +115,7 @@ export function useOrgWorkspace() {
             fallback.length > 0,
         );
         setHomeIsOrgCompany(Boolean(org?.homeIsOrgCompany));
+        setApiCanSwitch(Boolean(org?.canSwitchCompanies) || (crm || []).length > 0 || (recruitment || []).length > 0);
         setAccessLoaded(true);
 
         const granted = [...(crm || []), ...(recruitment || []), ...fallback];
@@ -132,6 +137,7 @@ export function useOrgWorkspace() {
           setCompaniesRecruitment([]);
           setHasCompanies(false);
           setHomeIsOrgCompany(false);
+          setApiCanSwitch(false);
           setAccessLoaded(true);
         }
       });

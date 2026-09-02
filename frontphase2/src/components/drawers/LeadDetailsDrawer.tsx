@@ -16,6 +16,7 @@ import {
   LeadFollowUpScheduler,
 } from '../LeadFollowUpScheduler';
 import { formatFollowUpDisplay } from '../../utils/formatLeadDateTime';
+import { cleanDisplayText } from '../../lib/sanitizeMojibake';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { NAME_SALUTATION_OPTIONS, formatDirectorDisplay } from '../../constants/salutations';
 import { MultiContactFields } from '../ui/MultiContactFields';
@@ -269,7 +270,7 @@ function parseLeadDemoNotes(notes: string | null | undefined): Array<{ label: st
   if (!raw) return null;
   const looksLikeDemo =
     /booked demo:/i.test(raw) ||
-    /employer demo request:/i.test(raw) ||
+    /employer demo request:|entrepreneur demo request:/i.test(raw) ||
     /\[demo-slot:/i.test(raw) ||
     /preferred demo:/i.test(raw);
   if (!looksLikeDemo) return null;
@@ -965,7 +966,7 @@ function OverviewField({
   href?: boolean;
   multiline?: boolean;
 }) {
-  const displayValue = String(value || '').trim();
+  const displayValue = cleanDisplayText(value, '');
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3.5 py-3">
       <AddLeadFieldLabel label={label} icon={icon} iconClassName={iconClassName} required={required} />
@@ -5381,7 +5382,7 @@ export function LeadDetailsDrawer({
                                 const showBusinessValue =
                                   Boolean(businessValue) &&
                                   businessValue !== '0' &&
-                                  !/booked demo:|employer demo request:/i.test(businessValue);
+                                  !/booked demo:|employer demo request:|entrepreneur demo request:/i.test(businessValue);
                                 return (
                                   <>
                                     {showBusinessValue ? (

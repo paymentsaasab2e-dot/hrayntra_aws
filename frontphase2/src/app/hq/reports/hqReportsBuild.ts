@@ -25,7 +25,7 @@ export const HQ_REPORT_DATASETS: Array<{ id: HqCustomReportRow['dataset']; label
   { id: 'demos', label: 'Demos & trials' },
   { id: 'tenants', label: 'Tenants' },
   { id: 'companies', label: 'Companies' },
-  { id: 'tickets', label: 'Employer tickets' },
+  { id: 'tickets', label: 'Entrepreneur tickets' },
   { id: 'helpTickets', label: 'Employee tickets' },
   { id: 'team', label: 'Team' },
   { id: 'candidates', label: 'Candidates' },

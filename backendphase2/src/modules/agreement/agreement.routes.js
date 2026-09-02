@@ -23,7 +23,17 @@ router.use(authMiddleware);
 
 router.post(
   '/parse-document',
-  requireAnyPermission(['leads_read', 'leads_create', 'leads_update', 'clients_read', 'clients_create', 'clients_update']),
+  requireAnyPermission([
+    'leads_read',
+    'leads_create',
+    'leads_update',
+    'clients_read',
+    'clients_create',
+    'clients_update',
+    'agreements_read',
+    'agreements_manage',
+    'view_all_clients',
+  ]),
   agreementUpload.single('file'),
   agreementController.parseDocument,
 );

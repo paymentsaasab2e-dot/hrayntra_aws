@@ -33,7 +33,24 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-const fieldClass = 'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100';
+const EMPTY_TRANSFER_SELECTION: Record<TransferableType, string[]> = {
+  leads: [],
+  clients: [],
+  jobs: [],
+  candidates: [],
+  members: [],
+};
+
+const TRANSFER_TABS: { id: TransferableType; label: string }[] = [
+  { id: 'leads', label: 'Leads' },
+  { id: 'clients', label: 'Clients' },
+  { id: 'jobs', label: 'Jobs' },
+  { id: 'candidates', label: 'Candidates' },
+  { id: 'members', label: 'Team members' },
+];
+
+const fieldClass =
+  'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100';
 const labelClass = 'mb-1.5 block text-[12px] font-semibold text-slate-600';
 
 function personName(m: TeamMember) {
@@ -471,12 +488,7 @@ export default function OrganizationPage() {
   const [dataSearch, setDataSearch] = useState('');
   const [dataItems, setDataItems] = useState<TransferableItem[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
-  const [dataSelected, setDataSelected] = useState<Record<TransferableType, string[]>>({
-    leads: [],
-    clients: [],
-    jobs: [],
-    candidates: [],
-  });
+  const [dataSelected, setDataSelected] = useState<Record<TransferableType, string[]>>(EMPTY_TRANSFER_SELECTION);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -647,7 +659,7 @@ export default function OrganizationPage() {
         setDataToId(String(created.id));
         setDataFromId('');
         setDataMode('copy');
-        setDataSelected({ leads: [], clients: [], jobs: [], candidates: [] });
+        setDataSelected(EMPTY_TRANSFER_SELECTION);
         setTab('data');
         toast.message(`Pick the records to duplicate into ${created?.name || name}.`);
       } else {
@@ -694,6 +706,12 @@ export default function OrganizationPage() {
     () => Object.values(dataSelected).reduce((sum, ids) => sum + ids.length, 0),
     [dataSelected],
   );
+  const selectedMemberCount = dataSelected.members?.length || 0;
+  const membersRequireMove = dataType === 'members' || selectedMemberCount > 0;
+
+  useEffect(() => {
+    if (membersRequireMove) setDataMode('move');
+  }, [membersRequireMove]);
 
   const toggleDataItem = (id: string) => {
     setDataSelected((prev) => {
@@ -721,23 +739,30 @@ export default function OrganizationPage() {
 
   const runTransfer = async () => {
     if (!selectedTotal) {
-      toast.error('Select at least one record.');
+      toast.error('Select at least one record or team member.');
       return;
     }
     if (dataFromId && dataToId && dataFromId === dataToId) {
       toast.error('Pick a different destination.');
       return;
     }
+    const mode = membersRequireMove ? 'move' : dataMode;
+    if (mode === 'copy' && selectedMemberCount) {
+      toast.error('Team members can only be moved, not duplicated.');
+      return;
+    }
     const targetLabel = dataToId
       ? assignableUnits.find((u) => u.id === dataToId)?.name || 'the selected company'
       : 'no company (left unassigned)';
-    if (
-      !window.confirm(
-        dataMode === 'copy'
+    const recordCount = selectedTotal - selectedMemberCount;
+    const confirmText = selectedMemberCount && recordCount
+      ? `Move ${recordCount} record(s) and ${selectedMemberCount} team member(s) to ${targetLabel}? Members will leave the source company.`
+      : selectedMemberCount
+        ? `Move ${selectedMemberCount} team member(s) to ${targetLabel}? They will leave the source company. Super Admin cannot be moved.`
+        : mode === 'copy'
           ? `Duplicate ${selectedTotal} record(s) into ${targetLabel}? The originals stay where they are.`
-          : `Move ${selectedTotal} record(s) to ${targetLabel}? They will disappear from the source company.`,
-      )
-    ) {
+          : `Move ${selectedTotal} record(s) to ${targetLabel}? They will disappear from the source company.`;
+    if (!window.confirm(confirmText)) {
       return;
     }
     setSaving(true);
@@ -745,16 +770,25 @@ export default function OrganizationPage() {
       const result = await apiTransferOrgData({
         fromOrgUnitId: dataFromId,
         toOrgUnitId: dataToId,
-        mode: dataMode,
+        mode,
         items: dataSelected,
       });
-      const done = dataMode === 'copy' ? result.copied : result.moved;
+      const done = mode === 'copy' ? result.copied : result.moved;
       const doneTotal = Object.values(done).reduce((sum, n) => sum + Number(n || 0), 0);
       const skipped = Object.values(result.skipped).reduce((sum, n) => sum + Number(n || 0), 0);
+      const membersMoved = Number(result.moved?.members || 0);
+      const otherMoved = doneTotal - membersMoved;
+      const skipNote = skipped ? ` · ${skipped} skipped` : '';
       toast.success(
-        `${dataMode === 'copy' ? 'Duplicated' : 'Moved'} ${doneTotal} record(s)${skipped ? ` · ${skipped} skipped` : ''}`,
+        mode === 'copy'
+          ? `Duplicated ${doneTotal} record(s)${skipNote}`
+          : membersMoved && otherMoved
+            ? `Moved ${otherMoved} record(s) and ${membersMoved} team member(s)${skipNote}`
+            : membersMoved
+              ? `Moved ${membersMoved} team member(s)${skipNote}`
+              : `Moved ${doneTotal} record(s)${skipNote}`,
       );
-      setDataSelected({ leads: [], clients: [], jobs: [], candidates: [] });
+      setDataSelected(EMPTY_TRANSFER_SELECTION);
       await loadTransferable(dataFromId, dataType, dataSearch);
       await load();
     } catch (error) {
@@ -1214,7 +1248,7 @@ export default function OrganizationPage() {
                 <Choice
                   active={source === 'copy'}
                   title="Start empty, then copy data in"
-                  hint="Creates it empty and opens Copy / move data so you can duplicate selected leads, clients, jobs or candidates from another company."
+                  hint="Creates it empty and opens Copy / move data so you can duplicate selected leads, clients, jobs or candidates, or move team members from another company."
                   onClick={() => setSource('copy')}
                 />
               </div>
@@ -1512,8 +1546,9 @@ export default function OrganizationPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="text-base font-bold text-slate-900">Copy or move data between companies</h2>
           <p className="mt-0.5 text-[13px] text-slate-500">
-            Pick a source, select the records you want, then duplicate them into another company or branch. Copy keeps
-            the originals; move re-homes them. Leave the destination as “No company” to park records as unassigned.
+            Pick a source, select the records or team members you want, then send them to another company or branch.
+            Copy keeps original records; move re-homes them. Team members can only be moved — logins are not duplicated,
+            and Super Admin cannot be moved. Leave the destination as “No company” to park them as unassigned.
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -1523,7 +1558,7 @@ export default function OrganizationPage() {
                 value={dataFromId}
                 onChange={(e) => {
                   setDataFromId(e.target.value);
-                  setDataSelected({ leads: [], clients: [], jobs: [], candidates: [] });
+                  setDataSelected(EMPTY_TRANSFER_SELECTION);
                 }}
                 className={fieldClass}
               >
@@ -1553,30 +1588,43 @@ export default function OrganizationPage() {
             <div>
               <label className={labelClass}>Action</label>
               <select
-                value={dataMode}
-                onChange={(e) => setDataMode(e.target.value as 'copy' | 'move')}
+                value={membersRequireMove ? 'move' : dataMode}
+                onChange={(e) => {
+                  const next = e.target.value as 'copy' | 'move';
+                  if (membersRequireMove && next === 'copy') {
+                    toast.error('Team members can only be moved, not duplicated.');
+                    return;
+                  }
+                  setDataMode(next);
+                }}
                 className={fieldClass}
               >
-                <option value="copy">Duplicate (keep original)</option>
+                {membersRequireMove ? null : <option value="copy">Duplicate (keep original)</option>}
                 <option value="move">Move (remove from source)</option>
               </select>
+              {membersRequireMove ? (
+                <p className="mt-1 text-[11px] text-slate-500">Team members can only be moved, not copied.</p>
+              ) : null}
             </div>
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            {(['leads', 'clients', 'jobs', 'candidates'] as TransferableType[]).map((type) => (
+            {TRANSFER_TABS.map((tabItem) => (
               <button
-                key={type}
+                key={tabItem.id}
                 type="button"
-                onClick={() => setDataType(type)}
-                className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold capitalize ${
-                  dataType === type
+                onClick={() => {
+                  setDataType(tabItem.id);
+                  if (tabItem.id === 'members') setDataMode('move');
+                }}
+                className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold ${
+                  dataType === tabItem.id
                     ? 'bg-slate-900 text-white'
                     : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                 }`}
               >
-                {type}
-                {dataSelected[type].length ? ` (${dataSelected[type].length})` : ''}
+                {tabItem.label}
+                {dataSelected[tabItem.id]?.length ? ` (${dataSelected[tabItem.id].length})` : ''}
               </button>
             ))}
           </div>
@@ -1585,7 +1633,7 @@ export default function OrganizationPage() {
             <input
               value={dataSearch}
               onChange={(e) => setDataSearch(e.target.value)}
-              placeholder={`Search ${dataType}…`}
+              placeholder={dataType === 'members' ? 'Search team members…' : `Search ${dataType}…`}
               className="h-10 flex-1 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-sky-400"
             />
             <button
@@ -1622,7 +1670,9 @@ export default function OrganizationPage() {
               </ul>
             ) : (
               <p className="p-4 text-sm text-slate-500">
-                No {dataType} found in {dataFromId ? 'this company' : 'the unassigned pool'}.
+                {dataType === 'members'
+                  ? `No team members found in ${dataFromId ? 'this company' : 'the unassigned pool'}. Super Admin is not listed.`
+                  : `No ${dataType} found in ${dataFromId ? 'this company' : 'the unassigned pool'}.`}
               </p>
             )}
           </div>
@@ -1636,12 +1686,12 @@ export default function OrganizationPage() {
             >
               {saving
                 ? 'Working…'
-                : `${dataMode === 'copy' ? 'Duplicate' : 'Move'} ${selectedTotal || ''} selected`.trim()}
+                : `${membersRequireMove || dataMode === 'move' ? 'Move' : 'Duplicate'} ${selectedTotal || ''} selected`.trim()}
             </button>
             {selectedTotal ? (
               <button
                 type="button"
-                onClick={() => setDataSelected({ leads: [], clients: [], jobs: [], candidates: [] })}
+                onClick={() => setDataSelected(EMPTY_TRANSFER_SELECTION)}
                 className="h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
               >
                 Clear selection

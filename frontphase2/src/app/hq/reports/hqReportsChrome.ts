@@ -1,4 +1,4 @@
-/** Shared HQ dashboard chrome so Reports matches Employees / Employers / CRM dashboards. */
+/** Shared HQ dashboard chrome so Reports matches Employees / Entrepreneurs / CRM dashboards. */
 
 export const HQ_REPORTS_BTN_PRIMARY =
   'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:brightness-110 disabled:opacity-50';

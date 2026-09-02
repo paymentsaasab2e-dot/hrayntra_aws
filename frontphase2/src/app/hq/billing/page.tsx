@@ -286,7 +286,7 @@ export default function HqBillingPage() {
           }`}
         >
           <Briefcase className="h-4 w-4" />
-          Employer (Phase 2)
+          Entrepreneur (Phase 2)
         </button>
         <button
           type="button"
@@ -403,7 +403,7 @@ export default function HqBillingPage() {
                     ) : (
                       <tr>
                         <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
-                          {loading ? 'Loading employer transactions…' : 'No employer transactions found.'}
+                          {loading ? 'Loading entrepreneur transactions…' : 'No entrepreneur transactions found.'}
                         </td>
                       </tr>
                     )}

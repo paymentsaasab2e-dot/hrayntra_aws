@@ -84,8 +84,8 @@ interface HqStats {
 }
 
 const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
-  dashboard: 'Portal and employer platform analytics, plus tenant overview.',
-  tenants: 'Phase 2 employer users and workspaces. Trial accounts are not listed here.',
+  dashboard: 'Portal and entrepreneur platform analytics, plus tenant overview.',
+  tenants: 'Phase 2 entrepreneur users and workspaces. Trial accounts are not listed here.',
   plans: '',
   bootstrap: 'Local-only super admin credential injection.',
 };
@@ -484,7 +484,7 @@ function HQSetupPage() {
       await apiHqDeleteTenant({ email });
       setStatus({
         type: 'success',
-        message: `Tenant ${email} moved to Recycle Bin. Restore it from Employers → Recycle Bin.`,
+        message: `Tenant ${email} moved to Recycle Bin. Restore it from Entrepreneurs → Recycle Bin.`,
       });
       void refreshTenants();
     } catch (err: any) {

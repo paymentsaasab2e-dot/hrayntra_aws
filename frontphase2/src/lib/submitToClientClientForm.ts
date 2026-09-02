@@ -2,6 +2,7 @@ import type { BackendClient, BackendContact, CreateContactData, UpdateClientData
 import { directorFromOtherDetails } from './clientDirectorDetails';
 import { directorNameFromContact, resolveDirectorBackendContact } from './clientContactRoles';
 import { formatDateDMY } from '../utils/dateDisplay';
+import { visibleContactEmail } from './contactEmail';
 
 export interface SubmitToClientClientContactForm {
   id: string;
@@ -90,9 +91,7 @@ function resolveCityStateCountry(source: {
 }
 
 function cleanContactEmail(email?: string | null): string {
-  const value = String(email || '').trim();
-  if (!value || value.includes('@placeholder.local')) return '';
-  return value;
+  return visibleContactEmail(email);
 }
 
 export function clientToSubmitForm(

@@ -121,7 +121,7 @@ function CandidateLedgerTable({ rows }: { rows: HqBillingCandidateTransactionRow
 
 function EmployerLedgerTable({ rows }: { rows: HqBillingEmployerTransactionRow[] }) {
   if (!rows.length) {
-    return <p className="py-8 text-center text-sm text-slate-500">No transactions for this employer.</p>;
+    return <p className="py-8 text-center text-sm text-slate-500">No transactions for this entrepreneur.</p>;
   }
   return (
     <table className="min-w-full text-left text-sm">
@@ -220,7 +220,7 @@ export function HqBillingEntityDrawer({ open, kind, entityKey, onClose }: Props)
   const title =
     kind === 'candidate'
       ? candidateLedger?.entity?.name || 'Candidate billing'
-      : employerLedger?.entity?.tenantName || 'Employer billing';
+      : employerLedger?.entity?.tenantName || 'Entrepreneur billing';
 
   const subtitle =
     kind === 'candidate'

@@ -61,7 +61,11 @@ export function AgreementDocumentUpload({
       setIsExtractingLocal(true);
       try {
         const data = await apiParseAgreementDocument(file, { signal: controller.signal });
-        const parsed = agreementTermsFromRecord(data?.terms);
+        const rawTerms =
+          data && typeof data === 'object' && 'terms' in data && data.terms
+            ? data.terms
+            : data;
+        const parsed = agreementTermsFromRecord(rawTerms as Parameters<typeof agreementTermsFromRecord>[0]);
         onTermsExtracted(parsed);
 
         const filledKeys = filledAgreementTermKeys(parsed);

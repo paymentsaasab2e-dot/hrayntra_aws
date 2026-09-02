@@ -389,10 +389,10 @@ export function buildHqReportVisuals(
           { label: 'Spends', count: spends },
           { label: 'Grants', count: grants },
         ]),
-        chart('cycle', 'Employer billing cycle', 'donut', countBy(tenantCycles.map((row) => ({ label: row.billingCycle || 'monthly' })))),
+        chart('cycle', 'Entrepreneur billing cycle', 'donut', countBy(tenantCycles.map((row) => ({ label: row.billingCycle || 'monthly' })))),
         chart('side', 'Billing side', 'donut', [
           { label: 'Candidate', count: candidateTx.length },
-          { label: 'Employer', count: employerTx.length },
+          { label: 'Entrepreneur', count: employerTx.length },
         ]),
         ...(trend.length ? [chart('trend', 'Transaction activity', 'area', trend)] : []),
       ],

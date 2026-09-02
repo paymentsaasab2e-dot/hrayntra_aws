@@ -2454,7 +2454,7 @@ async function buildEmployerAnalytics() {
   if ((demoStats.verified || 0) > 0 || (demoStats.purchases || 0) > 0) {
     insights.push({
       tone: 'good',
-      text: `Employer funnel: ${demoStats.verified || 0} verified · ${demoStats.trials || 0} trials · ${demoStats.purchases || 0} purchases.`,
+      text: `Entrepreneur funnel: ${demoStats.verified || 0} verified · ${demoStats.trials || 0} trials · ${demoStats.purchases || 0} purchases.`,
     });
   }
 

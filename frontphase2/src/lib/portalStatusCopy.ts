@@ -183,7 +183,7 @@ export const PORTAL_STATUS_CATALOG: StatusCatalogGroup[] = [
     ],
   },
   {
-    heading: 'Employer portal',
+    heading: 'Entrepreneur portal',
     items: [
       { id: 'workspacePaused', trigger: 'HQ sets tenant PAUSED', copy: EMPLOYER_PORTAL_STATUS.workspacePaused },
       { id: 'trialEnded', trigger: 'Login with trial expired', copy: EMPLOYER_PORTAL_STATUS.trialEnded },

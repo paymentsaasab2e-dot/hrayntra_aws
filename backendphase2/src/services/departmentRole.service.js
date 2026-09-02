@@ -5,6 +5,41 @@ import {
   stripViewAllCompaniesPermissionIds,
 } from '../modules/role/roleCompanyAccess.service.js';
 
+async function applyRolePermissionsAndCompanyAccess(client, roleId, permissionIds, companyAccess) {
+  if (Array.isArray(permissionIds) && permissionIds.length > 0) {
+    const rawPermissionValues = await stripViewAllCompaniesPermissionIds(
+      permissionIds.map((id) => String(id).trim()).filter(Boolean),
+    );
+    const permissionRecords = await client.permission.findMany({
+      where: {
+        OR: [{ id: { in: rawPermissionValues } }, { permissionName: { in: rawPermissionValues } }],
+      },
+      select: { id: true, permissionName: true },
+    });
+    const permissionById = new Map(permissionRecords.map((p) => [p.id, p.id]));
+    const permissionByName = new Map(permissionRecords.map((p) => [p.permissionName, p.id]));
+    const uniquePermissionIds = [
+      ...new Set(
+        rawPermissionValues
+          .map((value) => permissionById.get(value) || permissionByName.get(value))
+          .filter(Boolean),
+      ),
+    ];
+    if (uniquePermissionIds.length > 0) {
+      await client.rolePermission.deleteMany({ where: { roleId } });
+      await client.rolePermission.createMany({
+        data: uniquePermissionIds.map((permissionId) => ({
+          roleId,
+          permissionId,
+        })),
+      });
+    }
+  }
+  if (companyAccess && typeof companyAccess === 'object') {
+    await saveRoleCompanyAccess(roleId, companyAccess);
+  }
+}
+
 const ROLE_LINK_INCLUDE = {
   role: {
     select: {
@@ -134,38 +169,6 @@ export async function applyDepartmentRoles(departmentId, roles, client = prisma)
           },
         });
         roleId = created.id;
-
-        if (entry.permissionIds.length > 0) {
-          const rawPermissionValues = await stripViewAllCompaniesPermissionIds(
-            entry.permissionIds.map((id) => String(id).trim()).filter(Boolean),
-          );
-          const permissionRecords = await client.permission.findMany({
-            where: {
-              OR: [{ id: { in: rawPermissionValues } }, { permissionName: { in: rawPermissionValues } }],
-            },
-            select: { id: true, permissionName: true },
-          });
-          const permissionById = new Map(permissionRecords.map((p) => [p.id, p.id]));
-          const permissionByName = new Map(permissionRecords.map((p) => [p.permissionName, p.id]));
-          const uniquePermissionIds = [
-            ...new Set(
-              rawPermissionValues
-                .map((value) => permissionById.get(value) || permissionByName.get(value))
-                .filter(Boolean),
-            ),
-          ];
-          if (uniquePermissionIds.length > 0) {
-            await client.rolePermission.createMany({
-              data: uniquePermissionIds.map((permissionId) => ({
-                roleId,
-                permissionId,
-              })),
-            });
-          }
-        }
-        if (entry.companyAccess) {
-          await saveRoleCompanyAccess(roleId, entry.companyAccess);
-        }
       }
     } else {
       const role = await client.systemRole.findUnique({ where: { id: roleId }, select: { id: true } });
@@ -173,6 +176,13 @@ export async function applyDepartmentRoles(departmentId, roles, client = prisma)
         throw new Error('Selected role was not found');
       }
     }
+
+    await applyRolePermissionsAndCompanyAccess(
+      client,
+      roleId,
+      entry.permissionIds,
+      entry.companyAccess,
+    );
 
     const link = await linkDepartmentRole(client, departmentId, roleId, entry.rank);
 
