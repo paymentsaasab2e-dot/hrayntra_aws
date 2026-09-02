@@ -4,6 +4,7 @@ import { getCache, setCache } from '../cache/redis.js';
 import { sendError } from '../utils/response.js';
 import logger from '../utils/logger.js';
 import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
+import { isSuperAdminUser } from '../utils/superAdminScope.js';
 
 function buildPermissionCacheKey(userId) {
   const tenant = getActiveTenantDbName() || 'default';
@@ -99,7 +100,7 @@ async function loadUserAuthz(req) {
       email: true,
       name: true,
       role: true,
-      isSuperAdmin: true,
+      isActive: true,
       roleId: true,
       systemRole: { select: { id: true, roleName: true, color: true } },
     },
@@ -109,7 +110,8 @@ async function loadUserAuthz(req) {
     return { error: { status: 401, message: 'User not found' } };
   }
 
-  const isSuperAdmin = user.role === 'SUPER_ADMIN' || user.systemRole?.roleName === 'Super Admin';
+  // Super Admin is derived from role / system role name — User has no isSuperAdmin column.
+  const isSuperAdmin = isSuperAdminUser(user);
   let permissions = [];
   const roleId = String(user.roleId || user.systemRole?.id || '').trim();
   if (!isSuperAdmin && roleId) {
@@ -192,9 +194,7 @@ export function requireAnyPermission(permissionNames = []) {
           return sendError(res, 401, 'User not found');
         }
 
-        const isSuperAdmin =
-          user.role === 'SUPER_ADMIN' ||
-          user.systemRole?.roleName === 'Super Admin';
+        const isSuperAdmin = isSuperAdminUser(user);
 
         let permissions = [];
         if (!isSuperAdmin && user.roleId) {
