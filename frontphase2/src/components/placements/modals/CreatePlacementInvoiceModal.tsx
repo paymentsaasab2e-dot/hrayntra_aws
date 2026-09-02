@@ -52,6 +52,7 @@ import type { InvoiceBankDetails, InvoiceCustomColumn } from '../../../types/rec
 import { invoiceFromBillingRecord } from '../../../lib/invoiceFromBillingRecord';
 import { MY_JOBS_LIST_PARAMS } from '../../../lib/myJobsListParams';
 import { addDaysIso, recalcInvoiceTotals, recalcLineItem } from '../../../lib/invoiceCalculations';
+import { orEmpty } from '../../../lib/asyncLoadGuard';
 import {
   resolveClientEmail,
   resolveOrgDefaultCurrency,
@@ -311,12 +312,15 @@ export function CreatePlacementInvoiceModal({
   isSubmitting,
   canCreatePlacement = false,
   currentUserId,
-  candidates: candidatesProp = [],
-  jobs: jobsProp = [],
-  recruiters: recruitersProp = [],
+  candidates: candidatesList,
+  jobs: jobsList,
+  recruiters: recruitersList,
   onClose,
   onSubmit,
 }: CreatePlacementInvoiceModalProps) {
+  const candidatesProp = orEmpty(candidatesList);
+  const jobsProp = orEmpty(jobsList);
+  const recruitersProp = orEmpty(recruitersList);
   const eligible = useMemo(
     () => placements.filter((p) => (p.placementFee ?? 0) > 0),
     [placements],
@@ -459,6 +463,7 @@ export function CreatePlacementInvoiceModal({
 
     return () => {
       cancelled = true;
+      setLoadingMeta(false);
     };
   }, [isOpen, initialBillingRecordId]);
 
@@ -593,6 +598,7 @@ export function CreatePlacementInvoiceModal({
 
     return () => {
       cancelled = true;
+      setLoadingMeta(false);
     };
   }, [
     isOpen,
@@ -776,6 +782,7 @@ export function CreatePlacementInvoiceModal({
 
     return () => {
       cancelled = true;
+      setLoadingClientContext(false);
     };
   }, [isOpen, resolvedClientId]);
 

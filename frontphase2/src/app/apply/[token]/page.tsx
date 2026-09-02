@@ -102,6 +102,7 @@ export default function PublicJobApplyPage() {
       });
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, [token, tenantDbName]);
 

@@ -109,6 +109,7 @@ export function AiCoinPurchaseModal({
       });
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, [open]);
 

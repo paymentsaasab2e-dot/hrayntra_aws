@@ -8,6 +8,7 @@ import {
   type InterviewApplicationRow,
   type InterviewApplicationStatus,
 } from '../../lib/api';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../ui/Skeleton';
 
@@ -30,17 +31,19 @@ export function InterviewerApplicationsTab({ onReview }: Props) {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const session = startAsyncLoad(setLoading);
     setError('');
     try {
       const res = await apiListInterviewerApplications();
+      if (!session.isActive()) return;
       const data = (res as { data?: InterviewApplicationRow[] })?.data ?? res;
       setRows(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
+      if (!session.isActive()) return;
       setError(err instanceof Error ? err.message : 'Failed to load interviewer queue');
       setRows([]);
     } finally {
-      setLoading(false);
+      session.finish();
     }
   }, []);
 

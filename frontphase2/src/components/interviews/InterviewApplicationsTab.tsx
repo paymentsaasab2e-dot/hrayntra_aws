@@ -3,11 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Eye, Plus, RefreshCcw } from 'lucide-react';
-import {
-  apiListInterviewApplications,
-  type InterviewApplicationRow,
-  type InterviewApplicationStatus,
-} from '../../lib/api';
+import { apiListInterviewApplications, type InterviewApplicationRow, type InterviewApplicationStatus } from '../../lib/api';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../ui/Skeleton';
 
@@ -37,19 +34,21 @@ export function InterviewApplicationsTab({ onReview }: Props) {
   const [statusFilter, setStatusFilter] = useState('');
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const session = startAsyncLoad(setLoading);
     setError('');
     try {
       const res = await apiListInterviewApplications(
         statusFilter ? { status: statusFilter } : undefined,
       );
+      if (!session.isActive()) return;
       const data = (res as { data?: InterviewApplicationRow[] })?.data ?? res;
       setRows(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
+      if (!session.isActive()) return;
       setError(err instanceof Error ? err.message : 'Failed to load applications');
       setRows([]);
     } finally {
-      setLoading(false);
+      session.finish();
     }
   }, [statusFilter]);
 

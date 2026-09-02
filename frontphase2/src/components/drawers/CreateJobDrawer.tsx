@@ -89,6 +89,7 @@ import {
   type JobCustomJdSection,
 } from '../../lib/jobCustomJdSections';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
@@ -1403,13 +1404,13 @@ export function CreateJobDrawer({
   useEffect(() => {
     if (!isOpen || !formData.companyId) {
       setContacts([]);
+      setLoadingContacts(false);
       return;
     }
 
-    let cancelled = false;
+    const load = startAsyncLoad(setLoadingContacts);
     const loadContacts = async () => {
       try {
-        setLoadingContacts(true);
         const clientId = formData.companyId;
         const [contactsResponse, clientResponse] = await Promise.all([
           apiGetContacts({ clientId, type: 'CLIENT' }),
@@ -1421,7 +1422,7 @@ export function CreateJobDrawer({
           : raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)
             ? (raw as { data: unknown[] }).data
             : [];
-        if (cancelled) return;
+        if (!load.isActive()) return;
         const client =
           clientResponse && typeof clientResponse === 'object' && 'id' in clientResponse
             ? (clientResponse as BackendClient)
@@ -1430,15 +1431,15 @@ export function CreateJobDrawer({
           buildJobContactPersonOptions(list as BackendContact[], client),
         );
       } catch {
-        if (!cancelled) setContacts([]);
+        if (load.isActive()) setContacts([]);
       } finally {
-        if (!cancelled) setLoadingContacts(false);
+        load.finish();
       }
     };
 
     void loadContacts();
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen, formData.companyId]);
 

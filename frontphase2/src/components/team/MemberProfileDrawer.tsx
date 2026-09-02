@@ -25,6 +25,7 @@ import { PortalHost } from './PortalHost';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 
 interface MemberProfileDrawerProps {
   isOpen: boolean;
@@ -128,22 +129,24 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
   }, [isOpen, memberId, userIsSuperAdmin, hasAnyPermission]);
 
   useEffect(() => {
-    if (isOpen && memberId) {
-      setSessionTempPassword(initialTempPassword || '');
-      setShowTempPassword(true);
-      loadMember();
+    if (!isOpen || !memberId) {
+      setLoading(false);
+      return;
     }
+    setSessionTempPassword(initialTempPassword || '');
+    setShowTempPassword(true);
+    void loadMember();
   }, [isOpen, memberId, initialTempPassword]);
 
   const loadMember = async () => {
-    setLoading(true);
+    const load = startAsyncLoad(setLoading);
     try {
       const res = await getTeamMemberById(memberId);
-      setMember(res.data);
+      if (load.isActive()) setMember(res.data);
     } catch (error: any) {
       toast.error(error.message || 'Failed to load member details');
     } finally {
-      setLoading(false);
+      load.finish();
     }
   };
 

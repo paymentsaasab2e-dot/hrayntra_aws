@@ -10,6 +10,7 @@ import {
 } from '@/lib/api/teamApi';
 import type { TeamMember } from '@/types/team';
 import type { BackendUser } from '@/lib/api';
+import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 
 export type AssignCompanyOption = { id: string; name: string; kind?: string };
 
@@ -70,10 +71,9 @@ export function useAssignableMembers(
         setCompaniesReady(true);
       })
       .catch(() => {
-        if (!cancelled) {
-          setCompanies([]);
-          setCompaniesReady(true);
-        }
+        if (cancelled) return;
+        setCompanies([]);
+        setCompaniesReady(true);
       });
     return () => {
       cancelled = true;
@@ -94,21 +94,20 @@ export function useAssignableMembers(
       setLoading(false);
       return;
     }
-    let cancelled = false;
-    setLoading(true);
+    const load = startAsyncLoad(setLoading);
     const requestedCompanyId = canSelectCompany ? companyId : '';
     void getAllTeamMembersForAssign(requestedCompanyId || undefined, module)
       .then((rows) => {
-        if (!cancelled) setMembers(rows || []);
+        if (load.isActive()) setMembers(rows || []);
       })
       .catch(() => {
-        if (!cancelled) setMembers([]);
+        if (load.isActive()) setMembers([]);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        load.finish();
       });
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [enabled, mayPickCompany, companiesReady, canSelectCompany, companyId, module]);
 

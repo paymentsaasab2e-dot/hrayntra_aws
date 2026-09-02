@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Loader2 } from 'lucide-react';
 import { getCandidateAssessmentResults } from '@/lib/api';
+import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import {
   AssessmentReviewRow,
   type AssessmentResult,
@@ -37,10 +38,11 @@ export function CandidateAssessmentsTabPanel({
       return;
     }
 
-    setLoading(true);
+    const session = startAsyncLoad(setLoading);
     setError(null);
     try {
       const res = await getCandidateAssessmentResults(id, preferredJobId || undefined);
+      if (!session.isActive()) return;
       const rows = Array.isArray(res?.data) ? (res.data as JobAssessmentGroup[]) : [];
       setGroups(
         rows.map((group) => ({
@@ -51,10 +53,11 @@ export function CandidateAssessmentsTabPanel({
         })),
       );
     } catch (e) {
+      if (!session.isActive()) return;
       setError(e instanceof Error ? e.message : 'Could not load assessment results');
       setGroups([]);
     } finally {
-      setLoading(false);
+      session.finish();
     }
   }, [candidateId, enabled, preferredJobId]);
 

@@ -168,6 +168,7 @@ export function SaasaCvPdfViewer({
     void render();
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, [pdfUrl, onReady, onError]);
 

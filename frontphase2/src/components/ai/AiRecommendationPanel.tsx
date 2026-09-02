@@ -3,12 +3,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  apiGetEntryRecommendations,
-  apiRegenerateEntryRecommendation,
-  type AiEntryRecommendation,
-  type AiEntryEntityType,
-} from '../../lib/apiAiRecommendations';
+import { apiGetEntryRecommendations, apiRegenerateEntryRecommendation, type AiEntryRecommendation, type AiEntryEntityType } from '../../lib/apiAiRecommendations';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 
 const PRIORITY_STYLES: Record<string, string> = {
   HIGH: 'bg-rose-100 text-rose-800 border-rose-200',
@@ -36,17 +32,22 @@ export function AiRecommendationPanel({
 
   const load = useCallback(async () => {
     const id = String(entityId || '').trim();
-    if (!id) return;
-    setLoading(true);
+    if (!id) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+    const session = startAsyncLoad(setLoading);
     try {
       const res = await apiGetEntryRecommendations(entityType, id);
+      if (!session.isActive()) return;
       const data = res.data;
       setItems(Array.isArray(data?.recommendations) ? data.recommendations : []);
       setConfigured(data?.configured !== false);
     } catch {
-      setItems([]);
+      if (session.isActive()) setItems([]);
     } finally {
-      setLoading(false);
+      session.finish();
     }
   }, [entityType, entityId]);
 

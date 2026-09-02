@@ -13,6 +13,7 @@ import {
   type HqBillingEmployerLedgerPayload,
   type HqBillingEmployerTransactionRow,
 } from '@/lib/api';
+import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import { formatBillingCycleLabel } from './hqPackagePresentation';
 
 type BillingEntityKind = 'candidate' | 'employer';
@@ -182,36 +183,36 @@ export function HqBillingEntityDrawer({ open, kind, entityKey, onClose }: Props)
       setCandidateLedger(null);
       setEmployerLedger(null);
       setError('');
+      setLoading(false);
       return;
     }
 
-    let cancelled = false;
-    setLoading(true);
+    const load = startAsyncLoad(setLoading);
     setError('');
 
-    const load = async () => {
+    const run = async () => {
       try {
         if (kind === 'candidate') {
           const result = await apiHqGetCandidateBillingLedger(entityKey);
-          if (!cancelled) setCandidateLedger(result.data || null);
+          if (load.isActive()) setCandidateLedger(result.data || null);
         } else {
           const result = await apiHqGetEmployerBillingLedger(entityKey);
-          if (!cancelled) setEmployerLedger(result.data || null);
+          if (load.isActive()) setEmployerLedger(result.data || null);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (load.isActive()) {
           setError(err instanceof Error ? err.message : 'Failed to load billing ledger');
           setCandidateLedger(null);
           setEmployerLedger(null);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        load.finish();
       }
     };
 
-    void load();
+    void run();
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [open, kind, entityKey]);
 

@@ -23,6 +23,7 @@ import {
   isInterviewPipelineStage,
   isOfferPipelineStage,
 } from '../../lib/candidateSubmitToClient';
+import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
 import {
   X,
   Pencil,
@@ -838,14 +839,14 @@ export function JobDetailsDrawer({
   onPublish,
   onClone,
   onCloseJob,
-  jobCandidates = [],
+  jobCandidates: jobCandidatesProp,
   pipelineStages: initialPipelineStages,
   onPipelineStagesChange,
   onSavePipelineStages,
   onMoveStage,
   onAddToPipeline,
   onRemoveFromPipeline,
-  pipelineRecruiters = [],
+  pipelineRecruiters: pipelineRecruitersProp,
   onScheduleInterview,
   onCreatePlacement,
   onRejectCandidate,
@@ -856,6 +857,8 @@ export function JobDetailsDrawer({
   canAddCandidate = false,
 }: JobDetailsDrawerProps) {
   usePageDrawerLifecycle(isOpen);
+  const jobCandidates = orEmpty(jobCandidatesProp);
+  const pipelineRecruiters = orEmpty(pipelineRecruitersProp);
   const [pipelineStages, setPipelineStages] = useState<JobPipelineStage[]>(normalizePipelineStages(initialPipelineStages));
   const [draggedStageId, setDraggedStageId] = useState<string | null>(null);
   const [pipelineDirty, setPipelineDirty] = useState(false);
@@ -1626,26 +1629,26 @@ export function JobDetailsDrawer({
   useEffect(() => {
     if (!job?.id) {
       setApplyUrl(null);
+      setApplyLinkLoading(false);
       return;
     }
     const initialUrl = job.applyUrl || null;
     setApplyUrl(initialUrl);
-    let cancelled = false;
-    setApplyLinkLoading(true);
+    const load = startAsyncLoad(setApplyLinkLoading);
     void apiGetJobApplyLink(job.id)
       .then((res) => {
         const payload = (res as { data?: { applyUrl?: string } })?.data ?? res;
         const url = (payload as { applyUrl?: string })?.applyUrl;
-        if (!cancelled && url) setApplyUrl(url);
+        if (load.isActive() && url) setApplyUrl(url);
       })
       .catch(() => {
-        if (!cancelled) setApplyUrl(initialUrl);
+        if (load.isActive()) setApplyUrl(initialUrl);
       })
       .finally(() => {
-        if (!cancelled) setApplyLinkLoading(false);
+        load.finish();
       });
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [job?.id, job?.applyUrl]);
 
@@ -1665,23 +1668,27 @@ export function JobDetailsDrawer({
   } = useFiles('job', job?.id);
   // Fetch job activities when activity tab is active
   useEffect(() => {
-    if (!job?.id || activeTab !== 'activity') return;
+    if (!job?.id || activeTab !== 'activity') {
+      setLoadingActivities(false);
+      return;
+    }
 
+    const load = startAsyncLoad(setLoadingActivities);
     const fetchActivities = async () => {
-      setLoadingActivities(true);
       try {
         const response = await apiGetJobActivities(job.id);
+        if (!load.isActive()) return;
         setJobActivities(response.data || []);
       } catch (error: any) {
-        // If route doesn't exist yet, show empty state gracefully
         console.warn('Job activities endpoint may not be available:', error.message);
-        setJobActivities([]);
+        if (load.isActive()) setJobActivities([]);
       } finally {
-        setLoadingActivities(false);
+        load.finish();
       }
     };
 
-    fetchActivities();
+    void fetchActivities();
+    return () => load.abort();
   }, [job?.id, activeTab]);
 
   useEffect(() => {
@@ -1698,14 +1705,14 @@ export function JobDetailsDrawer({
       : [];
     if (!ids.length) {
       setSupportingRecruiterNames('—');
+      setLoadingAssignmentMeta(false);
       return;
     }
 
-    let cancelled = false;
-    setLoadingAssignmentMeta(true);
+    const load = startAsyncLoad(setLoadingAssignmentMeta);
     void getAllTeamMembersForAssign()
       .then((members) => {
-        if (cancelled) return;
+        if (!load.isActive()) return;
         const names = ids
           .map((id) => members.find((member) => member.id === id))
           .filter(Boolean)
@@ -1714,60 +1721,64 @@ export function JobDetailsDrawer({
         setSupportingRecruiterNames(names.length ? names.join(', ') : '—');
       })
       .catch(() => {
-        if (!cancelled) setSupportingRecruiterNames('—');
+        if (load.isActive()) setSupportingRecruiterNames('—');
       })
       .finally(() => {
-        if (!cancelled) setLoadingAssignmentMeta(false);
+        load.finish();
       });
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
-  }, [activeTab, isOpen, job?.id, job?.supportingRecruiters]);
+  }, [activeTab, isOpen, job?.id, Array.isArray(job?.supportingRecruiters) ? job.supportingRecruiters.join(',') : '']);
 
   useEffect(() => {
-    if (!isOpen || !job?.id || activeTab !== 'interviews') return;
+    if (!isOpen || !job?.id || activeTab !== 'interviews') {
+      setLoadingJobInterviews(false);
+      return;
+    }
 
-    let cancelled = false;
-    setLoadingJobInterviews(true);
+    const load = startAsyncLoad(setLoadingJobInterviews);
     void apiGetInterviews({ jobId: job.id, page: 1, limit: 100 })
       .then((response) => {
-        if (cancelled) return;
+        if (!load.isActive()) return;
         setJobInterviews(unwrapApiList<BackendInterviewListItem>(response.data));
       })
       .catch((error) => {
         console.warn('Failed to load job interviews:', error);
-        if (!cancelled) setJobInterviews([]);
+        if (load.isActive()) setJobInterviews([]);
       })
       .finally(() => {
-        if (!cancelled) setLoadingJobInterviews(false);
+        load.finish();
       });
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [activeTab, isOpen, job?.id]);
 
   useEffect(() => {
-    if (!isOpen || !job?.id || activeTab !== 'placements') return;
+    if (!isOpen || !job?.id || activeTab !== 'placements') {
+      setLoadingJobPlacements(false);
+      return;
+    }
 
-    let cancelled = false;
-    setLoadingJobPlacements(true);
+    const load = startAsyncLoad(setLoadingJobPlacements);
     void apiGetPlacements({ jobId: job.id, page: 1, limit: 100, sortBy: 'offerDate', sortOrder: 'desc' })
       .then((response) => {
-        if (cancelled) return;
+        if (!load.isActive()) return;
         setJobPlacements(unwrapApiList<Placement>(response.data));
       })
       .catch((error) => {
         console.warn('Failed to load job placements:', error);
-        if (!cancelled) setJobPlacements([]);
+        if (load.isActive()) setJobPlacements([]);
       })
       .finally(() => {
-        if (!cancelled) setLoadingJobPlacements(false);
+        load.finish();
       });
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [activeTab, isOpen, job?.id]);
 

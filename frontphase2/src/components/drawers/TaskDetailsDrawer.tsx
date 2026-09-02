@@ -62,6 +62,7 @@ import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { cloudinaryPdfViewerHref, normalizeCloudinaryDocumentUrl } from '../../utils/cloudinaryUrls';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { getTeamRequest } from '../../lib/api/teamApi';
+import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { usePermissions } from '../../hooks/usePermissions';
 import type { TeamRequest, TeamRequestJobPrefill } from '../../types/team';
 
@@ -303,12 +304,12 @@ export function TaskDetailsDrawer({
   onClose,
   mode,
   task,
-  activities = [],
-  activityEvents = [],
-  communicationEntries = [],
-  candidateInteractionEntries = [],
+  activities: activitiesProp,
+  activityEvents: activityEventsProp,
+  communicationEntries: communicationEntriesProp,
+  candidateInteractionEntries: candidateInteractionEntriesProp,
   createTaskPrefill = null,
-  aiSuggestions = [],
+  aiSuggestions: aiSuggestionsProp,
   onCreateTaskFromSuggestion,
   onCreateSuccess,
   onUpdateSuccess,
@@ -322,6 +323,11 @@ export function TaskDetailsDrawer({
   onRelatedEntityClick,
   isLoading = false,
 }: TaskDetailsDrawerProps) {
+  const activities = orEmpty(activitiesProp);
+  const activityEvents = orEmpty(activityEventsProp);
+  const communicationEntries = orEmpty(communicationEntriesProp);
+  const candidateInteractionEntries = orEmpty(candidateInteractionEntriesProp);
+  const aiSuggestions = orEmpty(aiSuggestionsProp);
   usePageDrawerLifecycle(isOpen);
   const { hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
@@ -399,24 +405,24 @@ export function TaskDetailsDrawer({
   useEffect(() => {
     if (!isOpen || mode !== 'detail' || !isTeamRequestTask || !task?.relatedTo.id) {
       setLinkedTeamRequest(null);
+      setLoadingTeamRequest(false);
       return;
     }
 
-    let cancelled = false;
-    setLoadingTeamRequest(true);
+    const load = startAsyncLoad(setLoadingTeamRequest);
     void getTeamRequest(task.relatedTo.id)
       .then((res) => {
-        if (!cancelled) setLinkedTeamRequest(res.data);
+        if (load.isActive()) setLinkedTeamRequest(res.data);
       })
       .catch(() => {
-        if (!cancelled) setLinkedTeamRequest(null);
+        if (load.isActive()) setLinkedTeamRequest(null);
       })
       .finally(() => {
-        if (!cancelled) setLoadingTeamRequest(false);
+        load.finish();
       });
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen, mode, isTeamRequestTask, task?.relatedTo.id]);
 

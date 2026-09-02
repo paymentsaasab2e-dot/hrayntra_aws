@@ -230,6 +230,7 @@ import {
   type ClientAiGeneratedPayload,
 } from '@/lib/clientAiHelpers';
 import { inferLocationFromCityName } from '../../lib/cscData';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { DrawerCloseButton } from './DrawerCloseButton';
 import { DrawerTabBar } from './DrawerTabBar';
 import {
@@ -1675,6 +1676,7 @@ export function ClientDetailsDrawer({
     if (!client?.id) {
       setClientContacts([]);
       setClientTeamMemberContacts([]);
+      setLoadingContacts(false);
       return;
     }
 
@@ -3755,20 +3757,22 @@ export function ClientDetailsDrawer({
 
   // Fetch client activities whenever client changes
   useEffect(() => {
-    const fetchActivities = async () => {
-      if (!client?.id) {
-        setClientActivities([]);
-        return;
-      }
-      if (isHqOverrideMode) {
-        setClientActivities([]);
-        setLoadingActivities(false);
-        return;
-      }
+    if (!client?.id) {
+      setClientActivities([]);
+      setLoadingActivities(false);
+      return;
+    }
+    if (isHqOverrideMode) {
+      setClientActivities([]);
+      setLoadingActivities(false);
+      return;
+    }
 
-      setLoadingActivities(true);
+    const load = startAsyncLoad(setLoadingActivities);
+    const fetchActivities = async () => {
       try {
         const response = await apiGetClientActivities(client.id);
+        if (!load.isActive()) return;
         const activities = Array.isArray(response.data) ? response.data : [];
         
         // Map backend activities to frontend format
@@ -3817,19 +3821,23 @@ export function ClientDetailsDrawer({
         setClientActivities(mappedActivities);
       } catch (error) {
         console.error('Failed to fetch client activities:', error);
-        setClientActivities([]);
+        if (load.isActive()) setClientActivities([]);
       } finally {
-        setLoadingActivities(false);
+        load.finish();
       }
     };
 
-    fetchActivities();
+    void fetchActivities();
+    return () => {
+      load.abort();
+    };
   }, [client?.id, activeTab, isHqOverrideMode]);
 
   // Fetch jobs for the client (refetch after CreateJobDrawer saves)
   const refreshClientJobs = useCallback(async () => {
     if (!client?.id) {
       setClientJobs([]);
+      setLoadingJobs(false);
       return;
     }
     if (isHqOverrideMode) {
@@ -3838,7 +3846,7 @@ export function ClientDetailsDrawer({
       return;
     }
 
-    setLoadingJobs(true);
+    const load = startAsyncLoad(setLoadingJobs);
     try {
       const response = await apiGetJobs({ clientId: client.id });
       const jobsList = Array.isArray(response.data)
@@ -3872,12 +3880,12 @@ export function ClientDetailsDrawer({
         };
       });
 
-      setClientJobs(mappedJobs);
+      if (load.isActive()) setClientJobs(mappedJobs);
     } catch (error) {
       console.error('Failed to fetch jobs:', error);
-      setClientJobs([]);
+      if (load.isActive()) setClientJobs([]);
     } finally {
-      setLoadingJobs(false);
+      load.finish();
     }
   }, [client?.id, isHqOverrideMode]);
 
@@ -3892,31 +3900,34 @@ export function ClientDetailsDrawer({
 
   // Fetch scheduled meetings when schedule tab is active or client changes
   useEffect(() => {
-    const fetchScheduledMeetings = async () => {
-      if (!client?.id || activeTab !== 'schedule') {
-        return;
-      }
-      if (isHqOverrideMode) {
-        setScheduledMeetings([]);
-        setLoadingMeetings(false);
-        return;
-      }
+    if (!client?.id || activeTab !== 'schedule') {
+      setLoadingMeetings(false);
+      return;
+    }
+    if (isHqOverrideMode) {
+      setScheduledMeetings([]);
+      setLoadingMeetings(false);
+      return;
+    }
 
-      setLoadingMeetings(true);
+    const load = startAsyncLoad(setLoadingMeetings);
+    const fetchScheduledMeetings = async () => {
       try {
         const meetings = await apiGetClientScheduledMeetings(client.id);
-        console.log('Fetched scheduled meetings response:', meetings);
-        console.log('Meetings data:', meetings.data);
+        if (!load.isActive()) return;
         setScheduledMeetings(meetings.data || []);
       } catch (error) {
         console.error('Failed to fetch scheduled meetings:', error);
-        setScheduledMeetings([]);
+        if (load.isActive()) setScheduledMeetings([]);
       } finally {
-        setLoadingMeetings(false);
+        load.finish();
       }
     };
 
-    fetchScheduledMeetings();
+    void fetchScheduledMeetings();
+    return () => {
+      load.abort();
+    };
   }, [client?.id, activeTab, isHqOverrideMode]);
 
   // Tenant drawer engine: missing mandatory fields + overdue meetings/follow-ups.

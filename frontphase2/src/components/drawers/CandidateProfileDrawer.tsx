@@ -30,6 +30,7 @@ import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { DrawerSectionCard, DRAWER_FORM_SCROLL_BG } from './drawerFormUi';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { requestSuccess } from '../../lib/appDialog';
+import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
 import {
   ArrowRightCircle,
   Briefcase,
@@ -765,9 +766,9 @@ export function ScheduleInterviewModal({
   linkedJobTitle,
   linkedJobCompany,
   initialJobId,
-  jobs: jobsProp = [],
-  interviewers,
-  existingInterviews,
+  jobs: jobsList,
+  interviewers: interviewersList,
+  existingInterviews: existingInterviewsList,
   isOpen,
   onClose,
   onSchedule,
@@ -775,6 +776,9 @@ export function ScheduleInterviewModal({
   editInterview,
   onScheduledSuccess,
 }: ScheduleInterviewModalProps) {
+  const jobsProp = orEmpty(jobsList);
+  const interviewers = orEmpty(interviewersList);
+  const existingInterviews = orEmpty(existingInterviewsList);
   const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
   const [standaloneCandidateId, setStandaloneCandidateId] = useState('');
   const [interviewType, setInterviewType] = useState('');
@@ -949,14 +953,13 @@ export function ScheduleInterviewModal({
   useEffect(() => {
     if (!isOpen) return undefined;
 
-    let cancelled = false;
+    const load = startAsyncLoad(setLoadingScheduleJobs);
+    setLoadingClients(true);
+    if (isStandaloneMode) {
+      setLoadingLineManagers(true);
+      setLoadingTeamMembers(true);
+    }
     void (async () => {
-      setLoadingScheduleJobs(true);
-      setLoadingClients(true);
-      if (isStandaloneMode) {
-        setLoadingLineManagers(true);
-        setLoadingTeamMembers(true);
-      }
       try {
         if (isStandaloneMode) {
           const [jobsRes, workspaceRes, lineManagers, teamMembers] = await Promise.all([
@@ -965,7 +968,7 @@ export function ScheduleInterviewModal({
             getLineManagersForJobPicker(),
             getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Interviews'),
           ]);
-          if (cancelled) return;
+          if (!load.isActive()) return;
 
           const workspaceClient = workspaceRes?.data?.workspaceClient;
           const wsId = workspaceClient?.id ? String(workspaceClient.id) : '';
@@ -1016,7 +1019,7 @@ export function ScheduleInterviewModal({
             apiGetJobs({ page: 1, limit: 500 }),
             apiGetClients({ page: 1, limit: 500 }),
           ]);
-          if (cancelled) return;
+          if (!load.isActive()) return;
           const fetchedJobs = mapJobsToPipelineOptions(parseJobsListFromResponse(jobsRes));
           const byJobId = new Map<string, CandidatePipelineJobOption>();
           for (const job of [...jobsProp, ...fetchedJobs]) {
@@ -1032,23 +1035,24 @@ export function ScheduleInterviewModal({
         }
       } catch (error) {
         console.error('Failed to load schedule interview options:', error);
-        if (!cancelled) {
+        if (load.isActive()) {
           setScheduleJobOptions(jobsProp);
         }
       } finally {
-        if (!cancelled) {
-          setLoadingScheduleJobs(false);
-          setLoadingClients(false);
-          if (isStandaloneMode) {
-            setLoadingLineManagers(false);
-            setLoadingTeamMembers(false);
-          }
+        load.finish();
+        setLoadingClients(false);
+        if (isStandaloneMode) {
+          setLoadingLineManagers(false);
+          setLoadingTeamMembers(false);
         }
       }
     })();
 
     return () => {
-      cancelled = true;
+      load.abort();
+      setLoadingClients(false);
+      setLoadingLineManagers(false);
+      setLoadingTeamMembers(false);
     };
   }, [isOpen, isStandaloneMode, jobsProp]);
 
@@ -1160,17 +1164,17 @@ export function ScheduleInterviewModal({
   useEffect(() => {
     if (!isOpen || !selectedClientId || isStandaloneMode) {
       setClientContactOptions([]);
+      setLoadingClientContacts(false);
       return undefined;
     }
 
-    let cancelled = false;
+    const load = startAsyncLoad(setLoadingClientContacts);
     void (async () => {
       try {
-        setLoadingClientContacts(true);
         const res = await apiGetClient(selectedClientId);
         const client = (res as any).data?.data || (res as any).data || res;
         const contacts = Array.isArray(client?.contacts) ? client.contacts : [];
-        if (cancelled) return;
+        if (!load.isActive()) return;
         setClientContactOptions(
           contacts
             .filter((c: any) => c?.id)
@@ -1187,14 +1191,14 @@ export function ScheduleInterviewModal({
         );
       } catch (error) {
         console.error('Failed to load client contacts:', error);
-        if (!cancelled) setClientContactOptions([]);
+        if (load.isActive()) setClientContactOptions([]);
       } finally {
-        if (!cancelled) setLoadingClientContacts(false);
+        load.finish();
       }
     })();
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen, isStandaloneMode, selectedClientId]);
 
@@ -2383,8 +2387,8 @@ function mapJobsToPipelineOptions(
 export function AddToPipelineModal({
   isOpen,
   candidate,
-  jobs,
-  recruiters,
+  jobs: jobsList,
+  recruiters: recruitersList,
   initialJobId,
   lockJobToInitial = false,
   onClose,
@@ -2395,6 +2399,8 @@ export function AddToPipelineModal({
   onRequestScheduleInterview,
   onRequestOfferPlacement,
 }: AddToPipelineModalProps) {
+  const jobs = orEmpty(jobsList);
+  const recruiters = orEmpty(recruitersList);
   const [jobSearch, setJobSearch] = useState('');
   const [recruiterSearch, setRecruiterSearch] = useState('');
   const [pipelineJobOptions, setPipelineJobOptions] = useState<CandidatePipelineJobOption[]>(jobs);
@@ -2535,7 +2541,7 @@ export function AddToPipelineModal({
   useEffect(() => {
     if (!isOpen) return undefined;
 
-    let cancelled = false;
+    const load = startAsyncLoad(setLoadingJobs);
     const mergeJobLists = (...lists: CandidatePipelineJobOption[][]) => {
       const byId = new Map<string, CandidatePipelineJobOption>();
       for (const list of lists) {
@@ -2547,24 +2553,23 @@ export function AddToPipelineModal({
     };
 
     void (async () => {
-      setLoadingJobs(true);
       try {
         const res = await apiGetJobs({ page: 1, limit: 500 });
-        if (cancelled) return;
+        if (!load.isActive()) return;
         const fetched = mapJobsToPipelineOptions(parseJobsListFromResponse(res));
         setPipelineJobOptions(mergeJobLists(jobs, fetched));
       } catch (error) {
         console.error('Failed to load jobs for pipeline modal:', error);
-        if (!cancelled) {
+        if (load.isActive()) {
           setPipelineJobOptions(mergeJobLists(jobs));
         }
       } finally {
-        if (!cancelled) setLoadingJobs(false);
+        load.finish();
       }
     })();
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen, jobs]);
 
@@ -2581,15 +2586,17 @@ export function AddToPipelineModal({
   }, [isOpen]);
 
   useEffect(() => {
-    const loadJobStages = async () => {
-      if (!isOpen || !selectedJobId) {
-        setJobStageOptions([]);
-        return;
-      }
+    if (!isOpen || !selectedJobId) {
+      setJobStageOptions([]);
+      setLoadingJobStages(false);
+      return;
+    }
 
+    const load = startAsyncLoad(setLoadingJobStages);
+    void (async () => {
       try {
-        setLoadingJobStages(true);
         const response = await apiGetJob(selectedJobId);
+        if (!load.isActive()) return;
         const backendJob = (response as any).data?.data || (response as any).data || response;
         const stages: Array<{ id: string; name: string }> = Array.isArray(backendJob?.pipelineStages)
           ? backendJob.pipelineStages
@@ -2606,13 +2613,15 @@ export function AddToPipelineModal({
         setJobStageOptions(withRejected);
       } catch (error) {
         console.error('Failed to load pipeline stages for selected job:', error);
-        setJobStageOptions([]);
+        if (load.isActive()) setJobStageOptions([]);
       } finally {
-        setLoadingJobStages(false);
+        load.finish();
       }
-    };
+    })();
 
-    loadJobStages();
+    return () => {
+      load.abort();
+    };
   }, [isOpen, selectedJobId]);
 
   useEffect(() => {
@@ -3986,11 +3995,11 @@ export function CandidateProfileDrawer({
   openEditDirectly = false,
   loadingCandidateProfile = false,
   currentUser,
-  availableTags = [],
-  jobs = [],
-  recruiters = [],
-  interviewers = [],
-  existingInterviews = [],
+  availableTags: availableTagsProp,
+  jobs: jobsPropIn,
+  recruiters: recruitersProp,
+  interviewers: interviewersProp,
+  existingInterviews: existingInterviewsProp,
   editModalOpenToken = null,
   onAction,
   onAddNote,
@@ -4012,6 +4021,11 @@ export function CandidateProfileDrawer({
   showSubmitToClient = false,
   stackAboveSiblingDrawers = false,
 }: CandidateProfileDrawerProps) {
+  const availableTags = orEmpty(availableTagsProp);
+  const jobs = orEmpty(jobsPropIn);
+  const recruiters = orEmpty(recruitersProp);
+  const interviewers = orEmpty(interviewersProp);
+  const existingInterviews = orEmpty(existingInterviewsProp);
   usePageDrawerLifecycle(isOpen);
   const {
     panelRef: candidateDrawerPanelRef,

@@ -58,6 +58,7 @@ export function LeadFormAccessPopup({ isOpen, onClose }: LeadFormAccessPopupProp
       });
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, [isOpen]);
 

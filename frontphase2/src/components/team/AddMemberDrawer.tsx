@@ -31,6 +31,7 @@ import {
   mergeRolesWithDepartmentEmbedded,
   type DepartmentWithRoles,
 } from '../../lib/teamReporting';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { formatModuleLabel } from './permissionCatalog';
 
@@ -178,6 +179,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
     if (loadingOptions) return;
     if (!formData.departmentId) {
       setReportingManagers([]);
+      setLoadingReporting(false);
       return;
     }
     if (
@@ -187,17 +189,20 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
     ) {
       setFormData((prev) => ({ ...prev, roleId: '', managerId: '' }));
       setReportingManagers([]);
+      setLoadingReporting(false);
       return;
     }
     if (!formData.roleId) {
       setReportingManagers([]);
+      setLoadingReporting(false);
       return;
     }
 
-    let cancelled = false;
+    const load = startAsyncLoad(setLoadingReporting);
     const memberRank = selectedRole?.rank ?? null;
 
     const applyList = (list: TeamMember[], defaultId?: string) => {
+      if (!load.isActive()) return;
       setReportingManagers(list);
       const resolvedDefault = defaultId || pickDefaultManagerId(list, formData.managerId);
       if (resolvedDefault) {
@@ -215,7 +220,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
       let directory = teamDirectory;
       if (!directory.length) {
         directory = await getAllTeamMembersForDirectory();
-        if (!cancelled) setTeamDirectory(directory);
+        if (load.isActive()) setTeamDirectory(directory);
       }
       return filterReportingManagers({
         managers: directory,
@@ -227,29 +232,28 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
       });
     };
 
-    setLoadingReporting(true);
     getDepartmentReportingManagers(formData.departmentId, formData.roleId)
       .then(async (res) => {
-        if (cancelled) return;
+        if (!load.isActive()) return;
         const apiList = res.data || [];
         const fallback = await clientFallback();
         const list = mergeReportingManagerLists(apiList, fallback);
         applyList(list, res.defaultManagerId || pickDefaultManagerId(list));
       })
       .catch(async () => {
-        if (cancelled) return;
+        if (!load.isActive()) return;
         try {
           applyList(await clientFallback());
         } catch {
-          if (!cancelled) setReportingManagers([]);
+          if (load.isActive()) setReportingManagers([]);
         }
       })
       .finally(() => {
-        if (!cancelled) setLoadingReporting(false);
+        load.finish();
       });
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [
     loadingOptions,

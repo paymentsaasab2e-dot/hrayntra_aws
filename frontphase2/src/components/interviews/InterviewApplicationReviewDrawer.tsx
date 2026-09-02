@@ -14,6 +14,7 @@ import {
   type ApplicationFormSchema,
 } from '../../lib/applicationFormTypes';
 import { useUser } from '../../hooks/useUser';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 
 type Props = {
   applicationId: string | null;
@@ -41,14 +42,14 @@ export function InterviewApplicationReviewDrawer({ applicationId, onClose, onUpd
   useEffect(() => {
     if (!applicationId) {
       setRow(null);
+      setLoading(false);
       return;
     }
-    let cancelled = false;
-    setLoading(true);
+    const load = startAsyncLoad(setLoading);
     setError('');
     void apiGetInterviewApplication(applicationId)
       .then((res) => {
-        if (cancelled) return;
+        if (!load.isActive()) return;
         const data = (res as { data?: InterviewApplicationRow })?.data ?? (res as InterviewApplicationRow);
         setRow(data);
         setNotes(String(data.interviewNotes || ''));
@@ -57,13 +58,14 @@ export function InterviewApplicationReviewDrawer({ applicationId, onClose, onUpd
         setRecommendation(String(data.recommendation || ''));
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load application');
+        if (!load.isActive()) return;
+        setError(err instanceof Error ? err.message : 'Failed to load application');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        load.finish();
       });
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [applicationId]);
 

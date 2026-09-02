@@ -245,6 +245,7 @@ export default function PublicLeadFormPage() {
       });
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, [token, tenantDbName, isAuthenticated]);
 

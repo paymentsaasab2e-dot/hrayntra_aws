@@ -264,6 +264,7 @@ export function AddWidgetWizard({
 
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, [
     open,

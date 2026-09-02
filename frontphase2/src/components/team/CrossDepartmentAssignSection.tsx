@@ -50,6 +50,7 @@ export function CrossDepartmentAssignSection({
     void load();
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, []);
 
