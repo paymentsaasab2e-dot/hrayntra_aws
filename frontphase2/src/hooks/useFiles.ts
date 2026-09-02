@@ -11,6 +11,7 @@ import {
 import { useSimulatedProgress } from '../components/import/importDrawerUi';
 import { formatDocumentUploadSuccessToast } from '../components/import/documentUploadUi';
 import { toast } from 'sonner';
+import { startAsyncLoad } from '../lib/asyncLoadGuard';
 
 export function useFiles(entityType: FileEntityType, entityId: string | null | undefined) {
   const [files, setFiles] = useState<EntityFile[]>([]);
@@ -23,25 +24,51 @@ export function useFiles(entityType: FileEntityType, entityId: string | null | u
   const fetchFiles = useCallback(async () => {
     if (!entityId || !entityType) {
       setFiles([]);
+      setLoading(false);
       return;
     }
-    setLoading(true);
+    const load = startAsyncLoad(setLoading);
     setError(null);
     try {
       const res = await filesApiGet(entityType, entityId);
+      if (!load.isActive()) return;
       const list = Array.isArray(res?.data) ? res.data : [];
       setFiles(list);
     } catch (e: any) {
+      if (!load.isActive()) return;
       setError(e?.message || 'Failed to load files');
       setFiles([]);
     } finally {
-      setLoading(false);
+      load.finish();
     }
   }, [entityType, entityId]);
 
   useEffect(() => {
-    fetchFiles();
-  }, [fetchFiles]);
+    if (!entityId || !entityType) {
+      setFiles([]);
+      setLoading(false);
+      return;
+    }
+    const load = startAsyncLoad(setLoading);
+    setError(null);
+    void filesApiGet(entityType, entityId)
+      .then((res) => {
+        if (!load.isActive()) return;
+        const list = Array.isArray(res?.data) ? res.data : [];
+        setFiles(list);
+      })
+      .catch((e: any) => {
+        if (!load.isActive()) return;
+        setError(e?.message || 'Failed to load files');
+        setFiles([]);
+      })
+      .finally(() => {
+        load.finish();
+      });
+    return () => {
+      load.abort();
+    };
+  }, [entityType, entityId]);
 
   const uploadFile = useCallback(
     async (file: File, fileType: string = 'JD') => {

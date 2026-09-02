@@ -36,6 +36,7 @@ import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { getResumeExtension, isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
 import { triggerFileDownload } from '../../utils/triggerFileDownload';
 import { requestConfirm, SYSTEM_ALERT_TITLE } from '../../lib/appDialog';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { downloadCvEditorPlainText, printCvEditorAsPdf } from '../../lib/cvEditorExport';
 
 export interface CandidateResumeCvEditorApi {
@@ -223,17 +224,21 @@ export function CandidateResumeTabPanel({
   }, [saasaStored?.resumeUrl, effectiveResumeHref, uploadsBase]);
 
   useEffect(() => {
-    if (!enabled || !candidate.id) return;
-    setLoading(true);
+    if (!enabled || !candidate.id) {
+      setLoading(false);
+      return;
+    }
     setFilesResumeUrl(null);
     setCandidateFiles([]);
 
-    const load = async () => {
+    const load = startAsyncLoad(setLoading);
+    const run = async () => {
       try {
         const [filesRaw] = await Promise.all([
           filesApiGet('candidate', candidate.id).catch(() => null),
           refreshBackend(),
         ]);
+        if (!load.isActive()) return;
         const files = extractApiData(filesRaw) ?? [];
         setCandidateFiles(
           files.map((f) => ({
@@ -246,11 +251,14 @@ export function CandidateResumeTabPanel({
         const latest = pickLatestResumeFileUrl(files);
         if (latest) setFilesResumeUrl(latest);
       } finally {
-        setLoading(false);
+        load.finish();
       }
     };
 
-    void load();
+    void run();
+    return () => {
+      load.abort();
+    };
   }, [enabled, candidate.id, refreshBackend]);
 
   useEffect(() => {

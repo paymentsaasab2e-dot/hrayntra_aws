@@ -38,6 +38,7 @@ export function HqAiFeaturesCatalogPanel() {
       });
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, []);
 

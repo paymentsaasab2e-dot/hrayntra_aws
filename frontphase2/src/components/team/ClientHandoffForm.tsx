@@ -59,6 +59,7 @@ export function ClientHandoffForm({
     void load();
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, []);
 

@@ -63,6 +63,7 @@ import {
   type BackendMatch,
   type BackendUser,
 } from '../../lib/api';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import {
   enrichProfileWithMatchData,
   extractApiData,
@@ -650,25 +651,25 @@ export default function MatchesPage() {
       return;
     }
 
-    let cancelled = false;
+    const load = startAsyncLoad(setLoadingCandidateProfile);
     const match = candidates.find((item) => item.id === profileDrawerCandidateId) || null;
     void (async () => {
-      setLoadingCandidateProfile(true);
       try {
+        if (!load.isActive()) return;
         await loadCandidateProfile(profileDrawerCandidateId, match);
       } catch (loadError: unknown) {
-        if (!cancelled) {
+        if (load.isActive()) {
           setError(
             loadError instanceof Error ? loadError.message : 'Unable to load candidate profile'
           );
         }
       } finally {
-        if (!cancelled) setLoadingCandidateProfile(false);
+        load.finish();
       }
     })();
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [profileDrawerCandidateId, candidates, loadCandidateProfile]);
 

@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiGetPlacement, apiUploadPlacementDocument } from '../../lib/api';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import {
   formatCurrency,
@@ -131,35 +132,31 @@ export function PlacementDetailsDrawer({
     if (!isOpen || !placementId) {
       setPlacement(null);
       setError(null);
+      setLoading(false);
       return;
     }
 
-    let cancelled = false;
+    const load = startAsyncLoad(setLoading);
 
     async function loadPlacement() {
       try {
-        setLoading(true);
         setError(null);
         const response = await apiGetPlacement(placementId);
-        if (!cancelled) {
-          setPlacement(response.data);
-        }
+        if (load.isActive()) setPlacement(response.data);
       } catch (detailError: any) {
-        if (!cancelled) {
+        if (load.isActive()) {
           setPlacement(null);
           setError(detailError.message || 'Failed to load placement');
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        load.finish();
       }
     }
 
-    loadPlacement();
+    void loadPlacement();
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen, placementId]);
 

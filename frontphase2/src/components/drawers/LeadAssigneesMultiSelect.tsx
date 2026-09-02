@@ -7,6 +7,7 @@ import type { TeamMember } from '../../types/team';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { assigneeCompanyId, formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
+import { orEmpty } from '../../lib/asyncLoadGuard';
 
 /** Role chip background classes — mirrors the existing palette used elsewhere. */
 const ROLE_COLOR_MAP: Record<string, string> = {
@@ -71,7 +72,7 @@ export interface LeadAssigneesMultiSelectProps {
  *   used by RBAC and downstream conversions (lead → client owner).
  */
 export function LeadAssigneesMultiSelect({
-  members: membersProp = [],
+  members: membersList,
   value,
   onChange,
   loading = false,
@@ -81,6 +82,7 @@ export function LeadAssigneesMultiSelect({
   className = '',
   assignmentModule,
 }: LeadAssigneesMultiSelectProps) {
+  const membersProp = orEmpty(membersList);
   const knownCompanyId = useMemo(() => {
     for (const member of membersProp || []) {
       const company = assigneeCompanyId(member as TeamMember & { assignCompanyId?: string });

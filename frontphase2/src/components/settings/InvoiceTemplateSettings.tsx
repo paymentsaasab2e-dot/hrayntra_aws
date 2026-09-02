@@ -49,6 +49,7 @@ export function InvoiceTemplateSettings() {
     })();
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, []);
 

@@ -13,6 +13,7 @@ import {
 } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 
 export interface DrawerEntityChatTabProps {
   entityType: EntityChatType;
@@ -51,10 +52,14 @@ export function DrawerEntityChatTab({
   const resolvedEntityId = String(entityId || '').trim();
 
   const loadChat = useCallback(async () => {
-    if (!resolvedEntityId) return;
-    setLoading(true);
+    if (!resolvedEntityId) {
+      setLoading(false);
+      return;
+    }
+    const load = startAsyncLoad(setLoading);
     try {
       const existingThread = await apiGetEntityChatThread(entityType, resolvedEntityId);
+      if (!load.isActive()) return;
       if (!existingThread) {
         setThreadId(null);
         setMessages([]);
@@ -62,13 +67,15 @@ export function DrawerEntityChatTab({
       }
       setThreadId(existingThread.id);
       const fullThread = await apiGetInboxThread(existingThread.id);
+      if (!load.isActive()) return;
       setMessages(sortMessages(fullThread.messages || []));
     } catch (error) {
       console.error('Failed to load entity chat:', error);
+      if (!load.isActive()) return;
       setThreadId(null);
       setMessages([]);
     } finally {
-      setLoading(false);
+      load.finish();
     }
   }, [entityType, resolvedEntityId]);
 

@@ -133,6 +133,7 @@ export default function ClientReviewPage() {
     })();
     return () => {
       cancelled = true;
+      setLoading(false);
     };
   }, [apiBase, token]);
 

@@ -81,6 +81,7 @@ import { resolveMatchIdForSubmit } from '../../lib/jobAppliedMatches';
 import { resolveSubmitJobIdFromBackend } from '../../lib/candidateSubmitToClient';
 import { extractApiData, isValidObjectId } from '../../lib/mapCandidateProfile';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { mapUniqueClientOptions } from '../../lib/companyNameKey';
 import { SubmitToClientClientDetailsPanel } from './SubmitToClientClientDetailsPanel';
 import {
@@ -643,11 +644,9 @@ export function SubmitToClientDrawer({
 
   useEffect(() => {
     if (!isOpen || !candidateId) {
-      if (!isOpen) {
-        loadedCandidateIdRef.current = null;
-        candidateSetupIdRef.current = null;
-        setLoading(false);
-      }
+      loadedCandidateIdRef.current = null;
+      candidateSetupIdRef.current = null;
+      setLoading(false);
       return;
     }
 
@@ -674,16 +673,16 @@ export function SubmitToClientDrawer({
     }
 
     if (loadedCandidateIdRef.current === candidateId) {
+      setLoading(false);
       return;
     }
 
-    let cancelled = false;
-    setLoading(true);
+    const load = startAsyncLoad(setLoading);
     void (async () => {
       try {
         const raw = await apiGetCandidate(candidateId);
         const data = extractApiData<BackendCandidate>(raw);
-        if (cancelled) return;
+        if (!load.isActive()) return;
         loadedCandidateIdRef.current = candidateId;
         const enriched = enrichBackendCandidateFromPhase1Snapshot(data);
         setCandidate(enriched);
@@ -704,14 +703,14 @@ export function SubmitToClientDrawer({
           setCandidateStepSaved(true);
         }
       } catch (error: unknown) {
-        if (cancelled) return;
+        if (!load.isActive()) return;
         toast(error instanceof Error ? error.message : 'Unable to load candidate details');
       } finally {
-        if (!cancelled) setLoading(false);
+        load.finish();
       }
     })();
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen, candidateId, toast]);
 

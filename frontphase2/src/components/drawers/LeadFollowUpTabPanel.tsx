@@ -26,6 +26,8 @@ import {
 import { requestError, requestWarning } from '../../lib/appDialog';
 import { FOLLOW_UP_SCHEDULE_LABEL } from '../../lib/leadInternalOtherDetails';
 import { HQ_LEAD_FOLLOW_UP_TYPES, toDatetimeLocalValue } from '@/app/hq/leads/hqLeadsData';
+import { unwrapApiList } from '../../lib/unwrapApiData';
+import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
 
 type FollowUpHistoryItem = {
   id: string;
@@ -72,13 +74,28 @@ function readFollowUpSchedule(
   }
 }
 
+function completedFromHqFollowUps(rows: HqLeadFollowUp[]): FollowUpHistoryItem[] {
+  return (rows || [])
+    .filter((item) => {
+      const status = String(item.status || '').toLowerCase();
+      return status === 'completed' || status === 'done';
+    })
+    .map((item) => ({
+      id: item.id,
+      title: `${item.type || 'Follow-up'} Completed`,
+      description: item.notes || '',
+      createdAt: item.createdAt || item.scheduledAt || '',
+      status: 'completed' as const,
+    }));
+}
+
 export function LeadFollowUpTabPanel({
   leadId,
   nextFollowUp,
   lastFollowUp,
   otherDetails,
   hqMode = false,
-  hqFollowUps = [],
+  hqFollowUps,
   onScheduled,
   onCompleted,
 }: {
@@ -91,6 +108,7 @@ export function LeadFollowUpTabPanel({
   onScheduled?: () => void;
   onCompleted?: () => void;
 }) {
+  const hqFollowUpsList = orEmpty(hqFollowUps);
   const [completedMeets, setCompletedMeets] = useState<FollowUpHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
@@ -112,7 +130,7 @@ export function LeadFollowUpTabPanel({
 
   const pendingHqFollowUp = useMemo(() => {
     if (!hqMode) return null;
-    const pending = (hqFollowUps || []).find((item) => {
+    const pending = hqFollowUpsList.find((item) => {
       const status = String(item.status || '').toLowerCase();
       return (
         status !== 'completed' &&
@@ -133,7 +151,7 @@ export function LeadFollowUpTabPanel({
       } as HqLeadFollowUp;
     }
     return null;
-  }, [hqMode, hqFollowUps, nextFollowUp]);
+  }, [hqMode, hqFollowUpsList, nextFollowUp]);
 
   const scheduleInfo = useMemo(() => readFollowUpSchedule(otherDetails), [otherDetails]);
   const scheduledAtDisplay = hqMode
@@ -164,66 +182,75 @@ export function LeadFollowUpTabPanel({
   const isPostponed = Boolean(scheduleInfo?.postponed || displayedPostponeReason);
 
   useEffect(() => {
-    if (!leadId) return;
-    let cancelled = false;
-    if (hqMode) {
-      const completed = (hqFollowUps || [])
-        .filter((item) => {
-          const status = String(item.status || '').toLowerCase();
-          return status === 'completed' || status === 'done';
-        })
-        .map((item) => ({
-          id: item.id,
-          title: `${item.type || 'Follow-up'} Completed`,
-          description: item.notes || '',
-          createdAt: item.createdAt || item.scheduledAt || '',
-          status: 'completed' as const,
-        }));
-      setCompletedMeets(completed);
+    if (!hqMode) return;
+    setCompletedMeets(completedFromHqFollowUps(hqFollowUpsList));
+    setLoadingHistory(false);
+  }, [hqMode, hqFollowUpsList]);
+
+  useEffect(() => {
+    if (hqMode) return;
+    if (!leadId) {
+      setCompletedMeets([]);
       setLoadingHistory(false);
       return;
     }
-    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-    if (!token) {
-      setCompletedMeets([]);
-      return;
-    }
 
-    setLoadingHistory(true);
+    const load = startAsyncLoad(setLoadingHistory);
+
     void apiGetLeadActivities(leadId)
       .then((response) => {
-        if (cancelled) return;
-        const all = Array.isArray(response.data) ? response.data : [];
-
+        if (!load.isActive()) return;
+        const all = unwrapApiList<BackendActivity>(response);
         const completed: FollowUpHistoryItem[] = [];
-
         for (const activity of all) {
-          if (isCompletedActivity(activity)) {
-            const remarkText = String((activity.metadata as any)?.remark || '').trim();
-            const typeLabel = String((activity.metadata as any)?.type || 'Online Meeting').trim();
-            completed.push({
-              id: activity.id,
-              title: `${typeLabel} Completed`,
-              description: remarkText,
-              createdAt: activity.createdAt,
-              status: 'completed',
-            });
-          }
+          if (!isCompletedActivity(activity)) continue;
+          const remarkText = String((activity.metadata as { remark?: string } | null)?.remark || '').trim();
+          const typeLabel = String(
+            (activity.metadata as { type?: string } | null)?.type || 'Online Meeting',
+          ).trim();
+          completed.push({
+            id: activity.id,
+            title: `${typeLabel} Completed`,
+            description: remarkText,
+            createdAt: activity.createdAt,
+            status: 'completed',
+          });
         }
-
+        if (completed.length === 0 && lastFollowUp && isValidFollowUpInstant(lastFollowUp)) {
+          completed.push({
+            id: 'last-follow-up',
+            title: 'Follow-up Completed',
+            description: '',
+            createdAt: lastFollowUp,
+            status: 'completed',
+          });
+        }
         setCompletedMeets(completed);
       })
       .catch(() => {
-        if (!cancelled) setCompletedMeets([]);
+        if (!load.isActive()) return;
+        if (lastFollowUp && isValidFollowUpInstant(lastFollowUp)) {
+          setCompletedMeets([
+            {
+              id: 'last-follow-up',
+              title: 'Follow-up Completed',
+              description: '',
+              createdAt: lastFollowUp,
+              status: 'completed',
+            },
+          ]);
+        } else {
+          setCompletedMeets([]);
+        }
       })
       .finally(() => {
-        if (!cancelled) setLoadingHistory(false);
+        load.finish();
       });
 
     return () => {
-      cancelled = true;
+      load.abort();
     };
-  }, [leadId, historyKey, hqMode, hqFollowUps]);
+  }, [hqMode, leadId, historyKey, lastFollowUp]);
 
   const handleSuccess = () => {
     setScheduleOpen(false);

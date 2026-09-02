@@ -9,6 +9,7 @@ import {
   type AiWorkspaceBriefAlert,
   type AiWorkspaceBriefEntityType,
 } from '@/lib/apiAiWorkspaceBrief';
+import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 
 const PRIORITY_STYLES: Record<string, string> = {
   HIGH: 'bg-rose-100 text-rose-800 ring-rose-200',
@@ -36,16 +37,19 @@ export function EntityWorkspaceAlertsPanel({
     const id = String(entityId || '').trim();
     if (!id) {
       setAlerts([]);
+      setLoading(false);
       return;
     }
-    setLoading(true);
+    const session = startAsyncLoad(setLoading);
     try {
       const res = await apiGetWorkspaceBriefEntityAlerts(entityType, id);
-      setAlerts(Array.isArray(res.data?.alerts) ? res.data.alerts : []);
+      if (session.isActive()) {
+        setAlerts(Array.isArray(res.data?.alerts) ? res.data.alerts : []);
+      }
     } catch {
-      setAlerts([]);
+      if (session.isActive()) setAlerts([]);
     } finally {
-      setLoading(false);
+      session.finish();
     }
   }, [entityType, entityId]);
 

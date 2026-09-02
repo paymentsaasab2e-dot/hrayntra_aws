@@ -18,6 +18,7 @@ import {
 } from './LeadFollowUpScheduler';
 import type { TeamMember } from '../types/team';
 import { isLocalDateTimeNotPast } from '../utils/dateInputConstraints';
+import { startAsyncLoad } from '../lib/asyncLoadGuard';
 
 export interface ScheduleMeetingFormProps {
   entityType: 'client' | 'lead';
@@ -75,13 +76,12 @@ export function ScheduleMeetingForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setLoadingMembers(true);
+    const load = startAsyncLoad(setLoadingMembers);
+    const run = async () => {
       try {
         const response = await apiGetLeadAssignableMembers(getActiveOrgUnitId() || undefined);
         const members = Array.isArray(response?.data) ? response.data : [];
-        if (!cancelled) {
+        if (load.isActive()) {
           setTeamMembers(
             members.map((member) => ({
               id: member.id,
@@ -108,16 +108,18 @@ export function ScheduleMeetingForm({
           );
         }
       } catch {
-        if (!cancelled) setTeamMembers([]);
+        if (load.isActive()) setTeamMembers([]);
       } finally {
-        if (!cancelled) setLoadingMembers(false);
+        load.finish();
       }
+
+      if (!load.isActive()) return;
 
       if (entityType === 'lead' && entityId) {
         try {
           const leadRes = await apiGetLead(entityId);
           const lead = leadRes?.data as any;
-          if (!lead || cancelled) return;
+          if (!lead || !load.isActive()) return;
           const phones = [
             ...(Array.isArray(lead.phones) ? lead.phones : []),
             lead.phone,
@@ -137,7 +139,7 @@ export function ScheduleMeetingForm({
         try {
           const clientRes = await apiGetClient(entityId);
           const client = (clientRes?.data ?? clientRes) as any;
-          if (!client || cancelled) return;
+          if (!client || !load.isActive()) return;
           const phones = [
             ...(Array.isArray(client.phones) ? client.phones : []),
             client.teamMemberPhone,
@@ -153,9 +155,9 @@ export function ScheduleMeetingForm({
         }
       }
     };
-    void load();
+    void run();
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [entityType, entityId]);
 

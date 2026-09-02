@@ -10,6 +10,7 @@ import {
   type InterviewClientReviewContext,
 } from '../../lib/clientReviewTypes';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 
 interface DrawerClientTabProps {
   interviewId: string;
@@ -122,25 +123,24 @@ export function DrawerClientTab({ interviewId }: DrawerClientTabProps) {
       setContext(null);
       return;
     }
-    let cancelled = false;
-    setLoading(true);
+    const load = startAsyncLoad(setLoading);
     setError('');
     void (async () => {
       try {
         const raw = await apiGetInterviewClientReviewContext(interviewId);
+        if (!load.isActive()) return;
         const data = extractApiData<InterviewClientReviewContext>(raw);
-        if (!cancelled) setContext(data);
+        setContext(data);
       } catch (err: unknown) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Unable to load client review details');
-          setContext(null);
-        }
+        if (!load.isActive()) return;
+        setError(err instanceof Error ? err.message : 'Unable to load client review details');
+        setContext(null);
       } finally {
-        if (!cancelled) setLoading(false);
+        load.finish();
       }
     })();
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [interviewId]);
 

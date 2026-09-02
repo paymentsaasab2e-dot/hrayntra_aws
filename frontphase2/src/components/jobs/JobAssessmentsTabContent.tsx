@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardList, Loader2 } from 'lucide-react';
 import { getApplicationAssessmentResults } from '../../lib/api';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import type { JobApplicationSubmission, JobForDrawer } from '../drawers/JobDetailsDrawer';
 import {
   DrawerSectionCard,
@@ -84,7 +85,7 @@ export function JobAssessmentsTabContent({ job }: { job: JobForDrawer }) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    const load = startAsyncLoad(setLoading);
     try {
       const entries = await Promise.all(
         candidates.map(async (app) => {
@@ -97,9 +98,9 @@ export function JobAssessmentsTabContent({ job }: { job: JobForDrawer }) {
           }
         }),
       );
-      setResultsByApp(Object.fromEntries(entries));
+      if (load.isActive()) setResultsByApp(Object.fromEntries(entries));
     } finally {
-      setLoading(false);
+      load.finish();
     }
   }, [candidates]);
 

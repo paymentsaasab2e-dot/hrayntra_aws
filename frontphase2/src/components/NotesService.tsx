@@ -27,6 +27,7 @@ import {
   type UpdateJobNoteData,
 } from '../lib/api';
 import { requestConfirm, requestError, requestWarning } from '../lib/appDialog';
+import { startAsyncLoad } from '../lib/asyncLoadGuard';
 import { formatDateDMY } from '../utils/dateDisplay';
 
 export type NoteTag = string;
@@ -107,10 +108,14 @@ export function NotesService({
 
   // Fetch notes when entity changes
   useEffect(() => {
-    if (!entityId) return;
+    if (!entityId) {
+      setNotes([]);
+      setLoading(false);
+      return;
+    }
 
+    const load = startAsyncLoad(setLoading);
     const fetchNotes = async () => {
-      setLoading(true);
       try {
         let response;
         if (entityType === 'client') {
@@ -120,26 +125,29 @@ export function NotesService({
         } else if (entityType === 'job') {
           response = await apiGetJobNotes(entityId);
         } else {
-          setLoading(false);
+          if (load.isActive()) setNotes([]);
           return;
         }
-        
+
+        if (!load.isActive()) return;
         const mappedNotes = (response.data || []).map(mapBackendNoteToFrontend);
         setNotes(mappedNotes);
-        // Initialize pinned notes
         const pinned = new Set(
           mappedNotes.filter((n) => n.isPinned).map((n) => n.id)
         );
         setPinnedNoteIds(pinned);
       } catch (error) {
         console.error('Failed to fetch notes:', error);
-        setNotes([]);
+        if (load.isActive()) setNotes([]);
       } finally {
-        setLoading(false);
+        load.finish();
       }
     };
 
-    fetchNotes();
+    void fetchNotes();
+    return () => {
+      load.abort();
+    };
   }, [entityId, entityType]);
 
   const handleCreateNote = async () => {

@@ -193,6 +193,7 @@ import { LeadSourceFields, formatLeadSourceDisplay } from './LeadSourceFields';
 import type { LocationSelection } from '../LocationAutocomplete';
 import { LeadLocationFields } from '../location/LeadLocationFields';
 import { getCountryByCodeOrName, inferLocationFromCityName } from '../../lib/cscData';
+import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { validatePhoneForCountry } from '../../lib/phoneByCountry';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { HqProductLineSelectBoxes, hqProductLineLabels, type HqProductLine } from '../hq/HqProductLinePicker';
@@ -1200,31 +1201,29 @@ export function LeadDetailsDrawer({
     if (!addLeadMode || isPublicIntakeMode) {
       setPublicLeadFormLink('');
       setPublicLeadFormTenant('');
+      setPublicLeadFormLinkLoading(false);
       return;
     }
-    let cancelled = false;
-    setPublicLeadFormLinkLoading(true);
+    const load = startAsyncLoad(setPublicLeadFormLinkLoading);
     apiGetLeadPublicFormLink()
       .then((res) => {
-        if (!cancelled) {
-          const payload =
-            (res as { data?: { formUrl?: string; tenantDbName?: string | null } })?.data ?? res;
-          const data = payload as { formUrl?: string; tenantDbName?: string | null };
-          setPublicLeadFormLink(data.formUrl || '');
-          setPublicLeadFormTenant(String(data.tenantDbName || '').trim());
-        }
+        if (!load.isActive()) return;
+        const payload =
+          (res as { data?: { formUrl?: string; tenantDbName?: string | null } })?.data ?? res;
+        const data = payload as { formUrl?: string; tenantDbName?: string | null };
+        setPublicLeadFormLink(data.formUrl || '');
+        setPublicLeadFormTenant(String(data.tenantDbName || '').trim());
       })
       .catch(() => {
-        if (!cancelled) {
-          setPublicLeadFormLink('');
-          setPublicLeadFormTenant('');
-        }
+        if (!load.isActive()) return;
+        setPublicLeadFormLink('');
+        setPublicLeadFormTenant('');
       })
       .finally(() => {
-        if (!cancelled) setPublicLeadFormLinkLoading(false);
+        load.finish();
       });
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [addLeadMode, isPublicIntakeMode]);
 
@@ -2186,35 +2185,35 @@ export function LeadDetailsDrawer({
 
   // Fetch activities when lead changes or activities tab is opened
   useEffect(() => {
+    if (!lead?.id || activeTab !== 'activities') {
+      setLoadingActivities(false);
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      setLoadingActivities(false);
+      return;
+    }
+
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      console.warn('[LeadDetailsDrawer] No access token found. Skipping activities fetch.');
+      setActivities([]);
+      setLoadingActivities(false);
+      return;
+    }
+
+    if (isHqOverrideMode || isPublicIntakeMode) {
+      setActivities([]);
+      setLoadingActivities(false);
+      return;
+    }
+
+    const load = startAsyncLoad(setLoadingActivities);
     const fetchActivities = async () => {
-      // Early return if conditions not met
-      if (!lead?.id || activeTab !== 'activities') {
-        return;
-      }
-
-      // Check if user is authenticated before making API call
-      if (typeof window === 'undefined') {
-        return; // Server-side rendering, skip
-      }
-
-      const token = localStorage.getItem('accessToken');
-      if (!token) {
-        // No token, skip API call to prevent authentication errors
-        console.warn('[LeadDetailsDrawer] No access token found. Skipping activities fetch.');
-        setActivities([]);
-        setLoadingActivities(false);
-        return;
-      }
-
-      if (isHqOverrideMode || isPublicIntakeMode) {
-        setActivities([]);
-        setLoadingActivities(false);
-        return;
-      }
-
       try {
-        setLoadingActivities(true);
         const response = await apiGetLeadActivities(lead.id);
+        if (!load.isActive()) return;
         const backendActivities = Array.isArray(response.data) ? response.data : [];
         
         // Map backend activities to frontend format
@@ -2299,15 +2298,16 @@ export function LeadDetailsDrawer({
         setActivities(mappedActivities);
       } catch (err: any) {
         console.error('[LeadDetailsDrawer] Failed to fetch activities:', err);
-        // If it's an auth error, the apiFetch will handle redirect
-        // Just set empty activities to prevent UI errors
-        setActivities([]);
+        if (load.isActive()) setActivities([]);
       } finally {
-        setLoadingActivities(false);
+        load.finish();
       }
     };
 
-    fetchActivities();
+    void fetchActivities();
+    return () => {
+      load.abort();
+    };
   }, [lead?.id, activeTab, isHqOverrideMode, isPublicIntakeMode, activityRefreshKey]);
 
   const resetLogCallForm = () => {

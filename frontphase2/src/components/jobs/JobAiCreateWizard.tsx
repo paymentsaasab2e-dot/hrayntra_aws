@@ -88,6 +88,7 @@ import {
 } from '@/lib/jobPublicFieldVisibility';
 import { buildLinkedInJobPost, stripHtml } from '@/lib/jobSocialPost';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '@/lib/jobVisibilityUserDefaults';
+import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import {
   getStoredTenantCompanyName,
   resolveAddJobWorkspaceLabel,
@@ -769,11 +770,10 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       }
       return changed ? next : prev;
     });
-    let cancelled = false;
-    setLoadingCompanyPage(true);
+    const load = startAsyncLoad(setLoadingCompanyPage);
     void apiGetTenantCompanyPage()
       .then((res) => {
-        if (cancelled) return;
+        if (!load.isActive()) return;
         const page = res.data?.page || null;
         setTenantCompanyPage(page);
         if (!page) {
@@ -781,14 +781,12 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             if (!prev.company_page) return prev;
             const next = { ...prev };
             delete next.company_page;
-            // Clear legacy internal destinations if present
             delete next.team_workspace;
             delete next.internal_job_board;
             delete next.employee_referrals;
             return next;
           });
         } else {
-          // Default-select company page when it exists
           setSelectedDistributionPlatforms((prev) => {
             if (prev.company_page) return prev;
             return { ...prev, company_page: true };
@@ -796,13 +794,13 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         }
       })
       .catch(() => {
-        if (!cancelled) setTenantCompanyPage(null);
+        if (load.isActive()) setTenantCompanyPage(null);
       })
       .finally(() => {
-        if (!cancelled) setLoadingCompanyPage(false);
+        load.finish();
       });
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen, publishFlowStep]);
 
@@ -1118,34 +1116,36 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   );
 
   useEffect(() => {
-    if (!isOpen) return;
-    let cancelled = false;
+    if (!isOpen) {
+      setLoadingUsers(false);
+      return;
+    }
+    const load = startAsyncLoad(setLoadingUsers);
     const loadUsers = async () => {
       try {
-        setLoadingUsers(true);
         const members = await getAllTeamMembersForAssign(undefined, 'Jobs');
-        if (!cancelled) setUsers(teamMembersToBackendUsers(members));
+        if (load.isActive()) setUsers(teamMembersToBackendUsers(members));
       } catch {
-        if (!cancelled) setUsers([]);
+        if (load.isActive()) setUsers([]);
       } finally {
-        if (!cancelled) setLoadingUsers(false);
+        load.finish();
       }
     };
     void loadUsers();
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !draft.clientId) {
       setContacts([]);
+      setLoadingContacts(false);
       return;
     }
-    let cancelled = false;
+    const load = startAsyncLoad(setLoadingContacts);
     const loadContacts = async () => {
       try {
-        setLoadingContacts(true);
         const clientId = draft.clientId;
         const [contactsResponse, clientResponse] = await Promise.all([
           apiGetContacts({ clientId, type: 'CLIENT' }),
@@ -1157,21 +1157,21 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           : raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)
             ? (raw as { data: unknown[] }).data
             : [];
-        if (cancelled) return;
+        if (!load.isActive()) return;
         const client =
           clientResponse && typeof clientResponse === 'object' && 'id' in clientResponse
             ? (clientResponse as unknown as BackendClient)
             : null;
         setContacts(buildJobContactPersonOptions(list as BackendContact[], client));
       } catch {
-        if (!cancelled) setContacts([]);
+        if (load.isActive()) setContacts([]);
       } finally {
-        if (!cancelled) setLoadingContacts(false);
+        load.finish();
       }
     };
     void loadContacts();
     return () => {
-      cancelled = true;
+      load.abort();
     };
   }, [isOpen, draft.clientId]);
 
