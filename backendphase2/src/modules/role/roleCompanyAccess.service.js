@@ -139,6 +139,27 @@ export async function stripViewAllCompaniesPermissionIds(permissionIds) {
   return values.filter((id) => !banned.has(String(id)));
 }
 
+export async function assertSwitchCompaniesHavePicks(permissionIds, companyAccess) {
+  const values = uniqueIds(permissionIds);
+  if (!values.length) return;
+  const records = await prisma.permission.findMany({
+    where: {
+      OR: [{ id: { in: values } }, { permissionName: { in: values } }],
+    },
+    select: { permissionName: true },
+  });
+  const names = new Set(records.map((row) => String(row.permissionName || '')));
+  if (!names.has('switch_companies')) return;
+  const access = normalizeRoleCompanyAccess(companyAccess);
+  if (!access.crm.length && !access.recruitment.length) {
+    const err = new Error(
+      'Switch companies needs at least one CRM or Recruitment organization ticked below it',
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 export function resolveOrgSide(req) {
   const header = String(req?.headers?.['x-org-side'] || req?.query?.orgSide || '')
     .trim()

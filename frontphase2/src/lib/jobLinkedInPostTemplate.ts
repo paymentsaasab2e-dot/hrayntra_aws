@@ -237,6 +237,44 @@ export function rememberLinkedInTemplateId(id: string | null) {
   }
 }
 
+export const LINKEDIN_TEMPLATE_DEFAULT_CHANGED_EVENT = 'hrayntra:linkedin-template-default-changed';
+export const LINKEDIN_TEMPLATES_CHANGED_EVENT = 'hrayntra:linkedin-templates-changed';
+
+export function emitLinkedInTemplatesChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(LINKEDIN_TEMPLATES_CHANGED_EVENT));
+}
+
+export function subscribeLinkedInTemplatesChanged(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener(LINKEDIN_TEMPLATES_CHANGED_EVENT, listener);
+  return () => window.removeEventListener(LINKEDIN_TEMPLATES_CHANGED_EVENT, listener);
+}
+
+export function emitLinkedInTemplateDefaultChanged(template: JobLinkedInPostTemplate | null): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent(LINKEDIN_TEMPLATE_DEFAULT_CHANGED_EVENT, { detail: template }),
+  );
+}
+
+export function subscribeLinkedInTemplateDefaultChanged(
+  listener: (template: JobLinkedInPostTemplate | null) => void,
+): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const handler = (event: Event) => {
+    listener((event as CustomEvent<JobLinkedInPostTemplate | null>).detail ?? null);
+  };
+  window.addEventListener(LINKEDIN_TEMPLATE_DEFAULT_CHANGED_EVENT, handler);
+  return () => window.removeEventListener(LINKEDIN_TEMPLATE_DEFAULT_CHANGED_EVENT, handler);
+}
+
+/** Persist the default LinkedIn template used by Settings and Create Job. */
+export function applyDefaultLinkedInPostTemplate(template: JobLinkedInPostTemplate | null): void {
+  rememberLinkedInTemplateId(template?.id ?? null);
+  emitLinkedInTemplateDefaultChanged(template);
+}
+
 export function readRememberedLinkedInTemplateId(): string | null {
   try {
     return localStorage.getItem(lastLinkedInTemplateStorageKey()) || null;
@@ -262,11 +300,12 @@ export function parseLinkedInPostTemplateList(res: unknown): JobLinkedInPostTemp
     .filter((row) => row.id);
 }
 
-/** Last-used template, else the most recently updated saved template. */
+/** Remembered default template, if it still exists. */
 export function pickDefaultLinkedInPostTemplate(
   templates: JobLinkedInPostTemplate[],
 ): JobLinkedInPostTemplate | null {
   if (!templates.length) return null;
   const remembered = readRememberedLinkedInTemplateId();
-  return templates.find((row) => row.id === remembered) || templates[0];
+  if (!remembered) return null;
+  return templates.find((row) => row.id === remembered) || null;
 }

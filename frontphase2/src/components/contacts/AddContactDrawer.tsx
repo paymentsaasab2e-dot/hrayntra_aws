@@ -12,6 +12,7 @@ import {
   type BackendContact,
 } from '../../lib/api';
 import { NAME_SALUTATION_OPTIONS, formatDirectorDisplay } from '../../constants/salutations';
+import { mapUniqueClientOptions } from '../../lib/companyNameKey';
 import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
@@ -60,7 +61,7 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
 
           if (clientsRes.data) {
             const clientsData = Array.isArray(clientsRes.data) ? clientsRes.data : clientsRes.data.data || [];
-            setClients(clientsData.map((c: any) => ({ id: c.id, companyName: c.companyName || c.name })));
+            setClients(mapUniqueClientOptions(clientsData));
           }
 
           if (ownersRes.data) {

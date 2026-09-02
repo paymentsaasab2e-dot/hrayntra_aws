@@ -176,6 +176,7 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
+import { dedupeByCompanyName } from '../../lib/companyNameKey';
 
 // Force CSR so the page hydrates skeleton placeholders before the first data
 // fetch resolves — every interactive bit on this tab is client-driven.
@@ -1768,14 +1769,20 @@ export default function JobsPage() {
 
         const usersList = teamMembersToBackendUsers(members);
 
-        const nextClients = clientsList
-          .map((client) => ({ id: String(client.id), name: client.companyName || 'Unnamed client' }))
-          .sort((a, b) => a.name.localeCompare(b.name));
+        const nextClients = dedupeByCompanyName(
+          clientsList
+            .map((client) => ({ id: String(client.id), name: client.companyName || 'Unnamed client' }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+          (client) => client.name,
+        );
         const nextRecruiters = usersList
           .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed member' }))
           .sort((a, b) => a.name.localeCompare(b.name));
 
         setClientOptions(nextClients);
+        setClientFilterId((current) =>
+          current && !nextClients.some((client) => client.id === current) ? '' : current,
+        );
         setRecruiterOptions(nextRecruiters);
       } catch (err) {
         if (!cancelled) {
@@ -2804,6 +2811,7 @@ export default function JobsPage() {
                       }))}
                       placeholder="All clients"
                       allLabel="All clients"
+                      dedupeNormalizedLabels
                       className="w-[10rem] max-w-[12rem]"
                       ariaLabel="Filter by client"
                       searchPlaceholder="Search clients…"

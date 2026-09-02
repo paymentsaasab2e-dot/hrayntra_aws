@@ -81,6 +81,7 @@ import { resolveMatchIdForSubmit } from '../../lib/jobAppliedMatches';
 import { resolveSubmitJobIdFromBackend } from '../../lib/candidateSubmitToClient';
 import { extractApiData, isValidObjectId } from '../../lib/mapCandidateProfile';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
+import { mapUniqueClientOptions } from '../../lib/companyNameKey';
 import { SubmitToClientClientDetailsPanel } from './SubmitToClientClientDetailsPanel';
 import {
   clientToSubmitForm,
@@ -765,12 +766,7 @@ export function SubmitToClientDrawer({
         const clientsRaw = await apiGetClients({ page: 1, limit: 500, includeContacts: true });
         const clients = parseClientsListFromResponse(clientsRaw);
         if (cancelled) return;
-        setClientCatalog(
-          clients.map((item) => ({
-            id: item.id,
-            companyName: item.companyName || 'Unnamed client',
-          })),
-        );
+        setClientCatalog(mapUniqueClientOptions(clients));
       } catch {
         if (!cancelled) setClientCatalog([]);
       }

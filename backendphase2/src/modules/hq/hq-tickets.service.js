@@ -312,8 +312,8 @@ export const hqTicketsService = {
       String(
         actor?.name ||
           actor?.fullName ||
-          (hq ? 'HQ Support' : actor?.email || 'Employer'),
-      ).trim() || (hq ? 'HQ Support' : 'Employer');
+          (hq ? 'HQ Support' : actor?.email || 'Entrepreneur'),
+      ).trim() || (hq ? 'HQ Support' : 'Entrepreneur');
 
     const now = new Date();
     const doc = {

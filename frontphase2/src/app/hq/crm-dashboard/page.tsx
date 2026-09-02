@@ -48,7 +48,7 @@ const STAGE_WEIGHT: Record<HqLeadStage, number> = {
   lost: 0,
 };
 
-/** Match Employees / Employers dash header actions */
+/** Match Employees / Entrepreneurs dash header actions */
 const HQ_DASH_BTN_PRIMARY =
   'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.55)] transition hover:brightness-110 disabled:opacity-50';
 const HQ_DASH_BTN_SECONDARY =
@@ -575,7 +575,7 @@ export default function HqCrmDashboardPage() {
           </Link>
           <Link href="/hq/tickets?audience=employer" className={`${HQ_DASH_BTN_SECONDARY} hidden sm:inline-flex`}>
             <Ticket className="h-4 w-4 text-violet-600" />
-            Employer tickets
+            Entrepreneur tickets
           </Link>
           <button
             type="button"
@@ -608,7 +608,7 @@ export default function HqCrmDashboardPage() {
               </p>
               {generatedAt ? (
                 <p className="mt-0.5 text-[11px] text-slate-400">
-                  Updated {new Date(generatedAt).toLocaleString()} · same source as Employers
+                  Updated {new Date(generatedAt).toLocaleString()} · same source as Entrepreneurs
                 </p>
               ) : null}
             </div>
@@ -768,12 +768,12 @@ export default function HqCrmDashboardPage() {
               title="Demo → trial → paid"
               right={
                 <Link href="/hq?view=employer" className="text-[11px] font-semibold text-indigo-600 hover:underline">
-                  Employers dash →
+                  Entrepreneurs dash →
                 </Link>
               }
             />
             <p className="mb-3 text-[11px] text-slate-500">
-              Track which employer leads convert: free demo requested → given → free trial → paid.
+              Track which entrepreneur leads convert: free demo requested → given → free trial → paid.
             </p>
             {landingFunnel.length ? (
               <div className="space-y-2.5">
@@ -807,7 +807,7 @@ export default function HqCrmDashboardPage() {
               </div>
             ) : (
               <p className="py-8 text-center text-sm text-slate-400">
-                Employer funnel not loaded yet — refresh or open Employers analytics.
+                Entrepreneur funnel not loaded yet — refresh or open Entrepreneurs analytics.
               </p>
             )}
           </Panel>

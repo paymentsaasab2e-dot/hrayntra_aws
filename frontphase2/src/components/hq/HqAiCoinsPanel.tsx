@@ -52,7 +52,7 @@ export function HqAiFeaturesCatalogPanel() {
     <HqPanel>
       <HqPanelTitle title="Phase 2 AI features (coin-locked)" />
       <p className="mb-4 text-sm text-slate-500">
-        These employer AI actions spend coins. When a tenant balance is too low, the feature stays locked until HQ
+        These entrepreneur AI actions spend coins. When a tenant balance is too low, the feature stays locked until HQ
         tops up coins.
       </p>
       {error ? (

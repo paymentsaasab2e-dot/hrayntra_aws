@@ -25,7 +25,7 @@ export default function GlobalError({
             <p className="text-xs font-bold uppercase tracking-wider text-slate-400">HRYANTRA</p>
             <h1 className="mt-2 text-xl font-bold text-slate-900">This page couldn’t load</h1>
             <p className="mt-2 text-sm text-slate-500">
-              A client-side error stopped the employer workspace. Retry, or open dashboard again.
+              A client-side error stopped the entrepreneur workspace. Retry, or open dashboard again.
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
               <button

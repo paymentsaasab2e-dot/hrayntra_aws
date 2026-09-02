@@ -700,7 +700,7 @@ export function buildHqReportView(
     return {
       kpis,
       breakdowns,
-      tableTitle: 'Employer users (tenants)',
+      tableTitle: 'Entrepreneur users (tenants)',
       columns,
       rows,
       ...tableCsv(`hq-employers-users-${stamp}.csv`, columns, rows),
@@ -811,7 +811,7 @@ export function buildHqReportView(
     return {
       kpis,
       breakdowns,
-      tableTitle: 'Employer support tickets',
+      tableTitle: 'Entrepreneur support tickets',
       columns,
       rows,
       ...tableCsv(`hq-employers-tickets-${stamp}.csv`, columns, rows),
@@ -1085,7 +1085,7 @@ export function buildHqReportView(
         rows: countBy(candidateTx.map((row) => ({ label: row.packageName || row.label || row.type || 'Other' }))),
       },
       {
-        title: 'Employer billing cycle',
+        title: 'Entrepreneur billing cycle',
         rows: countBy(tenantCycles.map((row) => ({ label: row.billingCycle || 'monthly' }))),
       },
     ];
@@ -1112,7 +1112,7 @@ export function buildHqReportView(
         })),
         ...employerTx.map((row) => ({
           id: `e-${row.id}`,
-          side: 'Employer',
+          side: 'Entrepreneur',
           name: dash(row.tenantName),
           email: dash(row.email),
           type: dash(row.label || row.type),

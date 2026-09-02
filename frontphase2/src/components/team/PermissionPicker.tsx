@@ -363,6 +363,21 @@ function recruitmentModulesEnabled() {
   );
 }
 
+export function selectedSetHasSwitchCompanies(
+  selectedIds: Set<string>,
+  permissionsByModule: Record<string, Permission[]>,
+) {
+  for (const list of Object.values(permissionsByModule || {})) {
+    const found = (list || []).find((p) => p.permissionName === 'switch_companies');
+    if (found && selectedIds.has(found.id)) return true;
+  }
+  return false;
+}
+
+export function companyAccessHasPicks(value?: RoleCompanyAccess | null) {
+  return Boolean((value?.crm || []).length || (value?.recruitment || []).length);
+}
+
 function SwitchCompanyAccessPanel({
   disabled,
   value,

@@ -9,6 +9,7 @@ import { ImageWithFallback } from '../../../components/ImageWithFallback';
 import { ContactTypeBadge } from '../../../components/contacts/ContactTypeBadge';
 import { OwnerAvatar } from '../../../components/contacts/OwnerAvatar';
 import { formatDateDMY, formatDateTimeDMY } from '../../../utils/dateDisplay';
+import { visibleContactEmail } from '../../../lib/contactEmail';
 
 export default function ContactProfilePage() {
   const params = useParams();
@@ -126,11 +127,11 @@ export default function ContactProfilePage() {
 
               {/* Contact Details */}
               <div className="space-y-3 border-t border-gray-200 pt-4">
-                {contact.email && (
+                {visibleContactEmail(contact.email) && (
                   <div className="flex items-center gap-3 text-sm">
                     <Mail size={16} className="text-gray-400" />
-                    <a href={`mailto:${contact.email}`} className="text-gray-700 hover:text-blue-600">
-                      {contact.email}
+                    <a href={`mailto:${visibleContactEmail(contact.email)}`} className="text-gray-700 hover:text-blue-600">
+                      {visibleContactEmail(contact.email)}
                     </a>
                   </div>
                 )}

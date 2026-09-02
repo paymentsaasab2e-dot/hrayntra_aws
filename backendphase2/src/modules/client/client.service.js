@@ -61,6 +61,11 @@ import {
   queueAiEntryRecommendation,
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
+import {
+  collapseDuplicateContactsForCompany,
+  findReusableCompanyContact,
+} from '../../utils/clientContactDedupe.js';
+import { normalizeCompanyNameKey, preferredCompanyDisplayName } from '../../utils/companyNameKey.js';
 
 /**
  * Recruiters / portal users: clients assigned to them, or they created/sourced (createdById).
@@ -71,12 +76,30 @@ import {
 export async function findLiveClientByCompanyName(companyName) {
   const name = String(companyName || '').trim();
   if (!name) return null;
-  return prisma.client.findFirst({
+
+  const exact = await prisma.client.findFirst({
     where: {
       isDeleted: { not: true },
       companyName: { equals: escapePrismaRegex(name), mode: 'insensitive' },
     },
   });
+  if (exact) return exact;
+
+  const compact = normalizeCompanyNameKey(name);
+  if (!compact || compact.length < 3) return null;
+
+  const firstToken = name.split(/\s+/).find((part) => part.replace(/[^a-zA-Z0-9]/g, '').length >= 2);
+  const searchToken = firstToken ? firstToken.replace(/[^a-zA-Z0-9]+/g, '') : name.slice(0, 4);
+  if (!searchToken) return null;
+
+  const candidates = await prisma.client.findMany({
+    where: {
+      isDeleted: { not: true },
+      companyName: { contains: escapePrismaRegex(searchToken), mode: 'insensitive' },
+    },
+    take: 80,
+  });
+  return candidates.find((row) => normalizeCompanyNameKey(row.companyName) === compact) || null;
 }
 
 const mergedDuplicateTenants = new Set();
@@ -150,7 +173,7 @@ async function mergePortalDuplicateClientsByCompanyName() {
     });
     const groups = new Map();
     for (const row of rows) {
-      const key = String(row.companyName || '').trim().toLowerCase();
+      const key = normalizeCompanyNameKey(row.companyName);
       if (!key) continue;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(row);
@@ -158,6 +181,17 @@ async function mergePortalDuplicateClientsByCompanyName() {
     for (const group of groups.values()) {
       if (group.length < 2) continue;
       const keeper = group[0];
+      const displayName = preferredCompanyDisplayName(group.map((row) => row.companyName));
+      if (displayName && displayName !== keeper.companyName) {
+        try {
+          await portalPrisma.client.update({
+            where: { id: keeper.id },
+            data: { companyName: displayName },
+          });
+        } catch {
+          /* keep going */
+        }
+      }
       for (const extra of group.slice(1)) {
         try {
           await portalPrisma.job.updateMany({
@@ -230,10 +264,11 @@ export async function markClientRecruitmentEnabledFromJob(clientId, performedByI
   return { updated: Boolean(result?.count) };
 }
 
-/** Collapse same-name live clients created by repeated job posts. */
+/** Collapse punctuation / legal-suffix variants of the same live client. */
 export async function mergeDuplicateClientsByCompanyName() {
   const tenant = String(getActiveTenantDbName() || 'default').trim();
-  if (mergedDuplicateTenants.has(tenant)) return { merged: 0 };
+  const mergeKey = `${tenant}:normalized-name-v1`;
+  if (mergedDuplicateTenants.has(mergeKey)) return { merged: 0 };
 
   const rows = await prisma.client.findMany({
     where: { isDeleted: { not: true } },
@@ -247,7 +282,7 @@ export async function mergeDuplicateClientsByCompanyName() {
 
   const groups = new Map();
   for (const row of rows) {
-    const key = String(row.companyName || '').trim().toLowerCase();
+    const key = normalizeCompanyNameKey(row.companyName);
     if (!key) continue;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
@@ -256,15 +291,19 @@ export async function mergeDuplicateClientsByCompanyName() {
   let merged = 0;
   for (const group of groups.values()) {
     if (group.length < 2) continue;
-    // CRM Excel imports can legally have several same-name clients. Only collapse
-    // auto-created job-post duplicates (at least one row in the group has jobs).
-    if (group.every((row) => (row._count?.jobs || 0) === 0)) continue;
     group.sort((a, b) => {
       const byJobs = (b._count?.jobs || 0) - (a._count?.jobs || 0);
       if (byJobs) return byJobs;
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
     const keeper = group[0];
+    const displayName = preferredCompanyDisplayName(group.map((row) => row.companyName));
+    if (displayName && displayName !== keeper.companyName) {
+      await prisma.client.update({
+        where: { id: keeper.id },
+        data: { companyName: displayName },
+      });
+    }
     for (const extra of group.slice(1)) {
       await reassignClientOwnedRecords(extra.id, keeper.id);
       await prisma.client.update({
@@ -273,10 +312,11 @@ export async function mergeDuplicateClientsByCompanyName() {
       });
       merged += 1;
     }
+    await collapseDuplicateContactsForCompany(keeper.id);
   }
 
   await mergePortalDuplicateClientsByCompanyName();
-  mergedDuplicateTenants.add(tenant);
+  mergedDuplicateTenants.add(mergeKey);
   if (merged > 0) {
     console.log(`Merged ${merged} duplicate client row(s) for tenant ${tenant}.`);
   }
@@ -523,16 +563,10 @@ function buildClientImportPayload(row = {}, mapping = {}) {
 }
 
 async function findExistingClientImportDuplicate(companyName) {
-  const normalizedCompanyName = normalizeClientImportValue(companyName);
-  if (!normalizedCompanyName) return null;
-  return prisma.client.findFirst({
-    where: {
-      isDeleted: { not: true },
-      companyName: {
-        equals: escapePrismaRegex(normalizedCompanyName),
-        mode: 'insensitive',
-      },
-    },
+  const hit = await findLiveClientByCompanyName(companyName);
+  if (!hit) return null;
+  return prisma.client.findUnique({
+    where: { id: hit.id },
     select: {
       id: true,
       companyName: true,
@@ -773,6 +807,8 @@ export const clientService = {
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let scopedWhere = mergeWhereWithScope({ id }, scope);
     scopedWhere = await applyMemberClientScope(scopedWhere, req);
+
+    await collapseDuplicateContactsForCompany(id);
 
     const client = await prisma.client.findFirst({
       where: scopedWhere,
@@ -1981,22 +2017,45 @@ export const clientService = {
 
         const firstName = contactPerson.split(' ')[0] || 'Unknown';
         const lastName = contactPerson.split(' ').slice(1).join(' ') || '';
+        const sharedContactFields = {
+          firstName,
+          lastName,
+          phone: phone || null,
+          designation: 'Director',
+          department: teamName || null,
+          location: location || null,
+          companyId,
+          ownerId: payload.assignedToId || null,
+        };
+        await collapseDuplicateContactsForCompany(companyId);
+        const reusable = await findReusableCompanyContact(companyId, {
+          firstName,
+          lastName,
+          email,
+          phone,
+          designation: 'Director',
+        });
+        if (reusable) {
+          await prisma.contact.update({
+            where: { id: reusable.id },
+            data: {
+              ...sharedContactFields,
+              ...(email && !String(reusable.email || '').toLowerCase().endsWith('@placeholder.local')
+                ? {}
+                : email
+                  ? { email: email.toLowerCase().trim() }
+                  : {}),
+            },
+          });
+          await collapseDuplicateContactsForCompany(companyId);
+          return;
+        }
 
         if (email) {
           const normalizedEmail = email.toLowerCase().trim();
           const existingByEmail = await prisma.contact.findUnique({
             where: { email: normalizedEmail },
           });
-          const sharedContactFields = {
-            firstName,
-            lastName,
-            phone: phone || null,
-            designation: 'Director',
-            department: teamName || null,
-            location: location || null,
-            companyId,
-            ownerId: payload.assignedToId || null,
-          };
 
           if (existingByEmail) {
             if (String(existingByEmail.companyId || '') === String(companyId)) {
@@ -2004,6 +2063,7 @@ export const clientService = {
                 where: { id: existingByEmail.id },
                 data: sharedContactFields,
               });
+              await collapseDuplicateContactsForCompany(companyId);
               return;
             }
 
@@ -2017,6 +2077,7 @@ export const clientService = {
                 where: { id: existingPlaceholder.id },
                 data: sharedContactFields,
               });
+              await collapseDuplicateContactsForCompany(companyId);
               return;
             }
 
@@ -2028,6 +2089,7 @@ export const clientService = {
                 associatedJobIds: [],
               },
             });
+            await collapseDuplicateContactsForCompany(companyId);
             return;
           }
 
@@ -2039,24 +2101,32 @@ export const clientService = {
               associatedJobIds: [],
             },
           });
+          await collapseDuplicateContactsForCompany(companyId);
+          return;
+        }
+
+        const placeholderEmail = `client-${companyId}-director@placeholder.local`;
+        const existingPlaceholder = await prisma.contact.findUnique({
+          where: { email: placeholderEmail },
+        });
+        if (existingPlaceholder) {
+          await prisma.contact.update({
+            where: { id: existingPlaceholder.id },
+            data: sharedContactFields,
+          });
+          await collapseDuplicateContactsForCompany(companyId);
           return;
         }
 
         await prisma.contact.create({
           data: {
-            firstName,
-            lastName,
-            email: `client-${companyId}-director@placeholder.local`,
-            phone: phone || null,
-            designation: 'Director',
-            department: teamName || null,
-            location: location || null,
-            companyId,
-            ownerId: payload.assignedToId || null,
+            ...sharedContactFields,
+            email: placeholderEmail,
             tags: [],
             associatedJobIds: [],
           },
         });
+        await collapseDuplicateContactsForCompany(companyId);
       };
 
       try {

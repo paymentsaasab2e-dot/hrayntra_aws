@@ -488,6 +488,7 @@ export const DEFAULT_AGREEMENT_LEVEL_OPTIONS = [
   'Level 3',
   'Level 4',
   'Executive',
+  'All levels',
 ];
 
 export function normalizeServiceLabel(raw) {

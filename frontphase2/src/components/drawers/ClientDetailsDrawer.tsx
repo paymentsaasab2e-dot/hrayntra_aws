@@ -14,6 +14,9 @@ import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
+import { cleanDisplayText } from '../../lib/sanitizeMojibake';
+import { visibleContactEmail, visiblePreferredChannel } from '../../lib/contactEmail';
+import { dedupeVisibleContacts } from '../../lib/clientContactDedupe';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
@@ -380,7 +383,7 @@ const FieldRow = ({
     <p
       className={`mt-0.5 text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer' : ''} ${multiline ? 'whitespace-pre-line' : ''} ${!multiline ? 'break-words' : ''}`}
     >
-      {value || (blankWhenEmpty ? '' : '—')}
+      {cleanDisplayText(value, blankWhenEmpty ? '' : '—')}
     </p>
   </div>
 );
@@ -982,13 +985,6 @@ const splitCompanyLinks = (value: string) =>
     .split(/\r?\n|\|/)
     .map((item) => item.trim())
     .filter(Boolean);
-
-const normalizeDisplayValue = (value?: string | null, fallback = '-') => {
-  if (!value) return fallback;
-  const trimmed = String(value).trim();
-  if (!trimmed || trimmed.includes('Ã') || trimmed.includes('â')) return fallback;
-  return trimmed;
-};
 
 const FILE_TYPE_BADGE_STYLES: Record<ClientFileType, string> = {
   NDA: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -1658,14 +1654,14 @@ export function ClientDetailsDrawer({
       name: `${contact.firstName} ${contact.lastName}`.trim(),
       designation: contact.designation || contact.title || '',
       department: (contact.department as ClientContact['department']) || 'Other',
-      email: contact.email || '',
+      email: visibleContactEmail(contact.email),
       phone: contact.phone || '',
       isPrimary: contact.isPrimary || false,
       lastContacted: contact.lastContacted
         ? formatDateDMY(contact.lastContacted)
         : 'Never',
       avatar: contact.avatar || undefined,
-      preferredChannel: (contact.preferredChannel as ClientContact['preferredChannel']) || undefined,
+      preferredChannel: (visiblePreferredChannel(contact.preferredChannel) || undefined) as ClientContact['preferredChannel'],
       notes:
         contact.notesText ||
         (Array.isArray(contact.notes)
@@ -1703,7 +1699,7 @@ export function ClientDetailsDrawer({
         name,
         designation: 'Director',
         department: 'Other',
-        email: email && !String(email).includes('@placeholder.local') ? email : '',
+        email: visibleContactEmail(email),
         phone: phone || '',
         isPrimary: true,
         lastContacted: 'Never',
@@ -1721,8 +1717,8 @@ export function ClientDetailsDrawer({
       const contactsList = Array.isArray(response.data)
         ? response.data
         : (response.data as any)?.data || (response.data as any)?.items || [];
-      const mappedContacts: ClientContact[] = contactsList.map((contact: BackendContact) =>
-        mapBackendContactToClientContact(contact)
+      const mappedContacts: ClientContact[] = dedupeVisibleContacts(
+        contactsList.map((contact: BackendContact) => mapBackendContactToClientContact(contact)),
       );
       setClientContacts(mappedContacts);
       setClientTeamMemberContacts(
@@ -1888,7 +1884,16 @@ export function ClientDetailsDrawer({
           : (response.data as { data?: BackendContact[]; items?: BackendContact[] })?.data
             || (response.data as { items?: BackendContact[] })?.items
             || [];
-        return resolveDirectorBackendContact(contactsList)?.id;
+        return resolveDirectorBackendContact(contactsList)?.id
+          || contactsList.find((contact) => {
+            const sameName =
+              `${contact.firstName || ''} ${contact.lastName || ''}`.trim().toLowerCase() ===
+              options.directorName.trim().toLowerCase();
+            const samePhone =
+              String(contact.phone || '').replace(/\D/g, '').slice(-10) ===
+              String(options.phone || '').replace(/\D/g, '').slice(-10);
+            return sameName && (samePhone || !options.phone);
+          })?.id;
       } catch {
         return undefined;
       }
@@ -1973,7 +1978,7 @@ export function ClientDetailsDrawer({
       fullName: contact.name || '',
       designation: contact.designation || '',
       department: contact.department || '',
-      email: contact.email || '',
+      email: visibleContactEmail(contact.email),
       phone: contact.phone || '',
       whatsAppSameAsPhone: true,
       isPrimary: Boolean(contact.isPrimary),
@@ -1994,13 +1999,14 @@ export function ClientDetailsDrawer({
   };
 
   const handleEmailClick = (contact: ClientContact) => {
-    if (!contact.email) {
+    const email = visibleContactEmail(contact.email);
+    if (!email) {
       void requestWarning('No email available for this contact.');
       return;
     }
     const subject = encodeURIComponent(`Hello ${contact.name || ''}`.trim());
     const body = encodeURIComponent(`Hi ${contact.name || ''},\n\n`);
-    const mailto = `mailto:${contact.email}?subject=${subject}&body=${body}`;
+    const mailto = `mailto:${email}?subject=${subject}&body=${body}`;
     window.open(mailto, '_blank', 'noopener,noreferrer');
   };
 
@@ -2498,7 +2504,7 @@ export function ClientDetailsDrawer({
     
     // Push fresh contacts into state so view mode and Contacts tab stay in sync.
     if (fetchedContacts.length) {
-      setClientContacts(fetchedContacts.map(mapBackendContactToClientContact));
+      setClientContacts(dedupeVisibleContacts(fetchedContacts.map(mapBackendContactToClientContact)));
       setClientTeamMemberContacts(
         fetchedContacts.filter((contact) => isClientTeamMemberContact(contact)),
       );
@@ -2512,11 +2518,7 @@ export function ClientDetailsDrawer({
       (fetchedClient as BackendClient | null)?.otherDetails ?? client?.otherDetails ?? null,
     );
     const fetchedPrimaryName = directorNameFromContact(fetchedDirector);
-    const fetchedPrimaryEmailRaw = fetchedDirector?.email || '';
-    const fetchedPrimaryEmail =
-      fetchedPrimaryEmailRaw && !fetchedPrimaryEmailRaw.includes('@placeholder.local')
-        ? fetchedPrimaryEmailRaw
-        : '';
+    const fetchedPrimaryEmail = visibleContactEmail(fetchedDirector?.email);
     const fetchedPrimaryPhone = fetchedDirector?.phone || '';
 
     const directorNameValue =
@@ -2528,7 +2530,7 @@ export function ClientDetailsDrawer({
       'Active': 'ACTIVE',
       'On Hold': 'ON_HOLD',
       'Inactive': 'INACTIVE',
-      'Hot Clients ðŸ”¥': 'ACTIVE',
+      'Hot Clients 🔥': 'ACTIVE',
     };
     
     let clientStage = client.stage;
@@ -4083,7 +4085,7 @@ export function ClientDetailsDrawer({
     ) ||
     clientContacts.find((contact) => !teamMemberContactIds.has(contact.id)) ||
     null;
-  const primaryClientContactEmail = primaryClientContact?.email && !primaryClientContact.email.includes('@placeholder.local') ? primaryClientContact.email : '';
+  const primaryClientContactEmail = visibleContactEmail(primaryClientContact?.email);
   const primaryClientContactPhone = primaryClientContact?.phone || '';
   const clientRecordForDisplay = fullClientData || client;
   const locationFields = resolveClientCityStateCountry(clientRecordForDisplay || {});
@@ -6397,17 +6399,17 @@ export function ClientDetailsDrawer({
                             <>
                               {client && (
                                 <>
-                          <FieldRow label="Company Name" value={fullClientData?.name || client?.name || 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Company Name" value={fullClientData?.name || client?.name || '—'} />
                           <FieldRow label="Industry" value={formatIndustriesDisplay(fullClientData?.industry || client?.industry || '') || '—'} />
-                          <FieldRow label="Company size" value={fullClientData?.companySize || client?.companySize || 'Ã¢â‚¬â€'} />
-                          <FieldRow label="Website" value={fullClientData?.website || client?.website || 'Ã¢â‚¬â€'} href={!!(fullClientData?.website || client?.website)} />
-                          <FieldRow label="LinkedIn" value={fullClientData?.linkedin || client?.linkedin || 'Ã¢â‚¬â€'} href={!!(fullClientData?.linkedin || client?.linkedin)} />
-                          <FieldRow label="Location" value={fullClientData?.location || client?.location || fullClientData?.hiringLocations || client?.hiringLocations || 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Company size" value={fullClientData?.companySize || client?.companySize || '—'} />
+                          <FieldRow label="Website" value={fullClientData?.website || client?.website || '—'} href={!!(fullClientData?.website || client?.website)} />
+                          <FieldRow label="LinkedIn" value={fullClientData?.linkedin || client?.linkedin || '—'} href={!!(fullClientData?.linkedin || client?.linkedin)} />
+                          <FieldRow label="Location" value={fullClientData?.location || client?.location || fullClientData?.hiringLocations || client?.hiringLocations || '—'} />
                           <FieldRow label="Locations / Hiring locations" value={fullClientData?.hiringLocations || client?.hiringLocations || fullClientData?.location || client?.location || 'Not specified'} />
-                          <FieldRow label="Timezone" value={fullClientData?.timezone || client?.timezone || 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Timezone" value={fullClientData?.timezone || client?.timezone || '—'} />
                           <FieldRow label="Client since" value={(() => {
                             const clientSince = fullClientData?.clientSince || client?.clientSince;
-                            if (!clientSince) return 'Ã¢â‚¬â€';
+                            if (!clientSince) return '—';
                             if (typeof clientSince === 'string' && clientSince.includes('-')) {
                               return formatDateDMY(clientSince);
                             }
@@ -6528,10 +6530,10 @@ export function ClientDetailsDrawer({
                               
                               return (
                                 <>
-                                  <FieldRow label="Contact Name" value={primaryContact.name || 'Ã¢â‚¬â€'} />
-                                  <FieldRow label="Designation" value={primaryContact.designation || 'Ã¢â‚¬â€'} />
-                                  <FieldRow label="Email" value={primaryContact.email || 'Ã¢â‚¬â€'} href={!!primaryContact.email} />
-                                  <FieldRow label="Phone" value={primaryContact.phone || 'Ã¢â‚¬â€'} />
+                                  <FieldRow label="Contact Name" value={primaryContact.name || '—'} />
+                                  <FieldRow label="Designation" value={primaryContact.designation || '—'} />
+                                  <FieldRow label="Email" value={primaryContact.email || '—'} href={!!primaryContact.email} />
+                                  <FieldRow label="Phone" value={primaryContact.phone || '—'} />
                                 </>
                               );
                             })()}
@@ -6577,8 +6579,8 @@ export function ClientDetailsDrawer({
                             </p>
                           </div>
                           <FieldRow label="Client stage" value={client.stage} />
-                          <FieldRow label="Priority" value={client.priority ?? 'Ã¢â‚¬â€'} />
-                          <FieldRow label="SLA / Response expectations" value={client.sla ?? 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Priority" value={client.priority ?? '—'} />
+                          <FieldRow label="SLA / Response expectations" value={client.sla ?? '—'} />
                           {client?.id ? (
                             <div className="mt-4">
                               <CrossDepartmentClientHandoff
@@ -6755,15 +6757,15 @@ export function ClientDetailsDrawer({
                           </div>
                           <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Interviews this week</p>
-                            <p className="text-lg font-bold text-slate-900 mt-0.5">{client?.interviewsThisWeek ?? 'Ã¢â‚¬â€'}</p>
+                            <p className="text-lg font-bold text-slate-900 mt-0.5">{client?.interviewsThisWeek ?? '—'}</p>
                           </div>
                           <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Placements this month</p>
-                            <p className="text-lg font-bold text-slate-900 mt-0.5">{client?.placementsThisMonth ?? client?.placements ?? 'Ã¢â‚¬â€'}</p>
+                            <p className="text-lg font-bold text-slate-900 mt-0.5">{client?.placementsThisMonth ?? client?.placements ?? '—'}</p>
                           </div>
                           <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3 col-span-2">
                             <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Revenue generated</p>
-                            <p className="text-lg font-bold text-emerald-800 mt-0.5">{client?.revenueGenerated ?? client?.revenue ?? 'Ã¢â‚¬â€'}</p>
+                            <p className="text-lg font-bold text-emerald-800 mt-0.5">{client?.revenueGenerated ?? client?.revenue ?? '—'}</p>
                           </div>
                         </div>
                       )}
@@ -6795,23 +6797,23 @@ export function ClientDetailsDrawer({
                               const s = HEALTH_STYLES[status];
                               return (
                                 <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${s.bg} ${s.text}`}>
-                                  {status === 'Good' && 'Ã°Å¸Å¸Â¢ '}
-                                  {status === 'Needs attention' && 'Ã°Å¸Å¸Â¡ '}
-                                  {status === 'At risk' && 'Ã°Å¸â€Â´ '}
+                                  {status === 'Good' && '🟢 '}
+                                  {status === 'Needs attention' && '🟡 '}
+                                  {status === 'At risk' && '🔴 '}
                                   {s.label}
                                 </span>
                               );
                             })()}
                           </div>
-                          <FieldRow label="Last activity" value={client?.lastActivity ?? 'Ã¢â‚¬â€'} />
-                          <FieldRow label="Stale jobs count" value={client?.staleJobsCount != null ? String(client.staleJobsCount) : 'Ã¢â‚¬â€'} />
-                          <FieldRow label="Pending invoices" value={client?.pendingInvoicesCount != null ? String(client.pendingInvoicesCount) : 'Ã¢â‚¬â€'} />
-                          <FieldRow label="Average time-to-fill" value={client?.avgTimeToFill ?? 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Last activity" value={client?.lastActivity ?? '—'} />
+                          <FieldRow label="Stale jobs count" value={client?.staleJobsCount != null ? String(client.staleJobsCount) : '—'} />
+                          <FieldRow label="Pending invoices" value={client?.pendingInvoicesCount != null ? String(client.pendingInvoicesCount) : '—'} />
+                          <FieldRow label="Average time-to-fill" value={client?.avgTimeToFill ?? '—'} />
                         </div>
                       )}
                     </section>
 
-                    {/* 5. Quick Actions Strip Ã¢â‚¬â€ always visible, no dropdown */}
+                    {/* 5. Quick Actions Strip — always visible, no dropdown */}
                     <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Quick actions</h4>
                       <div className="grid grid-cols-2 gap-2">
@@ -7127,13 +7129,13 @@ export function ClientDetailsDrawer({
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-600">{contact.department}</td>
-                                  <td className="px-4 py-3 text-sm text-slate-600 truncate max-w-[140px]">{contact.email}</td>
+                                  <td className="px-4 py-3 text-sm text-slate-600 truncate max-w-[140px]">{contact.email || '—'}</td>
                                   <td className="px-4 py-3 text-sm text-slate-600">{contact.phone}</td>
                                   <td className="px-4 py-3 text-center">
                                     {contact.isPrimary ? (
                                       <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600" title="Primary contact">
                                         <span className="sr-only">Primary</span>
-                                        <span className="text-[10px] font-bold">Ã¢Å“â€œ</span>
+                                        <span className="text-[10px] font-bold">✓</span>
                                       </span>
                                     ) : (
                                       <span className="inline-block w-6 h-6 rounded-full border border-slate-200 bg-white" />
@@ -7207,14 +7209,23 @@ export function ClientDetailsDrawer({
                             <div>
                               <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Contact info</h5>
                               <div className="space-y-1 text-sm">
-                                <p className="font-medium text-slate-900">{selectedContact.designation} Ã‚Â· {selectedContact.department}</p>
-                                <p className="text-slate-600">{selectedContact.email}</p>
+                                <p className="font-medium text-slate-900">
+                                  {[
+                                    cleanDisplayText(selectedContact.designation, ''),
+                                    cleanDisplayText(selectedContact.department, ''),
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ') || '—'}
+                                </p>
+                                <p className="text-slate-600">{selectedContact.email || '—'}</p>
                                 <p className="text-slate-600">{selectedContact.phone}</p>
                               </div>
                             </div>
                             <div>
                               <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Preferred communication</h5>
-                              <p className="text-sm font-medium text-slate-900">{selectedContact.preferredChannel ?? 'Ã¢â‚¬â€'}</p>
+                              <p className="text-sm font-medium text-slate-900">
+                                {visiblePreferredChannel(selectedContact.preferredChannel, '—')}
+                              </p>
                             </div>
                             <div>
                               <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Notes</h5>
@@ -7230,7 +7241,7 @@ export function ClientDetailsDrawer({
                                     <li key={i} className="text-sm border-l-2 border-slate-200 pl-3 py-0.5">
                                       <span className="text-slate-500">{a.date}</span>
                                       <span className="font-medium text-slate-700"> {a.type}</span>
-                                      <span className="text-slate-600"> Ã¢â‚¬â€ {a.summary}</span>
+                                      <span className="text-slate-600"> — {a.summary}</span>
                                     </li>
                                   ))
                                 )}
@@ -7392,7 +7403,7 @@ export function ClientDetailsDrawer({
                                           {s.stage}: {s.count}
                                         </span>
                                       ))}
-                                      {(!job.pipelineStages || job.pipelineStages.length === 0) && <span className="text-xs text-slate-400">Ã¢â‚¬â€</span>}
+                                      {(!job.pipelineStages || job.pipelineStages.length === 0) && <span className="text-xs text-slate-400">—</span>}
                                     </div>
                                   </td>
                                   <td className="px-4 py-3">
@@ -7527,7 +7538,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total revenue</p>
-                          <p className="text-lg font-bold text-slate-900">{normalizeDisplayValue(client?.billingTotalRevenue ?? client?.revenue)}</p>
+                          <p className="text-lg font-bold text-slate-900">{cleanDisplayText(client?.billingTotalRevenue ?? client?.revenue)}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -7536,7 +7547,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Outstanding</p>
-                          <p className="text-lg font-bold text-slate-900">{normalizeDisplayValue(client?.billingOutstanding)}</p>
+                          <p className="text-lg font-bold text-slate-900">{cleanDisplayText(client?.billingOutstanding)}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -7545,7 +7556,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Paid amount</p>
-                          <p className="text-lg font-bold text-slate-900">{normalizeDisplayValue(client?.billingPaid)}</p>
+                          <p className="text-lg font-bold text-slate-900">{cleanDisplayText(client?.billingPaid)}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -7824,7 +7835,7 @@ export function ClientDetailsDrawer({
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Files</h4>
-                        <p className="text-xs text-slate-500">{filesLoading ? 'LoadingÃ¢â‚¬Â¦' : `${filteredFiles.length} files`}</p>
+                        <p className="text-xs text-slate-500">{filesLoading ? 'Loading…' : `${filteredFiles.length} files`}</p>
                       </div>
                       <div className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         <table className="w-full text-left border-collapse min-w-[640px]">
@@ -7840,7 +7851,7 @@ export function ClientDetailsDrawer({
                           <tbody className="divide-y divide-slate-100">
                             {filesLoading ? (
                               <tr>
-                                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">Loading filesÃ¢â‚¬Â¦</td>
+                                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">Loading files…</td>
                               </tr>
                             ) : filteredFiles.length === 0 ? (
                               <tr>
@@ -7867,7 +7878,7 @@ export function ClientDetailsDrawer({
                                       ) : (
                                         <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center shrink-0"><User size={12} className="text-slate-500" /></div>
                                       )}
-                                      <span className="text-sm text-slate-600 truncate">{file.uploadedBy?.name ?? 'Ã¢â‚¬â€'}</span>
+                                      <span className="text-sm text-slate-600 truncate">{file.uploadedBy?.name ?? '—'}</span>
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-600">{formatUploadDate(file.uploadDate)}</td>
@@ -8042,7 +8053,7 @@ export function ClientDetailsDrawer({
                                             </div>
                                           )}
                                           <span className="text-[11px] font-medium text-slate-600">Scheduled by {scheduledByName}</span>
-                                          <span className="text-[11px] text-slate-400">Ã‚Â·</span>
+                                          <span className="text-[11px] text-slate-400">·</span>
                                           <span className="text-[11px] text-slate-500">
                                             {formatDateDMY(meeting.createdAt)}
                                           </span>

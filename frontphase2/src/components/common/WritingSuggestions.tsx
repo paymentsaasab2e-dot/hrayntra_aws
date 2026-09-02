@@ -77,8 +77,13 @@ function useWritingAssistTooltip(inputRef: React.RefObject<FieldEl | null>, valu
 
     const onFocus = () => setFocused(true);
     const onBlur = () => {
-      // Delay so click on tooltip can fire first
-      window.setTimeout(() => setFocused(false), 140);
+      window.setTimeout(() => {
+        const ae = document.activeElement;
+        if (ae && inputRef.current?.contains(ae)) return;
+        setFocused(false);
+        setActive(null);
+        setPos(null);
+      }, 80);
     };
     const onSelect = () => {
       setCaret(el.selectionStart ?? 0);

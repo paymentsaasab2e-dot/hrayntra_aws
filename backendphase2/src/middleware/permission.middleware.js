@@ -99,7 +99,7 @@ async function loadUserAuthz(req) {
       email: true,
       name: true,
       role: true,
-      isActive: true,
+      isSuperAdmin: true,
       roleId: true,
       systemRole: { select: { id: true, roleName: true, color: true } },
     },
@@ -111,9 +111,10 @@ async function loadUserAuthz(req) {
 
   const isSuperAdmin = user.role === 'SUPER_ADMIN' || user.systemRole?.roleName === 'Super Admin';
   let permissions = [];
-  if (!isSuperAdmin && user.roleId) {
+  const roleId = String(user.roleId || user.systemRole?.id || '').trim();
+  if (!isSuperAdmin && roleId) {
     const rolePermissions = await prisma.rolePermission.findMany({
-      where: { roleId: user.roleId },
+      where: { roleId },
       select: { permission: { select: { permissionName: true } } },
     });
     permissions = rolePermissions.map((rp) => rp.permission?.permissionName).filter(Boolean);

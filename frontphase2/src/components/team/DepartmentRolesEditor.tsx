@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { DepartmentRoleInput, Permission, Role, RoleCompanyAccess } from '../../types/team';
+import type { DepartmentRoleInput, Permission, Role, RoleCompanyAccess, SystemRole } from '../../types/team';
 import { emptyRoleCompanyAccess } from '../../types/team';
 import { PermissionPicker } from './PermissionPicker';
 import {
@@ -56,14 +56,14 @@ export function departmentRoleDraftsToPayload(drafts: DepartmentRoleDraft[]): De
           roleName: draft.roleName?.trim(),
           description: draft.description?.trim() || undefined,
           color: draft.color,
-          permissionIds: Array.from(draft.permissionIds),
-          companyAccess: draft.companyAccess || emptyRoleCompanyAccess(),
         }),
+    permissionIds: Array.from(draft.permissionIds),
+    companyAccess: draft.companyAccess || emptyRoleCompanyAccess(),
   }));
 }
 
 export function departmentRolesToDrafts(
-  links: Array<{ rank: number; roleId: string; role?: Role }> | undefined,
+  links: Array<{ rank: number; roleId: string; role?: Role | SystemRole }> | undefined,
 ): DepartmentRoleDraft[] {
   if (!links?.length) return [];
   return [...links]
@@ -75,7 +75,17 @@ export function departmentRolesToDrafts(
       roleName: link.role?.roleName,
       color: link.role?.color || 'blue',
       description: link.role?.description || '',
-      permissionIds: new Set<string>(),
+      permissionIds: new Set(
+        (link.role?.rolePermissions || [])
+          .map((row) => row?.permission?.id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+      companyAccess: link.role?.companyAccess
+        ? {
+            crm: [...(link.role.companyAccess.crm || [])],
+            recruitment: [...(link.role.companyAccess.recruitment || [])],
+          }
+        : emptyRoleCompanyAccess(),
       rank: link.rank,
       expanded: false,
     }));
@@ -429,11 +439,22 @@ function DepartmentRoleFieldsPanel({
             <select
               value={draft.roleId || ''}
               onChange={(e) => {
-                const role = predefinedRoles.find((r) => r.id === e.target.value);
+                const role = predefinedRoles.find((r) => r.id === e.target.value) as SystemRole | undefined;
                 onUpdate({
                   roleId: e.target.value,
                   roleName: role?.roleName,
                   color: role?.color || 'blue',
+                  permissionIds: new Set(
+                    (role?.rolePermissions || [])
+                      .map((row) => row?.permission?.id)
+                      .filter((id): id is string => Boolean(id)),
+                  ),
+                  companyAccess: role?.companyAccess
+                    ? {
+                        crm: [...(role.companyAccess.crm || [])],
+                        recruitment: [...(role.companyAccess.recruitment || [])],
+                      }
+                    : emptyRoleCompanyAccess(),
                 });
               }}
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"

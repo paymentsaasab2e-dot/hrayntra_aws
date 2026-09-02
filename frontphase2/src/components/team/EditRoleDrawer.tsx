@@ -12,7 +12,7 @@ import {
   mergePermissionMaps,
   RBAC_CATALOG_TOTAL,
 } from './permissionCatalog';
-import { PermissionPicker } from './PermissionPicker';
+import { PermissionPicker, selectedSetHasSwitchCompanies, companyAccessHasPicks } from './PermissionPicker';
 import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
@@ -156,6 +156,13 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
     }
     if (formData.selectedPermissions.size === 0) {
       newErrors.permissions = 'At least one permission is required';
+    }
+    if (
+      selectedSetHasSwitchCompanies(formData.selectedPermissions, effectivePermissions) &&
+      !companyAccessHasPicks(formData.companyAccess)
+    ) {
+      newErrors.permissions =
+        'Switch companies needs at least one CRM or Recruitment organization ticked below it';
     }
 
     setErrors(newErrors);

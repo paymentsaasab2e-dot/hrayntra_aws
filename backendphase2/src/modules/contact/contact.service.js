@@ -6,6 +6,12 @@ import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import activityService from '../../services/activityService.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import { resolveContactCreateEmail } from '../../utils/resolveContactEmail.js';
+import {
+  collapseDuplicateContactsForCompany,
+  collapseDuplicateContactsForAllCompanies,
+  findReusableCompanyContact,
+  isPlaceholderContactEmail,
+} from '../../utils/clientContactDedupe.js';
 
 export const contactService = {
   async getAll(filters = {}) {
@@ -59,6 +65,9 @@ export const contactService = {
     // Company filter
     if (companyId) {
       where.companyId = companyId;
+      await collapseDuplicateContactsForCompany(companyId);
+    } else {
+      await collapseDuplicateContactsForAllCompanies();
     }
 
     // Location filter
@@ -174,7 +183,17 @@ export const contactService = {
 
   async create(data, userId) {
     const resolvedEmail = resolveContactCreateEmail(data);
-    const hasRealEmail = Boolean(String(data.email || '').trim());
+    const hasRealEmail = Boolean(String(data.email || '').trim()) && !isPlaceholderContactEmail(data.email);
+
+    const reusable = await findReusableCompanyContact(data.companyId, {
+      ...data,
+      email: hasRealEmail ? resolvedEmail : data.email,
+    });
+    if (reusable) {
+      const updatePayload = { ...data };
+      if (!hasRealEmail) delete updatePayload.email;
+      return this.update(reusable.id, updatePayload, userId);
+    }
 
     // Check for duplicate email only when caller supplied a real address.
     if (hasRealEmail) {
@@ -214,28 +233,51 @@ export const contactService = {
 
     dbLogger.logCreate('CONTACT', contactData);
 
-    const contact = await prisma.contact.create({
-      data: contactData,
-      include: {
-        company: {
-          select: { id: true, companyName: true },
+    let contact;
+    try {
+      contact = await prisma.contact.create({
+        data: contactData,
+        include: {
+          company: {
+            select: { id: true, companyName: true },
+          },
+          owner: {
+            select: { id: true, name: true, email: true },
+          },
         },
-        owner: {
-          select: { id: true, name: true, email: true },
-        },
-      },
-    });
+      });
+    } catch (error) {
+      const uniqueConflict =
+        error?.code === 'P2002' || String(error?.message || '').toLowerCase().includes('unique');
+      if (uniqueConflict) {
+        const existing = await prisma.contact.findUnique({
+          where: { email: resolvedEmail },
+        });
+        if (existing && data.companyId && String(existing.companyId || '') === String(data.companyId)) {
+          const updatePayload = { ...data };
+          if (!hasRealEmail) delete updatePayload.email;
+          return this.update(existing.id, updatePayload, userId);
+        }
+        if (existing) {
+          return {
+            duplicate: true,
+            existingContact: existing,
+          };
+        }
+      }
+      throw error;
+    }
 
     const actorId = userId || contact.ownerId;
-    await prisma.contactActivity.create({
-      data: {
-        contactId: contact.id,
-        activityType: 'created',
-        description: `Contact created`,
-        userId: actorId,
-      },
-    });
     if (actorId) {
+      await prisma.contactActivity.create({
+        data: {
+          contactId: contact.id,
+          activityType: 'created',
+          description: `Contact created`,
+          userId: actorId,
+        },
+      });
       const entityName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || contact.email || 'Contact';
       await activityService.logContactCreated({
         entityId: contact.id,
@@ -257,18 +299,23 @@ export const contactService = {
     if (data.salutation !== undefined) {
       updateData.salutation = data.salutation != null && String(data.salutation).trim() ? String(data.salutation).trim() : null;
     }
-    if (data.email !== undefined) {
-      // Check for duplicate email if changing
-      const existing = await prisma.contact.findFirst({
-        where: {
-          email: data.email.toLowerCase().trim(),
-          id: { not: id },
-        },
-      });
-      if (existing) {
-        throw new Error('Email already exists for another contact');
+    if (data.email !== undefined && data.email != null && String(data.email).trim()) {
+      const nextEmail = String(data.email).toLowerCase().trim();
+      if (isPlaceholderContactEmail(nextEmail)) {
+        // Never overwrite a real address with a generated stub.
+      } else {
+        // Check for duplicate email if changing
+        const existing = await prisma.contact.findFirst({
+          where: {
+            email: nextEmail,
+            id: { not: id },
+          },
+        });
+        if (existing) {
+          throw new Error('Email already exists for another contact');
+        }
+        updateData.email = nextEmail;
       }
-      updateData.email = data.email.toLowerCase().trim();
     }
     if (data.phone !== undefined) updateData.phone = data.phone;
     if (data.companyId !== undefined) updateData.companyId = data.companyId || null;

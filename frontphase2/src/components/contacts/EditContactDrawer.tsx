@@ -11,6 +11,8 @@ import {
   type BackendContact,
 } from '../../lib/api';
 import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
+import { visibleContactEmail } from '../../lib/contactEmail';
+import { mapUniqueClientOptions } from '../../lib/companyNameKey';
 import { DrawerFormShell, DrawerFormCancelButton } from '../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
@@ -39,7 +41,7 @@ export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditC
         salutation: contact.salutation || '',
         firstName: contact.firstName,
         lastName: contact.lastName,
-        email: contact.email || '',
+        email: visibleContactEmail(contact.email),
         phone: contact.phone || '',
         companyId: contact.companyId || '',
         designation: contact.designation || '',
@@ -62,7 +64,7 @@ export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditC
 
         if (clientsRes.data) {
           const clientsData = Array.isArray(clientsRes.data) ? clientsRes.data : clientsRes.data.data || [];
-          setClients(clientsData.map((c: any) => ({ id: c.id, companyName: c.companyName || c.name })));
+          setClients(mapUniqueClientOptions(clientsData));
         }
 
         if (ownersRes.data) {

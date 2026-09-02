@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, Search } from 'lucide-react';
 import { useDrawerPortalDropdownPosition } from '../drawers/drawerFormUi';
 import { PH2_TOOLBAR_SELECT_CLASS } from '../layout/Ph2ModulePageLayout';
+import { dedupeByCompanyName } from '../../lib/companyNameKey';
 
 export type SearchableToolbarFilterOption = {
   value: string;
@@ -23,6 +24,8 @@ type SearchableToolbarFilterSelectProps = {
   ariaLabel: string;
   searchPlaceholder?: string;
   emptyMessage?: string;
+  /** Collapse punctuation variants of the same company name in the menu. */
+  dedupeNormalizedLabels?: boolean;
 };
 
 const SEARCH_HEADER_HEIGHT = 52;
@@ -60,6 +63,7 @@ export function SearchableToolbarFilterSelect({
   ariaLabel,
   searchPlaceholder = 'Search…',
   emptyMessage = 'No matches',
+  dedupeNormalizedLabels = false,
 }: SearchableToolbarFilterSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -75,19 +79,29 @@ export function SearchableToolbarFilterSelect({
     closeMenu,
   );
 
+  const uniqueOptions = useMemo(
+    () =>
+      dedupeNormalizedLabels
+        ? dedupeByCompanyName(options, (option) => option.label)
+        : options,
+    [dedupeNormalizedLabels, options],
+  );
+
   const selectedLabel = useMemo(() => {
     if (!value) return allLabel;
-    return options.find((option) => option.value === value)?.label || value;
-  }, [allLabel, options, value]);
+    return uniqueOptions.find((option) => option.value === value)?.label
+      || options.find((option) => option.value === value)?.label
+      || value;
+  }, [allLabel, options, uniqueOptions, value]);
 
   const filteredOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return options;
-    return options.filter((option) => {
+    if (!normalizedQuery) return uniqueOptions;
+    return uniqueOptions.filter((option) => {
       const haystack = `${option.label} ${option.searchText || ''}`.toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [options, query]);
+  }, [uniqueOptions, query]);
 
   const listMaxHeight = useMemo(() => resolveListMaxHeight(menuPosition), [menuPosition]);
 

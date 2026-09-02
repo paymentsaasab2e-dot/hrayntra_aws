@@ -77,7 +77,7 @@ function formatWhen(iso?: string | null) {
 type Props = {
   Panel: React.ComponentType<{ children: React.ReactNode; className?: string }>;
   PanelTitle: React.ComponentType<{ title: string; right?: React.ReactNode }>;
-  /** When set (from Employees / Employers nav), lock queue and hide audience toggle. */
+  /** When set (from Employees / Entrepreneurs nav), lock queue and hide audience toggle. */
   lockedAudience?: Audience;
 };
 
@@ -281,7 +281,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
               },
               {
                 id: 'employer' as const,
-                label: 'Employer',
+                label: 'Entrepreneur',
                 hint: 'Tenant Help Center',
               },
             ] as const
@@ -375,7 +375,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
             </>
           ) : (
             <>
-              Employer tickets from Phase 2 tenant Help Center ·{' '}
+              Entrepreneur tickets from Phase 2 tenant Help Center ·{' '}
               <span className="font-mono text-slate-600">/hq/tickets</span>
             </>
           )}
@@ -390,7 +390,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
       <Panel className="col-span-12 overflow-hidden !p-0 lg:col-span-7">
         <div className="border-b border-slate-100 px-4 py-3">
           <PanelTitle
-            title={audience === 'employee' ? 'Employee ticket queue' : 'Employer ticket queue'}
+            title={audience === 'employee' ? 'Employee ticket queue' : 'Entrepreneur ticket queue'}
             right={
               <span className="text-[11px] font-medium text-slate-500">
                 {filtered.length} shown
@@ -425,7 +425,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
                   <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
                     {audience === 'employee'
                       ? 'No employee help tickets yet. Raise one from portal `/help`.'
-                      : 'No employer support tickets yet.'}
+                      : 'No entrepreneur support tickets yet.'}
                   </td>
                 </tr>
               ) : (
@@ -478,7 +478,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
             selected ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
                 <Ticket className="h-3 w-3" />
-                {audience === 'employee' ? 'Employee' : 'Employer'}
+                {audience === 'employee' ? 'Employee' : 'Entrepreneur'}
               </span>
             ) : null
           }

@@ -241,7 +241,7 @@ export const HQ_DEMO_STATUS_LABELS: Record<HqDemoRequestStatus, string> = {
 export const BOOK_A_DEMO_TAG_CLASS =
   'bg-sky-50 text-sky-700 ring-sky-200';
 
-/** True when this HQ lead came from the employers "Request / Book a demo" form. */
+/** True when this HQ lead came from the entrepreneurs "Request / Book a demo" form. */
 export function isBookADemoLead(lead: {
   leadSource?: string | null;
   leadSourceDetail?: string | null;

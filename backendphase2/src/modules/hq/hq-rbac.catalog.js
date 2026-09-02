@@ -1,6 +1,6 @@
 /**
  * HQ-scoped RBAC permission catalog aligned with the HQ sidebar:
- * Employees · Employers · CRM · Ops · Settings
+ * Employees · Entrepreneurs · CRM · Ops · Settings
  */
 export const HQ_PERMISSION_CATALOG = [
   // Employees (Phase 1)
@@ -95,86 +95,86 @@ export const HQ_PERMISSION_CATALOG = [
     description: 'Employees → Tickets — update',
   },
 
-  // Employers (Phase 2)
+  // Entrepreneurs (Phase 2)
   {
     permissionName: 'hq_employers_dashboard_read',
-    module: 'Employers · Dashboard',
-    description: 'Employers → Dashboard',
+    module: 'Entrepreneurs · Dashboard',
+    description: 'Entrepreneurs → Dashboard',
   },
   {
     permissionName: 'hq_companies_read',
-    module: 'Employers · Companies',
-    description: 'Employers → Companies',
+    module: 'Entrepreneurs · Companies',
+    description: 'Entrepreneurs → Companies',
   },
   {
     permissionName: 'hq_companies_write',
-    module: 'Employers · Companies',
-    description: 'Employers → Companies — manage',
+    module: 'Entrepreneurs · Companies',
+    description: 'Entrepreneurs → Companies — manage',
   },
   {
     permissionName: 'hq_companies_delete',
-    module: 'Employers · Companies',
-    description: 'Employers → Companies — delete',
+    module: 'Entrepreneurs · Companies',
+    description: 'Entrepreneurs → Companies — delete',
   },
   {
     permissionName: 'hq_tickets_read',
-    module: 'Employers · Tickets',
-    description: 'Employers → Tickets',
+    module: 'Entrepreneurs · Tickets',
+    description: 'Entrepreneurs → Tickets',
   },
   {
     permissionName: 'hq_tickets_write',
-    module: 'Employers · Tickets',
-    description: 'Employers → Tickets — update',
+    module: 'Entrepreneurs · Tickets',
+    description: 'Entrepreneurs → Tickets — update',
   },
   {
     permissionName: 'hq_tickets_delete',
-    module: 'Employers · Tickets',
-    description: 'Employers → Tickets — delete',
+    module: 'Entrepreneurs · Tickets',
+    description: 'Entrepreneurs → Tickets — delete',
   },
   {
     permissionName: 'hq_tenants_read',
-    module: 'Employers · Tenants',
-    description: 'Employers → Users',
+    module: 'Entrepreneurs · Tenants',
+    description: 'Entrepreneurs → Users',
   },
   {
     permissionName: 'hq_tenants_write',
-    module: 'Employers · Tenants',
-    description: 'Employers → Users — manage',
+    module: 'Entrepreneurs · Tenants',
+    description: 'Entrepreneurs → Users — manage',
   },
   {
     permissionName: 'hq_tenants_delete',
-    module: 'Employers · Tenants',
-    description: 'Employers → Recycle Bin',
+    module: 'Entrepreneurs · Tenants',
+    description: 'Entrepreneurs → Recycle Bin',
   },
   {
     permissionName: 'hq_billing_read',
-    module: 'Employers · Plans',
-    description: 'Employers → Subscriptions',
+    module: 'Entrepreneurs · Plans',
+    description: 'Entrepreneurs → Subscriptions',
   },
   {
     permissionName: 'hq_billing_write',
-    module: 'Employers · Plans',
-    description: 'Employers → Subscriptions — manage',
+    module: 'Entrepreneurs · Plans',
+    description: 'Entrepreneurs → Subscriptions — manage',
   },
   {
     permissionName: 'hq_packages_read',
-    module: 'Employers · Packages',
-    description: 'Employers → Packages',
+    module: 'Entrepreneurs · Packages',
+    description: 'Entrepreneurs → Packages',
   },
   {
     permissionName: 'hq_packages_write',
-    module: 'Employers · Packages',
-    description: 'Employers → Packages — manage',
+    module: 'Entrepreneurs · Packages',
+    description: 'Entrepreneurs → Packages — manage',
   },
   {
     permissionName: 'hq_ai_features_read',
-    module: 'Employers · AI Features',
-    description: 'Employers → AI Features',
+    module: 'Entrepreneurs · AI Features',
+    description: 'Entrepreneurs → AI Features',
   },
   {
     permissionName: 'hq_ai_features_write',
-    module: 'Employers · AI Features',
-    description: 'Employers → AI Features — manage',
+    module: 'Entrepreneurs · AI Features',
+    description: 'Entrepreneurs → AI Features — manage',
   },
 
   // CRM
@@ -299,13 +299,13 @@ export const HQ_MODULE_ORDER = [
   'Employees · Events',
   'Employees · Subscriptions',
   'Employees · Tickets',
-  'Employers · Dashboard',
-  'Employers · Companies',
-  'Employers · Tenants',
-  'Employers · Plans',
-  'Employers · Packages',
-  'Employers · AI Features',
-  'Employers · Tickets',
+  'Entrepreneurs · Dashboard',
+  'Entrepreneurs · Companies',
+  'Entrepreneurs · Tenants',
+  'Entrepreneurs · Plans',
+  'Entrepreneurs · Packages',
+  'Entrepreneurs · AI Features',
+  'Entrepreneurs · Tickets',
   'CRM · Dashboard',
   'CRM · Leads',
   'CRM · Clients',
@@ -367,7 +367,7 @@ const LEAD_DENY = new Set([
 export const HQ_DEFAULT_ROLES = [
   {
     roleName: 'HQ Admin',
-    description: 'Full access to headquarters (Employees, Employers, CRM, Ops, Settings)',
+    description: 'Full access to headquarters (Employees, Entrepreneurs, CRM, Ops, Settings)',
     color: '#4F46E5',
     permissionIds: [...ALL_IDS],
   },

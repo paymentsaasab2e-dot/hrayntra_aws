@@ -259,7 +259,14 @@ export async function resolveViewerOrgScope(req) {
   if (userId) {
     viewer = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, orgUnitId: true, hierarchyPurpose: true, role: true, roleId: true },
+      select: {
+        id: true,
+        orgUnitId: true,
+        hierarchyPurpose: true,
+        role: true,
+        roleId: true,
+        systemRole: { select: { id: true } },
+      },
     });
   }
 
@@ -285,7 +292,16 @@ export async function resolveViewerOrgScope(req) {
   });
   const allCompanyIds = companies.map((c) => String(c.id));
   const orgSide = resolveOrgSide(req);
-  const roleId = oid(viewer?.roleId || req?.user?.roleId);
+  const roleId = oid(viewer?.roleId || viewer?.systemRole?.id || req?.user?.roleId);
+
+  const dbSwitchPerm = roleId
+    ? Boolean(
+        await prisma.rolePermission.findFirst({
+          where: { roleId, permission: { permissionName: 'switch_companies' } },
+          select: { id: true },
+        }),
+      )
+    : false;
 
   let access = { crm: [], recruitment: [] };
   if (isSA) {
@@ -306,7 +322,9 @@ export async function resolveViewerOrgScope(req) {
         ? access.recruitment
         : [...new Set([...access.crm, ...access.recruitment])];
 
-  const hasSwitchPerm = Boolean(isSA || hasPermission(req, 'switch_companies'));
+  const hasSwitchPerm = Boolean(
+    isSA || hasPermission(req, 'switch_companies') || dbSwitchPerm,
+  );
   const hasGranted = allowedForSide.length > 0;
   const selectedAllForSide = Boolean(
     isSA || (allCompanyIds.length > 0 && allCompanyIds.every((id) => allowedForSide.includes(id))),
@@ -971,7 +989,7 @@ export async function assignOrgMember(req, body) {
 
 /**
  * Data that can be duplicated or moved between companies / branches.
- * All four models carry `orgUnitId`, so a clone is the same row with a new home.
+ * CRM/recruitment models carry `orgUnitId`. Team members are move-only (no duplicate logins).
  */
 const TRANSFERABLE = {
   leads: {
@@ -1001,7 +1019,7 @@ const TRANSFERABLE = {
   },
 };
 
-export const TRANSFERABLE_TYPES = Object.keys(TRANSFERABLE);
+export const TRANSFERABLE_TYPES = [...Object.keys(TRANSFERABLE), 'members'];
 
 /** Fields that must never be carried over to a duplicated row. */
 const CLONE_SKIP_FIELDS = new Set([
@@ -1022,14 +1040,145 @@ function assertUnitAccess(scope, unitId) {
   }
 }
 
+function memberDisplayName(user) {
+  return (
+    String(user.name || '').trim() ||
+    [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+    user.email ||
+    'Team member'
+  );
+}
+
+function purposeForTargetUnit(user, targetUnit) {
+  const purpose = String(user?.hierarchyPurpose || 'member');
+  if (!targetUnit) return 'member';
+  if (purpose === 'company_head' && (targetUnit.isLeaf || Number(targetUnit.levelOrder) !== 2)) {
+    return 'member';
+  }
+  if (purpose === 'site_head' && !targetUnit.isLeaf) return 'member';
+  return HIERARCHY_PURPOSES.includes(purpose) ? purpose : 'member';
+}
+
+async function listTransferableMembers(req, { orgUnitId, search = '', limit = 200 } = {}) {
+  const scope = await resolveViewerOrgScope(req);
+  const unitId = oid(orgUnitId);
+  assertUnitAccess(scope, unitId);
+
+  const users = await prisma.user.findMany({
+    where: { isActive: true },
+    orderBy: { name: 'asc' },
+    take: 2000,
+    select: {
+      id: true,
+      name: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      role: true,
+      orgUnitId: true,
+      hierarchyPurpose: true,
+      systemRole: { select: { id: true, roleName: true } },
+    },
+  });
+
+  const units = await prisma.orgUnit.findMany({
+    select: { id: true, parentId: true, name: true },
+  });
+  const companyOrBranchIds = new Set(units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)));
+  const unitNameById = new Map(units.map((u) => [String(u.id), u.name]));
+
+  const wanted = unitId ? new Set((await collectDescendantIds(unitId)).map(String)) : null;
+  const term = String(search || '').trim().toLowerCase();
+
+  const items = users
+    .filter((user) => {
+      if (isSuperAdminRow(user)) return false;
+      const home = user.orgUnitId ? String(user.orgUnitId) : '';
+      if (unitId) return wanted.has(home);
+      return !home || !companyOrBranchIds.has(home);
+    })
+    .map((user) => {
+      const home = user.orgUnitId ? String(user.orgUnitId) : '';
+      return {
+        id: String(user.id),
+        title: memberDisplayName(user),
+        subtitle: [user.email, purposeLabel(user.hierarchyPurpose), user.systemRole?.roleName, unitNameById.get(home)]
+          .filter(Boolean)
+          .join(' · '),
+        orgUnitId: home || null,
+      };
+    })
+    .filter((item) => !term || `${item.title} ${item.subtitle}`.toLowerCase().includes(term))
+    .slice(0, Math.max(1, Math.min(Number(limit) || 200, 500)));
+
+  return { type: 'members', items };
+}
+
+async function moveTeamMembers(ids, fromId, toId, result) {
+  const target = toId
+    ? await prisma.orgUnit.findUnique({
+        where: { id: toId },
+        select: { id: true, isLeaf: true, levelOrder: true, parentId: true },
+      })
+    : null;
+  if (toId && !target) {
+    throw new Error('Target company or branch was not found.');
+  }
+
+  const fromWanted = fromId ? new Set((await collectDescendantIds(fromId)).map(String)) : null;
+  const units = fromWanted
+    ? []
+    : await prisma.orgUnit.findMany({ select: { id: true, parentId: true } });
+  const companyOrBranchIds = new Set(units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)));
+
+  for (const id of ids) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          role: true,
+          orgUnitId: true,
+          hierarchyPurpose: true,
+          systemRole: { select: { roleName: true } },
+        },
+      });
+      if (!user || isSuperAdminRow(user)) {
+        result.skipped.members += 1;
+        continue;
+      }
+      const home = user.orgUnitId ? String(user.orgUnitId) : '';
+      const inSource = fromWanted ? fromWanted.has(home) : !home || !companyOrBranchIds.has(home);
+      if (!inSource) {
+        result.skipped.members += 1;
+        continue;
+      }
+      await prisma.user.update({
+        where: { id },
+        data: {
+          orgUnitId: toId || null,
+          hierarchyPurpose: purposeForTargetUnit(user, target),
+        },
+      });
+      result.moved.members += 1;
+      result.total += 1;
+    } catch {
+      result.skipped.members += 1;
+    }
+  }
+}
+
 /**
  * Rows currently living in a company / branch (including its branches), for the
  * multi-select copy list. Pass `orgUnitId` empty to list rows with no company yet.
  */
 export async function listTransferableData(req, { orgUnitId, type, search = '', limit = 200 } = {}) {
+  if (String(type || '') === 'members') {
+    return listTransferableMembers(req, { orgUnitId, search, limit });
+  }
   const scope = await resolveViewerOrgScope(req);
   const config = TRANSFERABLE[String(type || '')];
-  if (!config) throw new Error('Pick leads, clients, jobs, or candidates.');
+  if (!config) throw new Error('Pick leads, clients, jobs, candidates, or team members.');
 
   const unitId = oid(orgUnitId);
   assertUnitAccess(scope, unitId);
@@ -1109,7 +1258,20 @@ export async function transferOrgUnitData(req, body = {}) {
   const selections = body?.items && typeof body.items === 'object' ? body.items : {};
   const result = { mode, copied: {}, moved: {}, skipped: {}, total: 0 };
 
-  for (const type of TRANSFERABLE_TYPES) {
+  const memberIds = Array.isArray(selections.members)
+    ? selections.members.map(oid).filter(Boolean)
+    : [];
+  result.copied.members = 0;
+  result.moved.members = 0;
+  result.skipped.members = 0;
+  if (memberIds.length) {
+    if (mode === 'copy') {
+      throw new Error('Team members can only be moved, not duplicated.');
+    }
+    await moveTeamMembers(memberIds, fromId, toId, result);
+  }
+
+  for (const type of Object.keys(TRANSFERABLE)) {
     const ids = Array.isArray(selections[type]) ? selections[type].map(oid).filter(Boolean) : [];
     result.copied[type] = 0;
     result.moved[type] = 0;

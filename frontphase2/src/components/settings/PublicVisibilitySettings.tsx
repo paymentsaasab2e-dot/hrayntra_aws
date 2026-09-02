@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, Loader2, Save } from 'lucide-react';
+import { Eye, Linkedin, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
 import {
@@ -18,8 +18,10 @@ import {
   loadJobVisibilityUserDefaults,
   readCachedJobVisibilityUserDefaults,
   saveJobVisibilityUserDefaults,
+  subscribeJobVisibilityDefaultsChanged,
 } from '../../lib/jobVisibilityUserDefaults';
 import { SettingsPageHero, SettingsPanel } from './SettingsPageHero';
+import { LinkedInPublishingDefaultsPanel } from '../jobs/LinkedInPublishingDefaultsPanel';
 
 export function PublicVisibilitySettings() {
   const cached = readCachedJobVisibilityUserDefaults();
@@ -45,8 +47,16 @@ export function PublicVisibilitySettings() {
       setSavedShowClient(defaults.showClient);
       setLoading(false);
     });
+    const unsubscribe = subscribeJobVisibilityDefaultsChanged((defaults) => {
+      if (cancelled) return;
+      setVisibility(defaults.visibility);
+      setShowClientNamePublicly(defaults.showClient);
+      setSavedVisibility(defaults.visibility);
+      setSavedShowClient(defaults.showClient);
+    });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, []);
 
@@ -61,6 +71,26 @@ export function PublicVisibilitySettings() {
     [current],
   );
 
+  const persist = async (
+    nextVisibility: JobPublicFieldVisibility,
+    nextShowClient: boolean,
+    { notify }: { notify: boolean },
+  ) => {
+    setSaving(true);
+    try {
+      const next = await saveJobVisibilityUserDefaults(nextVisibility, nextShowClient);
+      setSavedVisibility(next.visibility);
+      setSavedShowClient(next.showClient);
+      setVisibility(next.visibility);
+      setShowClientNamePublicly(next.showClient);
+      if (notify) toast.success('Public Visibility defaults saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save Public Visibility defaults');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleField = (field: JobPublicVisibilityField) => {
     const nextVisibility = toggleJobPublicFieldVisibility(current, field);
     const nextShowClient = field === 'client' ? nextVisibility.client !== false : showClientNamePublicly;
@@ -69,23 +99,12 @@ export function PublicVisibilitySettings() {
     }
     setVisibility(nextVisibility);
     setShowClientNamePublicly(nextShowClient);
+    void persist(nextVisibility, nextShowClient, { notify: false });
   };
 
   const handleSave = async () => {
     if (matchesSaved || saving) return;
-    setSaving(true);
-    try {
-      const next = await saveJobVisibilityUserDefaults(current, showClientNamePublicly);
-      setSavedVisibility(next.visibility);
-      setSavedShowClient(next.showClient);
-      setVisibility(next.visibility);
-      setShowClientNamePublicly(next.showClient);
-      toast.success('Public Visibility defaults saved');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not save Public Visibility defaults');
-    } finally {
-      setSaving(false);
-    }
+    await persist(current, showClientNamePublicly, { notify: true });
   };
 
   return (
@@ -93,7 +112,7 @@ export function PublicVisibilitySettings() {
       <SettingsPageHero
         eyebrow="Jobs"
         title="Public job page defaults"
-        description="Choose what new jobs show on the public job page, Phase 1 portal, and social posts. These defaults apply when you create a job; you can still change them on a single job."
+        description="Choose what jobs show on the public job page, Phase 1 portal, and social posts. These same defaults appear when you create a job — changing them here or on a job keeps both in sync."
         icon={<Eye className="h-3.5 w-3.5 text-indigo-200" />}
         stats={
           <div className="rounded-2xl border border-indigo-100/70 bg-white/90 px-4 py-3 backdrop-blur">
@@ -151,6 +170,14 @@ export function PublicVisibilitySettings() {
             ))}
           </div>
         )}
+      </SettingsPanel>
+
+      <SettingsPanel
+        title="LinkedIn platforms & templates"
+        description="LinkedIn is the live social platform for job posts. The selected template is also used on Create Job."
+        icon={<Linkedin className="h-4 w-4 text-indigo-600" />}
+      >
+        <LinkedInPublishingDefaultsPanel variant="settings" />
       </SettingsPanel>
     </div>
   );

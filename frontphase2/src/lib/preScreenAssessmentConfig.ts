@@ -355,20 +355,21 @@ export function passPercentFromMarks(totalMarks: number, passingMarks: number): 
   return Math.max(0, Math.min(100, Math.round((marks / total) * 100)));
 }
 
-export function defaultTitleForType(type: PreScreenAssessmentType): string {
+export function defaultTitleForType(type: PreScreenAssessmentType, jobTitle?: string): string {
+  const role = String(jobTitle || '').trim();
   switch (type) {
     case 'MCQ':
-      return 'Frontend Developer Screening';
+      return role ? `${role} Screening` : 'MCQ Screening';
     case 'CODING':
-      return 'Coding Assessment';
+      return role ? `${role} Coding Assessment` : 'Coding Assessment';
     case 'ESSAY':
-      return 'Essay Assessment';
+      return role ? `${role} Essay Assessment` : 'Essay Assessment';
     case 'VIDEO':
-      return 'Video Introduction';
+      return role ? `${role} Video Introduction` : 'Video Introduction';
     case 'QUESTIONNAIRE':
-      return 'Screening Questionnaire';
+      return role ? `${role} Screening Questionnaire` : 'Screening Questionnaire';
     default:
-      return 'Pre-screen Assessment';
+      return role ? `${role} Assessment` : 'Pre-screen Assessment';
   }
 }
 

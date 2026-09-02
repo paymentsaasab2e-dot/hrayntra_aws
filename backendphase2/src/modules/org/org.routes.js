@@ -7,6 +7,7 @@ const router = express.Router();
 
 router.use(authMiddleware, attachUserPermissions);
 
+router.get('/workspace', orgController.workspace);
 router.get('/assign-companies', orgController.assignCompanies);
 
 // Organization is an admin screen: only explicit org-structure permission (or

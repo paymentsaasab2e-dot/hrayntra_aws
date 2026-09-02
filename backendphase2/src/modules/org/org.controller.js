@@ -9,6 +9,7 @@ import {
   getOrgTreeStats,
   listTransferableData,
   transferOrgUnitData,
+  resolveViewerOrgScope,
 } from './org.service.js';
 import { listAssignableCompanies } from '../../services/orgListScope.service.js';
 import {
@@ -18,6 +19,16 @@ import {
 import { sendResponse, sendError } from '../../utils/response.js';
 
 export const orgController = {
+  async workspace(req, res) {
+    try {
+      const data = await resolveViewerOrgScope(req);
+      res.setHeader('Cache-Control', 'private, no-store');
+      sendResponse(res, 200, 'OK', data);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async assignCompanies(req, res) {
     try {
       const companies = await listAssignableCompanies(req);

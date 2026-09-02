@@ -11,7 +11,30 @@ export type JobVisibilityUserDefaults = {
   updatedAt: string | null;
 };
 
+export const JOB_VISIBILITY_DEFAULTS_CHANGED_EVENT = 'hrayntra:job-visibility-defaults-changed';
+
 const STORAGE_PREFIX = 'jobPublicVisibilityUserDefaults';
+
+export function emitJobVisibilityDefaultsChanged(defaults: JobVisibilityUserDefaults): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<JobVisibilityUserDefaults>(JOB_VISIBILITY_DEFAULTS_CHANGED_EVENT, {
+      detail: defaults,
+    }),
+  );
+}
+
+export function subscribeJobVisibilityDefaultsChanged(
+  listener: (defaults: JobVisibilityUserDefaults) => void,
+): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<JobVisibilityUserDefaults>).detail;
+    if (detail) listener(detail);
+  };
+  window.addEventListener(JOB_VISIBILITY_DEFAULTS_CHANGED_EVENT, handler);
+  return () => window.removeEventListener(JOB_VISIBILITY_DEFAULTS_CHANGED_EVENT, handler);
+}
 
 function currentUserId(): string {
   if (typeof window === 'undefined') return '';
@@ -125,6 +148,7 @@ export function saveJobVisibilityUserDefaultsLocal(
   };
   const optimistic = normalizeDefaults(payload);
   writeCachedJobVisibilityUserDefaults(optimistic);
+  emitJobVisibilityDefaultsChanged(optimistic);
   return optimistic;
 }
 

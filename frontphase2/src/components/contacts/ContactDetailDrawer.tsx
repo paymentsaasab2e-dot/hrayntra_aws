@@ -12,6 +12,7 @@ import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
 import { formatDirectorDisplay } from '../../constants/salutations';
+import { visibleContactEmail } from '../../lib/contactEmail';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { EntityAuditSummary } from '../table/TableAuditCell';
@@ -100,11 +101,11 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
 
               {/* Contact Info */}
               <div className="space-y-3 mb-6">
-                {contact.email && (
+                {visibleContactEmail(contact.email) && (
                   <div className="flex items-center gap-3 text-sm">
                     <Mail size={16} className="text-gray-400" />
-                    <a href={`mailto:${contact.email}`} className="text-gray-700 hover:text-blue-600">
-                      {contact.email}
+                    <a href={`mailto:${visibleContactEmail(contact.email)}`} className="text-gray-700 hover:text-blue-600">
+                      {visibleContactEmail(contact.email)}
                     </a>
                   </div>
                 )}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Plus, Search, X } from 'lucide-react';
 import { JobPublicVisibilityDefaultsPanel } from '../jobs/JobPublicVisibilityDefaultsPanel';
+import { LinkedInPublishingDefaultsPanel } from '../jobs/LinkedInPublishingDefaultsPanel';
 import type { JobPublicFieldVisibility } from '../../lib/jobPublicFieldVisibility';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/LanguageProficiencySuggestInput';
@@ -409,6 +410,8 @@ export function CreateJobDetailsForm({
         showClientNamePublicly={formData.showClientNamePublicly}
         onChange={(next) => patchForm(next)}
       />
+
+      <LinkedInPublishingDefaultsPanel />
 
       <div>
         <FieldLabelRow label="Nationality" />

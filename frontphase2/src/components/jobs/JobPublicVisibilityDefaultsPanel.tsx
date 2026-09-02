@@ -18,9 +18,16 @@ import {
   loadJobVisibilityUserDefaults,
   readCachedJobVisibilityUserDefaults,
   saveJobVisibilityUserDefaults,
-  saveJobVisibilityUserDefaultsLocal,
+  subscribeJobVisibilityDefaultsChanged,
   type JobVisibilityUserDefaults,
 } from '../../lib/jobVisibilityUserDefaults';
+
+function defaultsToForm(defaults: JobVisibilityUserDefaults) {
+  return {
+    publicFieldVisibility: defaults.visibility,
+    showClientNamePublicly: defaults.showClient,
+  };
+}
 
 export function JobPublicVisibilityDefaultsPanel({
   visibility,
@@ -33,17 +40,42 @@ export function JobPublicVisibilityDefaultsPanel({
 }) {
   const current = mergeClientVisibility(parseJobPublicFieldVisibility(visibility), showClientNamePublicly);
   const [saved, setSaved] = useState<JobVisibilityUserDefaults>(() => readCachedJobVisibilityUserDefaults());
-  const skipRemoteOverwriteRef = useRef(false);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const currentRef = useRef({ visibility: current, showClient: showClientNamePublicly });
+  currentRef.current = { visibility: current, showClient: showClientNamePublicly };
+  const skipStaleRemoteRef = useRef(false);
+
+  const applySharedDefaults = (defaults: JobVisibilityUserDefaults) => {
+    setSaved(defaults);
+    if (
+      jobVisibilityDefaultsEqual(
+        currentRef.current.visibility,
+        defaults.visibility,
+        currentRef.current.showClient,
+        defaults.showClient,
+      )
+    ) {
+      return;
+    }
+    onChangeRef.current(defaultsToForm(defaults));
+  };
 
   useEffect(() => {
     let cancelled = false;
     void loadJobVisibilityUserDefaults().then((defaults) => {
-      if (cancelled || skipRemoteOverwriteRef.current) return;
-      setSaved(defaults);
+      if (cancelled || skipStaleRemoteRef.current) return;
+      applySharedDefaults(defaults);
+    });
+    const unsubscribe = subscribeJobVisibilityDefaultsChanged((defaults) => {
+      applySharedDefaults(defaults);
     });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
+    // Load once on mount; parent onChange is kept via ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const matchesSaved = useMemo(
@@ -52,6 +84,23 @@ export function JobPublicVisibilityDefaultsPanel({
     [current, saved, showClientNamePublicly],
   );
   const canSave = !matchesSaved;
+
+  const persistDefaults = (
+    nextVisibility: JobPublicFieldVisibility,
+    nextShowClient: boolean,
+    { notify }: { notify: boolean },
+  ) => {
+    try {
+      skipStaleRemoteRef.current = true;
+      const next = saveJobVisibilityUserDefaults(nextVisibility, nextShowClient);
+      setSaved(next);
+      if (notify) {
+        void requestCornerAlert('Defaults saved.', { tone: 'success', autoCloseMs: 1600, priority: 'high' });
+      }
+    } catch (error) {
+      void requestError(error instanceof Error ? error.message : 'Could not save your default visibility.');
+    }
+  };
 
   const toggleField = (field: JobPublicVisibilityField) => {
     const nextVisibility = toggleJobPublicFieldVisibility(current, field);
@@ -63,19 +112,12 @@ export function JobPublicVisibilityDefaultsPanel({
       publicFieldVisibility: nextVisibility,
       showClientNamePublicly: nextShowClient,
     });
+    persistDefaults(nextVisibility, nextShowClient, { notify: false });
   };
 
   const handleSaveDefaults = () => {
     if (!canSave) return;
-    try {
-      const next = saveJobVisibilityUserDefaultsLocal(current, showClientNamePublicly);
-      skipRemoteOverwriteRef.current = true;
-      setSaved(next);
-      void saveJobVisibilityUserDefaults(current, showClientNamePublicly);
-      void requestCornerAlert('Defaults saved.', { tone: 'success', autoCloseMs: 1600, priority: 'high' });
-    } catch (error) {
-      void requestError(error instanceof Error ? error.message : 'Could not save your default visibility.');
-    }
+    persistDefaults(current, showClientNamePublicly, { notify: true });
   };
 
   return (
@@ -87,8 +129,8 @@ export function JobPublicVisibilityDefaultsPanel({
             Public Visibility
           </p>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Choose what to show or hide on the public job page. Defaults are already saved — the save
-            button turns on only after you change a setting.
+            Same defaults as Settings → Public Visibility. Changes here are saved for every new job
+            and for the public job page.
           </p>
         </div>
         <button

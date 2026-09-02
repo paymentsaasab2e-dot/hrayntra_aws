@@ -11,6 +11,7 @@ import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
 import { formatDirectorDisplay } from '../../constants/salutations';
+import { visibleContactEmail } from '../../lib/contactEmail';
 import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
@@ -272,7 +273,7 @@ export function ContactsTable({
                         <p className="text-sm font-semibold text-slate-900">
                           {formatDirectorDisplay(contact.salutation, `${contact.firstName} ${contact.lastName}`.trim())}
                         </p>
-                        <p className="text-xs text-slate-500 mt-0.5">{contact.email}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{visibleContactEmail(contact.email, '—')}</p>
                       </div>
                     </div>
                   </td>
@@ -336,7 +337,7 @@ export function ContactsTable({
                   ) : null}
                   {show('email') ? (
                     <td className="px-3 py-2.5 sm:px-4">
-                      <span className="text-sm text-slate-700">{contact.email || '—'}</span>
+                      <span className="text-sm text-slate-700">{visibleContactEmail(contact.email, '—')}</span>
                     </td>
                   ) : null}
                   {show('phone') ? (

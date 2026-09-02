@@ -8,6 +8,7 @@ import {
   recomputeNextFollowUpAt,
   withFollowUpIds,
 } from './hq-follow-up.helpers.js';
+import { findDocByCompanyName, uniqueDocsByCompanyName } from '../../utils/companyNameKey.js';
 
 const HQ_CRM_LEADS_COLLECTION = 'hq_crm_leads';
 const HQ_CRM_TEAM_MEMBERS_COLLECTION = 'hq_crm_team_members';
@@ -374,8 +375,8 @@ function buildEmployerDemoLeadFields(demo) {
       : '',
     requestKind ? `Request kind: ${requestKind}` : '',
     emailVerified ? 'Email verified: yes' : 'Email verified: pending',
-    requestId ? `Employer demo request: ${requestId}` : '',
-    isPurchase ? 'Source: Employer landing page — paid plan signup' : '',
+    requestId ? `Entrepreneur demo request: ${requestId}` : '',
+    isPurchase ? 'Source: Entrepreneur landing page — paid plan signup' : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -399,18 +400,18 @@ function buildEmployerDemoLeadFields(demo) {
     companyName,
     email,
     phone,
-    industry: 'Employer / HR Tech',
+    industry: 'Entrepreneur / HR Tech',
     country,
     expectedUsers,
     estimatedDealValue,
     leadSource: EMPLOYER_DEMO_LEAD_SOURCE,
     leadSourceDetail: isPurchase
-      ? 'Employer landing page — paid plan'
+      ? 'Entrepreneur landing page — paid plan'
       : isTrial
-        ? 'Employer try-free form'
+        ? 'Entrepreneur try-free form'
         : slot?.date
-          ? 'Employer request demo — scheduled'
-          : 'Employer request demo form',
+          ? 'Entrepreneur request demo — scheduled'
+          : 'Entrepreneur request demo form',
     interestedModules: ['Recruitment'],
     initialNotes,
     stage,
@@ -771,7 +772,7 @@ export const hqLeadsService = {
 
   async listLeads() {
     const collection = await getCollection();
-    const docs = await collection.find({}).sort({ createdAt: -1 }).toArray();
+    const docs = uniqueDocsByCompanyName(await collection.find({}).sort({ createdAt: -1 }).toArray());
     const leads = docs.map(toLeadRow);
 
     return {
@@ -858,6 +859,14 @@ export const hqLeadsService = {
     };
 
     const collection = await getCollection();
+    const existing = findDocByCompanyName(await collection.find({}).toArray(), parsed.companyName);
+    if (existing) {
+      return {
+        lead: toLeadRow(existing),
+        alreadyExisted: true,
+        storage: getStorageInfo(),
+      };
+    }
     const result = await collection.insertOne(doc);
     const inserted = await collection.findOne({ _id: result.insertedId });
 

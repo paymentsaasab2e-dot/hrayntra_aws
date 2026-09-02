@@ -87,6 +87,7 @@ export const CandidateTableFilters: React.FC<CandidateTableFiltersProps> = ({
         options={companyFilterOptions}
         placeholder="All clients"
         allLabel="All clients"
+        dedupeNormalizedLabels
         className={FILTER_WIDE_WIDTH}
         ariaLabel="Filter by client"
         searchPlaceholder="Search clients…"

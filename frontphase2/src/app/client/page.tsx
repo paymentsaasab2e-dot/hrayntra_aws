@@ -35,6 +35,9 @@ import {
   useTenantScopedStringArray,
 } from '../../hooks/usePersistedColumnVisibility';
 import { CLIENT_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
+import { visibleContactEmail } from '../../lib/contactEmail';
+import { dedupeVisibleContacts } from '../../lib/clientContactDedupe';
+import { dedupeByCompanyName } from '../../lib/companyNameKey';
 import { ClientHandoffModal } from '../../components/team/ClientHandoffModal';
 import { SendToRecruitmentModal } from '../../components/clients/SendToRecruitmentModal';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
@@ -311,7 +314,8 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     billingOutstanding: backendClient.billingOutstanding || undefined,
     billingPaid: backendClient.billingPaid || undefined,
     contacts: Array.isArray(backendClient.contacts)
-      ? backendClient.contacts.map((contact, index) => {
+      ? dedupeVisibleContacts(
+          backendClient.contacts.map((contact, index) => {
           const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
           const lastContacted = contact.lastContacted
             ? formatDateDMY(contact.lastContacted)
@@ -329,12 +333,13 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
             name: fullName || 'Unknown Contact',
             designation: contact.designation || 'Not specified',
             department: normalizedDepartment as 'HR' | 'Hiring' | 'Hiring Manager' | 'Finance' | 'Other',
-            email: contact.email || '',
+            email: visibleContactEmail(contact.email),
             phone: contact.phone || '',
             isPrimary: index === 0,
             lastContacted,
           };
-        })
+        }),
+        )
       : undefined,
   };
 }
@@ -696,14 +701,17 @@ export default function App() {
         return;
       }
 
-      const mappedClients = clientsForCurrentScope(
-        backendClients.map(mapBackendClientToFrontend),
-        isRecruitmentScope,
-      ).sort((a, b) => {
-        const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
-        const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
-        return bTime - aTime;
-      });
+      const mappedClients = dedupeByCompanyName(
+        clientsForCurrentScope(
+          backendClients.map(mapBackendClientToFrontend),
+          isRecruitmentScope,
+        ).sort((a, b) => {
+          const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+          const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+          return bTime - aTime;
+        }),
+        (client) => client.name,
+      );
       const fromApi = new Map(mappedClients.map((client) => [String(client.id), client]));
       setClients(mappedClients);
       setSelectedClients((prev) => prev.filter((id) => fromApi.has(id)));

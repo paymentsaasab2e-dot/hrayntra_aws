@@ -7,6 +7,7 @@ import { env } from '../../config/env.js';
 import { uploadBufferToS3 } from '../../utils/s3.js';
 import { isS3Configured } from '../../utils/publicUploads.util.js';
 import { findFollowUpIndex, recomputeNextFollowUpAt } from './hq-follow-up.helpers.js';
+import { findDocByCompanyName, uniqueDocsByCompanyName } from '../../utils/companyNameKey.js';
 
 const HQ_CRM_COMPANIES_COLLECTION = 'hq_crm_companies';
 const VALID_STATUSES = ['active', 'inactive', 'on_hold', 'closed'];
@@ -542,7 +543,7 @@ export const hqCompaniesService = {
 
   async listCompanies() {
     const collection = await getCollection();
-    const docs = await collection.find({}).sort({ createdAt: -1 }).toArray();
+    const docs = uniqueDocsByCompanyName(await collection.find({}).sort({ createdAt: -1 }).toArray());
     const companies = docs.map(toCompanyRow);
     return {
       companies,
@@ -562,6 +563,10 @@ export const hqCompaniesService = {
       createdByEmail: reqUser?.email || null,
     };
     const collection = await getCollection();
+    const existing = findDocByCompanyName(await collection.find({}).toArray(), parsed.companyName);
+    if (existing) {
+      return { company: toCompanyRow(existing), alreadyExisted: true, storage: getStorageInfo() };
+    }
     const result = await collection.insertOne(doc);
     const inserted = await collection.findOne({ _id: result.insertedId });
     return { company: toCompanyRow(inserted), storage: getStorageInfo() };
@@ -587,6 +592,10 @@ export const hqCompaniesService = {
       Boolean(leadDoc.contactPerson || leadDoc.directorName || leadDoc.source || leadDoc.status);
 
     const companyName = String(leadDoc.companyName || '').trim();
+    const nameMatch = findDocByCompanyName(await collection.find({}).toArray(), companyName);
+    if (nameMatch) {
+      return { company: toCompanyRow(nameMatch), alreadyExisted: true };
+    }
     const primaryContactName = firstNonEmpty(
       leadDoc.contactName,
       leadDoc.contactPerson,

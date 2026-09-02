@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, getActiveTenantDbName } from '../../config/prisma.js';
 import { LeadSource } from '@prisma/client';
 import { formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
@@ -32,12 +32,14 @@ import {
 import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
 import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
+import { normalizeCompanyNameKey, preferredCompanyDisplayName } from '../../utils/companyNameKey.js';
 import {
   mergeDirectorIntoOtherDetails,
   resolveDirectorNameFromLeadContext,
   resolveDirectorSalutationFromLeadContext,
 } from '../../utils/directorOtherDetails.js';
 import { assertCanAssignCrm, newlyAddedAssigneeIds, currentLeadAssigneeIds } from '../../services/crmAssignmentScope.service.js';
+import { contactService } from '../contact/contact.service.js';
 import { isDepartmentHeadUser } from '../../services/departmentRole.service.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import {
@@ -326,11 +328,7 @@ function equalsNormalizedText(left, right) {
 }
 
 function normalizeCompanyMatchKey(name) {
-  return String(name || '')
-    .toLowerCase()
-    .replace(/\b(private|limited|ltd|inc|llc|corp|corporation|solutions|technologies|technology|services|group|company|co)\b/gi, '')
-    .replace(/[^a-z0-9]/g, '')
-    .trim();
+  return normalizeCompanyNameKey(name);
 }
 
 function makeLeadConversionError(message, code, meta = {}) {
@@ -375,6 +373,108 @@ async function findDuplicateClientByCompanyName(companyName, { excludeClientId }
   });
 
   return candidates.find((client) => normalizeCompanyMatchKey(client.companyName) === compact) || null;
+}
+
+const mergedLeadTenants = new Set();
+
+async function findLiveLeadByCompanyName(companyName) {
+  const name = String(companyName || '').trim();
+  if (!name) return null;
+
+  const exact = await prisma.lead.findFirst({
+    where: {
+      isDeleted: { not: true },
+      companyName: { equals: escapePrismaRegex(name), mode: 'insensitive' },
+    },
+  });
+  if (exact) return exact;
+
+  const compact = normalizeCompanyNameKey(name);
+  if (!compact || compact.length < 3) return null;
+  const firstToken = name.split(/\s+/).find((part) => part.replace(/[^a-zA-Z0-9]/g, '').length >= 2);
+  const searchToken = firstToken ? firstToken.replace(/[^a-zA-Z0-9]+/g, '') : name.slice(0, 4);
+  if (!searchToken) return null;
+
+  const candidates = await prisma.lead.findMany({
+    where: {
+      isDeleted: { not: true },
+      companyName: { contains: escapePrismaRegex(searchToken), mode: 'insensitive' },
+    },
+    take: 80,
+  });
+  return candidates.find((row) => normalizeCompanyNameKey(row.companyName) === compact) || null;
+}
+
+async function reassignLeadOwnedRecords(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return;
+  const moves = [
+    () => prisma.leadNote.updateMany({ where: { leadId: fromId }, data: { leadId: toId } }),
+    () => prisma.leadFile.updateMany({ where: { leadId: fromId }, data: { leadId: toId } }),
+  ];
+  for (const move of moves) {
+    try {
+      await move();
+    } catch (err) {
+      console.warn('Lead duplicate merge reassign skipped:', err?.message || err);
+    }
+  }
+}
+
+async function mergeDuplicateLeadsByCompanyName() {
+  const tenant = String(getActiveTenantDbName() || 'default').trim();
+  const mergeKey = `${tenant}:lead-normalized-v1`;
+  if (mergedLeadTenants.has(mergeKey)) return { merged: 0 };
+
+  const rows = await prisma.lead.findMany({
+    where: { isDeleted: { not: true } },
+    select: {
+      id: true,
+      companyName: true,
+      convertedToClientId: true,
+      updatedAt: true,
+      createdAt: true,
+    },
+  });
+
+  const groups = new Map();
+  for (const row of rows) {
+    const key = normalizeCompanyNameKey(row.companyName);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  let merged = 0;
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => {
+      const byConverted = Number(Boolean(b.convertedToClientId)) - Number(Boolean(a.convertedToClientId));
+      if (byConverted) return byConverted;
+      return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+    });
+    const keeper = group[0];
+    const displayName = preferredCompanyDisplayName(group.map((row) => row.companyName));
+    if (displayName && displayName !== keeper.companyName) {
+      await prisma.lead.update({
+        where: { id: keeper.id },
+        data: { companyName: displayName },
+      });
+    }
+    for (const extra of group.slice(1)) {
+      await reassignLeadOwnedRecords(extra.id, keeper.id);
+      await prisma.lead.update({
+        where: { id: extra.id },
+        data: { isDeleted: true, deletedAt: new Date() },
+      });
+      merged += 1;
+    }
+  }
+
+  mergedLeadTenants.add(mergeKey);
+  if (merged > 0) {
+    console.log(`Merged ${merged} duplicate lead row(s) for tenant ${tenant}.`);
+  }
+  return { merged };
 }
 
 function buildLeadImportDuplicateChecks({ email, companyName, contactPerson, phone }) {
@@ -731,6 +831,9 @@ async function attachAssignees(leads) {
 
 export const leadService = {
   async getAll(req) {
+    await mergeDuplicateLeadsByCompanyName().catch((err) => {
+      console.warn('Lead duplicate merge skipped:', err?.message || err);
+    });
     // Default page size higher than generic API (10): assignees and super admins must see assigned leads
     // without missing rows due to createdAt ordering + small first page.
     const page = Math.max(Number.parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
@@ -890,8 +993,27 @@ export const leadService = {
 
     const contactChannels = normalizeContactChannels(data);
 
+    const companyName = normalizeRequiredLeadField(data.companyName);
+    if (companyName && data.forceNew !== true) {
+      const existing = await findLiveLeadByCompanyName(companyName);
+      if (existing) {
+        const hydrated = await prisma.lead.findUnique({
+          where: { id: existing.id },
+          include: {
+            assignedTo: {
+              select: { id: true, name: true, email: true, avatar: true },
+            },
+          },
+        });
+        if (hydrated) {
+          await attachAssignees(hydrated);
+          return hydrated;
+        }
+      }
+    }
+
     const leadData = {
-      companyName: normalizeRequiredLeadField(data.companyName),
+      companyName,
       contactPerson: normalizedContactPerson || null,
       directorName: normalizeNullableString(data.directorName) || null,
       directorSalutation: normalizedDirectorSalutation || null,
@@ -1812,11 +1934,10 @@ export const leadService = {
         const nameParts = contactPersonName.split(/\s+/).filter(Boolean);
         const firstName = nameParts[0] || contactPersonName;
         const lastName = nameParts.slice(1).join(' ') || '';
-        const resolvedEmail =
-          contactEmail || `client-${client.id}-director@placeholder.local`;
+        const resolvedEmail = contactEmail || undefined;
 
-        await prisma.contact.create({
-          data: {
+        await contactService.create(
+          {
             salutation: directorSalutation || null,
             firstName,
             lastName,
@@ -1832,9 +1953,9 @@ export const leadService = {
             contactType: 'CLIENT',
             status: 'ACTIVE',
             ownerId: resolvedAssignedToId || null,
-            isPrimary: true,
           },
-        });
+          clientData.performedById,
+        );
       } catch (error) {
         // If contact already exists (email unique constraint), log but don't fail
         console.error('Failed to create contact from lead:', error.message);

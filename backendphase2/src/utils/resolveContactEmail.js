@@ -1,8 +1,7 @@
-import { randomUUID } from 'node:crypto';
-
 /**
  * Contact.email is required and unique. When the UI omits email (e.g. team member
- * with only a name), generate a stable placeholder address scoped to the client.
+ * with only a name), generate a stable placeholder address scoped to the client
+ * so a second save updates the same row instead of creating another contact.
  */
 export function resolveContactCreateEmail(data = {}) {
   const normalized = String(data.email || '').trim().toLowerCase();
@@ -10,12 +9,16 @@ export function resolveContactCreateEmail(data = {}) {
 
   const companyId = data.companyId ? String(data.companyId) : 'no-company';
   const tags = Array.isArray(data.tags) ? data.tags : [];
-  const roleTag = tags.includes('TEAM_MEMBER') ? 'team' : 'director';
+  const isTeam = tags.includes('TEAM_MEMBER');
   const nameSlug =
     [data.firstName, data.lastName]
       .map((part) => String(part || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'))
       .filter(Boolean)
       .join('-') || 'contact';
 
-  return `client-${companyId}-${roleTag}-${nameSlug}-${randomUUID().slice(0, 8)}@placeholder.local`;
+  if (isTeam) {
+    return `client-${companyId}-team-${nameSlug}@placeholder.local`;
+  }
+
+  return `client-${companyId}-director@placeholder.local`;
 }

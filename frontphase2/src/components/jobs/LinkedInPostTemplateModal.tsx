@@ -10,6 +10,7 @@ import {
 } from '../../lib/api';
 import {
   defaultLinkedInPostTemplateSchema,
+  emitLinkedInTemplatesChanged,
   normalizeLinkedInPostTemplateSchema,
   reorderLinkedInTemplateSections,
   toggleLinkedInTemplateSectionVisible,
@@ -157,6 +158,7 @@ export function LinkedInPostTemplateModal({
       { title: activeId ? 'Template updated' : 'Template created' },
     );
     await loadTemplates();
+    emitLinkedInTemplatesChanged();
     if (!selectedTemplateId || selectedTemplateId === saved.id) {
       onApply(saved);
     }
@@ -167,6 +169,7 @@ export function LinkedInPostTemplateModal({
     const saved = await persistTemplate();
     if (!saved) return;
     await loadTemplates();
+    emitLinkedInTemplatesChanged();
     onApply(saved);
     onClose();
   };
@@ -177,6 +180,7 @@ export function LinkedInPostTemplateModal({
       await apiDeleteLinkedInPostTemplate(template.id);
       if (activeId === template.id) setActiveId('');
       await loadTemplates();
+      emitLinkedInTemplatesChanged();
     } catch (error: any) {
       await requestError(error?.message || 'Failed to delete template', {
         title: 'Could not delete template',

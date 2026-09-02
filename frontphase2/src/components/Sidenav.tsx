@@ -1580,7 +1580,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-4">
           <div className="hidden lg:block">{mounted ? <SuperAdminWorkSwitcher variant="header" /> : null}</div>
-          <div className="hidden md:block">{mounted ? <OrgWorkspaceSwitcher variant="header" /> : null}</div>
+          <div className="hidden sm:block">{mounted ? <OrgWorkspaceSwitcher variant="header" /> : null}</div>
           <div className="flex items-center gap-1.5 border-r border-white/10 pr-1.5 sm:gap-3 sm:pr-3 lg:gap-4 lg:pr-4">
             <Tooltip content="Calendar">
               <Link href="/calendar" className="grid h-9 w-9 place-items-center text-amber-400/90 transition-colors hover:text-amber-300">

@@ -21,7 +21,7 @@ const VIEWS: {
   },
   {
     id: 'employer',
-    label: 'Employer',
+    label: 'Entrepreneur',
     href: '/hq?view=employer',
     icon: Briefcase,
     blurb: 'Phase 2 hiring orgs',

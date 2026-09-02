@@ -20,6 +20,7 @@ import {
   MOCK_CLIENTS,
 } from '../app/Task&Activites/types';
 import { apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
+import { dedupeByCompanyName } from '../lib/companyNameKey';
 import { useAssignableMembers } from '../hooks/useAssignableMembers';
 import { clampDateToMinLocal, getLocalDateInputMinToday, getLocalTimeInputMinNow, isLocalDateTimeNotPast } from '../utils/dateInputConstraints';
 import { CrossDepartmentAssignSection } from './team/CrossDepartmentAssignSection';
@@ -171,11 +172,14 @@ export function TaskForm({
           const clientsList = Array.isArray(clientsResponse.data)
             ? clientsResponse.data
             : (clientsResponse.data as any)?.data || [];
-          const mappedClients: RelatedEntity[] = clientsList.map((c: BackendClient) => ({
-            id: c.id,
-            label: c.companyName,
-            type: 'Client' as TaskRelatedTo,
-          }));
+          const mappedClients: RelatedEntity[] = dedupeByCompanyName(
+            clientsList.map((c: BackendClient) => ({
+              id: c.id,
+              label: c.companyName,
+              type: 'Client' as TaskRelatedTo,
+            })),
+            (client) => client.label,
+          );
           setClients(mappedClients);
         } catch (err) {
           console.error('Failed to fetch clients:', err);

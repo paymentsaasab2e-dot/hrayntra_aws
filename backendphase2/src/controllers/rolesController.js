@@ -18,6 +18,7 @@ import {
   listActiveOrgCompanies,
   saveRoleCompanyAccess,
   stripViewAllCompaniesPermissionIds,
+  assertSwitchCompaniesHavePicks,
 } from '../modules/role/roleCompanyAccess.service.js';
 
 function getRolesCacheKey(page = 1, limit = 20) {
@@ -256,6 +257,8 @@ export async function createRole(req, res) {
         message: 'Role name and color are required',
       });
     }
+
+    await assertSwitchCompaniesHavePicks(permissionIds, companyAccess);
 
     // Check if roleName already exists
     const existing = await prisma.systemRole.findUnique({

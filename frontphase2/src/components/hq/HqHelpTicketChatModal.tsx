@@ -90,11 +90,11 @@ export function HqHelpTicketChatModal({
   const emptyHint = useMemo(() => {
     if (readOnly) return 'No messages on this completed ticket.';
     return ticketKind === 'employer'
-      ? 'No messages yet. Reply to the employer below.'
+      ? 'No messages yet. Reply to the entrepreneur below.'
       : 'No messages yet. Reply to the candidate below.';
   }, [readOnly, ticketKind]);
 
-  const peerLabel = ticketKind === 'employer' ? 'Employer' : 'Candidate';
+  const peerLabel = ticketKind === 'employer' ? 'Entrepreneur' : 'Candidate';
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -207,7 +207,7 @@ export function HqHelpTicketChatModal({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 rows={2}
-                placeholder={ticketKind === 'employer' ? 'Reply to employer…' : 'Reply to candidate…'}
+                placeholder={ticketKind === 'employer' ? 'Reply to entrepreneur…' : 'Reply to candidate…'}
                 className="min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               />
               <button

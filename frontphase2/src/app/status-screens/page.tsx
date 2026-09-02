@@ -29,7 +29,7 @@ export default function StatusScreensPage() {
             <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Portal status catalog</p>
             <h1 className="mt-1 text-2xl font-bold text-slate-900">Status screens and alerts</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              Title plus short message for connection delays, Job Portal, and Employer Portal. No status
+              Title plus short message for connection delays, Job Portal, and Entrepreneur Portal. No status
               codes. Use the toast buttons to preview network alerts.
             </p>
           </header>
@@ -91,7 +91,7 @@ export default function StatusScreensPage() {
           ))}
 
           <section>
-            <h2 className="mb-4 text-lg font-bold text-slate-900">Employer components (live layout)</h2>
+            <h2 className="mb-4 text-lg font-bold text-slate-900">Entrepreneur components (live layout)</h2>
             <div className="space-y-4">
               <AccessDenied />
               <AccessDenied

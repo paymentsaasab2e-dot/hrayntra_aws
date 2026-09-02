@@ -209,7 +209,7 @@ export async function upsertTenantCompanyPage({
     name,
     description:
       String(payload.description || '').trim() ||
-      `Official ${name} page on Office Gossips — published from HRYantra Employer.`,
+      `Official ${name} page on Office Gossips — published from HRYantra Entrepreneur.`,
     logoLetter: logoLetter(name),
     logoUrl: logoUrlRaw,
     website: website || undefined,

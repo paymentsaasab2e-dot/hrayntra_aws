@@ -26,7 +26,7 @@ export function HqEmployerAnalyticsDashboard({
   if (!data) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-        No employer analytics loaded yet.
+        No entrepreneur analytics loaded yet.
       </div>
     );
   }
@@ -227,7 +227,7 @@ export function HqEmployerAnalyticsDashboard({
           }))}
         />
         <HqAnalyticsTable
-          title="Recent employer demos"
+          title="Recent entrepreneur demos"
           columns={[
             { key: 'name', label: 'Contact' },
             { key: 'company', label: 'Company' },
@@ -302,7 +302,7 @@ function EmployerParametersReference({ data }: { data: HqEmployerAnalytics }) {
         className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50 transition"
       >
         <div>
-          <h3 className="text-sm font-bold text-slate-900">Employer Dashboard — All Parameters (Phase 2)</h3>
+          <h3 className="text-sm font-bold text-slate-900">Entrepreneur Dashboard — All Parameters (Phase 2)</h3>
           <p className="text-xs text-slate-500">Complete list of all tracked metrics from hiring organizations / tenant workspaces</p>
         </div>
         {open ? <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" /> : <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />}

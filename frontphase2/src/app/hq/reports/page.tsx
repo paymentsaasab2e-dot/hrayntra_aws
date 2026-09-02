@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * HQ Reports — analytics control tower for Employees, Employers, CRM, and HQ Operations.
+ * HQ Reports — analytics control tower for Employees, Entrepreneurs, CRM, and HQ Operations.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Download, RefreshCw, X } from 'lucide-react';
@@ -205,7 +205,7 @@ const SOURCE_LABELS: Record<HqReportSourceKey, string> = {
   companies: 'Clients',
   demos: 'Demos',
   tenants: 'Tenants',
-  tickets: 'Employer tickets',
+  tickets: 'Entrepreneur tickets',
   team: 'Team',
   candidates: 'Candidates',
   kyc: 'KYC',
@@ -512,7 +512,7 @@ export default function HqReportsPage() {
   return (
     <HqModulePageLayout
       title="HQ Reports"
-      subtitle="Centralized analytics and operational intelligence across Employees, Employers, CRM and HQ Operations."
+      subtitle="Centralized analytics and operational intelligence across Employees, Entrepreneurs, CRM and HQ Operations."
       icon={<BarChart3 className="h-5 w-5" />}
       locked={false}
       actions={

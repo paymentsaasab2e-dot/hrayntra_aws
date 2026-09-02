@@ -358,7 +358,7 @@ export default function LoginPage() {
             <h1 className="text-[1.65rem] font-bold leading-tight tracking-tight text-[#1c1c1c] sm:text-[1.85rem]">
               Log in
             </h1>
-            <p className="mt-1 text-[13px] text-slate-500">Sign in to your employer workspace</p>
+            <p className="mt-1 text-[13px] text-slate-500">Sign in to your entrepreneur workspace</p>
           </div>
 
           <div className="mt-5">

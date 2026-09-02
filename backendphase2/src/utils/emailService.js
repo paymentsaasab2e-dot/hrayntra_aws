@@ -221,7 +221,7 @@ export async function sendEmployerPurchaseCredentialsEmail({
   </div>
   <div style="background: #fff; padding: 32px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
     <p style="font-size: 16px;">Hello${orgLabel ? ` from <strong>${orgLabel}</strong>` : ''},</p>
-    <p style="font-size: 16px;">Thank you for your purchase. Use the credentials below to sign in to your employer workspace:</p>
+    <p style="font-size: 16px;">Thank you for your purchase. Use the credentials below to sign in to your entrepreneur workspace:</p>
     <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
       <p style="margin: 0 0 8px; font-size: 13px; color: #64748b; font-weight: 600;">Login ID</p>
       <p style="margin: 0 0 16px; font-family: monospace; font-size: 16px; background: #fff; padding: 10px; border-radius: 4px;">${loginId}</p>

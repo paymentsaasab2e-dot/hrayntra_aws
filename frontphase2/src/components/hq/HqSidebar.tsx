@@ -138,7 +138,7 @@ export const HQ_NAV_ITEMS: {
     accent: 'rose',
     group: 'employees',
   },
-  // Employers = Phase 2
+  // Entrepreneurs = Phase 2
   {
     id: 'employerDashboard',
     label: 'Dashboard',
@@ -598,7 +598,7 @@ export function HqSidebar() {
               Headquarters
             </h1>
             <p className="mt-0.5 text-[11px] font-medium leading-snug text-[#7a92a8]">
-              Portal + employer console
+              Portal + entrepreneur console
             </p>
           </div>
         </Link>
@@ -633,7 +633,7 @@ export function HqSidebar() {
 
         {employerItems.length > 0 ? (
           <CollapsibleNavGroup
-            label="Employers"
+            label="Entrepreneurs"
             icon={Briefcase}
             accentActiveClass="ring-indigo-400/30"
             open={employersOpen}

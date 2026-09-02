@@ -3,6 +3,7 @@ import {
   formatPortalStatusLine,
   type PortalStatusCopy,
 } from './portalStatusCopy';
+import { sanitizeMojibakeDeep } from './sanitizeMojibake';
 
 export type ApiErrorKind =
   | 'abort'
@@ -207,7 +208,7 @@ export async function readApiJson<T = unknown>(res: Response): Promise<T> {
   }
 
   try {
-    return JSON.parse(trimmed) as T;
+    return sanitizeMojibakeDeep(JSON.parse(trimmed) as T);
   } catch {
     throw normalizeInvalidResponseError(res.status, trimmed);
   }
