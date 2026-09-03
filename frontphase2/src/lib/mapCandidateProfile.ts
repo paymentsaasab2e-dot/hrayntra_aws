@@ -365,6 +365,71 @@ function buildAssignedJobsList(c: BackendCandidate): NonNullable<CandidateProfil
   return Array.from(byKey.values());
 }
 
+function mapClientReplyRows(
+  rows: BackendCandidate['clientReplies'],
+): NonNullable<CandidateProfileDrawerData['clientReplies']> {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((reply, index) => ({
+    id: String(reply.id || `client-reply-${index}`),
+    clientName: String(reply.clientName || '').trim() || 'Client',
+    jobTitle: reply.jobTitle || null,
+    tag: reply.tag || null,
+    comments: reply.comments || null,
+    documentUrl: reply.documentUrl || null,
+    documentFileName: reply.documentFileName || null,
+    documentLabel: reply.documentLabel || null,
+    repliedAt: reply.repliedAt ? String(reply.repliedAt) : null,
+    submissionType: reply.submissionType || null,
+  }));
+}
+
+function parseClientRepliesFromExtraData(
+  extraData: BackendCandidate['extraData'],
+): NonNullable<CandidateProfileDrawerData['clientReplies']> {
+  if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return [];
+  const rows = (extraData as { clientReviews?: BackendCandidate['clientReplies'] }).clientReviews;
+  return mapClientReplyRows(rows);
+}
+
+function parseClientRepliesFromActivityFeed(
+  items: NonNullable<CandidateProfileDrawerData['activity']>,
+): NonNullable<CandidateProfileDrawerData['clientReplies']> {
+  const replies: NonNullable<CandidateProfileDrawerData['clientReplies']> = [];
+  for (const item of items) {
+    const title = String(item.title || '');
+    const description = String(item.description || '');
+    if (
+      !/^client review submitted/i.test(title) &&
+      !/^client uploaded/i.test(title) &&
+      !description.includes('[Client Tag]') &&
+      !description.includes('[Client Upload]')
+    ) {
+      continue;
+    }
+    const tagLine = description
+      .split('|')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('[Client Tag]'));
+    const rest = tagLine ? tagLine.replace('[Client Tag]', '').trim() : '';
+    const dashIdx = rest.indexOf(' - ');
+    const tag = dashIdx >= 0 ? rest.slice(0, dashIdx).trim() : rest;
+    const comments = dashIdx >= 0 ? rest.slice(dashIdx + 3).trim() : '';
+    replies.push({
+      id: item.id,
+      clientName: item.clientName || 'Client',
+      jobTitle: item.relatedJob || null,
+      tag: tag || null,
+      comments: comments || null,
+      documentUrl: null,
+      documentFileName: null,
+      documentLabel: null,
+      repliedAt: item.timestamp || null,
+      submissionType: null,
+    });
+  }
+  return replies;
+}
+
 export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDrawerData {
   const c = enrichBackendCandidateFromPhase1Snapshot(raw);
   const phase1Snap = getPhase1ProfileSnapshot(
@@ -594,6 +659,15 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       ? `${c.salary?.currency || ''} ${Number(c.expectedSalary).toLocaleString()}`.trim()
       : '');
 
+  const activityItems = c.activityFeed?.length ? c.activityFeed : fallbackActivityItems;
+  const mappedClientReplies = mapClientReplyRows(c.clientReplies);
+  const clientReplies =
+    mappedClientReplies.length > 0
+      ? mappedClientReplies
+      : parseClientRepliesFromExtraData(c.extraData).length > 0
+        ? parseClientRepliesFromExtraData(c.extraData)
+        : parseClientRepliesFromActivityFeed(activityItems);
+
   return {
     id: c.id,
     name: fullName,
@@ -721,7 +795,17 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       c.resume || c.resumeUrl
         ? [{ name: resumeFileName, url: c.resume || c.resumeUrl || '' }]
         : [],
-    activity: c.activityFeed?.length ? c.activityFeed : fallbackActivityItems,
+    activity: activityItems,
+    clientReplies,
+    clientSubmissions: Array.isArray(c.clientSubmissions)
+      ? c.clientSubmissions.map((row, index) => ({
+          id: String(row.id || `client-submission-${index}`),
+          clientName: String(row.clientName || '').trim() || 'Client',
+          jobTitle: row.jobTitle || null,
+          reviewUrl: row.reviewUrl || null,
+          submittedAt: row.submittedAt ? String(row.submittedAt) : null,
+        }))
+      : [],
     scheduledInterviews: (c.interviews || [])
       .filter((interview) => Boolean(interview.scheduledAt))
       .map((interview, index) => {

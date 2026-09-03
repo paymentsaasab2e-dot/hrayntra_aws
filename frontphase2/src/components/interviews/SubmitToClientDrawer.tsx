@@ -91,6 +91,7 @@ import {
   submitFormToUpdatePayload,
   type SubmitToClientClientFormState,
 } from '../../lib/submitToClientClientForm';
+import { validateCandidateEmail } from '../../lib/candidateEmailValidation';
 
 export type BulkSubmitCandidateEntry = {
   candidateId: string;
@@ -1310,6 +1311,16 @@ export function SubmitToClientDrawer({
     const missingEmail = clientRecipients.find((item) => !item.toEmail);
     if (missingEmail) {
       onToast(`Client contact email is missing for ${missingEmail.companyName || 'a client'}`);
+      return;
+    }
+    const invalidEmail = clientRecipients.find((item) => !validateCandidateEmail(item.toEmail).valid);
+    if (invalidEmail) {
+      const check = validateCandidateEmail(invalidEmail.toEmail);
+      onToast(
+        `Client contact email is invalid for ${invalidEmail.companyName || 'a client'}${
+          check.message ? `: ${check.message}` : ''
+        }`,
+      );
       return;
     }
 

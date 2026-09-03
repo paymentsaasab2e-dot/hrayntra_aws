@@ -201,4 +201,27 @@ export interface CandidateProfileDrawerData {
   auditMeta?: AuditMeta;
   isPhase1Candidate?: boolean;
   poolOrigin?: string | null;
+  clientReplies?: CandidateClientReply[];
+  clientSubmissions?: CandidateClientSubmission[];
+}
+
+export interface CandidateClientReply {
+  id: string;
+  clientName: string;
+  jobTitle?: string | null;
+  tag?: string | null;
+  comments?: string | null;
+  documentUrl?: string | null;
+  documentFileName?: string | null;
+  documentLabel?: string | null;
+  repliedAt?: string | null;
+  submissionType?: string | null;
+}
+
+export interface CandidateClientSubmission {
+  id: string;
+  clientName: string;
+  jobTitle?: string | null;
+  reviewUrl?: string | null;
+  submittedAt?: string | null;
 }

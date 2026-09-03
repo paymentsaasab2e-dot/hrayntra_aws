@@ -129,9 +129,14 @@ export function resolveCandidateListStage(c: BackendCandidate): string {
   const explicitLower = explicit.toLowerCase();
   const upcomingInterview = hasUpcomingInterview(c);
   const interviewCompletedOnly = hasCompletedInterviewOnly(c);
-
-  if (isSubmittedToClientStage(explicit)) {
-    return explicit;
+  const pipelineStageNames = (Array.isArray(c.pipelineEntries) ? c.pipelineEntries : [])
+    .map((row) => String(row?.stage?.name || '').trim())
+    .filter(Boolean);
+  const submittedStage = [explicit, ...pipelineStageNames].find((stage) =>
+    isSubmittedToClientStage(stage),
+  );
+  if (submittedStage) {
+    return submittedStage;
   }
 
   if (interviewCompletedOnly && !upcomingInterview) {

@@ -149,7 +149,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'interview.panel_scheduled': {
-    subject: 'Interview Panel: {{candidateName}} — {{jobTitle}}',
+    subject: 'Interview Panel: {{candidateName}} - {{jobTitle}}',
     variables: ['panelMemberName', 'candidateName', 'jobTitle', 'scheduledAt', 'location', 'meetingLink', 'companyName'],
     bodyHtml: emailShell(
       'Panel interview',
@@ -179,7 +179,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
       'Placement confirmed',
       `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Placement Confirmed</h1>
 <p>Hi {{recipientName}},</p>
-<p>Placement confirmed for <strong>{{candidateName}}</strong> — <strong>{{jobTitle}}</strong> at {{companyName}}.</p>
+<p>Placement confirmed for <strong>{{candidateName}}</strong> - <strong>{{jobTitle}}</strong> at {{companyName}}.</p>
 <p><strong>Start date:</strong> {{startDate}}</p>`,
     ),
   },
@@ -355,7 +355,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.candidate_stage_changed': {
-    subject: 'Stage Update: {{candidateName}} — {{newStage}}',
+    subject: 'Stage Update: {{candidateName}} - {{newStage}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'previousStage', 'newStage'],
     bodyHtml: emailShell(
       'Stage changed',
@@ -376,7 +376,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.interview_today_reminder': {
-    subject: 'Interview Today: {{candidateName}} — {{jobTitle}}',
+    subject: 'Interview Today: {{candidateName}} - {{jobTitle}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'scheduledAt'],
     bodyHtml: emailShell(
       'Interview reminder',
@@ -386,7 +386,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.match_submitted_internal': {
-    subject: 'Submitted to Client: {{candidateName}} — {{jobTitle}}',
+    subject: 'Submitted to Client: {{candidateName}} - {{jobTitle}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'clientName', 'message'],
     bodyHtml: emailShell(
       'Match submitted',
@@ -397,7 +397,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.match_client_review_completed': {
-    subject: 'Client Review: {{candidateName}} — {{reviewTag}}',
+    subject: 'Client Review: {{candidateName}} - {{reviewTag}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'clientName', 'reviewTag'],
     bodyHtml: emailShell(
       'Client review',
@@ -417,7 +417,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.billing_invoice_overdue': {
-    subject: 'Invoice Overdue: {{invoiceNumber}} — {{clientName}}',
+    subject: 'Invoice Overdue: {{invoiceNumber}} - {{clientName}}',
     variables: ['recipientName', 'invoiceNumber', 'clientName', 'amount', 'dueDate'],
     bodyHtml: emailShell(
       'Invoice overdue',
@@ -438,7 +438,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.interview_rescheduled': {
-    subject: 'Interview Rescheduled: {{candidateName}} — {{jobTitle}}',
+    subject: 'Interview Rescheduled: {{candidateName}} - {{jobTitle}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'previousScheduledAt', 'scheduledAt'],
     bodyHtml: emailShell(
       'Interview rescheduled',
@@ -448,7 +448,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.placement_created': {
-    subject: 'Placement Created: {{candidateName}} — {{jobTitle}}',
+    subject: 'Placement Created: {{candidateName}} - {{jobTitle}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'companyName', 'placementDetails'],
     bodyHtml: emailShell(
       'Placement created',
@@ -459,7 +459,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.placement_offer_response': {
-    subject: 'Offer {{responseLabel}}: {{candidateName}} — {{jobTitle}}',
+    subject: 'Offer {{responseLabel}}: {{candidateName}} - {{jobTitle}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'responseLabel', 'responseMessage'],
     bodyHtml: emailShell(
       'Offer response',
@@ -481,7 +481,7 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.job_portal_application': {
-    subject: 'New Application: {{candidateName}} — {{jobTitle}}',
+    subject: 'New Application: {{candidateName}} - {{jobTitle}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'applicationMessage'],
     bodyHtml: emailShell(
       'Portal application',
@@ -492,13 +492,13 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'alert.job_candidate_reapplied': {
-    subject: 'Re-application: {{candidateName}} — {{jobTitle}}',
+    subject: 'Re-application: {{candidateName}} - {{jobTitle}}',
     variables: ['recipientName', 'candidateName', 'jobTitle', 'applicationMessage'],
     bodyHtml: emailShell(
       'Candidate re-applied',
       `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Candidate Re-applied</h1>
 <p>Hi {{recipientName}},</p>
-<p><strong>{{candidateName}}</strong> re-applied to <strong>{{jobTitle}}</strong> (previously rejected — moved back to Applied).</p>
+<p><strong>{{candidateName}}</strong> re-applied to <strong>{{jobTitle}}</strong> (previously rejected - moved back to Applied).</p>
 <p>{{applicationMessage}}</p>`,
     ),
   },

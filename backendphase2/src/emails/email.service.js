@@ -6,19 +6,28 @@ import { placementTemplate } from './templates/placement.template.js';
 import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
 import { renderNotificationTriggerEmail } from '../modules/setting/notification-trigger-template-settings.js';
 import logger from '../utils/logger.js';
+import { isDeliverableEmail, sanitizeEmailSubject } from '../utils/emailDeliverability.js';
 
 export const sendEmail = async (to, subject, html, triggerId) => {
   try {
+    const recipients = (Array.isArray(to) ? to : [to])
+      .map((item) => String(item || '').trim())
+      .filter((item) => isDeliverableEmail(item));
+    if (!recipients.length) {
+      logger.warn(`Email not sent: no valid recipient (${to})`);
+      return { success: false, error: 'Invalid recipient email' };
+    }
     if (!env.RESEND_API_KEY) {
       logger.warn('RESEND_API_KEY not configured, email not sent');
       return { success: false, error: 'Email service not configured' };
     }
 
     const from = triggerId ? getEmailFromForTrigger(triggerId) : getEmailFrom();
+    const safeSubject = sanitizeEmailSubject(subject);
     const result = await resend.emails.send({
       from,
-      to,
-      subject,
+      to: recipients,
+      subject: safeSubject,
       html,
     });
     const deliveryId = result?.data?.id || result?.id;
@@ -28,11 +37,11 @@ export const sendEmail = async (to, subject, html, triggerId) => {
       (typeof resendError === 'string' ? resendError : '');
     if (!deliveryId && (errorMessage || resendError)) {
       const message = errorMessage || 'Resend rejected the email';
-      logger.error(`Email not delivered to ${to}: ${subject} — ${message}`);
+      logger.error(`Email not delivered to ${recipients.join(', ')}: ${safeSubject} — ${message}`);
       return { success: false, error: message, data: result };
     }
 
-    logger.info(`Email sent to ${to}: ${subject}${deliveryId ? ` (id ${deliveryId})` : ''}`);
+    logger.info(`Email sent to ${recipients.join(', ')}: ${safeSubject}${deliveryId ? ` (id ${deliveryId})` : ''}`);
     return { success: true, data: result };
   } catch (error) {
     logger.error('Failed to send email:', error);
