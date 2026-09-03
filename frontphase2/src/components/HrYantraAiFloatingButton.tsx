@@ -91,8 +91,14 @@ export function HrYantraAiFloatingButton() {
     !pathname ||
     pathname === '/login' ||
     pathname === '/hq/login' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password' ||
+    pathname === '/hq' ||
+    pathname.startsWith('/hq/') ||
     pathname.startsWith('/apply') ||
-    pathname.startsWith('/lead-form');
+    pathname.startsWith('/lead-form') ||
+    pathname.startsWith('/client-review') ||
+    pathname.startsWith('/session-transfer');
 
   useEffect(() => {
     try {

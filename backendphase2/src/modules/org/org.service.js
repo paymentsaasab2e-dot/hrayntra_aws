@@ -991,18 +991,30 @@ export async function assignOrgMember(req, body) {
  * Data that can be duplicated or moved between companies / branches.
  * CRM/recruitment models carry `orgUnitId`. Team members are move-only (no duplicate logins).
  */
+function isRecruitmentClientRow(row) {
+  return Boolean(row?.recruitmentEnabled) || Boolean(row?.createdInRecruitment);
+}
+
 const TRANSFERABLE = {
   leads: {
     delegate: () => prisma.lead,
     label: 'leads',
     title: (row) => row.companyName || row.contactName || row.email || 'Lead',
-    subtitle: (row) => [row.status, row.city || row.location].filter(Boolean).join(' · '),
+    subtitle: (row) => ['CRM', row.status, row.city || row.location].filter(Boolean).join(' · '),
   },
   clients: {
     delegate: () => prisma.client,
-    label: 'clients',
+    label: 'CRM clients',
     title: (row) => row.companyName || 'Client',
-    subtitle: (row) => [row.status, row.location].filter(Boolean).join(' · '),
+    subtitle: (row) => ['CRM', row.status, row.location].filter(Boolean).join(' · '),
+    match: (row) => row?.createdInRecruitment !== true,
+  },
+  recruitmentClients: {
+    delegate: () => prisma.client,
+    label: 'recruitment clients',
+    title: (row) => row.companyName || 'Client',
+    subtitle: (row) => ['Recruitment', row.status, row.location].filter(Boolean).join(' · '),
+    match: (row) => isRecruitmentClientRow(row),
   },
   jobs: {
     delegate: () => prisma.job,
@@ -1051,12 +1063,41 @@ function memberDisplayName(user) {
 
 function purposeForTargetUnit(user, targetUnit) {
   const purpose = String(user?.hierarchyPurpose || 'member');
-  if (!targetUnit) return 'member';
+  if (!targetUnit || !targetUnit.parentId) return 'member';
   if (purpose === 'company_head' && (targetUnit.isLeaf || Number(targetUnit.levelOrder) !== 2)) {
     return 'member';
   }
   if (purpose === 'site_head' && !targetUnit.isLeaf) return 'member';
   return HIERARCHY_PURPOSES.includes(purpose) ? purpose : 'member';
+}
+
+async function resolveTransferMatch(orgUnitId) {
+  const unitId = oid(orgUnitId);
+  const units = await prisma.orgUnit.findMany({
+    select: { id: true, parentId: true, levelOrder: true, isLeaf: true },
+  });
+  const companyOrBranchIds = new Set(units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)));
+  if (!unitId) {
+    return { kind: 'unassigned', companyOrBranchIds };
+  }
+  const unit = units.find((u) => String(u.id) === unitId);
+  if (!unit) throw new Error('Company was not found.');
+  if (!unit.parentId) {
+    return { kind: 'hq', hqId: String(unit.id), companyOrBranchIds };
+  }
+  return {
+    kind: 'unit',
+    ids: new Set((await collectDescendantIds(unitId)).map(String)),
+    companyOrBranchIds,
+  };
+}
+
+function homeInTransferMatch(home, match) {
+  if (match.kind === 'unassigned') return !home;
+  if (match.kind === 'hq') {
+    return !home || home === match.hqId || !match.companyOrBranchIds.has(home);
+  }
+  return match.ids.has(home);
 }
 
 async function listTransferableMembers(req, { orgUnitId, search = '', limit = 200 } = {}) {
@@ -1084,18 +1125,15 @@ async function listTransferableMembers(req, { orgUnitId, search = '', limit = 20
   const units = await prisma.orgUnit.findMany({
     select: { id: true, parentId: true, name: true },
   });
-  const companyOrBranchIds = new Set(units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)));
   const unitNameById = new Map(units.map((u) => [String(u.id), u.name]));
-
-  const wanted = unitId ? new Set((await collectDescendantIds(unitId)).map(String)) : null;
+  const match = await resolveTransferMatch(unitId);
   const term = String(search || '').trim().toLowerCase();
 
   const items = users
     .filter((user) => {
       if (isSuperAdminRow(user)) return false;
       const home = user.orgUnitId ? String(user.orgUnitId) : '';
-      if (unitId) return wanted.has(home);
-      return !home || !companyOrBranchIds.has(home);
+      return homeInTransferMatch(home, match);
     })
     .map((user) => {
       const home = user.orgUnitId ? String(user.orgUnitId) : '';
@@ -1125,11 +1163,7 @@ async function moveTeamMembers(ids, fromId, toId, result) {
     throw new Error('Target company or branch was not found.');
   }
 
-  const fromWanted = fromId ? new Set((await collectDescendantIds(fromId)).map(String)) : null;
-  const units = fromWanted
-    ? []
-    : await prisma.orgUnit.findMany({ select: { id: true, parentId: true } });
-  const companyOrBranchIds = new Set(units.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)));
+  const match = await resolveTransferMatch(fromId);
 
   for (const id of ids) {
     try {
@@ -1148,7 +1182,7 @@ async function moveTeamMembers(ids, fromId, toId, result) {
         continue;
       }
       const home = user.orgUnitId ? String(user.orgUnitId) : '';
-      const inSource = fromWanted ? fromWanted.has(home) : !home || !companyOrBranchIds.has(home);
+      const inSource = homeInTransferMatch(home, match);
       if (!inSource) {
         result.skipped.members += 1;
         continue;
@@ -1178,7 +1212,9 @@ export async function listTransferableData(req, { orgUnitId, type, search = '', 
   }
   const scope = await resolveViewerOrgScope(req);
   const config = TRANSFERABLE[String(type || '')];
-  if (!config) throw new Error('Pick leads, clients, jobs, candidates, or team members.');
+  if (!config) {
+    throw new Error('Pick leads, CRM clients, recruitment clients, jobs, candidates, or team members.');
+  }
 
   const unitId = oid(orgUnitId);
   assertUnitAccess(scope, unitId);
@@ -1186,7 +1222,7 @@ export async function listTransferableData(req, { orgUnitId, type, search = '', 
   const delegate = config.delegate();
   if (!delegate?.findMany) return { type, items: [] };
 
-  const unitIds = unitId ? await collectDescendantIds(unitId) : [];
+  const match = await resolveTransferMatch(unitId);
   let rows = [];
   try {
     rows = await delegate.findMany({
@@ -1197,13 +1233,14 @@ export async function listTransferableData(req, { orgUnitId, type, search = '', 
     return { type, items: [] };
   }
 
-  const wanted = new Set(unitIds.map(String));
   const term = String(search || '').trim().toLowerCase();
 
   const items = rows
     .filter((row) => {
+      if (row?.isDeleted === true || row?.deletedAt) return false;
+      if (typeof config.match === 'function' && !config.match(row)) return false;
       const home = row.orgUnitId ? String(row.orgUnitId) : '';
-      return unitId ? wanted.has(home) : !home;
+      return homeInTransferMatch(home, match);
     })
     .map((row) => ({
       id: String(row.id),
@@ -1232,9 +1269,8 @@ async function cloneRow(delegate, id, targetOrgUnitId) {
 }
 
 /**
- * Duplicate ("copy") or re-home ("move") selected rows into another company /
- * branch. A null / empty `toOrgUnitId` leaves the rows with no company, so they
- * behave like freshly created data that has not been assigned yet.
+ * Duplicate ("copy") or re-home ("move") selected rows into another company,
+ * branch, or HQ. A null / empty `toOrgUnitId` leaves the rows with no company.
  */
 export async function transferOrgUnitData(req, body = {}) {
   const scope = await resolveViewerOrgScope(req);
@@ -1251,8 +1287,7 @@ export async function transferOrgUnitData(req, body = {}) {
 
   if (toId) {
     const target = await prisma.orgUnit.findUnique({ where: { id: toId } });
-    if (!target) throw new Error('Target company or branch was not found.');
-    if (!target.parentId) throw new Error('Pick a company or branch, not HQ.');
+    if (!target) throw new Error('Target company was not found.');
   }
 
   const selections = body?.items && typeof body.items === 'object' ? body.items : {};
@@ -1271,11 +1306,19 @@ export async function transferOrgUnitData(req, body = {}) {
     await moveTeamMembers(memberIds, fromId, toId, result);
   }
 
+  const seenClientIds = new Set();
   for (const type of Object.keys(TRANSFERABLE)) {
-    const ids = Array.isArray(selections[type]) ? selections[type].map(oid).filter(Boolean) : [];
+    let ids = Array.isArray(selections[type]) ? selections[type].map(oid).filter(Boolean) : [];
     result.copied[type] = 0;
     result.moved[type] = 0;
     result.skipped[type] = 0;
+    if (type === 'clients' || type === 'recruitmentClients') {
+      ids = ids.filter((id) => {
+        if (seenClientIds.has(id)) return false;
+        seenClientIds.add(id);
+        return true;
+      });
+    }
     if (!ids.length) continue;
 
     const delegate = TRANSFERABLE[type].delegate();
