@@ -2173,6 +2173,16 @@ export default function JobsPage() {
     [activeJobForCandidateDrawer],
   );
 
+  useEffect(() => {
+    const onCandidatesChanged = () => {
+      const openId = selectedCandidateProfile?.id;
+      if (!openId || !isValidObjectId(openId)) return;
+      void loadCandidateProfileInJobContext(openId);
+    };
+    window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
+    return () => window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);
+  }, [loadCandidateProfileInJobContext, selectedCandidateProfile?.id]);
+
   const openJobDrawerCandidateView = useCallback(
     async (candidate: Candidate) => {
       setCandidateDrawerMode('view');

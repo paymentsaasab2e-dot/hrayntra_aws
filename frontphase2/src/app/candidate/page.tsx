@@ -669,6 +669,16 @@ function CandidatesPageContent() {
   );
 
   useEffect(() => {
+    const onCandidatesChanged = () => {
+      const openId = selectedCandidateProfile?.id;
+      if (!openId || !isValidObjectId(openId)) return;
+      void loadCandidateProfile(openId);
+    };
+    window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
+    return () => window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);
+  }, [loadCandidateProfile, selectedCandidateProfile?.id]);
+
+  useEffect(() => {
     const candidateId = searchParams.get('candidateId');
     if (!candidateId) {
       pendingDeepLinkCandidateIdRef.current = null;

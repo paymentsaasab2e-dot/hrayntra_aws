@@ -225,7 +225,6 @@ export function buildPhase1ClientReviewSections(
       'resume',
       fieldsFromPairs([
         ['File name', resume.fileName],
-        ['File URL', resume.fileUrl],
         ['ATS readiness', resume.atsScore != null ? `${resume.atsScore}%` : ''],
       ]),
     );

@@ -5951,6 +5951,8 @@ export interface BackendCandidate {
       avatar?: string | null;
     };
     relatedJob?: string | null;
+    reviewUrl?: string | null;
+    clientName?: string | null;
   }>;
   aiCandidateAnalysis?: {
     source?: 'match' | 'estimated' | string;
@@ -7007,6 +7009,8 @@ export const apiSubmitInterviewToClient = async (
     recipients: string[];
     reviewUrl: string;
     submissionType?: string;
+    emailSent?: boolean;
+    emailError?: string | null;
   }>(`/interviews/${id}/submit-client`, {
     method: 'POST',
     body: payload,
@@ -7703,7 +7707,7 @@ export const apiSubmitMatch = async (
     batchMatchIds?: string[];
   }
 ) => {
-  return apiFetch<BackendMatch>(`/matches/${matchId}/submit`, {
+  return apiFetch<BackendMatch & { reviewUrl?: string; emailSent?: boolean; emailError?: string | null }>(`/matches/${matchId}/submit`, {
     method: 'POST',
     body: payload,
     auth: true,

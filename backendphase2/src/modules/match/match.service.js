@@ -19,6 +19,7 @@ import {
 } from '../../utils/cvSubmissionSnapshot.js';
 import { AI_MATCH_AUTHOR_WHERE, MANUAL_MATCH_AUTHOR_WHERE } from './matchQueryHelpers.js';
 import { notifyMatchSubmittedToClient } from '../setting/alert-notify.helpers.js';
+import { moveCandidateToSubmittedToClient } from '../stage/candidateStage.service.js';
 
 // Mirror of the interview drawer's purpose codes. Keeping the resolution
 // logic here means a match-submitted-to-client carries the same UX (tag
@@ -1057,7 +1058,22 @@ export const matchService = {
         ? cvShareModeRaw
         : null;
 
-    if (cvShareMode) {
+    const batchMatchIds = Array.isArray(data?.batchMatchIds)
+      ? data.batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const normalizedBatchMatchIds = Array.from(new Set(batchMatchIds));
+
+    const reviewUrl = buildClientReviewUrl(
+      match,
+      submissionType,
+      cvShareMode || 'edited',
+      normalizedBatchMatchIds.length > 1 ? normalizedBatchMatchIds : null,
+    );
+    console.info(
+      `[match.submit] client-review url for ${env.NODE_ENV}: ${reviewUrl} (FRONTEND_URL=${env.FRONTEND_URL})`,
+    );
+
+    if (cvShareMode || reviewUrl) {
       const freshCandidate = await prisma.candidate.findUnique({
         where: { id: match.candidateId },
       });
@@ -1067,35 +1083,30 @@ export const matchService = {
         !Array.isArray(freshCandidate.extraData)
           ? freshCandidate.extraData
           : {};
-      const snapshot = buildCvSubmissionSnapshot(freshCandidate, match.job?.title || '');
+      const existingSubmission =
+        existingExtra.cvSubmission &&
+        typeof existingExtra.cvSubmission === 'object' &&
+        !Array.isArray(existingExtra.cvSubmission)
+          ? existingExtra.cvSubmission
+          : {};
+      const snapshot = cvShareMode
+        ? buildCvSubmissionSnapshot(freshCandidate, match.job?.title || '')
+        : existingSubmission.snapshot;
       await prisma.candidate.update({
         where: { id: match.candidateId },
         data: {
           extraData: {
             ...existingExtra,
             cvSubmission: {
-              shareMode: cvShareMode,
+              ...existingSubmission,
+              ...(cvShareMode ? { shareMode: cvShareMode, snapshot } : {}),
               updatedAt: new Date().toISOString(),
-              snapshot,
+              reviewUrl,
             },
           },
         },
       });
     }
-
-    const batchMatchIds = Array.isArray(data?.batchMatchIds)
-      ? data.batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)
-      : [];
-    const normalizedBatchMatchIds = Array.from(new Set(batchMatchIds));
-
-    const reviewUrl = notifyClient
-      ? buildClientReviewUrl(
-          match,
-          submissionType,
-          cvShareMode || 'edited',
-          normalizedBatchMatchIds.length > 1 ? normalizedBatchMatchIds : null,
-        )
-      : null;
 
     await prisma.$transaction(async (tx) => {
       await tx.match.update({
@@ -1138,6 +1149,9 @@ export const matchService = {
       });
     });
 
+    let emailSent = false;
+    let emailError = null;
+
     if (notifyClient) {
       const purposeLine = MATCH_SUBMISSION_PURPOSES[submissionType] || MATCH_SUBMISSION_PURPOSES.GENERAL;
       const finalMessage = [
@@ -1173,10 +1187,16 @@ export const matchService = {
         message: finalMessage,
         candidates: emailCandidates,
         portalUrl: reviewUrl || `${env.FRONTEND_URL}/matches`,
+        forceSend: true,
       });
 
-      if (!emailResult.success) {
-        throw new Error(emailResult.error || 'Failed to send email');
+      emailSent = Boolean(emailResult?.success) && !emailResult?.skipped;
+      if (emailResult?.skipped) {
+        emailError = 'Client submission email is disabled in notification settings';
+        console.warn('[match.submit] client email skipped:', emailError);
+      } else if (!emailResult?.success) {
+        emailError = emailResult?.error || 'Failed to send email';
+        console.warn('[match.submit] client email failed:', emailError);
       }
     }
 
@@ -1222,13 +1242,15 @@ export const matchService = {
           message: finalMessage,
           candidates: [emailCandidate],
           portalUrl: reviewUrl || `${env.FRONTEND_URL}/matches`,
+          forceSend: true,
         });
 
         if (!extraEmailResult.success) {
-          throw new Error(
-            extraEmailResult.error ||
-              `Failed to send email to ${extraClient.companyName || 'client'}`
+          console.warn(
+            `[match.submit] additional client email failed for ${extraClient.companyName || 'client'}:`,
+            extraEmailResult.error,
           );
+          continue;
         }
 
         await prisma.activity.create({
@@ -1273,7 +1295,27 @@ export const matchService = {
       console.warn('[match.submitToClient] alert failed:', alertErr?.message || alertErr);
     }
 
-    return this.getById(id);
+    try {
+      await moveCandidateToSubmittedToClient({
+        candidateId: match.candidateId,
+        jobId: match.jobId,
+        performedById: userId,
+        metadata: {
+          matchId: match.id,
+          submissionType,
+        },
+      });
+    } catch (stageErr) {
+      console.warn('[match.submit] candidate stage sync failed:', stageErr?.message || stageErr);
+    }
+
+    const submitted = await this.getById(id);
+    return {
+      ...submitted,
+      reviewUrl,
+      emailSent,
+      emailError,
+    };
   },
 
   async reject(id, data, userId) {
@@ -1492,10 +1534,31 @@ export const matchService = {
       subject: subject || `Candidate Submission: ${firstJob.title}`,
       candidates: matches.map((item) => mapEmailCandidate(item.candidate)),
       portalUrl: reviewLinks[0]?.url || `${env.FRONTEND_URL}/matches`,
+      forceSend: true,
     });
 
     if (!emailResult.success) {
       throw new Error(emailResult.error || 'Failed to send email');
+    }
+
+    for (const match of matches) {
+      try {
+        await moveCandidateToSubmittedToClient({
+          candidateId: match.candidateId,
+          jobId: match.jobId,
+          performedById: userId,
+          metadata: {
+            matchId: match.id,
+            bulk: true,
+            submissionType,
+          },
+        });
+      } catch (stageErr) {
+        console.warn(
+          '[match.bulkEmail] candidate stage sync failed:',
+          stageErr?.message || stageErr,
+        );
+      }
     }
 
     await prisma.activity.createMany({

@@ -37,6 +37,8 @@ import {
   Calendar,
   Check,
   CheckCircle2,
+  Copy,
+  ExternalLink,
   ChevronDown,
   ClipboardList,
   FileSearch,
@@ -4319,6 +4321,38 @@ export function CandidateProfileDrawer({
     return groups;
   }, [candidate?.activity]);
 
+  const latestClientReview = useMemo(() => {
+    const items = [...(candidate?.activity || [])].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+    );
+    const fromActivity = items.find((item) => String(item.reviewUrl || '').trim());
+    const extraUrl = String(
+      (candidate?.extraData as { cvSubmission?: { reviewUrl?: string } } | null | undefined)?.cvSubmission
+        ?.reviewUrl || '',
+    ).trim();
+    const reviewUrl = String(fromActivity?.reviewUrl || extraUrl || '').trim();
+    if (!reviewUrl) return null;
+    return {
+      reviewUrl,
+      clientName: fromActivity?.clientName || null,
+    };
+  }, [candidate?.activity, candidate?.extraData]);
+
+  const openClientReviewLink = useCallback((url: string) => {
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
+
+  const copyClientReviewLink = useCallback(async (url: string) => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      void requestSuccess('Client view link copied');
+    } catch {
+      void requestSuccess(url);
+    }
+  }, []);
+
   const overviewContentKey = useMemo(() => {
     if (!candidate) return 'overview-empty';
     return [
@@ -4835,6 +4869,16 @@ export function CandidateProfileDrawer({
                         Submit to Client
                       </button>
                     ) : null}
+                    {latestClientReview?.reviewUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => openClientReviewLink(latestClientReview.reviewUrl)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100"
+                      >
+                        <ExternalLink size={15} />
+                        Client view
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -4869,6 +4913,35 @@ export function CandidateProfileDrawer({
                               entityLabel={candidate.name || candidate.email || 'Candidate'}
                             />
                           </>
+                        ) : null}
+                        {latestClientReview?.reviewUrl ? (
+                          <div className="rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 via-indigo-50 to-white px-4 py-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+                              What the client sees
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              Open the same review page sent to
+                              {latestClientReview.clientName ? ` ${latestClientReview.clientName}` : ' the client'}.
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openClientReviewLink(latestClientReview.reviewUrl)}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-700"
+                              >
+                                <ExternalLink size={14} />
+                                Open client view
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void copyClientReviewLink(latestClientReview.reviewUrl)}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-50"
+                              >
+                                <Copy size={14} />
+                                Copy link
+                              </button>
+                            </div>
+                          </div>
                         ) : null}
                         {isPhase1PortalCandidate(candidate) ? (
                           <CandidatePhase1DetailSections
@@ -5153,6 +5226,16 @@ export function CandidateProfileDrawer({
                                               <Briefcase size={12} />
                                               {item.relatedJob}
                                             </span>
+                                          ) : null}
+                                          {item.reviewUrl ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => openClientReviewLink(item.reviewUrl || '')}
+                                              className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-200 hover:bg-violet-100"
+                                            >
+                                              <ExternalLink size={12} />
+                                              Client view
+                                            </button>
                                           ) : null}
                                         </div>
                                       </div>

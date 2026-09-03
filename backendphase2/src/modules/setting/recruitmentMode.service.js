@@ -222,6 +222,7 @@ function normalizeCurrencyCode(raw) {
 const BUCKETS = {
   APPLIED: 'APPLIED',
   SCREENING: 'SCREENING',
+  SUBMITTED_TO_CLIENT: 'SUBMITTED_TO_CLIENT',
   INTERVIEW: 'INTERVIEW',
   OFFER: 'OFFER',
   HIRED: 'HIRED',
@@ -233,10 +234,11 @@ export function getBuiltinDefaultPipelineTemplate() {
   return [
     { name: 'Applied', order: 1, color: '#3b82f6', systemRole: BUCKETS.APPLIED },
     { name: 'Screening', order: 2, color: '#8b5cf6', systemRole: BUCKETS.SCREENING },
-    { name: 'Interviewing', order: 3, color: '#f59e0b', systemRole: BUCKETS.INTERVIEW },
-    { name: 'Offer', order: 4, color: '#10b981', systemRole: BUCKETS.OFFER },
-    { name: 'Hired', order: 5, color: '#059669', systemRole: BUCKETS.HIRED },
-    { name: 'Rejected', order: 6, color: '#ef4444', systemRole: BUCKETS.REJECTED },
+    { name: 'Submit to Client', order: 3, color: '#4f46e5', systemRole: BUCKETS.SUBMITTED_TO_CLIENT },
+    { name: 'Interviewing', order: 4, color: '#f59e0b', systemRole: BUCKETS.INTERVIEW },
+    { name: 'Offer', order: 5, color: '#10b981', systemRole: BUCKETS.OFFER },
+    { name: 'Hired', order: 6, color: '#059669', systemRole: BUCKETS.HIRED },
+    { name: 'Rejected', order: 7, color: '#ef4444', systemRole: BUCKETS.REJECTED },
   ];
 }
 

@@ -174,7 +174,6 @@ export function buildClientReviewSections(
       ['Expected Salary Currency', form.expectedSalaryCurrency],
       ['Expected Benefits', form.expectedBenefits],
       ['Notice Period', form.noticePeriod],
-      ['Resume URL', form.resumeUrl],
       ['Work history (narrative)', form.workHistoryText],
       ['Extracurricular activities', form.extracurricular],
       ['Volunteers', form.volunteers],

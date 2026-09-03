@@ -645,6 +645,16 @@ export default function MatchesPage() {
   );
 
   useEffect(() => {
+    const onCandidatesChanged = () => {
+      const openId = selectedCandidateProfile?.id || profileDrawerCandidateId;
+      if (!openId || !isValidObjectId(openId)) return;
+      void loadCandidateProfile(openId);
+    };
+    window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
+    return () => window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);
+  }, [loadCandidateProfile, profileDrawerCandidateId, selectedCandidateProfile?.id]);
+
+  useEffect(() => {
     if (!profileDrawerCandidateId) {
       setSelectedCandidateProfile(null);
       setLoadingCandidateProfile(false);

@@ -33,6 +33,12 @@ const STAGE_FILTER_VARIANTS = {
   shortlist: ['Shortlist', 'Short List', 'SHORTLIST'],
   screening: ['Screening', 'SCREENING'],
   submitted: ['Submitted', 'SUBMITTED'],
+  'submit-to-client': [
+    'Submit to Client',
+    'Submit to client',
+    'SUBMITTED_TO_CLIENT',
+    'Submitted to Client',
+  ],
   interviewing: ['Interviewing', 'Interview', 'INTERVIEW', 'INTERVIEWING'],
   offered: ['Offered', 'Offer', 'OFFER', 'OFFERED'],
   hired: ['Hired', 'HIRED', 'Placed', 'PLACED'],

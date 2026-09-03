@@ -92,6 +92,7 @@ interface Candidate {
 const DEFAULT_PIPELINE_STAGES: PipelineStageColumn[] = [
   { id: "applied", label: "Applied", color: "#3b82f6" },
   { id: "screening", label: "Screening", color: "#8b5cf6" },
+  { id: "submit-to-client", label: "Submit to Client", color: "#4f46e5" },
   { id: "interviewing", label: "Interviewing", color: "#f59e0b" },
   { id: "offer", label: "Offer", color: "#10b981" },
   { id: "hired", label: "Hired", color: "#059669" },
@@ -171,8 +172,17 @@ function matchStageColumnId(stageName: string, columns: PipelineStageColumn[]): 
   const exact = columns.find((col) => normalizeStageKey(col.label) === key);
   if (exact) return exact.id;
 
+  if ((key.includes('submit') && key.includes('client')) || key.includes('submittedtoclient')) {
+    const submitCol = columns.find((col) => {
+      const colKey = normalizeStageKey(col.label);
+      return (colKey.includes('submit') && colKey.includes('client')) || colKey.includes('submittedtoclient');
+    });
+    if (submitCol) return submitCol.id;
+  }
+
   const partial = columns.find((col) => {
     const colKey = normalizeStageKey(col.label);
+    if (colKey.length < 5) return false;
     return key.includes(colKey) || colKey.includes(key);
   });
   if (partial) return partial.id;
@@ -197,8 +207,12 @@ function matchStageColumnId(stageName: string, columns: PipelineStageColumn[]): 
     const rejectedCol = columns.find((col) => normalizeStageKey(col.label).includes('reject'));
     if (rejectedCol) return rejectedCol.id;
   }
-  if (key.includes('applied') || key.includes('submit')) {
-    const appliedCol = columns.find((col) => /applied|submit/.test(normalizeStageKey(col.label)));
+  if (key.includes('applied') || (key.includes('submit') && !key.includes('client'))) {
+    const appliedCol = columns.find((col) => {
+      const colKey = normalizeStageKey(col.label);
+      if (colKey.includes('client')) return false;
+      return /applied|submit/.test(colKey);
+    });
     if (appliedCol) return appliedCol.id;
   }
 

@@ -11,10 +11,14 @@ import type { JobCandidateItem } from '../components/drawers/JobDetailsDrawer';
 import { parseJobCandidateScore } from '../lib/jobAppliedMatches';
 import { requestError, requestInfo } from '../lib/appDialog';
 
-export function useSubmitToClientModal(options?: { onClosed?: () => void }) {
+export function useSubmitToClientModal(options?: {
+  onClosed?: () => void;
+  onSubmitted?: () => void;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [source, setSource] = useState<SubmitToClientSource | null>(null);
   const onClosed = options?.onClosed;
+  const onSubmitted = options?.onSubmitted;
 
   const handleClose = useCallback(() => {
     setIsOpen(false);
@@ -109,6 +113,7 @@ export function useSubmitToClientModal(options?: { onClosed?: () => void }) {
       source={source}
       onClose={handleClose}
       onToast={handleToast}
+      onSubmitted={onSubmitted}
     />
   );
 

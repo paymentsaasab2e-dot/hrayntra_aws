@@ -13,11 +13,14 @@ import {
 export const PIPELINE_STAGES = {
   APPLIED: 'APPLIED',
   SCREENING: 'SCREENING',
+  SUBMITTED_TO_CLIENT: 'SUBMITTED_TO_CLIENT',
   INTERVIEW: 'INTERVIEW',
   OFFER: 'OFFER',
   HIRED: 'HIRED',
   REJECTED: 'REJECTED',
 };
+
+export const SUBMITTED_TO_CLIENT_STAGE_LABEL = 'Submit to Client';
 
 /**
  * Map internal pipeline stage to job-portal `ApplicationStatus` (Prisma enum on portal DB).
@@ -28,6 +31,8 @@ export function mapPipelineStageToPortalApplicationStatus(stage) {
     case PIPELINE_STAGES.APPLIED:
       return 'SUBMITTED';
     case PIPELINE_STAGES.SCREENING:
+      return 'UNDER_REVIEW';
+    case PIPELINE_STAGES.SUBMITTED_TO_CLIENT:
       return 'UNDER_REVIEW';
     case PIPELINE_STAGES.INTERVIEW:
       return 'INTERVIEW';
@@ -63,6 +68,9 @@ export function mapStageNameToPipelineBucket(stageName) {
   const n = String(stageName || '').trim().toLowerCase();
   if (!n) return PIPELINE_STAGES.APPLIED;
   if (n.includes('reject')) return PIPELINE_STAGES.REJECTED;
+  if ((n.includes('submit') && n.includes('client')) || n.includes('submitted_to_client')) {
+    return PIPELINE_STAGES.SUBMITTED_TO_CLIENT;
+  }
   if (n.includes('applied') || n === 'apply' || n.includes('submit')) return PIPELINE_STAGES.APPLIED;
   if (/\b(hired|joined|placed|onboarded)\b/.test(n)) {
     return PIPELINE_STAGES.HIRED;
@@ -214,6 +222,8 @@ export function mapPipelineStageToCrmCandidateLabel(stage) {
       return 'Applied';
     case PIPELINE_STAGES.SCREENING:
       return 'Screening';
+    case PIPELINE_STAGES.SUBMITTED_TO_CLIENT:
+      return SUBMITTED_TO_CLIENT_STAGE_LABEL;
     case PIPELINE_STAGES.INTERVIEW:
       return 'Interviewing';
     case PIPELINE_STAGES.OFFER:
@@ -922,7 +932,13 @@ export async function updateCandidateStage({
     status = 'INACTIVE';
   } else if (upper === PIPELINE_STAGES.HIRED) {
     status = 'PLACED';
-  } else if (upper === PIPELINE_STAGES.APPLIED || upper === PIPELINE_STAGES.SCREENING || upper === PIPELINE_STAGES.INTERVIEW || upper === PIPELINE_STAGES.OFFER) {
+  } else if (
+    upper === PIPELINE_STAGES.APPLIED ||
+    upper === PIPELINE_STAGES.SCREENING ||
+    upper === PIPELINE_STAGES.SUBMITTED_TO_CLIENT ||
+    upper === PIPELINE_STAGES.INTERVIEW ||
+    upper === PIPELINE_STAGES.OFFER
+  ) {
     status = 'ACTIVE';
   }
 
@@ -1085,6 +1101,43 @@ export async function updateCandidateStage({
       },
     });
   }
+}
+
+function isLaterThanSubmittedToClient(stageLabel) {
+  const n = String(stageLabel || '').trim().toLowerCase();
+  if (!n) return false;
+  if (n.includes('reject') || n.includes('withdraw')) return true;
+  if (n.includes('hire') || n.includes('joined') || n.includes('placed') || n.includes('onboard')) return true;
+  if (n.includes('offer')) return true;
+  return false;
+}
+
+/** After a recruiter sends a profile to the client, keep CRM + pipeline + portal on this stage. */
+export async function moveCandidateToSubmittedToClient({
+  candidateId,
+  jobId,
+  performedById,
+  metadata = {},
+} = {}) {
+  if (!candidateId || !jobId) return null;
+  const current = await prisma.candidate.findUnique({
+    where: { id: candidateId },
+    select: { stage: true },
+  });
+  if (isLaterThanSubmittedToClient(current?.stage)) return current;
+  await updateCandidateStage({
+    candidateId,
+    jobId,
+    stage: PIPELINE_STAGES.SUBMITTED_TO_CLIENT,
+    stageLabel: SUBMITTED_TO_CLIENT_STAGE_LABEL,
+    performedById,
+    skipStageActivity: true,
+    metadata: {
+      source: 'submit-to-client',
+      ...metadata,
+    },
+  });
+  return true;
 }
 
 /**

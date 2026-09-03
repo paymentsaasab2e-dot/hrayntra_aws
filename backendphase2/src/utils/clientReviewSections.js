@@ -306,7 +306,6 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Expected Salary Currency', editForm.expectedSalaryCurrency],
       ['Expected Benefits', editForm.expectedBenefits],
       ['Notice Period', editForm.noticePeriod],
-      ['Resume URL', editForm.resumeUrl],
       ['Work history (narrative)', editForm.workHistoryText],
       ['Extracurricular activities', editForm.extracurricular],
       ['Volunteers', editForm.volunteers],
@@ -353,16 +352,43 @@ function buildSectionsFromEditForm(editForm, visibility) {
   return sections;
 }
 
+function isInternalResumeStorageUrl(value) {
+  return /hryantra-bucket\.s3|amazonaws\.com\/uploads\/|\/uploads\/(phase\d+|tenants)\//i.test(
+    String(value || ''),
+  );
+}
+
+function shouldHideClientReviewField(label, value) {
+  const key = String(label || '').trim().toLowerCase();
+  if (key === 'resume url' || key === 'file url') return true;
+  if (key.includes('url') && isInternalResumeStorageUrl(value)) return true;
+  return false;
+}
+
+function stripHiddenClientReviewFields(sections) {
+  if (!Array.isArray(sections)) return [];
+  return sections.map((section) => ({
+    ...section,
+    fields: Array.isArray(section?.fields)
+      ? section.fields.filter((row) => !shouldHideClientReviewField(row?.label, row?.value))
+      : [],
+  }));
+}
+
 export function buildClientReviewSectionsFromPresentation(saved) {
   if (!saved) return [];
   if (saved.phase1Snapshot && typeof saved.phase1Snapshot === 'object') {
-    return buildPhase1ClientReviewSections(saved.phase1Snapshot, saved.phase1VisibleSections);
+    return stripHiddenClientReviewFields(
+      buildPhase1ClientReviewSections(saved.phase1Snapshot, saved.phase1VisibleSections),
+    );
   }
   if (saved.editForm && typeof saved.editForm === 'object') {
-    return buildSectionsFromEditForm(saved.editForm, saved.visibleSections);
+    return stripHiddenClientReviewFields(
+      buildSectionsFromEditForm(saved.editForm, saved.visibleSections),
+    );
   }
   if (Array.isArray(saved.clientReviewSections) && saved.clientReviewSections.length > 0) {
-    return saved.clientReviewSections;
+    return stripHiddenClientReviewFields(saved.clientReviewSections);
   }
   return [];
 }

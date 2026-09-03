@@ -108,30 +108,61 @@ export function getMicrosoftOAuthConfig() {
   return { clientId, clientSecret, tenant, redirectUri };
 }
 
+const PRODUCTION_EMPLOYERS_HOST = /(?:^https?:\/\/)?(?:www\.)?(?:employers\.hryantra\.com|phase2\.hryantra\.com|frontendphase2\.vercel\.app)/i;
+
+function isProductionNodeEnv() {
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+}
+
 /**
- * Base URL for the employers SPA (emails, invite links). Reads several env aliases used in deployment.
- * Production must set one of: FRONTEND_URL, CLIENT_URL, NEXT_PUBLIC_APP_URL, APP_PUBLIC_URL, EMPLOYERS_APP_URL.
+ * Base URL for the employers SPA (emails, invite links, client-review).
+ * Development uses FRONTEND_URL (localhost:3001) even if a production host is
+ * also set in the environment. Production never emits localhost links.
  */
 export function resolvePublicFrontendUrl() {
-  const keys = [
-    'EMPLOYERS_APP_URL',
-    'PHASE2_FRONTEND_URL',
-    'FRONTEND_URL',
-    'CLIENT_URL',
-    'NEXT_PUBLIC_APP_URL',
-    'APP_PUBLIC_URL',
-    'PUBLIC_APP_URL',
-  ];
+  const production = isProductionNodeEnv();
+  const keys = production
+    ? [
+        'EMPLOYERS_APP_URL',
+        'PHASE2_FRONTEND_URL',
+        'FRONTEND_URL',
+        'CLIENT_URL',
+        'NEXT_PUBLIC_APP_URL',
+        'APP_PUBLIC_URL',
+        'PUBLIC_APP_URL',
+      ]
+    : [
+        'FRONTEND_URL',
+        'CLIENT_URL',
+        'PHASE2_FRONTEND_URL',
+        'NEXT_PUBLIC_APP_URL',
+        'APP_PUBLIC_URL',
+        'PUBLIC_APP_URL',
+        'EMPLOYERS_APP_URL',
+      ];
+
   for (const key of keys) {
-    const v = process.env[key];
-    if (v != null && String(v).trim()) {
-      return normalizePublicUrl(v);
-    }
+    const v = firstNonEmptyEnvValue(key);
+    if (!v) continue;
+    const url = normalizePublicUrl(v);
+    if (!url) continue;
+    if (production && isLoopbackHost(url)) continue;
+    if (!production && PRODUCTION_EMPLOYERS_HOST.test(url)) continue;
+    return url;
   }
-  if (process.env.NODE_ENV === 'production') {
-    return 'https://employers.hryantra.com';
-  }
-  return 'http://localhost:3001';
+
+  return production ? 'https://employers.hryantra.com' : 'http://localhost:3001';
+}
+
+/** Rewrite leftover production client-review hosts when this API is running in development. */
+export function rewriteClientReviewEmailHtml(html, frontendBase) {
+  const source = String(html || '');
+  if (!source || isProductionNodeEnv()) return source;
+  const base = String(frontendBase || publicFrontendUrl || 'http://localhost:3001').replace(/\/+$/, '');
+  return source.replace(
+    /https?:\/\/(?:www\.)?(?:employers\.hryantra\.com|phase2\.hryantra\.com|frontendphase2\.vercel\.app|app\.hryantra\.com)(\/client-review\/)/gi,
+    `${base}$1`,
+  );
 }
 
 const publicFrontendUrl = resolvePublicFrontendUrl();
