@@ -12,6 +12,12 @@ function mapStageToMatchStatus(stage) {
 
   if (normalizedStage.includes('appl')) return 'REVIEWED';
   if (normalizedStage.includes('review')) return 'REVIEWED';
+  if (
+    (normalizedStage.includes('submit') && normalizedStage.includes('client')) ||
+    normalizedStage.includes('submitted_to_client')
+  ) {
+    return 'SHORTLISTED';
+  }
   if (normalizedStage.includes('shortlist')) return 'SHORTLISTED';
   if (normalizedStage.includes('interview')) return 'SHORTLISTED';
   if (normalizedStage.includes('offer')) return 'SHORTLISTED';
@@ -191,9 +197,7 @@ export const pipelineService = {
 
     // Canonicalize the stage chip and mirror to the job portal.
     // Custom pipeline names ("Tech Round 1", "Offer Sent", etc.) get bucketed into the
-    // standard PIPELINE_STAGES (APPLIED/SCREENING/INTERVIEW/OFFER/HIRED/REJECTED) so
-    // every list view (Candidates, Interviews, Job drawer, Job Portal /applications)
-    // shows the same canonical tag instead of the raw column name.
+    // standard PIPELINE_STAGES so every list view shows a consistent tag.
     if (candidateClient === prisma) {
       try {
         await updateCandidateStage({

@@ -1129,6 +1129,15 @@ export function JobDetailsDrawer({
     [job?.id, job?.applications, jobCandidates, onJobCandidatesChange, recruiterFallbackForJob],
   );
 
+  useEffect(() => {
+    if (!isOpen || !job?.id) return;
+    const onCandidatesChanged = () => {
+      void refreshAppliedJobCandidates();
+    };
+    window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
+    return () => window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);
+  }, [isOpen, job?.id, refreshAppliedJobCandidates]);
+
   const handleInlineCandidateStageChange = useCallback(
     async (candidate: JobDrawerTableCandidate, stageId: string) => {
       const jobId = candidate.pipelineJobId || job?.id;

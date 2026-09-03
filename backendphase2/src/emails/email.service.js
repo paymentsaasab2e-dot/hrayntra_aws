@@ -1,6 +1,6 @@
 import { resend, getEmailFrom } from '../config/email.js';
 import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
-import { env } from '../config/env.js';
+import { env, rewriteClientReviewEmailHtml } from '../config/env.js';
 import { interviewTemplate } from './templates/interview.template.js';
 import { placementTemplate } from './templates/placement.template.js';
 import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
@@ -21,8 +21,18 @@ export const sendEmail = async (to, subject, html, triggerId) => {
       subject,
       html,
     });
+    const deliveryId = result?.data?.id || result?.id;
+    const resendError = result?.error;
+    const errorMessage =
+      resendError?.message ||
+      (typeof resendError === 'string' ? resendError : '');
+    if (!deliveryId && (errorMessage || resendError)) {
+      const message = errorMessage || 'Resend rejected the email';
+      logger.error(`Email not delivered to ${to}: ${subject} — ${message}`);
+      return { success: false, error: message, data: result };
+    }
 
-    logger.info(`Email sent to ${to}: ${subject}`);
+    logger.info(`Email sent to ${to}: ${subject}${deliveryId ? ` (id ${deliveryId})` : ''}`);
     return { success: true, data: result };
   } catch (error) {
     logger.error('Failed to send email:', error);
@@ -140,11 +150,12 @@ export const sendMatchSubmissionEmail = async ({
   candidates,
   portalUrl,
   subject,
+  forceSend = false,
 }) => {
   const triggerEnabled = await isNotificationTriggerEnabled('match.submission_email', {
     aliases: ['match submission', 'submission email'],
   });
-  if (!triggerEnabled) return { success: true, skipped: true };
+  if (!forceSend && !triggerEnabled) return { success: true, skipped: true };
 
   const candidatesHtml = (Array.isArray(candidates) ? candidates : [])
     .map(
@@ -180,8 +191,12 @@ export const sendMatchSubmissionEmail = async ({
   );
 
   const finalSubject = effective?.customized ? templateSubject : subject || templateSubject;
+  const finalHtml = rewriteClientReviewEmailHtml(html, env.FRONTEND_URL);
+  logger.info(
+    `[match.submission_email] to=${Array.isArray(to) ? to.join(',') : to} portalUrl=${portalUrl} frontend=${env.FRONTEND_URL}`,
+  );
 
-  return sendEmail(to, finalSubject, html, 'match.submission_email');
+  return sendEmail(to, finalSubject, finalHtml, 'match.submission_email');
 };
 
 /**

@@ -4,6 +4,7 @@ import { getCandidateOrThrow } from '../modules/candidate/candidate.service.js';
 import {
   PIPELINE_STAGES,
   humanizePortalInterviewRoundLabel,
+  moveCandidateToSubmittedToClient,
   syncApplicationInterviewCancelled,
   syncApplicationOfferLetter,
   updateCandidateStage,
@@ -1789,16 +1790,18 @@ export const interviewService = {
       candidates: [mapInterviewCandidateForEmail(interview.candidate)],
       portalUrl: reviewUrl,
       subject: `Interview Candidate Submission: ${interview.job?.title || 'Job'}`,
+      forceSend: true,
     });
 
     if (!emailResult?.success) {
-      throw new Error(emailResult?.error || 'Failed to send client submission email');
+      console.warn(
+        '[interview.submitToClient] client email failed:',
+        emailResult?.error || 'Failed to send client submission email',
+      );
     }
 
     // Note the submission on the interview so the activity log + notes section
-    // shows what each "Submit to Client" was for. We don't update candidate
-    // stage here; that happens once the client actually responds via the
-    // public review page.
+    // shows what each "Submit to Client" was for.
     try {
       await prisma.interview.update({
         where: { id: interview.id },
@@ -1817,6 +1820,7 @@ export const interviewService = {
           channel: 'submit-to-client',
           submissionType,
           recipients,
+          reviewUrl,
         },
       });
     } catch (logError) {
@@ -1826,11 +1830,32 @@ export const interviewService = {
       );
     }
 
+    try {
+      await moveCandidateToSubmittedToClient({
+        candidateId: interview.candidateId,
+        jobId: interview.jobId,
+        performedById: user?.id,
+        metadata: {
+          interviewId: interview.id,
+          submissionType,
+        },
+      });
+    } catch (stageErr) {
+      console.warn(
+        '[interview.submitToClient] candidate stage sync failed:',
+        stageErr?.message || stageErr,
+      );
+    }
+
     return {
       success: true,
       recipients,
       reviewUrl,
       submissionType,
+      emailSent: Boolean(emailResult?.success) && !emailResult?.skipped,
+      emailError: emailResult?.success && !emailResult?.skipped
+        ? null
+        : emailResult?.error || (emailResult?.skipped ? 'Client submission email is disabled' : 'Failed to send email'),
     };
   },
 
@@ -1916,12 +1941,27 @@ export const interviewService = {
       },
     );
 
-    return serializeInterviewForClientReview(interview, {
+    const payload = serializeInterviewForClientReview(interview, {
       submissionType,
       cvShareMode,
       offerLetterFile,
       matchId: decoded.matchId || interview.id,
     });
+
+    return {
+      ...payload,
+      activeMatchId: payload.matchId,
+      batchCandidates: [
+        {
+          matchId: payload.matchId,
+          candidateName: payload.candidate?.name || 'Candidate',
+          designation: payload.candidate?.designation || '',
+          experience: payload.candidate?.experience ?? null,
+          jobTitle: payload.job?.title || '',
+          detail: payload,
+        },
+      ],
+    };
   },
 
   async submitPublicClientTag(token, payload, file = null) {

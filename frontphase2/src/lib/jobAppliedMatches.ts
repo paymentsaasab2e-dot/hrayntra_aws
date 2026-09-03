@@ -6,6 +6,7 @@ import {
   resolveCandidateLocationLabel,
 } from './candidateListMapping';
 import { extractApiData, isValidObjectId } from './mapCandidateProfile';
+import { isSubmittedToClientStage } from '../utils/candidateStage';
 
 /** Map portal/CRM application enum to pipeline stage label. */
 export function mapApplicationStatusToCrmStage(status?: string | null): string {
@@ -33,6 +34,37 @@ export function mapApplicationStatusToCrmStage(status?: string | null): string {
     default:
       return '';
   }
+}
+
+function jobDrawerStageRank(stage: string): number {
+  const s = String(stage || '').trim().toLowerCase();
+  if (!s || s === 'new') return 0;
+  if (s.includes('reject')) return 70;
+  if (s.includes('hire') || s.includes('placed') || s.includes('joined')) return 60;
+  if (s.includes('offer')) return 50;
+  if (s.includes('interview') && s.includes('complet')) return 45;
+  if (isSubmittedToClientStage(s)) return 42;
+  if (s.includes('interview')) return 40;
+  if (s.includes('screen') || s.includes('short') || s.includes('long')) return 30;
+  if (s.includes('submit')) return 30;
+  if (s.includes('applied') || s.includes('apply')) return 20;
+  return 15;
+}
+
+function pickLaterJobDrawerStage(...stages: Array<string | null | undefined>): string {
+  let best = '';
+  let bestRank = -1;
+  for (const stage of stages) {
+    const raw = String(stage || '').trim();
+    if (!raw || isMatchWorkflowStatus(raw)) continue;
+    const label = resolveJobCandidateDisplayStage(raw);
+    const rank = jobDrawerStageRank(label);
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = label;
+    }
+  }
+  return best;
 }
 
 function stageLooksTerminalHire(stage?: string | null): boolean {
@@ -80,36 +112,32 @@ export function resolveJobCandidateStageFromMatchRow(
   },
   existingStage?: string | null,
 ): string {
-  const seeded = String(existingStage || '').trim();
-  if (seeded && !isMatchWorkflowStatus(seeded)) {
-    return resolveJobCandidateDisplayStage(seeded);
-  }
-
   const displayStatus = String(match.status || '').trim();
-  const fromMatchEnum = mapApplicationStatusToCrmStage(displayStatus);
-  if (fromMatchEnum) {
-    return fromMatchEnum;
-  }
-
   const crmStage = String(match.candidateStage || match.candidate?.stage || '').trim();
-  if (crmStage && crmStage.toLowerCase() !== 'new') {
+  const later = pickLaterJobDrawerStage(existingStage, crmStage);
+  if (later) {
     const matchIsAppliedWorkflow =
       isMatchWorkflowStatus(displayStatus) &&
       ['REVIEWED', 'SUBMITTED'].includes(displayStatus.toUpperCase());
-    if (stageLooksTerminalHire(crmStage) && matchIsAppliedWorkflow) {
+    if (stageLooksTerminalHire(later) && matchIsAppliedWorkflow) {
       return 'Applied';
     }
-    if (stageLooksTerminalHire(crmStage) && mapApplicationStatusToCrmStage(displayStatus)) {
+    if (stageLooksTerminalHire(later) && mapApplicationStatusToCrmStage(displayStatus)) {
       return 'Applied';
     }
-    return resolveJobCandidateDisplayStage(crmStage);
+    return later;
+  }
+
+  const fromMatchEnum = mapApplicationStatusToCrmStage(displayStatus);
+  if (fromMatchEnum && !isMatchWorkflowStatus(displayStatus)) {
+    return fromMatchEnum;
   }
 
   if (displayStatus && !isMatchWorkflowStatus(displayStatus)) {
     return resolveJobCandidateDisplayStage(displayStatus);
   }
 
-  return resolveJobCandidateDisplayStage(crmStage || 'Applied');
+  return resolveJobCandidateDisplayStage(crmStage || existingStage || 'Applied');
 }
 
 /** True when a match row represents a real job link (applied/manual), not AI score-only. */
@@ -313,9 +341,9 @@ export function extractApplicationsJobCandidateItems(
       experience: resolveCandidateExperienceYears(c || {}),
       location: resolveCandidateLocationLabel(c || {}),
       phone: c?.phone ? String(c.phone).trim() : '',
-      currentStage: resolveJobCandidateDisplayStage(
-        String(app.status || c?.stage || 'Applied').trim() || 'Applied',
-      ),
+      currentStage:
+        pickLaterJobDrawerStage(c?.stage, app.status) ||
+        resolveJobCandidateDisplayStage(String(c?.stage || app.status || 'Applied').trim() || 'Applied'),
       isJobAppliedCandidate: true,
       score: '-',
       recruiter: fallbackRecruiter,
@@ -328,27 +356,14 @@ export function extractApplicationsJobCandidateItems(
 }
 
 function pickMergedJobCandidateStage(...stages: Array<string | null | undefined>): string {
+  const later = pickLaterJobDrawerStage(...stages);
+  if (later) return later;
   const normalized = stages
     .map((value) => {
       const raw = String(value || '').trim();
       return mapApplicationStatusToCrmStage(raw) || raw;
     })
     .filter(Boolean);
-  const appliedLike = normalized.filter(
-    (stage) =>
-      isJobAppliedDisplayStage(stage) ||
-      stage.toLowerCase().includes('applied') ||
-      stage.toLowerCase().includes('submit'),
-  );
-  const terminalHire = normalized.filter((stage) => stageLooksTerminalHire(stage));
-  if (appliedLike.length && terminalHire.length) {
-    return resolveJobCandidateDisplayStage(appliedLike[0]);
-  }
-  for (const stage of normalized) {
-    if (!isMatchWorkflowStatus(stage)) {
-      return resolveJobCandidateDisplayStage(stage);
-    }
-  }
   return resolveJobCandidateDisplayStage(normalized[0] || 'Applied');
 }
 

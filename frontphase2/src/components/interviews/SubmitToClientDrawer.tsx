@@ -127,6 +127,7 @@ interface SubmitToClientDrawerProps {
   source?: SubmitToClientSource | null;
   onClose: () => void;
   onToast: (message: string) => void;
+  onSubmitted?: () => void;
 }
 
 // Each option maps a recruiter-friendly purpose to a stable code we send to the
@@ -151,6 +152,53 @@ export const SUBMISSION_TYPES = [
 ] as const;
 
 type SubmissionTypeValue = (typeof SUBMISSION_TYPES)[number]['value'];
+
+type SubmitMatchResult = {
+  reviewUrl?: string | null;
+  emailSent?: boolean;
+  emailError?: string | null;
+};
+
+function readSubmitMatchResult(raw: unknown): SubmitMatchResult {
+  const envelope = (raw && typeof raw === 'object' ? raw : {}) as {
+    data?: SubmitMatchResult;
+    emailSent?: boolean;
+    emailError?: string | null;
+    reviewUrl?: string | null;
+  };
+  const nested =
+    envelope.data && typeof envelope.data === 'object' ? envelope.data : envelope;
+  const reviewUrlRaw = nested.reviewUrl || envelope.reviewUrl;
+  const emailErrorRaw = nested.emailError || envelope.emailError;
+  return {
+    reviewUrl: typeof reviewUrlRaw === 'string' && reviewUrlRaw.trim() ? reviewUrlRaw.trim() : null,
+    emailSent: nested.emailSent === true || envelope.emailSent === true,
+    emailError: typeof emailErrorRaw === 'string' && emailErrorRaw.trim() ? emailErrorRaw.trim() : null,
+  };
+}
+
+function buildSubmitToast(opts: {
+  candidateCount: number;
+  clientCount: number;
+  emailSent?: boolean;
+  emailError?: string | null;
+}): string {
+  const submitted =
+    opts.candidateCount > 1
+      ? `Submitted ${opts.candidateCount} candidates to the client`
+      : 'Submitted to client';
+  if (opts.emailSent) {
+    const emailed =
+      opts.clientCount > 1
+        ? ` Email sent to ${opts.clientCount} clients.`
+        : ' Email sent to the client.';
+    return `${submitted}.${emailed} Open Client view in the candidate drawer to see what the client sees.`;
+  }
+  const fail = opts.emailError
+    ? ` Email was not delivered (${opts.emailError}).`
+    : ' Email was not delivered.';
+  return `${submitted}.${fail} Open Client view in the candidate drawer to copy and share the review link.`;
+}
 
 // Best-guess mapping from interview state → purpose, used as a starting value
 // and to flag when we can't infer it confidently (we then force the recruiter
@@ -263,12 +311,20 @@ function editFormFromDisplayName(name: string, email?: string): CandidateEditFor
   );
 }
 
+function notifyCandidateSubmitted() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+  window.dispatchEvent(new CustomEvent('jobportal:jobs-changed'));
+  window.dispatchEvent(new CustomEvent('jobportal:interviews-changed'));
+}
+
 export function SubmitToClientDrawer({
   isOpen,
   interview = null,
   source = null,
   onClose,
   onToast,
+  onSubmitted,
 }: SubmitToClientDrawerProps) {
   usePageDrawerLifecycle(isOpen);
   const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLElement>({
@@ -1375,10 +1431,11 @@ export function SubmitToClientDrawer({
         }
 
         const batchMatchIds = prepared.map((item) => item.matchId);
+        let firstResult: SubmitMatchResult | null = null;
 
         for (let index = 0; index < prepared.length; index += 1) {
           const item = prepared[index]!;
-          await apiSubmitMatch(item.matchId, {
+          const submittedRaw = await apiSubmitMatch(item.matchId, {
             message: item.message,
             notifyClient: index === 0,
             submissionType,
@@ -1387,13 +1444,19 @@ export function SubmitToClientDrawer({
             additionalClients: index === 0 ? additionalClients : undefined,
             batchMatchIds: batchMatchIds.length > 1 ? batchMatchIds : undefined,
           });
+          if (index === 0) firstResult = readSubmitMatchResult(submittedRaw);
         }
         onToast(
-          activeSource.candidates.length > 1
-            ? `Submitted ${activeSource.candidates.length} candidates to client`
-            : 'Submitted and email sent to client',
+          buildSubmitToast({
+            candidateCount: activeSource.candidates.length,
+            clientCount: clientRecipients.length,
+            emailSent: firstResult?.emailSent,
+            emailError: firstResult?.emailError,
+          }),
         );
         markClean();
+        notifyCandidateSubmitted();
+        onSubmitted?.();
         onClose();
         return;
       }
@@ -1456,18 +1519,30 @@ export function SubmitToClientDrawer({
       const message = `Please review the submitted candidate details for ${title}. Purpose: ${purpose}.`;
 
       if (activeSource.kind === 'interview') {
+        let interviewEmailSent = false;
+        let interviewEmailError: string | null = null;
         for (const recipient of clientRecipients) {
-          await apiSubmitInterviewToClient(activeSource.interview.id, {
+          const submittedRaw = await apiSubmitInterviewToClient(activeSource.interview.id, {
             toEmail: recipient.toEmail,
             message,
         submissionType,
             cvShareMode: cvShareMode || undefined,
           });
+          const submitted = extractApiData<{
+            reviewUrl?: string;
+            emailSent?: boolean;
+            emailError?: string | null;
+          }>(submittedRaw);
+          if (submitted?.emailSent) interviewEmailSent = true;
+          if (submitted?.emailError) interviewEmailError = submitted.emailError;
         }
         onToast(
-          clientRecipients.length > 1
-            ? `Submitted and emailed ${clientRecipients.length} clients`
-            : 'Submitted and email sent to client',
+          buildSubmitToast({
+            candidateCount: 1,
+            clientCount: clientRecipients.length,
+            emailSent: interviewEmailSent,
+            emailError: interviewEmailError,
+          }),
         );
       } else if (activeSource.kind === 'match') {
         let matchId = matchSubmitId;
@@ -1487,7 +1562,7 @@ export function SubmitToClientDrawer({
           return;
         }
 
-        await apiSubmitMatch(matchId, {
+        const submittedRaw = await apiSubmitMatch(matchId, {
           message,
           notifyClient: true,
           submissionType,
@@ -1495,13 +1570,19 @@ export function SubmitToClientDrawer({
           toEmail: primaryRecipient?.toEmail,
           additionalClients,
         });
+        const submitted = readSubmitMatchResult(submittedRaw);
         onToast(
-          clientRecipients.length > 1
-            ? `Submitted and emailed ${clientRecipients.length} clients`
-            : 'Submitted and email sent to client',
+          buildSubmitToast({
+            candidateCount: 1,
+            clientCount: clientRecipients.length,
+            emailSent: submitted.emailSent,
+            emailError: submitted.emailError,
+          }),
         );
       }
       markClean();
+      notifyCandidateSubmitted();
+      onSubmitted?.();
       onClose();
     } catch (error: unknown) {
       onToast(error instanceof Error ? error.message : 'Unable to submit to client');

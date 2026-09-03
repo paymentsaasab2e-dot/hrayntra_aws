@@ -15,6 +15,8 @@ export function isSubmitToClientStageOption(value: string): boolean {
   );
 }
 
+export { isSubmittedToClientStage } from '../utils/candidateStage';
+
 function normalizePipelineStageLabel(value: string): string {
   return String(value || '')
     .trim()

@@ -1089,7 +1089,9 @@ function getCandidateActivityType(activity) {
   if (metadata.kind === PIPELINE_ACTIVITY_KIND) return 'added-to-pipeline';
   if (metadata.kind === REJECTION_ACTIVITY_KIND) return 'rejected';
   if (metadata.kind === INTERVIEW_ACTIVITY_KIND) return 'interview-scheduled';
-  if (action.includes('email')) return 'email-sent';
+  if (action.includes('email') || action.includes('submitted') || metadata.kind === 'match-submission') {
+    return 'email-sent';
+  }
   if (action.includes('resume')) return 'resume-parsed';
   if (action.includes('stage')) return 'stage-movement';
 
@@ -1114,7 +1116,29 @@ function mapActivityToDrawerItem(activity) {
       avatar: activity.performedBy?.avatar || null,
     },
     relatedJob: metadata.relatedJobTitle || activity.relatedLabel || null,
+    reviewUrl: String(metadata.reviewUrl || '').trim() || null,
+    clientName: metadata.clientName || null,
   };
+}
+
+async function resolveFallbackClientReviewUrl(candidateId, db) {
+  const match = await db.match.findFirst({
+    where: { candidateId, status: 'SHORTLISTED' },
+    orderBy: { updatedAt: 'desc' },
+    include: { job: { select: { id: true, clientId: true, title: true } } },
+  });
+  if (!match) return '';
+  const { createClientReviewToken } = await import('../../services/interview.service.js');
+  const { env } = await import('../../config/env.js');
+  const token = createClientReviewToken({
+    matchId: match.id,
+    candidateId: match.candidateId,
+    jobId: match.jobId,
+    clientId: match.job?.clientId || null,
+    submissionType: 'GENERAL',
+    cvShareMode: 'edited',
+  });
+  return `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
 }
 
 function mapActivityToNote(activity) {
@@ -2613,7 +2637,27 @@ async function buildCandidateResponse(candidate, activityClient = prisma, viewer
   const activities = await getCandidateActivities(candidate.id, activityClient, viewerUserId);
   const customTags = extractCustomTags(activities);
   const internalNotes = activities.map(mapActivityToNote).filter(Boolean);
-  const activityFeed = activities.map(mapActivityToDrawerItem).filter(Boolean);
+  let extraReviewUrl = String(candidate?.extraData?.cvSubmission?.reviewUrl || '').trim();
+  const hasSubmissionWithoutUrl = activities.some((activity) => {
+    const metadata = getActivityMetadata(activity);
+    const action = String(activity.action || '').toLowerCase();
+    const isSubmission = action.includes('submitted') || metadata.kind === 'match-submission';
+    return isSubmission && !String(metadata.reviewUrl || '').trim();
+  });
+  if (!extraReviewUrl && hasSubmissionWithoutUrl) {
+    extraReviewUrl = await resolveFallbackClientReviewUrl(candidate.id, activityClient);
+  }
+  const activityFeed = activities
+    .map(mapActivityToDrawerItem)
+    .filter(Boolean)
+    .map((item) =>
+      item.type === 'email-sent' &&
+      !item.reviewUrl &&
+      extraReviewUrl &&
+      /submitted/i.test(String(item.title || ''))
+        ? { ...item, reviewUrl: extraReviewUrl }
+        : item,
+    );
   const normalizedCandidate = {
     ...candidate,
     resume: resolveCandidateResumeUrl(candidate),
@@ -2808,6 +2852,12 @@ const STAGE_FILTER_VARIANTS = {
   shortlist: ['Shortlist', 'Short List', 'SHORTLIST'],
   screening: ['Screening', 'SCREENING'],
   submitted: ['Submitted', 'SUBMITTED'],
+  'submit-to-client': [
+    'Submit to Client',
+    'Submit to client',
+    'SUBMITTED_TO_CLIENT',
+    'Submitted to Client',
+  ],
   interviewing: ['Interviewing', 'Interview', 'INTERVIEW', 'INTERVIEWING'],
   offered: ['Offered', 'Offer', 'OFFER', 'OFFERED'],
   hired: ['Hired', 'HIRED', 'Placed', 'PLACED'],

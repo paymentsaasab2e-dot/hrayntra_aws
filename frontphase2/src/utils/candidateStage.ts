@@ -4,6 +4,14 @@ export function getCandidateStageLabel(stage?: string | null) {
   if (normalized === 'new') return 'New';
   if (normalized === 'suggested') return 'Applied';
   if (normalized === 'shortlisted' || normalized === 'selected') return 'Shortlisted';
+  if (
+    normalized === 'submit to client' ||
+    normalized === 'submitted to client' ||
+    normalized === 'submitted_to_client' ||
+    (normalized.includes('submit') && normalized.includes('client'))
+  ) {
+    return 'Submit to Client';
+  }
   if (normalized === 'reviewed') return 'Reviewed';
   if (normalized === 'offer sent' || normalized === 'offer_sent') return 'Offer Sent';
   if (normalized === 'offer accepted' || normalized === 'offer_accepted') return 'Offer Accepted';
@@ -25,6 +33,18 @@ export function getCandidateStageLabel(stage?: string | null) {
   return stage || 'Unknown';
 }
 
+/** Persisted CRM / pipeline stage after a recruiter sends the profile to the client. */
+export function isSubmittedToClientStage(stage?: string | null): boolean {
+  const n = String(stage || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+  if (!n) return false;
+  if (n === 'submitted to client' || n === 'submit to client') return true;
+  return n.includes('submit') && n.includes('client');
+}
+
 /** Background-forward stage chips: saturated bg + white label text */
 const STAGE_BADGE_CLASSES: Record<string, string> = {
   new: 'bg-green-500 text-white border-green-500',
@@ -33,6 +53,8 @@ const STAGE_BADGE_CLASSES: Record<string, string> = {
   screening: 'bg-violet-500 text-white border-violet-500',
   shortlist: 'bg-purple-500 text-white border-purple-500',
   shortlisted: 'bg-purple-500 text-white border-purple-500',
+  submit_to_client: 'bg-indigo-600 text-white border-indigo-600',
+  submitted_to_client: 'bg-indigo-600 text-white border-indigo-600',
   interview: 'bg-amber-500 text-white border-amber-500',
   interviewing: 'bg-orange-500 text-white border-orange-500',
   interview_completed: 'bg-emerald-600 text-white border-emerald-600',
@@ -86,6 +108,9 @@ function matchPartialStageKey(key: string): string | null {
   if (key.includes('applied')) return STAGE_BADGE_CLASSES.applied;
   if (key.includes('screen')) return STAGE_BADGE_CLASSES.screening;
   if (key.includes('shortlist')) return STAGE_BADGE_CLASSES.shortlist;
+  if ((key.includes('submit') && key.includes('client')) || key.includes('submitted_to_client')) {
+    return STAGE_BADGE_CLASSES.submit_to_client;
+  }
   if (key.includes('interview') && key.includes('complet')) {
     return STAGE_BADGE_CLASSES.interview_completed;
   }

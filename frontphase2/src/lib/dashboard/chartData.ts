@@ -350,6 +350,7 @@ const HIRING_PIPELINE_STAGE_ORDER = [
   'Longlist',
   'Shortlist',
   'Screening',
+  'Submit to Client',
   'Submitted',
   'Interviewing',
   'Offered',

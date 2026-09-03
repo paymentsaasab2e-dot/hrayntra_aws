@@ -179,6 +179,8 @@ export interface CandidateProfileDrawerData {
       avatar?: string | null;
     };
     relatedJob?: string | null;
+    reviewUrl?: string | null;
+    clientName?: string | null;
   }>;
   aiScore?: {
     overall: number;

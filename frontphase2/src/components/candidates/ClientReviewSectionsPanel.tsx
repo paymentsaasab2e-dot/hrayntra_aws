@@ -46,6 +46,26 @@ function isUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
 
+function isInternalResumeStorageUrl(value: string): boolean {
+  return /hryantra-bucket\.s3|amazonaws\.com\/uploads\/|\/uploads\/(phase\d+|tenants)\//i.test(
+    String(value || ''),
+  );
+}
+
+function shouldHideClientReviewField(label: string, value: string): boolean {
+  const key = String(label || '').trim().toLowerCase();
+  if (key === 'resume url' || key === 'file url') return true;
+  if (key.includes('url') && isInternalResumeStorageUrl(value)) return true;
+  return false;
+}
+
+function resumeOpenLabel(url: string): string {
+  const last = decodeURIComponent(String(url || '').split('?')[0].split('/').pop() || '');
+  const cleaned = last.replace(/^\d+_[a-f0-9]+_/i, '').replace(/_/g, ' ').trim();
+  if (cleaned && /\.(pdf|docx?|txt)$/i.test(cleaned)) return 'Open resume';
+  return 'Open resume';
+}
+
 function display(value: unknown): string {
   if (value === undefined || value === null) return '';
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
@@ -65,23 +85,34 @@ function FieldRow({
   const empty = !text;
   const link = href || (isUrl(text) ? text : '');
 
+  const valueNode = empty ? (
+    <p className={phase1FieldEmptyClass}>Not in resume</p>
+  ) : link && isInternalResumeStorageUrl(link) ? (
+    <a
+      href={link}
+      target="_blank"
+      rel="noreferrer"
+      className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+    >
+      {resumeOpenLabel(link)}
+    </a>
+  ) : link ? (
+    <a
+      href={link}
+      target="_blank"
+      rel="noreferrer"
+      className="break-all text-sm font-medium text-indigo-600 hover:text-indigo-700"
+    >
+      {text}
+    </a>
+  ) : (
+    <p className={`whitespace-pre-line break-words ${phase1FieldValueClass}`}>{text}</p>
+  );
+
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
-      <p className={phase1FieldLabelClass}>{label}</p>
-      {empty ? (
-        <p className={`mt-1 ${phase1FieldEmptyClass}`}>Not in resume</p>
-      ) : link ? (
-        <a
-          href={link}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1 block break-all text-sm font-medium text-blue-700 hover:underline"
-        >
-          {text}
-        </a>
-      ) : (
-        <p className={`mt-1 whitespace-pre-line break-words ${phase1FieldValueClass}`}>{text}</p>
-      )}
+    <div className="grid gap-1 border-b border-slate-100/90 py-2.5 last:border-b-0 sm:grid-cols-[minmax(7.5rem,32%)_1fr] sm:gap-4">
+      <p className={`${phase1FieldLabelClass} sm:pt-0.5`}>{label}</p>
+      <div className="min-w-0">{valueNode}</div>
     </div>
   );
 }
@@ -108,17 +139,23 @@ function SectionBlock({
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/80">
+    <section className="border-b border-slate-100 last:border-b-0">
       <button
         type="button"
         onClick={() => onToggle(id)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-100/80"
+        className={`flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition ${
+          open ? 'bg-indigo-50/40' : 'bg-white hover:bg-slate-50/80'
+        }`}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="rounded-lg bg-white p-2 text-indigo-600 shadow-sm ring-1 ring-slate-200/80">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+              open ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600'
+            }`}
+          >
             <Icon size={16} />
           </span>
-          <div>
+          <div className="min-w-0">
             <h3 className={phase1SectionTitleClass}>{title}</h3>
             <p className={phase1SectionMetaClass}>
               {extraHint ?? `${filled}/${total} fields captured`}
@@ -127,10 +164,12 @@ function SectionBlock({
         </div>
         <ChevronDown
           size={18}
-          className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180 text-indigo-500' : ''}`}
         />
       </button>
-      {open ? <div className="space-y-3 border-t border-slate-200/80 px-4 pb-4 pt-3">{children}</div> : null}
+      {open ? (
+        <div className="space-y-3 bg-slate-50/70 px-4 pb-4 pt-1">{children}</div>
+      ) : null}
     </section>
   );
 }
@@ -254,13 +293,6 @@ function entryHasData(entry: Record<string, unknown>): boolean {
   });
 }
 
-function isLongFormField(label: string, value: string): boolean {
-  if (value.length > 160) return true;
-  return /summary|details|description|history|notes|responsibilities|activities|volunteers|remarks/i.test(
-    label,
-  );
-}
-
 function tryParseJsonArray(value: string): Record<string, unknown>[] | null {
   if (!value.startsWith('[') && !value.startsWith('{')) return null;
   try {
@@ -290,7 +322,7 @@ function WorkEntryCard({ entry, index }: { entry: Record<string, unknown>; index
   const meta = formatWorkEntryMeta(cvEntry);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+    <div className="rounded-2xl bg-white px-3.5 py-3 ring-1 ring-slate-100">
       <p className={phase1EntryTitleClass}>{formatWorkEntryHeadline(cvEntry, index)}</p>
       {meta ? <p className={`mt-0.5 ${phase1EntryMetaClass}`}>{meta}</p> : null}
       {(cvEntry.responsibilities?.length ?? 0) > 0 ? (
@@ -563,18 +595,19 @@ export function ClientReviewSectionsPanel({
       {(jobTitle || clientName) && showMeta ? (
         <div className="flex flex-wrap gap-2">
           {jobTitle ? (
-            <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-800">
+            <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-800">
               Assigned Job: {jobTitle}
             </span>
           ) : null}
           {clientName ? (
-            <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+            <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
               Client: {clientName}
             </span>
           ) : null}
         </div>
       ) : null}
 
+      <div className="overflow-hidden rounded-3xl bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
       {mergedSections.map((section) => {
         const meta = SECTION_META[section.id] || { title: section.title, icon: FileText };
         const workEntries = resolveWorkEntries(section);
@@ -586,6 +619,7 @@ export function ClientReviewSectionsPanel({
 
         for (const row of section.fields) {
           if (row.value === 'No entries provided') continue;
+          if (shouldHideClientReviewField(row.label, row.value)) continue;
           const structured = renderStructuredField(row.label, row.value);
           if (structured) {
             structuredRows.push(
@@ -636,18 +670,10 @@ export function ClientReviewSectionsPanel({
             {entryCards}
             {structuredRows}
             {scalarFields.length > 0 ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {scalarFields.map((row) => {
-                  const longForm = isLongFormField(row.label, row.value);
-                  return (
-                    <div
-                      key={`${section.id}-${row.label}`}
-                      className={longForm ? 'sm:col-span-2' : undefined}
-                    >
-                      <FieldRow label={row.label} value={row.value} />
-                    </div>
-                  );
-                })}
+              <div className="rounded-2xl bg-white px-3 ring-1 ring-slate-100">
+                {scalarFields.map((row) => (
+                  <FieldRow key={`${section.id}-${row.label}`} label={row.label} value={row.value} />
+                ))}
               </div>
             ) : !entryCards && !structuredRows.length ? (
               <p className={phase1FieldEmptyClass}>Not provided</p>
@@ -655,6 +681,7 @@ export function ClientReviewSectionsPanel({
           </SectionBlock>
         );
       })}
+      </div>
     </div>
   );
 }

@@ -9,7 +9,16 @@ import type { CandidateEditFormState } from './CandidateEditAtsSections';
 import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
 
 const CANDIDATE_STATUS_OPTIONS = ['NEW', 'ACTIVE', 'PLACED', 'INACTIVE', 'BLACKLISTED'];
-const CANDIDATE_STAGE_OPTIONS = ['Applied', 'Shortlisted', 'Screening', 'Interviewing', 'Offered', 'Hired', 'Rejected'];
+const CANDIDATE_STAGE_OPTIONS = [
+  'Applied',
+  'Shortlisted',
+  'Screening',
+  'Submit to Client',
+  'Interviewing',
+  'Offered',
+  'Hired',
+  'Rejected',
+];
 const CANDIDATE_AVAILABILITY_OPTIONS = ['available', 'limited', 'unavailable'];
 const SALARY_CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED'];
 
@@ -200,7 +209,9 @@ export function CandidateHiringEditSection({ form, onChange, recruiters, jobs }:
         <EditSelect
           label="Stage"
           value={form.stage}
-          options={CANDIDATE_STAGE_OPTIONS.map((value) => ({ label: value, value }))}
+          options={Array.from(
+            new Set([...CANDIDATE_STAGE_OPTIONS, form.stage].map((value) => String(value || '').trim()).filter(Boolean)),
+          ).map((value) => ({ label: value, value }))}
           onChange={(v) => onChange('stage', v)}
         />
         <EditSelect

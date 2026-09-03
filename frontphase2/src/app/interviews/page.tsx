@@ -405,7 +405,7 @@ export default function InterviewsPage() {
   // interview/job change events. `retryLoad` is the same function the page
   // already calls for explicit reloads.
   usePageAutoRefresh((opts) => refreshAll(opts), {
-    events: ['jobportal:interviews-changed', 'jobportal:jobs-changed'],
+    events: ['jobportal:interviews-changed', 'jobportal:jobs-changed', 'jobportal:candidates-changed'],
   });
 
   const clientJobOptions = useMemo(
@@ -1244,6 +1244,9 @@ export default function InterviewsPage() {
         interview={selectedInterview}
         onClose={() => setSubmitToClientOpen(false)}
         onToast={setToast}
+        onSubmitted={() => {
+          void refreshAll({ silent: true });
+        }}
       />
 
       <RejectCandidateModal

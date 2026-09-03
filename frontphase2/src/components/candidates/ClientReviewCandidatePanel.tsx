@@ -40,10 +40,10 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
     return (
       <div className="space-y-4">
         {isDrawer ? (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Overview</p>
-            <p className="mt-1 text-sm text-slate-600">
-              Sections below were selected by the recruiter for your client review.
+          <div className="rounded-3xl bg-white px-5 py-4 shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-500">Overview</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Open a section to review the profile the recruiter shared, then submit your decision below.
             </p>
           </div>
         ) : null}
@@ -52,12 +52,12 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
           sections={presentationSections}
           jobTitle={reviewData?.job?.title}
           clientName={reviewData?.client?.companyName}
-          defaultOpen
+          defaultOpen={!isDrawer}
           showMeta={!isDrawer}
         />
 
         {showSaasaCv && sharedResumeUrl.startsWith('http') ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+          <div className="rounded-3xl bg-amber-50 px-5 py-4 ring-1 ring-amber-100">
             <h2 className="text-sm font-semibold text-slate-900">HRYantra CV</h2>
             <p className="mt-1 text-sm text-slate-600">
               Annotated CV shared by the recruiter for your review.
@@ -74,17 +74,20 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
         ) : null}
 
         {showEditedCv && sharedResumeUrl.startsWith('http') ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-slate-900">Source resume (reference)</h2>
-            <a
-              href={sharedResumeUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-flex text-sm font-semibold text-blue-700 hover:underline"
-            >
-              Open resume file
-            </a>
-          </div>
+          <a
+            href={sharedResumeUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-between rounded-3xl bg-white px-5 py-4 shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70 transition hover:ring-indigo-200"
+          >
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Source resume</p>
+              <p className="mt-0.5 text-xs text-slate-500">Reference file shared by the recruiter</p>
+            </div>
+            <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">
+              Open file
+            </span>
+          </a>
         ) : null}
 
         {!isDrawer ? (

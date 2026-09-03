@@ -1,5 +1,6 @@
 import type { BackendCandidate } from './api';
 import { mapBackendStage } from './mapCandidateProfile';
+import { isSubmittedToClientStage } from '../utils/candidateStage';
 
 /** AI Matches scoring rows must not appear as assign/apply on the Candidates list. */
 function matchRepresentsCrmJobLink(match: {
@@ -39,8 +40,10 @@ function stageRank(stage: string): number {
   if (s.includes('hire') || s.includes('placed') || s.includes('joined')) return 60;
   if (s.includes('offer')) return 50;
   if (s.includes('interview') && s.includes('complet')) return 45;
+  if (isSubmittedToClientStage(s)) return 42;
   if (s.includes('interview')) return 40;
-  if (s.includes('screen') || s.includes('short') || s.includes('long') || s.includes('submit')) return 30;
+  if (s.includes('screen') || s.includes('short') || s.includes('long')) return 30;
+  if (s.includes('submit')) return 30;
   if (s.includes('applied') || s.includes('apply')) return 20;
   return 15;
 }
@@ -107,6 +110,7 @@ function explicitStageLooksJobLinked(stage: string): boolean {
     s.includes('applied') ||
     s.includes('apply') ||
     s.includes('submit') ||
+    isSubmittedToClientStage(s) ||
     s.includes('screen') ||
     s.includes('short') ||
     s.includes('long') ||
@@ -125,6 +129,10 @@ export function resolveCandidateListStage(c: BackendCandidate): string {
   const explicitLower = explicit.toLowerCase();
   const upcomingInterview = hasUpcomingInterview(c);
   const interviewCompletedOnly = hasCompletedInterviewOnly(c);
+
+  if (isSubmittedToClientStage(explicit)) {
+    return explicit;
+  }
 
   if (interviewCompletedOnly && !upcomingInterview) {
     const merged = mergeStages(explicit, 'Interview completed');
