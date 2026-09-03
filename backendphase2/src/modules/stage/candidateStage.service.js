@@ -22,6 +22,17 @@ export const PIPELINE_STAGES = {
 
 export const SUBMITTED_TO_CLIENT_STAGE_LABEL = 'Submit to Client';
 
+export function isSubmittedToClientStageLabel(stage) {
+  const n = String(stage || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+  if (!n) return false;
+  if (n === 'submitted to client' || n === 'submit to client') return true;
+  return n.includes('submit') && n.includes('client');
+}
+
 /**
  * Map internal pipeline stage to job-portal `ApplicationStatus` (Prisma enum on portal DB).
  */
@@ -1026,7 +1037,7 @@ export async function updateCandidateStage({
   }
 
   try {
-    if (label && label !== previousStage) {
+    if (label && label !== previousStage && metadata?.source !== 'submit-to-client') {
       const job = jobId
         ? await prisma.job.findUnique({
             where: { id: jobId },

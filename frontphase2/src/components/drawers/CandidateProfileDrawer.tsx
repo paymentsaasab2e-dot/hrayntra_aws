@@ -65,6 +65,7 @@ import {
   X,
   Activity,
   Paperclip,
+  Building2,
 } from 'lucide-react';
 import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
@@ -113,6 +114,7 @@ import { getYmdInTimeZone } from '../../utils/zonedDateTime';
 import {
   profileCanSubmitToClient,
   isSubmitToClientStageOption,
+  isSubmittedToClientStage,
   SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
   SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
   isInterviewPipelineStage,
@@ -120,6 +122,7 @@ import {
 } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
+import { CandidateClientRepliesTab } from './CandidateClientRepliesTab';
 import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
 import { CandidatePhase1SubmitEditSections } from '../candidates/CandidatePhase1SubmitEditSections';
 import { applyHiringFieldsFromEditForm, CandidateHiringEditSection } from '../candidates/CandidateHiringSection';
@@ -250,6 +253,7 @@ interface CandidateProfileDrawerProps {
 
 type DrawerTab =
   | 'Overview'
+  | 'Client'
   | 'Resume'
   | 'Interviews'
   | 'Assessments'
@@ -4298,6 +4302,9 @@ export function CandidateProfileDrawer({
     avatar: null,
   };
 
+  const clientReplies = candidate?.clientReplies || [];
+  const clientSubmissions = candidate?.clientSubmissions || [];
+
   const groupedActivity = useMemo(() => {
     const items = [...(candidate?.activity || [])].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -4334,9 +4341,47 @@ export function CandidateProfileDrawer({
     if (!reviewUrl) return null;
     return {
       reviewUrl,
-      clientName: fromActivity?.clientName || null,
+      clientName: fromActivity?.clientName || clientSubmissions[0]?.clientName || null,
     };
-  }, [candidate?.activity, candidate?.extraData]);
+  }, [candidate?.activity, candidate?.extraData, clientSubmissions]);
+
+  const showClientTab = useMemo(() => {
+    if (clientReplies.length || clientSubmissions.length) return true;
+    if (latestClientReview?.reviewUrl) return true;
+    if (isSubmittedToClientStage(candidate?.stage)) return true;
+    if ((candidate?.assignedJobs || []).some((job) => isSubmittedToClientStage(job.stage))) return true;
+    return (candidate?.activity || []).some((item) => {
+      const title = String(item.title || '').toLowerCase();
+      return Boolean(String(item.reviewUrl || '').trim()) || title.includes('submitted');
+    });
+  }, [
+    candidate?.activity,
+    candidate?.assignedJobs,
+    candidate?.stage,
+    clientReplies.length,
+    clientSubmissions.length,
+    latestClientReview?.reviewUrl,
+  ]);
+
+  const visibleTabs = useMemo(() => {
+    if (!showClientTab) return TABS;
+    return [
+      TABS[0],
+      {
+        id: 'Client' as const,
+        label: 'Client',
+        icon: Building2,
+        badge: clientReplies.length || undefined,
+      },
+      ...TABS.slice(1),
+    ];
+  }, [clientReplies.length, showClientTab]);
+
+  useEffect(() => {
+    if (activeTab === 'Client' && !showClientTab) {
+      setActiveTab('Overview');
+    }
+  }, [activeTab, showClientTab]);
 
   const openClientReviewLink = useCallback((url: string) => {
     if (!url) return;
@@ -4884,7 +4929,7 @@ export function CandidateProfileDrawer({
 
                 <DrawerTabBar
                   ariaLabel="Candidate sections"
-                  tabs={TABS}
+                  tabs={visibleTabs}
                   activeId={activeTab}
                   onChange={setActiveTab}
                 />
@@ -4964,6 +5009,15 @@ export function CandidateProfileDrawer({
                     )}
                   </div>
                 )}
+
+                {activeTab === 'Client' && showClientTab ? (
+                  <CandidateClientRepliesTab
+                    replies={clientReplies}
+                    submissions={clientSubmissions}
+                    fallbackClientName={latestClientReview?.clientName || null}
+                    uploadsBase={uploadsBase}
+                  />
+                ) : null}
 
                 {activeTab === 'Resume' && (
                   <div className="flex h-[calc(100vh-18rem)] min-h-[560px] flex-col">

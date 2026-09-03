@@ -3,6 +3,7 @@ import {
   getDefaultTriggerTemplate,
   interpolateTemplate,
 } from './notification-trigger-default-templates.js';
+import { sanitizeEmailSubject } from '../../utils/emailDeliverability.js';
 
 export const NOTIFICATION_TRIGGER_TEMPLATES_SETTINGS_KEY =
   'notification_email_trigger_templates_v1';
@@ -110,7 +111,7 @@ export async function getWorkspaceEffectiveTriggerTemplates(triggerIds = []) {
 
 export async function renderNotificationTriggerEmail(triggerId, userId = null, variables = {}) {
   const effective = await getEffectiveNotificationTriggerTemplate(triggerId, userId);
-  const subject = interpolateTemplate(effective.subject, variables);
+  const subject = sanitizeEmailSubject(interpolateTemplate(effective.subject, variables));
   const html = interpolateTemplate(effective.bodyHtml, variables);
   return { subject, html, effective };
 }

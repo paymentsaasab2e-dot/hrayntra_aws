@@ -20,6 +20,7 @@ import {
 import { AI_MATCH_AUTHOR_WHERE, MANUAL_MATCH_AUTHOR_WHERE } from './matchQueryHelpers.js';
 import { notifyMatchSubmittedToClient } from '../setting/alert-notify.helpers.js';
 import { moveCandidateToSubmittedToClient } from '../stage/candidateStage.service.js';
+import { isDeliverableEmail } from '../../utils/emailDeliverability.js';
 
 // Mirror of the interview drawer's purpose codes. Keeping the resolution
 // logic here means a match-submitted-to-client carries the same UX (tag
@@ -342,7 +343,7 @@ function mapSubmittedHistory(activities, jobId) {
 
 function usableEmail(value) {
   const email = String(value || '').trim();
-  if (!email || !email.includes('@') || /@placeholder\.local$/i.test(email)) return '';
+  if (!isDeliverableEmail(email)) return '';
   return email;
 }
 
@@ -1044,6 +1045,10 @@ export const matchService = {
     const recipients = notifyClient ? getClientRecipients(match.job.client, data?.toEmail) : [];
 
     if (notifyClient && !recipients.length) {
+      const raw = String(data?.toEmail || '').trim();
+      if (raw && !isDeliverableEmail(raw)) {
+        throw new Error(`Client contact email is invalid: ${raw}`);
+      }
       throw new Error('No client contact email found for this job');
     }
 

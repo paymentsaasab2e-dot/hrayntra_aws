@@ -5973,6 +5973,25 @@ export interface BackendCandidate {
   hotlist: boolean;
   avatar?: string | null;
   createdById?: string | null;
+  clientReplies?: Array<{
+    id: string;
+    clientName?: string | null;
+    jobTitle?: string | null;
+    tag?: string | null;
+    comments?: string | null;
+    documentUrl?: string | null;
+    documentFileName?: string | null;
+    documentLabel?: string | null;
+    repliedAt?: string | Date | null;
+    submissionType?: string | null;
+  }>;
+  clientSubmissions?: Array<{
+    id: string;
+    clientName?: string | null;
+    jobTitle?: string | null;
+    reviewUrl?: string | null;
+    submittedAt?: string | Date | null;
+  }>;
 }
 
 export async function apiGetCandidates(params: {

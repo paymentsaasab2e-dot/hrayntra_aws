@@ -13,6 +13,7 @@ import { generateMeetingLink } from './meetingService.js';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { sendMatchSubmissionEmail } from '../emails/email.service.js';
+import { isDeliverableEmail } from '../utils/emailDeliverability.js';
 import {
   sendInterviewCancelled,
   sendInterviewRescheduled,
@@ -298,7 +299,9 @@ const getClientRecipients = async (clientId) => {
     select: { email: true },
     orderBy: { createdAt: 'asc' },
   });
-  return Array.from(new Set(contacts.map((c) => String(c.email || '').trim()).filter(Boolean)));
+  return Array.from(
+    new Set(contacts.map((c) => String(c.email || '').trim()).filter((email) => isDeliverableEmail(email))),
+  );
 };
 
 const mapInterviewCandidateForEmail = (candidate) => ({
@@ -424,6 +427,141 @@ function parseClientReviewResponsesFromNotes(notes) {
     }
   }
   return responses;
+}
+
+const MATCH_CLIENT_REVIEW_KIND = 'match-client-review';
+
+async function persistCandidateClientReviewActivity({
+  candidateId,
+  jobId,
+  matchId = null,
+  interviewId = null,
+  uploaderId = null,
+  submissionType = 'GENERAL',
+  tag = '',
+  comments = '',
+  offerLetterUrl = null,
+  file = null,
+  clientName = null,
+  clientId = null,
+  jobTitle = null,
+}) {
+  if (!candidateId) return;
+  const hasFile = Boolean(file);
+  const action = hasFile
+    ? submissionType === 'OFFER_CONFIRMATION'
+      ? 'Client uploaded offer letter'
+      : 'Client uploaded review document'
+    : 'Client review submitted';
+  const noteParts = [];
+  if (tag) noteParts.push(`[Client Tag] ${tag}${comments ? ` - ${comments}` : ''}`);
+  if (file) {
+    const uploadLabel =
+      submissionType === 'OFFER_CONFIRMATION' ? 'Offer letter received' : 'Document received';
+    noteParts.push(`[Client Upload] ${uploadLabel}: ${file.originalname || file.filename}`);
+  }
+
+  await prisma.activity.create({
+    data: {
+      action,
+      description: noteParts.join(' | ') || (tag ? `Tag: ${tag}` : 'Client review submitted'),
+      performedById: uploaderId || undefined,
+      entityType: 'CANDIDATE',
+      entityId: candidateId,
+      category: 'Candidates',
+      relatedType: 'job',
+      relatedId: jobId || undefined,
+      relatedLabel: jobTitle || undefined,
+      metadata: {
+        kind: MATCH_CLIENT_REVIEW_KIND,
+        matchId: matchId || null,
+        interviewId: interviewId || null,
+        submissionType,
+        tag: tag || '',
+        comments: comments || null,
+        offerLetterUrl: offerLetterUrl || null,
+        documentFileName: file ? file.originalname || file.filename : null,
+        clientName: clientName || null,
+        clientId: clientId || null,
+        jobTitle: jobTitle || null,
+      },
+    },
+  });
+
+  try {
+    const row = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      select: { extraData: true },
+    });
+    const extra =
+      row?.extraData && typeof row.extraData === 'object' && !Array.isArray(row.extraData)
+        ? row.extraData
+        : {};
+    const existing = Array.isArray(extra.clientReviews) ? extra.clientReviews : [];
+    const reply = {
+      id: `client-review-${Date.now()}`,
+      clientName: clientName || 'Client',
+      jobTitle: jobTitle || null,
+      tag: tag || '',
+      comments: comments || '',
+      documentUrl: offerLetterUrl || null,
+      documentFileName: file ? file.originalname || file.filename : null,
+      documentLabel: file
+        ? submissionType === 'OFFER_CONFIRMATION'
+          ? 'Offer letter received'
+          : 'Document received'
+        : null,
+      repliedAt: new Date().toISOString(),
+      submissionType,
+    };
+    await prisma.candidate.update({
+      where: { id: candidateId },
+      data: {
+        extraData: {
+          ...extra,
+          clientReviews: [reply, ...existing].slice(0, 25),
+        },
+      },
+    });
+  } catch (extraError) {
+    console.warn(
+      '[interview] persist client review on candidate extraData failed:',
+      extraError?.message || extraError
+    );
+  }
+}
+
+async function resolveClientReviewContext({ decoded, interview, jobId }) {
+  const tokenClientId = String(decoded?.clientId || '').trim() || null;
+  const [jobRow, tokenClient] = await Promise.all([
+    jobId
+      ? prisma.job.findUnique({
+          where: { id: jobId },
+          select: {
+            id: true,
+            title: true,
+            clientId: true,
+            client: { select: { id: true, companyName: true } },
+          },
+        })
+      : Promise.resolve(null),
+    tokenClientId
+      ? prisma.client.findUnique({
+          where: { id: tokenClientId },
+          select: { id: true, companyName: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    clientName:
+      tokenClient?.companyName ||
+      interview?.client?.companyName ||
+      jobRow?.client?.companyName ||
+      null,
+    clientId: tokenClient?.id || interview?.clientId || jobRow?.clientId || null,
+    jobTitle: interview?.job?.title || jobRow?.title || null,
+  };
 }
 
 function attachDocumentUrlsToResponses(responses, files = []) {
@@ -1728,10 +1866,14 @@ export const interviewService = {
   async submitToClient(interviewId, payload, user) {
     const interview = await getInterviewOrThrow(interviewId);
     const recipients = payload?.toEmail
-      ? [String(payload.toEmail).trim()].filter(Boolean)
+      ? [String(payload.toEmail).trim()].filter((email) => isDeliverableEmail(email))
       : await getClientRecipients(interview.clientId);
 
     if (!recipients.length) {
+      const raw = String(payload?.toEmail || '').trim();
+      if (raw && !isDeliverableEmail(raw)) {
+        throw new Error(`Client contact email is invalid: ${raw}`);
+      }
       throw new Error('No client email found for this interview/client');
     }
 
@@ -2119,6 +2261,8 @@ export const interviewService = {
       }
       const noteAppend = noteParts.length ? `\n${noteParts.join('\n')}` : '';
 
+      const reviewContext = await resolveClientReviewContext({ decoded, interview, jobId });
+
       let updatedRecordId = null;
       if (interview) {
         const updated = await prisma.interview.update({
@@ -2130,56 +2274,56 @@ export const interviewService = {
         });
         updatedRecordId = updated.id;
       } else if (match) {
-        // Match-only flow: log the client's response as a candidate activity
-        // so it surfaces in the matches view + candidate timeline.
-        try {
-          await prisma.activity.create({
-            data: {
-              action: file
-                ? submissionType === 'OFFER_CONFIRMATION'
-                  ? 'Client uploaded offer letter'
-                  : 'Client uploaded review document'
-                : 'Client review submitted',
-              description: noteParts.join(' | ') || `Tag: ${tag}`,
-              performedById: uploaderId || undefined,
-              entityType: 'CANDIDATE',
-              entityId: candidateId,
-              category: 'Candidates',
-              relatedType: 'job',
-              relatedId: jobId,
-              metadata: {
-                kind: 'match-client-review',
-                matchId: match.id,
-                submissionType,
-                tag,
-                comments: comments || null,
-                offerLetterUrl,
-              },
-            },
-          });
-        } catch (activityError) {
-          console.warn(
-            '[interview.submitPublicClientTag] match activity log failed:',
-            activityError?.message || activityError
-          );
-        }
-        try {
-          const recruiterId = match.createdById || interview?.createdById || uploaderId;
-          const candidateName =
-            `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim() || 'Candidate';
-          await notifyMatchClientReviewCompleted({
-            recruiterUserId: recruiterId,
-            candidateName,
-            jobTitle: job?.title,
-            clientName: job?.client?.companyName,
-            tag,
-            candidateId,
-            jobId,
-          });
-        } catch (alertErr) {
-          console.warn('[interview.submitPublicClientTag] review alert failed:', alertErr?.message || alertErr);
-        }
         updatedRecordId = match.id;
+      }
+
+      try {
+        await persistCandidateClientReviewActivity({
+          candidateId,
+          jobId,
+          matchId: match?.id || null,
+          interviewId: interview?.id || null,
+          uploaderId,
+          submissionType,
+          tag,
+          comments,
+          offerLetterUrl,
+          file,
+          clientName: reviewContext.clientName,
+          clientId: reviewContext.clientId,
+          jobTitle: reviewContext.jobTitle,
+        });
+      } catch (activityError) {
+        console.warn(
+          '[interview.submitPublicClientTag] client review activity log failed:',
+          activityError?.message || activityError
+        );
+      }
+
+      try {
+        const recruiterId = match?.createdById || interview?.createdById || uploaderId;
+        const interviewCandidateName =
+          `${interview?.candidate?.firstName || ''} ${interview?.candidate?.lastName || ''}`.trim();
+        let candidateName = interviewCandidateName;
+        if (!candidateName) {
+          const candidateRow = await prisma.candidate.findUnique({
+            where: { id: candidateId },
+            select: { firstName: true, lastName: true },
+          });
+          candidateName =
+            `${candidateRow?.firstName || ''} ${candidateRow?.lastName || ''}`.trim() || 'Candidate';
+        }
+        await notifyMatchClientReviewCompleted({
+          recruiterUserId: recruiterId,
+          candidateName,
+          jobTitle: reviewContext.jobTitle,
+          clientName: reviewContext.clientName,
+          tag,
+          candidateId,
+          jobId,
+        });
+      } catch (alertErr) {
+        console.warn('[interview.submitPublicClientTag] review alert failed:', alertErr?.message || alertErr);
       }
 
       // For final-offer submissions we also push the candidate to the OFFER

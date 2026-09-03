@@ -163,7 +163,7 @@ export async function apiStampUntaggedToOrgUnit(orgUnitId: string, userIds?: str
   return res.data;
 }
 
-export type TransferableType = 'leads' | 'clients' | 'jobs' | 'candidates' | 'members';
+export type TransferableType = 'leads' | 'clients' | 'recruitmentClients' | 'jobs' | 'candidates' | 'members';
 
 export type TransferableItem = {
   id: string;

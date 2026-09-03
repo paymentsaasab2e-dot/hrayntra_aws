@@ -191,6 +191,8 @@ const CANDIDATE_STAGE_API_MAP: Record<string, string> = {
   shortlist: 'Shortlist',
   screening: 'Screening',
   submitted: 'Submitted',
+  'submit to client': 'Submit to Client',
+  'submit-to-client': 'Submit to Client',
   interviewing: 'Interviewing',
   offered: 'Offered',
   hired: 'Hired',

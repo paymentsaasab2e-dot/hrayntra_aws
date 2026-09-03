@@ -11,6 +11,11 @@ import {
   joiningScheduledReportingContactTemplate,
 } from '../emails/templates/placement.template.js';
 import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
+import {
+  encodeRfc2047Subject,
+  isDeliverableEmail,
+  sanitizeEmailSubject,
+} from '../utils/emailDeliverability.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -108,14 +113,16 @@ function toBase64Url(value = '') {
 }
 
 function buildGmailRawMessage({ fromEmail, toEmail, subject, html, attachments = [] }) {
+  const encodedSubject = encodeRfc2047Subject(subject);
   const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
   if (!hasAttachments) {
     return [
       `From: ${fromEmail}`,
       `To: ${toEmail}`,
-      `Subject: ${subject}`,
+      `Subject: ${encodedSubject}`,
       'MIME-Version: 1.0',
       'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 8bit',
       '',
       html,
     ].join('\r\n');
@@ -125,7 +132,7 @@ function buildGmailRawMessage({ fromEmail, toEmail, subject, html, attachments =
   const parts = [
     `From: ${fromEmail}`,
     `To: ${toEmail}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodedSubject}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     '',
@@ -210,6 +217,12 @@ async function trySendWithConnectedGmail({ senderUserId, toEmail, subject, html,
 }
 
 async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [], triggerId }) {
+  const recipient = String(toEmail || '').trim();
+  if (!isDeliverableEmail(recipient)) {
+    console.warn(`[email] skipped send to invalid address: ${recipient || '(empty)'}`);
+    return { success: false, skipped: true, error: 'Invalid recipient email' };
+  }
+  const safeSubject = sanitizeEmailSubject(subject);
   const fromEmail = getEmailFromForTrigger(triggerId);
   const normalizedAttachments = (Array.isArray(attachments) ? attachments : [])
     .map((item) => {
@@ -232,8 +245,8 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
   try {
     const gmailResult = await trySendWithConnectedGmail({
       senderUserId,
-      toEmail,
-      subject,
+      toEmail: recipient,
+      subject: safeSubject,
       html,
       attachments: normalizedAttachments,
     });
@@ -241,8 +254,8 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
       logEmailSent({
         provider: gmailResult.provider,
         fromEmail: gmailResult.fromEmail,
-        toEmail,
-        subject,
+        toEmail: recipient,
+        subject: safeSubject,
         html,
       });
       return gmailResult;
@@ -253,8 +266,8 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
 
   await resend.emails.send({
     from: fromEmail,
-    to: toEmail,
-    subject,
+    to: recipient,
+    subject: safeSubject,
     html,
     attachments: resendAttachments.length ? resendAttachments : undefined,
   });
@@ -262,8 +275,8 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
   logEmailSent({
     provider: 'resend',
     fromEmail,
-    toEmail,
-    subject,
+    toEmail: recipient,
+    subject: safeSubject,
     html,
   });
 

@@ -36,18 +36,33 @@ export const dynamic = 'force-dynamic';
 const EMPTY_TRANSFER_SELECTION: Record<TransferableType, string[]> = {
   leads: [],
   clients: [],
+  recruitmentClients: [],
   jobs: [],
   candidates: [],
   members: [],
 };
 
 const TRANSFER_TABS: { id: TransferableType; label: string }[] = [
-  { id: 'leads', label: 'Leads' },
-  { id: 'clients', label: 'Clients' },
+  { id: 'leads', label: 'CRM leads' },
+  { id: 'clients', label: 'CRM clients' },
+  { id: 'recruitmentClients', label: 'Recruitment clients' },
   { id: 'jobs', label: 'Jobs' },
   { id: 'candidates', label: 'Candidates' },
   { id: 'members', label: 'Team members' },
 ];
+
+function transferUnitLabel(unit: OrgUnitNode) {
+  if (!unit.parentId) return `${unit.name} — HQ`;
+  return `${unit.name}${unit.isLeaf ? ' — branch' : ' — company'}`;
+}
+
+function transferSearchPlaceholder(type: TransferableType) {
+  if (type === 'members') return 'Search team members…';
+  if (type === 'clients') return 'Search CRM clients…';
+  if (type === 'recruitmentClients') return 'Search recruitment clients…';
+  if (type === 'leads') return 'Search CRM leads…';
+  return `Search ${type}…`;
+}
 
 const fieldClass =
   'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100';
@@ -508,6 +523,8 @@ export default function OrganizationPage() {
       const firstCompany = (data.tree?.children || []).find((c) => !c.isLeaf);
       setSiteParentId((prev) => prev || firstCompany?.id || '');
       setAssignUnitId((prev) => prev || firstCompany?.id || data.tree?.id || '');
+      setDataFromId((prev) => prev || data.tree?.id || '');
+      setDataToId((prev) => prev || firstCompany?.id || '');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not load organization');
     } finally {
@@ -566,6 +583,17 @@ export default function OrganizationPage() {
     function walk(node?: OrgUnitNode | null) {
       if (!node) return;
       if (node.parentId) out.push(node);
+      (node.children || []).forEach(walk);
+    }
+    walk(tree);
+    return out;
+  }, [tree]);
+
+  const transferUnits = useMemo(() => {
+    const out: OrgUnitNode[] = [];
+    function walk(node?: OrgUnitNode | null) {
+      if (!node) return;
+      out.push(node);
       (node.children || []).forEach(walk);
     }
     walk(tree);
@@ -751,8 +779,11 @@ export default function OrganizationPage() {
       toast.error('Team members can only be moved, not duplicated.');
       return;
     }
+    const targetUnit = dataToId ? transferUnits.find((u) => u.id === dataToId) : null;
     const targetLabel = dataToId
-      ? assignableUnits.find((u) => u.id === dataToId)?.name || 'the selected company'
+      ? targetUnit
+        ? transferUnitLabel(targetUnit)
+        : 'the selected company'
       : 'no company (left unassigned)';
     const recordCount = selectedTotal - selectedMemberCount;
     const confirmText = selectedMemberCount && recordCount
@@ -1546,9 +1577,9 @@ export default function OrganizationPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="text-base font-bold text-slate-900">Copy or move data between companies</h2>
           <p className="mt-0.5 text-[13px] text-slate-500">
-            Pick a source, select the records or team members you want, then send them to another company or branch.
-            Copy keeps original records; move re-homes them. Team members can only be moved — logins are not duplicated,
-            and Super Admin cannot be moved. Leave the destination as “No company” to park them as unassigned.
+            Pick HQ or any company in both From and To, then copy or move CRM leads, CRM clients, recruitment clients,
+            jobs, candidates, or team members. Copy keeps original records; move re-homes them. Team members can only
+            be moved — logins are not duplicated, and Super Admin stays at HQ.
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -1563,10 +1594,9 @@ export default function OrganizationPage() {
                 className={fieldClass}
               >
                 <option value="">No company (unassigned)</option>
-                {assignableUnits.map((u) => (
+                {transferUnits.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.name}
-                    {u.isLeaf ? ' — branch' : ' — company'}
+                    {transferUnitLabel(u)}
                   </option>
                 ))}
               </select>
@@ -1575,12 +1605,11 @@ export default function OrganizationPage() {
               <label className={labelClass}>To</label>
               <select value={dataToId} onChange={(e) => setDataToId(e.target.value)} className={fieldClass}>
                 <option value="">No company (leave unassigned)</option>
-                {assignableUnits
+                {transferUnits
                   .filter((u) => u.id !== dataFromId)
                   .map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name}
-                      {u.isLeaf ? ' — branch' : ' — company'}
+                      {transferUnitLabel(u)}
                     </option>
                   ))}
               </select>
@@ -1633,7 +1662,7 @@ export default function OrganizationPage() {
             <input
               value={dataSearch}
               onChange={(e) => setDataSearch(e.target.value)}
-              placeholder={dataType === 'members' ? 'Search team members…' : `Search ${dataType}…`}
+              placeholder={transferSearchPlaceholder(dataType)}
               className="h-10 flex-1 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-sky-400"
             />
             <button
@@ -1670,9 +1699,26 @@ export default function OrganizationPage() {
               </ul>
             ) : (
               <p className="p-4 text-sm text-slate-500">
-                {dataType === 'members'
-                  ? `No team members found in ${dataFromId ? 'this company' : 'the unassigned pool'}. Super Admin is not listed.`
-                  : `No ${dataType} found in ${dataFromId ? 'this company' : 'the unassigned pool'}.`}
+                {(() => {
+                  const fromUnit = transferUnits.find((u) => u.id === dataFromId);
+                  const place = !dataFromId
+                    ? 'the unassigned pool'
+                    : fromUnit && !fromUnit.parentId
+                      ? 'HQ'
+                      : 'this company';
+                  const kind =
+                    dataType === 'members'
+                      ? 'team members'
+                      : dataType === 'clients'
+                        ? 'CRM clients'
+                        : dataType === 'recruitmentClients'
+                          ? 'recruitment clients'
+                          : dataType === 'leads'
+                            ? 'CRM leads'
+                            : dataType;
+                  const extra = dataType === 'members' ? ' Super Admin is not listed.' : '';
+                  return `No ${kind} found in ${place}.${extra}`;
+                })()}
               </p>
             )}
           </div>

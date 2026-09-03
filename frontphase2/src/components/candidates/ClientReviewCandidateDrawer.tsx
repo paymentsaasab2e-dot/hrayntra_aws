@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Briefcase, Building2, FileUp, X } from 'lucide-react';
+import { Briefcase, Building2, CheckCircle2, FileUp, X } from 'lucide-react';
 import { ClientReviewCandidatePanel } from './ClientReviewCandidatePanel';
 import {
   TAG_OPTIONS_BY_TYPE,
@@ -44,6 +44,7 @@ export function ClientReviewCandidateDrawer({
   const tagOptions = TAG_OPTIONS_BY_TYPE[submissionType] || TAG_OPTIONS_BY_TYPE.GENERAL;
 
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedTag, setSelectedTag] = useState(tagOptions[0]);
@@ -57,10 +58,22 @@ export function ClientReviewCandidateDrawer({
     setOfferLetterFile(null);
     setError('');
     setSuccess('');
+    setConfirmOpen(false);
   }, [open, row?.matchId, tagOptions]);
+
+  const requestSubmitConfirmation = () => {
+    if (!row?.matchId || submitting) return;
+    setError('');
+    if (isOfferFlow && !offerLetterFile && !reviewData?.offerLetterUrl) {
+      setError('Please attach the signed offer letter (PDF).');
+      return;
+    }
+    setConfirmOpen(true);
+  };
 
   const submitTag = async () => {
     if (!row?.matchId) return;
+    setConfirmOpen(false);
     setSubmitting(true);
     setError('');
     setSuccess('');
@@ -252,7 +265,7 @@ export function ClientReviewCandidateDrawer({
             <div className="border-t border-slate-200/80 bg-white/90 px-5 py-4 backdrop-blur">
               <button
                 type="button"
-                onClick={submitTag}
+                onClick={requestSubmitConfirmation}
                 disabled={submitting}
                 className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(79,70,229,0.35)] transition hover:brightness-105 disabled:opacity-60"
               >
@@ -260,6 +273,62 @@ export function ClientReviewCandidateDrawer({
               </button>
             </div>
           </motion.aside>
+
+          {confirmOpen ? (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
+              <button
+                type="button"
+                aria-label="Cancel submit"
+                className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]"
+                onClick={() => setConfirmOpen(false)}
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="client-review-confirm-title"
+                className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-[0_24px_80px_-24px_rgba(15,23,42,0.45)] ring-1 ring-slate-200"
+              >
+                <div className="px-6 pt-6">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
+                    <CheckCircle2 size={22} />
+                  </span>
+                  <h3 id="client-review-confirm-title" className="mt-4 text-lg font-semibold text-slate-900">
+                    Submit this review?
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Your decision for{' '}
+                    <span className="font-semibold text-slate-900">{row.candidateName}</span>
+                    {selectedTag ? (
+                      <>
+                        {' '}
+                        will be sent to the recruiter as{' '}
+                        <span className="font-semibold text-slate-900">{selectedTag}</span>.
+                      </>
+                    ) : (
+                      <> will be sent to the recruiter.</>
+                    )}{' '}
+                    You can still cancel if you need to change it.
+                  </p>
+                </div>
+                <div className="mt-6 grid grid-cols-2 gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmOpen(false)}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitTag()}
+                    className="rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-4 py-2.5 text-sm font-semibold text-white hover:brightness-105"
+                  >
+                    Yes, submit
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </>
       ) : null}
     </AnimatePresence>

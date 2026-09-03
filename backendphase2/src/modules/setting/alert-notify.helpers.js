@@ -4,6 +4,7 @@ import { normalizePostServiceKycForm } from '../../utils/postServiceKycFormField
 import { getAlertDefinition } from './alert-settings.js';
 import { dispatchScheduledAlert } from './alert-dispatch.service.js';
 import { renderNotificationTriggerEmail } from './notification-trigger-template-settings.js';
+import { isDeliverableEmail } from '../../utils/emailDeliverability.js';
 
 export function entityLabel(name, fallback = 'Record') {
   const value = String(name || '').trim();
@@ -56,7 +57,7 @@ export async function notifyUserAlert({
 
   const alert = getAlertDefinition(alertId);
   const emailFn =
-    emailTo && alert?.emailTriggerId
+    isDeliverableEmail(emailTo) && alert?.emailTriggerId
       ? async () => {
           const rendered = await renderNotificationTriggerEmail(
             alert.emailTriggerId,

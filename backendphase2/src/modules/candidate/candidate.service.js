@@ -17,6 +17,7 @@ import {
   mapStageNameToPipelineBucket,
   updateCandidateStage,
   mapPlacementStatusToCrmStageLabel,
+  isSubmittedToClientStageLabel,
 } from '../stage/candidateStage.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
@@ -283,8 +284,10 @@ function candidateWorkflowStageRank(stage) {
   if (s.includes('hire') || s.includes('placed') || s.includes('joined') || s.includes('onboard')) return 60;
   if (s.includes('offer')) return 50;
   if (s.includes('interview') && s.includes('complet')) return 45;
+  if (isSubmittedToClientStageLabel(s)) return 42;
   if (s.includes('interview')) return 40;
-  if (s.includes('screen') || s.includes('short') || s.includes('long') || s.includes('submit')) return 30;
+  if (s.includes('screen') || s.includes('short') || s.includes('long')) return 30;
+  if (s.includes('submit')) return 30;
   if (s.includes('applied') || s.includes('apply')) return 20;
   return 15;
 }
@@ -412,6 +415,13 @@ function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
       .filter(Boolean),
     explicitStage,
   );
+
+  const submittedStage = [explicitStage, tenantPipelineStage].find((stage) =>
+    isSubmittedToClientStageLabel(stage),
+  );
+  if (submittedStage) {
+    return submittedStage;
+  }
 
   if (interviewCompletedOnly && !hasUpcomingInterview) {
     const merged = mergeCandidateWorkflowStages(tenantPipelineStage, 'Interview completed');
@@ -696,6 +706,9 @@ const candidateDetailInclude = {
       },
       job: {
         select: { id: true, title: true },
+      },
+      client: {
+        select: { id: true, companyName: true },
       },
     },
     orderBy: { scheduledAt: 'desc' },
@@ -1121,6 +1134,255 @@ function mapActivityToDrawerItem(activity) {
   };
 }
 
+const MATCH_CLIENT_REVIEW_KIND = 'match-client-review';
+
+function parseClientReviewResponsesFromNotes(notes) {
+  const responses = [];
+  const lines = String(notes || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (line.startsWith('[Client Tag]')) {
+      const rest = line.replace('[Client Tag]', '').trim();
+      const dashIdx = rest.indexOf(' - ');
+      const tag = dashIdx >= 0 ? rest.slice(0, dashIdx).trim() : rest;
+      const comments = dashIdx >= 0 ? rest.slice(dashIdx + 3).trim() : '';
+      responses.push({
+        tag,
+        comments,
+        documentLabel: null,
+        documentFileName: null,
+        documentUrl: null,
+      });
+      continue;
+    }
+    if (line.startsWith('[Client Upload]')) {
+      const rest = line.replace('[Client Upload]', '').trim();
+      const colonIdx = rest.indexOf(':');
+      const documentLabel = colonIdx >= 0 ? rest.slice(0, colonIdx).trim() : rest;
+      const documentFileName = colonIdx >= 0 ? rest.slice(colonIdx + 1).trim() : '';
+      const last = responses[responses.length - 1];
+      if (last && !last.documentFileName) {
+        last.documentLabel = documentLabel;
+        last.documentFileName = documentFileName;
+      } else {
+        responses.push({
+          tag: '',
+          comments: '',
+          documentLabel,
+          documentFileName,
+          documentUrl: null,
+        });
+      }
+    }
+  }
+  return responses;
+}
+
+function fileNameFromUrl(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  const parts = value.split('/').filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
+function isClientReviewActivity(activity) {
+  const metadata = getActivityMetadata(activity);
+  const action = String(activity?.action || '');
+  const description = String(activity?.description || metadata.text || '');
+  if (metadata.kind === MATCH_CLIENT_REVIEW_KIND) return true;
+  if (/^client review submitted/i.test(action)) return true;
+  if (/^client uploaded/i.test(action)) return true;
+  if (description.includes('[Client Tag]') || description.includes('[Client Upload]')) return true;
+  return Boolean(String(metadata.tag || '').trim() && metadata.offerLetterUrl);
+}
+
+function isClientSubmissionActivity(activity) {
+  if (isClientReviewActivity(activity)) return false;
+  const metadata = getActivityMetadata(activity);
+  const action = String(activity?.action || '').toLowerCase();
+  return metadata.kind === 'match-submission' || action.includes('submitted');
+}
+
+function mapClientReviewActivityToReply(activity, jobById = new Map()) {
+  const metadata = getActivityMetadata(activity);
+  if (!isClientReviewActivity(activity)) return null;
+  const job = jobById.get(String(activity.relatedId || metadata.jobId || '')) || null;
+  const parsedFromNotes = parseClientReviewResponsesFromNotes(
+    String(activity.description || '').replace(/\s+\|\s+/g, '\n'),
+  );
+  const parsed = parsedFromNotes[0] || null;
+  const documentUrl = String(metadata.offerLetterUrl || parsed?.documentUrl || '').trim() || null;
+  const documentFileName =
+    String(metadata.documentFileName || parsed?.documentFileName || '').trim() ||
+    fileNameFromUrl(documentUrl) ||
+    null;
+  const submissionType = String(metadata.submissionType || 'GENERAL');
+  return {
+    id: activity.id,
+    clientName: metadata.clientName || job?.client?.companyName || 'Client',
+    jobTitle: metadata.jobTitle || job?.title || activity.relatedLabel || null,
+    tag: String(metadata.tag || parsed?.tag || '').trim(),
+    comments: String(metadata.comments || parsed?.comments || '').trim(),
+    documentUrl,
+    documentFileName,
+    documentLabel:
+      documentUrl || documentFileName
+        ? parsed?.documentLabel ||
+          (submissionType === 'OFFER_CONFIRMATION' ? 'Offer letter received' : 'Document received')
+        : null,
+    repliedAt: activity.createdAt,
+    submissionType,
+  };
+}
+
+function collectCandidateClientSubmissions(activities, extraReviewUrl = '') {
+  const submissions = [];
+  const seen = new Set();
+  for (const activity of Array.isArray(activities) ? activities : []) {
+    if (!isClientSubmissionActivity(activity)) continue;
+    const metadata = getActivityMetadata(activity);
+    const clientName = String(metadata.clientName || '').trim() || 'Client';
+    const jobTitle = String(metadata.relatedJobTitle || metadata.jobTitle || activity.relatedLabel || '').trim();
+    const key = `${clientName.toLowerCase()}|${jobTitle.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    submissions.push({
+      id: activity.id,
+      clientName,
+      jobTitle: jobTitle || null,
+      reviewUrl: String(metadata.reviewUrl || extraReviewUrl || '').trim() || null,
+      submittedAt: activity.createdAt,
+    });
+  }
+  return submissions;
+}
+
+function repliesFromExtraData(candidate) {
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return [];
+  return (Array.isArray(extra.clientReviews) ? extra.clientReviews : [])
+    .map((row, index) => {
+      if (!row || typeof row !== 'object') return null;
+      const tag = String(row.tag || '').trim();
+      const comments = String(row.comments || '').trim();
+      const documentUrl = String(row.documentUrl || '').trim() || null;
+      const documentFileName = String(row.documentFileName || '').trim() || null;
+      if (!tag && !comments && !documentUrl && !documentFileName) return null;
+      return {
+        id: String(row.id || `extra-client-review-${index}`),
+        clientName: String(row.clientName || '').trim() || 'Client',
+        jobTitle: row.jobTitle || null,
+        tag,
+        comments,
+        documentUrl,
+        documentFileName,
+        documentLabel: row.documentLabel || null,
+        repliedAt: row.repliedAt || null,
+        submissionType: row.submissionType || 'GENERAL',
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeActivityRows(...lists) {
+  const seen = new Set();
+  const merged = [];
+  for (const list of lists) {
+    for (const row of Array.isArray(list) ? list : []) {
+      const id = String(row?.id || '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      merged.push(row);
+    }
+  }
+  return merged;
+}
+
+async function collectCandidateClientReplies(candidate, activities, db) {
+  const reviewActivities = (Array.isArray(activities) ? activities : []).filter(isClientReviewActivity);
+
+  const missingJobIds = [
+    ...new Set(
+      reviewActivities
+        .map((activity) => String(activity.relatedId || getActivityMetadata(activity).jobId || '').trim())
+        .filter(Boolean),
+    ),
+  ];
+
+  let jobById = new Map();
+  if (missingJobIds.length) {
+    const loadJobs = async (client) => {
+      if (!client?.job?.findMany) return [];
+      try {
+        return await client.job.findMany({
+          where: { id: { in: missingJobIds } },
+          select: { id: true, title: true, client: { select: { companyName: true } } },
+        });
+      } catch {
+        return [];
+      }
+    };
+    let jobs = await loadJobs(db);
+    if (!jobs.length && db !== prisma) {
+      jobs = await loadJobs(prisma);
+    }
+    jobById = new Map(jobs.map((job) => [String(job.id), job]));
+  }
+
+  const replies = reviewActivities
+    .map((activity) => mapClientReviewActivityToReply(activity, jobById))
+    .filter(Boolean);
+
+  const activityInterviewIds = new Set(
+    (Array.isArray(activities) ? activities : [])
+      .map((activity) => String(getActivityMetadata(activity).interviewId || '').trim())
+      .filter(Boolean),
+  );
+
+  const interviews = Array.isArray(candidate?.interviews) ? candidate.interviews : [];
+  interviews.forEach((interview, interviewIndex) => {
+    const interviewId = String(interview?.id || '').trim();
+    if (interviewId && activityInterviewIds.has(interviewId)) return;
+    const parsed = parseClientReviewResponsesFromNotes(interview?.notes);
+    if (!parsed.length) return;
+    const clientName = interview?.client?.companyName || 'Client';
+    const jobTitle = interview?.job?.title || null;
+    parsed.forEach((response, responseIndex) => {
+      replies.push({
+        id: `${interviewId || `interview-${interviewIndex}`}-reply-${responseIndex}`,
+        clientName,
+        jobTitle,
+        tag: String(response.tag || '').trim(),
+        comments: String(response.comments || '').trim(),
+        documentUrl: response.documentUrl || null,
+        documentFileName: response.documentFileName || null,
+        documentLabel: response.documentLabel || null,
+        repliedAt: interview.updatedAt || interview.scheduledAt || interview.createdAt || null,
+        submissionType: 'GENERAL',
+      });
+    });
+  });
+
+  for (const extra of repliesFromExtraData(candidate)) {
+    const duplicate = replies.some(
+      (row) =>
+        String(row.tag || '') === extra.tag &&
+        String(row.comments || '') === extra.comments &&
+        String(row.clientName || '').toLowerCase() === String(extra.clientName || '').toLowerCase(),
+    );
+    if (!duplicate) replies.push(extra);
+  }
+
+  return replies.sort((a, b) => {
+    const aTime = new Date(a.repliedAt || 0).getTime();
+    const bTime = new Date(b.repliedAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
 async function resolveFallbackClientReviewUrl(candidateId, db) {
   const match = await db.match.findFirst({
     where: { candidateId, status: 'SHORTLISTED' },
@@ -1455,6 +1717,22 @@ async function getCandidateActivities(candidateId, client = prisma, viewerUserId
 
   return client.activity.findMany({
     where,
+    include: {
+      performedBy: {
+        select: { id: true, name: true, email: true, avatar: true },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+/** Client submit/reply rows should always appear on the candidate Client tab. */
+async function getCandidateClientTabActivities(candidateId, client = prisma) {
+  return client.activity.findMany({
+    where: {
+      entityType: CANDIDATE_ACTIVITY_ENTITY,
+      entityId: candidateId,
+    },
     include: {
       performedBy: {
         select: { id: true, name: true, email: true, avatar: true },
@@ -2658,6 +2936,17 @@ async function buildCandidateResponse(candidate, activityClient = prisma, viewer
         ? { ...item, reviewUrl: extraReviewUrl }
         : item,
     );
+  let clientTabActivities = await getCandidateClientTabActivities(candidate.id, activityClient).catch(
+    () => [],
+  );
+  if (activityClient !== prisma) {
+    const tenantClientTabActivities = await getCandidateClientTabActivities(candidate.id, prisma).catch(
+      () => [],
+    );
+    clientTabActivities = mergeActivityRows(clientTabActivities, tenantClientTabActivities);
+  }
+  const clientReplies = await collectCandidateClientReplies(candidate, clientTabActivities, activityClient);
+  const clientSubmissions = collectCandidateClientSubmissions(clientTabActivities, extraReviewUrl);
   const normalizedCandidate = {
     ...candidate,
     resume: resolveCandidateResumeUrl(candidate),
@@ -2699,6 +2988,8 @@ async function buildCandidateResponse(candidate, activityClient = prisma, viewer
     tagObjects: customTags,
     internalNotes,
     activityFeed,
+    clientReplies,
+    clientSubmissions,
   };
 }
 
@@ -3544,7 +3835,7 @@ export const candidateService = {
 
     return buildCandidateResponse(
       await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),
-      portalClientForPrefs,
+      prisma,
       viewerUserId,
     );
   },
