@@ -90,7 +90,11 @@ async function loadUserAuthz(req) {
   const cacheKey = buildPermissionCacheKey(req.user.id);
   const cached = await getCache(cacheKey);
   if (cached) {
-    return { userAuthz: JSON.parse(cached) };
+    try {
+      return { userAuthz: JSON.parse(cached) };
+    } catch {
+      /* ignore corrupt cache and reload from the database */
+    }
   }
 
   const user = await prisma.user.findUnique({
@@ -169,8 +173,13 @@ export function requireAnyPermission(permissionNames = []) {
 
       let userAuthz;
       if (cached) {
-        userAuthz = JSON.parse(cached);
-      } else {
+        try {
+          userAuthz = JSON.parse(cached);
+        } catch {
+          userAuthz = null;
+        }
+      }
+      if (!userAuthz) {
         const user = await prisma.user.findUnique({
           where: { id: req.user.id },
           select: {

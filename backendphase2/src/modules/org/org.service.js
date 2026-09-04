@@ -1100,6 +1100,84 @@ function homeInTransferMatch(home, match) {
   return match.ids.has(home);
 }
 
+function normTransferKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Stable identity so a copied job/client/lead/candidate is not offered or cloned again. */
+export function transferIdentityKey(type, row) {
+  if (!row) return '';
+  if (type === 'jobs') {
+    const title = normTransferKey(row.title);
+    if (!title) return '';
+    return [
+      'job',
+      title,
+      String(row.clientId || ''),
+      normTransferKey(row.location || row.city),
+      normTransferKey(row.department),
+    ].join('|');
+  }
+  if (type === 'clients' || type === 'recruitmentClients') {
+    const name = normTransferKey(row.companyName);
+    if (!name) return '';
+    return ['client', name, normTransferKey(row.website)].join('|');
+  }
+  if (type === 'leads') {
+    const email = normTransferKey(row.email);
+    const company = normTransferKey(row.companyName);
+    const contact = normTransferKey(row.contactName || row.contactPerson || row.directorName);
+    if (email) return ['lead', email].join('|');
+    if (company || contact) return ['lead', company, contact, normTransferKey(row.phone)].join('|');
+    return '';
+  }
+  if (type === 'candidates') {
+    const email = normTransferKey(row.email);
+    if (email) return ['candidate', email].join('|');
+    const name = [normTransferKey(row.firstName), normTransferKey(row.lastName)].filter(Boolean).join(' ');
+    const phone = normTransferKey(row.phone);
+    if (!name && !phone) return '';
+    return ['candidate', name, phone].join('|');
+  }
+  return '';
+}
+
+async function loadTransferableRows(type, orgUnitId) {
+  const config = TRANSFERABLE[type];
+  if (!config) return [];
+  const delegate = config.delegate();
+  if (!delegate?.findMany) return [];
+  let rows = [];
+  try {
+    rows = await delegate.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+  } catch {
+    return [];
+  }
+  const match = await resolveTransferMatch(oid(orgUnitId));
+  return rows.filter((row) => {
+    if (row?.isDeleted === true || row?.deletedAt) return false;
+    if (typeof config.match === 'function' && !config.match(row)) return false;
+    const home = row.orgUnitId ? String(row.orgUnitId) : '';
+    return homeInTransferMatch(home, match);
+  });
+}
+
+async function destinationIdentityKeys(type, toOrgUnitId) {
+  const rows = await loadTransferableRows(type, toOrgUnitId);
+  const keys = new Set();
+  for (const row of rows) {
+    const key = transferIdentityKey(type, row);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
 async function listTransferableMembers(req, { orgUnitId, search = '', limit = 200 } = {}) {
   const scope = await resolveViewerOrgScope(req);
   const unitId = oid(orgUnitId);
@@ -1149,10 +1227,10 @@ async function listTransferableMembers(req, { orgUnitId, search = '', limit = 20
     .filter((item) => !term || `${item.title} ${item.subtitle}`.toLowerCase().includes(term))
     .slice(0, Math.max(1, Math.min(Number(limit) || 200, 500)));
 
-  return { type: 'members', items };
+  return { type: 'members', items, alreadyInDestination: 0 };
 }
 
-async function moveTeamMembers(ids, fromId, toId, result) {
+async function moveTeamMembers(ids, fromId, toId, result, historyItems = []) {
   const target = toId
     ? await prisma.orgUnit.findUnique({
         where: { id: toId },
@@ -1171,6 +1249,10 @@ async function moveTeamMembers(ids, fromId, toId, result) {
         where: { id },
         select: {
           id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
           role: true,
           orgUnitId: true,
           hierarchyPurpose: true,
@@ -1187,12 +1269,21 @@ async function moveTeamMembers(ids, fromId, toId, result) {
         result.skipped.members += 1;
         continue;
       }
+      const previousPurpose = user.hierarchyPurpose || 'member';
       await prisma.user.update({
         where: { id },
         data: {
           orgUnitId: toId || null,
           hierarchyPurpose: purposeForTargetUnit(user, target),
         },
+      });
+      historyItems.push({
+        type: 'members',
+        sourceId: id,
+        destId: id,
+        title: memberDisplayName(user),
+        previousOrgUnitId: home,
+        previousHierarchyPurpose: previousPurpose,
       });
       result.moved.members += 1;
       result.total += 1;
@@ -1206,42 +1297,41 @@ async function moveTeamMembers(ids, fromId, toId, result) {
  * Rows currently living in a company / branch (including its branches), for the
  * multi-select copy list. Pass `orgUnitId` empty to list rows with no company yet.
  */
-export async function listTransferableData(req, { orgUnitId, type, search = '', limit = 200 } = {}) {
+export async function listTransferableData(
+  req,
+  { orgUnitId, toOrgUnitId, type, search = '', limit = 200 } = {},
+) {
   if (String(type || '') === 'members') {
     return listTransferableMembers(req, { orgUnitId, search, limit });
   }
   const scope = await resolveViewerOrgScope(req);
-  const config = TRANSFERABLE[String(type || '')];
+  const kind = String(type || '');
+  const config = TRANSFERABLE[kind];
   if (!config) {
     throw new Error('Pick leads, CRM clients, recruitment clients, jobs, candidates, or team members.');
   }
 
   const unitId = oid(orgUnitId);
+  const destId = toOrgUnitId === undefined || toOrgUnitId === null ? null : oid(toOrgUnitId);
+  const excludeDest = toOrgUnitId !== undefined && toOrgUnitId !== null && unitId !== destId;
   assertUnitAccess(scope, unitId);
+  if (excludeDest) assertUnitAccess(scope, destId);
 
-  const delegate = config.delegate();
-  if (!delegate?.findMany) return { type, items: [] };
-
-  const match = await resolveTransferMatch(unitId);
-  let rows = [];
-  try {
-    rows = await delegate.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 2000,
-    });
-  } catch {
-    return { type, items: [] };
+  const rows = await loadTransferableRows(kind, unitId);
+  const destKeys = excludeDest ? await destinationIdentityKeys(kind, destId) : new Set();
+  let alreadyInDestination = 0;
+  const visibleRows = [];
+  for (const row of rows) {
+    const key = transferIdentityKey(kind, row);
+    if (excludeDest && key && destKeys.has(key)) {
+      alreadyInDestination += 1;
+      continue;
+    }
+    visibleRows.push(row);
   }
 
   const term = String(search || '').trim().toLowerCase();
-
-  const items = rows
-    .filter((row) => {
-      if (row?.isDeleted === true || row?.deletedAt) return false;
-      if (typeof config.match === 'function' && !config.match(row)) return false;
-      const home = row.orgUnitId ? String(row.orgUnitId) : '';
-      return homeInTransferMatch(home, match);
-    })
+  const items = visibleRows
     .map((row) => ({
       id: String(row.id),
       title: config.title(row),
@@ -1251,7 +1341,7 @@ export async function listTransferableData(req, { orgUnitId, type, search = '', 
     .filter((item) => !term || `${item.title} ${item.subtitle}`.toLowerCase().includes(term))
     .slice(0, Math.max(1, Math.min(Number(limit) || 200, 500)));
 
-  return { type, items };
+  return { type, items, alreadyInDestination };
 }
 
 async function cloneRow(delegate, id, targetOrgUnitId) {
@@ -1264,8 +1354,8 @@ async function cloneRow(delegate, id, targetOrgUnitId) {
     data[key] = value;
   }
   data.orgUnitId = targetOrgUnitId || null;
-  await delegate.create({ data });
-  return true;
+  const created = await delegate.create({ data });
+  return created;
 }
 
 /**
@@ -1292,6 +1382,7 @@ export async function transferOrgUnitData(req, body = {}) {
 
   const selections = body?.items && typeof body.items === 'object' ? body.items : {};
   const result = { mode, copied: {}, moved: {}, skipped: {}, total: 0 };
+  const historyItems = [];
 
   const memberIds = Array.isArray(selections.members)
     ? selections.members.map(oid).filter(Boolean)
@@ -1303,7 +1394,7 @@ export async function transferOrgUnitData(req, body = {}) {
     if (mode === 'copy') {
       throw new Error('Team members can only be moved, not duplicated.');
     }
-    await moveTeamMembers(memberIds, fromId, toId, result);
+    await moveTeamMembers(memberIds, fromId, toId, result, historyItems);
   }
 
   const seenClientIds = new Set();
@@ -1327,16 +1418,41 @@ export async function transferOrgUnitData(req, body = {}) {
       continue;
     }
 
+    const destKeys = await destinationIdentityKeys(type, toId);
     for (const id of ids) {
       try {
+        const source = await delegate.findUnique({ where: { id } });
+        const key = transferIdentityKey(type, source);
+        if (key && destKeys.has(key)) {
+          result.skipped[type] += 1;
+          continue;
+        }
         if (mode === 'move') {
           await delegate.update({ where: { id }, data: { orgUnitId: toId || null } });
           result.moved[type] += 1;
+          historyItems.push({
+            type,
+            sourceId: id,
+            destId: id,
+            title: TRANSFERABLE[type].title(source) || id,
+            previousOrgUnitId: source?.orgUnitId ? String(source.orgUnitId) : '',
+          });
         } else {
-          const done = await cloneRow(delegate, id, toId);
-          if (done) result.copied[type] += 1;
-          else result.skipped[type] += 1;
+          const created = await cloneRow(delegate, id, toId);
+          if (!created?.id) {
+            result.skipped[type] += 1;
+            continue;
+          }
+          result.copied[type] += 1;
+          historyItems.push({
+            type,
+            sourceId: id,
+            destId: String(created.id),
+            title: TRANSFERABLE[type].title(source) || String(created.id),
+            previousOrgUnitId: source?.orgUnitId ? String(source.orgUnitId) : '',
+          });
         }
+        if (key) destKeys.add(key);
         result.total += 1;
       } catch {
         result.skipped[type] += 1;
@@ -1344,6 +1460,353 @@ export async function transferOrgUnitData(req, body = {}) {
     }
   }
 
+  if (historyItems.length) {
+    try {
+      const [fromUnit, toUnit] = await Promise.all([
+        fromId ? prisma.orgUnit.findUnique({ where: { id: fromId }, select: { name: true, parentId: true } }) : null,
+        toId ? prisma.orgUnit.findUnique({ where: { id: toId }, select: { name: true, parentId: true } }) : null,
+      ]);
+      const labelFor = (id, unit) => {
+        if (!id) return 'Unassigned';
+        if (!unit) return 'Unknown company';
+        return unit.parentId ? unit.name : `${unit.name} (HQ)`;
+      };
+      const actorName =
+        [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ').trim() ||
+        req.user?.name ||
+        req.user?.email ||
+        'User';
+      const saved = await prisma.orgDataTransfer.create({
+        data: {
+          mode,
+          fromOrgUnitId: fromId || null,
+          fromLabel: labelFor(fromId, fromUnit),
+          toOrgUnitId: toId || null,
+          toLabel: labelFor(toId, toUnit),
+          performedById: req.user?.id || null,
+          performedByName: actorName,
+          items: historyItems,
+          counts: {
+            copied: result.copied,
+            moved: result.moved,
+            skipped: result.skipped,
+            total: result.total,
+          },
+        },
+      });
+      result.historyId = String(saved.id);
+    } catch (error) {
+      console.warn('[org.transfer] history not saved:', error?.message || error);
+    }
+  }
+
+  return result;
+}
+
+export async function listOrgDataTransfers(req, { limit = 100 } = {}) {
+  await resolveViewerOrgScope(req);
+  try {
+    if (!prisma.orgDataTransfer?.findMany) return { items: [] };
+    const rows = await prisma.orgDataTransfer.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(1, Math.min(Number(limit) || 100, 300)),
+    });
+    return {
+      items: rows.map((row) => ({
+        id: String(row.id),
+        mode: row.mode,
+        fromOrgUnitId: row.fromOrgUnitId || '',
+        fromLabel: row.fromLabel || 'Unassigned',
+        toOrgUnitId: row.toOrgUnitId || '',
+        toLabel: row.toLabel || 'Unassigned',
+        performedByName: row.performedByName || 'User',
+        items: Array.isArray(row.items) ? row.items : [],
+        counts: row.counts && typeof row.counts === 'object' ? row.counts : {},
+        total: Array.isArray(row.items) ? row.items.length : Number(row.counts?.total || 0),
+        revertedAt: row.revertedAt || null,
+        createdAt: row.createdAt,
+      })),
+    };
+  } catch (error) {
+    console.warn('[org.transfer] history unavailable:', error?.message || error);
+    return { items: [] };
+  }
+}
+
+const SOFT_DELETE_TRANSFER_TYPES = new Set(['jobs', 'clients', 'recruitmentClients', 'candidates', 'leads']);
+
+function currentHome(row) {
+  return row?.orgUnitId ? String(row.orgUnitId) : '';
+}
+
+async function revertCopiedRecord(type, destId, expectedDestHome) {
+  const config = TRANSFERABLE[type];
+  if (!config) return 'skipped';
+  const delegate = config.delegate();
+  const row = await delegate.findUnique({ where: { id: destId } });
+  if (!row) return 'missing';
+  if (row.isDeleted === true) return 'already';
+  if (currentHome(row) !== String(expectedDestHome || '')) return 'moved-away';
+  if (SOFT_DELETE_TRANSFER_TYPES.has(type)) {
+    await delegate.update({
+      where: { id: destId },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+    return 'reverted';
+  }
+  await delegate.delete({ where: { id: destId } });
+  return 'reverted';
+}
+
+async function revertMovedRecord(type, id, previousOrgUnitId, extra = {}) {
+  if (type === 'members') {
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, orgUnitId: true },
+    });
+    if (!user) return 'missing';
+    await prisma.user.update({
+      where: { id },
+      data: {
+        orgUnitId: previousOrgUnitId || null,
+        ...(extra.previousHierarchyPurpose
+          ? { hierarchyPurpose: extra.previousHierarchyPurpose }
+          : {}),
+      },
+    });
+    return 'reverted';
+  }
+  const config = TRANSFERABLE[type];
+  if (!config) return 'skipped';
+  const delegate = config.delegate();
+  const row = await delegate.findUnique({ where: { id } });
+  if (!row) return 'missing';
+  if (row.isDeleted === true) return 'already';
+  await delegate.update({
+    where: { id },
+    data: { orgUnitId: previousOrgUnitId || null },
+  });
+  return 'reverted';
+}
+
+export async function revertOrgDataTransfer(req, id) {
+  const scope = await resolveViewerOrgScope(req);
+  const transferId = oid(id);
+  if (!transferId) throw new Error('History item was not found.');
+  if (!prisma.orgDataTransfer?.findUnique) {
+    throw new Error('History is not available yet. Restart the API after prisma generate.');
+  }
+  const row = await prisma.orgDataTransfer.findUnique({ where: { id: transferId } });
+  if (!row) throw new Error('History item was not found.');
+  if (row.revertedAt) throw new Error('This action was already reverted.');
+  assertUnitAccess(scope, oid(row.fromOrgUnitId));
+  assertUnitAccess(scope, oid(row.toOrgUnitId));
+
+  const items = Array.isArray(row.items) ? row.items : [];
+  const summary = { reverted: 0, missing: 0, skipped: 0 };
+  const expectedDest = oid(row.toOrgUnitId);
+
+  for (const item of items) {
+    const type = String(item?.type || '');
+    try {
+      let status = 'skipped';
+      if (row.mode === 'copy') {
+        status = await revertCopiedRecord(type, oid(item.destId || item.sourceId), expectedDest);
+      } else {
+        status = await revertMovedRecord(type, oid(item.sourceId || item.destId), oid(item.previousOrgUnitId), {
+          previousHierarchyPurpose: item.previousHierarchyPurpose,
+        });
+      }
+      if (status === 'reverted') summary.reverted += 1;
+      else if (status === 'missing' || status === 'already') summary.missing += 1;
+      else summary.skipped += 1;
+    } catch {
+      summary.skipped += 1;
+    }
+  }
+
+  await prisma.orgDataTransfer.update({
+    where: { id: transferId },
+    data: {
+      revertedAt: new Date(),
+      revertedById: req.user?.id || null,
+    },
+  });
+
+  return { id: transferId, mode: row.mode, ...summary };
+}
+
+function unitPositionLabel(orgUnitId, unitsById) {
+  const id = String(orgUnitId || '');
+  if (!id) return { company: 'Unassigned', position: 'No company' };
+  const unit = unitsById.get(id);
+  if (!unit) return { company: 'Unknown', position: 'Unknown' };
+  if (!unit.parentId) return { company: unit.name, position: 'HQ' };
+  const parent = unitsById.get(String(unit.parentId));
+  if (unit.isLeaf) {
+    return {
+      company: parent?.name || unit.name,
+      position: `Branch · ${unit.name}`,
+    };
+  }
+  return { company: unit.name, position: 'Company' };
+}
+
+async function loadAllLiveRows(type) {
+  const config = TRANSFERABLE[type];
+  if (!config) return [];
+  const delegate = config.delegate();
+  if (!delegate?.findMany) return [];
+  let rows = [];
+  try {
+    rows = await delegate.findMany({
+      orderBy: { createdAt: 'asc' },
+      take: 8000,
+    });
+  } catch {
+    return [];
+  }
+  return rows.filter((row) => {
+    if (row?.isDeleted === true || row?.deletedAt) return false;
+    if (typeof config.match === 'function' && !config.match(row)) return false;
+    return true;
+  });
+}
+
+function mapDuplicateMember(type, row, unitsById, role) {
+  const config = TRANSFERABLE[type];
+  const place = unitPositionLabel(row.orgUnitId, unitsById);
+  return {
+    id: String(row.id),
+    role,
+    title: config.title(row),
+    subtitle: config.subtitle(row) || '',
+    orgUnitId: row.orgUnitId ? String(row.orgUnitId) : '',
+    company: place.company,
+    position: place.position,
+    createdAt: row.createdAt || null,
+  };
+}
+
+async function scanDuplicateGroups(type, unitsById) {
+  const rows = await loadAllLiveRows(type);
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = transferIdentityKey(type, row);
+    if (!key) continue;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(row);
+  }
+
+  const groups = [];
+  for (const members of grouped.values()) {
+    if (members.length < 2) continue;
+    members.sort(
+      (a, b) =>
+        new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime() ||
+        String(a.id).localeCompare(String(b.id)),
+    );
+    const original = members[0];
+    const copies = members.slice(1);
+    groups.push({
+      originalId: String(original.id),
+      title: TRANSFERABLE[type].title(original),
+      subtitle: TRANSFERABLE[type].subtitle(original) || '',
+      original: mapDuplicateMember(type, original, unitsById, 'original'),
+      duplicates: copies.map((row) => mapDuplicateMember(type, row, unitsById, 'duplicate')),
+    });
+  }
+  groups.sort((a, b) => b.duplicates.length - a.duplicates.length || a.title.localeCompare(b.title));
+  return groups;
+}
+
+export async function listOrgDuplicates(req, { type = 'jobs' } = {}) {
+  await resolveViewerOrgScope(req);
+  const kind = String(type || 'jobs');
+  if (!TRANSFERABLE[kind]) {
+    throw new Error('Pick jobs, CRM clients, recruitment clients, leads, or candidates.');
+  }
+  const units = await prisma.orgUnit.findMany({
+    select: { id: true, name: true, parentId: true, isLeaf: true },
+  });
+  const unitsById = new Map(units.map((unit) => [String(unit.id), unit]));
+  const groups = await scanDuplicateGroups(kind, unitsById);
+  const counts = {};
+  for (const other of Object.keys(TRANSFERABLE)) {
+    if (other === kind) {
+      counts[other] = {
+        groups: groups.length,
+        duplicates: groups.reduce((sum, group) => sum + group.duplicates.length, 0),
+      };
+      continue;
+    }
+    const otherGroups = await scanDuplicateGroups(other, unitsById);
+    counts[other] = {
+      groups: otherGroups.length,
+      duplicates: otherGroups.reduce((sum, group) => sum + group.duplicates.length, 0),
+    };
+  }
+  return {
+    type: kind,
+    rule:
+      'Original = oldest record in the group. Later copies with the same identity in another company are duplicates.',
+    groups,
+    originalCount: groups.length,
+    duplicateCount: groups.reduce((sum, group) => sum + group.duplicates.length, 0),
+    counts,
+  };
+}
+
+async function softDeleteDuplicateRow(type, id) {
+  const config = TRANSFERABLE[type];
+  if (!config) return 'skipped';
+  const delegate = config.delegate();
+  const row = await delegate.findUnique({ where: { id } });
+  if (!row) return 'missing';
+  if (row.isDeleted === true) return 'already';
+  if (SOFT_DELETE_TRANSFER_TYPES.has(type)) {
+    await delegate.update({
+      where: { id },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+    return 'removed';
+  }
+  await delegate.delete({ where: { id } });
+  return 'removed';
+}
+
+export async function removeOrgDuplicates(req, { type = 'jobs', ids } = {}) {
+  await resolveViewerOrgScope(req);
+  const kind = String(type || 'jobs');
+  if (!TRANSFERABLE[kind]) {
+    throw new Error('Pick jobs, CRM clients, recruitment clients, leads, or candidates.');
+  }
+  const units = await prisma.orgUnit.findMany({
+    select: { id: true, name: true, parentId: true, isLeaf: true },
+  });
+  const unitsById = new Map(units.map((unit) => [String(unit.id), unit]));
+  const groups = await scanDuplicateGroups(kind, unitsById);
+  const originalIds = new Set(groups.map((group) => group.original.id));
+  const duplicateIds = new Set(groups.flatMap((group) => group.duplicates.map((row) => row.id)));
+  const requested = Array.isArray(ids) && ids.length
+    ? ids.map(oid).filter(Boolean)
+    : [...duplicateIds];
+
+  const result = { type: kind, removed: 0, skipped: 0, missing: 0 };
+  for (const id of requested) {
+    if (originalIds.has(id) || !duplicateIds.has(id)) {
+      result.skipped += 1;
+      continue;
+    }
+    try {
+      const status = await softDeleteDuplicateRow(kind, id);
+      if (status === 'removed') result.removed += 1;
+      else if (status === 'missing' || status === 'already') result.missing += 1;
+      else result.skipped += 1;
+    } catch {
+      result.skipped += 1;
+    }
+  }
   return result;
 }
 
@@ -1369,11 +1832,17 @@ export async function getOrgTreeStats(req) {
     return ids.size;
   }
 
-  function nest(unit) {
+  function nest(unit, seen = new Set()) {
+    const id = String(unit?.id || '');
+    if (!id || seen.has(id)) {
+      return { ...unit, children: [], subtreePeople: Number(unit?.peopleCount || 0) };
+    }
+    const nextSeen = new Set(seen);
+    nextSeen.add(id);
     return {
       ...unit,
       subtreePeople: subtreePeople(unit.id),
-      children: (byParent.get(unit.id) || []).map(nest),
+      children: (byParent.get(unit.id) || []).map((child) => nest(child, nextSeen)),
     };
   }
 

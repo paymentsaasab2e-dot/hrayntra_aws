@@ -23,6 +23,7 @@ import {
   isOrgHeadPurpose,
   resolveWriteOrgUnitId,
 } from '../../services/orgListScope.service.js';
+import { transferIdentityKey } from '../org/org.service.js';
 import { findWorkspaceClient } from '../setting/workspace-client.service.js';
 import {
   buildAssigneeVisibilityOr,
@@ -115,6 +116,58 @@ function ownCompanyJobClause(ownCompanyClientId) {
 function ownCompanyJobsVisible(scope, ownCompanyClientId) {
   if (!ownCompanyClientId || isOrgCompanyScoped(scope)) return null;
   return ownCompanyJobClause(ownCompanyClientId);
+}
+
+function uniqueJobIdsKeepOldest(rows) {
+  const seen = new Set();
+  const ids = [];
+  const sorted = [...rows].sort(
+    (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
+  );
+  for (const row of sorted) {
+    const key = transferIdentityKey('jobs', row);
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    ids.push(row.id);
+  }
+  return ids;
+}
+
+async function uniqueJobIdsForAllCompanies(where) {
+  const rows = await prisma.job.findMany({
+    where,
+    select: {
+      id: true,
+      title: true,
+      clientId: true,
+      location: true,
+      city: true,
+      department: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  const seen = new Set();
+  const kept = [];
+  const byCreated = [...rows].sort(
+    (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
+  );
+  for (const row of byCreated) {
+    const key = transferIdentityKey('jobs', row);
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    kept.push(row);
+  }
+  kept.sort(
+    (a, b) =>
+      new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime() ||
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+  );
+  return kept.map((row) => row.id);
 }
 
 /** Own-company jobs stay on tenant-wide lists, not inside one organization. */
@@ -1297,55 +1350,71 @@ export const jobService = {
       }
     }
 
-    const [jobs, total] = await Promise.all([
-      prisma.job.findMany({
-        where: scopedWhere,
-        skip,
-        take: limit,
-        include: {
-          client: {
-            select: {
-              id: true,
-              companyName: true,
-              logo: true,
-              emails: true,
-              teamMemberEmail: true,
-              contacts: {
-                where: { status: 'ACTIVE' },
-                orderBy: { updatedAt: 'desc' },
-                take: 10,
-                select: { email: true, contactType: true },
-              },
-            },
-          },
-          assignedTo: {
-            select: JOB_ASSIGNEE_SELECT,
-          },
-          createdBy: {
-            select: USER_BRIEF_SELECT,
-          },
-          // Per-stage data so the Jobs table can render a dynamic pipeline column
-          // (e.g. agency uses Applied/Screened/Interview/Offer/Joined while standalone
-          // uses the org template the tenant configured in Settings → Recruitment workflow).
-          pipelineStages: {
-            select: {
-              id: true,
-              name: true,
-              order: true,
-              color: true,
-              systemRole: true,
-              _count: { select: { entries: true } },
-            },
-            orderBy: { order: 'asc' },
-          },
-          _count: {
-            select: { matches: true, interviews: true, placements: true, applications: true },
+    const jobListInclude = {
+      client: {
+        select: {
+          id: true,
+          companyName: true,
+          logo: true,
+          emails: true,
+          teamMemberEmail: true,
+          contacts: {
+            where: { status: 'ACTIVE' },
+            orderBy: { updatedAt: 'desc' },
+            take: 10,
+            select: { email: true, contactType: true },
           },
         },
-        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      }),
-      prisma.job.count({ where: scopedWhere }),
-    ]);
+      },
+      assignedTo: {
+        select: JOB_ASSIGNEE_SELECT,
+      },
+      createdBy: {
+        select: USER_BRIEF_SELECT,
+      },
+      pipelineStages: {
+        select: {
+          id: true,
+          name: true,
+          order: true,
+          color: true,
+          systemRole: true,
+          _count: { select: { entries: true } },
+        },
+        orderBy: { order: 'asc' },
+      },
+      _count: {
+        select: { matches: true, interviews: true, placements: true, applications: true },
+      },
+    };
+
+    const orgScope = await getRequestOrgScope(req);
+    let jobs;
+    let total;
+    if (!isOrgCompanyScoped(orgScope)) {
+      const uniqueIds = await uniqueJobIdsForAllCompanies(scopedWhere);
+      total = uniqueIds.length;
+      const pageIds = uniqueIds.slice(skip, skip + limit);
+      jobs = pageIds.length
+        ? await prisma.job.findMany({
+            where: { id: { in: pageIds } },
+            include: jobListInclude,
+          })
+        : [];
+      const order = new Map(pageIds.map((id, index) => [id, index]));
+      jobs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    } else {
+      [jobs, total] = await Promise.all([
+        prisma.job.findMany({
+          where: scopedWhere,
+          skip,
+          take: limit,
+          include: jobListInclude,
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+        }),
+        prisma.job.count({ where: scopedWhere }),
+      ]);
+    }
 
     if (jobs.length) {
       for (const job of jobs) {
@@ -2491,18 +2560,18 @@ export const jobService = {
     // Org/company switcher must match getAll — an empty company stays at 0.
     let scope = { AND: [ownerScope, { isDeleted: { not: true } }] };
     scope = await mergeJobOrgScope(scope, req, ownCompanyClientId);
+    const allCompaniesView = !isOrgCompanyScoped(org);
 
-    // Active Jobs (status = OPEN)
-    const activeJobs = await prisma.job.count({
-      where: { ...scope, status: 'OPEN' },
-    });
+    const countUnique = async (where) => {
+      if (!allCompaniesView) return prisma.job.count({ where });
+      const ids = await uniqueJobIdsForAllCompanies(where);
+      return ids.length;
+    };
 
-    // New Jobs (This Week) - jobs created in the last 7 days
-    const newJobsThisWeek = await prisma.job.count({
-      where: {
-        ...scope,
-        createdAt: { gte: startOfWeek },
-      },
+    const activeJobs = await countUnique({ ...scope, status: 'OPEN' });
+    const newJobsThisWeek = await countUnique({
+      ...scope,
+      createdAt: { gte: startOfWeek },
     });
 
     // Applied = unique candidates who applied (applications + job-linked matches), not all AI matches
@@ -2510,16 +2579,25 @@ export const jobService = {
       where: {
         ...scope,
       },
-      select: {
-        id: true,
-      },
+      select: allCompaniesView
+        ? {
+            id: true,
+            title: true,
+            clientId: true,
+            location: true,
+            city: true,
+            department: true,
+            createdAt: true,
+          }
+        : { id: true },
     });
+    const metricJobIds = allCompaniesView
+      ? uniqueJobIdsKeepOldest(jobsForCandidateMetrics)
+      : jobsForCandidateMetrics.map((job) => job.id);
 
-    const appliedCountMap = await getMergedAppliedCountByJobId(
-      jobsForCandidateMetrics.map((job) => job.id)
-    );
-    const appliedCounts = jobsForCandidateMetrics.map(
-      (job) => Number(appliedCountMap.get(job.id) || 0)
+    const appliedCountMap = await getMergedAppliedCountByJobId(metricJobIds);
+    const appliedCounts = metricJobIds.map(
+      (jobId) => Number(appliedCountMap.get(jobId) || 0)
     );
 
     const appliedCandidates = appliedCounts.reduce((sum, count) => sum + count, 0);

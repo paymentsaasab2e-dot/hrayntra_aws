@@ -5,17 +5,11 @@ import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2, Plus, Save, Send, X } from 'lucide-react';
-import CVEditorModal from '../CVEditorModal';
 import { ClientCvSelectionPanel } from './ClientCvSelectionPanel';
 import { ResumePreviewModal } from '../candidates/ResumePreviewModal';
 import {
-  buildCvEditorPersistPatch,
   buildCvSubmissionExtra,
-  candidateToCvEditorData,
-  cvEditorDataToCandidatePatch,
-  hasEditedCvAvailable,
   resolveDefaultCvShareMode,
-  type CVEditorData,
   type CvShareMode,
 } from '../../lib/cvEditorMapping';
 import { isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
@@ -64,7 +58,6 @@ import {
 import { mapCandidateProfile } from '../../lib/mapCandidateProfile';
 import {
   buildClientPresentationExtraData,
-  mergeBackendCandidateWithClientPresentation,
   readClientPresentation,
   resolveSubmitToClientEditForm,
 } from '../../lib/clientPresentationDraft';
@@ -450,14 +443,13 @@ export function SubmitToClientDrawer({
   const [phase1ClientSectionVisibility, setPhase1ClientSectionVisibility] =
     useState<Phase1ClientSectionVisibility>(DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY);
   const [cvShareMode, setCvShareMode] = useState<CvShareMode | null>(null);
-  const [cvShareSaving, setCvShareSaving] = useState(false);
 
   const uploadsBase = useMemo(() => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
     return apiBase.replace(/\/api\/v1\/?$/, '');
   }, []);
 
-  const { files: candidateFiles, loading: candidateFilesLoading } = useFiles(
+  const { files: candidateFiles, loading: candidateFilesLoading, refresh: refreshCandidateFiles } = useFiles(
     'candidate',
     isOpen ? candidateId : null,
   );
@@ -850,21 +842,11 @@ export function SubmitToClientDrawer({
     void loadClientSlot(resolvedClientId);
   }, [isOpen, resolvedClientId]);
 
-  const [resumePreviewOpen, setResumePreviewOpen] = useState(false);
-  const [saasaPreviewOpen, setSaasaPreviewOpen] = useState(false);
-  const [cvEditorOpen, setCvEditorOpen] = useState(false);
-  const [cvViewOpen, setCvViewOpen] = useState(false);
-  const [cvEditorData, setCvEditorData] = useState<CVEditorData | null>(null);
-  const [cvViewData, setCvViewData] = useState<CVEditorData | null>(null);
-  const [cvEditorLoading, setCvEditorLoading] = useState(false);
   const resumeValue = String(candidate?.resume || '').trim();
   const resumeHref = resumeValue && isResumeHttpUrl(resumeValue) ? normalizeResumeHref(resumeValue) : '';
-  const presentationCandidate = useMemo(
-    () => (candidate ? mergeBackendCandidateWithClientPresentation(candidate) : null),
-    [candidate],
-  );
-  const hasEditedCv = hasEditedCvAvailable(presentationCandidate);
   const hasOriginalCv = Boolean(resumeHref);
+  const [saasaPreviewOpen, setSaasaPreviewOpen] = useState(false);
+  const [cvShareSaving, setCvShareSaving] = useState(false);
 
   const saasaCv = useSaasaCvAnnotations({
     candidateId: isOpen ? candidateId : null,
@@ -881,7 +863,11 @@ export function SubmitToClientDrawer({
       const raw = await apiGetCandidate(candidateId);
       setCandidate(extractApiData<BackendCandidate>(raw));
     },
+    onFilesRefresh: () => refreshCandidateFiles(),
     onToast,
+    onViewModeChange: (mode) => {
+      if (mode === 'saasa') setCvShareMode('saasa');
+    },
   });
 
   const saasaCvPreviewUrl = useMemo(
@@ -907,67 +893,6 @@ export function SubmitToClientDrawer({
     candidateFiles.find((file) => file.fileType === 'SAASA_CV')?.fileName ||
     (hasSaasaCvExport ? `HRYantra CV — ${fullName}` : '');
 
-  const cvFormOverrides = () => {
-    if (isPhase1Candidate && phase1Snapshot) {
-      const pi = phase1Snapshot.personalInfo || {};
-      return {
-        firstName: pi.firstName || '',
-        lastName: pi.lastName || '',
-        email: pi.email || '',
-        phone: pi.phone || '',
-        linkedIn: pi.linkedinUrl || '',
-        location: [pi.city, pi.country].filter(Boolean).join(', '),
-        cvSummary: phase1Snapshot.summaryText || '',
-      };
-    }
-    if (!editForm) return {};
-    return {
-      firstName: editForm.firstName,
-      lastName: editForm.lastName,
-      email: editForm.email,
-      phone: editForm.phone,
-      linkedIn: editForm.linkedIn,
-      currentTitle: editForm.currentTitle,
-      location: editForm.location,
-      cvSummary: editForm.cvSummary,
-      skills: editForm.skills,
-    };
-  };
-
-  const openCvEditor = async () => {
-    if (!candidate?.id) {
-      onToast('Candidate not loaded yet');
-      return;
-    }
-    setCvEditorLoading(true);
-    try {
-      const raw = await apiGetCandidate(candidate.id);
-      const data = extractApiData<BackendCandidate>(raw);
-      setCandidate(data);
-      const forClient = mergeBackendCandidateWithClientPresentation(data);
-      setCvEditorData(candidateToCvEditorData(forClient, cvFormOverrides()));
-      setCvEditorOpen(true);
-    } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : 'Unable to load CV data');
-    } finally {
-      setCvEditorLoading(false);
-    }
-  };
-
-  const openCvView = () => {
-    if (!candidate) {
-      onToast('Candidate not loaded yet');
-      return;
-    }
-    setCvViewData(
-      candidateToCvEditorData(
-        presentationCandidate ?? candidate,
-        cvFormOverrides(),
-      ),
-    );
-    setCvViewOpen(true);
-  };
-
   useEffect(() => {
     if (!candidate) {
       setCvShareMode(null);
@@ -986,8 +911,7 @@ export function SubmitToClientDrawer({
         updatedAt: new Date().toISOString(),
       });
       const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
-      const updated = extractApiData<BackendCandidate>(updatedRaw);
-      setCandidate(updated);
+      setCandidate(extractApiData<BackendCandidate>(updatedRaw));
     } catch (error: unknown) {
       onToast(error instanceof Error ? error.message : 'Unable to save CV selection');
     } finally {
@@ -995,138 +919,32 @@ export function SubmitToClientDrawer({
     }
   };
 
-  const excludeCvVersion = (mode: CvShareMode) => {
-    const available: CvShareMode[] = [];
-    if (hasEditedCv) available.push('edited');
-    if (hasOriginalCv) available.push('original');
-    if (hasSaasaCvExport) available.push('saasa');
-    const next = available.find((entry) => entry !== mode);
-    if (next) {
-      void persistCvShareMode(next);
-      return;
-    }
-    onToast('At least one CV version is required to submit to the client');
-  };
-
-  const handleCvEditorSave = async (data: CVEditorData) => {
-    if (!candidate?.id) return;
-    if (!isPhase1Candidate && !editForm) return;
-    if (isPhase1Candidate && !phase1Snapshot) return;
-    setSaving(true);
-    try {
-      const baseExtra =
-        candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
-          ? (candidate.extraData as Record<string, unknown>)
-          : {};
-      const persist = await buildCvEditorPersistPatch(data, candidate.id, baseExtra);
-      const layout =
-        persist.extraData?.cvEditorLayout &&
-        typeof persist.extraData.cvEditorLayout === 'object'
-          ? (persist.extraData.cvEditorLayout as Record<string, unknown>)
-          : null;
-
-      let extraData: Record<string, unknown>;
-      if (isPhase1Candidate && phase1Snapshot) {
-        extraData = buildClientPresentationExtraDataForPhase1(
-          phase1Snapshot,
-          candidate,
-          candidate.extraData ?? null,
-          {
-            cvEditorLayout: layout,
-            phase1VisibleSections: phase1ClientSectionVisibility,
-          },
-        );
-        if (persist.extraData) {
-          extraData = { ...extraData, ...persist.extraData };
-        }
-      } else if (editForm) {
-        const cvPatch = cvEditorDataToCandidatePatch(data);
-        const mergedForm: CandidateEditFormState = {
-          ...editForm,
-          cvSummary: cvPatch.cvSummary ?? editForm.cvSummary,
-          cvEducationEntries: Array.isArray(cvPatch.cvEducationEntries)
-            ? cvPatch.cvEducationEntries
-                .map((entry) =>
-                  [
-                    entry.degree || entry.qualification,
-                    entry.institution || entry.instituteName,
-                    entry.startYear,
-                    entry.endYear,
-                  ]
-                    .filter(Boolean)
-                    .join(' | ')
-                )
-                .join('\n')
-            : editForm.cvEducationEntries,
-          cvWorkExperienceEntries: Array.isArray(cvPatch.cvWorkExperienceEntries)
-            ? cvPatch.cvWorkExperienceEntries
-                .map((entry) => {
-                  const header = [
-                    entry.title,
-                    entry.company,
-                    entry.location,
-                    entry.startDate,
-                    entry.endDate,
-                  ]
-                    .filter(Boolean)
-                    .join(' | ');
-                  const responsibilities = (entry.responsibilities || []).join('; ');
-                  return [header, responsibilities].filter(Boolean).join('\n');
-                })
-                .join('\n\n')
-            : editForm.cvWorkExperienceEntries,
-          skills: Array.isArray(cvPatch.skills) ? cvPatch.skills.join(', ') : editForm.skills,
-        };
-        extraData = buildClientPresentationExtraData(mergedForm, candidate.extraData ?? null, {
-          cvEditorLayout: layout,
-          visibleSections: clientSectionVisibility,
-        });
-      } else {
-        return;
-      }
-
-      const cvPatch = cvEditorDataToCandidatePatch(data);
-      const mergedExtraData = {
-        ...extraData,
-        ...persist.extraData,
-        resumeCvViewMode: 'updated',
-      };
-      const updatedRaw = await apiUpdateCandidate(candidate.id, {
-        ...cvPatch,
-        ...persist,
-        extraData: mergedExtraData,
-      });
-      const updated = extractApiData<BackendCandidate>(updatedRaw);
-      const savedRow = enrichBackendCandidateFromPhase1Snapshot({
-        ...candidate,
-        ...cvPatch,
-        ...persist,
-        ...updated,
-        extraData: mergedExtraData,
-      } as BackendCandidate);
-      setCandidate(savedRow);
-      const saved = readClientPresentation(savedRow.extraData);
-      if (isPhase1Candidate) {
-        if (saved?.phase1Snapshot) setPhase1Snapshot(saved.phase1Snapshot);
-        if (saved?.phase1VisibleSections) {
-          setPhase1ClientSectionVisibility(saved.phase1VisibleSections);
-        }
-      } else {
-        const savedForm = saved?.editForm ?? editForm;
-        if (savedForm) setEditForm(savedForm);
-      }
-      setCvEditorData(candidateToCvEditorData(savedRow, cvFormOverrides()));
-      setCvViewData(candidateToCvEditorData(savedRow, cvFormOverrides()));
-      setCvShareMode('edited');
-      setCandidateStepSaved(true);
-      onToast('Client CV saved (overview unchanged)');
-      setCvEditorOpen(false);
-    } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : 'Unable to save CV');
-      throw error;
-    } finally {
-      setSaving(false);
-    }
+  const clientCvSelectionPanelProps = {
+    candidate,
+    cvShareMode,
+    cvShareSaving,
+    hasEditedCv: false,
+    hasOriginalCv: false,
+    hasSaasaCv: hasSaasaCvExport,
+    canOpenSaasaCv,
+    saasaCvFileName,
+    saasaAnnotationCount: saasaCv.annotationCount,
+    saasaCvPreviewUrl: saasaCvPreviewUrl || '',
+    resumeHref,
+    cvEditorLoading: false,
+    saasaCvBusy: saasaCv.busy,
+    loading,
+    onSelectMode: (mode: CvShareMode) => void persistCvShareMode(mode),
+    onExcludeVersion: () => undefined,
+    onEditCv: () => undefined,
+    onPreviewEdited: () => undefined,
+    onPreviewOriginal: () => undefined,
+    onOpenSaasaCv: () => saasaCv.openModal(),
+    onPreviewSaasaCv: () => {
+      if (saasaCvPreviewUrl) setSaasaPreviewOpen(true);
+    },
+    showEditedOption: false,
+    showOriginalOption: false,
   };
 
   const saveDetails = async () => {
@@ -1251,32 +1069,6 @@ export function SubmitToClientDrawer({
     }
   };
 
-  const clientCvSelectionPanelProps = {
-    candidate,
-    cvShareMode,
-    cvShareSaving,
-    hasEditedCv,
-    hasOriginalCv,
-    hasSaasaCv: hasSaasaCvExport,
-    canOpenSaasaCv,
-    saasaCvFileName,
-    saasaAnnotationCount: saasaCv.annotationCount,
-    saasaCvPreviewUrl: saasaCvPreviewUrl || '',
-    resumeHref,
-    cvEditorLoading,
-    saasaCvBusy: saasaCv.busy,
-    loading,
-    onSelectMode: (mode: CvShareMode) => void persistCvShareMode(mode),
-    onExcludeVersion: excludeCvVersion,
-    onEditCv: () => void openCvEditor(),
-    onPreviewEdited: openCvView,
-    onPreviewOriginal: () => setResumePreviewOpen(true),
-    onOpenSaasaCv: () => saasaCv.openModal(),
-    onPreviewSaasaCv: () => {
-      if (saasaCvPreviewUrl) setSaasaPreviewOpen(true);
-    },
-  };
-
   const submitToClient = async () => {
     if (!activeSource) return;
     stashCurrentBulkCandidate();
@@ -1296,11 +1088,6 @@ export function SubmitToClientDrawer({
     if (!submissionType) {
       setSubmissionTypeError('Select what this submission is for');
       onToast('Please choose a submission purpose');
-      return;
-    }
-
-    if (!isBulkMode && (hasEditedCv || hasOriginalCv || hasSaasaCvExport) && !cvShareMode) {
-      onToast('Select which CV to send to the client');
       return;
     }
 
@@ -1349,8 +1136,6 @@ export function SubmitToClientDrawer({
           const cached = bulkCandidateCacheRef.current.get(entry.candidateId);
           const raw = await apiGetCandidate(entry.candidateId);
           const data = extractApiData<BackendCandidate>(raw);
-          const forClient = mergeBackendCandidateWithClientPresentation(data);
-          const entryHasEditedCv = hasEditedCvAvailable(forClient);
           const entryResume = String(data.resume || '').trim();
           const entryHasOriginalCv = Boolean(
             entryResume && isResumeHttpUrl(entryResume),
@@ -1365,10 +1150,6 @@ export function SubmitToClientDrawer({
           const entryCvShareMode =
             cached?.cvShareMode ??
             resolveDefaultCvShareMode(data, entryHasOriginalCv, entryHasSaasaCv);
-          if ((entryHasEditedCv || entryHasOriginalCv || entryHasSaasaCv) && !entryCvShareMode) {
-            onToast(`Select which CV to send for ${entry.candidateName || 'each candidate'}`);
-            return;
-          }
 
           let mergedExtra: Record<string, unknown> =
             data.extraData && typeof data.extraData === 'object' && !Array.isArray(data.extraData)
@@ -1484,37 +1265,6 @@ export function SubmitToClientDrawer({
             : buildClientPresentationExtraData(editForm!, candidate.extraData ?? null, {
                 visibleSections: clientSectionVisibility,
               });
-        if (cvShareMode === 'edited' && cvEditorData) {
-          const presentationPipeline = readClientPresentation(candidate.extraData)?.fields?.extraData ?? {};
-          const persist = await buildCvEditorPersistPatch(
-            cvEditorData,
-            candidate.id,
-            presentationPipeline as Record<string, unknown>,
-          );
-          const layout =
-            persist.extraData?.cvEditorLayout &&
-            typeof persist.extraData.cvEditorLayout === 'object'
-              ? (persist.extraData.cvEditorLayout as Record<string, unknown>)
-              : null;
-          if (isPhase1Candidate && phase1Snapshot) {
-            presentationExtra = buildClientPresentationExtraDataForPhase1(
-              phase1Snapshot,
-              candidate,
-              presentationExtra,
-              {
-                cvEditorLayout: layout,
-                phase1VisibleSections: phase1ClientSectionVisibility,
-              },
-            );
-            if (persist.extraData) {
-              presentationExtra = { ...presentationExtra, ...persist.extraData };
-            }
-          } else if (editForm) {
-            presentationExtra = buildClientPresentationExtraData(editForm, presentationExtra, {
-              cvEditorLayout: layout,
-            });
-          }
-        }
         const extraData = buildCvSubmissionExtra(presentationExtra, {
           shareMode: cvShareMode,
           updatedAt: new Date().toISOString(),
@@ -1979,39 +1729,13 @@ export function SubmitToClientDrawer({
         </>
       ) : null}
     </AnimatePresence>
-
-    <ResumePreviewModal
-      isOpen={resumePreviewOpen}
-      onClose={() => setResumePreviewOpen(false)}
-      resumeUrl={resumeHref || null}
-      candidateName={fullName}
-    />
-
+    {saasaCv.modals}
     <ResumePreviewModal
       isOpen={saasaPreviewOpen}
       onClose={() => setSaasaPreviewOpen(false)}
       resumeUrl={saasaCvPreviewUrl || null}
       candidateName={`HRYantra CV — ${fullName}`}
     />
-
-    {saasaCv.modals}
-
-    {cvEditorOpen && cvEditorData ? (
-      <CVEditorModal
-        initialData={cvEditorData}
-        onClose={() => setCvEditorOpen(false)}
-        onSave={handleCvEditorSave}
-        primaryButtonLabel="Save CV"
-      />
-    ) : null}
-
-    {cvViewOpen && cvViewData ? (
-      <CVEditorModal
-        initialData={cvViewData}
-        readOnly
-        onClose={() => setCvViewOpen(false)}
-      />
-    ) : null}
     </>
   );
 }
