@@ -14,20 +14,30 @@ export function useWorkspaceEntityAlerts(
 ) {
   const [alertsByEntityId, setAlertsByEntityId] = useState<Record<string, AiWorkspaceBriefAlert[]>>({});
   const idsKey = useMemo(
-    () => [...new Set(entityIds.map((id) => String(id || '').trim()).filter(Boolean))].sort().join(','),
+    () =>
+      [...new Set((Array.isArray(entityIds) ? entityIds : []).map((id) => String(id || '').trim()).filter(Boolean))]
+        .sort()
+        .join(','),
     [entityIds],
   );
 
   const load = useCallback(
     async (ids: string[]) => {
-      const uniqueIds = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+      const uniqueIds = [...new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean))];
       if (!uniqueIds.length) {
         setAlertsByEntityId({});
         return;
       }
       try {
         const res = await apiGetWorkspaceBriefEntityAlertsBatch(entityType, uniqueIds);
-        setAlertsByEntityId(res.data?.alertsByEntityId ?? {});
+        const raw = res.data?.alertsByEntityId;
+        const next: Record<string, AiWorkspaceBriefAlert[]> = {};
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          for (const [id, alerts] of Object.entries(raw)) {
+            next[id] = Array.isArray(alerts) ? alerts : [];
+          }
+        }
+        setAlertsByEntityId(next);
       } catch {
         setAlertsByEntityId({});
       }
@@ -46,7 +56,10 @@ export function useWorkspaceEntityAlerts(
   }, [idsKey, load]);
 
   const showAlertColumn = useMemo(
-    () => Object.values(alertsByEntityId).some((alerts) => alerts.length > 0),
+    () =>
+      Object.values(alertsByEntityId).some(
+        (alerts) => Array.isArray(alerts) && alerts.length > 0,
+      ),
     [alertsByEntityId],
   );
 

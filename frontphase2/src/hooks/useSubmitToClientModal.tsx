@@ -107,15 +107,15 @@ export function useSubmitToClientModal(options?: {
     void requestInfo(message);
   }, []);
 
-  const submitModalElement = (
+  const submitModalElement = isOpen ? (
     <SubmitToClientDrawer
-      isOpen={isOpen}
+      isOpen
       source={source}
       onClose={handleClose}
       onToast={handleToast}
       onSubmitted={onSubmitted}
     />
-  );
+  ) : null;
 
   return {
     openSubmit,

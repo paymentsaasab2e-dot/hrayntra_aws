@@ -178,7 +178,8 @@ export function filterJobStatusOptionsForCurrent(
   options: string[],
   currentStatus: string | null | undefined,
 ): string[] {
-  if (canRevertJobToDraft(currentStatus)) return options;
-  return options.filter((status) => !isDraftJobStatus(status));
+  const list = Array.isArray(options) ? options : [];
+  if (canRevertJobToDraft(currentStatus)) return list;
+  return list.filter((status) => !isDraftJobStatus(status));
 }
 

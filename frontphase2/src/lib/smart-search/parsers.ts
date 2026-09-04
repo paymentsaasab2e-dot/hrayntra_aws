@@ -989,6 +989,8 @@ export function jobMatchesSmartKeywordChips(
   const backendStatus = String(job.backendStatus || '').trim().toUpperCase();
   const displayStatus = String(job.status || '').trim();
 
+  const asTextList = (value: unknown): string[] =>
+    Array.isArray(value) ? value.map((item) => String(item ?? '')).filter(Boolean) : [];
   const haystack = [
     job.title,
     job.client,
@@ -1009,13 +1011,15 @@ export function jobMatchesSmartKeywordChips(
     job.hiringManager,
     job.managerName,
     job.workMode,
-    ...(job.skills || []),
-    ...(job.requirements || []),
-    ...(job.keyResponsibilities || []),
-    ...(job.preferredSkills || []),
-    ...(job.candidateRequirements || []),
-    ...(job.benefits || []),
-    ...(job.languages || []).map((item) => `${item.language || ''} ${item.proficiency || ''}`),
+    ...asTextList(job.skills),
+    ...asTextList(job.requirements),
+    ...asTextList(job.keyResponsibilities),
+    ...asTextList(job.preferredSkills),
+    ...asTextList(job.candidateRequirements),
+    ...asTextList(job.benefits),
+    ...(Array.isArray(job.languages) ? job.languages : []).map(
+      (item) => `${item?.language || ''} ${item?.proficiency || ''}`,
+    ),
   ]
     .filter(Boolean)
     .join(' ')

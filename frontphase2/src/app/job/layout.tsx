@@ -1,5 +1,4 @@
-'use client';
-
+import { Suspense } from 'react';
 import { Sidenav } from '../../components/Sidenav';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
 import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
@@ -22,7 +21,9 @@ export default function JobLayout({
         }}
       >
         <PermissionRouteGuard anyPermissions={MODULE_ACCESS_MAP.Jobs}>
-          {children}
+          <Suspense fallback={<div className="min-h-[50vh] w-full animate-pulse rounded-xl bg-white/90" />}>
+            {children}
+          </Suspense>
         </PermissionRouteGuard>
       </Sidenav>
     </div>
