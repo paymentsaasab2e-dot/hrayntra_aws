@@ -38,6 +38,7 @@ export function dedupeByCompanyName<T>(
   items: T[],
   getName: (item: T) => string | null | undefined,
 ): T[] {
+  if (!Array.isArray(items)) return [];
   const kept: T[] = [];
   const indexByKey = new Map<string, number>();
 

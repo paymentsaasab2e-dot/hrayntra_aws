@@ -79,13 +79,12 @@ export function SearchableToolbarFilterSelect({
     closeMenu,
   );
 
-  const uniqueOptions = useMemo(
-    () =>
-      dedupeNormalizedLabels
-        ? dedupeByCompanyName(options, (option) => option.label)
-        : options,
-    [dedupeNormalizedLabels, options],
-  );
+  const uniqueOptions = useMemo(() => {
+    const list = Array.isArray(options) ? options : [];
+    return dedupeNormalizedLabels
+      ? dedupeByCompanyName(list, (option) => option.label)
+      : list;
+  }, [dedupeNormalizedLabels, options]);
 
   const selectedLabel = useMemo(() => {
     if (!value) return allLabel;

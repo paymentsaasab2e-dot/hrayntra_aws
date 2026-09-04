@@ -38,6 +38,7 @@ import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/T
 import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../components/ai/WorkspaceAlertTableCell';
 import type { AuditMeta } from '../../types/audit';
+import nextDynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
@@ -48,8 +49,7 @@ import { CreateTaskModal } from '../../components/CreateTaskModal';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import { JobDetailsDrawer, type JobForDrawer, type JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
 import { CreatePlacementDrawer } from '../../components/placements/modals/CreatePlacementDrawer';
-import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
-import { JobAiCreateWizard } from '../../components/jobs/JobAiCreateWizard';
+import { PageErrorBoundary } from '../../components/PageErrorBoundary';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import {
   SmartSearchActiveKeywordsBar,
@@ -178,9 +178,21 @@ import {
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import { dedupeByCompanyName } from '../../lib/companyNameKey';
 
-// Force CSR so the page hydrates skeleton placeholders before the first data
-// fetch resolves — every interactive bit on this tab is client-driven.
-export const dynamic = 'force-dynamic';
+const CreateJobDrawer = nextDynamic(
+  () =>
+    import('../../components/drawers/CreateJobDrawer').then((mod) => ({
+      default: mod.CreateJobDrawer,
+    })),
+  { ssr: false },
+);
+
+const JobAiCreateWizard = nextDynamic(
+  () =>
+    import('../../components/jobs/JobAiCreateWizard').then((mod) => ({
+      default: mod.JobAiCreateWizard,
+    })),
+  { ssr: false },
+);
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 10;
@@ -318,9 +330,9 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     employmentType: formatEmploymentType(backendJob.type) || undefined,
     salaryRange: formatSalaryRange(backendJob.salary),
     postedDate: backendJob.postedDate
-      ? new Date(backendJob.postedDate).toISOString().split('T')[0]
+      ? formatDateDMY(backendJob.postedDate) || String(backendJob.postedDate).slice(0, 10)
       : backendJob.createdAt
-        ? backendJob.createdAt.split('T')[0]
+        ? formatDateDMY(backendJob.createdAt) || String(backendJob.createdAt).slice(0, 10)
         : job?.createdDate,
     recruiter: formatAssigneeDisplayName(backendJob.assignedTo) || backendJob.assignedTo?.name || job?.owner,
     hiringManager: backendJob.hiringManager || undefined,
@@ -333,7 +345,9 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     joined: backendJob._count?.placements || job?.joined || 0,
     openings: backendJob.openings || job?.openings || 0,
     owner: formatAssigneeDisplayName(backendJob.assignedTo) || backendJob.assignedTo?.name || job?.owner || '',
-    createdDate: backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job?.createdDate || '',
+    createdDate: backendJob.createdAt
+      ? formatDateDMY(backendJob.createdAt) || String(backendJob.createdAt).slice?.(0, 10) || job?.createdDate || ''
+      : job?.createdDate || '',
     jobCategory: backendJob.jobCategory || undefined,
     jobLocationType: backendJob.jobLocationType || undefined,
     salaryType: backendJob.salary?.type || undefined,
@@ -387,7 +401,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     languages: Array.isArray(backendJob.languages) ? backendJob.languages : undefined,
     workMode: backendJob.workMode || undefined,
     expectedClosureDate: backendJob.expectedClosureDate
-      ? new Date(backendJob.expectedClosureDate).toISOString().split('T')[0]
+      ? formatDateDMY(backendJob.expectedClosureDate) || String(backendJob.expectedClosureDate).slice(0, 10)
       : undefined,
     jdFileName: backendJob.jdFileName || undefined,
     videoMediaLink: backendJob.videoMediaLink || undefined,
@@ -525,6 +539,7 @@ const JobStatusTableDropdown = ({
   const [newStatus, setNewStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const optionsList = Array.isArray(options) ? options : [];
   const closeMenu = useCallback(() => {
     setOpen(false);
     setShowAdd(false);
@@ -567,7 +582,7 @@ const JobStatusTableDropdown = ({
                 : { top: menuPosition.top }),
             }}
           >
-            {options.map((status) => {
+            {optionsList.map((status) => {
               const isActive = String(value || '') === String(status || '');
               const canDelete = !isProtectedJobStatus(status);
               return (
@@ -776,9 +791,13 @@ const JobsListView = ({
   workspaceAlertsByEntityId,
   isColumnVisible = () => true,
 }: JobsListViewProps) => {
+  const rows = Array.isArray(jobs) ? jobs.filter((job) => job && job.id) : [];
+  const statusList = Array.isArray(statusOptions) ? statusOptions : [];
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
-      Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
+      Object.values(workspaceAlertsByEntityId).some(
+        (alerts) => Array.isArray(alerts) && alerts.length > 0,
+      ),
   );
   const show = isColumnVisible;
   const visibleColCount =
@@ -836,7 +855,7 @@ const JobsListView = ({
         </tr>
       </thead>
         <tbody className="divide-y divide-slate-100/80">
-          {jobs.length === 0 ? (
+          {rows.length === 0 ? (
             <tr>
               <td colSpan={visibleColCount} className="px-4 py-12 text-center">
                 <p className="text-xs font-medium text-slate-500">No jobs match your filters</p>
@@ -844,7 +863,7 @@ const JobsListView = ({
               </td>
             </tr>
           ) : (
-            jobs.map((job) => (
+            rows.map((job) => (
           <tr
             key={job.id}
                 className="group transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
@@ -883,7 +902,7 @@ const JobsListView = ({
                 {canUpdateJob ? (
                   <JobStatusTableDropdown
                     value={job.status}
-                    options={filterJobStatusOptionsForCurrent(statusOptions, job.status)}
+                    options={filterJobStatusOptionsForCurrent(statusList, job.status)}
                     onSelect={(status) => onStatusChange(job.id, status)}
                     onAppend={onAppendStatusOption}
                     onRemove={onRemoveStatusOption}
@@ -1104,7 +1123,38 @@ function formatSalaryRange(salary?: BackendJob['salary']): string | undefined {
   return undefined;
 }
 
+function emptyMappedJob(id = ''): Job {
+  return {
+    id,
+    title: 'Untitled job',
+    client: '-',
+    location: '-',
+    status: 'Active',
+    applied: 0,
+    interviewed: 0,
+    offered: 0,
+    joined: 0,
+    openings: 0,
+    owner: 'Unassigned',
+    createdDate: '-',
+    hot: false,
+    aiMatch: false,
+    noCandidates: false,
+    slaRisk: false,
+  };
+}
+
+function asStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const list = value.map((item) => String(item ?? '').trim()).filter(Boolean);
+  return list.length ? list : undefined;
+}
+
 function mapBackendJob(job: BackendJob): Job {
+  if (!job || typeof job !== 'object') {
+    return emptyMappedJob();
+  }
+  try {
   const interviewed = job._count?.interviews ?? 0;
   const joined = job._count?.placements ?? 0;
 
@@ -1180,14 +1230,18 @@ function mapBackendJob(job: BackendJob): Job {
     hiringManager: job.hiringManager || undefined,
     managerName: job.manager?.name || undefined,
     workMode: job.workMode || undefined,
-    skills: job.skills || undefined,
-    requirements: job.requirements || undefined,
-    keyResponsibilities: job.keyResponsibilities || undefined,
-    preferredSkills: job.preferredSkills || undefined,
-    candidateRequirements: job.candidateRequirements || undefined,
-    benefits: job.benefits || undefined,
-    languages: job.languages || undefined,
+    skills: asStringList(job.skills),
+    requirements: asStringList(job.requirements),
+    keyResponsibilities: asStringList(job.keyResponsibilities),
+    preferredSkills: asStringList(job.preferredSkills),
+    candidateRequirements: asStringList(job.candidateRequirements),
+    benefits: asStringList(job.benefits),
+    languages: Array.isArray(job.languages) ? job.languages : undefined,
   };
+  } catch (error) {
+    console.error('[jobs] mapBackendJob failed', error);
+    return emptyMappedJob(String((job as { id?: string }).id || ''));
+  }
 }
 
 function extractJobCandidateNames(job: any): string[] {
@@ -1342,7 +1396,7 @@ function sanitizeScheduleEmail(value?: string | null) {
 }
 
 function mapUsersToInterviewPanel(users: BackendUser[]): InterviewPanelMember[] {
-  return users.map((user) => ({
+  return (Array.isArray(users) ? users : []).map((user) => ({
     id: user.id,
     userId: user.id,
     name: safeDisplayText(user.name, 'Unknown User'),
@@ -1504,8 +1558,9 @@ export default function JobsPage() {
   });
 
   const displayJobs = useMemo(() => {
-    if (jobSmartSearch.activeKeywords.length === 0) return jobs;
-    return jobs.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
+    const list = Array.isArray(jobs) ? jobs.filter((job) => job && job.id) : [];
+    if (jobSmartSearch.activeKeywords.length === 0) return list;
+    return list.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
   }, [jobs, jobSmartSearch.activeKeywords]);
 
   const hasActiveFilters = Boolean(
@@ -1818,7 +1873,9 @@ export default function JobsPage() {
           return;
         }
 
-        const mapped = parsed.jobs.map((job) => mapBackendJob(job));
+        const mapped = parsed.jobs
+          .filter((job): job is BackendJob => Boolean(job && typeof job === 'object' && (job as BackendJob).id))
+          .map((job) => mapBackendJob(job));
         setJobs(mapped);
         const total = parsed.total || mapped.length;
         setTotalEntries(total);
@@ -1890,7 +1947,7 @@ export default function JobsPage() {
   });
   const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
     'JOB',
-    jobs.map((job) => job.id),
+    (Array.isArray(jobs) ? jobs : []).map((job) => job.id),
   );
 
   const [loadingJobDetails, setLoadingJobDetails] = useState(false);
@@ -2403,14 +2460,14 @@ export default function JobsPage() {
         setJobStatusOptions(
           mergeJobStatusOptions(
             response?.data?.statuses,
-            jobs.map((job) => job.status),
+            (Array.isArray(jobs) ? jobs : []).map((job) => job.status),
           ),
         );
       } catch (err) {
         if (cancelled) return;
         console.error('Failed to load job status catalog:', err);
         setJobStatusOptions(
-          mergeJobStatusOptions(undefined, jobs.map((job) => job.status)),
+          mergeJobStatusOptions(undefined, (Array.isArray(jobs) ? jobs : []).map((job) => job.status)),
         );
       }
     };
@@ -2424,7 +2481,7 @@ export default function JobsPage() {
 
   useEffect(() => {
     setJobStatusOptions((current) =>
-      mergeJobStatusOptions(current, jobs.map((job) => job.status)),
+      mergeJobStatusOptions(current, (Array.isArray(jobs) ? jobs : []).map((job) => job.status)),
     );
   }, [jobs]);
 
@@ -2437,7 +2494,10 @@ export default function JobsPage() {
 
   const handleRemoveJobStatusOption = useCallback(async (status: string) => {
     const response = await apiRemoveJobStatus(status);
-    const next = mergeJobStatusOptions(response?.data?.statuses, jobs.map((job) => job.status));
+    const next = mergeJobStatusOptions(
+      response?.data?.statuses,
+      (Array.isArray(jobs) ? jobs : []).map((job) => job.status),
+    );
     setJobStatusOptions(next);
     return next;
   }, [jobs]);
@@ -2892,6 +2952,7 @@ export default function JobsPage() {
                   transition={{ duration: 0.22 }}
                   className="flex min-h-0 flex-1 flex-col overflow-hidden"
                 >
+                    <PageErrorBoundary>
                     <JobsListView
                       jobs={displayJobs}
                       onJobClick={openJobDrawer}
@@ -2920,6 +2981,7 @@ export default function JobsPage() {
                       workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                       isColumnVisible={jobColumnVisibility.isVisible}
                     />
+                    </PageErrorBoundary>
                   <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                     <PaginationAll
                       initialPage={currentPage}
@@ -2943,8 +3005,9 @@ export default function JobsPage() {
         </div>
       </Ph2ModulePageLayout>
 
+      {canCreateJob && createJobDrawerOpen ? (
       <CreateJobDrawer
-        isOpen={canCreateJob && createJobDrawerOpen}
+        isOpen
         duplicateFromJobId={duplicateFromJobId}
         onClose={() => {
           setCreateJobDrawerOpen(false);
@@ -2956,9 +3019,11 @@ export default function JobsPage() {
           void reloadMyJobsAndMetrics();
         }}
       />
+      ) : null}
 
+      {canCreateJob && jobAiWizardOpen ? (
       <JobAiCreateWizard
-        isOpen={canCreateJob && jobAiWizardOpen}
+        isOpen
         mode={createJobMode}
         onClose={() => setJobAiWizardOpen(false)}
         onJobCreated={() => {
@@ -2967,9 +3032,11 @@ export default function JobsPage() {
           void reloadMyJobsAndMetrics();
         }}
       />
+      ) : null}
 
+      {jobDrawerOpen ? (
       <JobDetailsDrawer
-        isOpen={jobDrawerOpen}
+        isOpen
         onClose={() => {
           setJobDrawerOpen(false);
           setSelectedJob(null);
@@ -3057,10 +3124,12 @@ export default function JobsPage() {
           setSelectedJob((prev) => (prev && prev.id === jobId ? { ...prev, status } : prev));
         }}
       />
+      ) : null}
 
+      {candidateProfileDrawerOpen ? (
       <CandidateProfileDrawer
         key={`${selectedCandidateProfile?.id || 'job-candidate'}-${candidateDrawerMode}`}
-        isOpen={candidateProfileDrawerOpen}
+        isOpen
         stackAboveSiblingDrawers
         currentUser={candidateDrawerCurrentUser}
         availableTags={availableDrawerTags}
@@ -3292,11 +3361,13 @@ export default function JobsPage() {
         editModalOpenToken={candidateEditOpenToken}
         loadingCandidateProfile={loadingCandidateProfile}
       />
+      ) : null}
 
       {submitModalElement}
 
+      {scheduleInterviewOpen ? (
       <CandidateScheduleInterviewModal
-        isOpen={scheduleInterviewOpen}
+        isOpen
         candidate={schedulePopupCandidate}
         linkedJobTitle={schedulePopupCandidate?.assignedJob || undefined}
         initialJobId={schedulePrefill?.jobId ?? null}
@@ -3306,9 +3377,11 @@ export default function JobsPage() {
         onClose={closeScheduleInterviewFromJob}
         onSchedule={handleJobDrawerScheduleInterview}
       />
+      ) : null}
 
+      {canUpdateJob && editJobDrawerOpen ? (
       <CreateJobDrawer
-        isOpen={canUpdateJob && editJobDrawerOpen}
+        isOpen
         jobId={editingJobId || undefined}
         onClose={() => {
           setEditJobDrawerOpen(false);
@@ -3323,13 +3396,16 @@ export default function JobsPage() {
           }
         }}
       />
+      ) : null}
 
+      {createTaskOpen ? (
       <CreateTaskModal
-        isOpen={createTaskOpen}
+        isOpen
         onClose={() => setCreateTaskOpen(false)}
         onSuccess={() => setCreateTaskOpen(false)}
         initialRelatedTo="Job"
       />
+      ) : null}
 
       {/* Step 1 — chooser asking how the recruiter wants to add a candidate. */}
       {canAddCandidate && addCandidateChooserOpen && selectedJobForCandidate ? (
@@ -3521,8 +3597,9 @@ export default function JobsPage() {
         </div>
       ) : null}
 
+      {placementDrawerOpen ? (
       <CreatePlacementDrawer
-        isOpen={placementDrawerOpen}
+        isOpen
         isSubmitting={placementSubmitting}
         currentUserId={
           currentUserForCandidateDrawer?._id || currentUserForCandidateDrawer?.id || undefined
@@ -3589,9 +3666,11 @@ export default function JobsPage() {
           }
         }}
       />
+      ) : null}
 
+      {canAddCandidate && addCandidateDrawerOpen ? (
       <AddCandidateDrawer
-        isOpen={canAddCandidate && addCandidateDrawerOpen}
+        isOpen
         onClose={() => {
           setAddCandidateDrawerOpen(false);
           setSelectedJobForCandidate(null);
@@ -3607,16 +3686,18 @@ export default function JobsPage() {
         defaultJobId={selectedJobForCandidate?.id || ''}
         lockJobSelection
       />
-      {canDeleteJob && (
+      ) : null}
+      {canDeleteJob && recycleBinDrawerOpen ? (
         <ModuleRecycleBinDrawer
-          isOpen={recycleBinDrawerOpen}
+          isOpen
           onClose={() => setRecycleBinDrawerOpen(false)}
           kind="jobs"
           onRestored={() => void reloadMyJobsAndMetrics()}
         />
-      )}
+      ) : null}
+      {exportModalOpen ? (
       <ExportColumnsModal
-        isOpen={exportModalOpen}
+        isOpen
         onClose={() => {
           setExportModalOpen(false);
           setExportJobs([]);
@@ -3631,6 +3712,7 @@ export default function JobsPage() {
         getRowKey={(job) => job.id}
         onExport={handleExportJobsCsv}
       />
+      ) : null}
       <style dangerouslySetInnerHTML={{ __html: `
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
