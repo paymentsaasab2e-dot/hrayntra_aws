@@ -68,10 +68,10 @@ export function useOrgWorkspace() {
     isSuperAdmin() || hasPermission('switch_companies') || hasPermission('all');
 
   const companies = useMemo(() => {
-    if (side === 'crm') return companiesCrm;
-    if (side === 'recruitment') return companiesRecruitment;
+    if (side === 'crm') return Array.isArray(companiesCrm) ? companiesCrm : [];
+    if (side === 'recruitment') return Array.isArray(companiesRecruitment) ? companiesRecruitment : [];
     const byId = new Map<string, OrgCompanyOption>();
-    [...companiesCrm, ...companiesRecruitment].forEach((company) => {
+    [...(Array.isArray(companiesCrm) ? companiesCrm : []), ...(Array.isArray(companiesRecruitment) ? companiesRecruitment : [])].forEach((company) => {
       if (company?.id) byId.set(company.id, company);
     });
     return [...byId.values()];
@@ -104,7 +104,7 @@ export function useOrgWorkspace() {
         const recruitment = Array.isArray(org?.companiesRecruitment)
           ? org.companiesRecruitment
           : null;
-        const fallback = org?.companies || [];
+        const fallback = Array.isArray(org?.companies) ? org.companies : [];
         setCompaniesCrm(dedupeByCompanyName(crm || fallback, (company) => company.name));
         setCompaniesRecruitment(dedupeByCompanyName(recruitment || fallback, (company) => company.name));
         setPurpose(String(org?.hierarchyPurpose || 'member'));

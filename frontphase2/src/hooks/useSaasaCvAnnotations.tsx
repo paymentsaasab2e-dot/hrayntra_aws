@@ -401,7 +401,7 @@ export function useSaasaCvAnnotations({
       onClose={closeModal}
       resumeUrl={effectiveResumeUrl}
       candidateName={candidateName}
-      initialAnnotations={stored?.items ?? []}
+      initialAnnotations={Array.isArray(stored?.items) ? stored.items : []}
       initialCompanyLogo={initialCompanyLogo}
       initialDocumentHtml={stored?.documentHtml ?? null}
       initialPdfTextLayerHtml={stored?.pdfTextLayerHtml ?? null}

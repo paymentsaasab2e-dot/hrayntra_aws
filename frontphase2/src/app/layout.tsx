@@ -10,6 +10,7 @@ import { TenantPausedHost } from "../components/tenant/TenantPausedHost";
 import { TenantCoinsProvider } from "../components/coins/TenantCoinsContext";
 import { TenantIntelligenceHost } from "../components/phase2-intelligence/TenantIntelligenceHost";
 import { WritingAssistHost } from "../components/common/WritingAssistHost";
+import { RouteErrorBoundary } from "../components/PageErrorBoundary";
 import "./globals.css";
 import "../styles/nexus-dashboard.css";
 
@@ -31,7 +32,7 @@ export default function RootLayout({
       <body suppressHydrationWarning>
         <TenantCoinsProvider>
           <TenantImpersonationBanner />
-          {children}
+          <RouteErrorBoundary>{children}</RouteErrorBoundary>
           <PageTitleSync />
           <UserPermissionsSync />
           <GlobalAlertHost />

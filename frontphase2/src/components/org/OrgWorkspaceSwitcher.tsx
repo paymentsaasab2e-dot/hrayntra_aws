@@ -20,6 +20,7 @@ export function OrgWorkspaceSwitcher({ variant = 'light' }: Props) {
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const companyList = Array.isArray(companies) ? companies : [];
 
   useEffect(() => {
     if (!open) return;
@@ -71,11 +72,11 @@ export function OrgWorkspaceSwitcher({ variant = 'light' }: Props) {
     return null;
   }
 
-  if (!companies.length) return null;
+  if (!companyList.length) return null;
 
   const dark = variant === 'header';
   const selectedLabel = orgUnitId
-    ? companies.find((c) => c.id === orgUnitId)?.name || orgUnitName || 'Company'
+    ? companyList.find((c) => c.id === orgUnitId)?.name || orgUnitName || 'Company'
     : 'All companies';
 
   const pick = (id: string, name?: string) => {
@@ -106,7 +107,7 @@ export function OrgWorkspaceSwitcher({ variant = 'light' }: Props) {
             >
               All companies
             </button>
-            {companies.map((c) => {
+            {companyList.map((c) => {
               const on = orgUnitId === c.id;
               return (
                 <button

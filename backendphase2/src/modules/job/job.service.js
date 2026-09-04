@@ -23,7 +23,7 @@ import {
   isOrgHeadPurpose,
   resolveWriteOrgUnitId,
 } from '../../services/orgListScope.service.js';
-import { transferIdentityKey } from '../org/org.service.js';
+import { transferIdentityKey } from '../org/orgTransferIdentity.js';
 import { findWorkspaceClient } from '../setting/workspace-client.service.js';
 import {
   buildAssigneeVisibilityOr,
@@ -119,55 +119,70 @@ function ownCompanyJobsVisible(scope, ownCompanyClientId) {
 }
 
 function uniqueJobIdsKeepOldest(rows) {
-  const seen = new Set();
-  const ids = [];
-  const sorted = [...rows].sort(
-    (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
-  );
-  for (const row of sorted) {
-    const key = transferIdentityKey('jobs', row);
-    if (key) {
-      if (seen.has(key)) continue;
-      seen.add(key);
+  try {
+    const seen = new Set();
+    const ids = [];
+    const sorted = [...rows].sort(
+      (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
+    );
+    for (const row of sorted) {
+      const key = transferIdentityKey('jobs', row);
+      if (key) {
+        if (seen.has(key)) continue;
+        seen.add(key);
+      }
+      ids.push(row.id);
     }
-    ids.push(row.id);
+    return ids;
+  } catch (error) {
+    console.error('[jobs] unique keep-oldest failed', error);
+    return (rows || []).map((row) => row.id).filter(Boolean);
   }
-  return ids;
 }
 
 async function uniqueJobIdsForAllCompanies(where) {
-  const rows = await prisma.job.findMany({
-    where,
-    select: {
-      id: true,
-      title: true,
-      clientId: true,
-      location: true,
-      city: true,
-      department: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
-  const seen = new Set();
-  const kept = [];
-  const byCreated = [...rows].sort(
-    (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
-  );
-  for (const row of byCreated) {
-    const key = transferIdentityKey('jobs', row);
-    if (key) {
-      if (seen.has(key)) continue;
-      seen.add(key);
+  try {
+    const rows = await prisma.job.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        clientId: true,
+        location: true,
+        city: true,
+        department: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    const seen = new Set();
+    const kept = [];
+    const byCreated = [...rows].sort(
+      (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
+    );
+    for (const row of byCreated) {
+      const key = transferIdentityKey('jobs', row);
+      if (key) {
+        if (seen.has(key)) continue;
+        seen.add(key);
+      }
+      kept.push(row);
     }
-    kept.push(row);
+    kept.sort(
+      (a, b) =>
+        new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime() ||
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+    );
+    return kept.map((row) => row.id);
+  } catch (error) {
+    console.error('[jobs] unique all-companies list failed, using full list', error);
+    const rows = await prisma.job.findMany({
+      where,
+      select: { id: true },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    return rows.map((row) => row.id);
   }
-  kept.sort(
-    (a, b) =>
-      new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime() ||
-      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
-  );
-  return kept.map((row) => row.id);
 }
 
 /** Own-company jobs stay on tenant-wide lists, not inside one organization. */
@@ -1391,20 +1406,8 @@ export const jobService = {
     const orgScope = await getRequestOrgScope(req);
     let jobs;
     let total;
-    if (!isOrgCompanyScoped(orgScope)) {
-      const uniqueIds = await uniqueJobIdsForAllCompanies(scopedWhere);
-      total = uniqueIds.length;
-      const pageIds = uniqueIds.slice(skip, skip + limit);
-      jobs = pageIds.length
-        ? await prisma.job.findMany({
-            where: { id: { in: pageIds } },
-            include: jobListInclude,
-          })
-        : [];
-      const order = new Map(pageIds.map((id, index) => [id, index]));
-      jobs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-    } else {
-      [jobs, total] = await Promise.all([
+    const loadPagedJobs = () =>
+      Promise.all([
         prisma.job.findMany({
           where: scopedWhere,
           skip,
@@ -1414,6 +1417,25 @@ export const jobService = {
         }),
         prisma.job.count({ where: scopedWhere }),
       ]);
+    if (!isOrgCompanyScoped(orgScope)) {
+      try {
+        const uniqueIds = await uniqueJobIdsForAllCompanies(scopedWhere);
+        total = uniqueIds.length;
+        const pageIds = uniqueIds.slice(skip, skip + limit);
+        jobs = pageIds.length
+          ? await prisma.job.findMany({
+              where: { id: { in: pageIds } },
+              include: jobListInclude,
+            })
+          : [];
+        const order = new Map(pageIds.map((id, index) => [id, index]));
+        jobs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+      } catch (error) {
+        console.error('[jobs] unique page load failed, using standard list', error);
+        [jobs, total] = await loadPagedJobs();
+      }
+    } else {
+      [jobs, total] = await loadPagedJobs();
     }
 
     if (jobs.length) {
@@ -2564,8 +2586,13 @@ export const jobService = {
 
     const countUnique = async (where) => {
       if (!allCompaniesView) return prisma.job.count({ where });
-      const ids = await uniqueJobIdsForAllCompanies(where);
-      return ids.length;
+      try {
+        const ids = await uniqueJobIdsForAllCompanies(where);
+        return ids.length;
+      } catch (error) {
+        console.error('[jobs] unique metrics failed, using standard count', error);
+        return prisma.job.count({ where });
+      }
     };
 
     const activeJobs = await countUnique({ ...scope, status: 'OPEN' });

@@ -280,15 +280,16 @@ function seedProfile(partial: {
 }
 
 function editFormFromInterview(interview: Interview): CandidateEditFormState {
-  const parts = interview.candidate.name.trim().split(/\s+/).filter(Boolean);
+  const name = String(interview?.candidate?.name || '').trim();
+  const parts = name.split(/\s+/).filter(Boolean);
   return buildCandidateEditForm(
     seedProfile({
-      id: interview.candidate.id,
+      id: interview?.candidate?.id || '',
       firstName: parts[0] || '',
       lastName: parts.slice(1).join(' '),
-      email: interview.candidate.email,
-      name: interview.candidate.name,
-      location: interview.job.client || '',
+      email: interview?.candidate?.email,
+      name: name || 'Candidate',
+      location: interview?.job?.client || '',
     }),
   );
 }
@@ -363,7 +364,7 @@ export function SubmitToClientDrawer({
 
   const candidateId =
     activeSource?.kind === 'interview'
-      ? activeSource.interview.candidate.id
+      ? activeSource.interview?.candidate?.id || ''
       : activeSource?.kind === 'match'
         ? activeSource.candidateId
         : activeBulkEntry?.candidateId ?? '';
@@ -412,7 +413,7 @@ export function SubmitToClientDrawer({
   const [matchSubmitId, setMatchSubmitId] = useState<string | null>(null);
   const [resolvedClientId, setResolvedClientId] = useState<string | undefined>(
     activeSource?.kind === 'interview'
-      ? activeSource.interview.job.clientId
+      ? activeSource.interview?.job?.clientId
       : activeSource?.kind === 'match'
         ? activeSource.clientId
         : undefined,
@@ -599,7 +600,7 @@ export function SubmitToClientDrawer({
 
   const fallbackCandidateName =
     activeSource?.kind === 'interview'
-      ? activeSource.interview.candidate.name
+      ? activeSource.interview?.candidate?.name || ''
       : activeSource?.kind === 'match' || activeSource?.kind === 'bulkMatch'
         ? matchCandidateName || ''
         : '';
@@ -706,8 +707,8 @@ export function SubmitToClientDrawer({
     setSubmissionTypeError(null);
       if (activeSource?.kind === 'interview') {
         setSubmissionType(inferSubmissionType(activeSource.interview));
-        setResolvedJobTitle(activeSource.interview.job.title);
-        setResolvedClientId(activeSource.interview.job.clientId);
+        setResolvedJobTitle(activeSource.interview?.job?.title || '');
+        setResolvedClientId(activeSource.interview?.job?.clientId);
         setEditForm(editFormFromInterview(activeSource.interview));
       } else {
         if (activeSource?.kind === 'bulkMatch' && !submissionType) {
@@ -1275,7 +1276,7 @@ export function SubmitToClientDrawer({
 
       const title =
         resolvedJobTitle ||
-        (activeSource.kind === 'interview' ? activeSource.interview.job.title : '') ||
+        (activeSource.kind === 'interview' ? activeSource.interview?.job?.title || '' : '') ||
         'this role';
       const message = `Please review the submitted candidate details for ${title}. Purpose: ${purpose}.`;
 
