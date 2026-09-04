@@ -175,12 +175,18 @@ export type TransferableItem = {
 /** Rows living in a company/branch (empty id = rows with no company yet). */
 export async function apiTransferableData(params: {
   orgUnitId: string;
+  toOrgUnitId?: string;
   type: TransferableType;
   search?: string;
 }) {
   const query = new URLSearchParams({ orgUnitId: params.orgUnitId, type: params.type });
+  query.set('toOrgUnitId', params.toOrgUnitId ?? '');
   if (params.search) query.set('search', params.search);
-  const res = await apiFetch<{ type: TransferableType; items: TransferableItem[] }>(
+  const res = await apiFetch<{
+    type: TransferableType;
+    items: TransferableItem[];
+    alreadyInDestination?: number;
+  }>(
     `/org-units/transferable-data?${query.toString()}`,
     { auth: true },
   );
@@ -207,6 +213,84 @@ export async function apiTransferOrgData(body: {
     method: 'POST',
     body,
   });
+  return res.data;
+}
+
+export type OrgTransferHistoryItem = {
+  type: TransferableType | string;
+  sourceId?: string;
+  destId?: string;
+  title?: string;
+  previousOrgUnitId?: string;
+};
+
+export type OrgTransferHistoryRow = {
+  id: string;
+  mode: 'copy' | 'move' | string;
+  fromOrgUnitId?: string;
+  fromLabel: string;
+  toOrgUnitId?: string;
+  toLabel: string;
+  performedByName: string;
+  items: OrgTransferHistoryItem[];
+  counts?: { copied?: Record<string, number>; moved?: Record<string, number>; total?: number };
+  total: number;
+  revertedAt?: string | null;
+  createdAt: string;
+};
+
+export async function apiOrgTransferHistory() {
+  const res = await apiFetch<{ items: OrgTransferHistoryRow[] }>('/org-units/transfer-history', { auth: true });
+  return res.data;
+}
+
+export async function apiRevertOrgTransfer(id: string) {
+  const res = await apiFetch<{ id: string; mode: string; reverted: number; missing: number; skipped: number }>(
+    `/org-units/transfer-history/${id}/revert`,
+    { auth: true, method: 'POST' },
+  );
+  return res.data;
+}
+
+export type OrgDuplicateMember = {
+  id: string;
+  role: 'original' | 'duplicate' | string;
+  title: string;
+  subtitle?: string;
+  orgUnitId?: string;
+  company: string;
+  position: string;
+  createdAt?: string | null;
+};
+
+export type OrgDuplicateGroup = {
+  originalId: string;
+  title: string;
+  subtitle?: string;
+  original: OrgDuplicateMember;
+  duplicates: OrgDuplicateMember[];
+};
+
+export type OrgDuplicatesPayload = {
+  type: TransferableType | string;
+  rule?: string;
+  groups: OrgDuplicateGroup[];
+  originalCount: number;
+  duplicateCount: number;
+  counts?: Record<string, { groups: number; duplicates: number }>;
+};
+
+export async function apiOrgDuplicates(type: TransferableType | string = 'jobs') {
+  const query = new URLSearchParams({ type: String(type) });
+  const res = await apiFetch<OrgDuplicatesPayload>(`/org-units/duplicates?${query.toString()}`, { auth: true });
+  return res.data;
+}
+
+export async function apiRemoveOrgDuplicates(body: { type: TransferableType | string; ids?: string[] }) {
+  const res = await apiFetch<{ type: string; removed: number; skipped: number; missing: number }>(
+    '/org-units/duplicates/remove',
+    { auth: true, method: 'POST', body },
+  );
   return res.data;
 }
 

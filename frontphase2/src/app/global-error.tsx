@@ -3,6 +3,11 @@
 import { useEffect } from 'react';
 import { isStaleClientBundleError, reloadOnceForStaleBundle } from '@/lib/staleClientBundle';
 
+function hardReload() {
+  if (typeof window === 'undefined') return;
+  window.location.reload();
+}
+
 export default function GlobalError({
   error,
   reset,
@@ -32,7 +37,12 @@ export default function GlobalError({
                 type="button"
                 onClick={() => {
                   if (isStaleClientBundleError(error) && reloadOnceForStaleBundle()) return;
-                  reset();
+                  try {
+                    reset();
+                  } catch {
+                    /* ignore */
+                  }
+                  hardReload();
                 }}
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
               >

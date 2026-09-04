@@ -5,10 +5,13 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
+  Copy,
   Edit2,
+  History,
   MapPin,
   Plus,
   Trash2,
+  Undo2,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -25,13 +28,17 @@ import {
   apiStampUntaggedToOrgUnit,
   apiTransferableData,
   apiTransferOrgData,
+  apiOrgTransferHistory,
+  apiRevertOrgTransfer,
+  apiOrgDuplicates,
+  apiRemoveOrgDuplicates,
   apiUpdateOrgUnit,
   type OrgUnitNode,
+  type OrgTransferHistoryRow,
+  type OrgDuplicatesPayload,
   type TransferableItem,
   type TransferableType,
 } from '../../lib/org/orgApi';
-
-export const dynamic = 'force-dynamic';
 
 const EMPTY_TRANSFER_SELECTION: Record<TransferableType, string[]> = {
   leads: [],
@@ -62,6 +69,21 @@ function transferSearchPlaceholder(type: TransferableType) {
   if (type === 'recruitmentClients') return 'Search recruitment clients…';
   if (type === 'leads') return 'Search CRM leads…';
   return `Search ${type}…`;
+}
+
+function historyTypeLabel(type: string) {
+  const found = TRANSFER_TABS.find((tab) => tab.id === type);
+  return found?.label || type;
+}
+
+function summarizeHistoryItems(row: OrgTransferHistoryRow) {
+  const counts: Record<string, number> = {};
+  for (const item of row.items || []) {
+    const key = String(item.type || 'records');
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  const parts = Object.entries(counts).map(([type, n]) => `${n} ${historyTypeLabel(type).toLowerCase()}`);
+  return parts.join(' · ') || `${row.total || 0} record(s)`;
 }
 
 const fieldClass =
@@ -423,27 +445,29 @@ function StructureUnitRow({
             </p>
           ) : null}
 
-          {(unit.children || []).map((child) => (
-            <StructureUnitRow
-              key={child.id}
-              unit={child}
-              depth={depth + 1}
-              canWrite={canWrite}
-              isTenantAdmin={isTenantAdmin}
-              unassignedCount={unassignedCount}
-              editingId={editingId}
-              editName={editName}
-              onEditNameChange={onEditNameChange}
-              onStartEdit={onStartEdit}
-              onCancelEdit={onCancelEdit}
-              onSaveEdit={onSaveEdit}
-              onAddChild={onAddChild}
-              onAddUser={onAddUser}
-              onDelete={onDelete}
-              onAdopt={onAdopt}
-              onStampData={onStampData}
-            />
-          ))}
+          {depth < 20
+            ? (unit.children || []).map((child) => (
+                <StructureUnitRow
+                  key={child.id}
+                  unit={child}
+                  depth={depth + 1}
+                  canWrite={canWrite}
+                  isTenantAdmin={isTenantAdmin}
+                  unassignedCount={unassignedCount}
+                  editingId={editingId}
+                  editName={editName}
+                  onEditNameChange={onEditNameChange}
+                  onStartEdit={onStartEdit}
+                  onCancelEdit={onCancelEdit}
+                  onSaveEdit={onSaveEdit}
+                  onAddChild={onAddChild}
+                  onAddUser={onAddUser}
+                  onDelete={onDelete}
+                  onAdopt={onAdopt}
+                  onStampData={onStampData}
+                />
+              ))
+            : null}
         </div>
       ) : null}
     </div>
@@ -502,8 +526,17 @@ export default function OrganizationPage() {
   const [dataType, setDataType] = useState<TransferableType>('leads');
   const [dataSearch, setDataSearch] = useState('');
   const [dataItems, setDataItems] = useState<TransferableItem[]>([]);
+  const [dataAlreadyInDestination, setDataAlreadyInDestination] = useState(0);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataSelected, setDataSelected] = useState<Record<TransferableType, string[]>>(EMPTY_TRANSFER_SELECTION);
+  const [dataPanel, setDataPanel] = useState<'transfer' | 'history' | 'duplicates'>('transfer');
+  const [historyRows, setHistoryRows] = useState<OrgTransferHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [revertingId, setRevertingId] = useState<string | null>(null);
+  const [duplicateType, setDuplicateType] = useState<TransferableType>('jobs');
+  const [duplicateData, setDuplicateData] = useState<OrgDuplicatesPayload | null>(null);
+  const [duplicateLoading, setDuplicateLoading] = useState(false);
+  const [removingDuplicates, setRemovingDuplicates] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -591,8 +624,10 @@ export default function OrganizationPage() {
 
   const transferUnits = useMemo(() => {
     const out: OrgUnitNode[] = [];
+    const seen = new Set<string>();
     function walk(node?: OrgUnitNode | null) {
-      if (!node) return;
+      if (!node?.id || seen.has(node.id)) return;
+      seen.add(node.id);
       out.push(node);
       (node.children || []).forEach(walk);
     }
@@ -710,13 +745,26 @@ export default function OrganizationPage() {
   };
 
   const loadTransferable = useCallback(
-    async (unitId: string, type: TransferableType, search: string) => {
+    async (unitId: string, destId: string, type: TransferableType, search: string) => {
       setDataLoading(true);
       try {
-        const res = await apiTransferableData({ orgUnitId: unitId, type, search });
-        setDataItems(res.items || []);
+        const res = await apiTransferableData({
+          orgUnitId: unitId,
+          toOrgUnitId: destId,
+          type,
+          search,
+        });
+        const items = res.items || [];
+        setDataItems(items);
+        setDataAlreadyInDestination(Number(res.alreadyInDestination || 0));
+        const visible = new Set(items.map((item) => item.id));
+        setDataSelected((prev) => ({
+          ...prev,
+          [type]: (prev[type] || []).filter((id) => visible.has(id)),
+        }));
       } catch (error) {
         setDataItems([]);
+        setDataAlreadyInDestination(0);
         toast.error(error instanceof Error ? error.message : 'Could not load data');
       } finally {
         setDataLoading(false);
@@ -725,13 +773,62 @@ export default function OrganizationPage() {
     [],
   );
 
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await apiOrgTransferHistory();
+      setHistoryRows(res.items || []);
+    } catch (error) {
+      setHistoryRows([]);
+      toast.error(error instanceof Error ? error.message : 'Could not load history');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const loadDuplicates = useCallback(async (type: TransferableType) => {
+    setDuplicateLoading(true);
+    try {
+      const res = await apiOrgDuplicates(type);
+      setDuplicateData(res);
+    } catch (error) {
+      setDuplicateData(null);
+      toast.error(error instanceof Error ? error.message : 'Could not load duplicates');
+    } finally {
+      setDuplicateLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (tab !== 'data') return;
-    void loadTransferable(dataFromId, dataType, dataSearch);
-  }, [tab, dataFromId, dataType, dataSearch, loadTransferable]);
+    if (dataPanel === 'history') {
+      void loadHistory();
+      return;
+    }
+    if (dataPanel === 'duplicates') {
+      void loadDuplicates(duplicateType);
+      return;
+    }
+    void loadTransferable(dataFromId, dataToId, dataType, dataSearch);
+  }, [
+    tab,
+    dataPanel,
+    duplicateType,
+    dataFromId,
+    dataToId,
+    dataType,
+    dataSearch,
+    loadTransferable,
+    loadHistory,
+    loadDuplicates,
+  ]);
 
   const selectedTotal = useMemo(
-    () => Object.values(dataSelected).reduce((sum, ids) => sum + ids.length, 0),
+    () =>
+      Object.values(dataSelected).reduce(
+        (sum, ids) => sum + (Array.isArray(ids) ? ids.length : 0),
+        0,
+      ),
     [dataSelected],
   );
   const selectedMemberCount = dataSelected.members?.length || 0;
@@ -820,12 +917,61 @@ export default function OrganizationPage() {
               : `Moved ${doneTotal} record(s)${skipNote}`,
       );
       setDataSelected(EMPTY_TRANSFER_SELECTION);
-      await loadTransferable(dataFromId, dataType, dataSearch);
+      await loadTransferable(dataFromId, dataToId, dataType, dataSearch);
+      await loadHistory();
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not transfer data');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const revertHistoryRow = async (row: OrgTransferHistoryRow) => {
+    const action = row.mode === 'move' ? 'move' : 'copy';
+    const confirmText =
+      action === 'copy'
+        ? `Revert this copy? Copied records will be removed from ${row.toLabel}. Originals stay in ${row.fromLabel}.`
+        : `Revert this move? Records will be sent back from ${row.toLabel} to ${row.fromLabel}.`;
+    if (!window.confirm(confirmText)) return;
+    setRevertingId(row.id);
+    try {
+      const result = await apiRevertOrgTransfer(row.id);
+      toast.success(
+        `Reverted ${result.reverted} record(s)${
+          result.missing || result.skipped ? ` · ${Number(result.missing || 0) + Number(result.skipped || 0)} already gone` : ''
+        }`,
+      );
+      await loadHistory();
+      await loadDuplicates(duplicateType);
+      await loadTransferable(dataFromId, dataToId, dataType, dataSearch);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not revert');
+    } finally {
+      setRevertingId(null);
+    }
+  };
+
+  const removeDuplicateIds = async (ids?: string[]) => {
+    const count = ids?.length || Number(duplicateData?.duplicateCount || 0);
+    if (!count) {
+      toast.error('No duplicates to remove.');
+      return;
+    }
+    const kind = historyTypeLabel(duplicateType).toLowerCase();
+    const confirmText = ids?.length
+      ? `Remove ${ids.length} duplicate ${kind}? The original stays. Copies go to Recycle Bin.`
+      : `Remove all ${count} duplicate ${kind}? In each group the oldest record is kept as original. Copies in other companies go to Recycle Bin.`;
+    if (!window.confirm(confirmText)) return;
+    setRemovingDuplicates(true);
+    try {
+      const result = await apiRemoveOrgDuplicates({ type: duplicateType, ids });
+      toast.success(`Removed ${result.removed} duplicate(s)`);
+      await loadDuplicates(duplicateType);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not remove duplicates');
+    } finally {
+      setRemovingDuplicates(false);
     }
   };
 
@@ -1578,10 +1724,192 @@ export default function OrganizationPage() {
           <h2 className="text-base font-bold text-slate-900">Copy or move data between companies</h2>
           <p className="mt-0.5 text-[13px] text-slate-500">
             Pick HQ or any company in both From and To, then copy or move CRM leads, CRM clients, recruitment clients,
-            jobs, candidates, or team members. Copy keeps original records; move re-homes them. Team members can only
-            be moved — logins are not duplicated, and Super Admin stays at HQ.
+            jobs, candidates, or team members. Copy keeps original records; move re-homes them. Records that already
+            exist in the destination are hidden so they are not duplicated. Team members can only be moved — logins
+            are not duplicated, and Super Admin stays at HQ. Use Duplicates to see originals vs copies by company and
+            remove the extras. History reverts new copy/move actions.
           </p>
 
+          <div className="mt-4 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            <button
+              type="button"
+              onClick={() => setDataPanel('transfer')}
+              className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold ${
+                dataPanel === 'transfer' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Transfer
+            </button>
+            <button
+              type="button"
+              onClick={() => setDataPanel('history')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold ${
+                dataPanel === 'history' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <History size={13} />
+              History
+            </button>
+            <button
+              type="button"
+              onClick={() => setDataPanel('duplicates')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold ${
+                dataPanel === 'duplicates' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Copy size={13} />
+              Duplicates
+              {duplicateData?.duplicateCount ? ` (${duplicateData.duplicateCount})` : ''}
+            </button>
+          </div>
+
+          {dataPanel === 'duplicates' ? (
+            <div className="mt-4 space-y-4">
+              <p className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-[12px] leading-relaxed text-sky-900">
+                Original is the oldest record. Later copies with the same identity (jobs: title + client + location +
+                department) in another company are duplicates. Remove copies to keep only the original. Removed jobs
+                go to Recycle Bin.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {TRANSFER_TABS.filter((item) => item.id !== 'members').map((tabItem) => {
+                  const count = duplicateData?.counts?.[tabItem.id]?.duplicates || 0;
+                  return (
+                    <button
+                      key={tabItem.id}
+                      type="button"
+                      onClick={() => setDuplicateType(tabItem.id)}
+                      className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold ${
+                        duplicateType === tabItem.id
+                          ? 'bg-slate-900 text-white'
+                          : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {tabItem.label}
+                      {count ? ` (${count})` : ''}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => void removeDuplicateIds()}
+                  disabled={removingDuplicates || !duplicateData?.duplicateCount}
+                  className="ml-auto rounded-lg bg-red-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-red-700 disabled:opacity-40"
+                >
+                  {removingDuplicates ? 'Removing…' : `Remove all duplicates${duplicateData?.duplicateCount ? ` (${duplicateData.duplicateCount})` : ''}`}
+                </button>
+              </div>
+              {duplicateLoading ? (
+                <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">Scanning for duplicates…</p>
+              ) : duplicateData?.groups?.length ? (
+                <ul className="space-y-3">
+                  {duplicateData.groups.map((group) => (
+                    <li key={group.originalId} className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{group.title}</p>
+                          {group.subtitle ? <p className="text-[12px] text-slate-500">{group.subtitle}</p> : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void removeDuplicateIds(group.duplicates.map((row) => row.id))}
+                          disabled={removingDuplicates}
+                          className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-40"
+                        >
+                          Remove {group.duplicates.length} cop{group.duplicates.length === 1 ? 'y' : 'ies'}
+                        </button>
+                      </div>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">Original</p>
+                          <p className="mt-1 text-[13px] font-semibold text-slate-900">{group.original.company}</p>
+                          <p className="text-[11px] text-slate-600">{group.original.position}</p>
+                          {group.original.createdAt ? (
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              Created {new Date(group.original.createdAt).toLocaleString()}
+                            </p>
+                          ) : null}
+                        </div>
+                        {group.duplicates.map((copy) => (
+                          <div key={copy.id} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800">Duplicate</p>
+                            <p className="mt-1 text-[13px] font-semibold text-slate-900">{copy.company}</p>
+                            <p className="text-[11px] text-slate-600">{copy.position}</p>
+                            {copy.createdAt ? (
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                Copied {new Date(copy.createdAt).toLocaleString()}
+                              </p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">
+                  No duplicates found for {historyTypeLabel(duplicateType).toLowerCase()}. Each remaining record is
+                  unique.
+                </p>
+              )}
+            </div>
+          ) : dataPanel === 'history' ? (
+            <div className="mt-4">
+              {historyLoading ? (
+                <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">Loading history…</p>
+              ) : historyRows.length ? (
+                <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
+                  {historyRows.map((row) => {
+                    const reverted = Boolean(row.revertedAt);
+                    const when = row.createdAt ? new Date(row.createdAt).toLocaleString() : '';
+                    return (
+                      <li key={row.id} className="flex flex-wrap items-start justify-between gap-3 bg-white px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                row.mode === 'move' ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'
+                              }`}
+                            >
+                              {row.mode === 'move' ? 'Move' : 'Copy'}
+                            </span>
+                            {reverted ? (
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                Reverted
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-sm font-semibold text-slate-900">
+                            {row.fromLabel} → {row.toLabel}
+                          </p>
+                          <p className="mt-0.5 text-[12px] text-slate-500">{summarizeHistoryItems(row)}</p>
+                          <p className="mt-0.5 text-[11px] text-slate-400">
+                            {when}
+                            {row.performedByName ? ` · ${row.performedByName}` : ''}
+                          </p>
+                        </div>
+                        {reverted ? null : (
+                          <button
+                            type="button"
+                            onClick={() => void revertHistoryRow(row)}
+                            disabled={Boolean(revertingId)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                          >
+                            <Undo2 size={14} />
+                            {revertingId === row.id ? 'Reverting…' : 'Revert'}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">
+                  No copy or move actions yet. After you transfer data, each action appears here with a Revert button.
+                </p>
+              )}
+            </div>
+          ) : (
+            <>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <div>
               <label className={labelClass}>From</label>
@@ -1603,7 +1931,14 @@ export default function OrganizationPage() {
             </div>
             <div>
               <label className={labelClass}>To</label>
-              <select value={dataToId} onChange={(e) => setDataToId(e.target.value)} className={fieldClass}>
+              <select
+                value={dataToId}
+                onChange={(e) => {
+                  setDataToId(e.target.value);
+                  setDataSelected(EMPTY_TRANSFER_SELECTION);
+                }}
+                className={fieldClass}
+              >
                 <option value="">No company (leave unassigned)</option>
                 {transferUnits
                   .filter((u) => u.id !== dataFromId)
@@ -1717,11 +2052,27 @@ export default function OrganizationPage() {
                             ? 'CRM leads'
                             : dataType;
                   const extra = dataType === 'members' ? ' Super Admin is not listed.' : '';
+                  if (dataAlreadyInDestination > 0) {
+                    const destUnit = transferUnits.find((u) => u.id === dataToId);
+                    const destPlace = !dataToId
+                      ? 'the unassigned pool'
+                      : destUnit && !destUnit.parentId
+                        ? 'HQ'
+                        : destUnit
+                          ? destUnit.name
+                          : 'the destination company';
+                    return `No new ${kind} to send. ${dataAlreadyInDestination} already exist in ${destPlace}.${extra}`;
+                  }
                   return `No ${kind} found in ${place}.${extra}`;
                 })()}
               </p>
             )}
           </div>
+          {dataAlreadyInDestination > 0 && dataItems.length > 0 ? (
+            <p className="mt-2 text-[12px] text-slate-500">
+              {dataAlreadyInDestination} already exist in the destination and are hidden so they are not duplicated.
+            </p>
+          ) : null}
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
@@ -1744,6 +2095,8 @@ export default function OrganizationPage() {
               </button>
             ) : null}
           </div>
+            </>
+          )}
         </section>
       ) : null}
     </div>

@@ -9,6 +9,10 @@ import {
   getOrgTreeStats,
   listTransferableData,
   transferOrgUnitData,
+  listOrgDataTransfers,
+  revertOrgDataTransfer,
+  listOrgDuplicates,
+  removeOrgDuplicates,
   resolveViewerOrgScope,
 } from './org.service.js';
 import { listAssignableCompanies } from '../../services/orgListScope.service.js';
@@ -138,6 +142,8 @@ export const orgController = {
     try {
       const data = await listTransferableData(req, {
         orgUnitId: req.query.orgUnitId || req.query.fromOrgUnitId || '',
+        toOrgUnitId:
+          req.query.toOrgUnitId !== undefined ? req.query.toOrgUnitId : req.query.destOrgUnitId,
         type: req.query.type,
         search: req.query.search || '',
         limit: req.query.limit,
@@ -157,6 +163,42 @@ export const orgController = {
         result.mode === 'move' ? 'Data moved' : 'Data duplicated',
         result,
       );
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async transferHistory(req, res) {
+    try {
+      const data = await listOrgDataTransfers(req, { limit: req.query.limit });
+      sendResponse(res, 200, 'OK', data);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async revertTransfer(req, res) {
+    try {
+      const result = await revertOrgDataTransfer(req, req.params.id);
+      sendResponse(res, 200, 'Transfer reverted', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async duplicates(req, res) {
+    try {
+      const data = await listOrgDuplicates(req, { type: req.query.type || 'jobs' });
+      sendResponse(res, 200, 'OK', data);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async removeDuplicates(req, res) {
+    try {
+      const result = await removeOrgDuplicates(req, req.body || {});
+      sendResponse(res, 200, 'Duplicates removed', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

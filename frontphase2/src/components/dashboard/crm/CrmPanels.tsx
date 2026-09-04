@@ -417,7 +417,7 @@ export function CrmCommunication({ overview }: Props) {
 
 export function CrmTeamLeaderboard({ overview }: Props) {
   const { openDrillDown } = useCrmDashboard();
-  const rows = overview?.leaderboard || [];
+  const rows = Array.isArray(overview?.leaderboard) ? overview.leaderboard : [];
   const maxAssigned = Math.max(1, ...rows.map((r) => r.assignedLeads || 0));
   const totals = rows.reduce(
     (acc, r) => ({

@@ -20,6 +20,10 @@ router.get('/', orgRead, orgController.list);
 router.get('/tree', orgRead, orgController.tree);
 router.get('/transferable-data', orgWrite, orgController.transferableData);
 router.post('/transfer-data', orgWrite, orgController.transferData);
+router.get('/transfer-history', orgWrite, orgController.transferHistory);
+router.post('/transfer-history/:id/revert', orgWrite, orgController.revertTransfer);
+router.get('/duplicates', orgWrite, orgController.duplicates);
+router.post('/duplicates/remove', orgWrite, orgController.removeDuplicates);
 router.post('/', orgWrite, orgController.create);
 router.post('/assign', orgWrite, orgController.assign);
 // Body-based aliases (avoid nested-path 404s behind some proxies).

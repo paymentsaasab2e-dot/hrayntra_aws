@@ -2,7 +2,7 @@
 export function isStaleClientBundleError(error: unknown): boolean {
   const err = error as { name?: string; message?: string; digest?: string } | null;
   const blob = `${err?.name || ''} ${err?.message || ''} ${err?.digest || ''}`;
-  return /ChunkLoadError|Loading chunk|Failed to fetch dynamically imported module|error loading dynamically imported module|Cannot find module in the React Client Manifest|Unable to preload CSS/i.test(
+  return /ChunkLoadError|Loading chunk|Failed to fetch dynamically imported module|error loading dynamically imported module|Cannot find module in the React Client Manifest|Unable to preload CSS|Hydration failed|Minified React error/i.test(
     blob,
   );
 }

@@ -32,15 +32,17 @@ export function CandidateClientRepliesTab({
   fallbackClientName,
   uploadsBase,
 }: {
-  replies: CandidateClientReply[];
+  replies?: CandidateClientReply[];
   submissions?: CandidateClientSubmission[];
   fallbackClientName?: string | null;
   uploadsBase: string;
 }) {
-  if (replies.length) {
+  const replyList = Array.isArray(replies) ? replies : [];
+  const submissionList = Array.isArray(submissions) ? submissions : [];
+  if (replyList.length) {
     return (
       <div className="space-y-4">
-        {replies.map((reply) => {
+        {replyList.map((reply) => {
           const documentUrl = resolveClientReviewDocumentUrl(reply.documentUrl, uploadsBase);
           const hasDocument = Boolean(reply.documentFileName || documentUrl);
           const isOfferFlow = String(reply.submissionType || '').toUpperCase() === 'OFFER_CONFIRMATION';
@@ -105,8 +107,8 @@ export function CandidateClientRepliesTab({
   }
 
   const waitingCards =
-    submissions.length > 0
-      ? submissions
+    submissionList.length > 0
+      ? submissionList
       : [
           {
             id: 'waiting-client',

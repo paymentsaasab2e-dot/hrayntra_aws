@@ -23,15 +23,15 @@ type Props = { overview: RecruitmentOverview | null };
 
 export function RecTeamIntelligence({ overview }: Props) {
   const { openDrillDown } = useRecDashboard();
-  const lb = overview?.leaderboard || [];
-  const jobs = overview?.jobsTable || [];
+  const lb = Array.isArray(overview?.leaderboard) ? overview.leaderboard : [];
+  const jobs = Array.isArray(overview?.jobsTable) ? overview.jobsTable : [];
   const unassigned = jobs.filter((j) => !j.assignee || /unassigned/i.test(String(j.assignee))).length;
   const owned = Math.max(0, jobs.length - unassigned);
   const ownedPct = jobs.length > 0 ? Math.round((owned / jobs.length) * 100) : 0;
 
   const teamN = recKpi(overview, 'teamMembers') || lb.length || 0;
-  const cands = overview?.candidatesTable || [];
-  const ivRows = overview?.interviewsTable || [];
+  const cands = Array.isArray(overview?.candidatesTable) ? overview.candidatesTable : [];
+  const ivRows = Array.isArray(overview?.interviewsTable) ? overview.interviewsTable : [];
   const deskJobs = lb.reduce((s, r) => s + (r.openJobs || 0), 0);
   const deskCands = lb.reduce((s, r) => s + (r.candidates || 0), 0);
   const deskIv = lb.reduce((s, r) => s + (r.interviews || 0), 0);

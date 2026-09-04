@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertCircle,
@@ -223,6 +224,7 @@ export function SaasaCvAnnotationModal({
   onSave,
   onExportError,
 }: SaasaCvAnnotationModalProps) {
+  const [portalReady, setPortalReady] = useState(false);
   const href = resumeUrl ? normalizeResumeHref(resumeUrl) : '';
   const canPdf = Boolean(href && isPdfResume(href));
   const canImage = Boolean(href && isImageResume(href));
@@ -266,6 +268,10 @@ export function SaasaCvAnnotationModal({
 
   const initialPdfTextLayerHtmlRef = useRef(initialPdfTextLayerHtml);
   initialPdfTextLayerHtmlRef.current = initialPdfTextLayerHtml;
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   const surfaceRef = useRef<HTMLDivElement>(null);
   const cvScrollRef = useRef<HTMLDivElement>(null);
@@ -1270,7 +1276,7 @@ export function SaasaCvAnnotationModal({
               ? 'pointer'
               : 'default';
 
-  return (
+  const modal = (
     <AnimatePresence>
       {isOpen && href ? (
         <>
@@ -1278,7 +1284,7 @@ export function SaasaCvAnnotationModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[130] bg-slate-950/60"
+            className="fixed inset-0 z-[220] bg-slate-950/60"
             onClick={onClose}
           />
           <motion.div
@@ -1286,7 +1292,7 @@ export function SaasaCvAnnotationModal({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             transition={{ type: 'tween', duration: 0.2 }}
-            className="fixed inset-1 z-[131] flex max-h-[calc(100dvh-0.5rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-2 sm:max-h-[calc(100dvh-1rem)]"
+            className="fixed inset-1 z-[221] flex max-h-[calc(100dvh-0.5rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-2 sm:max-h-[calc(100dvh-1rem)]"
             role="dialog"
             aria-modal="true"
             aria-label="HRYantra CV"
@@ -1794,4 +1800,7 @@ export function SaasaCvAnnotationModal({
       ) : null}
     </AnimatePresence>
   );
+
+  if (!portalReady) return null;
+  return createPortal(modal, document.body);
 }

@@ -2738,3 +2738,24 @@ model OrgUnit {
   @@index([status])
   @@map("org_units")
 }
+
+/// Copy / move data between companies — one row per action so it can be reverted.
+model OrgDataTransfer {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  mode            String
+  fromOrgUnitId   String?
+  fromLabel       String?
+  toOrgUnitId     String?
+  toLabel         String?
+  performedById   String?
+  performedByName String?
+  items           Json
+  counts          Json?
+  revertedAt      DateTime?
+  revertedById    String?
+  createdAt       DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([revertedAt])
+  @@map("org_data_transfers")
+}

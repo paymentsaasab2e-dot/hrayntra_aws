@@ -27,6 +27,8 @@ interface ClientCvSelectionPanelProps {
   onPreviewOriginal: () => void;
   onOpenSaasaCv: () => void;
   onPreviewSaasaCv: () => void;
+  showEditedOption?: boolean;
+  showOriginalOption?: boolean;
 }
 
 export function ClientCvSelectionPanel({
@@ -51,8 +53,12 @@ export function ClientCvSelectionPanel({
   onPreviewOriginal,
   onOpenSaasaCv,
   onPreviewSaasaCv,
+  showEditedOption = true,
+  showOriginalOption = true,
 }: ClientCvSelectionPanelProps) {
-  const optionCount = [hasEditedCv, hasOriginalCv, hasSaasaCv || canOpenSaasaCv].filter(Boolean).length;
+  const showEdited = showEditedOption && hasEditedCv;
+  const showOriginal = showOriginalOption && hasOriginalCv;
+  const optionCount = [showEdited, showOriginal, hasSaasaCv || canOpenSaasaCv].filter(Boolean).length;
   const gridCols =
     optionCount >= 3 ? 'md:grid-cols-3' : optionCount === 2 ? 'md:grid-cols-2' : 'md:grid-cols-1';
 
@@ -74,7 +80,7 @@ export function ClientCvSelectionPanel({
       </div>
 
       <div className={`mt-4 grid grid-cols-1 gap-3 ${gridCols}`}>
-        {hasEditedCv ? (
+        {showEdited ? (
           <div
             className={`rounded-xl border bg-white p-4 transition-colors ${
               cvShareMode === 'edited'
@@ -136,7 +142,7 @@ export function ClientCvSelectionPanel({
           </div>
         ) : null}
 
-        {hasOriginalCv ? (
+        {showOriginal ? (
           <div
             className={`rounded-xl border bg-white p-4 transition-colors ${
               cvShareMode === 'original'
