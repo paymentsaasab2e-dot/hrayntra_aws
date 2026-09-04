@@ -245,7 +245,9 @@ export function SaasaCvAnnotationModal({
   const companyLogoInputRef = useRef<HTMLInputElement>(null);
   const initialCompanyLogoRef = useRef(initialCompanyLogo);
   initialCompanyLogoRef.current = initialCompanyLogo;
-  const [annotations, setAnnotations] = useState<SaasaCvAnnotation[]>(initialAnnotations);
+  const [annotations, setAnnotations] = useState<SaasaCvAnnotation[]>(
+    Array.isArray(initialAnnotations) ? initialAnnotations : [],
+  );
   const [pdfDocMeta, setPdfDocMeta] = useState<SaasaCvPdfDocumentMeta | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);

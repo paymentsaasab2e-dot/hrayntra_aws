@@ -9,6 +9,7 @@ import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { useUser } from '../hooks/useUser';
 import { OrgWorkspaceSwitcher } from './org/OrgWorkspaceSwitcher';
 import { SuperAdminWorkSwitcher } from './org/SuperAdminWorkSwitcher';
+import { PageErrorBoundary } from './PageErrorBoundary';
 import {
   apiGetUnifiedCalendar,
   apiLogout,
@@ -1545,13 +1546,13 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
               aria-label="Search candidates, jobs, clients, team, tasks"
               className="h-9 w-full min-w-0 rounded-full border border-white/15 bg-white py-0 pl-8 pr-3 text-[13px] leading-none text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-white/30 focus:ring-2 focus:ring-white/20 sm:pl-10 sm:pr-3.5"
             />
-            {searchFocused && (searchLoading || searchResults.length > 0) && (
+            {searchFocused && (searchLoading || (Array.isArray(searchResults) && searchResults.length > 0)) && (
               <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-[70] max-h-[min(60vh,320px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
                 {searchLoading ? (
                   <div className="px-4 py-3 text-sm text-slate-500">Searching...</div>
                 ) : (
                   <div className="max-h-[min(60vh,320px)] overflow-auto py-2">
-                    {searchResults.map((result) => (
+                    {(Array.isArray(searchResults) ? searchResults : []).map((result) => (
                       <button
                         key={`${result.kind}-${result.id}`}
                         type="button"
@@ -1579,8 +1580,20 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-4">
-          <div className="hidden lg:block">{mounted ? <SuperAdminWorkSwitcher variant="header" /> : null}</div>
-          <div className="hidden sm:block">{mounted ? <OrgWorkspaceSwitcher variant="header" /> : null}</div>
+          <div className="hidden lg:block">
+            {mounted ? (
+              <PageErrorBoundary fallback={null}>
+                <SuperAdminWorkSwitcher variant="header" />
+              </PageErrorBoundary>
+            ) : null}
+          </div>
+          <div className="hidden sm:block">
+            {mounted ? (
+              <PageErrorBoundary fallback={null}>
+                <OrgWorkspaceSwitcher variant="header" />
+              </PageErrorBoundary>
+            ) : null}
+          </div>
           <div className="flex items-center gap-1.5 border-r border-white/10 pr-1.5 sm:gap-3 sm:pr-3 lg:gap-4 lg:pr-4">
             <Tooltip content="Calendar">
               <Link href="/calendar" className="grid h-9 w-9 place-items-center text-amber-400/90 transition-colors hover:text-amber-300">
@@ -1959,14 +1972,16 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
         className="ph2-main-surface min-h-screen min-w-0 max-w-full overflow-y-auto pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]"
       >
-        {children || (
-          <div className="p-6">
-            <div className="mb-6">
-              <h1 className="text-xl font-bold text-slate-800">Dashboard</h1>
-              <p className="text-sm text-slate-500">Welcome back, {profile.name}!</p>
+        <PageErrorBoundary key={pathname || 'page'}>
+          {children || (
+            <div className="p-6">
+              <div className="mb-6">
+                <h1 className="text-xl font-bold text-slate-800">Dashboard</h1>
+                <p className="text-sm text-slate-500">Welcome back, {profile.name}!</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </PageErrorBoundary>
       </motion.main>
 
       <NotificationDrawer
@@ -1994,7 +2009,9 @@ function SidenavShellFallback({ children }: { children?: React.ReactNode }) {
 export function Sidenav(props: SidenavProps) {
   return (
     <Suspense fallback={<SidenavShellFallback>{props.children}</SidenavShellFallback>}>
-      <SidenavInner {...props} />
+      <PageErrorBoundary fallback={<SidenavShellFallback>{props.children}</SidenavShellFallback>}>
+        <SidenavInner {...props} />
+      </PageErrorBoundary>
     </Suspense>
   );
 }

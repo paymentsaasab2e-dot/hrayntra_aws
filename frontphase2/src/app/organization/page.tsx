@@ -777,7 +777,7 @@ export default function OrganizationPage() {
     setHistoryLoading(true);
     try {
       const res = await apiOrgTransferHistory();
-      setHistoryRows(res.items || []);
+      setHistoryRows(Array.isArray(res?.items) ? res.items : []);
     } catch (error) {
       setHistoryRows([]);
       toast.error(error instanceof Error ? error.message : 'Could not load history');
@@ -790,7 +790,7 @@ export default function OrganizationPage() {
     setDuplicateLoading(true);
     try {
       const res = await apiOrgDuplicates(type);
-      setDuplicateData(res);
+      setDuplicateData(res && Array.isArray(res.groups) ? res : null);
     } catch (error) {
       setDuplicateData(null);
       toast.error(error instanceof Error ? error.message : 'Could not load duplicates');
@@ -1802,8 +1802,12 @@ export default function OrganizationPage() {
                 <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">Scanning for duplicates…</p>
               ) : duplicateData?.groups?.length ? (
                 <ul className="space-y-3">
-                  {duplicateData.groups.map((group) => (
-                    <li key={group.originalId} className="rounded-xl border border-slate-200 bg-white p-4">
+                  {(Array.isArray(duplicateData.groups) ? duplicateData.groups : []).map((group) => {
+                    const original = group?.original;
+                    const copies = Array.isArray(group?.duplicates) ? group.duplicates : [];
+                    if (!original) return null;
+                    return (
+                    <li key={group.originalId || original.id} className="rounded-xl border border-slate-200 bg-white p-4">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-semibold text-slate-900">{group.title}</p>
@@ -1811,25 +1815,25 @@ export default function OrganizationPage() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => void removeDuplicateIds(group.duplicates.map((row) => row.id))}
+                          onClick={() => void removeDuplicateIds(copies.map((row) => row.id).filter(Boolean))}
                           disabled={removingDuplicates}
                           className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-40"
                         >
-                          Remove {group.duplicates.length} cop{group.duplicates.length === 1 ? 'y' : 'ies'}
+                          Remove {copies.length} cop{copies.length === 1 ? 'y' : 'ies'}
                         </button>
                       </div>
                       <div className="mt-3 grid gap-2 md:grid-cols-2">
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                           <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">Original</p>
-                          <p className="mt-1 text-[13px] font-semibold text-slate-900">{group.original.company}</p>
-                          <p className="text-[11px] text-slate-600">{group.original.position}</p>
-                          {group.original.createdAt ? (
+                          <p className="mt-1 text-[13px] font-semibold text-slate-900">{original.company}</p>
+                          <p className="text-[11px] text-slate-600">{original.position}</p>
+                          {original.createdAt ? (
                             <p className="mt-1 text-[11px] text-slate-500">
-                              Created {new Date(group.original.createdAt).toLocaleString()}
+                              Created {new Date(original.createdAt).toLocaleString()}
                             </p>
                           ) : null}
                         </div>
-                        {group.duplicates.map((copy) => (
+                        {copies.map((copy) => (
                           <div key={copy.id} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
                             <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800">Duplicate</p>
                             <p className="mt-1 text-[13px] font-semibold text-slate-900">{copy.company}</p>
@@ -1843,7 +1847,8 @@ export default function OrganizationPage() {
                         ))}
                       </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">
@@ -1856,9 +1861,9 @@ export default function OrganizationPage() {
             <div className="mt-4">
               {historyLoading ? (
                 <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">Loading history…</p>
-              ) : historyRows.length ? (
+                ) : historyRows.length ? (
                 <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
-                  {historyRows.map((row) => {
+                  {(Array.isArray(historyRows) ? historyRows : []).map((row) => {
                     const reverted = Boolean(row.revertedAt);
                     const when = row.createdAt ? new Date(row.createdAt).toLocaleString() : '';
                     return (
