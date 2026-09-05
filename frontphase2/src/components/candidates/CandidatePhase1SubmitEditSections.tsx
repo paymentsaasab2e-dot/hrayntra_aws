@@ -30,6 +30,11 @@ import {
   type Phase1ClientSectionId,
   type Phase1ClientSectionVisibility,
 } from '@/lib/phase1ClientPresentationSections';
+import {
+  isSubmitToClientFieldVisible,
+  type SubmitToClientFieldId,
+  type SubmitToClientFieldVisibility,
+} from '@/lib/submitToClientFieldVisibility';
 import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionMetaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 import { CandidatePhase1CareerPreferencesEdit } from './CandidatePhase1CareerPreferencesEdit';
 import { CandidateAcademicAchievementEntryEdit } from './CandidateAcademicAchievementEntryEdit';
@@ -221,6 +226,7 @@ type Props = {
   onChange: (next: Phase1ProfileSnapshot) => void;
   showClientSectionVisibility?: boolean;
   clientSectionVisibility?: Partial<Phase1ClientSectionVisibility>;
+  clientFieldVisibility?: Partial<SubmitToClientFieldVisibility> | null;
   onToggleClientSectionVisibility?: (sectionId: Phase1ClientSectionId) => void;
 };
 
@@ -230,6 +236,7 @@ export function CandidatePhase1SubmitEditSections({
   onChange,
   showClientSectionVisibility = false,
   clientSectionVisibility,
+  clientFieldVisibility,
   onToggleClientSectionVisibility,
 }: Props) {
   const [open, setOpen] = useState<Record<SectionId, boolean>>(DEFAULT_CLOSED_SECTIONS);
@@ -452,6 +459,8 @@ export function CandidatePhase1SubmitEditSections({
   }, [snapshot.certifications, candidate]);
 
   const sectionVisible = (id: SectionId) => clientSectionVisibility?.[id] !== false;
+  const showField = (id: SubmitToClientFieldId) =>
+    isSubmitToClientFieldVisible(clientFieldVisibility, id);
   const sectionToggleProps = {
     showClientVisibilityToggle: showClientSectionVisibility,
     onToggleClientVisibility: onToggleClientSectionVisibility,
@@ -463,7 +472,8 @@ export function CandidatePhase1SubmitEditSections({
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <p className="font-semibold">Client review visibility</p>
           <p className="mt-1 text-blue-800/90">
-            Use Visible / Hidden on each section header. Only visible sections are sent on the client review link.
+            Use Visible / Hidden on each section header. Individual fields follow Settings → Public
+            Visibility → Submit to Client. Only visible sections and fields are sent on the client review link.
           </p>
         </div>
       ) : null}
@@ -478,31 +488,61 @@ export function CandidatePhase1SubmitEditSections({
         clientVisible={sectionVisible('personal')}
       >
         <div className="grid gap-3 sm:grid-cols-2">
-          <EditField label="First name" value={str(candidate.firstName || pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
-          <EditField label="Middle name" value={str(candidate.middleName || pi.middleName)} onChange={(v) => patchPersonal({ middleName: v })} />
-          <EditField label="Last name" value={str(candidate.lastName || pi.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
-          <EditField label="Email" value={str(pi.email || candidate.email)} onChange={(v) => patchPersonal({ email: v })} />
-          <EditField label="Phone code" value={str(pi.phoneCode)} onChange={(v) => patchPersonal({ phoneCode: v })} />
-          <EditField label="Mobile" value={str(pi.phone || candidate.phone)} onChange={(v) => patchPersonal({ phone: v })} />
-          <EditDateField
-            label="Date of birth"
-            value={str(pi.dob)}
-            max={birthDateMax}
-            outputIso
-            onChange={(v) => patchPersonal({ dob: v })}
-          />
-          <EditField label="Gender" value={str(pi.gender)} onChange={(v) => patchPersonal({ gender: v })} />
-          <EditField label="Nationality" value={str(pi.nationality)} onChange={(v) => patchPersonal({ nationality: v })} />
-          <EditField label="City" value={str(pi.city || candidate.cvCity)} onChange={(v) => patchPersonal({ city: v })} />
-          <EditField label="Country" value={str(pi.country || candidate.cvCountry)} onChange={(v) => patchPersonal({ country: v })} />
-          <div className="sm:col-span-2">
-            <EditField label="Current address" value={str(pi.address || candidate.cvAddress)} onChange={(v) => patchPersonal({ address: v })} />
-          </div>
-          <EditField label="Employment status" value={str(pi.employment)} onChange={(v) => patchPersonal({ employment: v })} />
-          <EditField label="Passport number" value={str(pi.passportNumber)} onChange={(v) => patchPersonal({ passportNumber: v })} />
-          <div className="sm:col-span-2">
-            <EditField label="LinkedIn" value={str(pi.linkedinUrl || candidate.linkedIn)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
-          </div>
+          {showField('firstName') ? (
+            <EditField label="First name" value={str(candidate.firstName || pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
+          ) : null}
+          {showField('middleName') ? (
+            <EditField label="Middle name" value={str(candidate.middleName || pi.middleName)} onChange={(v) => patchPersonal({ middleName: v })} />
+          ) : null}
+          {showField('lastName') ? (
+            <EditField label="Last name" value={str(candidate.lastName || pi.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
+          ) : null}
+          {showField('email') ? (
+            <EditField label="Email" value={str(pi.email || candidate.email)} onChange={(v) => patchPersonal({ email: v })} />
+          ) : null}
+          {showField('phoneCode') ? (
+            <EditField label="Phone code" value={str(pi.phoneCode)} onChange={(v) => patchPersonal({ phoneCode: v })} />
+          ) : null}
+          {showField('phone') ? (
+            <EditField label="Mobile" value={str(pi.phone || candidate.phone)} onChange={(v) => patchPersonal({ phone: v })} />
+          ) : null}
+          {showField('birthDate') ? (
+            <EditDateField
+              label="Date of birth"
+              value={str(pi.dob)}
+              max={birthDateMax}
+              outputIso
+              onChange={(v) => patchPersonal({ dob: v })}
+            />
+          ) : null}
+          {showField('gender') ? (
+            <EditField label="Gender" value={str(pi.gender)} onChange={(v) => patchPersonal({ gender: v })} />
+          ) : null}
+          {showField('nationality') ? (
+            <EditField label="Nationality" value={str(pi.nationality)} onChange={(v) => patchPersonal({ nationality: v })} />
+          ) : null}
+          {showField('city') ? (
+            <EditField label="City" value={str(pi.city || candidate.cvCity)} onChange={(v) => patchPersonal({ city: v })} />
+          ) : null}
+          {showField('country') ? (
+            <EditField label="Country" value={str(pi.country || candidate.cvCountry)} onChange={(v) => patchPersonal({ country: v })} />
+          ) : null}
+          {showField('address') ? (
+            <div className="sm:col-span-2">
+              <EditField label="Current address" value={str(pi.address || candidate.cvAddress)} onChange={(v) => patchPersonal({ address: v })} />
+            </div>
+          ) : null}
+          {showField('employment') ? (
+            <EditField label="Employment status" value={str(pi.employment)} onChange={(v) => patchPersonal({ employment: v })} />
+          ) : null}
+          {showField('passportNumber') ? (
+            <EditField label="Passport number" value={str(pi.passportNumber)} onChange={(v) => patchPersonal({ passportNumber: v })} />
+          ) : null}
+          {showField('linkedIn') ? (
+            <div className="sm:col-span-2">
+              <EditField label="LinkedIn" value={str(pi.linkedinUrl || candidate.linkedIn)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
+            </div>
+          ) : null}
         </div>
       </Phase1EditSection>
 
@@ -515,12 +555,14 @@ export function CandidatePhase1SubmitEditSections({
         {...sectionToggleProps}
         clientVisible={sectionVisible('summary')}
       >
-        <EditField
-          label="Summary"
-          value={str(snapshot.summaryText || candidate.cvSummary || candidate.summary)}
-          onChange={(v) => onChange({ ...snapshot, summaryText: v })}
-          multiline
-        />
+        {showField('cvSummary') ? (
+          <EditField
+            label="Summary"
+            value={str(snapshot.summaryText || candidate.cvSummary || candidate.summary)}
+            onChange={(v) => onChange({ ...snapshot, summaryText: v })}
+            multiline
+          />
+        ) : null}
       </Phase1EditSection>
 
       <Phase1EditSection

@@ -114,6 +114,7 @@ export function buildCvSubmissionSnapshot(candidate, jobTitle = '') {
     avatar: source?.avatar ?? null,
     cvEditorLayout: layout,
     visibleSections: presentation?.visibleSections ?? null,
+    visibleFields: presentation?.visibleFields ?? null,
     clientReviewSections,
   };
 }

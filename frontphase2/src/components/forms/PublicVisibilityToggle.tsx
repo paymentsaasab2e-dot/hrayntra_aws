@@ -5,9 +5,17 @@ import { Eye, EyeOff } from 'lucide-react';
 export function PublicVisibilityToggle({
   visible,
   onToggle,
+  visibleLabel = 'Visible to public',
+  hiddenLabel = 'Hidden from public',
+  titleVisible = 'Visible on public job view, Phase 1 portal, and social posts',
+  titleHidden = 'Hidden from public job view, Phase 1 portal, and social posts',
 }: {
   visible: boolean;
   onToggle: () => void;
+  visibleLabel?: string;
+  hiddenLabel?: string;
+  titleVisible?: string;
+  titleHidden?: string;
 }) {
   return (
     <button
@@ -18,14 +26,10 @@ export function PublicVisibilityToggle({
           ? 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
           : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
       }`}
-      title={
-        visible
-          ? 'Visible on public job view, Phase 1 portal, and social posts'
-          : 'Hidden from public job view, Phase 1 portal, and social posts'
-      }
+      title={visible ? titleVisible : titleHidden}
     >
       {visible ? <Eye size={14} /> : <EyeOff size={14} />}
-      {visible ? 'Visible to public' : 'Hidden from public'}
+      {visible ? visibleLabel : hiddenLabel}
     </button>
   );
 }

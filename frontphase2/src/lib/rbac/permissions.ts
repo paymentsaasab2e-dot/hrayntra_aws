@@ -46,6 +46,12 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'dash_crm_people', module: 'CRM Dashboard', description: 'CRM dashboard tab: Hours & scores — follows Team tab; people list uses Dashboard level' },
 
   // ══ Recruitment ════════════════════════════════════════════════════════
+  { permissionName: 'recruitment_clients_create', module: 'Recruitment Clients', description: 'Recruitment → Clients — create' },
+  { permissionName: 'recruitment_clients_read', module: 'Recruitment Clients', description: 'Recruitment → Clients' },
+  { permissionName: 'recruitment_clients_update', module: 'Recruitment Clients', description: 'Recruitment → Clients — update' },
+  { permissionName: 'recruitment_clients_delete', module: 'Recruitment Clients', description: 'Recruitment → Clients — delete' },
+  { permissionName: 'view_all_recruitment_clients', module: 'Recruitment Clients', description: 'Recruitment → Clients — all records in the organization' },
+
   { permissionName: 'jobs_create', module: 'Jobs', description: 'Jobs page — create' },
   { permissionName: 'jobs_read', module: 'Jobs', description: 'Jobs page' },
   { permissionName: 'jobs_update', module: 'Jobs', description: 'Jobs page — update' },
@@ -199,6 +205,7 @@ export const RBAC_MODULE_ORDER = [
   'Agreements',
   'CRM Dashboard',
   // Recruitment
+  'Recruitment Clients',
   'Jobs',
   'Candidates',
   'Matches',
@@ -239,8 +246,9 @@ export const RBAC_MODULE_GROUPS: RbacModuleGroup[] = [
   {
     group: 'Recruitment',
     description:
-      'Delivery side — jobs through to placements, plus the Recruitment dashboard tabs.',
+      'Delivery side — recruitment clients, jobs through to placements, plus the Recruitment dashboard tabs.',
     modules: [
+      'Recruitment Clients',
       'Jobs',
       'Candidates',
       'Matches',
@@ -295,6 +303,12 @@ export const PERMISSION_DISPLAY_LABELS: Record<string, string> = {
   clients_delete: 'Clients — delete',
   view_all_clients: 'Clients — view all in my organization',
   clients_handoff: 'Clients — hand off',
+
+  recruitment_clients_create: 'Recruitment Clients — create',
+  recruitment_clients_read: 'Recruitment Clients',
+  recruitment_clients_update: 'Recruitment Clients — update',
+  recruitment_clients_delete: 'Recruitment Clients — delete',
+  view_all_recruitment_clients: 'Recruitment Clients — view all in my organization',
 
   contacts_create: 'Contacts — create',
   contacts_read: 'Contacts',
@@ -493,6 +507,7 @@ export const MODULE_DISPLAY_LABELS: Record<string, string> = {
   Contacts: 'Contacts',
   Agreements: 'Agreements & Terms',
   'CRM Dashboard': 'CRM Dashboard',
+  'Recruitment Clients': 'Recruitment Clients',
   Jobs: 'Jobs',
   Candidates: 'Candidates',
   Matches: 'Matches',

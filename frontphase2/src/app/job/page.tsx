@@ -131,11 +131,6 @@ import {
   mapCandidateProfile,
 } from '../../lib/mapCandidateProfile';
 import { candidateTableRowToProfileStub } from '../../lib/candidateTableToProfileStub';
-import { useSubmitToClientModal } from '../../hooks/useSubmitToClientModal';
-import {
-  profileCanSubmitToClient,
-  resolveSubmitJobIdForProfile,
-} from '../../lib/candidateSubmitToClient';
 import {
   pickCandidateOwnerLabel,
   resolveCandidateExperienceYears,
@@ -1424,7 +1419,6 @@ export default function JobsPage() {
     'move_pipeline',
     'submit_candidate',
   ]);
-  const canSubmitToClient = hasAnyPermission(['submit_candidate', 'candidates_update', 'edit_candidate']);
   const jobAiGate = useAiCoinGate('ai.job_from_prompt');
   const [searchFilter, setSearchFilter] = useState('');
   const jobColumnVisibility = usePersistedColumnVisibility('jobs.visibleColumns', JOB_TABLE_COLUMNS);
@@ -1474,7 +1468,6 @@ export default function JobsPage() {
   const [candidateDrawerMode, setCandidateDrawerMode] = useState<'view' | 'edit'>('view');
   const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
-  const { openSubmit, submitModalElement } = useSubmitToClientModal();
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [scheduleInterviewOpen, setScheduleInterviewOpen] = useState(false);
   const [schedulePrefill, setSchedulePrefill] = useState<{ candidateId: string; jobId: string } | null>(null);
@@ -3306,34 +3299,6 @@ export default function JobsPage() {
               }
             : undefined
         }
-        onSubmitToClient={
-          canSubmitToClient
-            ? (profile) => {
-                if (!profileCanSubmitToClient(profile) && !activeJobForCandidateDrawer?.id) {
-                  void requestError(
-                    'Submit to Client is only available for candidates assigned to, applied for, or in a job pipeline.',
-                  );
-                  return;
-                }
-                const jobId =
-                  resolveSubmitJobIdForProfile(profile) || activeJobForCandidateDrawer?.id || null;
-                if (!jobId) {
-                  void requestError(
-                    'Assign this candidate to a job (or add them to a pipeline) before submitting to the client.',
-                  );
-                  return;
-                }
-                void openSubmit({
-                  candidateId: profile.id,
-                  jobId,
-                  candidateName: profile.name,
-                  jobTitle: activeJobForCandidateDrawer?.title,
-                  clientId: activeJobForCandidateDrawer?.clientId,
-                });
-              }
-            : undefined
-        }
-        showSubmitToClient={canSubmitToClient}
         onUpdateCandidate={
           canUpdateCandidate
             ? async (candidateId, payload) => {
@@ -3362,8 +3327,6 @@ export default function JobsPage() {
         loadingCandidateProfile={loadingCandidateProfile}
       />
       ) : null}
-
-      {submitModalElement}
 
       {scheduleInterviewOpen ? (
       <CandidateScheduleInterviewModal

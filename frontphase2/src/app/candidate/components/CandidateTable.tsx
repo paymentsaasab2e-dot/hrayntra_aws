@@ -286,6 +286,8 @@ interface CandidateTableProps {
   canSubmitToClient?: (candidate: Candidate) => boolean;
   /** Row id currently opening submit modal */
   submittingToClientCandidateId?: string | null;
+  /** Show a labeled Submit to Client control (job drawer) instead of the send icon. */
+  labeledSubmitToClient?: boolean;
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
   /** When true, omit overflow wrappers so a parent scroll region owns scrolling. */
   fillScrollParent?: boolean;
@@ -313,6 +315,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   onSubmitToClient,
   canSubmitToClient,
   submittingToClientCandidateId,
+  labeledSubmitToClient = false,
   workspaceAlertsByEntityId,
   fillScrollParent = false,
   isColumnVisible = () => true,
@@ -666,6 +669,25 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       </button>
                       {onSubmitToClient &&
                       (!canSubmitToClient || canSubmitToClient(candidate)) ? (
+                        labeledSubmitToClient ? (
+                          <button
+                            type="button"
+                            className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 text-[11px] font-semibold text-indigo-800 transition-all hover:bg-white hover:text-indigo-900 hover:shadow-sm disabled:opacity-50"
+                            title="Submit to Client"
+                            disabled={submittingToClientCandidateId === candidate.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSubmitToClient(candidate);
+                            }}
+                          >
+                            {submittingToClientCandidateId === candidate.id ? (
+                              <Loader2 size={13} className="animate-spin" strokeWidth={2.25} />
+                            ) : (
+                              <Send size={13} strokeWidth={2.25} />
+                            )}
+                            Submit to Client
+                          </button>
+                        ) : (
                         <button
                           type="button"
                           className="flex h-8 w-8 items-center justify-center rounded-xl text-indigo-600 transition-all hover:bg-white hover:text-indigo-800 hover:shadow-sm disabled:opacity-50"
@@ -682,6 +704,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                             <Send size={16} strokeWidth={2.25} />
                           )}
                         </button>
+                        )
                       ) : null}
                       {onMoveStage ? (
                         <button

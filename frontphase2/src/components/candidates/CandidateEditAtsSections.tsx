@@ -1,8 +1,13 @@
-'use client';
+﻿'use client';
 
 import React from 'react';
 import { Award, Briefcase, Eye, EyeOff, GraduationCap, Share2, User } from 'lucide-react';
 import type { ClientPresentationSectionId } from '@/lib/clientPresentationSections';
+import {
+  isSubmitToClientFieldVisible,
+  type SubmitToClientFieldId,
+  type SubmitToClientFieldVisibility,
+} from '@/lib/submitToClientFieldVisibility';
 import type { LucideIcon } from 'lucide-react';
 import type { UpdateCandidatePayload } from '@/lib/api';
 import {
@@ -246,21 +251,21 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     firstName: nameParts.firstName,
     lastName: nameParts.lastName,
     email: candidate.email || '',
-    phone: candidate.phone && candidate.phone !== '—' ? candidate.phone : '',
+    phone: candidate.phone && candidate.phone !== 'â€”' ? candidate.phone : '',
     linkedIn: candidate.linkedIn || str(social.linkedIn) || '',
     currentTitle:
-      candidate.currentTitle && candidate.currentTitle !== '—' ? candidate.currentTitle : '',
+      candidate.currentTitle && candidate.currentTitle !== 'â€”' ? candidate.currentTitle : '',
     currentCompany:
-      candidate.currentCompany && candidate.currentCompany !== '—' ? candidate.currentCompany : '',
+      candidate.currentCompany && candidate.currentCompany !== 'â€”' ? candidate.currentCompany : '',
     experience: candidate.experience != null ? String(candidate.experience) : '',
-    location: candidate.location && candidate.location !== '—' ? candidate.location : '',
-    stage: candidate.stage && candidate.stage !== '—' ? candidate.stage : 'Applied',
-    status: candidate.status && candidate.status !== '—' ? candidate.status : 'NEW',
-    source: candidate.source && candidate.source !== '—' ? candidate.source : '',
+    location: candidate.location && candidate.location !== 'â€”' ? candidate.location : '',
+    stage: candidate.stage && candidate.stage !== 'â€”' ? candidate.stage : 'Applied',
+    status: candidate.status && candidate.status !== 'â€”' ? candidate.status : 'NEW',
+    source: candidate.source && candidate.source !== 'â€”' ? candidate.source : '',
     recruiterId: candidate.recruiterId || '',
     assignedJobId: candidate.assignedJobId || '',
     noticePeriod:
-      candidate.noticePeriod && candidate.noticePeriod !== '—' ? candidate.noticePeriod : '',
+      candidate.noticePeriod && candidate.noticePeriod !== 'â€”' ? candidate.noticePeriod : '',
     availability: candidate.cvAvailability || candidate.availability || 'available',
     salaryCurrency: candidate.salaryCurrency || 'INR',
     expectedSalary:
@@ -434,7 +439,7 @@ export function validateEditFormStructured(editForm: CandidateEditFormState) {
     );
   }
 
-  // Portfolio links accept "Label | URL" or a plain URL per line — parser normalizes on save.
+  // Portfolio links accept "Label | URL" or a plain URL per line â€” parser normalizes on save.
 }
 
 export function buildExtraDataFromEditForm(
@@ -512,7 +517,7 @@ export function buildExtraDataFromEditForm(
   };
 }
 
-/** Client-facing fields only — excludes CRM stage, status, recruiter, and job assignment. */
+/** Client-facing fields only â€” excludes CRM stage, status, recruiter, and job assignment. */
 export function buildClientPresentationFieldsPatch(
   editForm: CandidateEditFormState
 ): Omit<UpdateCandidatePayload, 'assignedToId' | 'assignedJobs' | 'stage' | 'status' | 'source'> {
@@ -754,6 +759,7 @@ type Props = {
   showClientSectionVisibility?: boolean;
   clientSectionVisibility?: Partial<Record<ClientPresentationSectionId, boolean>>;
   onToggleClientSectionVisibility?: (sectionId: ClientPresentationSectionId) => void;
+  clientFieldVisibility?: Partial<SubmitToClientFieldVisibility> | null;
   /** profile = full CRM edit; clientSubmit = client-facing sections only (Submit to Client drawer). */
   variant?: 'profile' | 'clientSubmit';
 };
@@ -769,10 +775,13 @@ export function CandidateEditAtsSections({
   showClientSectionVisibility = false,
   clientSectionVisibility,
   onToggleClientSectionVisibility,
+  clientFieldVisibility,
   variant = 'profile',
 }: Props) {
   const isClientSubmit = variant === 'clientSubmit';
   const sectionVisible = (id: ClientPresentationSectionId) => clientSectionVisibility?.[id] !== false;
+  const showField = (id: SubmitToClientFieldId) =>
+    !isClientSubmit || isSubmitToClientFieldVisible(clientFieldVisibility, id);
   return (
     <div className="space-y-5">
       {showClientSectionVisibility ? (
@@ -780,11 +789,12 @@ export function CandidateEditAtsSections({
           <p className="font-semibold">Client review visibility</p>
           <p className="mt-1 text-xs text-blue-800">
             Use the button on the right of each section header to show or hide that block on the client
-            review link. Hidden sections are not sent to the client.
+            review link. Individual fields follow Settings â†’ Public Visibility â†’ Submit to Client. Hidden
+            sections and fields are not sent to the client.
           </p>
         </div>
       ) : null}
-      {onAvatarFile && onAvatarRemove ? (
+      {onAvatarFile && onAvatarRemove && showField('avatar') ? (
         <CandidatePhotoUpload
           preview={avatarPreview || form.avatar}
           onSelectFile={onAvatarFile}
@@ -802,42 +812,76 @@ export function CandidateEditAtsSections({
         clientVisible={sectionVisible('personal')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
       >
-        <EditField label="First Name" value={form.firstName} onChange={(v) => onChange('firstName', v)} />
-        <EditField label="Last Name" value={form.lastName} onChange={(v) => onChange('lastName', v)} />
-        <EditField label="E-mail" value={form.email} onChange={(v) => onChange('email', v)} type="email" />
-        <EditField label="Mobile No" value={form.phone} onChange={(v) => onChange('phone', v)} />
-        <EditField label="Age" value={form.age} onChange={(v) => onChange('age', v)} type="number" />
-        <EditField
-          label="Candidate Score"
-          value={form.candidateScore}
-          onChange={(v) => onChange('candidateScore', v)}
-          type="number"
-        />
-        <EditField label="City" value={form.city} onChange={(v) => onChange('city', v)} />
-        <EditField label="State" value={form.state} onChange={(v) => onChange('state', v)} />
-        <EditField label="Country" value={form.country} onChange={(v) => onChange('country', v)} />
-        <EditField label="Location (display)" value={form.location} onChange={(v) => onChange('location', v)} />
-        <div className="md:col-span-2">
-          <EditField label="Current Address" value={form.address} onChange={(v) => onChange('address', v)} />
-        </div>
-        <EditField label="Zip" value={form.zip} onChange={(v) => onChange('zip', v)} />
-        <EditField label="Nationality" value={form.nationality} onChange={(v) => onChange('nationality', v)} />
-        <EditField
-          label="Current Company Website"
-          value={form.currentCompanyWebsite}
-          onChange={(v) => onChange('currentCompanyWebsite', v)}
-        />
-        <EditField label="Marital Status" value={form.maritalStatus} onChange={(v) => onChange('maritalStatus', v)} />
-        <EditDateField
-          label="Birth Date"
-          variant="ats"
-          value={form.birthDate}
-          max={getLocalDateInputMinToday()}
-          outputIso
-          onChange={(v) => onChange('birthDate', v)}
-        />
-        <EditField label="Passport Number" value={form.passportNumber} onChange={(v) => onChange('passportNumber', v)} />
-        <EditField label="Preferred Location" value={form.preferredLocation} onChange={(v) => onChange('preferredLocation', v)} />
+        {showField('firstName') ? (
+          <EditField label="First Name" value={form.firstName} onChange={(v) => onChange('firstName', v)} />
+        ) : null}
+        {showField('lastName') ? (
+          <EditField label="Last Name" value={form.lastName} onChange={(v) => onChange('lastName', v)} />
+        ) : null}
+        {showField('email') ? (
+          <EditField label="E-mail" value={form.email} onChange={(v) => onChange('email', v)} type="email" />
+        ) : null}
+        {showField('phone') ? (
+          <EditField label="Mobile No" value={form.phone} onChange={(v) => onChange('phone', v)} />
+        ) : null}
+        {showField('age') ? (
+          <EditField label="Age" value={form.age} onChange={(v) => onChange('age', v)} type="number" />
+        ) : null}
+        {showField('candidateScore') ? (
+          <EditField
+            label="Candidate Score"
+            value={form.candidateScore}
+            onChange={(v) => onChange('candidateScore', v)}
+            type="number"
+          />
+        ) : null}
+        {showField('city') ? <EditField label="City" value={form.city} onChange={(v) => onChange('city', v)} /> : null}
+        {showField('state') ? <EditField label="State" value={form.state} onChange={(v) => onChange('state', v)} /> : null}
+        {showField('country') ? (
+          <EditField label="Country" value={form.country} onChange={(v) => onChange('country', v)} />
+        ) : null}
+        {showField('location') ? (
+          <EditField label="Location (display)" value={form.location} onChange={(v) => onChange('location', v)} />
+        ) : null}
+        {showField('address') ? (
+          <div className="md:col-span-2">
+            <EditField label="Current Address" value={form.address} onChange={(v) => onChange('address', v)} />
+          </div>
+        ) : null}
+        {showField('zip') ? <EditField label="Zip" value={form.zip} onChange={(v) => onChange('zip', v)} /> : null}
+        {showField('nationality') ? (
+          <EditField label="Nationality" value={form.nationality} onChange={(v) => onChange('nationality', v)} />
+        ) : null}
+        {showField('currentCompanyWebsite') ? (
+          <EditField
+            label="Current Company Website"
+            value={form.currentCompanyWebsite}
+            onChange={(v) => onChange('currentCompanyWebsite', v)}
+          />
+        ) : null}
+        {showField('maritalStatus') ? (
+          <EditField label="Marital Status" value={form.maritalStatus} onChange={(v) => onChange('maritalStatus', v)} />
+        ) : null}
+        {showField('birthDate') ? (
+          <EditDateField
+            label="Birth Date"
+            variant="ats"
+            value={form.birthDate}
+            max={getLocalDateInputMinToday()}
+            outputIso
+            onChange={(v) => onChange('birthDate', v)}
+          />
+        ) : null}
+        {showField('passportNumber') ? (
+          <EditField label="Passport Number" value={form.passportNumber} onChange={(v) => onChange('passportNumber', v)} />
+        ) : null}
+        {showField('preferredLocation') ? (
+          <EditField
+            label="Preferred Location"
+            value={form.preferredLocation}
+            onChange={(v) => onChange('preferredLocation', v)}
+          />
+        ) : null}
       </EditSection>
 
       <EditSection
@@ -848,35 +892,41 @@ export function CandidateEditAtsSections({
         clientVisible={sectionVisible('education')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
       >
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Education entries"
-            value={form.cvEducationEntries}
-            onChange={(v) => onChange('cvEducationEntries', v)}
-            rows={6}
-            helper="One line per entry: Qualification | Institute | Start Year | End Year | Grade"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Education summary"
-            value={form.educationSummary}
-            onChange={(v) => {
-              onChange('educationSummary', v);
-              onChange('education', v);
-            }}
-            rows={2}
-          />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Courses"
-            value={form.educationCourses}
-            onChange={(v) => onChange('educationCourses', v)}
-            rows={2}
-            helper="Semicolon-separated"
-          />
-        </div>
+        {showField('cvEducationEntries') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Education entries"
+              value={form.cvEducationEntries}
+              onChange={(v) => onChange('cvEducationEntries', v)}
+              rows={6}
+              helper="One line per entry: Qualification | Institute | Start Year | End Year | Grade"
+            />
+          </div>
+        ) : null}
+        {showField('educationSummary') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Education summary"
+              value={form.educationSummary}
+              onChange={(v) => {
+                onChange('educationSummary', v);
+                onChange('education', v);
+              }}
+              rows={2}
+            />
+          </div>
+        ) : null}
+        {showField('educationCourses') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Courses"
+              value={form.educationCourses}
+              onChange={(v) => onChange('educationCourses', v)}
+              rows={2}
+              helper="Semicolon-separated"
+            />
+          </div>
+        ) : null}
       </EditSection>
 
       <EditSection
@@ -887,76 +937,104 @@ export function CandidateEditAtsSections({
         clientVisible={sectionVisible('professional')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
       >
-        <div className="md:col-span-2">
-          <EditTextarea label="Remarks" value={form.remarks} onChange={(v) => onChange('remarks', v)} rows={3} />
-        </div>
-        <EditField
-          label="Experience (years)"
-          value={form.experience}
-          onChange={(v) => onChange('experience', v)}
-          type="number"
-        />
-        <EditField
-          label="Current Designation"
-          value={form.currentTitle}
-          onChange={(v) => onChange('currentTitle', v)}
-        />
-        <EditField
-          label="Current Employer"
-          value={form.currentCompany}
-          onChange={(v) => onChange('currentCompany', v)}
-        />
-        <EditField
-          label="Current Salary"
-          value={form.currentSalary}
-          onChange={(v) => onChange('currentSalary', v)}
-          type="number"
-        />
-        <EditField
-          label="Current Salary Currency"
-          value={form.currentSalaryCurrency}
-          onChange={(v) => onChange('currentSalaryCurrency', v)}
-        />
-        <EditField label="Current Benefits" value={form.currentBenefits} onChange={(v) => onChange('currentBenefits', v)} />
-        <EditField
-          label="Expected Salary"
-          value={form.expectedSalary}
-          onChange={(v) => onChange('expectedSalary', v)}
-          type="number"
-        />
-        <EditField
-          label="Expected Salary Currency"
-          value={form.expectedSalaryCurrency}
-          onChange={(v) => onChange('expectedSalaryCurrency', v)}
-        />
-        <EditField label="Expected Benefits" value={form.expectedBenefits} onChange={(v) => onChange('expectedBenefits', v)} />
-        <EditField label="Notice Period" value={form.noticePeriod} onChange={(v) => onChange('noticePeriod', v)} />
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Work history (narrative)"
-            value={form.workHistoryText}
-            onChange={(v) => onChange('workHistoryText', v)}
-            rows={4}
+        {showField('remarks') ? (
+          <div className="md:col-span-2">
+            <EditTextarea label="Remarks" value={form.remarks} onChange={(v) => onChange('remarks', v)} rows={3} />
+          </div>
+        ) : null}
+        {showField('experience') ? (
+          <EditField
+            label="Experience (years)"
+            value={form.experience}
+            onChange={(v) => onChange('experience', v)}
+            type="number"
           />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Extracurricular activities"
-            value={form.extracurricular}
-            onChange={(v) => onChange('extracurricular', v)}
-            rows={3}
-            helper="Semicolon-separated"
+        ) : null}
+        {showField('currentTitle') ? (
+          <EditField
+            label="Current Designation"
+            value={form.currentTitle}
+            onChange={(v) => onChange('currentTitle', v)}
           />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Volunteers"
-            value={form.volunteers}
-            onChange={(v) => onChange('volunteers', v)}
-            rows={2}
-            helper="Semicolon-separated"
+        ) : null}
+        {showField('currentCompany') ? (
+          <EditField
+            label="Current Employer"
+            value={form.currentCompany}
+            onChange={(v) => onChange('currentCompany', v)}
           />
-        </div>
+        ) : null}
+        {showField('currentSalary') ? (
+          <EditField
+            label="Current Salary"
+            value={form.currentSalary}
+            onChange={(v) => onChange('currentSalary', v)}
+            type="number"
+          />
+        ) : null}
+        {showField('currentSalaryCurrency') ? (
+          <EditField
+            label="Current Salary Currency"
+            value={form.currentSalaryCurrency}
+            onChange={(v) => onChange('currentSalaryCurrency', v)}
+          />
+        ) : null}
+        {showField('currentBenefits') ? (
+          <EditField label="Current Benefits" value={form.currentBenefits} onChange={(v) => onChange('currentBenefits', v)} />
+        ) : null}
+        {showField('expectedSalary') ? (
+          <EditField
+            label="Expected Salary"
+            value={form.expectedSalary}
+            onChange={(v) => onChange('expectedSalary', v)}
+            type="number"
+          />
+        ) : null}
+        {showField('expectedSalaryCurrency') ? (
+          <EditField
+            label="Expected Salary Currency"
+            value={form.expectedSalaryCurrency}
+            onChange={(v) => onChange('expectedSalaryCurrency', v)}
+          />
+        ) : null}
+        {showField('expectedBenefits') ? (
+          <EditField label="Expected Benefits" value={form.expectedBenefits} onChange={(v) => onChange('expectedBenefits', v)} />
+        ) : null}
+        {showField('noticePeriod') ? (
+          <EditField label="Notice Period" value={form.noticePeriod} onChange={(v) => onChange('noticePeriod', v)} />
+        ) : null}
+        {showField('workHistoryText') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Work history (narrative)"
+              value={form.workHistoryText}
+              onChange={(v) => onChange('workHistoryText', v)}
+              rows={4}
+            />
+          </div>
+        ) : null}
+        {showField('extracurricular') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Extracurricular activities"
+              value={form.extracurricular}
+              onChange={(v) => onChange('extracurricular', v)}
+              rows={3}
+              helper="Semicolon-separated"
+            />
+          </div>
+        ) : null}
+        {showField('volunteers') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Volunteers"
+              value={form.volunteers}
+              onChange={(v) => onChange('volunteers', v)}
+              rows={2}
+              helper="Semicolon-separated"
+            />
+          </div>
+        ) : null}
       </EditSection>
 
       <EditSection
@@ -967,15 +1045,17 @@ export function CandidateEditAtsSections({
         clientVisible={sectionVisible('work')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
       >
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Work experience entries"
-            value={form.cvWorkExperienceEntries}
-            onChange={(v) => onChange('cvWorkExperienceEntries', v)}
-            rows={8}
-            helper="Blank line between roles. Line 1: Title | Company | Location | Start | End. Line 2+: responsibilities (; separated)"
-          />
-        </div>
+        {showField('cvWorkExperienceEntries') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Work experience entries"
+              value={form.cvWorkExperienceEntries}
+              onChange={(v) => onChange('cvWorkExperienceEntries', v)}
+              rows={8}
+              helper="Blank line between roles. Line 1: Title | Company | Location | Start | End. Line 2+: responsibilities (; separated)"
+            />
+          </div>
+        ) : null}
       </EditSection>
 
       <EditSection
@@ -986,23 +1066,39 @@ export function CandidateEditAtsSections({
         clientVisible={sectionVisible('social')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
       >
-        <EditField label="LinkedIn" value={form.linkedIn} onChange={(v) => onChange('linkedIn', v)} />
-        <EditField label="Twitter" value={form.twitter} onChange={(v) => onChange('twitter', v)} />
-        <EditField label="Xing" value={form.xing} onChange={(v) => onChange('xing', v)} />
-        <EditField label="Skype ID" value={form.skypeId} onChange={(v) => onChange('skypeId', v)} />
-        <EditField label="Facebook" value={form.facebook} onChange={(v) => onChange('facebook', v)} />
-        <EditField label="Stack Overflow" value={form.stackOverflow} onChange={(v) => onChange('stackOverflow', v)} />
-        <EditField label="Website" value={form.website} onChange={(v) => onChange('website', v)} />
-        <EditField label="Portfolio URL" value={form.portfolio} onChange={(v) => onChange('portfolio', v)} />
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Portfolio / project links"
-            value={form.cvPortfolioLinks}
-            onChange={(v) => onChange('cvPortfolioLinks', v)}
-            rows={6}
-            helper="One link per line: Label | URL, or paste a URL only"
-          />
-        </div>
+        {showField('linkedIn') ? (
+          <EditField label="LinkedIn" value={form.linkedIn} onChange={(v) => onChange('linkedIn', v)} />
+        ) : null}
+        {showField('twitter') ? (
+          <EditField label="Twitter" value={form.twitter} onChange={(v) => onChange('twitter', v)} />
+        ) : null}
+        {showField('xing') ? <EditField label="Xing" value={form.xing} onChange={(v) => onChange('xing', v)} /> : null}
+        {showField('skypeId') ? (
+          <EditField label="Skype ID" value={form.skypeId} onChange={(v) => onChange('skypeId', v)} />
+        ) : null}
+        {showField('facebook') ? (
+          <EditField label="Facebook" value={form.facebook} onChange={(v) => onChange('facebook', v)} />
+        ) : null}
+        {showField('stackOverflow') ? (
+          <EditField label="Stack Overflow" value={form.stackOverflow} onChange={(v) => onChange('stackOverflow', v)} />
+        ) : null}
+        {showField('website') ? (
+          <EditField label="Website" value={form.website} onChange={(v) => onChange('website', v)} />
+        ) : null}
+        {showField('portfolio') ? (
+          <EditField label="Portfolio URL" value={form.portfolio} onChange={(v) => onChange('portfolio', v)} />
+        ) : null}
+        {showField('cvPortfolioLinks') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Portfolio / project links"
+              value={form.cvPortfolioLinks}
+              onChange={(v) => onChange('cvPortfolioLinks', v)}
+              rows={6}
+              helper="One link per line: Label | URL, or paste a URL only"
+            />
+          </div>
+        ) : null}
       </EditSection>
 
       <EditSection
@@ -1013,60 +1109,76 @@ export function CandidateEditAtsSections({
         clientVisible={sectionVisible('summary')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
       >
-        <div className="md:col-span-2">
-          <EditTextarea label="Summary" value={form.cvSummary} onChange={(v) => onChange('cvSummary', v)} rows={4} />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea label="Skills" value={form.skills} onChange={(v) => onChange('skills', v)} rows={3} helper="Comma-separated" />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Language & proficiency"
-            value={form.languageProficiency}
-            onChange={(v) => onChange('languageProficiency', v)}
-            rows={3}
-            helper="One per line: Language | Proficiency (e.g. English | Fluent)"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Honours & awards"
-            value={form.honours}
-            onChange={(v) => onChange('honours', v)}
-            rows={3}
-            helper="Semicolon-separated"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Certifications"
-            value={form.certifications}
-            onChange={(v) => onChange('certifications', v)}
-            rows={3}
-            helper="One per line"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Projects (extra)"
-            value={form.projects}
-            onChange={(v) => onChange('projects', v)}
-            rows={3}
-            helper="Semicolon-separated"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
-            label="Hackathons (extra)"
-            value={form.hackathons}
-            onChange={(v) => onChange('hackathons', v)}
-            rows={2}
-            helper="Semicolon-separated"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea label="Internal notes" value={form.notes} onChange={(v) => onChange('notes', v)} rows={4} />
-        </div>
+        {showField('cvSummary') ? (
+          <div className="md:col-span-2">
+            <EditTextarea label="Summary" value={form.cvSummary} onChange={(v) => onChange('cvSummary', v)} rows={4} />
+          </div>
+        ) : null}
+        {showField('skills') ? (
+          <div className="md:col-span-2">
+            <EditTextarea label="Skills" value={form.skills} onChange={(v) => onChange('skills', v)} rows={3} helper="Comma-separated" />
+          </div>
+        ) : null}
+        {showField('languageProficiency') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Language & proficiency"
+              value={form.languageProficiency}
+              onChange={(v) => onChange('languageProficiency', v)}
+              rows={3}
+              helper="One per line: Language | Proficiency (e.g. English | Fluent)"
+            />
+          </div>
+        ) : null}
+        {showField('honours') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Honours & awards"
+              value={form.honours}
+              onChange={(v) => onChange('honours', v)}
+              rows={3}
+              helper="Semicolon-separated"
+            />
+          </div>
+        ) : null}
+        {showField('certifications') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Certifications"
+              value={form.certifications}
+              onChange={(v) => onChange('certifications', v)}
+              rows={3}
+              helper="One per line"
+            />
+          </div>
+        ) : null}
+        {showField('projects') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Projects (extra)"
+              value={form.projects}
+              onChange={(v) => onChange('projects', v)}
+              rows={3}
+              helper="Semicolon-separated"
+            />
+          </div>
+        ) : null}
+        {showField('hackathons') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Hackathons (extra)"
+              value={form.hackathons}
+              onChange={(v) => onChange('hackathons', v)}
+              rows={2}
+              helper="Semicolon-separated"
+            />
+          </div>
+        ) : null}
+        {showField('notes') ? (
+          <div className="md:col-span-2">
+            <EditTextarea label="Internal notes" value={form.notes} onChange={(v) => onChange('notes', v)} rows={4} />
+          </div>
+        ) : null}
       </EditSection>
     </div>
   );

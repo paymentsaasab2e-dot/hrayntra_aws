@@ -23,9 +23,13 @@ interface InterviewKPICardsProps {
 export function InterviewKPICards({ items }: InterviewKPICardsProps) {
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
-      {items.map((item) => {
-        const Icon = iconMap[item.icon];
+      {(Array.isArray(items) ? items : []).map((item) => {
+        const Icon = iconMap[item?.icon] || Calendar;
         const accentClass = accentMap[item.accent as keyof typeof accentMap] || accentMap.blue;
+        const value =
+          typeof item.value === 'number' || typeof item.value === 'string'
+            ? item.value
+            : Number(item.value) || 0;
 
         return (
           <div
@@ -35,7 +39,7 @@ export function InterviewKPICards({ items }: InterviewKPICardsProps) {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-medium text-slate-500">{item.title}</p>
-                <p className="mt-2 text-lg font-bold leading-7 text-slate-900">{item.value}</p>
+                <p className="mt-2 text-lg font-bold leading-7 text-slate-900">{value}</p>
               </div>
               <div className={`rounded-xl p-2.5 ${accentClass}`}>
                 <Icon className="size-5" />

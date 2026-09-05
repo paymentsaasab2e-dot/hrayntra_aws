@@ -3199,34 +3199,6 @@ function CandidatesPageContent() {
               }
             : undefined
         }
-        onSubmitToClient={
-          canSubmitToClient
-            ? (profile) => {
-                if (!profileCanSubmitToClient(profile)) {
-                  void requestError(
-                    'Submit to Client is only available for candidates assigned to, applied for, or in a job pipeline.',
-                  );
-                  return;
-                }
-                const listRow = filteredCandidates.find((c) => c.id === profile.id);
-                const jobId =
-                  resolveSubmitJobIdForProfile(profile) ||
-                  (listRow ? resolveSubmitJobIdForRow(listRow) : null);
-                if (!jobId) {
-                  void requestError(
-                    'Assign this candidate to a job (or add them to a pipeline) before submitting to the client.',
-                  );
-                  return;
-                }
-                void openSubmit({
-                  candidateId: profile.id,
-                  jobId,
-                  candidateName: profile.name,
-                });
-              }
-            : undefined
-        }
-        showSubmitToClient={canSubmitToClient}
         onUpdateCandidate={canUpdateCandidate ? async (candidateId, payload) => {
           const response = await apiUpdateCandidate(candidateId, payload);
           const updated = extractApiData<BackendCandidate>(response);

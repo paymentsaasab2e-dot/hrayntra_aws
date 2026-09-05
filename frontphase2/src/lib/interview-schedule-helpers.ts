@@ -125,7 +125,10 @@ export function buildInterviewRoundNumberById<T extends InterviewRoundRow>(
 ): Record<string, number> {
   const map = new Map<string, T[]>();
   for (const inv of interviews) {
-    const key = `${inv.candidate.id}::${inv.job.id}`;
+    const candidateId = inv?.candidate?.id;
+    const jobId = inv?.job?.id;
+    if (!candidateId || !jobId) continue;
+    const key = `${candidateId}::${jobId}`;
     const list = map.get(key);
     if (list) list.push(inv);
     else map.set(key, [inv]);
@@ -300,7 +303,7 @@ export function mapInterviewToCandidateScheduled(
     meetingLink: interview.meetingLink || null,
     location: interview.location || null,
     phoneNumber: null,
-    interviewers: interview.panel.map((member) => ({
+    interviewers: (interview.panel || []).map((member) => ({
       id: member.userId || member.id,
       name: member.name,
       role: PANEL_ROLE_TO_POPUP_ROLE[member.role] || 'Interviewer',

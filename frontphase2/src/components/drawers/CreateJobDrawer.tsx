@@ -117,6 +117,7 @@ import {
   parseLinkedInPostTemplateList,
   pickDefaultLinkedInPostTemplate,
   subscribeLinkedInTemplateDefaultChanged,
+  visibleLinkedInTemplateSectionLabels,
   type JobLinkedInPostTemplate,
   type LinkedInPostTemplateSection,
 } from '../../lib/jobLinkedInPostTemplate';
@@ -3535,11 +3536,10 @@ export function CreateJobDrawer({
             applyUrl,
             linkedInPostSections,
           };
-          const hasTemplate = Array.isArray(linkedInPostSections) && linkedInPostSections.length > 0;
           const linkedInPublishText = replaceApplyUrlInSocialPostText(
-            hasTemplate || !(linkedInPostTextTouched && (linkedInPostText || '').trim())
-              ? buildLinkedInJobPost(postInput)
-              : linkedInPostText,
+            linkedInPostTextTouched && (linkedInPostText || '').trim()
+              ? linkedInPostText
+              : buildLinkedInJobPost(postInput),
             applyUrl,
             previewApplyUrl,
           );
@@ -4728,6 +4728,15 @@ export function CreateJobDrawer({
 
                       {formData.linkedInEnabled && (
                         <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                          <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-3">
+                            <p className="text-sm font-semibold text-slate-900">How this posts to LinkedIn</p>
+                            <p className="mt-1 text-xs leading-5 text-slate-600">
+                              When you save this job, HRYANTRA publishes the post below to the LinkedIn
+                              profile or company page you select. Nothing is posted until you save. Edit
+                              the text — the LinkedIn preview shows exactly how the feed will look.
+                            </p>
+                          </div>
+
                           <SocialAccountPicker
                             provider="linkedin"
                             accounts={linkedinAccounts}
@@ -4745,8 +4754,8 @@ export function CreateJobDrawer({
                               <div className="min-w-0">
                                 <p className="text-sm font-semibold text-slate-900">Post templates</p>
                                 <p className="mt-0.5 text-xs text-slate-500">
-                                  LinkedIn, X, and Facebook posts use this template. If you have not
-                                  created one, they follow Public Visibility by default.
+                                  The selected template controls which job fields appear in the LinkedIn
+                                  post. You can still edit the final wording below.
                                 </p>
                                 {selectedLinkedInTemplateName ? (
                                   <p className="mt-1.5 text-xs font-medium text-blue-700">
@@ -4766,7 +4775,6 @@ export function CreateJobDrawer({
                                       setSelectedLinkedInTemplateId(null);
                                       setSelectedLinkedInTemplateName(null);
                                       setLinkedInPostSections(null);
-                                      applyDefaultLinkedInPostTemplate(null);
                                       setLinkedInPostTextTouched(false);
                                       setTwitterPostTextTouched(false);
                                       setFacebookCaptionTouched(false);
@@ -4788,58 +4796,44 @@ export function CreateJobDrawer({
                             </div>
                           </div>
 
-                          {/* LinkedIn post preview — visible while composing; connection required to publish */}
-                          {formData.jobTitle && formData.companyId ? (
-                            <>
-                              {/* LinkedIn Post Preview */}
+                          <div className="grid gap-4 lg:grid-cols-2">
+                            <div className="space-y-4">
                               <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">
-                                  LinkedIn Post Preview
-                                  <span className="text-xs text-slate-500 ml-1">
+                                <label className="mb-2 block text-sm font-medium text-slate-700">
+                                  Edit LinkedIn post
+                                  <span className="ml-1 text-xs text-slate-500">
                                     ({linkedInPostText.length}/{LINKEDIN_POST_MAX_LENGTH} chars)
                                   </span>
                                 </label>
-                                <LinkedInPostPreview
-                                  userName={selectedLinkedInPreviewAccount?.name || linkedIn.linkedinUser?.name || 'Your LinkedIn profile'}
-                                  userPicture={selectedLinkedInPreviewAccount?.picture || linkedIn.linkedinUser?.picture}
-                                  jobTitle={
-                                    isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobTitle')
-                                      ? formData.jobTitle
-                                      : ''
-                                  }
-                                  company={
-                                    isJobFieldPubliclyVisible(
-                                      formData.publicFieldVisibility,
-                                      'client',
-                                      formData.showClientNamePublicly,
-                                    )
-                                      ? clients.find((c) => c.id === formData.companyId)?.companyName || ''
-                                      : ''
-                                  }
-                                  description={
-                                    isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobDescription') &&
-                                    formData.jobDescriptionHtml
-                                      ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '')
-                                      : undefined
-                                  }
-                                  applyUrl={effectiveApplyUrl}
-                                  location={
-                                    isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'location')
-                                      ? formData.city || formData.state || formData.country || formData.fullAddress || undefined
-                                      : undefined
-                                  }
-                                  postText={linkedInPostText}
-                                  imageUrl={linkedInImageUrl || null}
+                                <textarea
+                                  value={linkedInPostText}
+                                  onChange={(e) => {
+                                    setLinkedInPostTextTouched(true);
+                                    const text = e.target.value.substring(0, LINKEDIN_POST_MAX_LENGTH);
+                                    setLinkedInPostText(text);
+                                  }}
+                                  rows={12}
+                                  className="w-full resize-y rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                  placeholder="LinkedIn post text is generated from the job form. Edit it here to change what LinkedIn will show."
                                 />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setLinkedInPostTextTouched(false);
+                                    setLinkedInPostText(generatedLinkedInPost);
+                                  }}
+                                  className="mt-2 text-xs text-blue-600 hover:text-blue-700"
+                                >
+                                  Regenerate from job details
+                                </button>
                               </div>
 
-                              {/* LinkedIn post image */}
                               <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">
+                                <label className="mb-2 block text-sm font-medium text-slate-700">
                                   Post image (optional)
                                 </label>
                                 <p className="mb-2 text-xs text-slate-500">
-                                  Attach a JPG, PNG, or GIF. It will be published with the LinkedIn post when you save.
+                                  This image appears in the LinkedIn feed with the post when you save.
                                 </p>
                                 <div className="flex flex-wrap items-center gap-3">
                                   <DocumentUploadButton
@@ -4874,121 +4868,152 @@ export function CreateJobDrawer({
                                     </button>
                                   ) : null}
                                 </div>
-                                {linkedInImageUrl ? (
-                                  <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                      src={linkedInImageUrl}
-                                      alt="LinkedIn post"
-                                      className="max-h-48 w-full object-contain"
-                                    />
-                                  </div>
-                                ) : null}
                               </div>
 
-                              {/* Editable Post Text */}
                               <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">
-                                  Edit Post Text
-                                  <span className="text-xs text-slate-500 ml-1">
-                                    ({linkedInPostText.length}/{LINKEDIN_POST_MAX_LENGTH} chars)
-                                  </span>
-                                </label>
-                                <textarea
-                                  value={linkedInPostText}
-                                  onChange={(e) => {
-                                    setLinkedInPostTextTouched(true);
-                                    const text = e.target.value.substring(0, LINKEDIN_POST_MAX_LENGTH);
-                                    setLinkedInPostText(text);
-                                  }}
-                                  rows={6}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
-                                  placeholder="LinkedIn post text will be auto-generated..."
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setLinkedInPostTextTouched(false);
-                                    setLinkedInPostText(generatedLinkedInPost);
-                                  }}
-                                  className="mt-2 text-xs text-blue-600 hover:text-blue-700"
-                                >
-                                  Regenerate from job details
-                                </button>
-                              </div>
-
-                              {/* Apply URL */}
-                              <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">Application URL</label>
+                                <label className="mb-2 block text-sm font-medium text-slate-700">Application URL</label>
                                 <input
                                   type="url"
                                   value={formData.linkedInExternalUrl || effectiveApplyUrl}
-                                  onChange={(e) => setFormData(prev => ({ ...prev, linkedInExternalUrl: e.target.value }))}
+                                  onChange={(e) => setFormData((prev) => ({ ...prev, linkedInExternalUrl: e.target.value }))}
                                   placeholder={buildCandidatePortalApplyUrlPreview(getTenantDbName())}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                                 />
-                                <p className="text-xs text-slate-500 mt-1">
+                                <p className="mt-1 text-xs text-slate-500">
                                   {applicationApplyUrlLoading
                                     ? 'Loading candidate apply link…'
                                     : jobId
-                                      ? 'Public candidate apply link for this job (used in LinkedIn and X posts).'
-                                      : 'A unique apply link is generated when you save the job. Preview updates as you fill job details.'}
+                                      ? 'This apply link is included in the LinkedIn post.'
+                                      : 'A unique apply link is generated when you save. The preview uses a placeholder until then.'}
                                 </p>
                               </div>
+                            </div>
 
-                              {/* Success Toast */}
-                              {showLinkedInSuccess && linkedInPostUrl && (
-                                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <Check size={16} className="text-green-600" />
-                                    <span className="text-sm font-medium text-green-700">Posted to LinkedIn successfully!</span>
-                                  </div>
-                                  <a
-                                    href={linkedInPostUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-blue-600 hover:text-blue-700 underline flex items-center gap-1"
-                                  >
-                                    View post on LinkedIn
-                                    <ExternalLink size={12} />
-                                  </a>
-                                </div>
-                              )}
-
-                              {!linkedIn.isConnected ? (
-                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                                  Connect LinkedIn above to publish this post when you save the job.
+                            <div className="space-y-3">
+                              <div>
+                                <p className="text-sm font-medium text-slate-700">How it will look on LinkedIn</p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  {selectedLinkedInTemplateName
+                                    ? `Using the ${selectedLinkedInTemplateName} template. Hidden fields are omitted.`
+                                    : 'Live preview of the post that will go out when you save.'}
                                 </p>
-                              ) : selectedLinkedInTargets.length === 0 ? (
-                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                                  Select at least one LinkedIn account or company page to publish when you save the job.
+                                {visibleLinkedInTemplateSectionLabels(linkedInPostSections).length ? (
+                                  <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                                    Showing:{' '}
+                                    {visibleLinkedInTemplateSectionLabels(linkedInPostSections).join(
+                                      ', ',
+                                    )}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <LinkedInPostPreview
+                                userName={
+                                  selectedLinkedInPreviewAccount?.name ||
+                                  linkedIn.linkedinUser?.name ||
+                                  'Your LinkedIn profile'
+                                }
+                                userPicture={
+                                  selectedLinkedInPreviewAccount?.picture ||
+                                  linkedIn.linkedinUser?.picture
+                                }
+                                accountType={selectedLinkedInPreviewAccount?.type}
+                                headline={
+                                  selectedLinkedInPreviewAccount?.type === 'page'
+                                    ? 'Company page · LinkedIn'
+                                    : selectedLinkedInPreviewAccount?.accountEmail ||
+                                      'Posting to your LinkedIn feed'
+                                }
+                                jobTitle={
+                                  isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobTitle')
+                                    ? formData.jobTitle
+                                    : ''
+                                }
+                                company={
+                                  isJobFieldPubliclyVisible(
+                                    formData.publicFieldVisibility,
+                                    'client',
+                                    formData.showClientNamePublicly,
+                                  )
+                                    ? clients.find((c) => c.id === formData.companyId)?.companyName || ''
+                                    : ''
+                                }
+                                description={
+                                  isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobDescription') &&
+                                  formData.jobDescriptionHtml
+                                    ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '')
+                                    : undefined
+                                }
+                                applyUrl={effectiveApplyUrl}
+                                location={
+                                  isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'location')
+                                    ? formData.city || formData.state || formData.country || formData.fullAddress || undefined
+                                    : undefined
+                                }
+                                postText={linkedInPostText}
+                                imageUrl={linkedInImageUrl || null}
+                              />
+                              {linkedinAccounts.filter((account) => selectedLinkedInTargets.includes(account.key)).length > 0 ? (
+                                <p className="text-xs leading-5 text-slate-600">
+                                  On save, this post goes to{' '}
+                                  <span className="font-semibold text-slate-800">
+                                    {linkedinAccounts
+                                      .filter((account) => selectedLinkedInTargets.includes(account.key))
+                                      .map((account) =>
+                                        account.type === 'page' ? `${account.name} (Company Page)` : account.name,
+                                      )
+                                      .join(', ')}
+                                  </span>
+                                  .
                                 </p>
                               ) : null}
+                            </div>
+                          </div>
 
-                              {/* Error Display */}
-                              {linkedIn.error && (
-                                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                                  <div className="flex items-center gap-2">
-                                    <AlertCircle size={16} className="text-red-600" />
-                                    <span className="text-sm text-red-700">{linkedIn.error}</span>
-                                  </div>
-                                  {linkedIn.error.includes('expired') && (
-                                    <button
-                                      type="button"
-                                      onClick={handleConnectLinkedIn}
-                                      className="mt-2 text-xs text-blue-600 hover:text-blue-700 underline"
-                                    >
-                                      Reconnect LinkedIn
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <p className="text-xs text-slate-500">
-                              Fill in Job Title and Client in Job Details to generate the LinkedIn preview.
+                          {showLinkedInSuccess && linkedInPostUrl ? (
+                            <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                              <div className="mb-2 flex items-center gap-2">
+                                <Check size={16} className="text-green-600" />
+                                <span className="text-sm font-medium text-green-700">Posted to LinkedIn successfully!</span>
+                              </div>
+                              <a
+                                href={linkedInPostUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-700"
+                              >
+                                View post on LinkedIn
+                                <ExternalLink size={12} />
+                              </a>
+                            </div>
+                          ) : null}
+
+                          {!linkedIn.isConnected ? (
+                            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                              Connect LinkedIn above to publish this post when you save the job.
                             </p>
-                          )}
+                          ) : selectedLinkedInTargets.length === 0 ? (
+                            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                              Select at least one LinkedIn account or company page to publish when you save the job.
+                            </p>
+                          ) : null}
+
+                          {linkedIn.error ? (
+                            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                              <div className="flex items-center gap-2">
+                                <AlertCircle size={16} className="text-red-600" />
+                                <span className="text-sm text-red-700">{linkedIn.error}</span>
+                              </div>
+                              {linkedIn.error.includes('expired') ? (
+                                <button
+                                  type="button"
+                                  onClick={handleConnectLinkedIn}
+                                  className="mt-2 text-xs text-blue-600 underline hover:text-blue-700"
+                                >
+                                  Reconnect LinkedIn
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       )}
                     </div>

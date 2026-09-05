@@ -2,6 +2,13 @@
 export const MODULE_ACCESS_MAP: Record<string, string[]> = {
   Leads: ['leads_create', 'leads_read', 'leads_update', 'leads_delete', 'view_all_leads', 'convert_lead'],
   Clients: ['clients_create', 'clients_read', 'clients_update', 'clients_delete', 'view_all_clients', 'clients_handoff'],
+  RecruitmentClients: [
+    'recruitment_clients_create',
+    'recruitment_clients_read',
+    'recruitment_clients_update',
+    'recruitment_clients_delete',
+    'view_all_recruitment_clients',
+  ],
   Jobs: ['jobs_create', 'jobs_read', 'jobs_update', 'jobs_delete', 'assign_job', 'view_all_jobs', 'publish_job', 'create_job', 'edit_job', 'delete_job', 'view_jobs'],
   Candidates: [
     'candidates_create', 'candidates_read', 'candidates_update', 'candidates_delete',

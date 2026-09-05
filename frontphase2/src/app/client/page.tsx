@@ -218,6 +218,7 @@ const EmptyState = ({
       Start building your agency pipeline by adding your first client or importing them from a CSV file.
     </p>
     <div className="flex flex-wrap items-center justify-center gap-3">
+      {onCreateClick ? (
       <button
         type="button"
         onClick={onCreateClick}
@@ -225,6 +226,8 @@ const EmptyState = ({
       >
         <Plus className="h-4 w-4" strokeWidth={2.5} /> Create Client
       </button>
+      ) : null}
+      {onImportClick ? (
       <button
         type="button"
         onClick={onImportClick}
@@ -232,6 +235,7 @@ const EmptyState = ({
       >
         <Upload className="h-4 w-4 text-slate-600" strokeWidth={2} /> Import Clients
       </button>
+      ) : null}
     </div>
   </div>
 );
@@ -361,16 +365,24 @@ export default function App() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { hasAnyPermission, hasPermission } = usePermissions();
-  const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
-  const canUpdateClient = hasAnyPermission(['clients_update']);
   const isRecruitmentScope = searchParams.get('scope') === 'recruitment';
+  const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
+  const canCreateClient = isRecruitmentScope
+    ? hasAnyPermission(['recruitment_clients_create'])
+    : hasAnyPermission(['clients_create']);
+  const canUpdateClient = isRecruitmentScope
+    ? hasAnyPermission(['recruitment_clients_update'])
+    : hasAnyPermission(['clients_update']);
+  const canDeleteClient = isRecruitmentScope
+    ? hasAnyPermission(['recruitment_clients_delete'])
+    : hasAnyPermission(['clients_delete']);
   const canSendToRecruitment =
     canUpdateClient || canCreateJob;
   const canHandoffFromServer = useCanHandoffClient();
   const canHandoffClient =
-    canHandoffFromServer || hasPermission('clients_handoff');
+    !isRecruitmentScope && (canHandoffFromServer || hasPermission('clients_handoff'));
   const { getStatusForClient, refresh: refreshHandoffStatuses } = useClientHandoffStatuses();
-  const canOpenClientTrash = hasAnyPermission(['clients_delete']);
+  const canOpenClientTrash = canDeleteClient;
   const canViewClientAgreements = hasAnyPermission(['agreements_read', 'agreements_manage']);
   const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState('all');
@@ -1216,6 +1228,7 @@ export default function App() {
               <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
               <span>Export</span>
             </button>
+            {canCreateClient ? (
             <button
               type="button"
               onClick={() => setShowImportDrawer(true)}
@@ -1224,6 +1237,8 @@ export default function App() {
               <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
               <span>Import</span>
             </button>
+            ) : null}
+            {canCreateClient ? (
             <div
               role="group"
               aria-label="Create client"
@@ -1287,6 +1302,7 @@ export default function App() {
                 <span>Create Manually</span>
               </button>
             </div>
+            ) : null}
           </div>
         </header>
 
@@ -1322,13 +1338,17 @@ export default function App() {
           ) : clients.length === 0 ? (
             <div className="min-h-0 flex-1 overflow-auto">
               <EmptyState
-                onImportClick={() => setShowImportDrawer(true)}
-                onCreateClick={() => {
-                  setCreateClientMode('manual');
-                  setAddClientWithAi(false);
-                  setSelectedClientId(null);
-                  setShowAddClientDrawer(true);
-                }}
+                onImportClick={canCreateClient ? () => setShowImportDrawer(true) : undefined}
+                onCreateClick={
+                  canCreateClient
+                    ? () => {
+                        setCreateClientMode('manual');
+                        setAddClientWithAi(false);
+                        setSelectedClientId(null);
+                        setShowAddClientDrawer(true);
+                      }
+                    : undefined
+                }
               />
             </div>
           ) : (
@@ -1463,11 +1483,15 @@ export default function App() {
                       setSelectedClientDrawerMode('view');
                       setSelectedClientId(client.id);
                     }}
-                    onEditClient={(client) => {
-                      setSelectedClientDrawerMode('edit');
-                      setSelectedClientId(client.id);
-                    }}
-                    onDeleteClient={handleDeleteClient}
+                    onEditClient={
+                      canUpdateClient
+                        ? (client) => {
+                            setSelectedClientDrawerMode('edit');
+                            setSelectedClientId(client.id);
+                          }
+                        : undefined
+                    }
+                    onDeleteClient={canDeleteClient ? handleDeleteClient : undefined}
                     onLogoUpdated={handleRefresh}
                     canCreateJob={canCreateJob}
                     canSendToRecruitment={canSendToRecruitment && !isRecruitmentScope}
@@ -1585,10 +1609,14 @@ export default function App() {
               router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
             }
           }}
-          onDelete={(id) => {
-            setSelectedClientId(null);
-            handleDeleteClient(id);
-          }}
+          onDelete={
+            canDeleteClient
+              ? (id) => {
+                  setSelectedClientId(null);
+                  handleDeleteClient(id);
+                }
+              : undefined
+          }
           onClientUpdated={(patch) => {
             patchClientInList(patch.id, patch);
           }}
@@ -1666,7 +1694,7 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {clientFieldVisibility.assignedTo ? (
+              {canUpdateClient && clientFieldVisibility.assignedTo ? (
                 <select
                   value={bulkAssignedTo}
                   onChange={(e) => handleBulkAssignChange(e.target.value)}
@@ -1678,7 +1706,7 @@ export default function App() {
                   {teamMembers.map(u => <option key={u.id} value={u.id} className="text-slate-900 bg-white">{u.name}</option>)}
                 </select>
               ) : null}
-              {clientFieldVisibility.status ? (
+              {canUpdateClient && clientFieldVisibility.status ? (
                 <select
                   value={bulkStatus}
                   onChange={(e) => handleBulkStatusChange(e.target.value)}
@@ -1692,7 +1720,9 @@ export default function App() {
                   <option value="INACTIVE" className="text-slate-900 bg-white">Inactive</option>
                 </select>
               ) : null}
+              {canDeleteClient ? (
               <button onClick={handleBulkDelete} disabled={bulkActionLoading} className="bg-red-600 px-4 py-2 rounded-lg text-sm font-semibold">Delete</button>
+              ) : null}
               <button onClick={clearBulkSelection} disabled={bulkActionLoading} className="bg-slate-800 px-4 py-2 rounded-lg text-sm font-semibold">Clear</button>
             </div>
           </div>

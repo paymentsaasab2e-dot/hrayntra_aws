@@ -7,6 +7,10 @@ export const DASHBOARD_MODULE_PERMISSIONS = {
     'clients_create', 'clients_read', 'clients_update', 'clients_delete',
     'view_all_clients', 'clients_handoff',
   ],
+  RecruitmentClients: [
+    'recruitment_clients_create', 'recruitment_clients_read', 'recruitment_clients_update',
+    'recruitment_clients_delete', 'view_all_recruitment_clients',
+  ],
   Jobs: [
     'jobs_create', 'jobs_read', 'jobs_update', 'jobs_delete', 'assign_job',
     'view_all_jobs', 'create_job', 'edit_job', 'delete_job', 'view_jobs',

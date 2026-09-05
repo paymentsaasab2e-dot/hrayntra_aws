@@ -359,7 +359,8 @@ function recruitmentModulesEnabled() {
     isOrgModuleEnabled('interviews') ||
     isOrgModuleEnabled('placements') ||
     isOrgModuleEnabled('pipeline') ||
-    isOrgModuleEnabled('matches')
+    isOrgModuleEnabled('matches') ||
+    isOrgModuleEnabled('clients')
   );
 }
 

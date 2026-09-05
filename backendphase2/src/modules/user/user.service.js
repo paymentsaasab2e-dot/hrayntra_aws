@@ -9,6 +9,7 @@ import { resolveAssignmentModulesFromReq } from '../../services/assigneeModuleAc
 import { resolveTenantOrganizationName } from '../setting/recruitmentMode.service.js';
 
 const JOB_VISIBILITY_DEFAULTS_KEY = 'jobPublicVisibilityDefaults';
+const SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY = 'submitToClientFieldVisibility';
 const JOB_VISIBILITY_FIELDS = [
   'nationality',
   'jobTitle',
@@ -59,6 +60,107 @@ function normalizeJobVisibilityDefaults(raw) {
   return {
     publicFieldVisibility,
     showClientNamePublicly,
+    updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt : null,
+  };
+}
+
+const SUBMIT_TO_CLIENT_FIELDS = [
+  'firstName',
+  'middleName',
+  'lastName',
+  'email',
+  'phoneCode',
+  'phone',
+  'age',
+  'candidateScore',
+  'city',
+  'state',
+  'country',
+  'location',
+  'address',
+  'zip',
+  'avatar',
+  'nationality',
+  'currentCompanyWebsite',
+  'gender',
+  'employment',
+  'maritalStatus',
+  'birthDate',
+  'passportNumber',
+  'preferredLocation',
+  'cvEducationEntries',
+  'educationSummary',
+  'educationCourses',
+  'remarks',
+  'experience',
+  'currentTitle',
+  'currentCompany',
+  'currentSalary',
+  'currentSalaryCurrency',
+  'currentBenefits',
+  'expectedSalary',
+  'expectedSalaryCurrency',
+  'expectedBenefits',
+  'noticePeriod',
+  'workHistoryText',
+  'extracurricular',
+  'volunteers',
+  'p1CurrentRole',
+  'p1PreferredJobTitles',
+  'p1PreferredIndustries',
+  'p1FunctionalAreas',
+  'p1JobTypes',
+  'p1WorkModes',
+  'p1PreferredLocations',
+  'p1Relocation',
+  'p1AvailabilityToStart',
+  'cvWorkExperienceEntries',
+  'linkedIn',
+  'twitter',
+  'xing',
+  'skypeId',
+  'facebook',
+  'stackOverflow',
+  'website',
+  'portfolio',
+  'cvPortfolioLinks',
+  'cvSummary',
+  'skills',
+  'languageProficiency',
+  'honours',
+  'certifications',
+  'projects',
+  'hackathons',
+  'notes',
+  'p1Resume',
+  'p1Internships',
+  'p1Gap',
+  'p1Academic',
+  'p1Exams',
+  'p1Accomplishments',
+  'p1Visa',
+  'p1Vaccination',
+];
+
+function emptySubmitToClientVisibilityDefaults() {
+  return {
+    fieldVisibility: Object.fromEntries(SUBMIT_TO_CLIENT_FIELDS.map((key) => [key, true])),
+    updatedAt: null,
+  };
+}
+
+function normalizeSubmitToClientVisibilityDefaults(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const nested =
+    source.fieldVisibility && typeof source.fieldVisibility === 'object'
+      ? source.fieldVisibility
+      : source;
+  const fieldVisibility = {};
+  for (const key of SUBMIT_TO_CLIENT_FIELDS) {
+    fieldVisibility[key] = nested[key] !== false;
+  }
+  return {
+    fieldVisibility,
     updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt : null,
   };
 }
@@ -357,6 +459,50 @@ export const userService = {
       create: {
         userId,
         key: JOB_VISIBILITY_DEFAULTS_KEY,
+        value,
+        scope: 'USER',
+      },
+    });
+    return value;
+  },
+
+  async getSubmitToClientVisibilityDefaults(userId) {
+    if (!userId) return emptySubmitToClientVisibilityDefaults();
+    const row = await prisma.setting.findUnique({
+      where: {
+        userId_key_scope: {
+          userId,
+          key: SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY,
+          scope: 'USER',
+        },
+      },
+    });
+    if (!row?.value) return emptySubmitToClientVisibilityDefaults();
+    return normalizeSubmitToClientVisibilityDefaults(row.value);
+  },
+
+  async saveSubmitToClientVisibilityDefaults(userId, raw) {
+    if (!userId) {
+      const err = new Error('User is required');
+      err.statusCode = 401;
+      throw err;
+    }
+    const value = {
+      ...normalizeSubmitToClientVisibilityDefaults(raw),
+      updatedAt: new Date().toISOString(),
+    };
+    await prisma.setting.upsert({
+      where: {
+        userId_key_scope: {
+          userId,
+          key: SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY,
+          scope: 'USER',
+        },
+      },
+      update: { value },
+      create: {
+        userId,
+        key: SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY,
         value,
         scope: 'USER',
       },

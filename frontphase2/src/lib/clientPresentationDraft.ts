@@ -21,6 +21,11 @@ import {
   normalizePhase1ClientSectionVisibility,
   type Phase1ClientSectionVisibility,
 } from './phase1ClientPresentationSections';
+import {
+  applySubmitToClientFieldVisibilityToReviewSections,
+  parseSubmitToClientFieldVisibility,
+  type SubmitToClientFieldVisibility,
+} from './submitToClientFieldVisibility';
 
 export const CLIENT_PRESENTATION_KEY = 'clientPresentation';
 
@@ -33,6 +38,7 @@ export type ClientPresentationStored = {
   >;
   cvEditorLayout?: Record<string, unknown> | null;
   visibleSections?: ClientSectionVisibility;
+  visibleFields?: Record<string, boolean>;
   clientReviewSections?: ClientReviewSection[];
   /** Full Phase 1 portal profile copy for client submit (editable sections). */
   phase1Snapshot?: Phase1ProfileSnapshot | null;
@@ -57,6 +63,7 @@ export function readClientPresentation(
   const visibleSections = normalizeClientSectionVisibility(
     row.visibleSections as Partial<ClientSectionVisibility> | undefined
   );
+  const visibleFields = parseSubmitToClientFieldVisibility(row.visibleFields);
   const phase1Snapshot =
     row.phase1Snapshot && typeof row.phase1Snapshot === 'object' && !Array.isArray(row.phase1Snapshot)
       ? (row.phase1Snapshot as Phase1ProfileSnapshot)
@@ -64,11 +71,14 @@ export function readClientPresentation(
   const phase1VisibleSections = normalizePhase1ClientSectionVisibility(
     row.phase1VisibleSections as Partial<Phase1ClientSectionVisibility> | undefined,
   );
-  const clientReviewSections: ClientReviewSection[] = phase1Snapshot
-    ? buildPhase1ClientReviewSections(phase1Snapshot, phase1VisibleSections)
-    : Array.isArray(row.clientReviewSections)
-      ? (row.clientReviewSections as ClientReviewSection[])
-      : buildClientReviewSections(editForm, visibleSections);
+  const clientReviewSections: ClientReviewSection[] = applySubmitToClientFieldVisibilityToReviewSections(
+    phase1Snapshot
+      ? buildPhase1ClientReviewSections(phase1Snapshot, phase1VisibleSections)
+      : Array.isArray(row.clientReviewSections)
+        ? (row.clientReviewSections as ClientReviewSection[])
+        : buildClientReviewSections(editForm, visibleSections),
+    visibleFields,
+  );
   return {
     updatedAt: String(row.updatedAt || ''),
     editForm,
@@ -78,6 +88,7 @@ export function readClientPresentation(
         ? (row.cvEditorLayout as Record<string, unknown>)
         : null,
     visibleSections,
+    visibleFields,
     clientReviewSections,
     phase1Snapshot,
     phase1VisibleSections: phase1Snapshot ? phase1VisibleSections : undefined,
@@ -90,6 +101,7 @@ export function buildClientPresentationExtraData(
   options?: {
     cvEditorLayout?: Record<string, unknown> | null;
     visibleSections?: Partial<ClientSectionVisibility> | null;
+    visibleFields?: Partial<SubmitToClientFieldVisibility> | null;
   }
 ): Record<string, unknown> {
   const prev = parseExtra(existingExtraData);
@@ -97,13 +109,20 @@ export function buildClientPresentationExtraData(
   const visibleSections = normalizeClientSectionVisibility(
     options?.visibleSections ?? prior?.visibleSections ?? DEFAULT_CLIENT_SECTION_VISIBILITY
   );
-  const clientReviewSections = buildClientReviewSections(editForm, visibleSections);
+  const visibleFields = parseSubmitToClientFieldVisibility(
+    options?.visibleFields ?? prior?.visibleFields,
+  );
+  const clientReviewSections = applySubmitToClientFieldVisibilityToReviewSections(
+    buildClientReviewSections(editForm, visibleSections),
+    visibleFields,
+  );
   const stored: ClientPresentationStored = {
     updatedAt: new Date().toISOString(),
     editForm,
     fields: buildClientPresentationFieldsPatch(editForm),
     cvEditorLayout: options?.cvEditorLayout ?? prior?.cvEditorLayout ?? null,
     visibleSections,
+    visibleFields,
     clientReviewSections,
   };
   return {
@@ -264,6 +283,7 @@ export function mergeBackendCandidateWithClientPresentation(
       fields: saved.fields,
       cvEditorLayout: saved.cvEditorLayout,
       visibleSections: saved.visibleSections,
+      visibleFields: saved.visibleFields,
       clientReviewSections: saved.clientReviewSections,
     },
   };

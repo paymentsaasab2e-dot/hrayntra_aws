@@ -365,30 +365,182 @@ function shouldHideClientReviewField(label, value) {
   return false;
 }
 
-function stripHiddenClientReviewFields(sections) {
+const SUBMIT_FIELD_LABEL_MAP = {
+  name: ['firstName', 'lastName'],
+  'first name': ['firstName'],
+  'last name': ['lastName'],
+  'middle name': ['middleName'],
+  'full name': ['firstName', 'middleName', 'lastName'],
+  'e-mail': ['email'],
+  email: ['email'],
+  'mobile no': ['phone'],
+  mobile: ['phone'],
+  'phone code': ['phoneCode'],
+  age: ['age'],
+  'candidate score': ['candidateScore'],
+  'city & state': ['city', 'state'],
+  city: ['city'],
+  state: ['state'],
+  country: ['country'],
+  'location (display)': ['location'],
+  'current address': ['address'],
+  zip: ['zip'],
+  'candidate image': ['avatar'],
+  nationality: ['nationality'],
+  'current company website': ['currentCompanyWebsite'],
+  gender: ['gender'],
+  'employment status': ['employment'],
+  'marital status': ['maritalStatus'],
+  'birth date': ['birthDate'],
+  'date of birth': ['birthDate'],
+  'passport number': ['passportNumber'],
+  'preferred location': ['preferredLocation'],
+  'education entries': ['cvEducationEntries'],
+  'education summary': ['educationSummary'],
+  courses: ['educationCourses'],
+  remarks: ['remarks'],
+  'experience (years)': ['experience'],
+  'current designation': ['currentTitle'],
+  'current employer': ['currentCompany'],
+  'current salary': ['currentSalary'],
+  'current salary currency': ['currentSalaryCurrency'],
+  'current benefits': ['currentBenefits'],
+  'expected salary': ['expectedSalary'],
+  'current role': ['p1CurrentRole', 'currentTitle'],
+  'preferred job titles': ['p1PreferredJobTitles'],
+  'preferred industries': ['p1PreferredIndustries'],
+  'functional areas': ['p1FunctionalAreas'],
+  'job types': ['p1JobTypes'],
+  'work modes': ['p1WorkModes'],
+  'preferred locations': ['p1PreferredLocations'],
+  relocation: ['p1Relocation'],
+  'availability to start': ['p1AvailabilityToStart'],
+  'salary expectation': ['expectedSalary'],
+  'expected salary currency': ['expectedSalaryCurrency'],
+  'expected benefits': ['expectedBenefits'],
+  'notice period': ['noticePeriod'],
+  'work history (narrative)': ['workHistoryText'],
+  'extracurricular activities': ['extracurricular'],
+  volunteers: ['volunteers'],
+  'work experience': ['cvWorkExperienceEntries'],
+  'work experience entries': ['cvWorkExperienceEntries'],
+  linkedin: ['linkedIn'],
+  twitter: ['twitter'],
+  xing: ['xing'],
+  'skype id': ['skypeId'],
+  facebook: ['facebook'],
+  'stack overflow': ['stackOverflow'],
+  website: ['website'],
+  'portfolio url': ['portfolio'],
+  'portfolio / project links': ['cvPortfolioLinks'],
+  summary: ['cvSummary'],
+  skills: ['skills'],
+  'language & proficiency': ['languageProficiency'],
+  'honours & awards': ['honours'],
+  certifications: ['certifications'],
+  'projects (extra)': ['projects'],
+  projects: ['projects'],
+  'hackathons (extra)': ['hackathons'],
+  'internal notes': ['notes'],
+  'file name': ['p1Resume'],
+  'ats readiness': ['p1Resume'],
+};
+
+const SUBMIT_SECTION_ENTRY_FIELDS = {
+  personal: ['firstName', 'lastName', 'email', 'phone'],
+  education: ['cvEducationEntries'],
+  professional: ['currentTitle', 'currentCompany', 'expectedSalary', 'noticePeriod'],
+  work: ['cvWorkExperienceEntries'],
+  social: ['linkedIn', 'website', 'portfolio', 'cvPortfolioLinks'],
+  summary: ['cvSummary', 'skills'],
+  resume: ['p1Resume'],
+  internships: ['p1Internships'],
+  gap: ['p1Gap'],
+  academic: ['p1Academic'],
+  exams: ['p1Exams'],
+  skills: ['skills'],
+  languages: ['languageProficiency'],
+  projects: ['projects'],
+  portfolio: ['cvPortfolioLinks', 'portfolio'],
+  certifications: ['certifications'],
+  accomplishments: ['p1Accomplishments'],
+  careerPreferences: ['p1CurrentRole', 'currentTitle', 'noticePeriod', 'expectedSalary'],
+  visa: ['p1Visa'],
+  vaccination: ['p1Vaccination'],
+};
+
+function parseSubmitFieldVisibility(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const nested =
+    raw.fieldVisibility && typeof raw.fieldVisibility === 'object' ? raw.fieldVisibility : raw;
+  return nested;
+}
+
+function isSubmitFieldVisible(visibility, fieldId) {
+  if (!visibility) return true;
+  return visibility[fieldId] !== false;
+}
+
+function isSubmitReviewLabelVisible(label, visibility) {
+  if (!visibility) return true;
+  const key = String(label || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  let ids = SUBMIT_FIELD_LABEL_MAP[key];
+  if (!ids && /^skill\s+\d+$/.test(key)) ids = ['skills'];
+  if (!ids && /^language\s+\d+$/.test(key)) ids = ['languageProficiency'];
+  if (!ids) return true;
+  return ids.some((id) => isSubmitFieldVisible(visibility, id));
+}
+
+function applySubmitFieldVisibility(sections, visibility) {
+  if (!visibility || !Array.isArray(sections)) return Array.isArray(sections) ? sections : [];
+  return sections
+    .map((section) => {
+      const entryFields = SUBMIT_SECTION_ENTRY_FIELDS[section.id];
+      const entriesAllowed =
+        !entryFields || entryFields.some((id) => isSubmitFieldVisible(visibility, id));
+      return {
+        ...section,
+        fields: Array.isArray(section?.fields)
+          ? section.fields.filter((row) => isSubmitReviewLabelVisible(row?.label, visibility))
+          : [],
+        entries: entriesAllowed ? section.entries : undefined,
+      };
+    })
+    .filter((section) => {
+      const hasFields = Array.isArray(section.fields) && section.fields.length > 0;
+      const hasEntries = Array.isArray(section.entries) && section.entries.length > 0;
+      return hasFields || hasEntries;
+    });
+}
+
+function stripHiddenClientReviewFields(sections, visibleFields) {
   if (!Array.isArray(sections)) return [];
-  return sections.map((section) => ({
+  const cleaned = sections.map((section) => ({
     ...section,
     fields: Array.isArray(section?.fields)
       ? section.fields.filter((row) => !shouldHideClientReviewField(row?.label, row?.value))
       : [],
   }));
+  return applySubmitFieldVisibility(cleaned, parseSubmitFieldVisibility(visibleFields));
 }
 
 export function buildClientReviewSectionsFromPresentation(saved) {
   if (!saved) return [];
+  const visibleFields = saved.visibleFields;
   if (saved.phase1Snapshot && typeof saved.phase1Snapshot === 'object') {
     return stripHiddenClientReviewFields(
       buildPhase1ClientReviewSections(saved.phase1Snapshot, saved.phase1VisibleSections),
+      visibleFields,
     );
   }
   if (saved.editForm && typeof saved.editForm === 'object') {
     return stripHiddenClientReviewFields(
       buildSectionsFromEditForm(saved.editForm, saved.visibleSections),
+      visibleFields,
     );
   }
   if (Array.isArray(saved.clientReviewSections) && saved.clientReviewSections.length > 0) {
-    return stripHiddenClientReviewFields(saved.clientReviewSections);
+    return stripHiddenClientReviewFields(saved.clientReviewSections, visibleFields);
   }
   return [];
 }

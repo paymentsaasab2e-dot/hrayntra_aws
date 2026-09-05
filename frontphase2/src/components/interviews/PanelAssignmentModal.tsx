@@ -44,8 +44,8 @@ export function PanelAssignmentModal({
     () =>
       pool.filter(
         (interviewer) =>
-          interviewer.name.toLowerCase().includes(search.toLowerCase()) ||
-          interviewer.email.toLowerCase().includes(search.toLowerCase())
+          (interviewer.name || '').toLowerCase().includes(search.toLowerCase()) ||
+          (interviewer.email || '').toLowerCase().includes(search.toLowerCase())
       ),
     [pool, search]
   );

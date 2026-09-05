@@ -5087,6 +5087,25 @@ export async function apiSaveJobVisibilityDefaults(body: JobVisibilityDefaultsPa
   });
 }
 
+export type SubmitToClientVisibilityDefaultsPayload = {
+  fieldVisibility?: Record<string, boolean> | null;
+  updatedAt?: string | null;
+};
+
+export async function apiGetSubmitToClientVisibilityDefaults() {
+  return apiFetch<SubmitToClientVisibilityDefaultsPayload>('/users/me/submit-to-client-visibility-defaults', {
+    auth: true,
+  });
+}
+
+export async function apiSaveSubmitToClientVisibilityDefaults(body: SubmitToClientVisibilityDefaultsPayload) {
+  return apiFetch<SubmitToClientVisibilityDefaultsPayload>('/users/me/submit-to-client-visibility-defaults', {
+    method: 'PUT',
+    body,
+    auth: true,
+  });
+}
+
 export interface MyPermissionsPayload {
   id: string;
   role: string;
@@ -6785,7 +6804,7 @@ export interface BackendInterviewListItem {
   location?: string | null;
   status: string;
   notes?: string | null;
-  candidate: {
+  candidate?: {
     id: string;
     firstName: string;
     middleName?: string | null;
@@ -6797,8 +6816,8 @@ export interface BackendInterviewListItem {
     status?: string | null;
     extraData?: BackendCandidate['extraData'];
     isPhase1Candidate?: boolean;
-  };
-  job: {
+  } | null;
+  job?: {
     id: string;
     title: string;
     clientId?: string;
@@ -6806,31 +6825,31 @@ export interface BackendInterviewListItem {
       id?: string;
       companyName: string;
     } | null;
-  };
-  client: {
+  } | null;
+  client?: {
     id: string;
     companyName: string;
     location?: string | null;
-  };
+  } | null;
   createdBy?: {
     id: string;
     name: string;
     email: string;
     avatar?: string | null;
   } | null;
-  panel: Array<{
+  panel?: Array<{
     id: string;
     role: string;
-    user: {
+    user?: {
       id: string;
       name: string;
       email: string;
       avatar?: string | null;
       department?: string | null;
       phone?: string | null;
-    };
-  }>;
-  feedbackEntries: Array<{
+    } | null;
+  }> | null;
+  feedbackEntries?: Array<{
     id: string;
     createdAt: string;
     strengths?: string | null;
@@ -6849,31 +6868,31 @@ export interface BackendInterviewListItem {
       name: string;
       email: string;
       avatar?: string | null;
-    };
-  }>;
-  interviewNotes: Array<{
+    } | null;
+  }> | null;
+  interviewNotes?: Array<{
     id: string;
     note: string;
     createdAt: string;
-    author: {
+    author?: {
       id: string;
       name: string;
       email: string;
       avatar?: string | null;
-    };
-  }>;
-  activityLogs: Array<{
+    } | null;
+  }> | null;
+  activityLogs?: Array<{
     id: string;
     action: string;
     timestamp: string;
     metadata?: any;
-    user: {
+    user?: {
       id: string;
       name: string;
       email: string;
       avatar?: string | null;
-    };
-  }>;
+    } | null;
+  }> | null;
   meetingLinkError?: string | null;
 }
 

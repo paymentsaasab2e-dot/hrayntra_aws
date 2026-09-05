@@ -56,7 +56,6 @@ import {
   Search,
   SquarePen,
   SendHorizontal,
-  Send,
   StickyNote,
   Tag,
   Trash2,
@@ -112,7 +111,6 @@ import {
 } from '../../utils/inferTimezone';
 import { getYmdInTimeZone } from '../../utils/zonedDateTime';
 import {
-  profileCanSubmitToClient,
   isSubmitToClientStageOption,
   isSubmittedToClientStage,
   SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
@@ -243,10 +241,6 @@ interface CandidateProfileDrawerProps {
   onUpdateCandidate?: (candidateId: string, payload: UpdateCandidatePayload) => void | Promise<void>;
   /** Reload candidate after CV editor save (e.g. loadCandidateProfile). */
   onRefreshCandidate?: (candidateId: string) => void | Promise<void>;
-  /** Opens the same Submit to Client modal as Matches (Send icon in table). */
-  onSubmitToClient?: (candidate: CandidateProfileDrawerData) => void;
-  /** When true, drawer may show submit control if profile is job-linked (see profileCanSubmitToClient). */
-  showSubmitToClient?: boolean;
   /** Render above job/details drawers (z ~115) when opened from nested contexts */
   stackAboveSiblingDrawers?: boolean;
 }
@@ -4023,8 +4017,6 @@ export function CandidateProfileDrawer({
   onMoveStageCreatePlacement,
   onUpdateCandidate,
   onRefreshCandidate,
-  onSubmitToClient,
-  showSubmitToClient = false,
   stackAboveSiblingDrawers = false,
 }: CandidateProfileDrawerProps) {
   const availableTags = orEmpty(availableTagsProp);
@@ -4637,17 +4629,6 @@ export function CandidateProfileDrawer({
                   }
                 : undefined
             }
-            onRequestSubmitToClient={
-              onSubmitToClient && showSubmitToClient
-                ? ({ jobId }) => {
-                    // Keep Move stage open so Cancel on Submit to client returns here.
-                    onSubmitToClient({
-                      ...candidate,
-                      assignedJobId: jobId,
-                    });
-                  }
-                : undefined
-            }
             onRequestScheduleInterview={
               onMoveStageScheduleInterview
                 ? (payload) => {
@@ -4904,16 +4885,6 @@ export function CandidateProfileDrawer({
                     >
                       Schedule Interview
                     </button>
-                    {onSubmitToClient && showSubmitToClient && profileCanSubmitToClient(candidate) ? (
-                      <button
-                        type="button"
-                        onClick={() => onSubmitToClient(candidate)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100"
-                      >
-                        <Send size={15} />
-                        Submit to Client
-                      </button>
-                    ) : null}
                     {latestClientReview?.reviewUrl ? (
                       <button
                         type="button"

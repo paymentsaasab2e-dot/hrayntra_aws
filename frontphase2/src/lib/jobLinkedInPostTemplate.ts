@@ -300,6 +300,16 @@ export function parseLinkedInPostTemplateList(res: unknown): JobLinkedInPostTemp
     .filter((row) => row.id);
 }
 
+export function visibleLinkedInTemplateSectionLabels(
+  sections?: LinkedInPostTemplateSection[] | null,
+): string[] {
+  if (!Array.isArray(sections) || !sections.length) return [];
+  return [...sections]
+    .filter((section) => section.visible !== false)
+    .sort((a, b) => a.order - b.order)
+    .map((section) => section.label);
+}
+
 /** Remembered default template, if it still exists. */
 export function pickDefaultLinkedInPostTemplate(
   templates: JobLinkedInPostTemplate[],
