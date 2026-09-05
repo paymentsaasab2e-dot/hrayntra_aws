@@ -77,9 +77,6 @@ import {
 } from '../../lib/interview-job-overview';
 import { buildInterviewRoundNumberById } from '../../lib/interview-schedule-helpers';
 
-// Force CSR — every interactive bit on this tab is client-driven.
-export const dynamic = 'force-dynamic';
-
 const INTERVIEW_DATE_OPTIONS = ['This Week', 'Today', 'This Month'] as const;
 const INTERVIEW_STATUS_OPTIONS = [ALL_STATUS_LABEL, 'Scheduled', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] as const;
 const INTERVIEW_ROUND_OPTIONS = ['All Rounds', 'Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'] as const;
