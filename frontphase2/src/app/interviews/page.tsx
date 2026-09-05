@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { AnimatePresence, motion } from 'motion/react';
 import { Calendar, Download, List, Plus, RefreshCcw, Search, XCircle } from 'lucide-react';
 import { toast as sonnerToast, Toaster } from 'sonner';
@@ -20,8 +21,7 @@ import { NoShowModal } from '../../components/interviews/NoShowModal';
 import { PanelAssignmentModal } from '../../components/interviews/PanelAssignmentModal';
 import { RejectCandidateModal } from '../../components/interviews/RejectCandidateModal';
 import { RescheduleModal } from '../../components/interviews/RescheduleModal';
-import { ScheduleInterviewModal as CandidateScheduleInterviewModal } from '../../components/drawers/CandidateProfileDrawer';
-import { SubmitToClientDrawer } from '../../components/interviews/SubmitToClientDrawer';
+import { useSubmitToClientModal } from '../../hooks/useSubmitToClientModal';
 import { InterviewJobCandidatesModal } from '../../components/interviews/InterviewJobCandidatesModal';
 import { useInterviewDrawer } from '../../hooks/useInterviewDrawer';
 import { useInterviews } from '../../hooks/useInterviews';
@@ -85,6 +85,15 @@ const INTERVIEW_STATUS_OPTIONS = [ALL_STATUS_LABEL, 'Scheduled', 'Completed', 'C
 const INTERVIEW_ROUND_OPTIONS = ['All Rounds', 'Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'] as const;
 const INTERVIEW_MODE_OPTIONS = ['All Modes', 'Online', 'Offline', 'Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment'] as const;
 
+/** Loaded only when scheduling — keeps /interviews from crashing if the candidate drawer chunk fails in production. */
+const CandidateScheduleInterviewModal = dynamic(
+  () =>
+    import('../../components/drawers/CandidateProfileDrawer').then((mod) => ({
+      default: mod.ScheduleInterviewModal,
+    })),
+  { ssr: false },
+);
+
 /** Full PATCH payload required by `updateInterview` so status-only updates preserve schedule fields. */
 function fullUpdatePayloadFromInterview(
   interview: Interview,
@@ -97,9 +106,9 @@ function fullUpdatePayloadFromInterview(
       return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
     })();
 
-  const panelUserIds = interview.panel.map((m) => String(m.userId || m.id)).filter(Boolean);
+  const panelUserIds = (interview.panel || []).map((m) => String(m.userId || m.id)).filter(Boolean);
   const panelRoles = Object.fromEntries(
-    interview.panel.filter((m) => m.userId).map((m) => [String(m.userId), m.role])
+    (interview.panel || []).filter((m) => m.userId).map((m) => [String(m.userId), m.role])
   ) as NonNullable<UpdateInterviewPayload['panelRoles']>;
 
   return {
@@ -138,13 +147,13 @@ export default function InterviewsPage() {
   const [exportInterviews, setExportInterviews] = useState<Interview[]>([]);
   const [exportInterviewsLoading, setExportInterviewsLoading] = useState(false);
   const [panelModalOpen, setPanelModalOpen] = useState(false);
-  const [submitToClientOpen, setSubmitToClientOpen] = useState(false);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectInterview, setRejectInterview] = useState<Interview | null>(null);
   const [editInterview, setEditInterview] = useState<Interview | null>(null);
   const [scheduleNextRoundFrom, setScheduleNextRoundFrom] = useState<Interview | null>(null);
   const [smartSearchInterviewIds, setSmartSearchInterviewIds] = useState<string[]>([]);
   const [moduleTab, setModuleTab] = useState<InterviewModuleTab>('scheduled');
+  const [scheduleModalReady, setScheduleModalReady] = useState(false);
   const [reviewApplicationId, setReviewApplicationId] = useState<string | null>(null);
   const [applicationsRefreshKey, setApplicationsRefreshKey] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -160,6 +169,10 @@ export default function InterviewsPage() {
   );
   const drawer = useInterviewDrawer();
   const modals = useInterviewModals();
+  const openScheduleModal = () => {
+    setScheduleModalReady(true);
+    modals.open('schedule');
+  };
   const {
     interviews,
     overviewInterviews,
@@ -203,6 +216,12 @@ export default function InterviewsPage() {
     },
     [fetchInterviewsForJob, retryLoad],
   );
+
+  const { openFromInterview, submitModalElement: submitToClientModal } = useSubmitToClientModal({
+    onSubmitted: () => {
+      void refreshAll({ silent: true });
+    },
+  });
 
   const filteredOverviewInterviews = useMemo(
     () =>
@@ -251,7 +270,7 @@ export default function InterviewsPage() {
 
   const jobSourceInterviews = useMemo(() => {
     if (!selectedJobId) return [];
-    const scopedForJob = jobScopedInterviews.filter((interview) => interview.job.id === selectedJobId);
+    const scopedForJob = jobScopedInterviews.filter((interview) => interview.job?.id === selectedJobId);
     const scoped = scopedForJob.length > 0 ? scopedForJob : overviewInterviews;
     return filterInterviewsForJobOverview(scoped, {
       searchQuery,
@@ -290,14 +309,15 @@ export default function InterviewsPage() {
 
   const jobAllCandidatesCount = useMemo(() => {
     if (!selectedJobId) return 0;
-    return new Set(jobSourceInterviews.map((interview) => interview.candidate.id)).size;
+    return new Set(jobSourceInterviews.map((interview) => interview.candidate?.id).filter(Boolean)).size;
   }, [jobSourceInterviews, selectedJobId]);
 
   const jobCandidateMaxRoundById = useMemo(() => {
     if (!selectedJobId) return {} as Record<string, number>;
     const map: Record<string, number> = {};
     for (const interview of jobSourceInterviews) {
-      const candidateId = interview.candidate.id;
+      const candidateId = interview.candidate?.id;
+      if (!candidateId) continue;
       const round = Number(effectiveRoundById[interview.id]) || 1;
       map[candidateId] = Math.max(map[candidateId] || 0, round);
     }
@@ -419,14 +439,15 @@ export default function InterviewsPage() {
       { jobId: string; jobTitle: string; clientId?: string; scheduledAt: number }
     >();
     for (const interview of overviewInterviews) {
-      const candidateId = interview.candidate.id;
+      const candidateId = interview.candidate?.id;
+      if (!candidateId) continue;
       const scheduledAt = new Date(interview.scheduledAt || 0).getTime();
       const existing = latestByCandidate.get(candidateId);
       if (!existing || scheduledAt > existing.scheduledAt) {
         latestByCandidate.set(candidateId, {
-          jobId: interview.job.id,
-          jobTitle: interview.job.title,
-          clientId: interview.job.clientId,
+          jobId: interview.job?.id || '',
+          jobTitle: interview.job?.title || '',
+          clientId: interview.job?.clientId,
           scheduledAt,
         });
       }
@@ -487,7 +508,7 @@ export default function InterviewsPage() {
     const source =
       jobScopedInterviews.length > 0 ? jobScopedInterviews : overviewInterviews;
     return source
-      .filter((inv) => inv.candidate.id === candidateId && inv.job.id === jobId)
+      .filter((inv) => inv.candidate?.id === candidateId && inv.job?.id === jobId)
       .sort(
         (a, b) =>
           new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime(),
@@ -592,8 +613,8 @@ export default function InterviewsPage() {
     const rounds = uniqueRoundNumbersForJob(
       filterInterviewsForJobOverview(
         [
-          ...overviewInterviews.filter((interview) => interview.job.id === jobId),
-          ...jobScopedInterviews.filter((interview) => interview.job.id === jobId),
+          ...overviewInterviews.filter((interview) => interview.job?.id === jobId),
+          ...jobScopedInterviews.filter((interview) => interview.job?.id === jobId),
         ],
         {
           searchQuery: '',
@@ -630,7 +651,7 @@ export default function InterviewsPage() {
     setScheduleNextRoundFrom(null);
     setEditInterview(interview);
     drawer.closeDrawer();
-    window.setTimeout(() => modals.open('schedule'), 260);
+    window.setTimeout(() => openScheduleModal(), 260);
   };
 
   const openRejectFlow = (interview: Interview) => {
@@ -645,7 +666,7 @@ export default function InterviewsPage() {
     setEditInterview(null);
     setScheduleNextRoundFrom(interview);
     drawer.closeDrawer();
-    window.setTimeout(() => modals.open('schedule'), 260);
+    window.setTimeout(() => openScheduleModal(), 260);
   };
 
   /** From job candidates table: move R1 candidate into next round when the job already has that round. */
@@ -895,7 +916,7 @@ export default function InterviewsPage() {
                   onClick={() => {
                     setEditInterview(null);
                     setScheduleNextRoundFrom(null);
-                    modals.open('schedule');
+                    openScheduleModal();
                   }}
                   className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
                 >
@@ -1200,7 +1221,7 @@ export default function InterviewsPage() {
               onClick={() => {
                 setEditInterview(null);
                 setScheduleNextRoundFrom(null);
-                modals.open('schedule');
+                openScheduleModal();
               }}
               className="mt-5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700"
             >
@@ -1220,9 +1241,7 @@ export default function InterviewsPage() {
         onOpenReject={canUpdateInterview && selectedInterview ? () => openRejectFlow(selectedInterview) : undefined}
         onOpenSubmitToClient={
           canUpdateInterview && selectedInterview
-            ? () => {
-                setSubmitToClientOpen(true);
-              }
+            ? () => openFromInterview(selectedInterview)
             : undefined
         }
         onScheduleNextRound={
@@ -1239,15 +1258,7 @@ export default function InterviewsPage() {
         } : undefined}
       />
 
-      <SubmitToClientDrawer
-        isOpen={canUpdateInterview && submitToClientOpen}
-        interview={selectedInterview}
-        onClose={() => setSubmitToClientOpen(false)}
-        onToast={setToast}
-        onSubmitted={() => {
-          void refreshAll({ silent: true });
-        }}
-      />
+      {submitToClientModal}
 
       <RejectCandidateModal
         isOpen={canUpdateInterview && rejectModalOpen}
@@ -1272,6 +1283,7 @@ export default function InterviewsPage() {
         }}
       />
 
+      {scheduleModalReady ? (
       <CandidateScheduleInterviewModal
         isOpen={
           modals.isModalOpen('schedule') &&
@@ -1344,6 +1356,7 @@ export default function InterviewsPage() {
           await refreshAll();
         }}
       />
+      ) : null}
 
       <RescheduleModal
         isOpen={canUpdateInterview && modals.isModalOpen('reschedule')}
@@ -1398,7 +1411,7 @@ export default function InterviewsPage() {
       <PanelAssignmentModal
         isOpen={canUpdateInterview && panelModalOpen}
         interviewers={interviewerOptions}
-        initialSelectedIds={selectedInterview?.panel.map((member) => member.userId || member.id) || []}
+        initialSelectedIds={selectedInterview?.panel?.map((member) => member.userId || member.id) || []}
         onClose={() => setPanelModalOpen(false)}
         onSave={async (panelIds) => {
           if (!selectedInterview) return;

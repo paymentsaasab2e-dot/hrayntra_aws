@@ -44,6 +44,13 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'dash_crm_people', module: 'CRM Dashboard', description: 'CRM dashboard tab: Hours & scores — follows Team tab; people list uses Dashboard level' },
 
   // ══ Recruitment ════════════════════════════════════════════════════════
+  // Recruitment Clients (separate from CRM Clients)
+  { permissionName: 'recruitment_clients_create', module: 'Recruitment Clients', description: 'Recruitment → Clients — create' },
+  { permissionName: 'recruitment_clients_read', module: 'Recruitment Clients', description: 'Recruitment → Clients' },
+  { permissionName: 'recruitment_clients_update', module: 'Recruitment Clients', description: 'Recruitment → Clients — update' },
+  { permissionName: 'recruitment_clients_delete', module: 'Recruitment Clients', description: 'Recruitment → Clients — delete' },
+  { permissionName: 'view_all_recruitment_clients', module: 'Recruitment Clients', description: 'Recruitment → Clients — all records in the organization' },
+
   // Jobs
   { permissionName: 'jobs_create', module: 'Jobs', description: 'Jobs page — create' },
   { permissionName: 'jobs_read', module: 'Jobs', description: 'Jobs page' },
@@ -210,7 +217,7 @@ export const DEFAULT_PERMISSIONS = [
 export const DEFAULT_PERMISSION_NAMES = DEFAULT_PERMISSIONS.map((p) => p.permissionName);
 
 /** Ticked on every role unless an admin later turns it off. */
-export const DEFAULT_EVERYONE_PERMISSIONS = ['access_integrations'];
+export const DEFAULT_EVERYONE_PERMISSIONS = ['access_integrations', 'recruitment_clients_read'];
 
 function withEveryoneDefaults(names = []) {
   return [...new Set([...(names || []), ...DEFAULT_EVERYONE_PERMISSIONS])];
@@ -224,6 +231,7 @@ export const RBAC_MODULE_ORDER = [
   'Agreements',
   'CRM Dashboard',
   // Recruitment
+  'Recruitment Clients',
   'Jobs',
   'Candidates',
   'Matches',
@@ -261,8 +269,9 @@ export const RBAC_MODULE_GROUPS = [
   {
     group: 'Recruitment',
     description:
-      'Delivery side — jobs through to placements, plus the Recruitment dashboard tabs.',
+      'Delivery side — recruitment clients, jobs through to placements, plus the Recruitment dashboard tabs.',
     modules: [
+      'Recruitment Clients',
       'Jobs',
       'Candidates',
       'Matches',
@@ -317,6 +326,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
   'Senior Recruiter': withEveryoneDefaults([
     'leads_read', 'leads_create', 'leads_update', 'convert_lead',
     'clients_read', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff',
+    'recruitment_clients_read', 'recruitment_clients_create', 'recruitment_clients_update', 'view_all_recruitment_clients',
     'contacts_read', 'contacts_create', 'contacts_update',
     'agreements_read', 'agreements_manage',
     'jobs_read', 'jobs_create', 'jobs_update', 'assign_job', 'view_all_jobs', 'publish_job',
@@ -339,6 +349,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
   ]),
   Recruiter: withEveryoneDefaults([
     'leads_read', 'clients_read', 'contacts_read',
+    'recruitment_clients_read',
     'jobs_read',
     'view_assigned_candidates', 'candidates_read', 'candidates_create', 'candidates_update',
     'move_pipeline', 'submit_candidate',
@@ -356,6 +367,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
   'Account Manager': withEveryoneDefaults([
     'leads_read', 'leads_create', 'leads_update', 'view_all_leads', 'convert_lead',
     'clients_read', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff',
+    'recruitment_clients_read', 'recruitment_clients_create', 'recruitment_clients_update', 'view_all_recruitment_clients',
     'contacts_read', 'contacts_create', 'contacts_update',
     'agreements_read', 'agreements_manage',
     'jobs_read', 'jobs_create', 'jobs_update',
@@ -377,7 +389,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
   Manager: withEveryoneDefaults([
     'view_team', 'add_team_member', 'edit_team_member', 'manage_targets', 'view_team_activity',
     'leads_read', 'clients_read', 'contacts_read', 'jobs_read',
-    'view_all_candidates', 'view_all_jobs', 'view_all_clients', 'view_all_leads',
+    'view_all_candidates', 'view_all_jobs', 'view_all_clients', 'view_all_recruitment_clients', 'view_all_leads',
     'clients_handoff',
     'events_read',
     'requests_read', 'requests_create', 'requests_update', 'requests_delete', 'view_all_requests',
@@ -403,7 +415,7 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
     'dash_mine_approvals',
   ]),
   Viewer: withEveryoneDefaults([
-    'leads_read', 'clients_read', 'contacts_read', 'agreements_read',
+    'leads_read', 'clients_read', 'recruitment_clients_read', 'contacts_read', 'agreements_read',
     'jobs_read', 'candidates_read', 'view_assigned_candidates',
     'matches_read', 'pipeline_read', 'interviews_read', 'placements_read',
     'tasks_read', 'calendar_read', 'events_read',

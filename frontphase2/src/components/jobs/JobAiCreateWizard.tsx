@@ -9,6 +9,7 @@ import {
   Building2,
   Check,
   ChevronDown,
+  Eye,
   ExternalLink,
   FileText,
   Globe,
@@ -37,6 +38,7 @@ import {
   apiGetWorkspaceClient,
   apiProcessJobCreationPipeline,
   apiPublishSocialJob,
+  getTenantDbName,
   isOwnCompanyWorkspaceClient,
   type BackendClient,
   type BackendContact,
@@ -57,11 +59,14 @@ import { RichTextEditor } from '@/components/RichTextEditor';
 import { PreScreenAssessmentSection } from '@/components/jobs/PreScreenAssessmentSection';
 import { LinkedInPostTemplateModal } from '@/components/jobs/LinkedInPostTemplateModal';
 import { LinkedInAccountsModal } from '@/components/jobs/LinkedInAccountsModal';
+import { LinkedInJobPostPreviewModal } from '@/components/jobs/LinkedInJobPostPreviewModal';
 import {
   applyDefaultLinkedInPostTemplate,
   normalizeLinkedInPostTemplateSchema,
-  readRememberedLinkedInTemplateId,
+  parseLinkedInPostTemplateList,
+  pickDefaultLinkedInPostTemplate,
   subscribeLinkedInTemplateDefaultChanged,
+  visibleLinkedInTemplateSectionLabels,
   type JobLinkedInPostTemplate,
   type LinkedInPostTemplateSection,
 } from '@/lib/jobLinkedInPostTemplate';
@@ -86,7 +91,7 @@ import {
   DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY,
   type JobPublicFieldVisibility,
 } from '@/lib/jobPublicFieldVisibility';
-import { buildLinkedInJobPost, stripHtml } from '@/lib/jobSocialPost';
+import { buildCandidatePortalApplyUrlPreview, buildLinkedInJobPost, replaceApplyUrlInSocialPostText, stripHtml } from '@/lib/jobSocialPost';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '@/lib/jobVisibilityUserDefaults';
 import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import {
@@ -210,21 +215,6 @@ const EMPTY_SOCIAL_CONNECTIONS: SocialPlatformConnection = {
 
 function isSocialAuthPlatform(platformId: string) {
   return SOCIAL_AUTH_PLATFORM_IDS.has(platformId);
-}
-
-function unwrapLinkedInTemplates(res: unknown): JobLinkedInPostTemplate[] {
-  const rows = (res as { data?: unknown })?.data ?? res;
-  if (!Array.isArray(rows)) return [];
-  return rows.map((row) => {
-    const item = row as Record<string, unknown>;
-    return {
-      id: String(item.id || ''),
-      name: String(item.name || 'Untitled'),
-      schema: normalizeLinkedInPostTemplateSchema(item.schema),
-      createdAt: item.createdAt ? String(item.createdAt) : undefined,
-      updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
-    };
-  });
 }
 
 type WizardDraft = {
@@ -583,6 +573,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     null,
   );
   const [showLinkedInAccountsModal, setShowLinkedInAccountsModal] = useState(false);
+  const [showLinkedInPostPreviewModal, setShowLinkedInPostPreviewModal] = useState(false);
+  const [linkedInPostText, setLinkedInPostText] = useState('');
+  const [linkedInPostTextTouched, setLinkedInPostTextTouched] = useState(false);
   const [linkedinAccounts, setLinkedinAccounts] = useState<SocialPublishingAccount[]>([]);
   const [selectedLinkedInTargets, setSelectedLinkedInTargets] = useState<string[]>([]);
   const [disconnectingLinkedInId, setDisconnectingLinkedInId] = useState<string | null>(null);
@@ -612,6 +605,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setSelectedLinkedInTemplateName(null);
     setLinkedInPostSections(null);
     setShowLinkedInAccountsModal(false);
+    setShowLinkedInPostPreviewModal(false);
+    setLinkedInPostText('');
+    setLinkedInPostTextTouched(false);
     setLinkedinAccounts([]);
     setSelectedLinkedInTargets([]);
     setDisconnectingLinkedInId(null);
@@ -649,6 +645,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setSelectedLinkedInTemplateId(template.id);
     setSelectedLinkedInTemplateName(template.name);
     setLinkedInPostSections(schema.sections);
+    setLinkedInPostTextTouched(false);
     if (persistDefault) applyDefaultLinkedInPostTemplate(template);
   }, []);
 
@@ -671,11 +668,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     void apiListLinkedInPostTemplates()
       .then((res) => {
         if (cancelled) return;
-        const rows = unwrapLinkedInTemplates(res).filter((row) => row.id);
-        if (!rows.length) return;
-        const remembered = readRememberedLinkedInTemplateId();
-        const match = remembered ? rows.find((row) => row.id === remembered) : null;
-        if (match) applyLinkedInTemplate(match, false);
+        const match = pickDefaultLinkedInPostTemplate(parseLinkedInPostTemplateList(res));
+        if (!match) {
+          setSelectedLinkedInTemplateId(null);
+          setSelectedLinkedInTemplateName(null);
+          setLinkedInPostSections(null);
+          return;
+        }
+        applyLinkedInTemplate(match, false);
       })
       .catch(() => {
         /* keep default LinkedIn section order */
@@ -1304,6 +1304,85 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     void loadSocialConnections();
   }, [loadSocialConnections]);
 
+  const previewApplyUrl = useMemo(
+    () => buildCandidatePortalApplyUrlPreview(getTenantDbName()),
+    [],
+  );
+
+  const linkedInPostInputBase = useMemo(
+    () => ({
+      jobTitle: draft.jobTitle.trim(),
+      companyName: draft.clientName,
+      contactPersonName: draft.contactPersonName,
+      numberOfOpenings: draft.numberOfOpenings,
+      priority: draft.priority,
+      nationality: draft.nationality,
+      industryType: draft.industryType,
+      employmentType: draft.employmentType,
+      targetHireDate: draft.targetHireDate,
+      city: draft.city || draft.locationQuery,
+      state: draft.state,
+      country: draft.country,
+      minExperience: draft.minExperience,
+      maxExperience: draft.maxExperience,
+      currency: draft.salaryCurrency,
+      minSalary: draft.payRangeMin,
+      maxSalary: draft.payRangeMax,
+      skills: draft.skills,
+      languages: draft.languages,
+      jobDescriptionHtml: draft.jobDescriptionHtml,
+      keyResponsibilitiesText: draft.keyResponsibilitiesText,
+      qualificationsExperienceText: draft.qualificationsExperienceText,
+      candidateRequirementsText: draft.candidateRequirementsText,
+      showClientNamePublicly: draft.showClientNamePublicly,
+      publicFieldVisibility: draft.publicFieldVisibility,
+      linkedInPostSections,
+      customJdSections: draft.customJdSections,
+    }),
+    [draft, linkedInPostSections],
+  );
+
+  const generatedLinkedInPost = useMemo(
+    () =>
+      buildLinkedInJobPost({
+        ...linkedInPostInputBase,
+        applyUrl: previewApplyUrl,
+      }),
+    [linkedInPostInputBase, previewApplyUrl],
+  );
+
+  useEffect(() => {
+    if (linkedInPostTextTouched) return;
+    setLinkedInPostText(generatedLinkedInPost);
+  }, [generatedLinkedInPost, linkedInPostTextTouched]);
+
+  const selectedLinkedInPreviewAccount = useMemo(
+    () =>
+      linkedinAccounts.find((account) => selectedLinkedInTargets.includes(account.key)) ||
+      linkedinAccounts[0] ||
+      null,
+    [linkedinAccounts, selectedLinkedInTargets],
+  );
+
+  const linkedInPostingToLabel = useMemo(() => {
+    const selected = linkedinAccounts.filter((account) =>
+      selectedLinkedInTargets.includes(account.key),
+    );
+    if (!selected.length) return '';
+    return selected
+      .map((account) =>
+        account.type === 'page' ? `${account.name} (Company Page)` : account.name,
+      )
+      .join(', ');
+  }, [linkedinAccounts, selectedLinkedInTargets]);
+
+  const openLinkedInPostPreview = useCallback(() => {
+    if (!linkedInPostTextTouched) {
+      setLinkedInPostText(generatedLinkedInPost);
+    }
+    setShowLinkedInPostPreviewModal(true);
+  }, [generatedLinkedInPost, linkedInPostTextTouched]);
+
   const handleDisconnectLinkedInAccount = useCallback(
     async (accountId: string) => {
       setDisconnectingLinkedInId(accountId);
@@ -1636,36 +1715,18 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 500);
-          const linkedinPostText = buildLinkedInJobPost({
-            jobTitle: draft.jobTitle.trim(),
-            companyName: draft.clientName,
-            contactPersonName: draft.contactPersonName,
-            numberOfOpenings: draft.numberOfOpenings,
-            priority: draft.priority,
-            nationality: draft.nationality,
-            industryType: draft.industryType,
-            employmentType: draft.employmentType,
-            targetHireDate: draft.targetHireDate,
-            city: draft.city || draft.locationQuery,
-            state: draft.state,
-            country: draft.country,
-            minExperience: draft.minExperience,
-            maxExperience: draft.maxExperience,
-            currency: draft.salaryCurrency,
-            minSalary: draft.payRangeMin,
-            maxSalary: draft.payRangeMax,
-            skills: draft.skills,
-            languages: draft.languages,
-            jobDescriptionHtml: descriptionHtml || draft.jobDescriptionHtml,
-            keyResponsibilitiesText: draft.keyResponsibilitiesText,
-            qualificationsExperienceText: draft.qualificationsExperienceText,
-            candidateRequirementsText: draft.candidateRequirementsText,
-            applyUrl,
-            showClientNamePublicly: draft.showClientNamePublicly,
-            publicFieldVisibility: draft.publicFieldVisibility,
-            linkedInPostSections,
-            customJdSections: draft.customJdSections,
-          });
+          const linkedinPostText =
+            linkedInPostTextTouched && linkedInPostText.trim()
+              ? replaceApplyUrlInSocialPostText(
+                  linkedInPostText,
+                  applyUrl,
+                  buildCandidatePortalApplyUrlPreview(getTenantDbName()),
+                )
+              : buildLinkedInJobPost({
+                  ...linkedInPostInputBase,
+                  jobDescriptionHtml: descriptionHtml || draft.jobDescriptionHtml,
+                  applyUrl,
+                });
 
           const socialResult = await apiPublishSocialJob({
             jobId: createdJob.id,
@@ -2252,7 +2313,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                                 setSelectedLinkedInTemplateId(null);
                                 setSelectedLinkedInTemplateName(null);
                                 setLinkedInPostSections(null);
-                                applyDefaultLinkedInPostTemplate(null);
+                                setLinkedInPostTextTouched(false);
                               }}
                               className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                             >
@@ -2521,6 +2582,15 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                               {selected ? <Check className="h-3 w-3" /> : null}
                             </span>
                           </button>
+          <button
+                            type="button"
+                            onClick={() => openLinkedInPostPreview()}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#2098C8]/40 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#176F96] hover:bg-[#E8F6FC]"
+                            title="View how this job will look on LinkedIn"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            View
+                          </button>
                           <button
                             type="button"
                             onClick={() => openLinkedInAccountsModal()}
@@ -2784,6 +2854,42 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         disconnectingId={disconnectingLinkedInId}
         loading={linkedinAccountsLoading || linkedIn.isLoading}
         onDone={handleLinkedInAccountsDone}
+      />
+
+      <LinkedInJobPostPreviewModal
+        isOpen={showLinkedInPostPreviewModal}
+        onClose={() => setShowLinkedInPostPreviewModal(false)}
+        postText={linkedInPostText}
+        onChangePostText={(value) => {
+          markWizardDirty();
+          setLinkedInPostTextTouched(true);
+          setLinkedInPostText(value);
+        }}
+        generatedPostText={generatedLinkedInPost}
+        onRegenerate={() => {
+          markWizardDirty();
+          setLinkedInPostTextTouched(false);
+          setLinkedInPostText(generatedLinkedInPost);
+        }}
+        userName={
+          selectedLinkedInPreviewAccount?.name || linkedIn.linkedinUser?.name || 'Your LinkedIn profile'
+        }
+        userPicture={
+          selectedLinkedInPreviewAccount?.picture || linkedIn.linkedinUser?.picture || null
+        }
+        accountType={selectedLinkedInPreviewAccount?.type}
+        headline={
+          selectedLinkedInPreviewAccount?.type === 'page'
+            ? 'Company page · LinkedIn'
+            : selectedLinkedInPreviewAccount?.accountEmail || 'Posting to your LinkedIn feed'
+        }
+        jobTitle={draft.jobTitle}
+        company={draft.showClientNamePublicly ? draft.clientName : ''}
+        applyUrl={previewApplyUrl}
+        location={[draft.city, draft.state, draft.country].filter(Boolean).join(', ') || draft.locationQuery}
+        postingTo={linkedInPostingToLabel}
+        templateName={selectedLinkedInTemplateName}
+        visibleSectionLabels={visibleLinkedInTemplateSectionLabels(linkedInPostSections)}
       />
 
       <LinkedInPostTemplateModal

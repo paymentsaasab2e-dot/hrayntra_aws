@@ -50,7 +50,10 @@ export function canViewAllCompanies(req) {
 
 export function canViewAllClients(req) {
   if (isSuperAdminOwnWork(req)) return false;
-  return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_clients']);
+  return (
+    canViewAllAssignments(req) ||
+    hasAnyPermission(req, ['view_all_clients', 'view_all_recruitment_clients'])
+  );
 }
 
 export function canViewAllLeads(req) {

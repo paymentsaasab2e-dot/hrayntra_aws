@@ -63,10 +63,19 @@ import {
 } from '../../lib/clientPresentationDraft';
 import {
   DEFAULT_CLIENT_SECTION_VISIBILITY,
-  normalizeClientSectionVisibility,
   type ClientPresentationSectionId,
   type ClientSectionVisibility,
 } from '../../lib/clientPresentationSections';
+import {
+  mergePhase1SectionVisibilityWithSubmitFields,
+  mergeSectionVisibilityWithSubmitFields,
+  parseSubmitToClientFieldVisibility,
+  type SubmitToClientFieldVisibility,
+} from '../../lib/submitToClientFieldVisibility';
+import {
+  loadSubmitToClientVisibilityDefaults,
+  readCachedSubmitToClientVisibilityDefaults,
+} from '../../lib/submitToClientFieldVisibilityDefaults';
 import { ClientOfferLetterCard } from '../candidates/ClientOfferLetterCard';
 import { useFiles } from '../../hooks/useFiles';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
@@ -85,16 +94,9 @@ import {
   type SubmitToClientClientFormState,
 } from '../../lib/submitToClientClientForm';
 import { validateCandidateEmail } from '../../lib/candidateEmailValidation';
+import type { BulkSubmitCandidateEntry } from '../../lib/generateSubmitToClientPreview';
 
-export type BulkSubmitCandidateEntry = {
-  candidateId: string;
-  jobId: string;
-  matchId?: string;
-  candidateName?: string;
-  jobTitle?: string;
-  clientId?: string;
-  matchScore?: number;
-};
+export type { BulkSubmitCandidateEntry };
 
 export type SubmitToClientSource =
   | { kind: 'interview'; interview: Interview }
@@ -443,7 +445,19 @@ export function SubmitToClientDrawer({
   );
   const [phase1ClientSectionVisibility, setPhase1ClientSectionVisibility] =
     useState<Phase1ClientSectionVisibility>(DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY);
+  const [clientFieldVisibility, setClientFieldVisibility] = useState<SubmitToClientFieldVisibility>(
+    () => readCachedSubmitToClientVisibilityDefaults().visibility,
+  );
   const [cvShareMode, setCvShareMode] = useState<CvShareMode | null>(null);
+
+  const resolvedClientSectionVisibility = useMemo(
+    () => mergeSectionVisibilityWithSubmitFields(clientSectionVisibility, clientFieldVisibility),
+    [clientSectionVisibility, clientFieldVisibility],
+  );
+  const resolvedPhase1SectionVisibility = useMemo(
+    () => mergePhase1SectionVisibilityWithSubmitFields(phase1ClientSectionVisibility, clientFieldVisibility),
+    [phase1ClientSectionVisibility, clientFieldVisibility],
+  );
 
   const uploadsBase = useMemo(() => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
@@ -733,21 +747,32 @@ export function SubmitToClientDrawer({
         const raw = await apiGetCandidate(candidateId);
         const data = extractApiData<BackendCandidate>(raw);
         if (!load.isActive()) return;
+        const fieldDefaults = await loadSubmitToClientVisibilityDefaults();
+        if (!load.isActive()) return;
+        const fieldVisibility = parseSubmitToClientFieldVisibility(fieldDefaults.visibility);
+        setClientFieldVisibility(fieldVisibility);
         loadedCandidateIdRef.current = candidateId;
         const enriched = enrichBackendCandidateFromPhase1Snapshot(data);
         setCandidate(enriched);
+        const savedPresentation = readClientPresentation(enriched.extraData);
         if (isPhase1PortalCandidate(enriched)) {
           setPhase1Snapshot(resolveSubmitPhase1Snapshot(enriched));
-          setPhase1ClientSectionVisibility(resolveSubmitPhase1SectionVisibility(enriched));
+          setPhase1ClientSectionVisibility(
+            mergePhase1SectionVisibilityWithSubmitFields(
+              resolveSubmitPhase1SectionVisibility(enriched),
+              fieldVisibility,
+            ),
+          );
           setEditForm(null);
         } else {
           setPhase1Snapshot(null);
-          setPhase1ClientSectionVisibility(DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY);
+          setPhase1ClientSectionVisibility(
+            mergePhase1SectionVisibilityWithSubmitFields(undefined, fieldVisibility),
+          );
           setEditForm((current) => resolveSubmitToClientEditForm(enriched, current));
         }
-        const savedPresentation = readClientPresentation(enriched.extraData);
         setClientSectionVisibility(
-          normalizeClientSectionVisibility(savedPresentation?.visibleSections),
+          mergeSectionVisibilityWithSubmitFields(savedPresentation?.visibleSections, fieldVisibility),
         );
         if (savedPresentation) {
           setCandidateStepSaved(true);
@@ -960,13 +985,17 @@ export function SubmitToClientDrawer({
           phase1Snapshot,
           candidate,
           candidate.extraData ?? null,
-          { phase1VisibleSections: phase1ClientSectionVisibility },
+          {
+            phase1VisibleSections: resolvedPhase1SectionVisibility,
+            visibleFields: clientFieldVisibility,
+          },
         );
       } else {
         if (!editForm) return;
         validateEditFormStructured(editForm);
         extraData = buildClientPresentationExtraData(editForm, candidate.extraData ?? null, {
-          visibleSections: clientSectionVisibility,
+          visibleSections: resolvedClientSectionVisibility,
+          visibleFields: clientFieldVisibility,
         });
       }
       const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
@@ -1162,11 +1191,21 @@ export function SubmitToClientDrawer({
               cached.phase1Snapshot,
               data,
               mergedExtra,
-              { phase1VisibleSections: cached.phase1ClientSectionVisibility },
+              {
+                phase1VisibleSections: mergePhase1SectionVisibilityWithSubmitFields(
+                  cached.phase1ClientSectionVisibility,
+                  clientFieldVisibility,
+                ),
+                visibleFields: clientFieldVisibility,
+              },
             );
           } else if (cached?.editForm) {
             mergedExtra = buildClientPresentationExtraData(cached.editForm, mergedExtra, {
-              visibleSections: cached.clientSectionVisibility,
+              visibleSections: mergeSectionVisibilityWithSubmitFields(
+                cached.clientSectionVisibility,
+                clientFieldVisibility,
+              ),
+              visibleFields: clientFieldVisibility,
             });
           }
 
@@ -1261,10 +1300,14 @@ export function SubmitToClientDrawer({
                 phase1Snapshot,
                 candidate,
                 candidate.extraData ?? null,
-                { phase1VisibleSections: phase1ClientSectionVisibility },
+                {
+                  phase1VisibleSections: resolvedPhase1SectionVisibility,
+                  visibleFields: clientFieldVisibility,
+                },
               )
             : buildClientPresentationExtraData(editForm!, candidate.extraData ?? null, {
-                visibleSections: clientSectionVisibility,
+                visibleSections: resolvedClientSectionVisibility,
+                visibleFields: clientFieldVisibility,
               });
         const extraData = buildCvSubmissionExtra(presentationExtra, {
           shareMode: cvShareMode,
@@ -1610,7 +1653,8 @@ export function SubmitToClientDrawer({
                 <div className="space-y-6">
                   <p className="text-sm text-[#6B7280]">
                     Same sections and fields as the Phase 1 candidate profile drawer. Edit what the client will see,
-                    then save. Use Visible / Hidden on each section header to control the client review link.
+                    then save. Hidden fields follow Settings → Public Visibility → Submit to Client. Use Visible /
+                    Hidden on each section header to hide a whole block on this share.
                   </p>
                   {editError ? (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -1622,7 +1666,8 @@ export function SubmitToClientDrawer({
                     snapshot={phase1Snapshot}
                     onChange={updatePhase1Snapshot}
                     showClientSectionVisibility
-                    clientSectionVisibility={phase1ClientSectionVisibility}
+                    clientSectionVisibility={resolvedPhase1SectionVisibility}
+                    clientFieldVisibility={clientFieldVisibility}
                     onToggleClientSectionVisibility={togglePhase1ClientSectionVisibility}
                   />
 
@@ -1634,7 +1679,8 @@ export function SubmitToClientDrawer({
                 <div className="space-y-6">
                   <p className="text-sm text-[#6B7280]">
                     Same sections and fields as the candidate profile drawer. Edit what the client will see,
-                    then save. Use Visible / Hidden on each section header to control the client review link.
+                    then save. Hidden fields follow Settings → Public Visibility → Submit to Client. Use Visible /
+                    Hidden on each section header to hide a whole block on this share.
                   </p>
                   {editError ? (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -1648,7 +1694,8 @@ export function SubmitToClientDrawer({
                     jobs={pipelineJobs}
                     variant="clientSubmit"
                     showClientSectionVisibility
-                    clientSectionVisibility={clientSectionVisibility}
+                    clientSectionVisibility={resolvedClientSectionVisibility}
+                    clientFieldVisibility={clientFieldVisibility}
                     onToggleClientSectionVisibility={toggleClientSectionVisibility}
                   />
 

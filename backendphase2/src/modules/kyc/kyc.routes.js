@@ -27,7 +27,7 @@ router.use(authMiddleware);
 
 router.post(
   '/parse-document',
-  requireAnyPermission(['leads_read', 'leads_create', 'leads_update', 'clients_read', 'clients_create', 'clients_update']),
+  requireAnyPermission(['leads_read', 'leads_create', 'leads_update', 'clients_read', 'clients_create', 'clients_update', 'recruitment_clients_read', 'recruitment_clients_create', 'recruitment_clients_update']),
   kycUpload.single('file'),
   requireCoins('ai.kyc_parse'),
   kycController.parseDocument,

@@ -25,6 +25,7 @@ export function readClientPresentation(extraData) {
         ? raw.cvEditorLayout
         : null,
     visibleSections: raw.visibleSections,
+    visibleFields: raw.visibleFields,
     clientReviewSections: raw.clientReviewSections,
     phase1Snapshot: raw.phase1Snapshot,
     phase1VisibleSections: raw.phase1VisibleSections,

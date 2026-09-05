@@ -23,7 +23,7 @@ export {
 export const DEFAULT_PERMISSION_SEED = RBAC_PERMISSION_SEED;
 
 /** Pre-ticked on every new role (matches backend DEFAULT_EVERYONE_PERMISSIONS). */
-export const DEFAULT_EVERYONE_PERMISSION_NAMES = ['access_integrations'];
+export const DEFAULT_EVERYONE_PERMISSION_NAMES = ['access_integrations', 'recruitment_clients_read'];
 
 export function permissionIdsForNames(
   permissions: Record<string, Permission[]>,

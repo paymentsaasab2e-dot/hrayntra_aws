@@ -53,7 +53,9 @@ export function buildInterviewJobSummaries(
     const hasCompleted = rows.some((row) => row.status === 'Completed');
     if (!hasActive && !hasCompleted) continue;
 
-    const candidateIds = new Set(rows.map((row) => row.candidate.id));
+    const candidateIds = new Set(
+      rows.map((row) => row.candidate?.id).filter((id): id is string => Boolean(id)),
+    );
     const rounds = [
       ...new Set(rows.map((row) => roundNumberFor(row, roundNumberById))),
     ].sort((a, b) => a - b);
@@ -68,9 +70,9 @@ export function buildInterviewJobSummaries(
     const first = rows[0];
     summaries.push({
       jobId,
-      jobTitle: first.job.title,
-      clientName: first.job.client,
-      clientId: first.job.clientId,
+      jobTitle: first.job?.title || 'Untitled Job',
+      clientName: first.job?.client || 'Unknown Client',
+      clientId: first.job?.clientId,
       candidateCount: candidateIds.size,
       interviewCount: rows.length,
       rounds,
@@ -88,7 +90,7 @@ export function interviewsForJob(
   interviews: Interview[],
   jobId: string,
 ): Interview[] {
-  return interviews.filter((interview) => interview.job.id === jobId);
+  return interviews.filter((interview) => interview.job?.id === jobId);
 }
 
 export function uniqueRoundNumbersForJob(
@@ -115,7 +117,8 @@ export function candidateCountsByRoundForJob(
     if (!VISIBLE_STATUSES.has(interview.status)) continue;
     const round = roundNumberFor(interview, roundNumberById);
     const set = byRound.get(round) || new Set<string>();
-    set.add(interview.candidate.id);
+    const candidateId = interview.candidate?.id;
+    if (candidateId) set.add(candidateId);
     byRound.set(round, set);
   }
   const out: Record<number, number> = {};
@@ -143,9 +146,11 @@ export function paginateInterviewCandidateGroups(
 ): { items: Interview[]; totalGroups: number; totalPages: number } {
   const byCandidate = new Map<string, Interview[]>();
   for (const interview of interviews) {
-    const list = byCandidate.get(interview.candidate.id);
+    const candidateId = interview.candidate?.id;
+    if (!candidateId) continue;
+    const list = byCandidate.get(candidateId);
     if (list) list.push(interview);
-    else byCandidate.set(interview.candidate.id, [interview]);
+    else byCandidate.set(candidateId, [interview]);
   }
 
   const groups = [...byCandidate.values()].sort((a, b) => {
@@ -189,19 +194,20 @@ export function filterInterviewsForJobOverview(
     if (params.round !== 'All Rounds' && interview.round !== params.round) return false;
     if (params.mode !== 'All Modes' && interview.mode !== params.mode) return false;
     if (params.interviewer !== 'All Interviewers') {
-      const hasInterviewer = interview.panel.some((member) => member.name === params.interviewer);
+      const panel = Array.isArray(interview.panel) ? interview.panel : [];
+      const hasInterviewer = panel.some((member) => member.name === params.interviewer);
       if (!hasInterviewer) return false;
     }
     if (params.clientJob !== 'All Clients') {
-      const label = `${interview.job.client} • ${interview.job.title}`;
+      const label = `${interview.job?.client || ''} • ${interview.job?.title || ''}`;
       if (label !== params.clientJob) return false;
     }
     if (!search) return true;
     const haystack = [
-      interview.candidate.name,
-      interview.candidate.email,
-      interview.job.title,
-      interview.job.client,
+      interview.candidate?.name,
+      interview.candidate?.email,
+      interview.job?.title,
+      interview.job?.client,
       interview.notes,
       interview.round,
     ]

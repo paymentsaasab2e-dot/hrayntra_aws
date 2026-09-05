@@ -1109,10 +1109,33 @@ export const interviewService = {
             take: limit,
             include: interviewInclude,
             orderBy: [{ updatedAt: 'desc' }, { scheduledAt: 'desc' }],
+          }).catch(async (err) => {
+            // Orphaned panel/feedback/note/activity user FKs make required includes throw.
+            console.warn('[interview.list] include failed, retrying without nested people', err?.message || err);
+            return prisma.interview.findMany({
+              where: finalWhere,
+              skip,
+              take: limit,
+              include: {
+                candidate: interviewInclude.candidate,
+                job: interviewInclude.job,
+                client: interviewInclude.client,
+                interviewer: interviewInclude.interviewer,
+                createdBy: interviewInclude.createdBy,
+              },
+              orderBy: [{ updatedAt: 'desc' }, { scheduledAt: 'desc' }],
+            });
           })
         : Promise.resolve([]),
       Promise.resolve(validInterviewIds.length),
-      countKpis(finalWhere),
+      validInterviewIds.length
+        ? countKpis(finalWhere)
+        : Promise.resolve({
+            todayCount: 0,
+            upcomingCount: 0,
+            pendingFeedbackCount: 0,
+            completedCount: 0,
+          }),
     ]);
 
     const withAudit = await prepareListWithAuditMeta(data, ENTITY_TYPES.INTERVIEW);

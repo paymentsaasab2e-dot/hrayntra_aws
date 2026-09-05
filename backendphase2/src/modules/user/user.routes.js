@@ -9,6 +9,8 @@ router.get('/me', authMiddleware, userController.getMe);
 router.get('/me/permissions', authMiddleware, userController.getMyPermissions);
 router.get('/me/job-visibility-defaults', authMiddleware, userController.getJobVisibilityDefaults);
 router.put('/me/job-visibility-defaults', authMiddleware, userController.saveJobVisibilityDefaults);
+router.get('/me/submit-to-client-visibility-defaults', authMiddleware, userController.getSubmitToClientVisibilityDefaults);
+router.put('/me/submit-to-client-visibility-defaults', authMiddleware, userController.saveSubmitToClientVisibilityDefaults);
 router.patch('/me', authMiddleware, userController.updateMe);
 
 router.get('/', authMiddleware, userController.getAll);

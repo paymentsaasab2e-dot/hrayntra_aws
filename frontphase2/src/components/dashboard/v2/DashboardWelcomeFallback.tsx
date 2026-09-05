@@ -9,6 +9,7 @@ import { MODULE_ACCESS_MAP, ROUTE_PERMISSION_GUARDS } from '@/lib/rbac/moduleAcc
 const WORKSPACE_LINKS: Array<{ route: string; label: string; permissions: string[] }> = [
   { route: '/leads', label: 'Leads', permissions: MODULE_ACCESS_MAP.Leads },
   { route: '/client', label: 'Clients', permissions: MODULE_ACCESS_MAP.Clients },
+  { route: '/client?scope=recruitment', label: 'Recruitment Clients', permissions: MODULE_ACCESS_MAP.RecruitmentClients },
   { route: '/job', label: 'Jobs', permissions: MODULE_ACCESS_MAP.Jobs },
   { route: '/candidate', label: 'Candidates', permissions: MODULE_ACCESS_MAP.Candidates },
   { route: '/interviews', label: 'Interviews', permissions: MODULE_ACCESS_MAP.Interviews },

@@ -83,6 +83,24 @@ export const userController = {
     }
   },
 
+  async getSubmitToClientVisibilityDefaults(req, res) {
+    try {
+      const data = await userService.getSubmitToClientVisibilityDefaults(req.user.id);
+      sendResponse(res, 200, 'Submit to Client visibility defaults retrieved', data);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async saveSubmitToClientVisibilityDefaults(req, res) {
+    try {
+      const data = await userService.saveSubmitToClientVisibilityDefaults(req.user.id, req.body);
+      sendResponse(res, 200, 'Submit to Client visibility defaults saved', data);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
   async delete(req, res) {
     try {
       const result = await userService.delete(req.params.id);

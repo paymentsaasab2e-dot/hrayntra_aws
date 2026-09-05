@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Settings as SettingsIcon } from 'lucide-react';
 import { SettingsSidebar } from '../../components/SettingsSidebar';
 import { CommunicationSettings } from '../../components/settings/CommunicationSettings';
 import { PublicVisibilitySettings } from '../../components/settings/PublicVisibilitySettings';
@@ -200,40 +199,13 @@ export default function SettingsPage() {
           {/* Full-bleed: settings panels use the whole area next to the sidebar
               instead of being capped to a narrow centred column. */}
           <div className="w-full min-w-0 px-3 py-5 sm:px-6 sm:py-8 lg:px-10">
-            <header className="mb-6 border-b border-slate-200 pb-4 sm:mb-8 sm:pb-6">
-              <nav className="mb-2 hidden items-center gap-2 text-xs font-medium text-slate-400 sm:flex">
-                <span>Dashboard</span>
-                <span aria-hidden>/</span>
-                <span>Settings</span>
-                <span aria-hidden>/</span>
-                <span className="font-semibold text-indigo-700">{sectionTitle}</span>
-              </nav>
-              <div className="rounded-xl border border-indigo-100/60 bg-white/80 px-4 py-3 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.16)] backdrop-blur-sm sm:px-6 sm:py-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20 sm:h-10 sm:w-10">
-                    <SettingsIcon className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                      {sectionTitle}
-                    </h2>
-                    {activeSection === 'alerts-management' ? (
-                      <p className="mt-0.5 text-sm text-slate-500">
-                        Choose which alerts reach email and the portal for your team.
-                      </p>
-                    ) : activeSection === 'public-visibility' ? (
-                      <p className="mt-0.5 text-sm text-slate-500">
-                        Choose which job fields appear on the public job page, portal, and social posts.
-                      </p>
-                    ) : (
-                      <p className="mt-0.5 text-sm text-slate-500">
-                        Configure {sectionTitle.toLowerCase()} for your workspace.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </header>
+            <nav className="mb-4 hidden items-center gap-2 text-xs font-medium text-slate-400 sm:mb-5 sm:flex">
+              <span>Dashboard</span>
+              <span aria-hidden>/</span>
+              <span>Settings</span>
+              <span aria-hidden>/</span>
+              <span className="font-semibold text-indigo-700">{sectionTitle}</span>
+            </nav>
 
             {renderContent()}
 

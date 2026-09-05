@@ -170,6 +170,17 @@ function isSocialSectionIncluded(input: JobSocialPostInput, key: LinkedInPostSec
   );
 }
 
+function hasStructuredJdContent(input: JobSocialPostInput): boolean {
+  return (
+    Boolean(String(input.keyResponsibilitiesText || '').trim()) ||
+    Boolean(String(input.qualificationsExperienceText || '').trim()) ||
+    Boolean(String(input.candidateRequirementsText || '').trim()) ||
+    Boolean(String(input.compensationBenefitsText || '').trim()) ||
+    Boolean(formatEducation(input)) ||
+    filledCustomJdSections(input.customJdSections).length > 0
+  );
+}
+
 function socialHeadline(input: JobSocialPostInput): { title: string; company: string; header: string } {
   const visibility = parseJobPublicFieldVisibility(input.publicFieldVisibility);
   const showRole = isSocialSectionIncluded(input, 'role');
@@ -248,7 +259,17 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
         break;
       case 'overview': {
         const summary = String(input.jobSummary || '').trim();
-        if (summary) appendSection(lines, 'Overview', summary);
+        if (summary) {
+          appendSection(lines, 'Overview', summary);
+          break;
+        }
+        // Template posts already list other JD sections separately — do not dump the full
+        // description into Overview or hidden fields leak through.
+        if (hasCustomLinkedInTemplate(input) && hasStructuredJdContent(input)) {
+          break;
+        }
+        const dumped = stripHtml(input.jobDescriptionHtml || '');
+        if (dumped) appendSection(lines, 'Overview', dumped);
         break;
       }
       case 'keyResponsibilities':
@@ -280,35 +301,16 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
 
   const usingTemplate = hasCustomLinkedInTemplate(input);
   const filledAdditionalJd = filledCustomJdSections(input.customJdSections);
-  const hasStructuredJd =
-    Boolean(String(input.keyResponsibilitiesText || '').trim()) ||
-    Boolean(String(input.qualificationsExperienceText || '').trim()) ||
-    Boolean(String(input.candidateRequirementsText || '').trim()) ||
-    Boolean(String(input.jobSummary || '').trim()) ||
-    Boolean(formatEducation(input)) ||
-    filledAdditionalJd.length > 0;
-
-  let dumpedHtml = '';
-  if (!usingTemplate && !hasStructuredJd && isSocialSectionIncluded(input, 'overview')) {
-    dumpedHtml = stripHtml(input.jobDescriptionHtml || '');
-    if (dumpedHtml) {
-      lines.push('');
-      lines.push(dumpedHtml);
-    }
-  }
-
   const includeAdditionalJd = usingTemplate
-    ? false
+    ? isSocialSectionIncluded(input, 'overview')
     : isJobFieldPubliclyVisible(
         parseJobPublicFieldVisibility(input.publicFieldVisibility),
         'jobDescription',
         input.showClientNamePublicly !== false,
       );
   if (includeAdditionalJd) {
-    const dumpedLower = dumpedHtml.toLowerCase();
     for (const section of filledAdditionalJd) {
       const title = String(section.title || '').trim() || 'Additional section';
-      if (dumpedLower && dumpedLower.includes(title.toLowerCase())) continue;
       appendSection(lines, title, section.body);
     }
   }

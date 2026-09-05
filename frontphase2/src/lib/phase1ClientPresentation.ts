@@ -17,6 +17,11 @@ import {
   type Phase1ClientSectionVisibility,
 } from './phase1ClientPresentationSections';
 import {
+  applySubmitToClientFieldVisibilityToReviewSections,
+  parseSubmitToClientFieldVisibility,
+  type SubmitToClientFieldVisibility,
+} from './submitToClientFieldVisibility';
+import {
   CLIENT_PRESENTATION_KEY,
   readClientPresentation,
   type ClientPresentationStored,
@@ -97,6 +102,7 @@ export function buildClientPresentationExtraDataForPhase1(
   existingExtraData?: Record<string, unknown> | null,
   options?: {
     phase1VisibleSections?: Partial<Phase1ClientSectionVisibility> | null;
+    visibleFields?: Partial<SubmitToClientFieldVisibility> | null;
     cvEditorLayout?: Record<string, unknown> | null;
   },
 ): Record<string, unknown> {
@@ -109,6 +115,9 @@ export function buildClientPresentationExtraDataForPhase1(
   );
   const visibleSections = normalizeClientSectionVisibility(
     prior?.visibleSections ?? DEFAULT_CLIENT_SECTION_VISIBILITY,
+  );
+  const visibleFields = parseSubmitToClientFieldVisibility(
+    options?.visibleFields ?? prior?.visibleFields,
   );
 
   const mergedExtra = {
@@ -127,7 +136,11 @@ export function buildClientPresentationExtraDataForPhase1(
     fields: buildClientPresentationFieldsPatch(editForm),
     cvEditorLayout: options?.cvEditorLayout ?? prior?.cvEditorLayout ?? null,
     visibleSections,
-    clientReviewSections: buildPhase1ClientReviewSections(phase1Snapshot, phase1VisibleSections),
+    visibleFields,
+    clientReviewSections: applySubmitToClientFieldVisibilityToReviewSections(
+      buildPhase1ClientReviewSections(phase1Snapshot, phase1VisibleSections),
+      visibleFields,
+    ),
     phase1Snapshot: cloneSnapshot(phase1Snapshot),
     phase1VisibleSections,
   };

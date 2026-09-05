@@ -11,7 +11,10 @@ import { interviewService } from '../services/interview.service.js';
 const ENTITY_READ_PERMISSIONS = {
   job: ['jobs_read', 'view_jobs', 'view_all_jobs', 'jobs_create', 'jobs_update'],
   lead: ['leads_read', 'leads_create', 'leads_update', 'view_all_leads'],
-  client: ['clients_read', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff'],
+  client: [
+    'clients_read', 'recruitment_clients_read', 'recruitment_clients_create', 'recruitment_clients_update',
+    'view_all_recruitment_clients', 'clients_create', 'clients_update', 'view_all_clients', 'clients_handoff',
+  ],
   candidate: ['candidates_read', 'view_all_candidates', 'view_assigned_candidates'],
   interview: ['interviews_read', 'interviews_create', 'interviews_update'],
   user: ['view_team', 'edit_team_member', 'add_team_member', 'view_team_activity'],
@@ -20,7 +23,7 @@ const ENTITY_READ_PERMISSIONS = {
 const ENTITY_WRITE_PERMISSIONS = {
   job: ['jobs_create', 'jobs_update', 'create_job', 'edit_job'],
   lead: ['leads_create', 'leads_update'],
-  client: ['clients_create', 'clients_update'],
+  client: ['clients_create', 'clients_update', 'recruitment_clients_create', 'recruitment_clients_update'],
   candidate: ['candidates_create', 'candidates_update', 'add_candidate', 'edit_candidate'],
   interview: ['interviews_create', 'interviews_update'],
   user: ['edit_team_member', 'add_team_member'],

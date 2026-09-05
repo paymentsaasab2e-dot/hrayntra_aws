@@ -69,6 +69,7 @@ import {
   Loader2,
   ClipboardList,
   MessageSquare,
+  Search,
 } from 'lucide-react';
 import {
   apiCreateMatch,
@@ -923,6 +924,9 @@ export function JobDetailsDrawer({
   const wasOnCandidatesTabRef = useRef(false);
   const [showMatchScores, setShowMatchScores] = useState(false);
   const [submitClientRowId, setSubmitClientRowId] = useState<string | null>(null);
+  const [submitCandidatePickerOpen, setSubmitCandidatePickerOpen] = useState(false);
+  const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
+  const [pickerSearch, setPickerSearch] = useState('');
   const {
     openFromJobDrawerRow,
     openSubmit,
@@ -955,6 +959,9 @@ export function JobDetailsDrawer({
 
   useEffect(() => {
     setSubmitClientRowId(null);
+    setSubmitCandidatePickerOpen(false);
+    setPickerSelectedIds([]);
+    setPickerSearch('');
   }, [job?.id, isOpen]);
 
   useEffect(() => {
@@ -1006,10 +1013,65 @@ export function JobDetailsDrawer({
     [displayJobCandidates, job, onAddToPipeline],
   );
 
-  const openBulkSubmitToClient = useCallback(() => {
-    if (!job?.id || selectedCandidateIds.length === 0) return;
-    const rows = displayJobCandidates.filter((row) => selectedCandidateIds.includes(row.id));
+  const pickerCandidates = useMemo(() => {
+    const query = pickerSearch.trim().toLowerCase();
+    const list = Array.isArray(displayJobCandidates) ? displayJobCandidates.filter((row) => row?.id) : [];
+    if (!query) return list;
+    return list.filter((row) => {
+      const haystack = `${row.candidateName || ''} ${row.email || ''} ${row.currentStage || ''}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [displayJobCandidates, pickerSearch]);
+
+  const openSubmitCandidatePicker = useCallback(() => {
+    if (!job?.id) return;
+    const list = Array.isArray(displayJobCandidates) ? displayJobCandidates.filter((row) => row?.id) : [];
+    if (!list.length) {
+      setActiveTab('candidates');
+      void requestError('Add a candidate to this job before submitting to the client.');
+      return;
+    }
+    const preselected = selectedCandidateIds.filter((id) => list.some((row) => row.id === id));
+    setPickerSelectedIds(preselected.length ? preselected : list.length === 1 ? [list[0].id] : []);
+    setPickerSearch('');
+    setSubmitCandidatePickerOpen(true);
+  }, [displayJobCandidates, job?.id, selectedCandidateIds]);
+
+  const confirmSubmitCandidatePicker = useCallback(() => {
+    if (!job?.id) return;
+    const rows = (Array.isArray(displayJobCandidates) ? displayJobCandidates : []).filter((row) =>
+      pickerSelectedIds.includes(row.id),
+    );
     if (!rows.length) {
+      void requestError('Choose at least one candidate to submit to the client.');
+      return;
+    }
+    setSubmitCandidatePickerOpen(false);
+    openBulkSubmit(
+      rows.map((row) => ({
+        candidateId: row.id,
+        jobId: job.id,
+        candidateName: row.candidateName,
+        jobTitle: job.title,
+        clientId: job.clientId ?? undefined,
+        matchScore: parseJobCandidateScore(row.score),
+      })),
+    );
+    setSelectedCandidateIds([]);
+    setPickerSelectedIds([]);
+  }, [displayJobCandidates, job, openBulkSubmit, pickerSelectedIds]);
+
+  const openBulkSubmitToClient = useCallback(() => {
+    if (!job?.id) return;
+    const selectedRows = displayJobCandidates.filter((row) => selectedCandidateIds.includes(row.id));
+    const rows =
+      selectedRows.length > 0
+        ? selectedRows
+        : displayJobCandidates.length === 1
+          ? displayJobCandidates
+          : [];
+    if (!rows.length) {
+      setActiveTab('candidates');
       void requestError('Select at least one candidate to submit to the client.');
       return;
     }
@@ -2045,6 +2107,110 @@ export function JobDetailsDrawer({
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              {job?.id ? (
+                <button
+                  type="button"
+                  onClick={openSubmitCandidatePicker}
+                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 shadow-sm transition hover:bg-indigo-100"
+                  aria-label="Submit to Client"
+                  title="Choose a candidate and submit to the client"
+                >
+                  <Send size={16} strokeWidth={2.25} />
+                  Submit to Client
+                </button>
+              ) : null}
+              {job?.id ? (
+                <div className="relative" ref={applyShareRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (applyLinkLoading || !applyUrl) return;
+                      setApplyShareOpen((open) => !open);
+                    }}
+                    disabled={applyLinkLoading || !applyUrl}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/90 text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Candidate apply link"
+                    title={
+                      applyLinkLoading
+                        ? 'Loading apply link…'
+                        : applyUrl
+                          ? 'Candidate apply link'
+                          : 'Apply link not available yet'
+                    }
+                  >
+                    {applyLinkLoading ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Link2 size={16} strokeWidth={2.25} />
+                    )}
+                  </button>
+                  {applyShareOpen && applyUrl ? (
+                    <div className="absolute right-0 z-30 mt-2 w-44 overflow-hidden rounded-xl border border-indigo-100 bg-white py-1 shadow-xl shadow-indigo-500/10">
+                      <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-400">
+                        Apply link
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(applyUrl).then(() => {
+                            setApplyLinkCopied(true);
+                            setApplyShareOpen(false);
+                            window.setTimeout(() => setApplyLinkCopied(false), 2000);
+                            requestInfo('Apply link copied');
+                          });
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
+                      >
+                        <Copy size={14} />
+                        {applyLinkCopied ? 'Copied' : 'Copy'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setApplyShareOpen(false);
+                          void shareApplyLink();
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
+                      >
+                        <Share2 size={14} />
+                        Share
+                      </button>
+                      {(
+                        [
+                          { id: 'whatsapp', label: 'WhatsApp' },
+                          { id: 'linkedin', label: 'LinkedIn' },
+                          { id: 'x', label: 'X / Twitter' },
+                          { id: 'facebook', label: 'Facebook' },
+                          { id: 'telegram', label: 'Telegram' },
+                          { id: 'email', label: 'Email' },
+                        ] as const
+                      ).map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            openApplyShareTarget(item.id);
+                            setApplyShareOpen(false);
+                          }}
+                          className="flex w-full px-3 py-2 pl-9 text-left text-xs font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-900"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                      <a
+                        href={applyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setApplyShareOpen(false)}
+                        className="flex w-full items-center gap-2 border-t border-indigo-50 px-3 py-2 text-left text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                      >
+                        <ExternalLink size={14} />
+                        Open
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {job && (
                 <button
                   type="button"
@@ -2065,110 +2231,6 @@ export function JobDetailsDrawer({
               </button>
             </div>
           </div>
-
-          {job?.id ? (
-            <div className="relative mt-4 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white/80 px-4 py-3 shadow-[0_10px_28px_-18px_rgba(79,70,229,0.35)] backdrop-blur-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25">
-                  <Link2 size={15} />
-                </span>
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-indigo-700">
-                  Candidate apply link
-                </p>
-              </div>
-              {applyLinkLoading ? (
-                <p className="mt-2 text-sm text-slate-600">Loading apply link…</p>
-              ) : applyUrl ? (
-                <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <input
-                    type="text"
-                    readOnly
-                    value={applyUrl}
-                    className="min-w-0 flex-1 rounded-xl border border-indigo-100 bg-slate-50/80 px-3 py-2 font-mono text-xs text-slate-800 focus:outline-none"
-                    aria-label="Apply link URL"
-                  />
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(applyUrl).then(() => {
-                          setApplyLinkCopied(true);
-                          window.setTimeout(() => setApplyLinkCopied(false), 2000);
-                        });
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-50"
-                    >
-                      <Copy size={14} />
-                      {applyLinkCopied ? 'Copied' : 'Copy'}
-                    </button>
-                    <div className="relative" ref={applyShareRef}>
-                      <button
-                        type="button"
-                        onClick={() => void shareApplyLink()}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-50"
-                      >
-                        <Share2 size={14} />
-                        Share
-                      </button>
-                      {applyShareOpen ? (
-                        <div className="absolute right-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border border-indigo-100 bg-white py-1 shadow-xl shadow-indigo-500/10">
-                          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-400">
-                            Share via
-                          </p>
-                          {(
-                            [
-                              { id: 'whatsapp', label: 'WhatsApp' },
-                              { id: 'linkedin', label: 'LinkedIn' },
-                              { id: 'x', label: 'X / Twitter' },
-                              { id: 'facebook', label: 'Facebook' },
-                              { id: 'telegram', label: 'Telegram' },
-                              { id: 'email', label: 'Email' },
-                            ] as const
-                          ).map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => openApplyShareTarget(item.id)}
-                              className="flex w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
-                            >
-                              {item.label}
-                            </button>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void navigator.clipboard.writeText(applyUrl).then(() => {
-                                setApplyLinkCopied(true);
-                                setApplyShareOpen(false);
-                                window.setTimeout(() => setApplyLinkCopied(false), 2000);
-                                requestInfo('Apply link copied');
-                              });
-                            }}
-                            className="flex w-full border-t border-indigo-50 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            Copy link
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                    <a
-                      href={applyUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:brightness-110"
-                    >
-                      <ExternalLink size={14} />
-                      Open
-                    </a>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-2 text-sm text-slate-600">
-                  We could not load the candidate apply link yet. Please try again in a moment.
-                </p>
-              )}
-            </div>
-          ) : null}
         </div>
 
         {job ? (
@@ -2245,7 +2307,7 @@ export function JobDetailsDrawer({
                           className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700"
                         >
                           <Send size={14} strokeWidth={2.25} />
-                          Send to Client
+                          Submit to Client
                         </button>
                         <button
                           type="button"
@@ -2329,6 +2391,7 @@ export function JobDetailsDrawer({
                             : undefined
                         }
                         submittingToClientCandidateId={submitClientRowId}
+                        labeledSubmitToClient
                       />
                   )}
                 </DrawerSectionCard>
@@ -3319,6 +3382,130 @@ export function JobDetailsDrawer({
         lockJobSelection
         showMethodTabs={false}
       />
+    ) : null}
+
+    {submitCandidatePickerOpen ? (
+      <DetailsModalShell
+        size="sm"
+        zIndexClass="z-[120]"
+        panelClassName="!h-auto max-h-[min(80vh,640px)]"
+        onBackdropClick={() => setSubmitCandidatePickerOpen(false)}
+        dialogTitleId="submit-candidate-picker-title"
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex items-start justify-between gap-3 border-b border-indigo-100 px-5 py-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-600">
+                Submit to Client
+              </p>
+              <h2 id="submit-candidate-picker-title" className="mt-1 text-lg font-bold text-slate-900">
+                Choose candidate
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Select who to submit for {job?.title || 'this job'}, then continue.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSubmitCandidatePickerOpen(false)}
+              className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div className="border-b border-slate-100 px-5 py-3">
+            <div className="relative">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="text"
+                value={pickerSearch}
+                onChange={(event) => setPickerSearch(event.target.value)}
+                placeholder="Search candidate name…"
+                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+            {pickerCandidates.length === 0 ? (
+              <p className="px-2 py-8 text-center text-sm text-slate-500">
+                No candidates match this search.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {pickerCandidates.map((row) => {
+                  const checked = pickerSelectedIds.includes(row.id);
+                  return (
+                    <li key={row.id}>
+                      <label
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition ${
+                          checked ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setPickerSelectedIds((prev) =>
+                              prev.includes(row.id)
+                                ? prev.filter((id) => id !== row.id)
+                                : [...prev, row.id],
+                            )
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
+                          {(row.candidateName || 'C')
+                            .split(/\s+/)
+                            .map((part) => part[0])
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .join('')
+                            .toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-slate-900">
+                            {row.candidateName || 'Unnamed candidate'}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-slate-500">
+                            {[row.currentStage, row.email].filter(Boolean).join(' · ') || 'Job candidate'}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
+            <p className="text-xs font-medium text-slate-500">
+              {pickerSelectedIds.length} selected
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSubmitCandidatePickerOpen(false)}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmSubmitCandidatePicker}
+                disabled={pickerSelectedIds.length === 0}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Send size={15} strokeWidth={2.25} />
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      </DetailsModalShell>
     ) : null}
 
     {submitToClientModal}

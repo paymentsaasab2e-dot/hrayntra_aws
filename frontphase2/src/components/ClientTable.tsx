@@ -461,10 +461,10 @@ export function ClientTable({
                 {show('audit') ? <TableAuditCell audit={client.auditMeta} /> : null}
                 <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
-                    {SHOW_TABLE_ROW_EDIT_ICON ? (
+                    {SHOW_TABLE_ROW_EDIT_ICON && onEditClient ? (
                       <button
                         type="button"
-                        onClick={() => onEditClient?.(client)}
+                        onClick={() => onEditClient(client)}
                         className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                         title="Edit Client"
                       >

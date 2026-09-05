@@ -105,7 +105,8 @@ const mapPanelRoleToBackend = (
   return map[String(role || '').trim()] || 'TECHNICAL';
 };
 
-const feedbackStatusMap = (item: BackendInterviewListItem): Interview['feedbackStatus'] => {
+const feedbackStatusMap = (item: BackendInterviewListItem | null | undefined): Interview['feedbackStatus'] => {
+  if (!item) return 'Pending';
   if (item.status === 'CANCELLED' || item.status === 'NO_SHOW') return 'N/A';
   return item.feedbackEntries?.length ? 'Submitted' : 'Pending';
 };
@@ -121,12 +122,15 @@ const mapCandidateStageFallback = (candidateStatus?: string | null): string | nu
   return null;
 };
 
-const toTitle = (value: string) =>
-  value
+const toTitle = (value?: string | null) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text
     .toLowerCase()
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+};
 
 const formatDatePart = (value: string, timezone?: string | null) =>
   formatInterviewDateInTimezone(value, timezone) || formatDateDMY(value);
@@ -156,20 +160,26 @@ const initialsFromName = (value?: string | null, fallback = 'NA') => {
 };
 
 function resolveInterviewCandidateName(
-  candidate: BackendInterviewListItem['candidate'],
+  candidate: BackendInterviewListItem['candidate'] | null | undefined,
 ): string {
-  const enriched = enrichBackendCandidateFromPhase1Snapshot({
-    id: candidate.id,
-    firstName: candidate.firstName,
-    middleName: candidate.middleName ?? null,
-    lastName: candidate.lastName,
-    email: candidate.email,
-    phone: candidate.phone ?? null,
-    extraData: candidate.extraData,
-    isPhase1Candidate: candidate.isPhase1Candidate,
-    status: candidate.status || 'ACTIVE',
-  });
-  return resolveCandidateDisplayName(enriched, { alreadyEnriched: true });
+  if (!candidate) return 'Unknown Candidate';
+  try {
+    const enriched = enrichBackendCandidateFromPhase1Snapshot({
+      id: candidate.id,
+      firstName: candidate.firstName,
+      middleName: candidate.middleName ?? null,
+      lastName: candidate.lastName,
+      email: candidate.email,
+      phone: candidate.phone ?? null,
+      extraData: candidate.extraData,
+      isPhase1Candidate: candidate.isPhase1Candidate,
+      status: candidate.status || 'ACTIVE',
+    });
+    return resolveCandidateDisplayName(enriched, { alreadyEnriched: true });
+  } catch {
+    const fallback = [candidate.firstName, candidate.lastName].filter(Boolean).join(' ').trim();
+    return fallback || sanitizeEmail(candidate.email) || 'Unknown Candidate';
+  }
 }
 
 const sanitizeEmail = (value?: string | null) => {
@@ -186,92 +196,113 @@ const activityColor = (action: string): 'blue' | 'green' | 'orange' | 'red' | 's
   return 'blue';
 };
 
-const mapInterview = (item: BackendInterviewListItem): Interview => ({
-  id: item.id,
-  scheduledAt: item.scheduledAt,
-  updatedAt: item.updatedAt || item.createdAt || undefined,
-  candidate: {
-    id: item.candidate.id,
-    name: resolveInterviewCandidateName(item.candidate),
-    email: sanitizeEmail(item.candidate.email),
-    avatar: isLikelyUrl(item.candidate.avatar) ? undefined : item.candidate.avatar || undefined,
-    stage: item.candidate.stage || mapCandidateStageFallback(item.candidate.status),
-    status: item.candidate.status || undefined,
-  },
-  job: {
-    id: item.job.id,
-    title: safeDisplayText(item.job.title, 'Untitled Job'),
-    client: safeDisplayText(item.client.companyName, 'Unknown Client'),
-    clientId: item.client.id,
-  },
-  round: (toTitle(item.round || 'Screening') as Interview['round']) || 'Screening',
-  type: (toTitle(item.type) as Interview['type']) || 'Video',
-  mode: item.mode === 'OFFLINE' ? 'Offline' : 'Online',
-  date: formatDatePart(item.scheduledAt, item.timezone),
-  time: formatTimePart(item.scheduledAt, item.timezone),
-  duration: item.duration,
-  timezone: item.timezone || 'Asia/Kolkata',
-  meetingLink: item.meetingLink || undefined,
-  meetingPlatform:
-    item.platform === 'GOOGLE_MEET'
-      ? 'Google Meet'
-      : item.platform === 'MS_TEAMS'
-      ? 'MS Teams'
-      : item.platform === 'ZOOM'
-      ? 'Zoom'
-      : undefined,
-  location: item.location || undefined,
-  status: statusMap[item.status] || 'Scheduled',
-  feedbackStatus: feedbackStatusMap(item),
-  createdBy: item.createdBy?.name || 'Unknown User',
-  notes: item.notes || '',
-  panel: (item.panel || []).map((member) => ({
-    id: member.id,
-    userId: member.user.id,
-    name: safeDisplayText(member.user.name, 'Unknown Interviewer'),
-    role: (toTitle(member.role) as InterviewPanelMember['role']) || 'Technical',
-    department: safeDisplayText(member.user.department, 'General'),
-    email: sanitizeEmail(member.user.email) || 'No email available',
-    phone: safeDisplayText(member.user.phone, '-'),
-    avatar: initialsFromName(member.user.name, 'NA'),
-  })),
-  feedbackEntries: (item.feedbackEntries || []).map((entry) => ({
-    id: entry.id,
-    interviewerId: entry.interviewer.id,
-    interviewerName: entry.interviewer.name,
-    submittedAt: formatDateTimeDMY(entry.createdAt),
-    ratings: {
-      technicalSkills: entry.technicalScore,
-      communication: entry.communicationScore,
-      problemSolving: entry.problemSolvingScore,
-      cultureFit: entry.cultureFitScore,
-      experienceMatch: entry.experienceMatchScore,
-      overallRating: Math.round(entry.overallScore),
+const mapInterview = (item: BackendInterviewListItem): Interview => {
+  const candidate = item?.candidate;
+  const job = item?.job;
+  const client = item?.client || job?.client || null;
+  const panelRows = Array.isArray(item?.panel) ? item.panel : [];
+  const feedbackRows = Array.isArray(item?.feedbackEntries) ? item.feedbackEntries : [];
+  const noteRows = Array.isArray(item?.interviewNotes) ? item.interviewNotes : [];
+  const activityRows = Array.isArray(item?.activityLogs) ? item.activityLogs : [];
+
+  return {
+    id: String(item?.id || ''),
+    scheduledAt: item?.scheduledAt,
+    updatedAt: item?.updatedAt || item?.createdAt || undefined,
+    candidate: {
+      id: String(candidate?.id || ''),
+      name: resolveInterviewCandidateName(candidate),
+      email: sanitizeEmail(candidate?.email),
+      avatar: isLikelyUrl(candidate?.avatar) ? undefined : candidate?.avatar || undefined,
+      stage: candidate?.stage || mapCandidateStageFallback(candidate?.status),
+      status: candidate?.status || undefined,
     },
-    strengths: entry.strengths || '',
-    weaknesses: entry.weakness || '',
-    comments: entry.comments || entry.aiSummary || '',
-    recommendation: (toTitle(entry.recommendation) as 'Pass' | 'Reject' | 'Hold') || 'Hold',
-  })),
-  internalNotes: (item.interviewNotes || []).map((note) => ({
-    id: note.id,
-    author: safeDisplayText(note.author.name, 'Unknown User'),
-    avatar:
-      safeDisplayText(note.author.avatar, '') ||
-      initialsFromName(note.author.name, 'NA'),
-    timestamp: formatDateTimeDMY(note.createdAt),
-    text: note.note,
-  })),
-  activityLog: (item.activityLogs || []).map((log) => ({
-    id: log.id,
-    action: log.action,
-    user: log.user.name,
-    timestamp: formatDateTimeDMY(log.timestamp),
-    color: activityColor(log.action),
-  })),
-  recording: null,
-  auditMeta: extractAuditMeta(item as unknown as Record<string, unknown>),
-});
+    job: {
+      id: String(job?.id || ''),
+      title: safeDisplayText(job?.title, 'Untitled Job'),
+      client: safeDisplayText(client?.companyName, 'Unknown Client'),
+      clientId: client?.id,
+    },
+    round: (toTitle(item?.round || 'Screening') as Interview['round']) || 'Screening',
+    type: (toTitle(item?.type) as Interview['type']) || 'Video',
+    mode: item?.mode === 'OFFLINE' ? 'Offline' : 'Online',
+    date: formatDatePart(item?.scheduledAt, item?.timezone),
+    time: formatTimePart(item?.scheduledAt, item?.timezone),
+    duration: Number(item?.duration) || 60,
+    timezone: item?.timezone || 'Asia/Kolkata',
+    meetingLink: item?.meetingLink || undefined,
+    meetingPlatform:
+      item?.platform === 'GOOGLE_MEET'
+        ? 'Google Meet'
+        : item?.platform === 'MS_TEAMS'
+        ? 'MS Teams'
+        : item?.platform === 'ZOOM'
+        ? 'Zoom'
+        : undefined,
+    location: item?.location || undefined,
+    status: statusMap[item?.status] || 'Scheduled',
+    feedbackStatus: feedbackStatusMap(item),
+    createdBy: item?.createdBy?.name || 'Unknown User',
+    notes: item?.notes || '',
+    panel: panelRows
+      .filter((member) => member && (member.user || member.id))
+      .map((member) => {
+        const user = member.user || { id: '', name: '', email: '', department: null, phone: null };
+        return {
+          id: member.id || user.id || '',
+          userId: user.id || undefined,
+          name: safeDisplayText(user.name, 'Unknown Interviewer'),
+          role: (toTitle(member.role) as InterviewPanelMember['role']) || 'Technical',
+          department: safeDisplayText(user.department, 'General'),
+          email: sanitizeEmail(user.email) || 'No email available',
+          phone: safeDisplayText(user.phone, '-'),
+          avatar: initialsFromName(user.name, 'NA'),
+        };
+      }),
+    feedbackEntries: feedbackRows
+      .filter((entry) => entry && entry.interviewer)
+      .map((entry) => ({
+        id: entry.id,
+        interviewerId: entry.interviewer?.id || '',
+        interviewerName: entry.interviewer?.name || 'Unknown Interviewer',
+        submittedAt: formatDateTimeDMY(entry.createdAt),
+        ratings: {
+          technicalSkills: entry.technicalScore,
+          communication: entry.communicationScore,
+          problemSolving: entry.problemSolvingScore,
+          cultureFit: entry.cultureFitScore,
+          experienceMatch: entry.experienceMatchScore,
+          overallRating: Math.round(Number(entry.overallScore) || 0),
+        },
+        strengths: entry.strengths || '',
+        weaknesses: entry.weakness || '',
+        comments: entry.comments || entry.aiSummary || '',
+        recommendation: (toTitle(entry.recommendation) as 'Pass' | 'Reject' | 'Hold') || 'Hold',
+      })),
+    internalNotes: noteRows
+      .filter((note) => note && note.author)
+      .map((note) => ({
+        id: note.id,
+        author: safeDisplayText(note.author.name, 'Unknown User'),
+        avatar:
+          safeDisplayText(note.author.avatar, '') ||
+          initialsFromName(note.author.name, 'NA'),
+        timestamp: formatDateTimeDMY(note.createdAt),
+        text: note.note,
+      })),
+    activityLog: activityRows
+      .filter((log) => log && log.user)
+      .map((log) => ({
+        id: log.id,
+        action: log.action,
+        user: log.user.name || 'Unknown User',
+        timestamp: formatDateTimeDMY(log.timestamp),
+        color: activityColor(log.action || ''),
+      })),
+    recording: null,
+    auditMeta: extractAuditMeta(item as unknown as Record<string, unknown>),
+  };
+};
 
 const unwrapCollection = <T,>(value: T[] | { data?: T[]; pagination?: any } | undefined | null): T[] => {
   if (Array.isArray(value)) return value;
@@ -280,19 +311,36 @@ const unwrapCollection = <T,>(value: T[] | { data?: T[]; pagination?: any } | un
 };
 
 const mapKpis = (kpis?: BackendInterviewKpis): InterviewKpi[] => [
-  { title: "Today's Interviews", value: kpis?.todayCount || 0, icon: 'calendar', accent: 'blue' },
-  { title: 'Upcoming Interviews', value: kpis?.upcomingCount || 0, icon: 'clock', accent: 'orange' },
-  { title: 'Pending Feedback', value: kpis?.pendingFeedbackCount || 0, icon: 'message', accent: 'purple' },
-  { title: 'Completed Interviews', value: kpis?.completedCount || 0, icon: 'check', accent: 'green' },
+  { title: "Today's Interviews", value: Number(kpis?.todayCount) || 0, icon: 'calendar', accent: 'blue' },
+  { title: 'Upcoming Interviews', value: Number(kpis?.upcomingCount) || 0, icon: 'clock', accent: 'orange' },
+  { title: 'Pending Feedback', value: Number(kpis?.pendingFeedbackCount) || 0, icon: 'message', accent: 'purple' },
+  { title: 'Completed Interviews', value: Number(kpis?.completedCount) || 0, icon: 'check', accent: 'green' },
 ];
 
-const normalizeInterviewListResponse = (response: BackendInterviewListResponse) => {
-  const interviews = (response.data || []).map(mapInterview);
+const normalizeInterviewListResponse = (
+  response: BackendInterviewListResponse | BackendInterviewListItem[] | null | undefined,
+) => {
+  const rawItems = Array.isArray(response)
+    ? response
+    : Array.isArray(response?.data)
+      ? response.data
+      : [];
+  const interviews: Interview[] = [];
+  for (const item of rawItems) {
+    try {
+      if (!item?.id) continue;
+      interviews.push(mapInterview(item));
+    } catch (err) {
+      console.error('[interviews] skipped unreadable row', item?.id, err);
+    }
+  }
+  const total = !Array.isArray(response) && typeof response?.total === 'number' ? response.total : interviews.length;
+  const totalPages = !Array.isArray(response) && typeof response?.totalPages === 'number' ? response.totalPages : 1;
   return {
     interviews,
-    totalEntries: response.total || interviews.length,
-    totalPages: response.totalPages || 1,
-    kpis: mapKpis(response.kpis),
+    totalEntries: total || interviews.length,
+    totalPages: totalPages || 1,
+    kpis: mapKpis(!Array.isArray(response) ? response?.kpis : undefined),
   };
 };
 
@@ -334,7 +382,8 @@ function mergeJobOptionsFromInterviews(
   const map = new Map<string, Interview['job']>();
   existing.forEach((j) => map.set(j.id, j));
   list.forEach((inv) => {
-    if (!map.has(inv.job.id)) map.set(inv.job.id, inv.job);
+    const jobId = inv.job?.id;
+    if (jobId && !map.has(jobId)) map.set(jobId, inv.job);
   });
   return Array.from(map.values());
 }
@@ -346,7 +395,8 @@ function mergeCandidateOptionsFromInterviews(
   const map = new Map<string, Interview['candidate']>();
   existing.forEach((c) => map.set(c.id, c));
   list.forEach((inv) => {
-    if (!map.has(inv.candidate.id)) map.set(inv.candidate.id, inv.candidate);
+    const candidateId = inv.candidate?.id;
+    if (candidateId && !map.has(candidateId)) map.set(candidateId, inv.candidate);
   });
   return Array.from(map.values());
 }
@@ -361,7 +411,7 @@ function mergeInterviewerOptionsFromInterviews(
     if (key) map.set(key, m);
   });
   list.forEach((inv) => {
-    inv.panel.forEach((m) => {
+    (Array.isArray(inv.panel) ? inv.panel : []).forEach((m) => {
       const key = m.userId || m.id;
       if (key && !map.has(key)) map.set(key, m);
     });
@@ -375,7 +425,7 @@ function withCanonicalCandidateNames(
 ): Interview[] {
   if (!nameById.size) return list;
   return list.map((interview) => {
-    const canonical = nameById.get(interview.candidate.id);
+    const canonical = interview.candidate?.id ? nameById.get(interview.candidate.id) : undefined;
     if (!canonical || canonical === interview.candidate.name) return interview;
     return {
       ...interview,
@@ -434,44 +484,60 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
   }, [deletedInterviewIds]);
 
   const fetchMeta = useCallback(async () => {
-    // Optional dropdown data — failures must NOT block the interview list (e.g. INTERVIEWERS lack jobs_read / candidates_read).
-    const settled = await Promise.allSettled([
-      apiGetCandidates({ limit: 100 }),
-      apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
-      apiGetUsers({ assignable: true, isActive: true, limit: 100, companyId: getActiveOrgUnitId() || undefined }),
-      apiGetInterviews({ limit: 500 }),
-    ]);
+    try {
+      // Optional dropdown data — failures must NOT block the interview list (e.g. INTERVIEWERS lack jobs_read / candidates_read).
+      const settled = await Promise.allSettled([
+        apiGetCandidates({ limit: 100 }),
+        apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
+        apiGetUsers({ assignable: true, isActive: true, limit: 100, companyId: getActiveOrgUnitId() || undefined }),
+        apiGetInterviews({ limit: 500 }),
+      ]);
 
-    const [candidatesRes, jobsRes, usersRes, allInterviewsRes] = settled;
+      const [candidatesRes, jobsRes, usersRes, allInterviewsRes] = settled;
 
-    if (candidatesRes.status === 'fulfilled') {
-      setCandidateOptions(
-        mapCandidates(
-          unwrapCollection(candidatesRes.value.data).map((candidate) =>
-            enrichBackendCandidateFromPhase1Snapshot(candidate),
-          ),
-        ),
-      );
-    } else {
-      setCandidateOptions([]);
-    }
+      if (candidatesRes.status === 'fulfilled') {
+        try {
+          setCandidateOptions(
+            mapCandidates(
+              unwrapCollection(candidatesRes.value.data).map((candidate) =>
+                enrichBackendCandidateFromPhase1Snapshot(candidate),
+              ),
+            ),
+          );
+        } catch {
+          setCandidateOptions([]);
+        }
+      } else {
+        setCandidateOptions([]);
+      }
 
-    if (jobsRes.status === 'fulfilled') {
-      setJobOptions(mapJobs(unwrapCollection(jobsRes.value.data)));
-    } else {
-      setJobOptions([]);
-    }
+      if (jobsRes.status === 'fulfilled') {
+        try {
+          setJobOptions(mapJobs(unwrapCollection(jobsRes.value.data)));
+        } catch {
+          setJobOptions([]);
+        }
+      } else {
+        setJobOptions([]);
+      }
 
-    if (usersRes.status === 'fulfilled') {
-      setInterviewerOptions(mapUsersToPanel(unwrapCollection(usersRes.value.data)));
-    } else {
-      setInterviewerOptions([]);
-    }
+      if (usersRes.status === 'fulfilled') {
+        try {
+          setInterviewerOptions(mapUsersToPanel(unwrapCollection(usersRes.value.data)));
+        } catch {
+          setInterviewerOptions([]);
+        }
+      } else {
+        setInterviewerOptions([]);
+      }
 
-    if (allInterviewsRes.status === 'fulfilled') {
-      const snapshot = normalizeInterviewListResponse(allInterviewsRes.value.data);
-      setOverviewInterviews(snapshot.interviews);
-      setInterviewRoundById(buildInterviewRoundNumberById(snapshot.interviews));
+      if (allInterviewsRes.status === 'fulfilled') {
+        const snapshot = normalizeInterviewListResponse(allInterviewsRes.value.data);
+        setOverviewInterviews(snapshot.interviews);
+        setInterviewRoundById(buildInterviewRoundNumberById(snapshot.interviews));
+      }
+    } catch (err) {
+      console.error('[interviews] metadata load failed', err);
     }
   }, []);
 
@@ -858,8 +924,9 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
         const current = interviews.find((interview) => interview.id === interviewId);
         if (!current) return;
 
-        const toRemove = current.panel.filter((member) => !panelIds.includes(member.userId || member.id));
-        const toAdd = panelIds.filter((id) => !current.panel.some((member) => (member.userId || member.id) === id));
+        const panel = Array.isArray(current.panel) ? current.panel : [];
+        const toRemove = panel.filter((member) => !panelIds.includes(member.userId || member.id));
+        const toAdd = panelIds.filter((id) => !panel.some((member) => (member.userId || member.id) === id));
 
         await Promise.all([
           ...toRemove.map((member) => apiRemoveInterviewPanelMember(interviewId, member.id)),
@@ -944,7 +1011,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     });
 
     return all.filter((interview) => !deletedInterviewIdSet.has(interview.id)).map((interview) => {
-      const canonical = candidateOptions.find((c) => c.id === interview.candidate.id)?.name;
+      const canonical = candidateOptions.find((c) => c.id === interview.candidate?.id)?.name;
       if (!canonical || canonical === interview.candidate.name) return interview;
       return { ...interview, candidate: { ...interview.candidate, name: canonical } };
     });

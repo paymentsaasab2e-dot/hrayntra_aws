@@ -1,15 +1,31 @@
 'use client';
 
+import { Suspense, type ReactNode } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Sidenav } from '../../components/Sidenav';
 import { PasswordResetGuard } from '../../components/PasswordResetGuard';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
 import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
 import { dashTextFont } from '../../lib/dashTypeFonts';
 
+function ClientPermissionGuard({ children }: { children: ReactNode }) {
+  const searchParams = useSearchParams();
+  const recruitment = searchParams.get('scope') === 'recruitment';
+  return (
+    <PermissionRouteGuard
+      anyPermissions={
+        recruitment ? MODULE_ACCESS_MAP.RecruitmentClients : MODULE_ACCESS_MAP.Clients
+      }
+    >
+      {children}
+    </PermissionRouteGuard>
+  );
+}
+
 export default function ClientLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const avatarUrl = "https://images.unsplash.com/photo-1701463387028-3947648f1337?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBlcnNvbiUyMHBvcnRyYWl0JTIwYXZhdGFyfGVufDF8fHx8MTc3MDE4MTAyMHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 
@@ -24,9 +40,17 @@ export default function ClientLayout({
             avatarUrl: avatarUrl
           }}
         >
-          <PermissionRouteGuard anyPermissions={MODULE_ACCESS_MAP.Clients}>
-            {children}
-          </PermissionRouteGuard>
+          <Suspense
+            fallback={
+              <div
+                className="min-h-[50vh] w-full animate-pulse rounded-xl border border-slate-200/80 bg-white/90"
+                aria-busy="true"
+                aria-label="Loading"
+              />
+            }
+          >
+            <ClientPermissionGuard>{children}</ClientPermissionGuard>
+          </Suspense>
         </Sidenav>
       </div>
     </PasswordResetGuard>

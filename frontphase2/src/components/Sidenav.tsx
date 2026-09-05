@@ -1215,6 +1215,10 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     isAgencyMode &&
     isOrgModuleEnabled('clients') &&
     (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']));
+  const canViewRecruitmentClients =
+    mounted &&
+    isOrgModuleEnabled('clients') &&
+    (showAll || hasAnyPermission(MODULE_ACCESS_MAP.RecruitmentClients));
   const isCrmClientsRoute =
     (pathname === '/client' || (pathname || '').startsWith('/client/')) &&
     searchParams.get('scope') !== 'recruitment';
@@ -1281,7 +1285,8 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     canViewPlacements ||
     canViewRecruitmentDashboard ||
     canViewPipeline ||
-    canViewMatches;
+    canViewMatches ||
+    canViewRecruitmentClients;
   const isRecruitmentClientsRoute =
     pathname === '/client' && searchParams.get('scope') === 'recruitment';
   const isRecruitmentRouteActive =
@@ -1325,6 +1330,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             leadRes,
             candidateRes,
             clientRes,
+            recClientRes,
             jobRes,
             contactRes,
             userRes,
@@ -1335,6 +1341,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             safe(apiGetLeads({ search: query, page: 1, limit: 3 })),
             safe(apiGetCandidates({ search: query, page: 1, limit: 3 })),
             safe(apiGetClients({ search: query, page: 1, limit: 3, includeContacts: false, includeLeadFields: false })),
+            safe(apiGetClients({ search: query, page: 1, limit: 3, includeContacts: false, includeLeadFields: false, recruitmentEnabled: true })),
             safe(apiGetJobs({ search: query, page: 1, limit: 3 })),
             safe(apiGetContacts({ search: query, page: 1, limit: 3 })),
             safe(apiGetUsers({ assignable: true, search: query, isActive: true, limit: 3 })),
@@ -1364,13 +1371,25 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             href: `/candidate?candidateId=${encodeURIComponent(String(candidate.id))}`,
           }));
 
-          const clientItems = extractListItems<any>(clientRes).map((client: any) => ({
+          const crmClientItems = extractListItems<any>(clientRes).map((client: any) => ({
             id: String(client.id),
             title: String(client.companyName || client.name || 'Client'),
             subtitle: [client.location, client.email].filter(Boolean).join(' • ') || 'Client record',
             kind: 'Client',
             href: `/client?clientId=${encodeURIComponent(String(client.id))}`,
           }));
+          const recClientItems = extractListItems<any>(recClientRes).map((client: any) => ({
+            id: String(client.id),
+            title: String(client.companyName || client.name || 'Client'),
+            subtitle: [client.location, client.email].filter(Boolean).join(' • ') || 'Recruitment client',
+            kind: 'Client',
+            href: `/client?scope=recruitment&clientId=${encodeURIComponent(String(client.id))}`,
+          }));
+          const seenClientIds = new Set(crmClientItems.map((item) => item.id));
+          const clientItems = [
+            ...crmClientItems,
+            ...recClientItems.filter((item) => !seenClientIds.has(item.id)),
+          ];
 
           const jobItems = extractListItems<any>(jobRes).map((job: any) => ({
             id: String(job.id),
@@ -1734,7 +1753,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                 ...(canViewRecruitmentDashboard
                   ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/recruitment', accent: 'indigo' as const }]
                   : []),
-                ...(canViewClients
+                ...(canViewRecruitmentClients
                   ? [{ icon: Users, label: 'Clients', href: '/client?scope=recruitment', accent: 'blue' as const }]
                   : []),
                 ...(canViewJobs
@@ -1813,6 +1832,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           {(mounted && isOrgModuleEnabled('recycle_bin') && (showAll || hasAnyPermission([
             'leads_delete',
             'clients_delete',
+            'recruitment_clients_delete',
             'candidates_delete',
             'delete_candidate',
             'jobs_delete',

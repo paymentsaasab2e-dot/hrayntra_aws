@@ -2037,6 +2037,17 @@ export function ClientDetailsDrawer({
 
   const { hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
+  const canEditClient =
+    isHqOverrideMode ||
+    hasAnyPermission(
+      defaultRecruitmentEnabled ? ['recruitment_clients_update'] : ['clients_update'],
+    );
+  const canDeleteClient =
+    Boolean(onDelete) &&
+    (isHqOverrideMode ||
+      hasAnyPermission(
+        defaultRecruitmentEnabled ? ['recruitment_clients_delete'] : ['clients_delete'],
+      ));
   const canViewClientAgreements =
     isHqOverrideMode || hasAnyPermission(['agreements_read', 'agreements_manage']);
   const canManageClientAgreements =
@@ -4053,13 +4064,13 @@ export function ClientDetailsDrawer({
   useEffect(() => {
     if (isAddMode || !client?.id) return;
 
-    if (initialMode === 'edit') {
+    if (initialMode === 'edit' && canEditClient) {
       startOverviewEdit();
       return;
     }
 
     setOverviewEditMode(false);
-  }, [isAddMode, initialMode, client?.id]);
+  }, [isAddMode, initialMode, client?.id, canEditClient]);
 
   const primaryTabs = useMemo(() => {
     void orgRecruitmentUiVersion;
@@ -4295,7 +4306,7 @@ export function ClientDetailsDrawer({
                     </>
                   ) : (
                     <>
-                      {activeTab === 'overview' && !overviewEditMode && (
+                      {activeTab === 'overview' && !overviewEditMode && canEditClient && (
                         <button
                           type="button"
                           onClick={startOverviewEdit}
@@ -4380,6 +4391,7 @@ export function ClientDetailsDrawer({
                       </button>
                     </>
                   ) : null}
+                  {canDeleteClient ? (
                   <button
                     type="button"
                     onClick={openDeleteClientForm}
@@ -4388,6 +4400,7 @@ export function ClientDetailsDrawer({
                   >
                     <Trash2 size={18} />
                   </button>
+                  ) : null}
                       <DrawerCloseButton onClick={() => void requestClientDrawerClose()} />
                     </>
                   )}
