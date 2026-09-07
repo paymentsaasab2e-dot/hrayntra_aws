@@ -14,6 +14,12 @@ import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/
 import { formatDateDMY } from '../../../utils/dateDisplay';
 import { useWorkspaceEntityAlerts } from '../../../hooks/useWorkspaceEntityAlerts';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../ai/WorkspaceAlertTableCell';
+import {
+  PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_BODY_SCROLL_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TABLE_CLASS,
+} from '../../../components/layout/Ph2ModulePageLayout';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -144,9 +150,8 @@ export const DepartmentsTab: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Departments Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={PH2_TABLE_CARD_CLASS}>
         {loading ? (
           <div className="p-8 space-y-4">
             {[...Array(5)].map((_, i) => (
@@ -165,8 +170,8 @@ export const DepartmentsTab: React.FC = () => {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
+              <table className={PH2_TABLE_CLASS}>
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Department Name</th>
@@ -278,7 +283,7 @@ export const DepartmentsTab: React.FC = () => {
                 </tbody>
               </table>
             </div>
-            <div className="mt-4 w-full">
+            <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
               <PaginationAll
                 initialPage={currentPage}
                 totalPages={Math.max(1, Math.ceil(totalDepartments / pageSize))}

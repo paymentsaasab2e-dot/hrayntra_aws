@@ -552,7 +552,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
   const activeOnPage = useMemo(() => members.filter((m) => m.status === 'ACTIVE').length, [members]);
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 sm:gap-6">
       <div className={PH2_KPI_ROW_CLASS}>
         {isLoading && members.length === 0 ? (
           (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)

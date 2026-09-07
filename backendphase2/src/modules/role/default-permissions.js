@@ -20,12 +20,12 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'convert_lead', module: 'Leads', description: 'Leads page — convert a lead into a client' },
 
   // Clients
-  { permissionName: 'clients_create', module: 'Clients', description: 'Clients page — create' },
-  { permissionName: 'clients_read', module: 'Clients', description: 'Clients page' },
-  { permissionName: 'clients_update', module: 'Clients', description: 'Clients page — update' },
-  { permissionName: 'clients_delete', module: 'Clients', description: 'Clients page — delete' },
-  { permissionName: 'view_all_clients', module: 'Clients', description: 'Clients page — all records in the organization' },
-  { permissionName: 'clients_handoff', module: 'Clients', description: 'Clients page — hand off to another department' },
+  { permissionName: 'clients_create', module: 'Clients', description: 'CRM Clients — create' },
+  { permissionName: 'clients_read', module: 'Clients', description: 'CRM Clients — my assigned / organization members' },
+  { permissionName: 'clients_update', module: 'Clients', description: 'CRM Clients — update' },
+  { permissionName: 'clients_delete', module: 'Clients', description: 'CRM Clients — delete' },
+  { permissionName: 'view_all_clients', module: 'Clients', description: 'CRM Clients — all company CRM clients' },
+  { permissionName: 'clients_handoff', module: 'Clients', description: 'CRM Clients — hand off to another department' },
 
   // Contacts
   { permissionName: 'contacts_create', module: 'Contacts', description: 'Contacts page — create' },
@@ -44,12 +44,12 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'dash_crm_people', module: 'CRM Dashboard', description: 'CRM dashboard tab: Hours & scores — follows Team tab; people list uses Dashboard level' },
 
   // ══ Recruitment ════════════════════════════════════════════════════════
-  // Recruitment Clients (separate from CRM Clients)
-  { permissionName: 'recruitment_clients_create', module: 'Recruitment Clients', description: 'Recruitment → Clients — create' },
-  { permissionName: 'recruitment_clients_read', module: 'Recruitment Clients', description: 'Recruitment → Clients' },
-  { permissionName: 'recruitment_clients_update', module: 'Recruitment Clients', description: 'Recruitment → Clients — update' },
-  { permissionName: 'recruitment_clients_delete', module: 'Recruitment Clients', description: 'Recruitment → Clients — delete' },
-  { permissionName: 'view_all_recruitment_clients', module: 'Recruitment Clients', description: 'Recruitment → Clients — all records in the organization' },
+  // Recruitment Clients (separate from CRM Clients — no CRM dependency)
+  { permissionName: 'recruitment_clients_create', module: 'Recruitment Clients', description: 'Recruitment Clients — create (independent of CRM Clients)' },
+  { permissionName: 'recruitment_clients_read', module: 'Recruitment Clients', description: 'Recruitment Clients — my assigned / organization members' },
+  { permissionName: 'recruitment_clients_update', module: 'Recruitment Clients', description: 'Recruitment Clients — update' },
+  { permissionName: 'recruitment_clients_delete', module: 'Recruitment Clients', description: 'Recruitment Clients — delete' },
+  { permissionName: 'view_all_recruitment_clients', module: 'Recruitment Clients', description: 'Recruitment Clients — all company recruitment clients' },
 
   // Jobs
   { permissionName: 'jobs_create', module: 'Jobs', description: 'Jobs page — create' },

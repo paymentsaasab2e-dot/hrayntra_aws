@@ -1165,18 +1165,18 @@ export default function App() {
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
+          width: 6px;
+          height: 6px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
           background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #e2e8f0;
-          border-radius: 10px;
+          background: rgb(165 180 252 / 0.55);
+          border-radius: 999px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #cbd5e1;
+          background: rgb(129 140 248 / 0.75);
         }
         .no-scrollbar::-webkit-scrollbar {
           display: none;

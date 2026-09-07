@@ -610,7 +610,9 @@ export default function App() {
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         if (!token) return;
-        const response = await apiGetClientAssignableMembers(getActiveOrgUnitId() || undefined);
+        const response = await apiGetClientAssignableMembers(getActiveOrgUnitId() || undefined, {
+          recruitment: isRecruitmentScope,
+        });
         const members = Array.isArray(response.data) ? response.data : [];
         setTeamMembers(
           members.map((member) => ({
@@ -625,7 +627,7 @@ export default function App() {
     };
 
     fetchUsers();
-  }, []);
+  }, [isRecruitmentScope]);
 
   useEffect(() => {
     const clientId = searchParams.get('clientId');

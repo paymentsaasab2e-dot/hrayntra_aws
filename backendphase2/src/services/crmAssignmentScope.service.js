@@ -139,7 +139,12 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
     isSuperAdmin ||
     (req &&
       (canViewAllAssignments(req) ||
-        hasAnyPermission(req, ['all', 'view_all_clients', 'view_all_leads'])));
+        hasAnyPermission(req, [
+          'all',
+          'view_all_clients',
+          'view_all_recruitment_clients',
+          'view_all_leads',
+        ])));
 
   const actorDeptId = idStr(actor.departmentId);
   const emailExclude = hqPlatformUserEmailNotClause();

@@ -3365,7 +3365,9 @@ export function ClientDetailsDrawer({
           setUsers(mapped as any);
           return;
         }
-        const response = await apiGetClientAssignableMembers();
+        const response = await apiGetClientAssignableMembers(undefined, {
+          recruitment: defaultRecruitmentEnabled === true,
+        });
         const members = Array.isArray(response.data) ? response.data : [];
         const toTeamMember = (member: (typeof members)[number]) => {
           const fullName =

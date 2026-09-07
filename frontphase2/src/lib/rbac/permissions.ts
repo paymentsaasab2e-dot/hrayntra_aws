@@ -24,12 +24,12 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'view_all_leads', module: 'Leads', description: 'Leads page — all records in the organization' },
   { permissionName: 'convert_lead', module: 'Leads', description: 'Leads page — convert a lead into a client' },
 
-  { permissionName: 'clients_create', module: 'Clients', description: 'Clients page — create' },
-  { permissionName: 'clients_read', module: 'Clients', description: 'Clients page' },
-  { permissionName: 'clients_update', module: 'Clients', description: 'Clients page — update' },
-  { permissionName: 'clients_delete', module: 'Clients', description: 'Clients page — delete' },
-  { permissionName: 'view_all_clients', module: 'Clients', description: 'Clients page — all records in the organization' },
-  { permissionName: 'clients_handoff', module: 'Clients', description: 'Clients page — hand off to another department' },
+  { permissionName: 'clients_create', module: 'Clients', description: 'CRM Clients — create' },
+  { permissionName: 'clients_read', module: 'Clients', description: 'CRM Clients — my assigned / organization members' },
+  { permissionName: 'clients_update', module: 'Clients', description: 'CRM Clients — update' },
+  { permissionName: 'clients_delete', module: 'Clients', description: 'CRM Clients — delete' },
+  { permissionName: 'view_all_clients', module: 'Clients', description: 'CRM Clients — all company CRM clients' },
+  { permissionName: 'clients_handoff', module: 'Clients', description: 'CRM Clients — hand off to another department' },
 
   { permissionName: 'contacts_create', module: 'Contacts', description: 'Contacts page — create' },
   { permissionName: 'contacts_read', module: 'Contacts', description: 'Contacts page' },
@@ -46,11 +46,11 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'dash_crm_people', module: 'CRM Dashboard', description: 'CRM dashboard tab: Hours & scores — follows Team tab; people list uses Dashboard level' },
 
   // ══ Recruitment ════════════════════════════════════════════════════════
-  { permissionName: 'recruitment_clients_create', module: 'Recruitment Clients', description: 'Recruitment → Clients — create' },
-  { permissionName: 'recruitment_clients_read', module: 'Recruitment Clients', description: 'Recruitment → Clients' },
-  { permissionName: 'recruitment_clients_update', module: 'Recruitment Clients', description: 'Recruitment → Clients — update' },
-  { permissionName: 'recruitment_clients_delete', module: 'Recruitment Clients', description: 'Recruitment → Clients — delete' },
-  { permissionName: 'view_all_recruitment_clients', module: 'Recruitment Clients', description: 'Recruitment → Clients — all records in the organization' },
+  { permissionName: 'recruitment_clients_create', module: 'Recruitment Clients', description: 'Recruitment Clients — create (independent of CRM Clients)' },
+  { permissionName: 'recruitment_clients_read', module: 'Recruitment Clients', description: 'Recruitment Clients — my assigned / organization members' },
+  { permissionName: 'recruitment_clients_update', module: 'Recruitment Clients', description: 'Recruitment Clients — update' },
+  { permissionName: 'recruitment_clients_delete', module: 'Recruitment Clients', description: 'Recruitment Clients — delete' },
+  { permissionName: 'view_all_recruitment_clients', module: 'Recruitment Clients', description: 'Recruitment Clients — all company recruitment clients' },
 
   { permissionName: 'jobs_create', module: 'Jobs', description: 'Jobs page — create' },
   { permissionName: 'jobs_read', module: 'Jobs', description: 'Jobs page' },
@@ -298,17 +298,17 @@ export const PERMISSION_DISPLAY_LABELS: Record<string, string> = {
   convert_lead: 'Leads — convert to client',
 
   clients_create: 'Clients — create',
-  clients_read: 'Clients',
+  clients_read: 'Clients — my assigned / organization members',
   clients_update: 'Clients — update',
   clients_delete: 'Clients — delete',
-  view_all_clients: 'Clients — view all in my organization',
+  view_all_clients: 'Clients — all company CRM clients',
   clients_handoff: 'Clients — hand off',
 
   recruitment_clients_create: 'Recruitment Clients — create',
-  recruitment_clients_read: 'Recruitment Clients',
+  recruitment_clients_read: 'Recruitment Clients — my assigned / organization members',
   recruitment_clients_update: 'Recruitment Clients — update',
   recruitment_clients_delete: 'Recruitment Clients — delete',
-  view_all_recruitment_clients: 'Recruitment Clients — view all in my organization',
+  view_all_recruitment_clients: 'Recruitment Clients — all company recruitment clients',
 
   contacts_create: 'Contacts — create',
   contacts_read: 'Contacts',

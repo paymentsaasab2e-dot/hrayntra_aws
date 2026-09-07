@@ -394,15 +394,15 @@ html {
   }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar — thin indigo (drawers, panels, misc lists) */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(100, 116, 139, 0.55) rgba(241, 245, 249, 0.6);
+  scrollbar-color: rgb(129 140 248 / 0.5) transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -410,12 +410,15 @@ html {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
-  border-radius: 10px;
+  background: rgb(165 180 252 / 0.55);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgb(129 140 248 / 0.75);
+  background-clip: padding-box;
 }
 
 /* Toolbar filter dropdowns — scrollable list with minimal overlay scrollbar */
@@ -502,16 +505,17 @@ html {
   background-clip: padding-box;
 }
 
-/* CRM list tables — both axes scroll inside the table panel, with visible bars */
+/* CRM list tables — thin indigo scrollbars on both axes */
 .ph2-table-body-scroll,
-.leads-table-body-scroll {
+.leads-table-body-scroll,
+.team-table-body-scroll {
   max-width: 100%;
   min-height: 0;
   overflow-x: auto;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  scrollbar-width: auto;
-  scrollbar-color: rgb(100 116 139 / 0.8) rgb(226 232 240);
+  scrollbar-width: thin;
+  scrollbar-color: rgb(129 140 248 / 0.5) transparent;
   overscroll-behavior: contain;
 }
 
@@ -557,55 +561,68 @@ html {
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar,
-.leads-table-body-scroll::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+.leads-table-body-scroll::-webkit-scrollbar,
+.team-table-body-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar-track,
-.leads-table-body-scroll::-webkit-scrollbar-track {
-  background: rgb(241 245 249);
+.leads-table-body-scroll::-webkit-scrollbar-track,
+.team-table-body-scroll::-webkit-scrollbar-track {
+  background: transparent;
   border-radius: 999px;
+  margin: 2px;
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar-thumb,
-.leads-table-body-scroll::-webkit-scrollbar-thumb {
-  background: rgb(148 163 184);
+.leads-table-body-scroll::-webkit-scrollbar-thumb,
+.team-table-body-scroll::-webkit-scrollbar-thumb {
+  background: rgb(165 180 252 / 0.55);
   border-radius: 999px;
-  border: 2px solid rgb(241 245 249);
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar-thumb:hover,
-.leads-table-body-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgb(100 116 139);
+.leads-table-body-scroll::-webkit-scrollbar-thumb:hover,
+.team-table-body-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(129 140 248 / 0.75);
+  background-clip: padding-box;
 }
 
-/* Leads table — visible horizontal scrollbar in bottom dock (synced with table scroll) */
+.ph2-table-body-scroll::-webkit-scrollbar-corner,
+.leads-table-body-scroll::-webkit-scrollbar-corner,
+.team-table-body-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Leads table — horizontal scrollbar dock (synced with table scroll) */
 .leads-hscroll-dock {
-  scrollbar-width: auto;
-  scrollbar-color: rgb(129 140 248 / 0.55) rgb(99 102 241 / 0.08);
+  scrollbar-width: thin;
+  scrollbar-color: rgb(129 140 248 / 0.5) transparent;
   overscroll-behavior-x: contain;
 }
 
 .leads-hscroll-dock::-webkit-scrollbar {
-  height: 12px;
+  height: 6px;
 }
 
 .leads-hscroll-dock::-webkit-scrollbar-track {
-  background: rgb(238 242 255 / 0.9);
+  background: transparent;
   border-radius: 999px;
   margin: 0 4px;
 }
 
 .leads-hscroll-dock::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgb(129 140 248 / 0.75), rgb(99 102 241 / 0.65));
+  background: rgb(165 180 252 / 0.55);
   border-radius: 999px;
-  border: 3px solid transparent;
+  border: 1px solid transparent;
   background-clip: padding-box;
 }
 
 .leads-hscroll-dock::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgb(99 102 241 / 0.9), rgb(79 70 229 / 0.85));
+  background: rgb(129 140 248 / 0.75);
   background-clip: padding-box;
 }
 

@@ -8287,8 +8287,17 @@ export const apiGetLeadAssignableMembers = async (companyId?: string) => {
   return apiFetch<CrmAssignableMember[]>(`/leads/assignable-members${query}`, { auth: true });
 };
 
-export const apiGetClientAssignableMembers = async (companyId?: string) => {
-  const query = companyId ? `?companyId=${encodeURIComponent(companyId)}` : '';
+export const apiGetClientAssignableMembers = async (
+  companyId?: string,
+  options?: { recruitment?: boolean },
+) => {
+  const params = new URLSearchParams();
+  if (companyId) params.set('companyId', companyId);
+  if (options?.recruitment) {
+    params.set('recruitmentEnabled', 'true');
+    params.set('module', 'RecruitmentClients');
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
   return apiFetch<CrmAssignableMember[]>(`/clients/assignable-members${query}`, { auth: true });
 };
 

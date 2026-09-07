@@ -19,6 +19,13 @@ import { GenerateCredentialsDrawer } from '../GenerateCredentialsDrawer';
 import PaginationAll from '../../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/tablePagination';
 import { formatDateDMY } from '../../../utils/dateDisplay';
+import {
+  PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_BODY_SCROLL_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TABLE_CLASS,
+  PH2_TOOLBAR_ROW_CLASS,
+} from '../../../components/layout/Ph2ModulePageLayout';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -287,11 +294,9 @@ export const CredentialsTab: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Filter Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Search */}
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+      <div className={`${PH2_TOOLBAR_ROW_CLASS} rounded-xl border border-indigo-100/60`}>
+        <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
             <input
@@ -303,7 +308,6 @@ export const CredentialsTab: React.FC = () => {
             />
           </div>
 
-          {/* Status Filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -321,7 +325,7 @@ export const CredentialsTab: React.FC = () => {
 
       {/* Bulk Action Bar */}
       {selectedMembers.size > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
+        <div className="shrink-0 bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
           <span className="text-sm text-blue-900">
             {selectedMembers.size} member{selectedMembers.size !== 1 ? 's' : ''} selected
           </span>
@@ -342,8 +346,7 @@ export const CredentialsTab: React.FC = () => {
         </div>
       )}
 
-      {/* Credentials Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className={PH2_TABLE_CARD_CLASS}>
         {loading ? (
           <div className="p-8 space-y-4">
             {[...Array(5)].map((_, i) => (
@@ -356,8 +359,8 @@ export const CredentialsTab: React.FC = () => {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
+              <table className={PH2_TABLE_CLASS}>
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider w-12">
@@ -530,7 +533,7 @@ export const CredentialsTab: React.FC = () => {
               </tbody>
               </table>
             </div>
-            <div className="mt-4 w-full">
+            <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
               <PaginationAll
                 initialPage={currentPage}
                 totalPages={Math.max(1, Math.ceil(filteredMembers.length / pageSize))}

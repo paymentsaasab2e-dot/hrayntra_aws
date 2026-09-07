@@ -41,6 +41,7 @@ const CATALOG_MODULE_BY_PERMISSION = new Map(
 export const ASSIGNMENT_MODULE_PERMISSIONS = {
   Leads: [...(DASHBOARD_MODULE_PERMISSIONS.Leads || []), 'convert_lead'],
   Clients: [...(DASHBOARD_MODULE_PERMISSIONS.Clients || [])],
+  RecruitmentClients: [...(DASHBOARD_MODULE_PERMISSIONS.RecruitmentClients || [])],
   Jobs: [...JOBS_TAB_PERMISSIONS],
   Candidates: [...(DASHBOARD_MODULE_PERMISSIONS.Candidates || [])],
   Interviews: [...(DASHBOARD_MODULE_PERMISSIONS.Interviews || []), 'interviews_feedback'],
@@ -57,6 +58,10 @@ const MODULE_ALIASES = {
   crm: 'Leads',
   clients: 'Clients',
   client: 'Clients',
+  recruitmentclients: 'RecruitmentClients',
+  'recruitment-clients': 'RecruitmentClients',
+  'recruitment_clients': 'RecruitmentClients',
+  recruitment: 'RecruitmentClients',
   jobs: 'Jobs',
   job: 'Jobs',
   candidates: 'Candidates',
