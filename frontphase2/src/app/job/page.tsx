@@ -3686,11 +3686,11 @@ export default function JobsPage() {
           background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #E2E8F0;
-          border-radius: 10px;
+          background: rgb(165 180 252 / 0.55);
+          border-radius: 999px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #CBD5E1;
+          background: rgb(129 140 248 / 0.75);
         }
         .scrollbar-hide::-webkit-scrollbar {
           display: none;

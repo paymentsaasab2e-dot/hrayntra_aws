@@ -167,8 +167,8 @@ export const RolesTab: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="shrink-0 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950">
         <p className="font-semibold">Role-based access (RBAC)</p>
         <p className="mt-1 text-xs text-indigo-800/90">
           {RBAC_CATALOG_TOTAL} permissions across {Object.keys(permissions).length || '…'} modules. Super Admin
@@ -180,7 +180,7 @@ export const RolesTab: React.FC = () => {
           <span className="font-semibold">Clients Handoff</span> on that role for the client handoff button.
         </p>
       </div>
-      <div className="relative max-w-sm">
+      <div className="relative max-w-sm shrink-0">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           type="search"

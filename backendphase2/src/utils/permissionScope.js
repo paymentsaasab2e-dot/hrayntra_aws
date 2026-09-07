@@ -48,12 +48,29 @@ export function canViewAllCompanies(req) {
   return hasPermission(req, 'view_all_companies');
 }
 
-export function canViewAllClients(req) {
+/** CRM Clients list — org-wide (does not unlock Recruitment Clients). */
+export function canViewAllCrmClients(req) {
+  if (isSuperAdminOwnWork(req)) return false;
+  return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_clients']);
+}
+
+/** Recruitment Clients list — org-wide / all company recruitment clients. */
+export function canViewAllRecruitmentClients(req) {
   if (isSuperAdminOwnWork(req)) return false;
   return (
-    canViewAllAssignments(req) ||
-    hasAnyPermission(req, ['view_all_clients', 'view_all_recruitment_clients'])
+    canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_recruitment_clients'])
   );
+}
+
+/**
+ * @param {{ listMode?: 'crm' | 'recruitment' | 'any' }} [options]
+ * Prefer canViewAllCrmClients / canViewAllRecruitmentClients for new code.
+ */
+export function canViewAllClients(req, options = {}) {
+  const listMode = options?.listMode || 'any';
+  if (listMode === 'recruitment') return canViewAllRecruitmentClients(req);
+  if (listMode === 'crm') return canViewAllCrmClients(req);
+  return canViewAllCrmClients(req) || canViewAllRecruitmentClients(req);
 }
 
 export function canViewAllLeads(req) {

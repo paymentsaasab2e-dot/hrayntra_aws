@@ -168,7 +168,7 @@ export const TargetsTab: React.FC = () => {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="team-table-body-scroll min-h-0 flex-1 overflow-y-auto space-y-6 pr-1">
       {/* Section 1: Set Targets */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h2 className="text-lg font-bold text-slate-900 mb-4">Set Targets</h2>

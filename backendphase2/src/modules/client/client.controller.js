@@ -100,7 +100,7 @@ export const clientController = {
       );
       sendResponse(res, 201, 'Client created successfully', client);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error?.statusCode === 403 ? 403 : 400, error.message, error);
     }
   },
 
@@ -116,7 +116,7 @@ export const clientController = {
       );
       sendResponse(res, 200, 'Client updated successfully', client);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error?.statusCode === 403 ? 403 : 400, error.message, error);
     }
   },
 
@@ -143,7 +143,7 @@ export const clientController = {
       const result = await clientService.delete(req.params.id, req.user?.id, req);
       sendResponse(res, 200, result.message);
     } catch (error) {
-      sendError(res, 500, error.message, error);
+      sendError(res, error?.statusCode === 403 ? 403 : 500, error.message, error);
     }
   },
 
@@ -361,7 +361,12 @@ export const clientController = {
 
   async getAssignableMembers(req, res) {
     try {
-      const members = await listCrmAssigneeCandidates(req.user.id, { req, modules: ['Clients'] });
+      const recruitment =
+        String(req.query?.recruitmentEnabled || req.query?.module || '')
+          .toLowerCase()
+          .includes('recruit');
+      const modules = recruitment ? ['RecruitmentClients'] : ['Clients'];
+      const members = await listCrmAssigneeCandidates(req.user.id, { req, modules });
       sendResponse(res, 200, 'Assignable members retrieved', members);
     } catch (error) {
       sendError(res, error?.statusCode === 403 ? 403 : 500, error.message, error);

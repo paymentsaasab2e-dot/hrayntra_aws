@@ -1,5 +1,8 @@
 import { prisma } from '../config/prisma.js';
-import { canViewAllClients } from '../utils/permissionScope.js';
+import {
+  canViewAllCrmClients,
+  canViewAllRecruitmentClients,
+} from '../utils/permissionScope.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../utils/superAdminScope.js';
 import { isDepartmentHeadUser } from './departmentRole.service.js';
 import { buildAssigneeVisibilityOr } from './memberVisibility.service.js';
@@ -40,6 +43,15 @@ export function systemWorkspaceClientExclusionWhere() {
   };
 }
 
+export function recruitmentClientMatchWhere() {
+  return {
+    OR: [
+      { recruitmentEnabled: { equals: true } },
+      { createdInRecruitment: { equals: true } },
+    ],
+  };
+}
+
 async function listActiveDepartmentMemberIds(userId) {
   const actor = await prisma.user.findUnique({
     where: { id: userId },
@@ -59,39 +71,7 @@ async function listActiveDepartmentMemberIds(userId) {
   return members.map((member) => member.id).filter(Boolean);
 }
 
-/**
- * Restrict client lists/detail to records the actor may access:
- * - organization-wide viewers (`view_all_clients`) stay inside their company
- * - Full access of all companies / Super Admin: every company in this tenant
- * - assignee or creator
- * - department heads: any client assigned to a member of their department
- */
-export async function applyMemberClientScope(scopedWhere, req) {
-  if (req?._bypassClientScope) {
-    return scopedWhere;
-  }
-
-  const userId = idStr(req?.user?.id);
-  const orgWhere = await applyOrgCompanyAssigneeWhere(req, {
-    assignedToIdField: 'assignedToId',
-    createdByField: 'createdById',
-  });
-
-  if (canViewAllClients(req) || !userId) {
-    return mergeWhereWithScope(scopedWhere, orgWhere);
-  }
-
-  const forwarded = {
-    AND: [{ recruitmentEnabled: { equals: true } }, { participantIds: { has: userId } }],
-  };
-
-  const org = await getRequestOrgScope(req);
-  if (isOrgHeadPurpose(org)) {
-    return mergeWhereWithScope(scopedWhere, {
-      OR: [orgWhere || { id: { not: undefined } }, forwarded],
-    });
-  }
-
+async function buildMemberVisibilityWhere(userId) {
   let visibility = { OR: buildAssigneeVisibilityOr(userId) };
   if (await isDepartmentHeadUser(userId)) {
     const memberIds = await listActiveDepartmentMemberIds(userId);
@@ -105,20 +85,102 @@ export async function applyMemberClientScope(scopedWhere, req) {
       };
     }
   }
-
-  const inCompany = orgWhere ? { AND: [orgWhere, visibility] } : visibility;
-  return mergeWhereWithScope(scopedWhere, {
-    OR: [inCompany, forwarded],
-  });
+  return visibility;
 }
 
-export async function buildClientsListScopeWhere(req) {
+/**
+ * Restrict client lists/detail to records the actor may access.
+ *
+ * CRM and Recruitment “view all” are independent:
+ * - `view_all_clients` → all CRM clients in the org (not recruitment-native)
+ * - `view_all_recruitment_clients` → all company recruitment clients
+ * - Without those: assignee / creator / participant (and forwarded recruitment)
+ *
+ * @param {object} scopedWhere
+ * @param {object} req
+ * @param {{ listMode?: 'crm' | 'recruitment' | 'any' }} [options]
+ */
+export async function applyMemberClientScope(scopedWhere, req, options = {}) {
+  if (req?._bypassClientScope) {
+    return scopedWhere;
+  }
+
+  const listMode = options.listMode === 'recruitment' || options.listMode === 'crm'
+    ? options.listMode
+    : options.recruitmentOnly === true
+      ? 'recruitment'
+      : 'any';
+
+  const userId = idStr(req?.user?.id);
+  const orgWhere = await applyOrgCompanyAssigneeWhere(req, {
+    assignedToIdField: 'assignedToId',
+    createdByField: 'createdById',
+  });
+
+  const viewAllCrm = canViewAllCrmClients(req);
+  const viewAllRecruitment = canViewAllRecruitmentClients(req);
+
+  if (listMode === 'recruitment' && (viewAllRecruitment || !userId)) {
+    return mergeWhereWithScope(scopedWhere, orgWhere);
+  }
+
+  if (listMode === 'crm' && (viewAllCrm || !userId)) {
+    return mergeWhereWithScope(scopedWhere, orgWhere);
+  }
+
+  if (listMode === 'any' && ((viewAllCrm && viewAllRecruitment) || !userId)) {
+    return mergeWhereWithScope(scopedWhere, orgWhere);
+  }
+
+  const org = await getRequestOrgScope(req);
+  if (isOrgHeadPurpose(org)) {
+    const forwarded = userId
+      ? {
+          AND: [{ recruitmentEnabled: { equals: true } }, { participantIds: { has: userId } }],
+        }
+      : null;
+    return mergeWhereWithScope(scopedWhere, {
+      OR: [orgWhere || { id: { not: undefined } }, ...(forwarded ? [forwarded] : [])],
+    });
+  }
+
+  const orBranches = [];
+
+  if (listMode !== 'recruitment' && viewAllCrm) {
+    const crmAll = { createdInRecruitment: { not: true } };
+    orBranches.push(orgWhere ? { AND: [orgWhere, crmAll] } : crmAll);
+  }
+
+  if (listMode !== 'crm' && viewAllRecruitment) {
+    const recruitmentAll = recruitmentClientMatchWhere();
+    orBranches.push(orgWhere ? { AND: [orgWhere, recruitmentAll] } : recruitmentAll);
+  }
+
+  if (userId) {
+    const visibility = await buildMemberVisibilityWhere(userId);
+    const inCompany = orgWhere ? { AND: [orgWhere, visibility] } : visibility;
+    orBranches.push(inCompany);
+    orBranches.push({
+      AND: [{ recruitmentEnabled: { equals: true } }, { participantIds: { has: userId } }],
+    });
+  } else if (orgWhere) {
+    orBranches.push(orgWhere);
+  }
+
+  if (!orBranches.length) {
+    return mergeWhereWithScope(scopedWhere, orgWhere || { id: { in: [] } });
+  }
+
+  return mergeWhereWithScope(scopedWhere, { OR: orBranches });
+}
+
+export async function buildClientsListScopeWhere(req, options = {}) {
   let where = { isDeleted: { not: true } };
   where = {
     AND: [where, systemWorkspaceClientExclusionWhere()],
   };
   const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
   let scopedWhere = mergeWhereWithScope(where, superAdminScope);
-  scopedWhere = await applyMemberClientScope(scopedWhere, req);
+  scopedWhere = await applyMemberClientScope(scopedWhere, req, options);
   return scopedWhere;
 }

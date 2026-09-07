@@ -45,7 +45,9 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
   CompanyPage: [
     'company_page_read', 'company_page_manage',
     // Pre-existing behaviour: client/job access implied company-page access.
-    'clients_read', 'view_all_clients', 'jobs_read', 'view_all_jobs',
+    'clients_read', 'view_all_clients',
+    'recruitment_clients_read', 'view_all_recruitment_clients',
+    'jobs_read', 'view_all_jobs',
   ],
   System: [
     'manage_settings', 'access_integrations', 'export_data', 'view_activity_log',
@@ -61,7 +63,7 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
 
 export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/leads': MODULE_ACCESS_MAP.Leads,
-  '/client': MODULE_ACCESS_MAP.Clients,
+  '/client': [...MODULE_ACCESS_MAP.Clients, ...MODULE_ACCESS_MAP.RecruitmentClients],
   '/job': MODULE_ACCESS_MAP.Jobs,
   '/candidate': MODULE_ACCESS_MAP.Candidates,
   '/interviews': MODULE_ACCESS_MAP.Interviews,

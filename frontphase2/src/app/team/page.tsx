@@ -132,7 +132,7 @@ function TeamPageContent() {
   return (
     <>
       <Toaster position="top-right" richColors style={{ top: '5rem' }} />
-      <div className="w-full min-h-screen overflow-hidden text-slate-900">
+      <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
@@ -178,10 +178,10 @@ function TeamPageContent() {
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-            <div className="mx-auto max-w-[1600px]">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+            <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
               {tabs.length > 0 ? (
-                <div className="no-scrollbar mb-4 flex overflow-x-auto border-b border-indigo-100/50 bg-white/60 px-1 sm:px-2">
+                <div className="no-scrollbar mb-4 flex shrink-0 overflow-x-auto border-b border-indigo-100/50 bg-white/60 px-1 sm:px-2">
                   {tabs.map((tab) => (
                     <button
                       key={tab.id}
@@ -203,11 +203,13 @@ function TeamPageContent() {
                 </div>
               ) : null}
 
-              {activeTab === 'members' && <MembersTab onHeaderExtrasChange={setMembersHeaderExtras} />}
-              {activeTab === 'roles' && <RolesTab />}
-              {activeTab === 'departments' && <DepartmentsTab />}
-              {activeTab === 'targets' && <TargetsTab />}
-              {activeTab === 'credentials' && <CredentialsTab />}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                {activeTab === 'members' && <MembersTab onHeaderExtrasChange={setMembersHeaderExtras} />}
+                {activeTab === 'roles' && <RolesTab />}
+                {activeTab === 'departments' && <DepartmentsTab />}
+                {activeTab === 'targets' && <TargetsTab />}
+                {activeTab === 'credentials' && <CredentialsTab />}
+              </div>
             </div>
           </div>
         </main>

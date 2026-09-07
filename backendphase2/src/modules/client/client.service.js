@@ -56,6 +56,7 @@ import { ENTITY_TYPES } from '../../services/activityService.js';
 import {
   canViewAgreementTerms,
   canManageAgreementTerms,
+  hasAnyPermission,
 } from '../../utils/permissionScope.js';
 import {
   queueAiEntryRecommendation,
@@ -249,6 +250,76 @@ function wantsRecruitmentClient(data, req = null) {
     String(req?.query?.recruitmentEnabled || req?.body?.recruitmentEnabled || '').toLowerCase() ===
     'true';
   return Boolean(bodyFlag || queryFlag);
+}
+
+function denyClientPermission(message) {
+  const err = new Error(message || 'You do not have permission for this client action.');
+  err.statusCode = 403;
+  throw err;
+}
+
+/** Recruitment-list client (native create or CRM handoff / job-linked). */
+function isRecruitmentScopedClient(row) {
+  return Boolean(row?.recruitmentEnabled === true || row?.createdInRecruitment === true);
+}
+
+function assignmentModulesForClient(recruitment) {
+  return recruitment ? ['RecruitmentClients'] : ['Clients'];
+}
+
+/**
+ * CRM Clients and Recruitment Clients permissions are independent.
+ * - Native recruitment rows → recruitment_clients_* only
+ * - CRM-only rows → clients_* only
+ * - CRM clients sent to recruitment → either set (so both teams can edit)
+ */
+function assertClientMutationPermission(req, client, action) {
+  if (!req) return;
+  const recruitmentPerm = `recruitment_clients_${action}`;
+  const crmPerm = `clients_${action}`;
+  const nativeRecruitment = client?.createdInRecruitment === true;
+  const recruitmentScoped = isRecruitmentScopedClient(client);
+
+  if (nativeRecruitment) {
+    if (!hasAnyPermission(req, [recruitmentPerm])) {
+      denyClientPermission(
+        'You need Recruitment Clients permission for this action. CRM Clients permission does not apply here.',
+      );
+    }
+    return;
+  }
+
+  if (recruitmentScoped) {
+    if (!hasAnyPermission(req, [recruitmentPerm, crmPerm])) {
+      denyClientPermission(
+        'You need Recruitment Clients or CRM Clients update/delete permission for this client.',
+      );
+    }
+    return;
+  }
+
+  if (!hasAnyPermission(req, [crmPerm])) {
+    denyClientPermission(
+      'You need CRM Clients permission for this action. Recruitment Clients permission does not apply to CRM clients.',
+    );
+  }
+}
+
+function assertClientCreatePermission(req, recruitment) {
+  if (!req) return;
+  if (recruitment) {
+    if (!hasAnyPermission(req, ['recruitment_clients_create'])) {
+      denyClientPermission(
+        'You need Recruitment Clients — create permission. CRM Clients create does not apply here.',
+      );
+    }
+    return;
+  }
+  if (!hasAnyPermission(req, ['clients_create'])) {
+    denyClientPermission(
+      'You need CRM Clients — create permission. Recruitment Clients create does not apply to CRM clients.',
+    );
+  }
 }
 
 /** Creating a job (including jobs made before recruitmentEnabled) puts that client on Recruitment Clients. */
@@ -670,7 +741,9 @@ export const clientService = {
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let scopedWhere = mergeWhereWithScope(where, superAdminScope);
-    scopedWhere = await applyMemberClientScope(scopedWhere, req);
+    scopedWhere = await applyMemberClientScope(scopedWhere, req, {
+      listMode: recruitmentOnly ? 'recruitment' : 'crm',
+    });
     scopedWhere = await mergeOrgCompanyListScope(scopedWhere, req, {
       assignedToIdField: 'assignedToId',
       createdByField: 'createdById',
@@ -806,7 +879,7 @@ export const clientService = {
   async getById(id, req = null) {
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let scopedWhere = mergeWhereWithScope({ id }, scope);
-    scopedWhere = await applyMemberClientScope(scopedWhere, req);
+    scopedWhere = await applyMemberClientScope(scopedWhere, req, { listMode: 'any' });
 
     await collapseDuplicateContactsForCompany(id);
 
@@ -995,6 +1068,9 @@ export const clientService = {
   },
 
   async create(data, req = null) {
+    const creatingRecruitmentClient = wantsRecruitmentClient(data, req);
+    assertClientCreatePermission(req, creatingRecruitmentClient);
+
     const companyName = String(data.companyName || '').trim();
     if (companyName && data.forceNew !== true) {
       const existing = await findLiveClientByCompanyName(companyName);
@@ -1074,7 +1150,7 @@ export const clientService = {
         : {}),
       ...buildPostServiceKycFormCreateFields(data),
       otherDetails: normalizeClientOtherDetails(data.otherDetails),
-      ...(wantsRecruitmentClient(data, req) ? recruitmentNativeCreateFields(data.performedById) : {}),
+      ...(creatingRecruitmentClient ? recruitmentNativeCreateFields(data.performedById) : {}),
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
       // billingEmail, billingPhone, billingAddress, notes, tags, hot (not in schema)
@@ -1094,7 +1170,10 @@ export const clientService = {
     dbLogger.logCreate('CLIENT', clientData);
 
     if (data.performedById && clientData.assignedToId) {
-      await assertCanAssignCrm(data.performedById, clientData.assignedToId, { req, modules: ['Clients'] });
+      await assertCanAssignCrm(data.performedById, clientData.assignedToId, {
+        req,
+        modules: assignmentModulesForClient(creatingRecruitmentClient),
+      });
     }
 
     const client = await prisma.client.create({
@@ -1144,14 +1223,19 @@ export const clientService = {
   async update(id, data, req = null) {
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let accessWhere = mergeWhereWithScope({ id }, scope);
-    accessWhere = await applyMemberClientScope(accessWhere, req);
+    accessWhere = await applyMemberClientScope(accessWhere, req, { listMode: 'any' });
     const allowed = await prisma.client.findFirst({
       where: accessWhere,
-      select: { id: true },
+      select: {
+        id: true,
+        recruitmentEnabled: true,
+        createdInRecruitment: true,
+      },
     });
     if (!allowed) {
       throw new Error('Client not found');
     }
+    assertClientMutationPermission(req, allowed, 'update');
 
     // Get current client data to track changes
     const currentClient = await prisma.client.findUnique({
@@ -1179,6 +1263,7 @@ export const clientService = {
         recruitmentEnabled: true,
         recruitmentEnabledAt: true,
         recruitmentEnabledBy: true,
+        createdInRecruitment: true,
       },
     });
 
@@ -1337,7 +1422,10 @@ export const clientService = {
       const currentAssignee = String(currentClient?.assignedToId || '').trim();
       const nextAssignee = String(data.assignedToId || '').trim();
       if (nextAssignee && nextAssignee !== currentAssignee) {
-        await assertCanAssignCrm(data.performedById, data.assignedToId, { req, modules: ['Clients'] });
+        await assertCanAssignCrm(data.performedById, data.assignedToId, {
+          req,
+          modules: assignmentModulesForClient(isRecruitmentScopedClient(currentClient)),
+        });
       }
     }
 
@@ -1549,7 +1637,7 @@ export const clientService = {
 
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let accessWhere = mergeWhereWithScope({ id, isDeleted: { not: true } }, scope);
-    accessWhere = await applyMemberClientScope(accessWhere, req);
+    accessWhere = await applyMemberClientScope(accessWhere, req, { listMode: 'any' });
     const current = await prisma.client.findFirst({
       where: accessWhere,
       select: {
@@ -1612,19 +1700,22 @@ export const clientService = {
     // restore from the Recycle Bin brings the full client back without surprises.
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let accessWhere = mergeWhereWithScope({ id }, scope);
-    accessWhere = await applyMemberClientScope(accessWhere, req);
+    accessWhere = await applyMemberClientScope(accessWhere, req, { listMode: 'any' });
     const allowed = await prisma.client.findFirst({
       where: accessWhere,
-      select: { id: true },
+      select: {
+        id: true,
+        companyName: true,
+        recruitmentEnabled: true,
+        createdInRecruitment: true,
+      },
     });
     if (!allowed) {
       throw new Error('Client not found');
     }
+    assertClientMutationPermission(req, allowed, 'delete');
 
-    const client = await prisma.client.findUnique({
-      where: { id },
-      select: { companyName: true },
-    });
+    const client = { companyName: allowed.companyName };
 
     await prisma.client.update({
       where: { id },
@@ -1660,7 +1751,7 @@ export const clientService = {
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let where = { isDeleted: true };
     where = mergeWhereWithScope(where, superAdminScope);
-    where = await applyMemberClientScope(where, req);
+    where = await applyMemberClientScope(where, req, { listMode: 'any' });
 
     const [clients, total] = await Promise.all([
       prisma.client.findMany({
