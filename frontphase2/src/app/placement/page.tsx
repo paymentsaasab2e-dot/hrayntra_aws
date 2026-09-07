@@ -26,6 +26,7 @@ import { requestConfirm } from '../../lib/appDialog';
 import PaginationAll from '../../components/PaginationAll';
 import { coerceTablePageSize, TABLE_PAGE_SIZE_OPTIONS } from '../../constants/tablePagination';
 import {
+  PH2_KPI_ROW_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
@@ -408,7 +409,7 @@ function PlacementsPageContent() {
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
               <div className="mb-5 shrink-0">
                 {loading ? (
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+                  <div className={PH2_KPI_ROW_CLASS}>
                     {(['blue', 'indigo', 'orange', 'green', 'purple'] as SummaryCardColor[]).map((c, i) => (
                       <SummaryCardSkeleton key={i} color={c} />
                     ))}

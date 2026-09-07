@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { TeamMember, Badge } from '../TeamComponents';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import { DetailsModalShell } from './DetailsModalShell';
 import { DrawerTabBar } from './DrawerTabBar';
 import { 
   BarChart, 
@@ -50,22 +51,10 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
-          />
-          
-          {/* Drawer */}
-          <motion.div
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 overflow-hidden flex flex-col border-l border-slate-200"
+          <DetailsModalShell
+            variant="main"
+            onBackdropClick={onClose}
+            dialogTitleId="member-drawer-title"
           >
             {/* Header */}
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
@@ -74,7 +63,7 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
                   <ImageWithFallback src={member.avatar} alt={member.name} className="size-full object-cover" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">{member.name}</h3>
+                  <h3 id="member-drawer-title" className="text-lg font-bold text-slate-900">{member.name}</h3>
                   <p className="text-sm text-slate-500">
                     {typeof member.role === 'object' ? member.role?.roleName : member.role} • {typeof member.department === 'object' ? member.department?.name : member.department}
                   </p>
@@ -306,7 +295,7 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
                 View Profile
               </button>
             </div>
-          </motion.div>
+          </DetailsModalShell>
         </>
       )}
     </AnimatePresence>

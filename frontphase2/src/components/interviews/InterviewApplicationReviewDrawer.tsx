@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { X, ExternalLink, Star } from 'lucide-react';
 import {
   apiGetInterviewApplication,
@@ -111,26 +112,17 @@ export function InterviewApplicationReviewDrawer({ applicationId, onClose, onUpd
     <AnimatePresence>
       {applicationId ? (
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[120] bg-slate-900/40"
-            onClick={onClose}
-          />
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-            className="fixed right-0 top-0 z-[130] flex h-full w-full max-w-2xl flex-col border-l border-indigo-100 bg-white shadow-2xl"
+          <DetailsModalShell
+            variant="main"
+            onBackdropClick={onClose}
+            dialogTitleId="interview-application-title"
           >
             <header className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-600">
                   Interview application
                 </p>
-                <h2 className="text-lg font-bold text-slate-900">{row?.candidateName || 'Candidate'}</h2>
+                <h2 id="interview-application-title" className="text-lg font-bold text-slate-900">{row?.candidateName || 'Candidate'}</h2>
                 <p className="text-xs text-slate-500">{row?.formName}</p>
               </div>
               <button
@@ -301,7 +293,7 @@ export function InterviewApplicationReviewDrawer({ applicationId, onClose, onUpd
                 </>
               ) : null}
             </div>
-          </motion.aside>
+          </DetailsModalShell>
         </>
       ) : null}
     </AnimatePresence>

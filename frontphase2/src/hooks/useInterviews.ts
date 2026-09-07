@@ -196,7 +196,7 @@ const activityColor = (action: string): 'blue' | 'green' | 'orange' | 'red' | 's
   return 'blue';
 };
 
-const mapInterview = (item: BackendInterviewListItem): Interview => {
+export const mapBackendInterviewToUi = (item: BackendInterviewListItem): Interview => {
   const candidate = item?.candidate;
   const job = item?.job;
   const client = item?.client || job?.client || null;
@@ -329,7 +329,7 @@ const normalizeInterviewListResponse = (
   for (const item of rawItems) {
     try {
       if (!item?.id) continue;
-      interviews.push(mapInterview(item));
+      interviews.push(mapBackendInterviewToUi(item));
     } catch (err) {
       console.error('[interviews] skipped unreadable row', item?.id, err);
     }

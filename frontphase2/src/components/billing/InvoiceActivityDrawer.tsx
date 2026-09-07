@@ -31,6 +31,7 @@ import {
   Bell,
 } from 'lucide-react';
 import SendInvoiceReminderModal from './SendInvoiceReminderModal';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { openBillingInvoiceInNewTab, openInvoicePreviewTab } from '../../lib/openBillingInvoice';
 import {
   apiGetInvoiceActivity,
@@ -242,20 +243,15 @@ export default function InvoiceActivityDrawer({
 
   return (
     <>
-      <div
-        className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-        aria-hidden
-      />
-      <aside
-        className="fixed right-0 top-0 z-[81] flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200 bg-white shadow-2xl"
-        role="dialog"
-        aria-label="Invoice activity timeline"
+      <DetailsModalShell
+        variant="main"
+        onBackdropClick={onClose}
+        dialogTitleId="invoice-activity-title"
       >
         <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Invoice activity</p>
-            <h2 className="mt-0.5 truncate text-lg font-bold text-slate-900">
+            <h2 id="invoice-activity-title" className="mt-0.5 truncate text-lg font-bold text-slate-900">
               {data?.invoice?.invoiceNumber || (loading ? 'Loading…' : 'Invoice')}
             </h2>
           </div>
@@ -454,7 +450,7 @@ export default function InvoiceActivityDrawer({
             </>
           ) : null}
         </div>
-      </aside>
+      </DetailsModalShell>
 
       <SendInvoiceReminderModal
         open={reminderModalOpen}

@@ -144,6 +144,12 @@ function resolveJobFormSchema(job) {
 }
 
 function isPortalFieldVisible(job, field) {
+  if (field === 'companyName') {
+    const visibility = job?.publicFieldVisibility;
+    if (visibility && typeof visibility === 'object' && visibility.companyName === false) return false;
+    if (visibility && typeof visibility === 'object' && visibility.companyName === true) return true;
+    return isPortalFieldVisible(job, 'client');
+  }
   if (field === 'client') {
     if (job?.showClientNamePublicly === false) return false;
     const visibility = job?.publicFieldVisibility;
@@ -196,14 +202,17 @@ async function hydrateApplyJobPublicProfile(job) {
 function formatPublicJob(job) {
   const client = job.client;
   const showClient = isPortalFieldVisible(job, 'client');
+  const showCompany = isPortalFieldVisible(job, 'companyName');
   const recruiterProfile =
     buildRecruiterProfile(job.assignedTo) ||
     (job.recruiterProfile && typeof job.recruiterProfile === 'object' ? job.recruiterProfile : null);
   const payload = {
     id: job.id,
     title: job.title,
-    company: showClient ? client?.companyName || null : null,
-    companyLogo: showClient ? client?.logo || null : null,
+    company: showCompany
+      ? String(job.postingCompanyName || '').trim() || client?.companyName || null
+      : null,
+    companyLogo: showCompany ? client?.logo || null : null,
     showClientNamePublicly: showClient,
     publicFieldVisibility:
       job.publicFieldVisibility && typeof job.publicFieldVisibility === 'object'

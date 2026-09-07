@@ -59,6 +59,7 @@ import {
 import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
@@ -776,7 +777,7 @@ export default function RecycleBinPage() {
               ) : filteredFailedBulk.length === 0 ? (
                 <div className="px-4 py-10 text-center text-sm text-slate-500">No rows match your search.</div>
               ) : (
-                <div className="no-scrollbar overflow-x-auto">
+                <div className="min-w-0">
                   {failedBulkSelected.size > 0 ? (
                     <div className="flex items-center justify-between gap-3 border-b border-indigo-100/40 bg-indigo-50/30 px-4 py-2 text-sm">
                       <span className="font-medium text-slate-700">
@@ -794,7 +795,7 @@ export default function RecycleBinPage() {
                       </button>
                     </div>
                   ) : null}
-                  <table className="min-w-full text-left text-sm">
+                  <table className={`${PH2_TABLE_CLASS} text-sm`}>
                     <thead>
                       <tr className={RB_TABLE_HEAD_ROW}>
                         <th className={`${RB_TH} w-10`}>
@@ -1057,8 +1058,8 @@ export default function RecycleBinPage() {
                                 </button>
                               </div>
                           ) : null}
-                          <div className="no-scrollbar overflow-x-auto">
-                            <table className="min-w-full text-left text-sm">
+                          <div className="min-w-0">
+                            <table className={`${PH2_TABLE_CLASS} text-sm`}>
                               <thead>
                                 <tr className={RB_TABLE_HEAD_ROW}>
                                   <th className={`${RB_TH} w-10`}>

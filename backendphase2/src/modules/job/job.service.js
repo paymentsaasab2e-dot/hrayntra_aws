@@ -321,6 +321,7 @@ const JOB_PUBLIC_VISIBILITY_FIELDS = [
   'nationality',
   'jobTitle',
   'client',
+  'companyName',
   'contactPerson',
   'openings',
   'location',
@@ -353,6 +354,11 @@ function normalizePublicFieldVisibility(incoming, existing) {
   };
   apply(existing);
   apply(incoming);
+  const companyNameExplicit = (source) =>
+    source && typeof source === 'object' && !Array.isArray(source) && source.companyName !== undefined;
+  if (!companyNameExplicit(incoming) && !companyNameExplicit(existing)) {
+    merged.companyName = merged.client !== false;
+  }
   return merged;
 }
 
@@ -386,7 +392,7 @@ async function resolveRecruiterProfileForJob(job) {
   }
 }
 
-async function persistTenantJobPublicProfile(jobId, { aboutCompany, recruiterProfile }) {
+async function persistTenantJobPublicProfile(jobId, { aboutCompany, recruiterProfile, postingCompanyName }) {
   const idStr = String(jobId || '').trim();
   if (!/^[a-fA-F0-9]{24}$/.test(idStr)) return;
   const setDoc = { updatedAt: { $date: new Date().toISOString() } };
@@ -396,6 +402,10 @@ async function persistTenantJobPublicProfile(jobId, { aboutCompany, recruiterPro
   }
   if (recruiterProfile !== undefined) {
     setDoc.recruiterProfile = recruiterProfile || null;
+  }
+  if (postingCompanyName !== undefined) {
+    const text = String(postingCompanyName || '').trim();
+    setDoc.postingCompanyName = text || null;
   }
   try {
     await prisma.$runCommandRaw({
@@ -440,6 +450,11 @@ async function loadJobForPortalSync(jobId) {
 }
 
 function isPortalSyncFieldVisible(visibility, showClient, field) {
+  if (field === 'companyName') {
+    if (visibility && typeof visibility === 'object' && visibility.companyName === false) return false;
+    if (visibility && typeof visibility === 'object' && visibility.companyName === true) return true;
+    return isPortalSyncFieldVisible(visibility, showClient, 'client');
+  }
   if (field === 'client') {
     if (showClient === false) return false;
     if (visibility && typeof visibility === 'object' && visibility.client === false) return false;
@@ -506,16 +521,44 @@ function scrubPortalDescriptionForVisibility(visibility, showClient, value) {
   return stripHiddenPortalDescriptionSections(value, patterns) || null;
 }
 
+function resolvePostedCompanyName(job, payload = {}) {
+  const fromPayload =
+    payload.postingCompanyName !== undefined ? payload.postingCompanyName : job?.postingCompanyName;
+  const posted = String(fromPayload || '').trim();
+  if (posted) return posted;
+  return String(job?.client?.companyName || '').trim() || null;
+}
+
+async function resolvePostedOrgUnitId(data) {
+  const requested = String(data?.orgUnitId || '').trim();
+  if (!requested || !/^[a-fA-F0-9]{24}$/.test(requested)) return null;
+  try {
+    const unit = await prisma.orgUnit.findFirst({
+      where: { id: requested },
+      select: { id: true },
+    });
+    return unit?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 function applyVisibilityToPortalSyncPayload(jobPortalData, resolvedVisibility, resolvedShowClient) {
   const show = (field) => isPortalSyncFieldVisible(resolvedVisibility, resolvedShowClient, field);
   const out = { ...jobPortalData };
 
-  // Hide employer identity completely on the portal mirror — Phase 1 joins client by id.
+  // Hide CRM client identity on the portal mirror when Client Name is hidden.
   if (!show('client')) {
     out.clientId = null;
     out.showClientNamePublicly = false;
     if (out.publicFieldVisibility && typeof out.publicFieldVisibility === 'object') {
       out.publicFieldVisibility = { ...out.publicFieldVisibility, client: false };
+    }
+  }
+  if (!show('companyName')) {
+    out.postingCompanyName = null;
+    if (out.publicFieldVisibility && typeof out.publicFieldVisibility === 'object') {
+      out.publicFieldVisibility = { ...out.publicFieldVisibility, companyName: false };
     }
   }
 
@@ -833,6 +876,7 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     forecastRevenue: job.forecastRevenue || null,
     videoMediaLink: job.videoMediaLink || null,
     postedDate: job.postedDate || job.createdAt || null,
+    postingCompanyName: resolvePostedCompanyName(job, payload),
     aboutCompany: job.aboutCompany || payload.aboutCompany || null,
     recruiterProfile: await resolveRecruiterProfileForJob(job),
   },
@@ -1217,15 +1261,23 @@ export const jobService = {
       workMode: job.workMode || null,
       priority: job.priority || null,
       salary: job.salary || null,
-      company: job.client
-        ? {
-            id: job.client.id,
-            companyName: job.client.companyName,
-            logo: job.client.logo || null,
-            industry: job.client.industry || null,
-            location: job.client.location || null,
-          }
-        : null,
+      company: (() => {
+        const hideCompany = !isPortalSyncFieldVisible(
+          job.publicFieldVisibility,
+          job.showClientNamePublicly !== false,
+          'companyName',
+        );
+        if (hideCompany) return null;
+        const companyName = resolvePostedCompanyName(job);
+        if (!companyName && !job.client) return null;
+        return {
+          id: job.client?.id || null,
+          companyName: companyName || job.client?.companyName || null,
+          logo: job.client?.logo || null,
+          industry: job.client?.industry || null,
+          location: job.client?.location || null,
+        };
+      })(),
     }));
   },
 
@@ -1682,6 +1734,7 @@ export const jobService = {
         data.publicFieldVisibility && typeof data.publicFieldVisibility === 'object'
           ? normalizePublicFieldVisibility(data.publicFieldVisibility, null)
           : null,
+      postingCompanyName: String(data.postingCompanyName || '').trim() || null,
     });
 
     if (data.clientId) {
@@ -1726,7 +1779,10 @@ export const jobService = {
     const ownCompanyClientId = await resolveOwnCompanyClientId();
     const isOwnCompanyJob =
       ownCompanyClientId && data.clientId && String(data.clientId) === String(ownCompanyClientId);
-    if (!isOwnCompanyJob) {
+    const postedOrgUnitId = await resolvePostedOrgUnitId(data);
+    if (postedOrgUnitId) {
+      jobData.orgUnitId = postedOrgUnitId;
+    } else if (!isOwnCompanyJob) {
       const writeOrgUnitId = req ? await resolveWriteOrgUnitId(req).catch(() => null) : null;
       if (writeOrgUnitId) jobData.orgUnitId = writeOrgUnitId;
     }
@@ -1813,9 +1869,11 @@ export const jobService = {
     await persistTenantJobPublicProfile(job.id, {
       aboutCompany: data.aboutCompany ?? null,
       recruiterProfile,
+      postingCompanyName: data.postingCompanyName ?? job.postingCompanyName ?? null,
     });
     job.aboutCompany = String(data.aboutCompany || '').trim() || null;
     job.recruiterProfile = recruiterProfile;
+    job.postingCompanyName = String(data.postingCompanyName || job.postingCompanyName || '').trim() || null;
 
     try {
       const platforms = data.distributionPlatforms || job.distributionPlatforms;
@@ -2015,6 +2073,11 @@ export const jobService = {
       videoMediaLink: data.videoMediaLink,
       languages: data.languages,
       managerId: data.managerId,
+      postingCompanyName:
+        data.postingCompanyName === undefined
+          ? undefined
+          : String(data.postingCompanyName || '').trim() || null,
+      orgUnitId: data.orgUnitId === undefined ? undefined : (await resolvePostedOrgUnitId(data)) || null,
     });
 
     // HQ lock wins: a tenant edit can never re-expose a client name HQ has hidden.
@@ -2122,6 +2185,8 @@ export const jobService = {
       await persistTenantJobPublicProfile(id, {
         aboutCompany: data.aboutCompany !== undefined ? data.aboutCompany : updatedJob.aboutCompany,
         recruiterProfile,
+        postingCompanyName:
+          data.postingCompanyName !== undefined ? data.postingCompanyName : updatedJob.postingCompanyName,
       });
       updatedJob.aboutCompany =
         data.aboutCompany !== undefined
@@ -2343,6 +2408,8 @@ export const jobService = {
     await persistTenantJobPublicProfile(id, {
       aboutCompany: data.aboutCompany !== undefined ? data.aboutCompany : updated.aboutCompany,
       recruiterProfile,
+      postingCompanyName:
+        data.postingCompanyName !== undefined ? data.postingCompanyName : updated.postingCompanyName,
     });
     updated.aboutCompany =
       data.aboutCompany !== undefined
@@ -2655,6 +2722,311 @@ export const jobService = {
       noCandidates: noCandidatesCount,
       nearSla: nearSlaCount,
       closedThisMonth,
+    };
+  },
+
+  async getClientRemarks(jobId, req = null) {
+    const job = await this.getById(jobId, req);
+    if (!job) return null;
+
+    const jobTitle = String(job.title || '').trim();
+    const defaultClientName = String(job.client?.companyName || '').trim() || 'Client';
+
+    const [activities, interviews, matches] = await Promise.all([
+      prisma.activity.findMany({
+        where: {
+          entityType: 'CANDIDATE',
+          relatedId: jobId,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      }),
+      prisma.interview.findMany({
+        where: { jobId },
+        select: {
+          id: true,
+          notes: true,
+          candidateId: true,
+          createdAt: true,
+          updatedAt: true,
+          scheduledAt: true,
+          client: { select: { companyName: true } },
+          candidate: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              avatar: true,
+              extraData: true,
+            },
+          },
+        },
+      }),
+      prisma.match.findMany({
+        where: { jobId },
+        select: {
+          candidate: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              avatar: true,
+              extraData: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const candidateById = new Map();
+    const rememberCandidate = (row) => {
+      if (!row?.id || candidateById.has(row.id)) return;
+      const name = `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.email || 'Candidate';
+      candidateById.set(row.id, {
+        id: row.id,
+        name,
+        email: row.email || null,
+        avatar: row.avatar || null,
+        extraData: row.extraData,
+      });
+    };
+
+    for (const match of matches) rememberCandidate(match.candidate);
+    for (const interview of interviews) rememberCandidate(interview.candidate);
+
+    const missingIds = [
+      ...new Set(activities.map((row) => String(row.entityId || '').trim()).filter(Boolean)),
+    ].filter((id) => !candidateById.has(id));
+    if (missingIds.length) {
+      const extraCandidates = await prisma.candidate.findMany({
+        where: { id: { in: missingIds } },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          avatar: true,
+          extraData: true,
+        },
+      });
+      extraCandidates.forEach(rememberCandidate);
+    }
+
+    const getMeta = (activity) =>
+      activity?.metadata && typeof activity.metadata === 'object' && !Array.isArray(activity.metadata)
+        ? activity.metadata
+        : {};
+
+    const isReviewActivity = (activity) => {
+      const metadata = getMeta(activity);
+      const action = String(activity?.action || '');
+      const description = String(activity?.description || metadata.text || '');
+      if (metadata.kind === 'match-client-review') return true;
+      if (/^client review submitted/i.test(action)) return true;
+      if (/^client uploaded/i.test(action)) return true;
+      return description.includes('[Client Tag]') || description.includes('[Client Upload]');
+    };
+
+    const isSubmissionActivity = (activity) => {
+      if (isReviewActivity(activity)) return false;
+      const metadata = getMeta(activity);
+      const action = String(activity?.action || '').toLowerCase();
+      return metadata.kind === 'match-submission' || action.includes('submitted to client');
+    };
+
+    const parseNotes = (notes) => {
+      const responses = [];
+      const lines = String(notes || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      for (const line of lines) {
+        if (line.startsWith('[Client Tag]')) {
+          const rest = line.replace('[Client Tag]', '').trim();
+          const dashIdx = rest.indexOf(' - ');
+          responses.push({
+            tag: dashIdx >= 0 ? rest.slice(0, dashIdx).trim() : rest,
+            comments: dashIdx >= 0 ? rest.slice(dashIdx + 3).trim() : '',
+            documentLabel: null,
+            documentFileName: null,
+            documentUrl: null,
+          });
+          continue;
+        }
+        if (line.startsWith('[Client Upload]')) {
+          const rest = line.replace('[Client Upload]', '').trim();
+          const colonIdx = rest.indexOf(':');
+          const documentLabel = colonIdx >= 0 ? rest.slice(0, colonIdx).trim() : rest;
+          const documentFileName = colonIdx >= 0 ? rest.slice(colonIdx + 1).trim() : '';
+          const last = responses[responses.length - 1];
+          if (last && !last.documentFileName) {
+            last.documentLabel = documentLabel;
+            last.documentFileName = documentFileName;
+          } else {
+            responses.push({
+              tag: '',
+              comments: '',
+              documentLabel,
+              documentFileName,
+              documentUrl: null,
+            });
+          }
+        }
+      }
+      return responses;
+    };
+
+    const buckets = new Map();
+    const bucketFor = (candidateId) => {
+      const id = String(candidateId || '').trim();
+      if (!id) return null;
+      if (!buckets.has(id)) {
+        const candidate = candidateById.get(id);
+        buckets.set(id, {
+          candidateId: id,
+          candidateName: candidate?.name || 'Candidate',
+          email: candidate?.email || null,
+          avatar: candidate?.avatar || null,
+          submittedAt: null,
+          remarks: [],
+        });
+      }
+      return buckets.get(id);
+    };
+
+    const remarkKey = (row) =>
+      `${String(row.tag || '').trim()}|${String(row.comments || '').trim()}|${String(row.documentFileName || '').trim()}`.toLowerCase();
+
+    const pushRemark = (entry, remark) => {
+      if (!entry || !remark) return;
+      const tag = String(remark.tag || '').trim();
+      const comments = String(remark.comments || '').trim();
+      const documentUrl = String(remark.documentUrl || '').trim() || null;
+      const documentFileName = String(remark.documentFileName || '').trim() || null;
+      if (!tag && !comments && !documentUrl && !documentFileName) return;
+      const next = {
+        id: String(remark.id || `${entry.candidateId}-${entry.remarks.length}`),
+        clientName: String(remark.clientName || defaultClientName).trim() || defaultClientName,
+        jobTitle: remark.jobTitle || jobTitle || null,
+        tag,
+        comments,
+        documentUrl,
+        documentFileName,
+        documentLabel: remark.documentLabel || null,
+        repliedAt: remark.repliedAt || null,
+        submissionType: remark.submissionType || 'GENERAL',
+      };
+      const key = remarkKey(next);
+      if (entry.remarks.some((row) => remarkKey(row) === key)) return;
+      entry.remarks.push(next);
+    };
+
+    for (const activity of activities) {
+      const entry = bucketFor(activity.entityId);
+      if (!entry) continue;
+      const metadata = getMeta(activity);
+      if (isReviewActivity(activity)) {
+        const parsed = parseNotes(String(activity.description || '').replace(/\s+\|\s+/g, '\n'))[0] || null;
+        pushRemark(entry, {
+          id: activity.id,
+          clientName: metadata.clientName || defaultClientName,
+          jobTitle: metadata.jobTitle || activity.relatedLabel || jobTitle,
+          tag: metadata.tag || parsed?.tag || '',
+          comments: metadata.comments || parsed?.comments || '',
+          documentUrl: metadata.offerLetterUrl || parsed?.documentUrl || null,
+          documentFileName: metadata.documentFileName || parsed?.documentFileName || null,
+          documentLabel: parsed?.documentLabel || null,
+          repliedAt: activity.createdAt,
+          submissionType: metadata.submissionType || 'GENERAL',
+        });
+      } else if (isSubmissionActivity(activity) && !entry.submittedAt) {
+        entry.submittedAt = activity.createdAt;
+      }
+    }
+
+    for (const interview of interviews) {
+      const parsed = parseNotes(interview.notes);
+      if (!parsed.length) continue;
+      const entry = bucketFor(interview.candidateId);
+      parsed.forEach((response, index) => {
+        pushRemark(entry, {
+          id: `${interview.id}-reply-${index}`,
+          clientName: interview.client?.companyName || defaultClientName,
+          jobTitle,
+          tag: response.tag,
+          comments: response.comments,
+          documentUrl: response.documentUrl,
+          documentFileName: response.documentFileName,
+          documentLabel: response.documentLabel,
+          repliedAt: interview.updatedAt || interview.scheduledAt || interview.createdAt,
+          submissionType: 'GENERAL',
+        });
+      });
+    }
+
+    for (const candidate of candidateById.values()) {
+      const extra = candidate.extraData;
+      const reviews =
+        extra && typeof extra === 'object' && !Array.isArray(extra) && Array.isArray(extra.clientReviews)
+          ? extra.clientReviews
+          : [];
+      const linked = buckets.has(candidate.id);
+      for (const row of reviews) {
+        if (!row || typeof row !== 'object') continue;
+        const rowJobId = String(row.jobId || '').trim();
+        const rowJobTitle = String(row.jobTitle || '').trim().toLowerCase();
+        const matchesJob =
+          (rowJobId && rowJobId === jobId) ||
+          (rowJobTitle && rowJobTitle === jobTitle.toLowerCase()) ||
+          (!rowJobId && !rowJobTitle && linked);
+        if (!matchesJob) continue;
+        pushRemark(bucketFor(candidate.id), {
+          id: row.id,
+          clientName: row.clientName || defaultClientName,
+          jobTitle: row.jobTitle || jobTitle,
+          tag: row.tag,
+          comments: row.comments,
+          documentUrl: row.documentUrl,
+          documentFileName: row.documentFileName,
+          documentLabel: row.documentLabel,
+          repliedAt: row.repliedAt,
+          submissionType: row.submissionType || 'GENERAL',
+        });
+      }
+    }
+
+    const candidates = [...buckets.values()]
+      .map((row) => {
+        const remarks = [...row.remarks].sort((a, b) => {
+          const aTime = new Date(a.repliedAt || 0).getTime();
+          const bTime = new Date(b.repliedAt || 0).getTime();
+          return bTime - aTime;
+        });
+        return {
+          candidateId: row.candidateId,
+          candidateName: row.candidateName,
+          email: row.email,
+          avatar: row.avatar,
+          submittedAt: row.submittedAt,
+          waiting: remarks.length === 0,
+          remarks,
+        };
+      })
+      .filter((row) => row.remarks.length > 0 || row.submittedAt)
+      .sort((a, b) => {
+        const aTime = new Date(a.remarks[0]?.repliedAt || a.submittedAt || 0).getTime();
+        const bTime = new Date(b.remarks[0]?.repliedAt || b.submittedAt || 0).getTime();
+        return bTime - aTime;
+      });
+
+    return {
+      jobId,
+      jobTitle,
+      clientName: defaultClientName,
+      remarkCount: candidates.reduce((sum, row) => sum + row.remarks.length, 0),
+      candidates,
     };
   },
 };

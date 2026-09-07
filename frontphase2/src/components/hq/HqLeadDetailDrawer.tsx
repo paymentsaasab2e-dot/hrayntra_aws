@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarClock, ChevronDown, LayoutGrid, MessageSquare, Pencil, X } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { apiHqAddLeadFollowUp, apiHqAddLeadRemark, apiHqCompleteLeadFollowUp, apiHqDeleteLeadFollowUp, apiHqUpdateLeadFollowUp } from '@/lib/api';
 import { HqFollowUpTabPanel } from './HqFollowUpTabPanel';
 import { DrawerTabBar } from '../drawers/DrawerTabBar';
@@ -358,22 +359,12 @@ export function HqLeadDetailDrawer({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[1200]">
-      <button
-        type="button"
-        aria-label="Close lead drawer backdrop"
-        className="absolute inset-0 z-0 bg-slate-900/40 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
-
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="hq-lead-detail-title"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="absolute right-0 top-0 z-10 flex h-full w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl pointer-events-auto"
-      >
+    <DetailsModalShell
+      variant="main"
+      onBackdropClick={onClose}
+      dialogTitleId="hq-lead-detail-title"
+    >
+      <div className="flex h-full min-h-0 flex-col bg-white">
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-rose-50/40 to-white px-6 py-5">
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -808,10 +799,9 @@ export function HqLeadDetailDrawer({
                 ) : null}
               </>
             )}
-          </div>
         </div>
-      </aside>
-    </div>,
+      </div>
+    </DetailsModalShell>,
     document.body
   );
 }

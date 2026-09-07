@@ -73,6 +73,7 @@ import {
 import { HqPhase1CommandDashboard } from '../../components/hq/analytics/HqPhase1CommandDashboard';
 import { HqPhase2CommandDashboard } from '../../components/hq/analytics/HqPhase2CommandDashboard';
 import { HqAnalyticsLoadingSkeleton } from '../../components/hq/analytics/HqAnalyticsLoadingSkeleton';
+import { HQ_TABLE_BODY_SCROLL_CLASS, HQ_TABLE_CLASS } from '../../components/hq/HqModulePageLayout';
 
 interface HqStats {
   total: number;
@@ -981,8 +982,8 @@ function TenantsPanel({
       ) : visibleTenants.length === 0 ? (
         <div className="px-5 pb-5 text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No users yet.'}</div>
       ) : (
-        <div className="hq-table-scroll px-1 pb-2">
-          <table className="min-w-full text-left">
+        <div className={`${HQ_TABLE_BODY_SCROLL_CLASS} px-1 pb-2`}>
+          <table className={HQ_TABLE_CLASS}>
             <thead>
               <tr>
                 <th>Name</th>

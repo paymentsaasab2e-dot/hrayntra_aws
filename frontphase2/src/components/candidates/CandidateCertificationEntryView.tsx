@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { ExternalLink } from 'lucide-react';
 import {
   formatCertificationMonthDisplay,
   normalizeCertificationRecord,
@@ -9,6 +8,7 @@ import {
 } from '@/lib/candidateCertificationFields';
 import { phase1FieldLabelClass, phase1FieldValueClass } from '@/lib/phase1Typography';
 import { CandidateWorkExperienceDocumentsField } from './CandidateWorkExperienceDocumentsField';
+import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
 
 function display(value: unknown): string {
   if (value === undefined || value === null) return '';
@@ -74,19 +74,15 @@ export function CandidateCertificationEntryView({
         />
       </div>
 
-      {credentialUrl ? (
+      {credentialUrl && looksLikeHttpUrl(credentialUrl) ? (
         <div>
           <p className={phase1FieldLabelClass}>Credential URL</p>
-          <a
-            href={credentialUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-violet-700 hover:text-violet-900 ${phase1FieldValueClass}`}
-          >
-            {credentialUrl}
-            <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-          </a>
+          <div className="mt-1">
+            <DrawerLinkActions url={credentialUrl} shareTitle="Credential URL" />
+          </div>
         </div>
+      ) : credentialUrl ? (
+        <FieldBlock label="Credential URL" value={credentialUrl} />
       ) : null}
 
       <FieldBlock label="Description" value={normalized.description} />

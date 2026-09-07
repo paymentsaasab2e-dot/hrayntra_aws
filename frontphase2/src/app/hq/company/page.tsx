@@ -28,7 +28,9 @@ import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
   HQ_TABLE_CARD_CLASS,
+  HQ_TABLE_CLASS,
   HQ_TOOLBAR_ROW_CLASS,
+  HQ_KPI_ROW_CLASS,
 } from '@/components/hq/HqModulePageLayout';
 import { HqPrimaryButton, HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import {
@@ -420,7 +422,7 @@ export default function HqCompanyPage() {
           </div>
         ) : null}
 
-        <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-6">
+        <div className={HQ_KPI_ROW_CLASS}>
           <HqStatCard label="Total Companies" value={stats.total} />
           <HqStatCard label="Active" value={stats.active} delta="+12%" active />
           <HqStatCard label="Inactive" value={stats.inactive} />
@@ -473,7 +475,7 @@ export default function HqCompanyPage() {
           </div>
 
           <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
-            <table className="min-w-full text-left">
+            <table className={HQ_TABLE_CLASS}>
               <thead>
                 <tr>
                   <th>

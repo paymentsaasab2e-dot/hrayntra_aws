@@ -4,12 +4,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { ClientReviewBatchTable } from '../../../components/candidates/ClientReviewBatchTable';
 import { ClientReviewCandidateDrawer } from '../../../components/candidates/ClientReviewCandidateDrawer';
-import {
-  PURPOSE_COPY,
-  type ClientReviewBatchRow,
-  type ClientReviewData,
-} from '../../../lib/clientReviewTypes';
+import { PURPOSE_COPY, type ClientReviewBatchRow, type ClientReviewData } from '../../../lib/clientReviewTypes';
 import { getApiErrorMessage, readApiJson } from '../../../lib/apiNetworkErrors';
+import { maskClientReviewStorageUrls } from '../../../lib/clientReviewAssets';
 
 const LOCAL_API_BASE = 'http://127.0.0.1:5001/api/v1';
 const PROD_PROXY_BASE = '/api/proxy';
@@ -54,6 +51,7 @@ export default function ClientReviewPage() {
         designation: reviewData.candidate?.designation,
         experience: reviewData.candidate?.experience ?? null,
         jobTitle: reviewData.job?.title,
+        matchScore: reviewData.matchScore ?? null,
         detail: reviewData,
       },
     ];
@@ -80,7 +78,7 @@ export default function ClientReviewPage() {
         }
         if (cancelled) return;
         const data: ClientReviewData = payload.data || payload;
-        setReviewData(data);
+        setReviewData(maskClientReviewStorageUrls(data, token));
       } catch (err: unknown) {
         if (cancelled) return;
         setError(getApiErrorMessage(err) || 'Unable to load review details');
@@ -101,11 +99,11 @@ export default function ClientReviewPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#eef2ff_0,_#f8fafc_42%,_#f5f3ff_100%)]">
-      <header className="border-b border-indigo-100/80 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      <header className="shrink-0 border-b border-slate-200 bg-white">
+        <div className="flex w-full items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-sm font-bold text-white shadow-sm">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-sm font-bold text-white">
               H
             </span>
             <div>
@@ -121,61 +119,58 @@ export default function ClientReviewPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <div className="overflow-hidden rounded-[28px] border border-white/80 bg-white/90 shadow-[0_24px_80px_-40px_rgba(79,70,229,0.45)]">
-          <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-6 py-7 text-white sm:px-8">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
-              {purpose.title}
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-              {tableRows.length > 1 ? 'Submitted candidates' : 'Candidate review'}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/85">{purpose.body}</p>
-            {reviewData?.job?.title ? (
-              <p className="mt-4 inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-medium text-white">
-                Role: {reviewData.job.title}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="px-5 py-6 sm:px-8 sm:py-8">
-            {loading ? (
-              <div className="rounded-2xl border border-dashed border-indigo-100 bg-indigo-50/40 px-5 py-10 text-center text-sm text-slate-500">
-                Loading review details...
-              </div>
-            ) : null}
-            {error ? (
-              <p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-                {error}
-              </p>
-            ) : null}
-
-            {reviewData ? (
-              <div className="space-y-4">
-                <ClientReviewBatchTable
-                  rows={tableRows.map((row) => ({
-                    ...row,
-                    candidateName:
-                      reviewedMatchIds.includes(row.matchId) && row.candidateName
-                        ? `${row.candidateName} ✓`
-                        : row.candidateName,
-                  }))}
-                  onView={(row) => setDrawerRow(row)}
-                />
-                {reviewedMatchIds.length > 0 ? (
-                  <p className="text-sm font-medium text-emerald-600">
-                    {reviewedMatchIds.length} of {tableRows.length} candidate
-                    {tableRows.length === 1 ? '' : 's'} reviewed.
-                  </p>
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    Click a candidate row or View to open the profile and submit your decision.
-                  </p>
-                )}
-              </div>
-            ) : null}
-          </div>
+      <div className="shrink-0 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-3.5 text-white sm:px-6 lg:px-8">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="text-base font-semibold tracking-tight sm:text-lg">
+            {purpose.title}
+          </h1>
+          {reviewData?.job?.title ? (
+            <span className="max-w-[16rem] truncate rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium text-white/90">
+              {reviewData.job.title}
+            </span>
+          ) : null}
         </div>
+        <p className="mt-1 text-xs leading-5 text-white/80 sm:text-sm">{purpose.body}</p>
+      </div>
+
+      <main className="flex min-h-0 flex-1 flex-col bg-white">
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center px-4 py-16 text-sm text-slate-500">
+            Loading review details...
+          </div>
+        ) : null}
+        {error ? (
+          <p className="m-4 border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-600 sm:m-6 lg:mx-8">
+            {error}
+          </p>
+        ) : null}
+
+        {reviewData ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ClientReviewBatchTable
+              rows={tableRows.map((row) => ({
+                ...row,
+                candidateName:
+                  reviewedMatchIds.includes(row.matchId) && row.candidateName
+                    ? `${row.candidateName} ✓`
+                    : row.candidateName,
+              }))}
+              onView={(row) => setDrawerRow(row)}
+            />
+            <div className="border-t border-slate-100 px-4 py-3 sm:px-6 lg:px-8">
+              {reviewedMatchIds.length > 0 ? (
+                <p className="text-sm font-medium text-emerald-600">
+                  {reviewedMatchIds.length} of {tableRows.length} candidate
+                  {tableRows.length === 1 ? '' : 's'} reviewed.
+                </p>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  Click a candidate row or View to open the profile and submit your decision.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : null}
       </main>
 
       <ClientReviewCandidateDrawer

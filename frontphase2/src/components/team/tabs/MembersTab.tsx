@@ -56,6 +56,9 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_KPI_ROW_CLASS,
+  PH2_TABLE_BODY_SCROLL_CLASS,
+  PH2_TABLE_CLASS,
 } from '../../../components/layout/Ph2ModulePageLayout';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../../components/ui/SummaryCard';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
@@ -550,7 +553,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
 
   return (
     <div className="space-y-6">
-      <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
+      <div className={PH2_KPI_ROW_CLASS}>
         {isLoading && members.length === 0 ? (
           (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
         ) : (
@@ -655,8 +658,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
           </div>
         </div>
 
-        <div className="overflow-hidden">
-          <div className="no-scrollbar overflow-x-auto">
+        <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
             {isLoading && members.length === 0 ? (
               <TableSkeleton rows={8} columns={9} className="border-0 shadow-none rounded-none" />
             ) : members.length === 0 ? (
@@ -668,7 +670,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
               (() => {
                 const show = teamColumnVisibility.isVisible;
                 return (
-              <table className="w-full min-w-[1160px] text-left">
+              <table className={PH2_TABLE_CLASS}>
                 <thead>
                   <tr className={TEAM_TABLE_HEAD_ROW}>
                     <th className={TEAM_TH}>Member</th>
@@ -879,7 +881,6 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                 );
               })()
             )}
-          </div>
         </div>
 
         {!isLoading && members.length > 0 ? (

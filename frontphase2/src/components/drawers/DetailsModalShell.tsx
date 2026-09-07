@@ -21,6 +21,11 @@ type DetailsModalShellProps = {
   panelClassName?: string;
   backdropClassName?: string;
   dialogTitleId?: string;
+  /**
+   * `centered` — floating modal over the page.
+   * `main` — fills the workspace to the right of the sidenav (below the top header).
+   */
+  variant?: 'centered' | 'main';
 };
 
 /**
@@ -36,8 +41,49 @@ export function DetailsModalShell({
   panelClassName = '',
   backdropClassName = '',
   dialogTitleId,
+  variant = 'centered',
 }: DetailsModalShellProps) {
   const maxWidth = SIZE_MAX_WIDTH[size];
+
+  if (variant === 'main') {
+    const mainInset = {
+      top: 'calc(var(--ph2-header-h, 3.5rem) + var(--ph2-impersonation-banner-h, 0px))',
+      left: 'var(--ph2-sidenav-w, 220px)',
+      right: 0,
+      bottom: 0,
+    } as const;
+
+    return (
+      <>
+        <motion.div
+          key="details-main-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onBackdropClick}
+          className={`fixed z-[35] bg-slate-900/25 md:bg-transparent pointer-events-auto ${backdropClassName}`.trim()}
+          style={mainInset}
+          data-drawer-skip-dirty="true"
+        />
+        <motion.div
+          key="details-main-panel"
+          ref={panelRef as React.Ref<HTMLDivElement>}
+          initial={{ opacity: 0, x: 28 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 28 }}
+          transition={{ type: 'spring', damping: 30, stiffness: 340 }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={dialogTitleId}
+          onClick={(e) => e.stopPropagation()}
+          className={`pointer-events-auto fixed z-[36] flex h-full min-h-0 flex-col overflow-hidden border-l border-indigo-100/70 bg-white shadow-[-18px_0_40px_-24px_rgba(15,23,42,0.28)] ${panelClassName}`.trim()}
+          style={mainInset}
+        >
+          {children}
+        </motion.div>
+      </>
+    );
+  }
 
   return (
     <>

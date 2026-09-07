@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { ExternalLink } from 'lucide-react';
 import {
   formatProjectDateDisplay,
   formatProjectDateLine,
@@ -10,6 +9,7 @@ import {
 } from '@/lib/candidateProjectFields';
 import { phase1FieldLabelClass, phase1FieldValueClass } from '@/lib/phase1Typography';
 import { CandidateWorkExperienceDocumentsField } from './CandidateWorkExperienceDocumentsField';
+import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
 
 function display(value: unknown): string {
   if (value === undefined || value === null) return '';
@@ -123,19 +123,15 @@ export function CandidateProjectEntryView({
 
         <FieldBlock label="Project Outcome / Results" value={normalized.projectOutcome} />
 
-        {projectLink ? (
+        {projectLink && looksLikeHttpUrl(projectLink) ? (
           <div>
             <p className={phase1FieldLabelClass}>Project Link</p>
-            <a
-              href={projectLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-violet-700 hover:text-violet-900 ${phase1FieldValueClass}`}
-            >
-              {projectLink}
-              <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-            </a>
+            <div className="mt-1">
+              <DrawerLinkActions url={projectLink} shareTitle="Project link" />
+            </div>
           </div>
+        ) : projectLink ? (
+          <FieldBlock label="Project Link" value={projectLink} />
         ) : null}
 
         {documents.length > 0 ? (

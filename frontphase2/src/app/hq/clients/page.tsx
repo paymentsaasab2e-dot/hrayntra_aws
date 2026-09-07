@@ -32,6 +32,7 @@ import {
   type HqProductLine,
 } from '@/components/hq/HqProductLinePicker';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '@/components/ui/SummaryCard';
+import { PH2_KPI_ROW_CLASS } from '@/components/layout/Ph2ModulePageLayout';
 import { TableBrandAvatar } from '@/components/ui/TableBrandAvatar';
 import {
   HQ_COMPANY_STATUS_LABELS,
@@ -500,7 +501,7 @@ export default function HqClientsPage() {
               </div>
             ) : null}
 
-            <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <div className={PH2_KPI_ROW_CLASS}>
               {loading
                 ? (['indigo', 'blue', 'orange', 'gray', 'purple'] as SummaryCardColor[]).map(
                     (color, i) => <SummaryCardSkeleton key={i} color={color} />,
@@ -536,8 +537,8 @@ export default function HqClientsPage() {
                 </div>
               </div>
 
-              <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
-                <table className="w-full min-w-[880px] text-left" aria-label="Clients">
+              <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
+                <table className="w-max min-w-full text-left" aria-label="Clients">
                   <thead className="sticky top-0 z-10">
                     <tr>
                       <th className="min-w-[11rem]">Client</th>

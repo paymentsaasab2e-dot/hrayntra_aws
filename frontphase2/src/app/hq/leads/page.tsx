@@ -38,6 +38,7 @@ import {
   resolveHqLeadProductLines,
 } from '@/components/hq/HqProductLinePicker';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '@/components/ui/SummaryCard';
+import { PH2_KPI_ROW_CLASS } from '@/components/layout/Ph2ModulePageLayout';
 import { TableBrandAvatar } from '@/components/ui/TableBrandAvatar';
 import { AssigneeAvatars } from '@/app/leads/AssigneeAvatars';
 import { SourceCell } from '@/app/leads/SourceCell';
@@ -1083,7 +1084,7 @@ export default function HqLeadsPage() {
           </div>
         ) : null}
 
-            <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-7">
+            <div className={PH2_KPI_ROW_CLASS}>
               {loading ? (
                 (['blue', 'yellow', 'purple', 'orange', 'green', 'gray', 'blue'] as SummaryCardColor[]).map((c, i) => (
                   <SummaryCardSkeleton key={i} color={c} />
@@ -1209,7 +1210,7 @@ export default function HqLeadsPage() {
                 ) : null}
           </div>
 
-              <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
+              <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
             {isDemosTab ? (
                   <>
                   {filteredDemos.length > 0 && (
@@ -1242,7 +1243,7 @@ export default function HqLeadsPage() {
                       </button>
                     </div>
                   )}
-                  <table className="w-full min-w-[860px] text-left" aria-label="Landing signups">
+                  <table className="w-max min-w-full text-left" aria-label="Landing signups">
                     <thead className="sticky top-0 z-10">
                       <tr>
                         <th>Contact</th>
@@ -1346,7 +1347,7 @@ export default function HqLeadsPage() {
               </table>
                   </>
                 ) : (
-                  <table className="w-full min-w-[1080px] text-left" aria-label="Leads">
+                  <table className="w-max min-w-full text-left" aria-label="Leads">
                     <thead className="sticky top-0 z-10">
                       <tr>
                         <th className="min-w-[11rem]">Lead</th>

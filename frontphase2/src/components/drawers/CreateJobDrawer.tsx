@@ -12,7 +12,6 @@ import {
   Linkedin,
   Twitter,
   Facebook,
-  ExternalLink,
   AlertCircle,
   User,
   SendHorizontal,
@@ -99,6 +98,7 @@ import { dedupeByCompanyName, normalizeCompanyNameKey } from '../../lib/companyN
 import {
   getStoredTenantCompanyName,
   resolveAddJobWorkspaceLabel,
+  resolveJobPostingCompanyChooser,
   useOrgWorkspace,
 } from '../../lib/org/useOrgWorkspace';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
@@ -136,6 +136,7 @@ import {
   DRAWER_FORM_HEADER_CLASS,
   DRAWER_FORM_SCROLL_BG,
 } from './drawerFormUi';
+import { DrawerLinkActions } from './DrawerLinkActions';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
@@ -903,6 +904,8 @@ export function CreateJobDrawer({
     orgUnitName,
     orgUnitId,
     homeIsOrgCompany,
+    companies: orgCompanies,
+    canSwitchCompanies,
   } = useOrgWorkspace();
   const [loading, setLoading] = useState(false);
   const [loadingJob, setLoadingJob] = useState(false);
@@ -1030,6 +1033,8 @@ export function CreateJobDrawer({
     priority: 'Medium',
     numberOfOpenings: '1',
     companyId: '',
+    postingOrgUnitId: '',
+    postingCompanyName: '',
     showClientNamePublicly: visibilityDefaultsForNewJob().showClientNamePublicly,
     publicFieldVisibility: visibilityDefaultsForNewJob().publicFieldVisibility,
     contactPersonId: '',
@@ -1225,6 +1230,8 @@ export function CreateJobDrawer({
         priority: 'Medium',
         numberOfOpenings: '1',
         companyId: '',
+        postingOrgUnitId: '',
+        postingCompanyName: '',
         showClientNamePublicly: visibilityDefaultsForNewJob().showClientNamePublicly,
         publicFieldVisibility: visibilityDefaultsForNewJob().publicFieldVisibility,
         contactPersonId: '',
@@ -1538,27 +1545,31 @@ export function CreateJobDrawer({
       const response = await apiGetSocialStatus();
       const nextLinkedinAccounts = mapIntegrationAccounts(response.data.linkedin.accounts || []);
       const nextTwitterAccounts = mapIntegrationAccounts(response.data.twitter.accounts || []);
-      const twitterConnected = response.data.twitter.connected;
-      const linkedInConnected = response.data.linkedin.connected;
       const linkedinKeys = getConnectedAccountKeys(nextLinkedinAccounts);
       const twitterKeys = getConnectedAccountKeys(nextTwitterAccounts);
+      const twitterConnected = Boolean(response.data.twitter.connected || twitterKeys.length);
+      const linkedInConnected = Boolean(response.data.linkedin.connected || linkedinKeys.length);
+      const facebookConnected = Boolean(response.data.facebook.connected);
 
       setLinkedinAccounts(nextLinkedinAccounts);
       setTwitterAccounts(nextTwitterAccounts);
-      setSelectedLinkedInTargets(
-        !jobId ? linkedinKeys : (prev) => prev.filter((key) => linkedinKeys.includes(key)),
-      );
-      setSelectedTwitterTargets(
-        !jobId ? twitterKeys : (prev) => prev.filter((key) => twitterKeys.includes(key)),
-      );
+      setSelectedLinkedInTargets((prev) => {
+        const kept = prev.filter((key) => linkedinKeys.includes(key));
+        return kept.length > 0 ? kept : linkedinKeys;
+      });
+      setSelectedTwitterTargets((prev) => {
+        const kept = prev.filter((key) => twitterKeys.includes(key));
+        return kept.length > 0 ? kept : twitterKeys;
+      });
 
       setFormData((prev) => ({
         ...prev,
         twitterConnected,
         twitterAccountName: response.data.twitter.accountName || '',
-        facebookConnected: response.data.facebook.connected,
+        facebookConnected,
         ...(!jobId && twitterConnected ? { twitterEnabled: true } : {}),
         ...(!jobId && linkedInConnected ? { linkedInEnabled: true } : {}),
+        ...(!jobId && facebookConnected ? { facebookEnabled: true } : {}),
       }));
     } catch (err) {
       console.error('Failed to load social status:', err);
@@ -1664,7 +1675,7 @@ export function CreateJobDrawer({
     const company = clients.find((c) => c.id === formData.companyId);
     return {
       jobTitle: formData.jobTitle,
-      companyName: company?.companyName || '',
+      companyName: formData.postingCompanyName || company?.companyName || '',
       contactPersonName: formData.contactPersonName,
       numberOfOpenings: formData.numberOfOpenings,
       priority: formData.priority,
@@ -2123,6 +2134,8 @@ export function CreateJobDrawer({
         jobTitle: isDuplicateMode ? `${job.title || ''} Copy` : (job.title || ''),
         priority: jobExtras.priority || 'Medium',
         companyId: job.clientId || '',
+        postingOrgUnitId: String((job as { orgUnitId?: string }).orgUnitId || ''),
+        postingCompanyName: String((job as { postingCompanyName?: string }).postingCompanyName || ''),
         showClientNamePublicly: (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
         publicFieldVisibility: mergeClientVisibility(
           parseJobPublicFieldVisibility((job as { publicFieldVisibility?: unknown }).publicFieldVisibility),
@@ -3395,6 +3408,8 @@ export function CreateJobDrawer({
         hiringManager: formData.contactPersonName.trim() || undefined,
         hiringManagerId: formData.contactPersonId || undefined,
         aboutCompany: (formData.aboutCompany || '').trim() || null,
+        postingCompanyName: (formData.postingCompanyName || '').trim() || null,
+        orgUnitId: formData.postingOrgUnitId || (postingChooser.canChoose ? null : undefined),
         jobCategory: formData.industryType.trim() || undefined,
         expectedClosureDate: formData.targetHireDate || undefined,
         keyResponsibilities,
@@ -3516,7 +3531,13 @@ export function CreateJobDrawer({
       if (Object.values(platformsToPublish).some(Boolean) && createdJobId) {
         try {
           const company = clients.find(c => c.id === formData.companyId);
-          const companyName = formData.showClientNamePublicly ? company?.companyName || '' : '';
+          const companyName = isJobFieldPubliclyVisible(
+            formData.publicFieldVisibility,
+            'companyName',
+            formData.showClientNamePublicly,
+          )
+            ? formData.postingCompanyName || company?.companyName || ''
+            : '';
           let applyUrl = String(formData.linkedInExternalUrl || '').trim();
           if (!applyUrl) {
             try {
@@ -3756,6 +3777,8 @@ export function CreateJobDrawer({
           jobTitle: prev.jobTitle,
           priority: prev.priority,
           companyId: prev.companyId,
+          postingOrgUnitId: prev.postingOrgUnitId,
+          postingCompanyName: prev.postingCompanyName,
           showClientNamePublicly: prev.showClientNamePublicly,
           publicFieldVisibility: prev.publicFieldVisibility,
           contactPersonId: prev.contactPersonId,
@@ -3828,12 +3851,51 @@ export function CreateJobDrawer({
   const workspaceOwnerHeading = jobWorkspaceLabel.useOrganizationLabel
     ? 'Organization'
     : 'Company';
+  const postingChooser = useMemo(
+    () =>
+      resolveJobPostingCompanyChooser({
+        companies: orgCompanies,
+        orgUnitId,
+        orgUnitName,
+        hasCompanies,
+        homeIsOrgCompany,
+        canSwitchCompanies,
+        tenantCompanyName: ownCompanyClient?.companyName || getStoredTenantCompanyName(),
+      }),
+    [
+      orgCompanies,
+      orgUnitId,
+      orgUnitName,
+      hasCompanies,
+      homeIsOrgCompany,
+      canSwitchCompanies,
+      ownCompanyClient,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!postingChooser.defaultName) return;
+    setFormData((prev) => {
+      if (String(prev.postingCompanyName || '').trim()) return prev;
+      const fromId = postingChooser.options.find(
+        (option) => option.id && option.id === String(prev.postingOrgUnitId || '').trim(),
+      );
+      return {
+        ...prev,
+        postingOrgUnitId: fromId?.id || prev.postingOrgUnitId || postingChooser.defaultId,
+        postingCompanyName: fromId?.name || postingChooser.defaultName,
+      };
+    });
+  }, [isOpen, postingChooser.defaultId, postingChooser.defaultName]);
 
   const jobDetailsFormData: CreateJobDetailsFormData = {
     nationality: formData.nationality,
     jobTitle: formData.jobTitle,
     priority: formData.priority,
     companyId: formData.companyId,
+    postingOrgUnitId: formData.postingOrgUnitId,
+    postingCompanyName: formData.postingCompanyName,
     showClientNamePublicly: formData.showClientNamePublicly,
     publicFieldVisibility: formData.publicFieldVisibility,
     contactPersonId: formData.contactPersonId,
@@ -3861,6 +3923,7 @@ export function CreateJobDrawer({
     managerId: formData.managerId,
     assignedToId: formData.assignedToId,
     aboutCompany: formData.aboutCompany,
+    publicFieldVisibility: formData.publicFieldVisibility,
   };
 
   return (
@@ -3872,6 +3935,7 @@ export function CreateJobDrawer({
             panelRef={createJobPanelRef}
             onBackdropClick={() => void requestCreateJobClose()}
             size="lg"
+            variant="main"
             zIndexClass="z-50"
             dialogTitleId="create-job-modal-title"
           >
@@ -4258,6 +4322,9 @@ export function CreateJobDrawer({
                       useLineManagerPicker={useLineManagerPicker}
                       lineManagerOptions={lineManagers}
                       loadingLineManagers={loadingLineManagers}
+                      postingCompanyOptions={postingChooser.options}
+                      canChoosePostingCompany={postingChooser.canChoose}
+                      postingCompanyFieldLabel={postingChooser.fieldLabel}
                     />
                   </div>
               </DrawerSectionCard>
@@ -4931,10 +4998,12 @@ export function CreateJobDrawer({
                                 company={
                                   isJobFieldPubliclyVisible(
                                     formData.publicFieldVisibility,
-                                    'client',
+                                    'companyName',
                                     formData.showClientNamePublicly,
                                   )
-                                    ? clients.find((c) => c.id === formData.companyId)?.companyName || ''
+                                    ? formData.postingCompanyName ||
+                                      clients.find((c) => c.id === formData.companyId)?.companyName ||
+                                      ''
                                     : ''
                                 }
                                 description={
@@ -4975,15 +5044,7 @@ export function CreateJobDrawer({
                                 <Check size={16} className="text-green-600" />
                                 <span className="text-sm font-medium text-green-700">Posted to LinkedIn successfully!</span>
                               </div>
-                              <a
-                                href={linkedInPostUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-700"
-                              >
-                                View post on LinkedIn
-                                <ExternalLink size={12} />
-                              </a>
+                              <DrawerLinkActions url={linkedInPostUrl} shareTitle="LinkedIn job post" />
                             </div>
                           ) : null}
 
@@ -5096,13 +5157,12 @@ export function CreateJobDrawer({
                               </div>
 
                               <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">Application URL</label>
-                                <input
-                                  type="url"
-                                  readOnly
-                                  value={effectiveApplyUrl}
-                                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700"
-                                />
+                                <label className="mb-2 block text-sm font-medium text-slate-700">Application URL</label>
+                                {effectiveApplyUrl ? (
+                                  <DrawerLinkActions url={effectiveApplyUrl} shareTitle="Candidate apply link" />
+                                ) : (
+                                  <p className="text-sm text-slate-400">Apply link not available yet</p>
+                                )}
                               </div>
                             </>
                           ) : (

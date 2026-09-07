@@ -25,6 +25,7 @@ import {
   panelParamSchema,
   regenerateMeetingLinkSchema,
   reviewTokenParamSchema,
+  reviewFileParamSchema,
   rescheduleInterviewSchema,
   submitToClientSchema,
   updateInterviewSchema,
@@ -80,6 +81,16 @@ router.get(
   '/public/review/:token',
   validateRequest({ params: reviewTokenParamSchema }),
   interviewController.getPublicClientReview
+);
+router.get(
+  '/public/review/:token/resume',
+  validateRequest({ params: reviewTokenParamSchema }),
+  interviewController.streamPublicClientReviewResume
+);
+router.get(
+  '/public/review/:token/files/:fileId',
+  validateRequest({ params: reviewFileParamSchema }),
+  interviewController.streamPublicClientReviewFile
 );
 router.post(
   '/public/review/:token/tag',

@@ -22,7 +22,9 @@ import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
   HQ_TABLE_CARD_CLASS,
+  HQ_TABLE_CLASS,
   HQ_TOOLBAR_ROW_CLASS,
+  HQ_KPI_ROW_CLASS,
 } from '@/components/hq/HqModulePageLayout';
 import { HqPrimaryButton, HqSecondaryButton } from '@/components/hq/hqUi';
 import { PermissionPicker } from '@/components/team/PermissionPicker';
@@ -1098,7 +1100,7 @@ export default function HqTeamPage() {
         </div>
       ) : null}
 
-      <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+      <div className={HQ_KPI_ROW_CLASS}>
         <SummaryCard
           label="Members"
           count={stats.total}
@@ -1158,7 +1160,7 @@ export default function HqTeamPage() {
 
         <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
           {activeTab === 'members' ? (
-            <table className="min-w-full text-left">
+            <table className={HQ_TABLE_CLASS}>
               <thead>
                 <tr>
                   <th>Member</th>
@@ -1255,7 +1257,7 @@ export default function HqTeamPage() {
               </tbody>
             </table>
           ) : (
-            <table className="min-w-full text-left">
+            <table className={HQ_TABLE_CLASS}>
               <thead>
                 <tr>
                   <th>Role</th>

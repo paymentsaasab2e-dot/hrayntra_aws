@@ -180,7 +180,7 @@ export function ClientTable({
         className="hidden"
       />
       <div className={fillScrollParent ? 'contents' : 'no-scrollbar overflow-x-auto'}>
-        <table className="w-full min-w-[860px] border-collapse text-left">
+        <table className="w-max min-w-full border-collapse text-left">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
               <th className="w-10 px-3 sm:px-4 py-2 first:pl-4">

@@ -221,6 +221,7 @@ export function PlacementDetailsDrawer({
           panelRef={placementDrawerPanelRef}
           onBackdropClick={() => void requestPlacementDrawerClose()}
           size="md"
+          variant="main"
           zIndexClass="z-[100]"
           dialogTitleId="placement-detail-modal-title"
         >

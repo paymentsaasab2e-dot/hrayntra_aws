@@ -78,9 +78,13 @@ function buildDescriptionHtml(job) {
 }
 
 function shouldShowCompany(job) {
-  if (job?.showClientNamePublicly === false) return false;
   if (job?.hqHideClientName === true) return false;
   const visibility = job?.publicFieldVisibility;
+  if (visibility && typeof visibility === 'object') {
+    if (visibility.companyName === false) return false;
+    if (visibility.companyName === true) return true;
+  }
+  if (job?.showClientNamePublicly === false) return false;
   if (visibility && typeof visibility === 'object' && visibility.client === false) return false;
   return true;
 }
@@ -89,6 +93,7 @@ function companyName(job) {
   const hidden = !shouldShowCompany(job);
   if (hidden) return 'Confidential';
   return (
+    String(job.postingCompanyName || '').trim() ||
     String(job.client?.companyName || '').trim() ||
     String(job.company?.name || '').trim() ||
     'Confidential'

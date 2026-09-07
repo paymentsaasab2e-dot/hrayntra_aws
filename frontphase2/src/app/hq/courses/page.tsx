@@ -6,7 +6,9 @@ import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
   HQ_TABLE_CARD_CLASS,
+  HQ_TABLE_CLASS,
   HQ_TOOLBAR_ROW_CLASS,
+  HQ_KPI_ROW_CLASS,
 } from '@/components/hq/HqModulePageLayout';
 import { HqPrimaryButton, HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import {
@@ -973,7 +975,7 @@ export default function HqCoursesPage() {
         </div>
       ) : null}
 
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className={HQ_KPI_ROW_CLASS}>
         <HqStatCard label="Total courses" value={stats.total} />
         <HqStatCard label="Published" value={stats.published} />
         <HqStatCard label="Draft" value={stats.draft} />
@@ -1042,7 +1044,7 @@ export default function HqCoursesPage() {
               No courses yet. Click Create course to add one.
             </p>
           ) : (
-            <table className="min-w-full text-left text-sm">
+            <table className={`${HQ_TABLE_CLASS} text-sm`}>
               <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
                 <tr>
                   <th className="w-10 px-4 py-3">

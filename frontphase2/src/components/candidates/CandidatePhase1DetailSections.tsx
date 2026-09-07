@@ -22,6 +22,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
+import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
 import { getPhase1ProfileSnapshot, resolvePhase1PersonalInfo } from '@/lib/phase1ProfileSnapshot';
 import { joinCandidateNameParts } from '@/lib/mapCandidateProfile';
 import type { Phase1ClientSectionId, Phase1ClientSectionVisibility } from '@/lib/phase1ClientPresentationSections';
@@ -86,7 +87,11 @@ function FieldRow({ label, value }: { label: string; value?: unknown }) {
   return (
     <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
       <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-      {text ? (
+      {text && looksLikeHttpUrl(text) ? (
+        <div className="mt-1">
+          <DrawerLinkActions url={text} shareTitle={label} />
+        </div>
+      ) : text ? (
         <p className="mt-1 whitespace-pre-line break-words text-sm font-medium text-slate-800">{text}</p>
       ) : (
         <p className="mt-1 text-sm italic text-slate-400">Not provided</p>
@@ -661,16 +666,10 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility, on
                 <p className="text-sm font-semibold text-slate-900">
                   {link.label || link.type || `Link ${index + 1}`}
                 </p>
-                {link.url ? (
-                  <a
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1 inline-flex items-center gap-1 break-all text-sm text-violet-700 hover:underline"
-                  >
-                    {link.url}
-                    <ExternalLink size={12} className="shrink-0" />
-                  </a>
+                {link.url && looksLikeHttpUrl(link.url) ? (
+                  <div className="mt-1">
+                    <DrawerLinkActions url={link.url} shareTitle={link.label || link.type || 'Portfolio link'} />
+                  </div>
                 ) : (
                   <p className="mt-1 text-sm italic text-slate-400">URL not provided</p>
                 )}

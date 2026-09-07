@@ -17,9 +17,16 @@ export const PH2_TOOLBAR_ROW_CLASS =
 export const PH2_TABLE_CARD_FOOTER_CLASS =
   'mt-0 w-full min-w-0 shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-2.5 py-2 sm:px-4';
 
+/** KPI / status tiles — stay in one row and shrink on small screens. */
+export const PH2_KPI_ROW_CLASS =
+  'mb-2 sm:mb-4 grid shrink-0 grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-1 sm:gap-2 lg:gap-3';
+
 /** Scroll region for table rows inside a PH2 table card. */
 export const PH2_TABLE_BODY_SCROLL_CLASS =
-  'ph2-table-body-scroll min-h-0 min-w-0 max-w-full flex-1 overflow-auto';
+  'ph2-table-body-scroll min-h-0 min-w-0 max-w-full flex-1 overflow-x-auto overflow-y-auto';
+
+/** Wide list tables keep column width and scroll horizontally on small screens. */
+export const PH2_TABLE_CLASS = 'w-max min-w-full border-collapse text-left';
 
 /** Icon + page title row in module headers (vertically centered). */
 export const PH2_PAGE_HEADER_BRAND_CLASS = 'flex min-w-0 items-center gap-2 sm:gap-3';
@@ -61,7 +68,7 @@ export function Ph2ModulePageLayout({
           </div>
           {actions ? <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div> : null}
         </header>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-2 py-3 sm:px-5 sm:py-6 lg:px-6">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-2 py-2 sm:px-5 sm:py-4 lg:px-6">
           {children}
         </div>
         {belowScroll}

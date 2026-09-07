@@ -28,6 +28,11 @@ import {
   type SubmitToClientFieldVisibility,
 } from './submitToClientFieldVisibility';
 import { loadSubmitToClientVisibilityDefaults } from './submitToClientFieldVisibilityDefaults';
+import {
+  CLIENT_TRACKER_OPTION_DEFAULTS,
+  normalizeClientTrackerOptions,
+  type ClientTrackerOptions,
+} from './clientTrackerOptions';
 
 export type BulkSubmitCandidateEntry = {
   candidateId: string;
@@ -47,6 +52,9 @@ export type SubmitToClientPreviewResult = {
   jobTitle: string;
   clientEmail: string;
   clientName: string;
+  matchId: string;
+  batchMatchIds: string[];
+  trackerOptions: ClientTrackerOptions;
 };
 
 function candidateDisplayName(candidate: BackendCandidate, fallback?: string): string {
@@ -198,6 +206,7 @@ export async function generateSubmitToClientPreview(
 
   const batchMatchIds = prepared.map((item) => item.matchId);
   let reviewUrl: string | null = null;
+  const trackerOptions = normalizeClientTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS, true);
 
   for (let index = 0; index < prepared.length; index += 1) {
     const item = prepared[index]!;
@@ -205,9 +214,13 @@ export async function generateSubmitToClientPreview(
       message: `Please review the submitted candidate details${
         item.jobTitle ? ` for ${item.jobTitle}` : ''
       }.`,
+      // Preview modal: generate link only. Never auto-email the client.
+      // Recruiters open Gmail/Outlook compose themselves from the modal.
       notifyClient: false,
+      previewOnly: true,
       submissionType: 'INITIAL_REVIEW',
       batchMatchIds: batchMatchIds.length > 1 ? batchMatchIds : undefined,
+      trackerOptions,
     });
     if (index === 0) {
       reviewUrl = readSubmitMatchReviewUrl(submittedRaw);
@@ -233,5 +246,8 @@ export async function generateSubmitToClientPreview(
     jobTitle: mailContext.jobTitle,
     clientEmail: mailContext.clientEmail,
     clientName: mailContext.clientName,
+    matchId: prepared[0]!.matchId,
+    batchMatchIds,
+    trackerOptions,
   };
 }

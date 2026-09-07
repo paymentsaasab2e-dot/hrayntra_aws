@@ -12,7 +12,6 @@ import {
   Check,
   CheckCircle2,
   DollarSign,
-  ExternalLink,
   FileText,
   Folder,
   Globe,
@@ -54,6 +53,7 @@ import {
 } from '@/app/hq/leads/hqLeadsData';
 import { isInternalLeadOtherDetailLabel } from '@/lib/leadInternalOtherDetails';
 import { useHqMoney } from '@/components/hq/HqCurrencyProvider';
+import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 
 const PIPELINE_STAGES: { id: HqLeadStage; label: string }[] = [
   { id: 'new', label: 'New' },
@@ -169,12 +169,9 @@ function InfoRow({ label, value, green, link }: { label: string; value?: string 
   return (
     <div className="flex items-start justify-between gap-3 border-b border-slate-100 py-2.5 last:border-0">
       <dt className="text-sm text-slate-500 shrink-0">{label}</dt>
-      <dd className={`text-sm font-medium text-right break-all ${green ? 'text-emerald-600 font-bold' : 'text-slate-900'}`}>
+      <dd className={`text-sm font-medium text-right ${green ? 'text-emerald-600 font-bold' : 'text-slate-900'} ${link ? '' : 'break-all'}`}>
         {link && text !== '—' ? (
-          <a href={text.startsWith('http') ? text : `https://${text}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline">
-            {text.length > 40 ? `${text.slice(0, 40)}…` : text}
-            <ExternalLink className="h-3 w-3 shrink-0" />
-          </a>
+          <DrawerLinkActions url={text} shareTitle={label} className="justify-end" />
         ) : text}
       </dd>
     </div>
@@ -418,12 +415,9 @@ export function HqLeadDetailView({
                   {companyLinks.length > 0 ? (
                     <div className="border-b border-slate-100 py-2.5 last:border-0">
                       <dt className="text-sm text-slate-500 mb-1">Company Links</dt>
-                      <dd className="flex flex-col gap-1">
+                      <dd className="flex flex-col items-end gap-1.5">
                         {companyLinks.map((url, i) => (
-                          <a key={i} href={url.startsWith('http') ? url : `https://${url}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline break-all">
-                            {url.length > 50 ? `${url.slice(0, 50)}…` : url}
-                            <ExternalLink className="h-3 w-3 shrink-0" />
-                          </a>
+                          <DrawerLinkActions key={`${url}-${i}`} url={url} shareTitle="Company link" />
                         ))}
                       </dd>
                     </div>

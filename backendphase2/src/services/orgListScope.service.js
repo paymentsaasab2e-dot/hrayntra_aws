@@ -8,6 +8,13 @@ import { hasPermission } from '../utils/permissionScope.js';
 import { prisma } from '../config/prisma.js';
 
 const NONE = '000000000000000000000000';
+const OBJECT_ID_HEX = /^[a-fA-F0-9]{24}$/;
+
+function validOrgUnitId(value) {
+  const id = String(value ?? '').trim();
+  if (!id || id === 'null' || id === 'undefined') return '';
+  return OBJECT_ID_HEX.test(id) ? id : '';
+}
 
 export const VIEW_CROSS_COMPANY_MEMBERS = 'view_cross_company_members';
 export const VIEW_CROSS_COMPANY_MEMBERS_ALIAS = 'VIEW_CROSS_COMPANY_MEMBERS';
@@ -138,7 +145,7 @@ export async function assertTenantOrgUnitId(unitId) {
 export async function resolveWriteOrgUnitId(req) {
   const scope = await getRequestOrgScope(req);
   if (!isOrgCompanyScoped(scope)) return null;
-  return String(scope.orgUnitId);
+  return validOrgUnitId(scope.orgUnitId) || null;
 }
 
 function buildPeopleOr(ids, options) {

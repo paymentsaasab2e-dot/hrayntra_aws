@@ -1227,6 +1227,7 @@ export function TaskDetailsDrawer({
         panelRef={taskDrawerPanelRef}
         onBackdropClick={handleClose}
         size="lg"
+        variant="main"
         zIndexClass="z-50"
         dialogTitleId="task-detail-modal-title"
       >

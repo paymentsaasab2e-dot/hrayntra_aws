@@ -19,7 +19,9 @@ const DEFAULT_LEVELS = [
 ];
 
 function oid(value) {
-  return String(value || '').trim();
+  const id = String(value ?? '').trim();
+  if (!id || id === 'null' || id === 'undefined') return '';
+  return id;
 }
 
 /** Real Organization Management companies: L2 units under HQ, not the HQ root. */

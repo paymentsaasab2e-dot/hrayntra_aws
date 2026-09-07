@@ -78,9 +78,18 @@ function normalizeVisibleIds(columns: TableColumnDef[], preferred: string[] | nu
   return allIds.filter((id) => merged.has(id));
 }
 
+function sameIdList(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((id, index) => id === b[index]);
+}
+
 function columnRegistryKey(columns: TableColumnDef[]) {
   return columns
-    .map((c) => `${c.id}:${c.locked ? 1 : 0}:${c.defaultVisible === false ? 0 : 1}`)
+    .map((column) => {
+      const lockedFlag = column.locked ? '1' : '0';
+      const visibleFlag = column.defaultVisible === false ? '0' : '1';
+      return `${column.id}:${lockedFlag}:${visibleFlag}`;
+    })
     .join('|');
 }
 
@@ -118,6 +127,7 @@ function resolveModuleIds(
 /**
  * Persist a string[] per tenant module (e.g. Leads/Clients custom columns).
  * Synced to ORG settings so the same browser or another browser gets the same choice.
+ * Writes only when the caller changes the value — hydration never saves defaults.
  */
 export function useTenantScopedStringArray(moduleKey: string) {
   const tenantScope = useTenantColumnScope();
@@ -125,33 +135,34 @@ export function useTenantScopedStringArray(moduleKey: string) {
     () => tenantScopedStorageKey(moduleKey, tenantScope),
     [moduleKey, tenantScope],
   );
-  const skipNextPersistRef = useRef(true);
+  const userTouchedRef = useRef(false);
+  const valuesRef = useRef<string[]>([]);
 
-  const [values, setValues] = useState<string[]>(() => {
-    return resolveModuleIds(moduleKey, readTenantColumnScope()) ?? [];
+  const [values, setValuesState] = useState<string[]>(() => {
+    const initial = resolveModuleIds(moduleKey, readTenantColumnScope()) ?? [];
+    valuesRef.current = initial;
+    return initial;
   });
+  valuesRef.current = values;
 
-  // Load from tenant server (and refresh when tenant changes).
   useEffect(() => {
     let cancelled = false;
-    skipNextPersistRef.current = true;
+    userTouchedRef.current = false;
     const local = resolveModuleIds(moduleKey, tenantScope) ?? [];
-    setValues(local);
+    valuesRef.current = local;
+    setValuesState(local);
 
     void loadTenantTableColumns().then((map) => {
-      if (cancelled) return;
-      skipNextPersistRef.current = true;
-      if (Object.prototype.hasOwnProperty.call(map, moduleKey)) {
-        const next = Array.isArray(map[moduleKey]) ? map[moduleKey] : [];
-        setValues(next);
-        writeStoredIds(resolvedKey, next);
-        return;
-      }
-      // Migrate browser-only prefs to tenant server on first sync.
+      if (cancelled || userTouchedRef.current) return;
+      const serverIds = Object.prototype.hasOwnProperty.call(map, moduleKey)
+        ? (Array.isArray(map[moduleKey]) ? map[moduleKey] : [])
+        : null;
       const legacy = readStoredIds(resolvedKey) ?? [];
-      setValues(legacy);
-      if (legacy.length > 0) {
-        skipNextPersistRef.current = false;
+      const next = legacy.length > 0 ? legacy : serverIds ?? [];
+      valuesRef.current = next;
+      setValuesState(next);
+      writeStoredIds(resolvedKey, next);
+      if (legacy.length > 0 && (!serverIds || !sameIdList(legacy, serverIds))) {
         persistTenantTableColumnModule(moduleKey, legacy);
       }
     });
@@ -163,8 +174,9 @@ export function useTenantScopedStringArray(moduleKey: string) {
       if (detail?.tenantScope && detail.tenantScope !== tenantScope) return;
       const next = detail?.columns?.[moduleKey];
       if (!Array.isArray(next)) return;
-      skipNextPersistRef.current = true;
-      setValues(next);
+      if (userTouchedRef.current && !sameIdList(next, valuesRef.current)) return;
+      valuesRef.current = next;
+      setValuesState(next);
       writeStoredIds(resolvedKey, next);
     };
     window.addEventListener(TABLE_COLUMNS_CACHE_EVENT, onCache);
@@ -174,14 +186,21 @@ export function useTenantScopedStringArray(moduleKey: string) {
     };
   }, [moduleKey, tenantScope, resolvedKey]);
 
-  useEffect(() => {
-    if (skipNextPersistRef.current) {
-      skipNextPersistRef.current = false;
-      return;
-    }
-    writeStoredIds(resolvedKey, values);
-    persistTenantTableColumnModule(moduleKey, values);
-  }, [moduleKey, resolvedKey, values]);
+  const setValues = useCallback(
+    (next: string[] | ((prev: string[]) => string[])) => {
+      setValuesState((prev) => {
+        const resolved = typeof next === 'function' ? next(prev) : next;
+        const ids = Array.isArray(resolved) ? resolved.map((item) => String(item)).filter(Boolean) : [];
+        if (sameIdList(ids, prev)) return prev;
+        userTouchedRef.current = true;
+        valuesRef.current = ids;
+        writeStoredIds(resolvedKey, ids);
+        persistTenantTableColumnModule(moduleKey, ids);
+        return ids;
+      });
+    },
+    [moduleKey, resolvedKey],
+  );
 
   return [values, setValues] as const;
 }
@@ -190,6 +209,7 @@ export function useTenantScopedStringArray(moduleKey: string) {
  * Persist show/hide column prefs per module **and per tenant**.
  * Source of truth: tenant ORG Setting (works across browsers).
  * localStorage is a fast local mirror / offline fallback.
+ * Hydration never writes. Only toggle / Reset / setVisibleIds save.
  */
 export function usePersistedColumnVisibility(
   storageKey: string,
@@ -201,7 +221,8 @@ export function usePersistedColumnVisibility(
     () => tenantScopedStorageKey(storageKey, tenantScope),
     [tenantScope, storageKey],
   );
-  const skipNextPersistRef = useRef(true);
+  const userTouchedRef = useRef(false);
+  const visibleIdsRef = useRef<string[]>([]);
 
   const defaultIds = useMemo(
     () => defaultVisibleIds(columns),
@@ -209,37 +230,43 @@ export function usePersistedColumnVisibility(
     [registryKey],
   );
 
-  const [visibleIds, setVisibleIdsState] = useState<string[]>(() =>
-    normalizeVisibleIds(
+  const [visibleIds, setVisibleIdsState] = useState<string[]>(() => {
+    const initial = normalizeVisibleIds(
       columns,
       resolveModuleIds(storageKey, readTenantColumnScope()),
-    ),
-  );
+    );
+    visibleIdsRef.current = initial;
+    return initial;
+  });
+  visibleIdsRef.current = visibleIds;
 
   useEffect(() => {
     let cancelled = false;
-    skipNextPersistRef.current = true;
-    setVisibleIdsState(
-      normalizeVisibleIds(columns, resolveModuleIds(storageKey, tenantScope)),
-    );
+    userTouchedRef.current = false;
+    const local = normalizeVisibleIds(columns, resolveModuleIds(storageKey, tenantScope));
+    visibleIdsRef.current = local;
+    setVisibleIdsState(local);
 
     void loadTenantTableColumns().then((map) => {
-      if (cancelled) return;
-      skipNextPersistRef.current = true;
-      if (Object.prototype.hasOwnProperty.call(map, storageKey)) {
-        const preferred = Array.isArray(map[storageKey]) ? map[storageKey] : null;
-        const next = normalizeVisibleIds(columns, preferred);
-        setVisibleIdsState(next);
-        writeStoredIds(resolvedStorageKey, next);
-        return;
-      }
-      // Migrate browser-only prefs to tenant server on first sync.
+      if (cancelled || userTouchedRef.current) return;
+      const serverIds = Object.prototype.hasOwnProperty.call(map, storageKey)
+        ? (Array.isArray(map[storageKey]) ? map[storageKey] : null)
+        : null;
       const legacy = readStoredIds(resolvedStorageKey);
-      const next = normalizeVisibleIds(columns, legacy);
+      const legacyNormalized = legacy ? normalizeVisibleIds(columns, legacy) : null;
+      const serverNormalized = serverIds ? normalizeVisibleIds(columns, serverIds) : null;
+      const legacyIsCustom = Boolean(
+        legacyNormalized && !sameIdList(legacyNormalized, defaultIds),
+      );
+      const next = legacyIsCustom
+        ? legacyNormalized!
+        : serverNormalized ?? legacyNormalized ?? defaultIds;
+      visibleIdsRef.current = next;
       setVisibleIdsState(next);
       writeStoredIds(resolvedStorageKey, next);
-      if (legacy && legacy.length > 0) {
-        skipNextPersistRef.current = false;
+      if (legacyIsCustom && (!serverNormalized || !sameIdList(legacyNormalized!, serverNormalized))) {
+        persistTenantTableColumnModule(storageKey, next);
+      } else if (!serverIds && legacy && legacy.length > 0) {
         persistTenantTableColumnModule(storageKey, next);
       }
     });
@@ -252,8 +279,9 @@ export function usePersistedColumnVisibility(
       if (!detail?.columns || !Object.prototype.hasOwnProperty.call(detail.columns, storageKey)) {
         return;
       }
-      skipNextPersistRef.current = true;
       const next = normalizeVisibleIds(columns, detail.columns[storageKey] ?? null);
+      if (userTouchedRef.current && !sameIdList(next, visibleIdsRef.current)) return;
+      visibleIdsRef.current = next;
       setVisibleIdsState(next);
       writeStoredIds(resolvedStorageKey, next);
     };
@@ -265,24 +293,25 @@ export function usePersistedColumnVisibility(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedStorageKey, registryKey, storageKey, tenantScope]);
 
-  useEffect(() => {
-    if (skipNextPersistRef.current) {
-      skipNextPersistRef.current = false;
-      return;
-    }
-    writeStoredIds(resolvedStorageKey, visibleIds);
-    persistTenantTableColumnModule(storageKey, visibleIds);
-  }, [resolvedStorageKey, storageKey, visibleIds]);
+  const commitVisibleIds = useCallback(
+    (ids: string[]) => {
+      const next = normalizeVisibleIds(columns, ids);
+      userTouchedRef.current = true;
+      visibleIdsRef.current = next;
+      setVisibleIdsState(next);
+      writeStoredIds(resolvedStorageKey, next);
+      persistTenantTableColumnModule(storageKey, next);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [registryKey, resolvedStorageKey, storageKey],
+  );
 
   const setVisibleIds = useCallback(
     (next: string[] | ((prev: string[]) => string[])) => {
-      setVisibleIdsState((prev) => {
-        const resolved = typeof next === 'function' ? next(prev) : next;
-        return normalizeVisibleIds(columns, resolved);
-      });
+      const resolved = typeof next === 'function' ? next(visibleIdsRef.current) : next;
+      commitVisibleIds(resolved);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [registryKey],
+    [commitVisibleIds],
   );
 
   const isVisible = useCallback(
@@ -294,17 +323,16 @@ export function usePersistedColumnVisibility(
     (id: string) => {
       const col = columns.find((item) => item.id === id);
       if (!col || col.locked) return;
-      setVisibleIds((prev) =>
-        prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
-      );
+      const prev = visibleIdsRef.current;
+      commitVisibleIds(prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [registryKey, setVisibleIds],
+    [registryKey, commitVisibleIds],
   );
 
   const resetToDefault = useCallback(() => {
-    setVisibleIds(defaultIds);
-  }, [defaultIds, setVisibleIds]);
+    commitVisibleIds(defaultIds);
+  }, [defaultIds, commitVisibleIds]);
 
   const unlockedVisibleCount = useMemo(
     () =>

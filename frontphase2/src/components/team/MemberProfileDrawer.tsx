@@ -262,6 +262,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
             <DetailsModalShell
               onBackdropClick={onClose}
               size="lg"
+              variant="main"
               zIndexClass="z-[70]"
               dialogTitleId="member-profile-modal-title"
             >

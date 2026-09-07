@@ -120,6 +120,45 @@ export const interviewController = {
     }
   },
 
+  async streamPublicClientReviewResume(req, res) {
+    try {
+      const result = await interviewService.streamPublicClientReviewAsset(req.params.token, {
+        kind: 'resume',
+        matchId: req.query.matchId,
+      });
+      res.setHeader('Content-Type', result.contentType || 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="${result.filename || 'Resume.pdf'}"`,
+      );
+      res.setHeader('Cache-Control', 'private, max-age=120');
+      res.setHeader('Content-Length', String(result.buffer.length));
+      return res.status(200).send(result.buffer);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async streamPublicClientReviewFile(req, res) {
+    try {
+      const result = await interviewService.streamPublicClientReviewAsset(req.params.token, {
+        kind: 'file',
+        fileId: req.params.fileId,
+        matchId: req.query.matchId,
+      });
+      res.setHeader('Content-Type', result.contentType || 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="${result.filename || 'Document.pdf'}"`,
+      );
+      res.setHeader('Cache-Control', 'private, max-age=120');
+      res.setHeader('Content-Length', String(result.buffer.length));
+      return res.status(200).send(result.buffer);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async getInterviewClientReviewContext(req, res) {
     try {
       const result = await interviewService.getInterviewClientReviewContext(req.params.id);

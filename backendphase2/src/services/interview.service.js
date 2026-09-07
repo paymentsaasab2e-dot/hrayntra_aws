@@ -4,6 +4,8 @@ import { getCandidateOrThrow } from '../modules/candidate/candidate.service.js';
 import {
   PIPELINE_STAGES,
   humanizePortalInterviewRoundLabel,
+  mapPipelineStageToCrmCandidateLabel,
+  mapStageNameToPipelineBucket,
   moveCandidateToSubmittedToClient,
   syncApplicationInterviewCancelled,
   syncApplicationOfferLetter,
@@ -11,7 +13,13 @@ import {
 } from '../modules/stage/candidateStage.service.js';
 import { generateMeetingLink } from './meetingService.js';
 import jwt from 'jsonwebtoken';
+import { randomBytes } from 'crypto';
 import { env } from '../config/env.js';
+import {
+  findClientReviewLinkByCode,
+  findReusableClientReviewLink,
+  persistClientReviewShareOnCandidate,
+} from '../utils/clientReviewLinkStore.js';
 import { sendMatchSubmissionEmail } from '../emails/email.service.js';
 import { isDeliverableEmail } from '../utils/emailDeliverability.js';
 import {
@@ -44,6 +52,13 @@ import {
 import { readClientPresentation } from '../utils/clientPresentationDraft.js';
 import { assertNoInterviewerScheduleConflicts } from '../utils/interviewConflict.util.js';
 import { buildClientReviewSectionsFromPresentation } from '../utils/clientReviewSections.js';
+import {
+  mergeCvSubmissionExtraData,
+  normalizeClientTrackerOptions,
+  readClientTrackerOptionsFromExtraData,
+} from '../utils/clientTrackerOptions.js';
+import { detectResumeContentType, fetchS3ResumeDocumentBuffer } from '../utils/s3PdfFetch.js';
+import { isOurS3PdfUrl } from '../utils/s3.js';
 
 const interviewInclude = {
   candidate: {
@@ -501,6 +516,7 @@ async function persistCandidateClientReviewActivity({
     const reply = {
       id: `client-review-${Date.now()}`,
       clientName: clientName || 'Client',
+      jobId: jobId || null,
       jobTitle: jobTitle || null,
       tag: tag || '',
       comments: comments || '',
@@ -589,27 +605,286 @@ const readCandidateCvSubmissionSnapshot = (candidate) => {
   return snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : null;
 };
 
-async function persistCvSubmissionForCandidate(candidateId, cvShareMode, jobTitle = '') {
+async function persistCvSubmissionForCandidate(
+  candidateId,
+  cvShareMode,
+  jobTitle = '',
+  trackerOptions = null,
+) {
   const fresh = await prisma.candidate.findUnique({ where: { id: candidateId } });
   if (!fresh) return;
-  const existingExtra =
-    fresh.extraData && typeof fresh.extraData === 'object' && !Array.isArray(fresh.extraData)
-      ? fresh.extraData
-      : {};
   const snapshot = buildCvSubmissionSnapshot(fresh, jobTitle);
+  const patch = {
+    shareMode: cvShareMode,
+    snapshot,
+  };
+  if (trackerOptions) {
+    patch.trackerOptions = normalizeClientTrackerOptions(trackerOptions, { useNewDefaults: true });
+  }
   await prisma.candidate.update({
     where: { id: candidateId },
     data: {
-      extraData: {
-        ...existingExtra,
-        cvSubmission: {
-          shareMode: cvShareMode,
-          updatedAt: new Date().toISOString(),
-          snapshot,
-        },
-      },
+      extraData: mergeCvSubmissionExtraData(fresh.extraData, patch),
     },
   });
+}
+
+function sanitizeRecruiterNotes(notes) {
+  return String(notes || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !/^\[Client (Tag|Upload)\]/i.test(line))
+    .join('\n')
+    .trim();
+}
+
+function toPublicFileUrl(fileUrl) {
+  const raw = String(fileUrl || '').trim();
+  if (!raw) return '';
+  return /^https?:\/\//i.test(raw) ? raw : '';
+}
+
+function mapCandidateFilesForClient(files = []) {
+  return (Array.isArray(files) ? files : [])
+    .map((file) => {
+      const fileUrl = toPublicFileUrl(file?.fileUrl);
+      const fileType = String(file?.fileType || 'Other').trim() || 'Other';
+      if (!fileUrl) return null;
+      if (/^(photo|avatar|profile photo|resume)$/i.test(fileType)) return null;
+      return {
+        id: file.id,
+        fileName: String(file.fileName || 'File').trim() || 'File',
+        fileType,
+        fileUrl,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function loadCandidateFilesForReview(candidateId) {
+  if (!candidateId) return [];
+  return prisma.candidateFile.findMany({
+    where: { candidateId },
+    orderBy: { uploadDate: 'desc' },
+    take: 20,
+    select: { id: true, fileName: true, fileType: true, fileUrl: true },
+  });
+}
+
+function resolveReviewTrackerOptions(candidate, decoded) {
+  return readClientTrackerOptionsFromExtraData(candidate?.extraData, decoded?.trackerOptions);
+}
+
+function defaultClientPipelineStageChoices() {
+  return Object.values(PIPELINE_STAGES).map((id) => ({
+    id,
+    name: mapPipelineStageToCrmCandidateLabel(id),
+  }));
+}
+
+async function loadClientPipelineStageChoices(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return defaultClientPipelineStageChoices();
+  try {
+    const rows = await prisma.pipelineStage.findMany({
+      where: { jobId: id },
+      orderBy: { order: 'asc' },
+      select: { id: true, name: true, systemRole: true },
+    });
+    const named = rows
+      .map((row) => ({
+        id: String(row.systemRole || row.id || '').trim() || String(row.name || '').trim(),
+        name: String(row.name || '').trim(),
+      }))
+      .filter((row) => row.name);
+    return named.length ? named : defaultClientPipelineStageChoices();
+  } catch (err) {
+    console.warn('[client-review] pipeline stages lookup failed:', err?.message || err);
+    return defaultClientPipelineStageChoices();
+  }
+}
+
+function resolveClientRequestedStage(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  const upper = value.toUpperCase().replace(/[\s-]+/g, '_');
+  const known = Object.values(PIPELINE_STAGES);
+  if (known.includes(upper)) {
+    return { stage: upper, label: mapPipelineStageToCrmCandidateLabel(upper) };
+  }
+  const byLabel = known.find(
+    (id) => mapPipelineStageToCrmCandidateLabel(id).toLowerCase() === value.toLowerCase(),
+  );
+  if (byLabel) {
+    return { stage: byLabel, label: mapPipelineStageToCrmCandidateLabel(byLabel) };
+  }
+  return {
+    stage: mapStageNameToPipelineBucket(value),
+    label: value,
+  };
+}
+
+function applyTrackerOptionsToReviewPayload(payload, trackerOptions) {
+  const next = { ...payload, trackerOptions };
+  if (!trackerOptions.viewProfile) {
+    next.presentationSections = [];
+    next.cvEditorPreview = null;
+  }
+  if (!trackerOptions.downloadResume) {
+    next.sharedResumeUrl = null;
+    if (next.candidate) next.candidate = { ...next.candidate, resume: '' };
+  }
+  if (!trackerOptions.downloadFiles) {
+    next.candidateFiles = [];
+  }
+  if (!trackerOptions.showScore) {
+    next.matchScore = null;
+  }
+  if (!trackerOptions.showNotes) {
+    next.recruiterNotes = '';
+  }
+  if (!trackerOptions.showInterviewFeedback) {
+    next.interviewFeedback = [];
+  }
+  if (!trackerOptions.showLinkedIn && next.candidate) {
+    next.candidate = { ...next.candidate, linkedIn: '' };
+  }
+  return next;
+}
+
+function isClientStorageUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  if (/\/client-review\/[^/]+\/(resume|files)\b/i.test(raw)) return false;
+  if (/\/interviews\/public\/review\/[^/]+\/(resume|files)\b/i.test(raw)) return false;
+  return (
+    /amazonaws\.com/i.test(raw) ||
+    /hryantra-bucket/i.test(raw) ||
+    /cloudinary\.com/i.test(raw) ||
+    /\/uploads\/(phase\d+|tenants)\//i.test(raw)
+  );
+}
+
+function clientReviewResumeHref(token, matchId) {
+  const base = `/client-review/${token}/resume`;
+  const id = String(matchId || '').trim();
+  return id ? `${base}?matchId=${encodeURIComponent(id)}` : base;
+}
+
+function clientReviewFileHref(token, fileId, matchId) {
+  const base = `/client-review/${token}/files/${encodeURIComponent(String(fileId || '').trim())}`;
+  const id = String(matchId || '').trim();
+  return id ? `${base}?matchId=${encodeURIComponent(id)}` : base;
+}
+
+function rewriteStorageValue(value, resumeHref) {
+  const raw = String(value || '');
+  if (!isClientStorageUrl(raw)) return value;
+  return resumeHref;
+}
+
+function maskReviewDetailStorageUrls(detail, token) {
+  if (!detail || typeof detail !== 'object') return detail;
+  const matchId = detail.matchId || detail.activeMatchId || '';
+  const resumeHref = clientReviewResumeHref(token, matchId);
+  const next = { ...detail };
+
+  if (isClientStorageUrl(next.sharedResumeUrl)) next.sharedResumeUrl = resumeHref;
+  if (next.candidate && isClientStorageUrl(next.candidate.resume)) {
+    next.candidate = { ...next.candidate, resume: resumeHref };
+  }
+  if (isClientStorageUrl(next.offerLetterUrl)) {
+    next.offerLetterUrl = clientReviewFileHref(token, 'offer', matchId);
+  }
+
+  next.candidateFiles = Array.isArray(next.candidateFiles)
+    ? next.candidateFiles.map((file) => ({
+        ...file,
+        fileUrl: file?.id
+          ? clientReviewFileHref(token, file.id, matchId)
+          : file?.fileUrl,
+      }))
+    : next.candidateFiles;
+
+  next.presentationSections = Array.isArray(next.presentationSections)
+    ? next.presentationSections.map((section) => ({
+        ...section,
+        fields: Array.isArray(section?.fields)
+          ? section.fields.map((field) => ({
+              ...field,
+              value: rewriteStorageValue(field?.value, resumeHref),
+            }))
+          : section?.fields,
+      }))
+    : next.presentationSections;
+
+  return next;
+}
+
+function maskClientReviewStorageUrls(payload, token) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const masked = maskReviewDetailStorageUrls(payload, token);
+  if (!Array.isArray(masked.batchCandidates)) return masked;
+  return {
+    ...masked,
+    batchCandidates: masked.batchCandidates.map((row) => ({
+      ...row,
+      detail: maskReviewDetailStorageUrls(row?.detail || row, token),
+    })),
+  };
+}
+
+function pickReviewDetailForAsset(payload, matchId) {
+  const requested = String(matchId || '').trim();
+  const batch = Array.isArray(payload?.batchCandidates) ? payload.batchCandidates : [];
+  if (requested) {
+    const row = batch.find((item) => String(item?.matchId || '') === requested);
+    if (row?.detail) return row.detail;
+  }
+  const activeId = String(payload?.activeMatchId || payload?.matchId || '');
+  const active = batch.find((item) => String(item?.matchId || '') === activeId);
+  return active?.detail || payload;
+}
+
+function safeDownloadFilename(name, fallback = 'Resume.pdf') {
+  const cleaned = String(name || fallback)
+    .replace(/["\r\n]+/g, '')
+    .replace(/[\\/:*?<>|]+/g, '_')
+    .trim();
+  return cleaned || fallback;
+}
+
+function isAllowedCloudinaryDocumentUrl(urlString) {
+  try {
+    const u = new URL(urlString);
+    if (u.protocol !== 'https:') return false;
+    if (u.hostname !== 'res.cloudinary.com') return false;
+    return /^\/[^/]+\/(raw|image)\/upload\//.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+async function loadReviewAssetBuffer(sourceUrl) {
+  const raw = String(sourceUrl || '').trim();
+  if (!raw) throw new Error('No file is available for this preview');
+  if (isOurS3PdfUrl(raw)) {
+    const result = await fetchS3ResumeDocumentBuffer(raw);
+    return {
+      buffer: result.buffer,
+      contentType: detectResumeContentType(result.buffer, result.key || ''),
+    };
+  }
+  if (isAllowedCloudinaryDocumentUrl(raw)) {
+    const upstream = await fetch(raw, { redirect: 'follow', headers: { Accept: '*/*' } });
+    if (!upstream.ok) throw new Error('Unable to load the document');
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    return {
+      buffer,
+      contentType: detectResumeContentType(buffer, raw),
+    };
+  }
+  throw new Error('This file cannot be shared through the client preview');
 }
 
 function normalizeBatchMatchIds(decoded) {
@@ -633,12 +908,16 @@ export const createClientReviewToken = ({
   submissionType = 'GENERAL',
   cvShareMode = null,
   batchMatchIds = null,
+  trackerOptions = null,
 } = {}) => {
   const normalizedBatch = Array.isArray(batchMatchIds)
     ? Array.from(new Set(batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)))
     : [];
   const batchPayload =
     normalizedBatch.length > 1 ? normalizedBatch : undefined;
+  const storedTrackerOptions = trackerOptions
+    ? normalizeClientTrackerOptions(trackerOptions, { useNewDefaults: true })
+    : undefined;
 
   return jwt.sign(
     {
@@ -651,6 +930,7 @@ export const createClientReviewToken = ({
       submissionType: submissionType || 'GENERAL',
       cvShareMode: normalizeCvShareMode(cvShareMode) || undefined,
       batchMatchIds: batchPayload,
+      trackerOptions: storedTrackerOptions,
       type: 'INTERVIEW_CLIENT_REVIEW',
     },
     env.JWT_SECRET,
@@ -667,6 +947,124 @@ const verifyClientReviewToken = (token) => {
     return null;
   }
 };
+
+const REVIEW_CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+const REVIEW_CODE_LENGTH = 8;
+
+function generateReviewCode() {
+  const bytes = randomBytes(REVIEW_CODE_LENGTH);
+  let out = '';
+  for (let i = 0; i < REVIEW_CODE_LENGTH; i += 1) {
+    out += REVIEW_CODE_ALPHABET[bytes[i] % REVIEW_CODE_ALPHABET.length];
+  }
+  return out;
+}
+
+export function looksLikeJwtReviewToken(value) {
+  const raw = String(value || '').trim();
+  const parts = raw.split('.');
+  return parts.length === 3 && raw.startsWith('eyJ') && raw.length > 40;
+}
+
+export function buildPublicClientReviewUrl(codeOrToken) {
+  const value = String(codeOrToken || '').trim();
+  if (!value) return '';
+  const encoded = looksLikeJwtReviewToken(value) ? encodeURIComponent(value) : value;
+  return `${env.FRONTEND_URL}/client-review/${encoded}`;
+}
+
+export async function createClientReviewShare({
+  token,
+  matchId = null,
+  candidateId = null,
+  interviewId = null,
+} = {}) {
+  const jwtToken = String(token || '').trim();
+  if (!jwtToken) throw new Error('Missing review token');
+
+  let candidateKey = candidateId ? String(candidateId) : '';
+  const matchKey = matchId ? String(matchId) : null;
+  const interviewKey = interviewId ? String(interviewId) : null;
+
+  if (!candidateKey && matchKey) {
+    const match = await prisma.match.findUnique({
+      where: { id: matchKey },
+      select: { candidateId: true },
+    });
+    candidateKey = match?.candidateId || '';
+  }
+  if (!candidateKey && interviewKey) {
+    const interview = await prisma.interview.findUnique({
+      where: { id: interviewKey },
+      select: { candidateId: true },
+    });
+    candidateKey = interview?.candidateId || '';
+  }
+  if (!candidateKey) throw new Error('Missing candidate for short review link');
+
+  const existing = await findReusableClientReviewLink({ candidateId: candidateKey });
+  const tenant = String(getActiveTenantDbName() || '').trim().toLowerCase();
+  const existingCode = String(existing?.code || '').trim().toLowerCase();
+  let code = existingCode;
+  if (!code || !/^[a-z0-9][a-z0-9-]{5,48}$/.test(code)) {
+    const suffix = generateReviewCode();
+    code = tenant ? `${tenant}-${suffix}` : suffix;
+  } else if (tenant && !existingCode.includes('-')) {
+    code = `${tenant}-${existingCode}`;
+  }
+
+  await persistClientReviewShareOnCandidate({
+    code,
+    token: jwtToken,
+    candidateId: candidateKey,
+    matchId: matchKey,
+    interviewId: interviewKey,
+  });
+  return code;
+}
+
+export async function toClientReviewUrl(token, {
+  matchId = null,
+  candidateId = null,
+  interviewId = null,
+} = {}) {
+  try {
+    const code = await createClientReviewShare({ token, matchId, candidateId, interviewId });
+    return buildPublicClientReviewUrl(code);
+  } catch (err) {
+    console.warn('[client-review] falling back to token URL:', err?.message || err);
+    return buildPublicClientReviewUrl(token);
+  }
+}
+
+export async function resolveClientReviewAccess(rawToken) {
+  const value = decodeURIComponent(String(rawToken || '').trim());
+  if (!value) return null;
+
+  if (looksLikeJwtReviewToken(value)) {
+    const decoded = verifyClientReviewToken(value);
+    if (!decoded) return null;
+    return { decoded, jwt: value, publicToken: value };
+  }
+
+  const code = value.toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{5,48}$/.test(code)) return null;
+
+  try {
+    const link = await findClientReviewLinkByCode(code);
+    if (!link?.token) return null;
+    if (link.expiresAt && new Date(link.expiresAt) < new Date()) return null;
+    const decoded = verifyClientReviewToken(link.token);
+    if (!decoded) return null;
+    if (link.tenantDbName && !decoded.tenantDbName) {
+      decoded.tenantDbName = link.tenantDbName;
+    }
+    return { decoded, jwt: link.token, publicToken: link.code };
+  } catch (err) {
+    console.warn('[client-review] short link lookup failed:', err?.message || err);
+    return null;
+  }
+}
 
 // Walk the list of known tenant DBs and return the first one that owns the
 // given record. Used as a fallback when the JWT didn't capture a tenant
@@ -813,13 +1211,24 @@ async function buildSyntheticInterviewFromMatch(match) {
       : { id: '', title: '', department: null, location: null, clientId: null },
     client: clientRow,
     feedbackEntries: priorFeedback,
-    notes: '',
+    notes: match.notes || '',
+    matchScore: Number.isFinite(Number(match.score)) ? Number(match.score) : null,
   };
 }
 
 function serializeInterviewForClientReview(
   interview,
-  { submissionType, cvShareMode, offerLetterFile = null, matchId = null } = {},
+  {
+    submissionType,
+    cvShareMode,
+    offerLetterFile = null,
+    matchId = null,
+    trackerOptions = null,
+    candidateFiles = [],
+    matchScore = null,
+    recruiterNotes = '',
+    pipelineStages = null,
+  } = {},
 ) {
   const c = interview.candidate;
   const submissionSnapshot = readCandidateCvSubmissionSnapshot(c);
@@ -909,7 +1318,7 @@ function serializeInterviewForClientReview(
       ? saasaCvUrl
       : String(submissionSnapshot?.resume || c.resume || c.resumeUrl || '').trim();
 
-  return {
+  const payload = {
     matchId: matchId || interview.id,
     interviewId: interview.id,
     submissionType,
@@ -935,7 +1344,21 @@ function serializeInterviewForClientReview(
       weakness: entry.weakness || '',
       overallScore: entry.overallScore ?? null,
     })),
+    matchScore:
+      Number.isFinite(Number(matchScore ?? interview.matchScore))
+        ? Math.round(Number(matchScore ?? interview.matchScore))
+        : null,
+    recruiterNotes: sanitizeRecruiterNotes(recruiterNotes || interview.notes || ''),
+    candidateFiles: mapCandidateFilesForClient(candidateFiles),
+    pipelineStages: Array.isArray(pipelineStages) && pipelineStages.length
+      ? pipelineStages
+      : defaultClientPipelineStageChoices(),
   };
+
+  return applyTrackerOptionsToReviewPayload(
+    payload,
+    normalizeClientTrackerOptions(trackerOptions),
+  );
 }
 
 const attachMeetingLink = async (interview, platformOverride) => {
@@ -1916,12 +2339,16 @@ export const interviewService = {
       normalizeCvShareMode(payload?.cvShareMode) ||
       readCandidateCvShareMode(interview.candidate) ||
       'edited';
+    const trackerOptions = normalizeClientTrackerOptions(payload?.trackerOptions, {
+      useNewDefaults: true,
+    });
 
     if (cvShareMode) {
       await persistCvSubmissionForCandidate(
         interview.candidateId,
         cvShareMode,
         interview.job?.title || '',
+        trackerOptions,
       );
     }
 
@@ -1932,8 +2359,12 @@ export const interviewService = {
       clientId: interview.clientId,
       submissionType,
       cvShareMode,
+      trackerOptions,
     });
-    const reviewUrl = `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
+    const reviewUrl = await toClientReviewUrl(token, {
+      interviewId: interview.id,
+      candidateId: interview.candidateId,
+    });
 
     const purposeLabel =
       submissionType === 'OFFER_CONFIRMATION'
@@ -2024,11 +2455,13 @@ export const interviewService = {
     };
   },
 
-  async getPublicClientReview(token) {
-    const decoded = verifyClientReviewToken(token);
+  async getPublicClientReview(token, { maskStorage = true } = {}) {
+    const access = await resolveClientReviewAccess(token);
+    const decoded = access?.decoded;
     if (!decoded?.interviewId && !decoded?.matchId) {
       throw new Error('Invalid or expired review link');
     }
+    const publicToken = access.publicToken || token;
     const tenantDbName = await resolveReviewTenant(decoded);
     const submissionType = normalizeSubmissionType(decoded?.submissionType) || 'GENERAL';
     const cvShareMode = normalizeCvShareMode(decoded?.cvShareMode) || 'edited';
@@ -2051,15 +2484,24 @@ export const interviewService = {
         return Promise.all(
           ordered.map(async (match) => {
             const interview = await buildSyntheticInterviewFromMatch(match);
-            const offerFile = await prisma.candidateFile.findFirst({
-              where: { candidateId: match.candidateId, fileType: 'Offer' },
-              orderBy: { uploadDate: 'desc' },
-            });
+            const [offerFile, files, pipelineStages] = await Promise.all([
+              prisma.candidateFile.findFirst({
+                where: { candidateId: match.candidateId, fileType: 'Offer' },
+                orderBy: { uploadDate: 'desc' },
+              }),
+              loadCandidateFilesForReview(match.candidateId),
+              loadClientPipelineStageChoices(match.jobId),
+            ]);
             return serializeInterviewForClientReview(interview, {
               submissionType,
               cvShareMode,
               offerLetterFile: offerFile,
               matchId: match.id,
+              trackerOptions: resolveReviewTrackerOptions(match.candidate, decoded),
+              candidateFiles: files,
+              matchScore: match.score,
+              recruiterNotes: match.notes,
+              pipelineStages,
             });
           }),
         );
@@ -2069,7 +2511,7 @@ export const interviewService = {
       const active =
         payloads.find((row) => row.matchId === primaryMatchId) || payloads[0];
 
-      return {
+      const result = {
         ...active,
         activeMatchId: active.matchId,
         batchCandidates: payloads.map((detail) => ({
@@ -2078,31 +2520,38 @@ export const interviewService = {
           designation: detail.candidate?.designation || '',
           experience: detail.candidate?.experience ?? null,
           jobTitle: detail.job?.title || '',
+          matchScore: detail.matchScore ?? null,
           detail,
         })),
       };
+      return maskStorage ? maskClientReviewStorageUrls(result, publicToken) : result;
     }
 
-    const { interview, offerLetterFile } = await runWithTenantContext(
+    const { interview, offerLetterFile, matchRow, candidateFiles, pipelineStages } = await runWithTenantContext(
       tenantDbName,
       async () => {
         let iv = null;
+        let matchRow = null;
         if (decoded.interviewId) {
           iv = await getInterviewOrThrow(decoded.interviewId);
         } else {
-          const match = await prisma.match.findUnique({
+          matchRow = await prisma.match.findUnique({
             where: { id: decoded.matchId },
             include: matchClientReviewInclude,
           });
-          if (!match) throw new Error('Match not found');
-          iv = await buildSyntheticInterviewFromMatch(match);
+          if (!matchRow) throw new Error('Match not found');
+          iv = await buildSyntheticInterviewFromMatch(matchRow);
         }
 
-        const offerFile = await prisma.candidateFile.findFirst({
-          where: { candidateId: iv.candidateId, fileType: 'Offer' },
-          orderBy: { uploadDate: 'desc' },
-        });
-        return { interview: iv, offerLetterFile: offerFile };
+        const [offerFile, files, pipelineStages] = await Promise.all([
+          prisma.candidateFile.findFirst({
+            where: { candidateId: iv.candidateId, fileType: 'Offer' },
+            orderBy: { uploadDate: 'desc' },
+          }),
+          loadCandidateFilesForReview(iv.candidateId),
+          loadClientPipelineStageChoices(iv.jobId),
+        ]);
+        return { interview: iv, offerLetterFile: offerFile, matchRow, candidateFiles: files, pipelineStages };
       },
     );
 
@@ -2111,9 +2560,14 @@ export const interviewService = {
       cvShareMode,
       offerLetterFile,
       matchId: decoded.matchId || interview.id,
+      trackerOptions: resolveReviewTrackerOptions(interview.candidate, decoded),
+      candidateFiles,
+      matchScore: matchRow?.score ?? interview.matchScore,
+      recruiterNotes: matchRow?.notes || interview.notes,
+      pipelineStages,
     });
 
-    return {
+    const result = {
       ...payload,
       activeMatchId: payload.matchId,
       batchCandidates: [
@@ -2123,33 +2577,64 @@ export const interviewService = {
           designation: payload.candidate?.designation || '',
           experience: payload.candidate?.experience ?? null,
           jobTitle: payload.job?.title || '',
+          matchScore: payload.matchScore ?? null,
           detail: payload,
         },
       ],
     };
+    return maskStorage ? maskClientReviewStorageUrls(result, publicToken) : result;
+  },
+
+  async streamPublicClientReviewAsset(token, { kind = 'resume', fileId = '', matchId = '' } = {}) {
+    const payload = await this.getPublicClientReview(token, { maskStorage: false });
+    const detail = pickReviewDetailForAsset(payload, matchId);
+    const tracker = normalizeClientTrackerOptions(detail?.trackerOptions);
+    const assetKind = String(kind || 'resume').trim().toLowerCase();
+
+    if (assetKind === 'resume') {
+      if (!tracker.downloadResume) {
+        throw new Error('Resume download is not enabled on this preview');
+      }
+      const sourceUrl = String(detail?.sharedResumeUrl || detail?.candidate?.resume || '').trim();
+      const loaded = await loadReviewAssetBuffer(sourceUrl);
+      const baseName = safeDownloadFilename(
+        `${detail?.candidate?.name || 'Candidate'}_Resume.pdf`,
+      );
+      return { ...loaded, filename: baseName };
+    }
+
+    if (!tracker.downloadFiles && fileId !== 'offer') {
+      throw new Error('File download is not enabled on this preview');
+    }
+
+    if (fileId === 'offer') {
+      const sourceUrl = String(detail?.offerLetterUrl || '').trim();
+      const loaded = await loadReviewAssetBuffer(sourceUrl);
+      return { ...loaded, filename: safeDownloadFilename('Offer_letter.pdf') };
+    }
+
+    const file = (detail?.candidateFiles || []).find(
+      (row) => String(row?.id || '') === String(fileId || ''),
+    );
+    if (!file) throw new Error('File not found');
+    const loaded = await loadReviewAssetBuffer(file.fileUrl);
+    return {
+      ...loaded,
+      filename: safeDownloadFilename(file.fileName || 'Document.pdf'),
+    };
   },
 
   async submitPublicClientTag(token, payload, file = null) {
-    const decoded = verifyClientReviewToken(token);
+    const access = await resolveClientReviewAccess(token);
+    const decoded = access?.decoded;
     if (!decoded?.interviewId && !decoded?.matchId) {
       throw new Error('Invalid or expired review link');
     }
 
     const tag = String(payload?.tag || '').trim();
     const comments = String(payload?.comments || '').trim();
+    const requestedStage = String(payload?.stage || '').trim();
     const submissionType = normalizeSubmissionType(decoded?.submissionType) || 'GENERAL';
-
-    // For OFFER_CONFIRMATION the only meaningful action from the client is the
-    // signed offer letter, so we let them submit just the file (no tag). For
-    // every other purpose we still require a tag — the recruiter explicitly
-    // asked for a decision.
-    if (!tag && !file) {
-      throw new Error(
-        submissionType === 'OFFER_CONFIRMATION'
-          ? 'Please attach the offer letter or pick a decision'
-          : 'Tag is required'
-      );
-    }
 
     const tenantDbName = await resolveReviewTenant(decoded);
     const result = await runWithTenantContext(tenantDbName, async () => {
@@ -2176,12 +2661,63 @@ export const interviewService = {
       } else {
         match = await prisma.match.findUnique({
           where: { id: effectiveMatchId },
-          select: { id: true, candidateId: true, jobId: true, createdById: true },
+          select: { id: true, candidateId: true, jobId: true, createdById: true, candidate: { select: { extraData: true } } },
         });
         if (!match) throw new Error('Match not found');
         candidateId = match.candidateId;
         jobId = match.jobId;
         uploaderId = match.createdById || null;
+      }
+
+      const trackerSource =
+        interview?.candidate?.extraData || match?.candidate?.extraData || null;
+      const trackerOptions = readClientTrackerOptionsFromExtraData(
+        trackerSource,
+        decoded?.trackerOptions,
+      );
+
+      const resolvedStage = trackerOptions.changeStage
+        ? resolveClientRequestedStage(requestedStage)
+        : null;
+      const displayTag = resolvedStage?.label || tag;
+
+      if (tag && !trackerOptions.addRemarks) {
+        throw new Error('Sharing a decision is not enabled on this preview');
+      }
+      if (requestedStage && !trackerOptions.changeStage) {
+        throw new Error('Changing stage is not enabled on this preview');
+      }
+      if (comments && !trackerOptions.addComments) {
+        throw new Error('Adding comments is not enabled on this preview');
+      }
+      if (file && !trackerOptions.attachDocument && submissionType !== 'OFFER_CONFIRMATION') {
+        throw new Error('Uploading a document is not enabled on this preview');
+      }
+
+      if (!displayTag && !file && !comments) {
+        throw new Error(
+          submissionType === 'OFFER_CONFIRMATION'
+            ? 'Please attach the offer letter or pick a decision'
+            : trackerOptions.changeStage
+              ? 'Please pick a stage'
+              : trackerOptions.addRemarks
+                ? 'Tag is required'
+                : 'Please add a comment or attach a document',
+        );
+      }
+      if (trackerOptions.changeStage && !resolvedStage && !file) {
+        throw new Error(
+          submissionType === 'OFFER_CONFIRMATION'
+            ? 'Please attach the offer letter or pick a stage'
+            : 'Please pick a stage',
+        );
+      }
+      if (trackerOptions.addRemarks && !tag && !trackerOptions.changeStage && !file) {
+        throw new Error(
+          submissionType === 'OFFER_CONFIRMATION'
+            ? 'Please attach the offer letter or pick a decision'
+            : 'Tag is required',
+        );
       }
 
       let offerLetterUrl = null;
@@ -2276,7 +2812,7 @@ export const interviewService = {
       }
 
       const noteParts = [];
-      if (tag) noteParts.push(`[Client Tag] ${tag}${comments ? ` - ${comments}` : ''}`);
+      if (displayTag) noteParts.push(`[Client Tag] ${displayTag}${comments ? ` - ${comments}` : ''}`);
       if (file) {
         const uploadLabel =
           submissionType === 'OFFER_CONFIRMATION' ? 'Offer letter received' : 'Document received';
@@ -2308,7 +2844,7 @@ export const interviewService = {
           interviewId: interview?.id || null,
           uploaderId,
           submissionType,
-          tag,
+          tag: displayTag,
           comments,
           offerLetterUrl,
           file,
@@ -2341,7 +2877,7 @@ export const interviewService = {
           candidateName,
           jobTitle: reviewContext.jobTitle,
           clientName: reviewContext.clientName,
-          tag,
+          tag: displayTag,
           candidateId,
           jobId,
         });
@@ -2349,11 +2885,15 @@ export const interviewService = {
         console.warn('[interview.submitPublicClientTag] review alert failed:', alertErr?.message || alertErr);
       }
 
+      // Client-chosen stage (resolvedStage / displayTag) is stored only as the
+      // Client tab tag via persistCandidateClientReviewActivity above.
+      // Recruiters own pipeline stage changes on Candidates / Pipeline tables.
+
       // For final-offer submissions we also push the candidate to the OFFER
       // pipeline bucket so the CRM + portal stay in sync without a second
       // manual click. We swallow errors so a flaky portal call never blocks
       // the client-side response.
-      if (submissionType === 'OFFER_CONFIRMATION' && file) {
+      if (submissionType === 'OFFER_CONFIRMATION' && file && !resolvedStage) {
         try {
           await updateCandidateStage({
             candidateId,
@@ -2393,12 +2933,13 @@ export const interviewService = {
         }
       }
 
-      return { updatedRecordId, offerLetterUrl, placementOfferAttached };
+      return { updatedRecordId, offerLetterUrl, placementOfferAttached, displayTag, stageLabel: resolvedStage?.label || null };
     });
 
     return {
       success: true,
-      tag,
+      tag: result.displayTag || tag,
+      stage: result.stageLabel || null,
       interviewId: result.updatedRecordId,
       offerLetterUrl: result.offerLetterUrl,
       placementOfferAttached: result.placementOfferAttached,
@@ -2413,7 +2954,7 @@ export const interviewService = {
       'GENERAL';
     const cvShareMode = readCandidateCvShareMode(interview.candidate) || 'edited';
 
-    const [offerLetterFile, candidateFiles, matchReviewActivities] = await Promise.all([
+    const [offerLetterFile, candidateFiles, matchReviewActivities, pipelineStages] = await Promise.all([
       prisma.candidateFile.findFirst({
         where: { candidateId: interview.candidateId, fileType: 'Offer' },
         orderBy: { uploadDate: 'desc' },
@@ -2431,6 +2972,7 @@ export const interviewService = {
         orderBy: { createdAt: 'desc' },
         take: 20,
       }),
+      loadClientPipelineStageChoices(interview.jobId),
     ]);
 
     const reviewPayload = serializeInterviewForClientReview(interview, {
@@ -2438,6 +2980,10 @@ export const interviewService = {
       cvShareMode,
       offerLetterFile,
       matchId: interview.id,
+      trackerOptions: resolveReviewTrackerOptions(interview.candidate),
+      candidateFiles,
+      recruiterNotes: interview.notes,
+      pipelineStages,
     });
 
     let clientResponses = attachDocumentUrlsToResponses(

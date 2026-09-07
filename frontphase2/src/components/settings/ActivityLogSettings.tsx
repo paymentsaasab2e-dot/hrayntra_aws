@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
+  PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../layout/Ph2ModulePageLayout';
@@ -285,7 +286,7 @@ export function ActivityLogSettings() {
           </span>
         </div>
 
-        <div className="ph2-table-body-scroll min-h-0 max-h-[min(60vh,520px)] flex-1 overflow-auto">
+        <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} max-h-[min(60vh,520px)]`}>
             {loading ? (
               <div className="flex items-center justify-center py-16 text-slate-400">
                 <Loader2 className="h-8 w-8 animate-spin" />
@@ -295,7 +296,7 @@ export function ActivityLogSettings() {
                 No team members or no activity on this date.
               </div>
             ) : (
-              <table className="w-full min-w-[960px] text-left">
+              <table className="w-max min-w-full text-left">
                 <thead className="sticky top-0 z-10">
                   <tr className={TABLE_HEAD_ROW}>
                     <th className={TH}>Member</th>
@@ -495,7 +496,7 @@ export function ActivityLogSettings() {
                         </p>
                       ) : (
                         <div className="overflow-x-auto">
-                          <table className="w-full min-w-[880px] text-left">
+                          <table className="w-max min-w-full text-left">
                             <thead className="sticky top-0 z-10 bg-white shadow-sm">
                               <tr className={TABLE_HEAD_ROW}>
                                 <th className={TH}>Time</th>

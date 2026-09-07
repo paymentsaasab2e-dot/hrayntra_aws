@@ -495,8 +495,8 @@ function ContactsPageContent() {
           </>
         }
       >
-        {stats ? (
-          <div className="mb-5 shrink-0">
+          {stats ? (
+          <div className="shrink-0">
             <ContactsKPICards stats={stats} />
           </div>
         ) : null}

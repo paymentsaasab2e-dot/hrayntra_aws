@@ -6,7 +6,9 @@ import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
   HQ_TABLE_CARD_CLASS,
+  HQ_TABLE_CLASS,
   HQ_TOOLBAR_ROW_CLASS,
+  HQ_KPI_ROW_CLASS,
 } from '@/components/hq/HqModulePageLayout';
 import { HqPrimaryButton, HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import {
@@ -320,7 +322,7 @@ export default function HqKycVerifiedPage() {
         </HqSecondaryButton>
       }
     >
-      <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+      <div className={HQ_KPI_ROW_CLASS}>
         <HqStatCard label="All" value={stats.total} active={kindFilter === 'all'} />
         <HqStatCard label="Applicants" value={stats.applicants} active={kindFilter === 'applicant'} />
         <HqStatCard label="Interviewers" value={stats.interviewers} active={kindFilter === 'interviewer'} />
@@ -377,7 +379,7 @@ export default function HqKycVerifiedPage() {
         </div>
 
         <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
-          <table className="min-w-full text-left">
+          <table className={HQ_TABLE_CLASS}>
             <thead>
               <tr>
                 <th>#</th>

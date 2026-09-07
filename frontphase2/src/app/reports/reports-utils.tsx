@@ -3,6 +3,7 @@
 import React from 'react';
 import type { LeaderboardRow } from './types';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
+import { PH2_TABLE_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 
 export function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(Number(value || 0));
@@ -91,8 +92,8 @@ export function SimpleTable({
 }) {
   if (!rows.length) return <EmptyState text="No data for the selected filters." />;
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-left text-xs">
+    <div className="ph2-table-body-scroll min-h-0 min-w-0 overflow-x-auto overflow-y-auto">
+      <table className={`${PH2_TABLE_CLASS} text-xs`}>
         <thead>
           <tr className="border-b border-indigo-100/60 text-[10px] font-bold uppercase tracking-wide text-slate-500">
             {columns.map((col) => (

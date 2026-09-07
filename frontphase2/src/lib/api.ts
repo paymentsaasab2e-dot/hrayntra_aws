@@ -258,7 +258,9 @@ export function getTenantDbName() {
 function getActiveOrgUnitIdFromStorage() {
   if (typeof window === 'undefined') return '';
   try {
-    return String(localStorage.getItem('activeOrgUnitId') || '').trim();
+    const id = String(localStorage.getItem('activeOrgUnitId') || '').trim();
+    if (!id || id === 'null' || id === 'undefined') return '';
+    return /^[a-fA-F0-9]{24}$/.test(id) ? id : '';
   } catch {
     return '';
   }
@@ -1073,6 +1075,14 @@ export async function apiSetTableColumnModuleVisibility(
       body: { moduleKey, visibleIds },
     },
   );
+}
+
+export async function apiSetTableColumnVisibility(columns: Record<string, string[]>) {
+  return apiFetch<{ columns: Record<string, string[]> }>('/settings/org/table-columns', {
+    method: 'PUT',
+    auth: true,
+    body: { columns },
+  });
 }
 
 export async function apiGetOrgDefaultCurrency() {
@@ -5294,6 +5304,8 @@ export interface BackendJob {
   showClientNamePublicly?: boolean | null;
   publicFieldVisibility?: Record<string, boolean> | null;
   aboutCompany?: string | null;
+  postingCompanyName?: string | null;
+  orgUnitId?: string | null;
   recruiterProfile?: {
     id?: string;
     name?: string;
@@ -5444,6 +5456,10 @@ export interface CreateJobData {
   /** Per-field visibility for public apply page, Phase 1, and social posts. */
   publicFieldVisibility?: Record<string, boolean>;
   aboutCompany?: string | null;
+  /** Tenant company / organization name shown on Phase 1, LinkedIn, and public apply. */
+  postingCompanyName?: string | null;
+  /** Org unit that is posting this job (Super Admin chooser). */
+  orgUnitId?: string | null;
   distributionPlatforms?: {
     internalCompany?: boolean;
     companyPage?: boolean;
@@ -7738,18 +7754,38 @@ export const apiSubmitMatch = async (
   payload: {
     message: string;
     notifyClient: boolean;
+    /** Link-only Submit to Client preview — backend must never email the client. */
+    previewOnly?: boolean;
     submissionType?: string;
     cvShareMode?: 'edited' | 'original' | 'saasa';
     toEmail?: string;
     additionalClients?: Array<{ clientId: string; toEmail?: string }>;
     batchMatchIds?: string[];
+    trackerOptions?: Record<string, boolean>;
   }
 ) => {
-  return apiFetch<BackendMatch & { reviewUrl?: string; emailSent?: boolean; emailError?: string | null }>(`/matches/${matchId}/submit`, {
+  return apiFetch<BackendMatch & { reviewUrl?: string; emailSent?: boolean; emailError?: string | null; trackerOptions?: Record<string, boolean> }>(`/matches/${matchId}/submit`, {
     method: 'POST',
     body: payload,
     auth: true,
   });
+};
+
+export const apiUpdateClientTracker = async (
+  matchId: string,
+  payload: {
+    trackerOptions: Record<string, boolean>;
+    batchMatchIds?: string[];
+  },
+) => {
+  return apiFetch<{ matchId: string; trackerOptions: Record<string, boolean> }>(
+    `/matches/${matchId}/client-tracker`,
+    {
+      method: 'PATCH',
+      body: payload,
+      auth: true,
+    },
+  );
 };
 
 export const apiRejectMatch = async (
@@ -8892,6 +8928,41 @@ export const apiDeleteJobNote = async (jobId: string, noteId: string) => {
 
 export const apiGetJobActivities = async (jobId: string) => {
   return apiFetch<BackendActivity[]>(`/jobs/${jobId}/activities`, { auth: true });
+};
+
+export type JobClientRemark = {
+  id: string;
+  clientName: string;
+  jobTitle?: string | null;
+  tag?: string | null;
+  comments?: string | null;
+  documentUrl?: string | null;
+  documentFileName?: string | null;
+  documentLabel?: string | null;
+  repliedAt?: string | null;
+  submissionType?: string | null;
+};
+
+export type JobClientRemarkCandidate = {
+  candidateId: string;
+  candidateName: string;
+  email?: string | null;
+  avatar?: string | null;
+  submittedAt?: string | null;
+  waiting: boolean;
+  remarks: JobClientRemark[];
+};
+
+export type JobClientRemarksPayload = {
+  jobId: string;
+  jobTitle: string;
+  clientName: string;
+  remarkCount: number;
+  candidates: JobClientRemarkCandidate[];
+};
+
+export const apiGetJobClientRemarks = async (jobId: string) => {
+  return apiFetch<JobClientRemarksPayload>(`/jobs/${jobId}/client-remarks`, { auth: true });
 };
 
 // ────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { Calendar, FileText, LayoutGrid, Plus, Pencil, Sparkles, StickyNote, Trash2, X } from 'lucide-react';
 import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { ImageWithFallback } from '../ImageWithFallback';
@@ -123,18 +124,10 @@ export default function ProfileDrawer({
     <AnimatePresence>
       {isOpen && candidate ? (
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[90] bg-slate-900/30"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl"
+          <DetailsModalShell
+            variant="main"
+            onBackdropClick={onClose}
+            dialogTitleId="match-profile-title"
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div className="flex items-center gap-4">
@@ -142,7 +135,7 @@ export default function ProfileDrawer({
                   <ImageWithFallback src={candidate.photo} alt={candidate.name} className="h-full w-full object-cover" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900">{candidate.name}</h3>
+                  <h3 id="match-profile-title" className="text-lg font-semibold text-slate-900">{candidate.name}</h3>
                   <p className="mt-1 text-sm text-[#6B7280]">
                     {candidate.currentTitle} • {candidate.currentCompany}
                   </p>
@@ -311,7 +304,7 @@ export default function ProfileDrawer({
               ) : null}
 
             </div>
-          </motion.div>
+          </DetailsModalShell>
         </>
       ) : null}
     </AnimatePresence>

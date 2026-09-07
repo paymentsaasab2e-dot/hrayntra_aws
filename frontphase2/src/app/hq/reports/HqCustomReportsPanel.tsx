@@ -228,8 +228,8 @@ export function HqCustomReportsPanel({
       {savedReports.length === 0 ? (
         <p className="px-5 py-8 text-sm text-slate-500">No custom reports yet. Save one from the builder.</p>
       ) : (
-        <div className="overflow-auto">
-          <table className="min-w-full text-left text-sm">
+        <div className="ph2-table-body-scroll min-h-0 min-w-0 overflow-x-auto overflow-y-auto">
+          <table className="w-max min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-2">Report name</th>

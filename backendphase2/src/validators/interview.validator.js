@@ -211,7 +211,12 @@ export const submitToClientSchema = z.object({
 });
 
 export const reviewTokenParamSchema = z.object({
-  token: z.string().min(10),
+  token: z.string().min(6),
+});
+
+export const reviewFileParamSchema = z.object({
+  token: z.string().min(6),
+  fileId: z.string().min(1),
 });
 
 // `tag` is technically optional at the schema layer because OFFER_CONFIRMATION
@@ -221,4 +226,5 @@ export const publicClientTagSchema = z.object({
   tag: z.string().optional(),
   comments: z.string().optional(),
   matchId: z.string().optional(),
+  stage: z.string().optional(),
 });

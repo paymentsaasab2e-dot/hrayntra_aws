@@ -109,6 +109,7 @@ export function DrawerSectionCard({
   icon: Icon,
   accent = 'blue',
   children,
+  headerRight,
   collapsible = false,
   open = true,
   onOpenChange,
@@ -118,6 +119,8 @@ export function DrawerSectionCard({
   icon: LucideIcon;
   accent?: DrawerFormAccent;
   children: React.ReactNode;
+  /** Optional control(s) aligned on the same row as the title (e.g. Columns menu). */
+  headerRight?: React.ReactNode;
   collapsible?: boolean;
   open?: boolean;
   onOpenChange?: () => void;
@@ -149,14 +152,20 @@ export function DrawerSectionCard({
             className="flex w-full items-center justify-between gap-3 px-5 py-4 pl-7 text-left transition-colors hover:bg-white/70"
           >
             {headerContent}
-            <ChevronDown
-              size={18}
-              className={`shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-0' : '-rotate-90'}`}
-              aria-hidden
-            />
+            <div className="flex shrink-0 items-center gap-2">
+              {headerRight}
+              <ChevronDown
+                size={18}
+                className={`shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-0' : '-rotate-90'}`}
+                aria-hidden
+              />
+            </div>
           </button>
         ) : (
-          <div className="flex items-center gap-3 px-5 py-4 pl-7">{headerContent}</div>
+          <div className="flex items-center justify-between gap-3 px-5 py-4 pl-7">
+            {headerContent}
+            {headerRight ? <div className="flex shrink-0 items-center gap-2">{headerRight}</div> : null}
+          </div>
         )}
       </div>
       {isOpen ? <div className="space-y-4 px-5 py-4 pl-6">{children}</div> : null}

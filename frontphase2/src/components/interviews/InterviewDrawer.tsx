@@ -46,6 +46,7 @@ interface InterviewDrawerProps {
   onScheduleNextRound?: () => void;
   onAddNote?: (text: string) => Promise<void>;
   onAction?: (action: InterviewAction) => void;
+  zIndexClass?: string;
 }
 
 const tabs: Array<{ id: DrawerTab; label: string; icon: typeof LayoutGrid }> = [
@@ -71,6 +72,7 @@ export function InterviewDrawer({
   onScheduleNextRound,
   onAddNote,
   onAction,
+  zIndexClass = 'z-[100]',
 }: InterviewDrawerProps) {
   usePageDrawerLifecycle(isOpen);
   const [activeTab, setActiveTab] = useState<DrawerTab>('overview');
@@ -84,7 +86,8 @@ export function InterviewDrawer({
           <DetailsModalShell
             onBackdropClick={onClose}
             size="lg"
-            zIndexClass="z-[100]"
+            variant="main"
+            zIndexClass={zIndexClass}
             dialogTitleId="interview-detail-modal-title"
           >
             <div className="border-b border-[#E5E7EB] px-6 py-5">

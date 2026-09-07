@@ -4,9 +4,11 @@ import React from 'react';
 import {
   PH2_PAGE_HEADER_BRAND_CLASS,
   PH2_PAGE_HEADER_TITLE_CLASS,
+  PH2_KPI_ROW_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TABLE_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
 } from '@/components/layout/Ph2ModulePageLayout';
@@ -18,6 +20,8 @@ export {
   PH2_TOOLBAR_ROW_CLASS as HQ_TOOLBAR_ROW_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS as HQ_TABLE_CARD_FOOTER_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS as HQ_TABLE_BODY_SCROLL_CLASS,
+  PH2_TABLE_CLASS as HQ_TABLE_CLASS,
+  PH2_KPI_ROW_CLASS as HQ_KPI_ROW_CLASS,
   PH2_PAGE_HEADER_BRAND_CLASS as HQ_PAGE_HEADER_BRAND_CLASS,
   PH2_PAGE_HEADER_TITLE_CLASS as HQ_PAGE_HEADER_TITLE_CLASS,
 };
@@ -70,7 +74,7 @@ export function HqModulePageLayout({
         locked ? '' : 'ph2-page-shell--scroll'
       }`}
     >
-      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
           <div className={PH2_PAGE_HEADER_BRAND_CLASS}>
             <div className={HQ_HEADER_ICON_TILE_CLASS}>{icon}</div>
@@ -88,12 +92,12 @@ export function HqModulePageLayout({
           ) : null}
         </header>
         <div
-          className={`flex min-h-0 flex-1 flex-col px-3 py-4 sm:px-5 sm:py-6 lg:px-6 ${
+          className={`flex min-h-0 min-w-0 flex-1 flex-col px-3 py-2 sm:px-5 sm:py-4 lg:px-6 ${
             locked ? 'overflow-hidden' : 'overflow-y-auto overscroll-y-contain custom-scrollbar'
           }`}
         >
           <div
-            className={`mx-auto flex w-full max-w-[1600px] flex-col ${
+            className={`mx-auto flex w-full min-w-0 max-w-[1600px] flex-col ${
               locked ? 'min-h-0 flex-1' : 'pb-10'
             }`}
           >

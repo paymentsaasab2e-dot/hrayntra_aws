@@ -1,6 +1,7 @@
 import React from 'react';
 import { Calendar, CheckCircle2, Clock3, MessageSquare } from 'lucide-react';
 import type { InterviewKpi } from '../../types/interview.types';
+import { PH2_KPI_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
 
 const iconMap = {
   calendar: Calendar,
@@ -22,7 +23,7 @@ interface InterviewKPICardsProps {
 
 export function InterviewKPICards({ items }: InterviewKPICardsProps) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
+    <div className={PH2_KPI_ROW_CLASS}>
       {(Array.isArray(items) ? items : []).map((item) => {
         const Icon = iconMap[item?.icon] || Calendar;
         const accentClass = accentMap[item.accent as keyof typeof accentMap] || accentMap.blue;
@@ -34,7 +35,7 @@ export function InterviewKPICards({ items }: InterviewKPICardsProps) {
         return (
           <div
             key={item.title}
-            className="rounded-xl border border-indigo-100/60 bg-white/70 p-4 shadow-[0_8px_28px_-14px_rgba(59,130,246,0.14)] backdrop-blur-sm transition-shadow hover:shadow-[0_12px_36px_-12px_rgba(79,70,229,0.14)]"
+            className="rounded-lg sm:rounded-xl border border-indigo-100/60 bg-white/70 p-2 sm:p-4 shadow-[0_8px_28px_-14px_rgba(59,130,246,0.14)] backdrop-blur-sm transition-shadow hover:shadow-[0_12px_36px_-12px_rgba(79,70,229,0.14)]"
           >
             <div className="flex items-start justify-between">
               <div>
@@ -45,7 +46,7 @@ export function InterviewKPICards({ items }: InterviewKPICardsProps) {
                 <Icon className="size-5" />
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-2 text-[11px]">
+            <div className="mt-1 hidden items-center gap-2 text-[11px] sm:mt-3 sm:flex">
               <span className="rounded-md bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">+12%</span>
               <span className="text-slate-500">vs last month</span>
             </div>

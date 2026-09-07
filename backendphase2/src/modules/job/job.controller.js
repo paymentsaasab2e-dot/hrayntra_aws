@@ -316,4 +316,16 @@ export const jobController = {
       sendError(res, 500, error.message, error);
     }
   },
+
+  async getClientRemarks(req, res) {
+    try {
+      const result = await jobService.getClientRemarks(req.params.jobId, req);
+      if (!result) {
+        return sendError(res, 404, 'Job not found');
+      }
+      sendResponse(res, 200, 'Job client remarks retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
 };

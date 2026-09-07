@@ -15,7 +15,8 @@ import {
   Timer,
   User,
 } from 'lucide-react';
-import type { ClientReviewSection } from '@/lib/clientPresentationSections';
+import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
+import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
 import { CLIENT_PRESENTATION_SECTION_LABELS } from '@/lib/clientPresentationSections';
 import { PHASE1_CLIENT_SECTION_LABELS } from '@/lib/phase1ClientPresentationSections';
 import {
@@ -43,7 +44,8 @@ import { CandidateVisaWorkAuthorizationEntryView } from './CandidateVisaWorkAuth
 import { CandidateVaccinationEntryView } from './CandidateVaccinationEntryView';
 
 function isUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value.trim());
+  const raw = value.trim();
+  return /^https?:\/\//i.test(raw) || isClientReviewFileHref(raw);
 }
 
 function isInternalResumeStorageUrl(value: string): boolean {
@@ -57,13 +59,6 @@ function shouldHideClientReviewField(label: string, value: string): boolean {
   if (key === 'resume url' || key === 'file url') return true;
   if (key.includes('url') && isInternalResumeStorageUrl(value)) return true;
   return false;
-}
-
-function resumeOpenLabel(url: string): string {
-  const last = decodeURIComponent(String(url || '').split('?')[0].split('/').pop() || '');
-  const cleaned = last.replace(/^\d+_[a-f0-9]+_/i, '').replace(/_/g, ' ').trim();
-  if (cleaned && /\.(pdf|docx?|txt)$/i.test(cleaned)) return 'Open resume';
-  return 'Open resume';
 }
 
 function display(value: unknown): string {
@@ -87,24 +82,17 @@ function FieldRow({
 
   const valueNode = empty ? (
     <p className={phase1FieldEmptyClass}>Not in resume</p>
-  ) : link && isInternalResumeStorageUrl(link) ? (
+  ) : link && (isInternalResumeStorageUrl(link) || isClientReviewFileHref(link)) ? (
     <a
       href={link}
       target="_blank"
       rel="noreferrer"
       className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
     >
-      {resumeOpenLabel(link)}
+      Open resume
     </a>
-  ) : link ? (
-    <a
-      href={link}
-      target="_blank"
-      rel="noreferrer"
-      className="break-all text-sm font-medium text-indigo-600 hover:text-indigo-700"
-    >
-      {text}
-    </a>
+  ) : link && looksLikeHttpUrl(link) ? (
+    <DrawerLinkActions url={link} shareTitle={label} />
   ) : (
     <p className={`whitespace-pre-line break-words ${phase1FieldValueClass}`}>{text}</p>
   );
@@ -571,6 +559,9 @@ type Props = {
   clientName?: string;
   defaultOpen?: boolean;
   showMeta?: boolean;
+  hideLinkedIn?: boolean;
+  hideInternalNotes?: boolean;
+  hideResumeLinks?: boolean;
 };
 
 export function ClientReviewSectionsPanel({
@@ -579,6 +570,9 @@ export function ClientReviewSectionsPanel({
   clientName,
   defaultOpen = true,
   showMeta = true,
+  hideLinkedIn = false,
+  hideInternalNotes = false,
+  hideResumeLinks = false,
 }: Props) {
   const mergedSections = useMemo(() => mergeSectionsById(sections), [sections]);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -620,6 +614,9 @@ export function ClientReviewSectionsPanel({
         for (const row of section.fields) {
           if (row.value === 'No entries provided') continue;
           if (shouldHideClientReviewField(row.label, row.value)) continue;
+          if (hideLinkedIn && /linkedin/i.test(row.label)) continue;
+          if (hideInternalNotes && /internal notes|^notes$/i.test(row.label)) continue;
+          if (hideResumeLinks && /resume/i.test(row.label)) continue;
           const structured = renderStructuredField(row.label, row.value);
           if (structured) {
             structuredRows.push(

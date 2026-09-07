@@ -38,6 +38,7 @@ import { isLeadSource, LEAD_SOURCE_OPTIONS } from '../../../components/drawers/L
 import { formatDateDMY } from '../../../utils/dateDisplay';
 import { formatContactListDisplay } from '../../../lib/contact-channels';
 import { SummaryCard, type SummaryCardColor } from '../../../components/ui/SummaryCard';
+import { PH2_KPI_ROW_CLASS, PH2_TABLE_BODY_SCROLL_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
 import { TableBrandAvatar } from '../../../components/ui/TableBrandAvatar';
 import { SourceCell } from '../../leads/SourceCell';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
@@ -648,7 +649,7 @@ export default function PublicLeadFormPage() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+          <div className={PH2_KPI_ROW_CLASS}>
             {(
               [
                 { label: 'NEW LEADS', count: metrics.NEW_LEADS, color: 'blue' as SummaryCardColor, status: 'New' as LeadStatus, icon: <Plus size={16} strokeWidth={2.35} /> },
@@ -734,11 +735,11 @@ export default function PublicLeadFormPage() {
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/80 bg-white shadow-[0_12px_40px_-24px_rgba(49,46,129,0.35)]">
-            <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
+            <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
               {leadsLoading && leads.length === 0 ? (
                 <TableSkeleton rows={8} columns={6} />
               ) : (
-                <table className="w-full min-w-[860px] text-left" aria-label="Public intake leads">
+                <table className="w-max min-w-full text-left" aria-label="Public intake leads">
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
                       <th className="px-3 py-2 sm:px-4">Lead</th>

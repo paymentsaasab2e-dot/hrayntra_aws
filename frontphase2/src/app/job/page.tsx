@@ -165,6 +165,7 @@ import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import {
   Ph2ModulePageLayout,
+  PH2_KPI_ROW_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
@@ -819,7 +820,7 @@ const JobsListView = ({
 
   return (
   <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
-      <table className="w-full min-w-[520px] text-left border-collapse">
+      <table className="w-max min-w-full text-left border-collapse">
         <thead className="sticky top-0 z-10">
           <tr className="border-b border-indigo-100 bg-gradient-to-r from-slate-50 via-indigo-50 to-violet-50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
             {show('select') ? (
@@ -2788,7 +2789,7 @@ export default function JobsPage() {
         }
       >
         <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
-          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+          <div className={PH2_KPI_ROW_CLASS}>
             {loadingMetrics
               ? STATS_CONFIG.map((statConfig, i) => <SummaryCardSkeleton key={i} color={statConfig.color} />)
               : STATS_CONFIG.map((statConfig) => {

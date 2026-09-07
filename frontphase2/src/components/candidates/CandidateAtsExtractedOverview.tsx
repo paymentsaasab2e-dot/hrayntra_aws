@@ -12,6 +12,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import { DrawerSectionCard } from '../drawers/drawerFormUi';
+import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
 import {
   buildEducationSummaryFromCvEntries,
   isGarbageEducationSummary,
@@ -78,15 +79,10 @@ function FieldRow({
       </p>
       {empty ? (
         <p className="mt-1 text-sm italic text-slate-400">Not in resume</p>
-      ) : href && /^https?:\/\//i.test(href) ? (
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1 block break-all text-sm font-medium text-blue-700 hover:underline"
-        >
-          {text}
-        </a>
+      ) : href && looksLikeHttpUrl(href) ? (
+        <div className="mt-1">
+          <DrawerLinkActions url={href} shareTitle={label} />
+        </div>
       ) : (
         <p className="mt-1 break-words text-sm font-medium text-slate-800">{text}</p>
       )}
