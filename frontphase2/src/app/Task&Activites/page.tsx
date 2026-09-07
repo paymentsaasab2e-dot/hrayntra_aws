@@ -33,6 +33,7 @@ import { ImageWithFallback } from '../../components/ImageWithFallback';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { TaskDetailsDrawer, type TaskForDrawer, type TaskActivityItem } from '../../components/drawers/TaskDetailsDrawer';
+import { DetailsModalShell } from '../../components/drawers/DetailsModalShell';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel } from '../../components/TaskSLAAlerts';
 import { MOCK_TASK_COMMUNICATIONS, MOCK_CANDIDATE_INTERACTIONS, MOCK_AI_TASK_SUGGESTIONS } from './types';
 import { mapBackendActivityToTaskEvent } from '../../lib/taskActivityMapper';
@@ -64,6 +65,7 @@ import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../components/ai/WorkspaceAlertTableCell';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import {
+  PH2_KPI_ROW_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
@@ -1321,7 +1323,7 @@ export default function App() {
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
-              <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-5">
+              <div className={PH2_KPI_ROW_CLASS}>
                 {loading && tasks.length === 0 ? (
                   (['blue', 'cyan', 'orange', 'purple', 'orange'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
                 ) : (
@@ -1358,7 +1360,7 @@ export default function App() {
                   (show('audit') ? 1 : 0) +
                   1; // actions
                 return (
-              <table className="w-full min-w-[1320px] text-left">
+              <table className="w-max min-w-full text-left">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Task Title</th>
@@ -1618,23 +1620,13 @@ export default function App() {
       {/* All SLA Alerts drawer (from Tasks page button) */}
       <AnimatePresence>
         {slaDrawerOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSlaDrawerOpen(false)}
-              className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
-            />
-            <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
-            >
+          <DetailsModalShell
+            variant="main"
+            onBackdropClick={() => setSlaDrawerOpen(false)}
+            dialogTitleId="sla-alerts-title"
+          >
               <div className="shrink-0 border-b border-slate-200 p-4 flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-900">SLA Alerts</h2>
+                <h2 id="sla-alerts-title" className="text-lg font-bold text-slate-900">SLA Alerts</h2>
                 <button
                   type="button"
                   onClick={() => setSlaDrawerOpen(false)}
@@ -1655,8 +1647,7 @@ export default function App() {
                   showAITip
                 />
               </div>
-            </motion.div>
-          </>
+          </DetailsModalShell>
         )}
       </AnimatePresence>
 

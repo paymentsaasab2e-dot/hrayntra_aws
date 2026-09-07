@@ -1390,8 +1390,7 @@ async function resolveFallbackClientReviewUrl(candidateId, db) {
     include: { job: { select: { id: true, clientId: true, title: true } } },
   });
   if (!match) return '';
-  const { createClientReviewToken } = await import('../../services/interview.service.js');
-  const { env } = await import('../../config/env.js');
+  const { createClientReviewToken, toClientReviewUrl } = await import('../../services/interview.service.js');
   const token = createClientReviewToken({
     matchId: match.id,
     candidateId: match.candidateId,
@@ -1400,7 +1399,10 @@ async function resolveFallbackClientReviewUrl(candidateId, db) {
     submissionType: 'GENERAL',
     cvShareMode: 'edited',
   });
-  return `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
+  return toClientReviewUrl(token, {
+    matchId: match.id,
+    candidateId: match.candidateId,
+  });
 }
 
 function mapActivityToNote(activity) {

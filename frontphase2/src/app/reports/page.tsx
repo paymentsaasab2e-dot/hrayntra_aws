@@ -8,7 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
-import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { PH2_KPI_ROW_CLASS, PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 import {
   buildReportQueryString,
   DEFAULT_REPORT_FILTERS,
@@ -349,7 +349,7 @@ export default function ReportsPage() {
               <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} p-4 sm:p-5 lg:p-6`}>
                 {showSummarySkeleton ? (
                   <div className="space-y-6">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                    <div className={PH2_KPI_ROW_CLASS}>
                       {(['blue', 'cyan', 'orange', 'indigo', 'green', 'rose'] as SummaryCardColor[]).map((c, i) => (
                         <SummaryCardSkeleton key={i} color={c} />
                       ))}

@@ -70,15 +70,23 @@ export async function setTableColumnModuleVisibility(moduleKey, visibleIds) {
   if (!key) {
     throw new Error('moduleKey is required');
   }
-  const current = await getTableColumnVisibility();
   const ids = Array.isArray(visibleIds)
     ? visibleIds.map((item) => String(item)).filter(Boolean)
     : [];
-  const columns = { ...current, [key]: ids };
-  await upsertOrgSettingJson(KEY_TABLE_COLUMN_VISIBILITY, {
-    columns,
-    updatedAt: new Date().toISOString(),
-  });
+  let columns = {};
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await getTableColumnVisibility();
+    columns = { ...current, [key]: ids };
+    await upsertOrgSettingJson(KEY_TABLE_COLUMN_VISIBILITY, {
+      columns,
+      updatedAt: new Date().toISOString(),
+    });
+    const verify = await getTableColumnVisibility();
+    const saved = Array.isArray(verify[key]) ? verify[key] : [];
+    const same =
+      saved.length === ids.length && saved.every((item, index) => item === ids[index]);
+    if (same) return verify;
+  }
   return columns;
 }
 

@@ -84,6 +84,7 @@ import { useCanHandoffClient } from '../../hooks/useCanHandoffClient';
 import { useClientHandoffStatuses } from '../../hooks/useClientHandoffStatuses';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { PH2_KPI_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { CsvColumn } from '../../utils/csv';
 import { mergeCatalogOptions } from '../../components/forms/CatalogOptionDropdown';
@@ -94,10 +95,6 @@ import {
   DEFAULT_CLIENT_STATUS_LABELS,
   resolveClientStatusLabel,
 } from '../../lib/clientLifecycleStatus';
-
-// Force client-side render so the page hydrates skeletons before the data fetch
-// resolves — every interactive bit on this tab is client-driven anyway.
-export const dynamic = 'force-dynamic';
 
 /** Toolbar selects / filter chip — matches Leads page for one visual system. */
 const CLIENT_TOOLBAR_SELECT =
@@ -176,7 +173,7 @@ const StatusCards = ({
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-5">
+    <div className={PH2_KPI_ROW_CLASS}>
       {cards.map((card) => (
         <SummaryCard
           key={card.id}
@@ -194,7 +191,7 @@ const StatusCards = ({
 
 /** Skeleton mirror of the StatusCards strip — used while clients fetch. */
 const StatusCardsSkeleton = () => (
-  <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-5">
+  <div className={PH2_KPI_ROW_CLASS}>
     {(['indigo', 'blue', 'orange', 'gray', 'purple'] as SummaryCardColor[]).map((color, i) => (
       <SummaryCardSkeleton key={i} color={color} />
     ))}
@@ -482,11 +479,13 @@ export default function App() {
   }, [clients]);
 
   useEffect(() => {
-    setSelectedDynamicColumnLabels((previous) =>
-      previous.filter((label) =>
-        availableDynamicColumnLabels.some((option) => option.toLowerCase() === label.toLowerCase())
-      )
-    );
+    if (availableDynamicColumnLabels.length === 0) return;
+    setSelectedDynamicColumnLabels((previous) => {
+      const next = previous.filter((label) =>
+        availableDynamicColumnLabels.some((option) => option.toLowerCase() === label.toLowerCase()),
+      );
+      return next.length === previous.length ? previous : next;
+    });
   }, [availableDynamicColumnLabels, setSelectedDynamicColumnLabels]);
 
   const filteredClients = useMemo(() => {
@@ -1327,7 +1326,7 @@ export default function App() {
               <div className="shrink-0 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
                 <div className="h-9 max-w-md rounded-xl bg-white/80 ring-1 ring-indigo-100/80 animate-pulse" />
               </div>
-              <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
+              <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
                 <TableSkeleton rows={8} columns={8} />
               </div>
             </div>
@@ -1471,7 +1470,7 @@ export default function App() {
                 />
               </div>
 
-              <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
+              <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
                 <ClientTable
                     clients={pagedClients}
                     dynamicColumnLabels={selectedDynamicColumnLabels}

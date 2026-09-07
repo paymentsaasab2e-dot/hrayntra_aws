@@ -4,9 +4,11 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarClock, ChevronDown, LayoutGrid, MessageSquare, Pencil, X } from 'lucide-react';
 import { HqPrimaryButton, HqSecondaryButton } from './hqUi';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { apiHqAddCompanyFollowUp, apiHqAddCompanyRemark, apiHqCompleteCompanyFollowUp, apiHqDeleteCompanyFollowUp, apiHqUpdateCompanyFollowUp } from '@/lib/api';
 import { HqFollowUpTabPanel } from './HqFollowUpTabPanel';
 import { DrawerTabBar } from '../drawers/DrawerTabBar';
+import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
 import {
   defaultNextFollowUpLocal,
   formatNextFollowUpDisplay,
@@ -99,6 +101,9 @@ function DetailValue({ value, placeholder = '—' }: { value?: string | number |
     value === null || value === undefined || String(value).trim() === ''
       ? placeholder
       : String(value);
+  if (text !== placeholder && looksLikeHttpUrl(text)) {
+    return <DrawerLinkActions url={text} />;
+  }
   return <div className={VALUE_CLASS}>{text}</div>;
 }
 
@@ -372,22 +377,12 @@ export function HqCompanyDetailDrawer({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[1200]">
-      <button
-        type="button"
-        aria-label="Close company drawer backdrop"
-        className="absolute inset-0 z-0 bg-slate-900/40 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
-
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="hq-company-detail-title"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="absolute right-0 top-0 z-10 flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl pointer-events-auto"
-      >
+    <DetailsModalShell
+      variant="main"
+      onBackdropClick={onClose}
+      dialogTitleId="hq-company-detail-title"
+    >
+      <div className="flex h-full min-h-0 flex-col bg-white">
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
           <div>
             <h2 id="hq-company-detail-title" className="text-2xl font-bold text-slate-900">
@@ -839,10 +834,9 @@ export function HqCompanyDetailDrawer({
                 ) : null}
               </>
             )}
-          </div>
         </div>
-      </aside>
-    </div>,
+      </div>
+    </DetailsModalShell>,
     document.body
   );
 }

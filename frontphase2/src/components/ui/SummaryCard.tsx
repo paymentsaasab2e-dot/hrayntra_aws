@@ -102,30 +102,30 @@ export function SummaryCard({ label, count, color, icon, active = false, onClick
     <Element
       type={isInteractive ? 'button' : undefined}
       onClick={onClick}
-      className={`group relative w-full min-w-0 overflow-hidden rounded-xl border p-2.5 sm:p-4 text-left shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-12px_rgba(59,130,246,0.22)] ${
+      className={`group relative w-full min-w-0 overflow-hidden rounded-lg sm:rounded-xl border p-1.5 sm:p-3 lg:p-4 text-left shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-12px_rgba(59,130,246,0.22)] ${
         isInteractive ? 'cursor-pointer' : ''
       } ${s.panel} ${s.ring} ${active ? s.activeRing : ''}`}
       aria-pressed={isInteractive ? active : undefined}
     >
       <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-white/40 blur-2xl" aria-hidden />
-      <div className="relative flex items-start justify-between gap-2">
+      <div className="relative flex items-start justify-between gap-1 sm:gap-2">
         <div
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-105 sm:h-9 sm:w-9 ${s.iconWrap}`}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg sm:h-8 sm:w-8 sm:rounded-xl lg:h-9 lg:w-9 transition-transform duration-300 group-hover:scale-105 [&_svg]:h-3.5 [&_svg]:w-3.5 sm:[&_svg]:h-4 sm:[&_svg]:w-4 ${s.iconWrap}`}
         >
           {icon}
         </div>
-        <span className={`min-w-0 break-all text-xl font-semibold tabular-nums tracking-tight sm:text-2xl ${s.text}`}>{count}</span>
+        <span className={`min-w-0 break-all text-sm font-semibold tabular-nums tracking-tight sm:text-xl lg:text-2xl ${s.text}`}>{count}</span>
       </div>
-      <div className="relative mt-2 flex items-end justify-between gap-2 sm:mt-3">
-        <p className={`min-w-0 break-words text-[10px] font-bold uppercase tracking-[0.12em] leading-snug opacity-85 ${s.text}`}>{label}</p>
+      <div className="relative mt-1 flex items-end justify-between gap-1 sm:mt-2 lg:mt-3 sm:gap-2">
+        <p className={`min-w-0 break-words text-[8px] font-bold uppercase tracking-[0.08em] leading-tight opacity-85 sm:text-[10px] sm:tracking-[0.12em] sm:leading-snug ${s.text}`}>{label}</p>
         {active ? (
           <span
-            className={`shrink-0 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ring-1 ring-black/5 ${s.text}`}
+            className={`hidden sm:inline-flex shrink-0 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ring-1 ring-black/5 ${s.text}`}
           >
             Active
           </span>
         ) : hint ? (
-          <span className={`shrink-0 text-[10px] font-bold opacity-80 ${s.text}`}>{hint}</span>
+          <span className={`hidden sm:inline shrink-0 text-[10px] font-bold opacity-80 ${s.text}`}>{hint}</span>
         ) : null}
       </div>
     </Element>
@@ -142,19 +142,19 @@ export function SummaryCardSkeleton({ color = 'gray' }: SummaryCardSkeletonProps
   const s = STYLES[color] ?? STYLES.gray;
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-xl border p-3 sm:p-4 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] ${s.panel} ${s.ring}`}
+      className={`relative w-full overflow-hidden rounded-lg sm:rounded-xl border p-1.5 sm:p-3 lg:p-4 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] ${s.panel} ${s.ring}`}
       aria-hidden
     >
       <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-white/40 blur-2xl" />
-      <div className="relative flex items-start justify-between gap-2">
-        <div className={`relative h-9 w-9 overflow-hidden rounded-xl ${s.iconWrap}`}>
+      <div className="relative flex items-start justify-between gap-1 sm:gap-2">
+        <div className={`relative h-6 w-6 overflow-hidden rounded-lg sm:h-9 sm:w-9 sm:rounded-xl ${s.iconWrap}`}>
           <span className="ph2-skel-shimmer" />
         </div>
-        <div className="relative h-6 w-10 overflow-hidden rounded-md bg-white/70">
+        <div className="relative h-4 w-8 overflow-hidden rounded-md bg-white/70 sm:h-6 sm:w-10">
           <span className="ph2-skel-shimmer" />
         </div>
       </div>
-      <div className="relative mt-3 h-2.5 w-2/3 overflow-hidden rounded-full bg-white/70">
+      <div className="relative mt-1.5 h-2 w-2/3 overflow-hidden rounded-full bg-white/70 sm:mt-3 sm:h-2.5">
         <span className="ph2-skel-shimmer" />
       </div>
       <style jsx>{`

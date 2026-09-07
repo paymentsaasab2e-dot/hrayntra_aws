@@ -114,7 +114,7 @@ function ActivityTimeline({
   showPerformer?: boolean;
 }) {
   return (
-    <table className="w-full min-w-[960px] text-left" aria-label="Activity log">
+    <table className="w-max min-w-full text-left" aria-label="Activity log">
       <thead className="sticky top-0 z-10">
         <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
           {showPerformer ? <th className="px-3 py-2.5 sm:px-4">Actor</th> : null}

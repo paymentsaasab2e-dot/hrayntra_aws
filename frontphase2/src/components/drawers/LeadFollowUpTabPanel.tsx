@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarClock, CalendarPlus, Check, Loader2, X } from 'lucide-react';
+import { DrawerLinkActions } from './DrawerLinkActions';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { FollowUpDateTimeField } from '../FollowUpDateTimeField';
 import {
@@ -455,17 +456,12 @@ export function LeadFollowUpTabPanel({
                   <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{displayedNotes}</p>
                 ) : null}
                 {scheduleInfo?.meetLink ? (
-                  <p className="mt-1 text-xs text-slate-500">
-                    {'Meet link: '}
-                    <a
-                      href={scheduleInfo.meetLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium text-sky-700 underline-offset-2 hover:underline"
-                    >
-                      {scheduleInfo.meetLink}
-                    </a>
-                  </p>
+                  <div className="mt-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Meet link</p>
+                    <div className="mt-1">
+                      <DrawerLinkActions url={scheduleInfo.meetLink} shareTitle="Follow-up meeting link" />
+                    </div>
+                  </div>
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2">

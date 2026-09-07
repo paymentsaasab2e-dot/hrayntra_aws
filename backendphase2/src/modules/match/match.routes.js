@@ -23,6 +23,11 @@ router.post(
   requireAnyPermission(['matches_manage', 'submit_candidate']),
   matchController.submit,
 );
+router.patch(
+  '/:id/client-tracker',
+  requireAnyPermission(['matches_manage', 'submit_candidate']),
+  matchController.updateClientTracker,
+);
 router.post('/:id/reject', requireAnyPermission(['matches_manage']), matchController.reject);
 router.post('/', requireAnyPermission(['matches_manage']), matchController.create);
 router.patch('/:id', requireAnyPermission(['matches_manage']), matchController.update);

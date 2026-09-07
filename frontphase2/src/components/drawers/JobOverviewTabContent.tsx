@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { Briefcase, DollarSign, FileText, GraduationCap, Link2 } from 'lucide-react';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
@@ -123,6 +123,16 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
   const descriptionPlain = job.description ? stripHtml(job.description) : '';
   const overviewPlain = job.overview ? stripHtml(job.overview) : '';
   const workModeLabel = displayValue(job.workMode || job.jobLocationType, '—');
+  const [openSections, setOpenSections] = useState({
+    description: false,
+    details: true,
+    compensation: true,
+    requirements: true,
+    apply: true,
+  });
+  const toggleSection = (key: keyof typeof openSections) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const recruiterDisplay =
     job.recruiter?.trim() && job.recruiter !== '-'
@@ -139,9 +149,18 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
     <div className="space-y-5">
       <DrawerSectionCard
         title="Job Description"
-        subtitle="Full role description and responsibilities"
+        subtitle={
+          openSections.description
+            ? 'Full role description and responsibilities'
+            : descriptionPlain
+              ? `${descriptionPlain.slice(0, 120)}${descriptionPlain.length > 120 ? '…' : ''}`
+              : 'Click to view the full description'
+        }
         icon={FileText}
         accent="blue"
+        collapsible
+        open={openSections.description}
+        onOpenChange={() => toggleSection('description')}
       >
         {hasHtmlDescription ? (
           <div
@@ -160,6 +179,9 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         subtitle="Title, client, location, and ownership"
         icon={Briefcase}
         accent="blue"
+        collapsible
+        open={openSections.details}
+        onOpenChange={() => toggleSection('details')}
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <OverviewField label="Job Title" value={displayValue(job.title)} required />
@@ -214,6 +236,9 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         subtitle="Salary range, currency, and benefits"
         icon={DollarSign}
         accent="emerald"
+        collapsible
+        open={openSections.compensation}
+        onOpenChange={() => toggleSection('compensation')}
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OverviewField label="Currency" value={displayValue(job.salaryCurrency)} />
@@ -238,6 +263,9 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         subtitle="Skills, education, and qualifications"
         icon={GraduationCap}
         accent="amber"
+        collapsible
+        open={openSections.requirements}
+        onOpenChange={() => toggleSection('requirements')}
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <OverviewField label="Minimum Years of Experience" value={minExp} />
@@ -283,6 +311,9 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         subtitle="Public apply settings and screening"
         icon={Link2}
         accent="indigo"
+        collapsible
+        open={openSections.apply}
+        onOpenChange={() => toggleSection('apply')}
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <OverviewField label="Application Form Enabled" value={displayValue(job.applicationFormEnabled)} />

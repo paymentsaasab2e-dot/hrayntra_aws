@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, RotateCcw, Trash2 } from 'lucide-react';
-import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';
+import { HqModulePageLayout, HQ_TABLE_BODY_SCROLL_CLASS, HQ_TABLE_CARD_CLASS, HQ_TABLE_CLASS, HQ_TOOLBAR_ROW_CLASS } from '@/components/hq/HqModulePageLayout';
 import { HqPrimaryButton, HqSecondaryButton } from '@/components/hq/hqUi';
 import {
   apiHqListRecycleBin,
@@ -95,8 +95,8 @@ export default function HqRecycleBinPage() {
         </HqSecondaryButton>
       }
     >
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+      <div className={HQ_TABLE_CARD_CLASS}>
+        <div className={HQ_TOOLBAR_ROW_CLASS}>
           <p className="text-sm text-slate-600">
             {items.length} item{items.length === 1 ? '' : 's'} in recycle bin
           </p>
@@ -119,7 +119,7 @@ export default function HqRecycleBinPage() {
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
           {loading && items.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-slate-500">Loading recycle bin…</p>
           ) : items.length === 0 ? (
@@ -127,7 +127,7 @@ export default function HqRecycleBinPage() {
               Recycle bin is empty. Deleted users from HQ Users will appear here.
             </p>
           ) : (
-            <table className="w-full min-w-[720px] text-left text-sm">
+            <table className={`${HQ_TABLE_CLASS} text-sm`}>
               <thead className="sticky top-0 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 <tr>
                   <th className="px-5 py-3">Name</th>

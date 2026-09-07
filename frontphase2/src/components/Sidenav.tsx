@@ -1167,6 +1167,16 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
       ignore = true;
     };
   }, [mounted]);
+
+  useEffect(() => {
+    const syncSidenavWidth = () => {
+      const width = window.innerWidth < 768 ? 0 : isCollapsed ? 60 : 220;
+      document.documentElement.style.setProperty('--ph2-sidenav-w', `${width}px`);
+    };
+    syncSidenavWidth();
+    window.addEventListener('resize', syncSidenavWidth);
+    return () => window.removeEventListener('resize', syncSidenavWidth);
+  }, [isCollapsed]);
   
   // Super Admin sees everything - bypass permission checks
   const showAll = mounted && isSuperAdmin();

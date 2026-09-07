@@ -54,14 +54,17 @@ function storageKey(): string {
 
 function normalizeDefaults(raw: unknown): JobVisibilityUserDefaults {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-  const visibility = parseJobPublicFieldVisibility(
+  const nested =
     source.publicFieldVisibility && typeof source.publicFieldVisibility === 'object'
-      ? source.publicFieldVisibility
-      : source,
-  );
+      ? (source.publicFieldVisibility as Record<string, unknown>)
+      : source;
+  const visibility = parseJobPublicFieldVisibility(nested);
   const showClient =
     source.showClientNamePublicly === false || visibility.client === false ? false : true;
   visibility.client = showClient;
+  if (nested.companyName === undefined) {
+    visibility.companyName = showClient;
+  }
   const updatedAt = typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt : null;
   return { visibility, showClient, updatedAt };
 }

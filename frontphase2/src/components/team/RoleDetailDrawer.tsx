@@ -2,9 +2,10 @@
 
 import React, { useMemo } from 'react';
 import { X, Edit, Users, Shield } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
 import type { SystemRole } from '../../types/team';
 import { PortalHost } from './PortalHost';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import {
   formatPermissionLabel,
   formatModuleLabel,
@@ -65,24 +66,14 @@ export const RoleDetailDrawer: React.FC<RoleDetailDrawerProps> = ({
     <PortalHost open={isOpen}>
       <AnimatePresence>
         {isOpen ? (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={onClose}
-              className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-[2px]"
-            />
-            <motion.aside
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-              className="fixed right-0 top-0 z-[70] flex h-full w-full max-w-xl flex-col bg-white shadow-2xl"
-            >
+          <DetailsModalShell
+            variant="main"
+            onBackdropClick={onClose}
+            dialogTitleId="role-detail-title"
+          >
               <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">{role.roleName}</h2>
+                  <h2 id="role-detail-title" className="text-lg font-bold text-slate-900">{role.roleName}</h2>
                   <p className="text-xs text-slate-500 mt-0.5">{role.description || 'No description'}</p>
                 </div>
                 <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">
@@ -150,8 +141,7 @@ export const RoleDetailDrawer: React.FC<RoleDetailDrawerProps> = ({
                   </button>
                 ) : null}
               </div>
-            </motion.aside>
-          </>
+          </DetailsModalShell>
         ) : null}
       </AnimatePresence>
     </PortalHost>

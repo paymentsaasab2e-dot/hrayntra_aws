@@ -21,6 +21,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { PH2_KPI_ROW_CLASS, PH2_TABLE_BODY_SCROLL_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 import { toast } from 'sonner';
 import { CreatePlacementInvoiceModal } from '../../components/placements/modals/CreatePlacementInvoiceModal';
 import { InvoiceTemplateSettingsPanel } from '../../components/billing/InvoiceTemplateSettingsPanel';
@@ -358,8 +359,8 @@ function Table({
   const recordLogColumn = showRecordLog ? 1 : 0;
   const totalCols = columns.length + recordLogColumn + trailingActionColumn;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] border-collapse">
+    <div className="min-h-0 min-w-0">
+      <table className="w-max min-w-full border-collapse text-left">
         <thead>
           <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
             {columns.map((column) => (
@@ -866,7 +867,7 @@ export default function BillingPage() {
             <div className="mb-4 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           ) : null}
 
-          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+          <div className={PH2_KPI_ROW_CLASS}>
             {loading ? (
               (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => (
                 <SummaryCardSkeleton key={i} color={c} />
@@ -931,7 +932,7 @@ export default function BillingPage() {
 
         {loading && showsTablePanel ? (
           <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 p-6 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)]">
-            <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
+            <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
               <Skeleton className="mb-6 h-4 w-1/3 rounded-md" />
               <div className="space-y-3">
                 {Array.from({ length: 8 }).map((_, i) => (
@@ -1184,7 +1185,7 @@ export default function BillingPage() {
               </div>
             ) : null}
 
-            <div className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto">
+            <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
               <Table
                 columns={columns}
                 rows={visibleRows}

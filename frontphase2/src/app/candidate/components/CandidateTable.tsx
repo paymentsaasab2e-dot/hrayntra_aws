@@ -342,7 +342,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
             : 'overflow-x-auto [scrollbar-width:thin] [scrollbar-color:rgba(129,140,248,0.45)_transparent]'
         }
       >
-        <table className="w-full min-w-[720px] border-collapse text-left">
+        <table className="w-max min-w-full border-collapse text-left">
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md">
               {show('select') ? (

@@ -4,6 +4,8 @@
 
 html {
   --ph2-impersonation-banner-h: 0px;
+  --ph2-header-h: 3.5rem;
+  --ph2-sidenav-w: 220px;
 }
 
 /* Tenant + HQ dashboards: Jakarta letters/signs, Inter digits */
@@ -125,6 +127,8 @@ html {
    * HQ console theme — Plus Jakarta Sans (CRM/Rec dashboard text) + charcoal / orange.
    */
   .hq-theme {
+    --ph2-header-h: 0px;
+    --ph2-sidenav-w: 220px;
     --hq-bg-0: #eef2f7;
     --hq-bg-1: #f7f9fc;
     --hq-surface: #ffffff;
@@ -498,12 +502,16 @@ html {
   background-clip: padding-box;
 }
 
-/* CRM list tables — vertical scroll in-panel */
+/* CRM list tables — both axes scroll inside the table panel, with visible bars */
 .ph2-table-body-scroll,
 .leads-table-body-scroll {
   max-width: 100%;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(100, 116, 139, 0.55) rgba(241, 245, 249, 0.6);
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: rgb(100 116 139 / 0.8) rgb(226 232 240);
   overscroll-behavior: contain;
 }
 
@@ -516,6 +524,10 @@ html {
 }
 
 @media (max-width: 767px) {
+  :root,
+  html {
+    --ph2-sidenav-w: 0px;
+  }
   .ph2-sidenav-aside {
     width: min(16.5rem, 86vw) !important;
     transform: translateX(-100%);
@@ -544,34 +556,28 @@ html {
   }
 }
 
-.ph2-table-body-scroll::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-/* Leads hides native X bar — horizontal scroll uses `.leads-hscroll-dock` instead */
+.ph2-table-body-scroll::-webkit-scrollbar,
 .leads-table-body-scroll::-webkit-scrollbar {
-  width: 8px;
-  height: 0;
+  width: 10px;
+  height: 10px;
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar-track,
 .leads-table-body-scroll::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgb(241 245 249);
+  border-radius: 999px;
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar-thumb,
 .leads-table-body-scroll::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.45);
+  background: rgb(148 163 184);
   border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
+  border: 2px solid rgb(241 245 249);
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar-thumb:hover,
 .leads-table-body-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.65);
-  background-clip: padding-box;
+  background: rgb(100 116 139);
 }
 
 /* Leads table — visible horizontal scrollbar in bottom dock (synced with table scroll) */

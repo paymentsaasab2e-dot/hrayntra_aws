@@ -11,6 +11,10 @@ import {
 import { parseJobCandidateScore } from '../lib/jobAppliedMatches';
 import { requestError } from '../lib/appDialog';
 import type { Interview } from '../types/interview.types';
+import {
+  CLIENT_TRACKER_OPTION_DEFAULTS,
+  type ClientTrackerOptions,
+} from '../lib/clientTrackerOptions';
 
 export type { BulkSubmitCandidateEntry };
 
@@ -27,6 +31,9 @@ export function useSubmitToClientModal(options?: {
   const [hiddenCount, setHiddenCount] = useState<number | null>(null);
   const [jobTitle, setJobTitle] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+  const [matchId, setMatchId] = useState('');
+  const [batchMatchIds, setBatchMatchIds] = useState<string[]>([]);
+  const [trackerOptions, setTrackerOptions] = useState<ClientTrackerOptions>(CLIENT_TRACKER_OPTION_DEFAULTS);
   const pendingEntriesRef = useRef<BulkSubmitCandidateEntry[]>([]);
   const generateRunIdRef = useRef(0);
   const onClosed = options?.onClosed;
@@ -42,6 +49,9 @@ export function useSubmitToClientModal(options?: {
     setHiddenCount(null);
     setJobTitle('');
     setClientEmail('');
+    setMatchId('');
+    setBatchMatchIds([]);
+    setTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS);
     pendingEntriesRef.current = [];
     onClosed?.();
   }, [loading, onClosed]);
@@ -60,6 +70,9 @@ export function useSubmitToClientModal(options?: {
       setHiddenCount(null);
       setJobTitle(entries.find((entry) => entry.jobTitle)?.jobTitle || '');
       setClientEmail('');
+      setMatchId('');
+      setBatchMatchIds([]);
+      setTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS);
       try {
         const result = await generateSubmitToClientPreview(entries);
         if (generateRunIdRef.current !== runId) return;
@@ -69,6 +82,9 @@ export function useSubmitToClientModal(options?: {
         setHiddenCount(result.hiddenCount);
         setJobTitle(result.jobTitle);
         setClientEmail(result.clientEmail);
+        setMatchId(result.matchId);
+        setBatchMatchIds(result.batchMatchIds);
+        setTrackerOptions(result.trackerOptions);
         onSubmitted?.();
       } catch (err: unknown) {
         if (generateRunIdRef.current !== runId) return;
@@ -195,6 +211,10 @@ export function useSubmitToClientModal(options?: {
       clientEmail={clientEmail}
       visibleCount={visibleCount}
       hiddenCount={hiddenCount}
+      matchId={matchId}
+      batchMatchIds={batchMatchIds}
+      trackerOptions={trackerOptions}
+      onTrackerOptionsChange={setTrackerOptions}
       onClose={handleClose}
       onRetry={handleRetry}
     />

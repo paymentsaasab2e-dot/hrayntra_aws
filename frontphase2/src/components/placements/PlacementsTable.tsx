@@ -387,8 +387,8 @@ export function PlacementsTable({
 
   return (
     <div className={outerWrap}>
-      <div className={embedded ? 'contents' : 'overflow-x-auto'}>
-        <table className="min-w-full border-collapse text-left">
+      <div className={embedded ? 'contents' : 'overflow-x-auto overflow-y-auto'}>
+        <table className="w-max min-w-full border-collapse text-left">
           <thead className={embedded ? 'sticky top-0 z-10' : undefined}>
             <tr className={theadRow}>
               <th className={thPad}>Candidate</th>

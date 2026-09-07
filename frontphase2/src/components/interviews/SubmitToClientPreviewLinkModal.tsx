@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Copy, Link2, Loader2, Mail, X } from 'lucide-react';
+import { Loader2, Mail, X } from 'lucide-react';
 import { DetailsModalShell } from '../drawers/DetailsModalShell';
+import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 import {
   apiConnectIntegration,
   apiGetMailboxStatus,
+  apiUpdateClientTracker,
   type MailboxStatusResponse,
 } from '../../lib/api';
 import {
@@ -15,6 +17,12 @@ import {
   openMailboxComposeTab,
   type MailboxComposeProvider,
 } from '../../lib/mailboxCompose';
+import {
+  CLIENT_TRACKER_OPTION_DEFAULTS,
+  CLIENT_TRACKER_OPTION_FIELDS,
+  type ClientTrackerOptionKey,
+  type ClientTrackerOptions,
+} from '../../lib/clientTrackerOptions';
 
 type Props = {
   isOpen: boolean;
@@ -26,31 +34,13 @@ type Props = {
   clientEmail?: string;
   visibleCount: number | null;
   hiddenCount: number | null;
+  matchId?: string;
+  batchMatchIds?: string[];
+  trackerOptions?: ClientTrackerOptions;
+  onTrackerOptionsChange?: (options: ClientTrackerOptions) => void;
   onClose: () => void;
   onRetry: () => void;
 };
-
-async function copyText(value: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(value);
-    return true;
-  } catch {
-    try {
-      const input = document.createElement('textarea');
-      input.value = value;
-      input.setAttribute('readonly', 'true');
-      input.style.position = 'fixed';
-      input.style.left = '-9999px';
-      document.body.appendChild(input);
-      input.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(input);
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
 
 export function SubmitToClientPreviewLinkModal({
   isOpen,
@@ -62,19 +52,25 @@ export function SubmitToClientPreviewLinkModal({
   clientEmail,
   visibleCount,
   hiddenCount,
+  matchId,
+  batchMatchIds,
+  trackerOptions,
+  onTrackerOptionsChange,
   onClose,
   onRetry,
 }: Props) {
-  const [copied, setCopied] = useState(false);
   const [mailboxStatus, setMailboxStatus] = useState<MailboxStatusResponse | null>(null);
   const [mailboxReady, setMailboxReady] = useState(false);
   const [mailHint, setMailHint] = useState('');
   const [connecting, setConnecting] = useState<MailboxComposeProvider | null>(null);
+  const [savingOptions, setSavingOptions] = useState(false);
+  const [optionsHint, setOptionsHint] = useState('');
+  const options = trackerOptions || CLIENT_TRACKER_OPTION_DEFAULTS;
 
   useEffect(() => {
-    setCopied(false);
     setMailHint('');
     setConnecting(null);
+    setOptionsHint('');
   }, [reviewUrl, isOpen]);
 
   useEffect(() => {
@@ -161,20 +157,31 @@ export function SubmitToClientPreviewLinkModal({
     }
   };
 
-  const handleCopy = async () => {
-    if (!reviewUrl) return;
-    const ok = await copyText(reviewUrl);
-    if (ok) {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
+  const toggleTrackerOption = async (key: ClientTrackerOptionKey) => {
+    if (!matchId || savingOptions) return;
+    const next: ClientTrackerOptions = { ...options, [key]: !options[key] };
+    onTrackerOptionsChange?.(next);
+    setSavingOptions(true);
+    setOptionsHint('');
+    try {
+      await apiUpdateClientTracker(matchId, {
+        trackerOptions: next,
+        batchMatchIds: batchMatchIds && batchMatchIds.length > 1 ? batchMatchIds : undefined,
+      });
+      setOptionsHint('Preview options saved. The client sees these on this link.');
+    } catch (err: unknown) {
+      onTrackerOptionsChange?.(options);
+      setOptionsHint(err instanceof Error ? err.message : 'Could not save preview options.');
+    } finally {
+      setSavingOptions(false);
     }
   };
 
   return (
     <DetailsModalShell
-      size="sm"
+      size="md"
       zIndexClass="z-[140]"
-      panelClassName="!h-auto max-h-[min(80vh,640px)]"
+      panelClassName="!h-auto max-h-[min(88vh,780px)]"
       onBackdropClick={loading ? undefined : onClose}
       dialogTitleId="submit-client-preview-link-title"
     >
@@ -187,11 +194,6 @@ export function SubmitToClientPreviewLinkModal({
             <h2 id="submit-client-preview-link-title" className="mt-1 text-lg font-bold text-slate-900">
               Client preview link
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Copy this link to share the selected candidate
-              {candidateNames.length > 1 ? 's' : ''}. Only fields marked Visible in Settings → Public
-              Visibility → Submit to Client are included.
-            </p>
           </div>
           <button
             type="button"
@@ -257,37 +259,55 @@ export function SubmitToClientPreviewLinkModal({
               ) : null}
 
               <div>
-                <label htmlFor="submit-client-preview-url" className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                  Select fields and actions for the client
+                </p>
+                <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                  {CLIENT_TRACKER_OPTION_FIELDS.map((field) => (
+                    <label
+                      key={field.id}
+                      className="flex cursor-pointer items-start gap-2.5 rounded-lg px-1 py-1 hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={options[field.id]}
+                        disabled={!matchId || savingOptions}
+                        onChange={() => void toggleTrackerOption(field.id)}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-800">
+                        {field.label}
+                        {field.action ? (
+                          <span className="ml-1 text-[11px] font-medium text-slate-400">[Action]</span>
+                        ) : null}
+                        {field.hint ? (
+                          <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
+                            {field.hint}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {optionsHint ? (
+                  <p className="mt-2 text-xs leading-5 text-slate-600">{optionsHint}</p>
+                ) : savingOptions ? (
+                  <p className="mt-2 text-xs text-slate-500">Saving preview options…</p>
+                ) : null}
+              </div>
+
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                   Preview link
-                </label>
-                <div className="mt-1.5 flex gap-2">
-                  <div className="relative min-w-0 flex-1">
-                    <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      id="submit-client-preview-url"
-                      readOnly
-                      value={reviewUrl}
-                      onFocus={(event) => event.currentTarget.select()}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm text-slate-800 outline-none ring-indigo-200 focus:bg-white focus:ring-2"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleCopy()}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
-                  >
-                    {copied ? <Check size={15} strokeWidth={2.5} /> : <Copy size={15} strokeWidth={2.25} />}
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
+                </p>
+                <div className="mt-2">
+                  <DrawerLinkActions url={reviewUrl} shareTitle="Client preview" />
                 </div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                   Send a mail to the client
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Opens compose in a new tab. HRYANTRA does not send the email.
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {!mailboxReady ? (

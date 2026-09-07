@@ -46,7 +46,17 @@ function shouldShowClientNamePublicly(job) {
   return true;
 }
 
+function shouldShowCompanyNamePublicly(job) {
+  const visibility = job?.publicFieldVisibility;
+  if (visibility && typeof visibility === 'object') {
+    if (visibility.companyName === false) return false;
+    if (visibility.companyName === true) return true;
+  }
+  return shouldShowClientNamePublicly(job);
+}
+
 function isPortalFieldVisible(job, field) {
+  if (field === 'companyName') return shouldShowCompanyNamePublicly(job);
   if (field === 'client') return shouldShowClientNamePublicly(job);
   const visibility = job?.publicFieldVisibility;
   if (!visibility || typeof visibility !== 'object') return true;
@@ -77,7 +87,7 @@ async function hydrateJobsPublicProfileFields(prismaClient, jobs) {
     const result = await prismaClient.$runCommandRaw({
       find: 'jobs',
       filter: { _id: { $in: ids.map((id) => ({ $oid: id })) } },
-      projection: { aboutCompany: 1, recruiterProfile: 1 },
+      projection: { aboutCompany: 1, recruiterProfile: 1, postingCompanyName: 1 },
     });
     const docs = result?.cursor?.firstBatch || result?.documents || [];
     const byId = new Map();
@@ -97,6 +107,9 @@ async function hydrateJobsPublicProfileFields(prismaClient, jobs) {
       if (!job.recruiterProfile && extra.recruiterProfile) {
         job.recruiterProfile = extra.recruiterProfile;
       }
+      if (!job.postingCompanyName && extra.postingCompanyName) {
+        job.postingCompanyName = extra.postingCompanyName;
+      }
     }
   } catch (err) {
     console.warn('[hydrateJobsPublicProfileFields]', err?.message || err);
@@ -104,8 +117,13 @@ async function hydrateJobsPublicProfileFields(prismaClient, jobs) {
 }
 
 function resolvePublicCompanyName(job, fallback = '') {
-  if (!shouldShowClientNamePublicly(job)) {
+  if (!shouldShowCompanyNamePublicly(job)) {
     return '';
+  }
+  const posted = String(job?.postingCompanyName || '').trim();
+  if (posted) return posted;
+  if (!shouldShowClientNamePublicly(job)) {
+    return fallback || '';
   }
   return job?.company?.name || job?.client?.companyName || fallback;
 }
@@ -181,12 +199,14 @@ function redactPortalJobPayload(job, payload) {
     out.jobTitle = null;
   }
   if (!isPortalFieldVisible(job, 'client')) {
-    out.company = null;
     out.companyId = null;
-    out.companyLogo = null;
     out.hiringManager = null;
     out.hiringManagerId = null;
     out.clientId = null;
+  }
+  if (!isPortalFieldVisible(job, 'companyName')) {
+    out.company = null;
+    out.companyLogo = null;
   }
   if (!isPortalFieldVisible(job, 'location')) {
     out.location = null;
@@ -270,6 +290,7 @@ function formatPortalJob(job, options = {}) {
   if (!job) return null;
 
   const showClient = shouldShowClientNamePublicly(job);
+  const showCompany = shouldShowCompanyNamePublicly(job);
 
   const salaryJson = job.salary || undefined;
   const salaryMin = job.salaryMin ?? salaryJson?.min ?? null;
@@ -295,9 +316,9 @@ function formatPortalJob(job, options = {}) {
   return redactPortalJobPayload(job, {
     id: job.id,
     title: job.title,
-    company: showClient ? job.company?.name || job.client?.companyName || null : null,
+    company: showCompany ? resolvePublicCompanyName(job, null) : null,
     companyId: showClient ? job.company?.id || job.client?.id || null : null,
-    companyLogo: showClient ? thumb : null,
+    companyLogo: showCompany ? thumb : null,
     showClientNamePublicly: showClient,
     publicFieldVisibility:
       job.publicFieldVisibility && typeof job.publicFieldVisibility === 'object'
@@ -367,6 +388,7 @@ module.exports = {
   formatPortalJob,
   hydrateJobsPublicProfileFields,
   shouldShowClientNamePublicly,
+  shouldShowCompanyNamePublicly,
   resolvePublicCompanyName,
   CONFIDENTIAL_COMPANY_LABEL,
   parseLanguages,

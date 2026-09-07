@@ -5,9 +5,14 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Briefcase, Building2, CheckCircle2, FileUp, X } from 'lucide-react';
 import { ClientReviewCandidatePanel } from './ClientReviewCandidatePanel';
 import {
+  CLIENT_PIPELINE_STAGE_CHOICES,
   TAG_OPTIONS_BY_TYPE,
   type ClientReviewBatchRow,
 } from '../../lib/clientReviewTypes';
+import {
+  clientTrackerAllowsResponse,
+  normalizeClientTrackerOptions,
+} from '../../lib/clientTrackerOptions';
 
 type Props = {
   open: boolean;
@@ -42,30 +47,47 @@ export function ClientReviewCandidateDrawer({
   const submissionType = String(reviewData?.submissionType || 'GENERAL').toUpperCase();
   const isOfferFlow = submissionType === 'OFFER_CONFIRMATION';
   const tagOptions = TAG_OPTIONS_BY_TYPE[submissionType] || TAG_OPTIONS_BY_TYPE.GENERAL;
+  const stageOptions =
+    Array.isArray(reviewData?.pipelineStages) && reviewData.pipelineStages.length
+      ? reviewData.pipelineStages
+      : CLIENT_PIPELINE_STAGE_CHOICES;
+  const tracker = normalizeClientTrackerOptions(reviewData?.trackerOptions);
+  const canRespond = clientTrackerAllowsResponse(tracker);
+  const canAttachDocument = tracker.attachDocument || isOfferFlow;
 
   const [submitting, setSubmitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedTag, setSelectedTag] = useState(tagOptions[0]);
+  const [selectedStage, setSelectedStage] = useState(stageOptions[0]?.name || '');
   const [comments, setComments] = useState('');
   const [offerLetterFile, setOfferLetterFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!open || !row) return;
     setSelectedTag(tagOptions[0]);
+    setSelectedStage(stageOptions[0]?.name || '');
     setComments('');
     setOfferLetterFile(null);
     setError('');
     setSuccess('');
     setConfirmOpen(false);
-  }, [open, row?.matchId, tagOptions]);
+  }, [open, row?.matchId, tagOptions, stageOptions]);
 
   const requestSubmitConfirmation = () => {
     if (!row?.matchId || submitting) return;
     setError('');
-    if (isOfferFlow && !offerLetterFile && !reviewData?.offerLetterUrl) {
+    if (isOfferFlow && canAttachDocument && !offerLetterFile && !reviewData?.offerLetterUrl) {
       setError('Please attach the signed offer letter (PDF).');
+      return;
+    }
+    if (tracker.addRemarks && !selectedTag) {
+      setError('Please pick a decision.');
+      return;
+    }
+    if (tracker.changeStage && !selectedStage) {
+      setError('Please pick a stage.');
       return;
     }
     setConfirmOpen(true);
@@ -78,14 +100,15 @@ export function ClientReviewCandidateDrawer({
     setError('');
     setSuccess('');
     try {
-      if (isOfferFlow && !offerLetterFile && !reviewData?.offerLetterUrl) {
+      if (isOfferFlow && canAttachDocument && !offerLetterFile && !reviewData?.offerLetterUrl) {
         throw new Error('Please attach the signed offer letter (PDF).');
       }
 
       const formData = new FormData();
-      formData.append('tag', selectedTag);
-      if (comments) formData.append('comments', comments);
-      if (offerLetterFile) formData.append('offerLetter', offerLetterFile);
+      if (tracker.addRemarks && selectedTag) formData.append('tag', selectedTag);
+      if (tracker.changeStage && selectedStage) formData.append('stage', selectedStage);
+      if (tracker.addComments && comments) formData.append('comments', comments);
+      if (canAttachDocument && offerLetterFile) formData.append('offerLetter', offerLetterFile);
       formData.append('matchId', row.matchId);
 
       const response = await fetch(
@@ -190,6 +213,7 @@ export function ClientReviewCandidateDrawer({
             <div className="flex-1 overflow-y-auto px-5 py-5">
               <ClientReviewCandidatePanel reviewData={reviewData} variant="drawer" />
 
+              {canRespond ? (
               <div className="mt-5 overflow-hidden rounded-3xl bg-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-500">
                   Your response
@@ -198,6 +222,7 @@ export function ClientReviewCandidateDrawer({
                   {isOfferFlow ? 'Confirm this offer' : 'Share a decision with the recruiter'}
                 </h3>
 
+                {canAttachDocument ? (
                 <div
                   className={`mt-4 rounded-2xl border border-dashed px-4 py-3.5 ${
                     isOfferFlow ? 'border-amber-300 bg-amber-50/70' : 'border-slate-200 bg-slate-50/80'
@@ -230,9 +255,11 @@ export function ClientReviewCandidateDrawer({
                     </div>
                   </div>
                 </div>
+                ) : null}
 
+                {tracker.addRemarks ? (
                 <label className="mt-4 block text-sm font-semibold text-slate-900">
-                  {isOfferFlow ? 'Decision' : 'Decision'}
+                  Decision
                   <select
                     value={selectedTag}
                     onChange={(e) => setSelectedTag(e.target.value)}
@@ -245,7 +272,30 @@ export function ClientReviewCandidateDrawer({
                     ))}
                   </select>
                 </label>
+                ) : null}
 
+                {tracker.changeStage ? (
+                <label className="mt-4 block text-sm font-semibold text-slate-900">
+                  Stage
+                  <select
+                    value={selectedStage}
+                    onChange={(e) => setSelectedStage(e.target.value)}
+                    className="mt-1.5 w-full rounded-2xl border-0 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-300"
+                  >
+                    {stageOptions.map((stage) => (
+                      <option key={stage.id || stage.name} value={stage.name}>
+                        {stage.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-xs font-normal text-slate-500">
+                    This stage is shown on the recruiter Client tab only. It does not change the
+                    candidate pipeline stage.
+                  </span>
+                </label>
+                ) : null}
+
+                {tracker.addComments ? (
                 <label className="mt-4 block text-sm font-semibold text-slate-900">
                   Comments
                   <textarea
@@ -256,12 +306,19 @@ export function ClientReviewCandidateDrawer({
                     placeholder="Add any remarks for the recruiter..."
                   />
                 </label>
+                ) : null}
 
                 {error ? <p className="mt-3 text-sm font-medium text-red-600">{error}</p> : null}
                 {success ? <p className="mt-3 text-sm font-medium text-emerald-600">{success}</p> : null}
               </div>
+              ) : (
+                <div className="mt-5 rounded-3xl bg-white px-5 py-4 text-sm text-slate-600 shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
+                  The recruiter did not enable a client response on this preview.
+                </div>
+              )}
             </div>
 
+            {canRespond ? (
             <div className="border-t border-slate-200/80 bg-white/90 px-5 py-4 backdrop-blur">
               <button
                 type="button"
@@ -272,6 +329,7 @@ export function ClientReviewCandidateDrawer({
                 {submitting ? 'Submitting...' : isOfferFlow ? 'Confirm offer & submit' : 'Submit review'}
               </button>
             </div>
+            ) : null}
           </motion.aside>
 
           {confirmOpen ? (
@@ -296,18 +354,25 @@ export function ClientReviewCandidateDrawer({
                     Submit this review?
                   </h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Your decision for{' '}
+                    Your review for{' '}
                     <span className="font-semibold text-slate-900">{row.candidateName}</span>
-                    {selectedTag ? (
+                    {tracker.changeStage && selectedStage ? (
+                      <>
+                        {' '}
+                        will show their stage choice as{' '}
+                        <span className="font-semibold text-slate-900">{selectedStage}</span>
+                        {' '}on the recruiter Client tab (it will not change the pipeline stage)
+                      </>
+                    ) : selectedTag ? (
                       <>
                         {' '}
                         will be sent to the recruiter as{' '}
-                        <span className="font-semibold text-slate-900">{selectedTag}</span>.
+                        <span className="font-semibold text-slate-900">{selectedTag}</span>
                       </>
                     ) : (
-                      <> will be sent to the recruiter.</>
-                    )}{' '}
-                    You can still cancel if you need to change it.
+                      <> will be sent to the recruiter</>
+                    )}
+                    . You can still cancel if you need to change it.
                   </p>
                 </div>
                 <div className="mt-6 grid grid-cols-2 gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">

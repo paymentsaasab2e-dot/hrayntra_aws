@@ -65,8 +65,10 @@ function getTeamAuthHeaders(): Record<string, string> {
   if (token) headers.Authorization = `Bearer ${token}`;
   const tenant = localStorage.getItem('tenantDbName');
   if (tenant) headers['x-tenant-db-name'] = tenant;
-  const orgUnit = localStorage.getItem('activeOrgUnitId');
-  if (orgUnit) headers['x-org-unit-id'] = orgUnit;
+  const orgUnit = String(localStorage.getItem('activeOrgUnitId') || '').trim();
+  if (orgUnit && orgUnit !== 'null' && orgUnit !== 'undefined' && /^[a-fA-F0-9]{24}$/.test(orgUnit)) {
+    headers['x-org-unit-id'] = orgUnit;
+  }
   const orgSide = orgSideFromPathname();
   if (orgSide === 'crm' || orgSide === 'recruitment') headers['x-org-side'] = orgSide;
   if (String(localStorage.getItem('superAdminWorkScope') || '').trim().toLowerCase() === 'own') {

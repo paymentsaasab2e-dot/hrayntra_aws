@@ -187,11 +187,11 @@ function socialHeadline(input: JobSocialPostInput): { title: string; company: st
   const showTitle = hasCustomLinkedInTemplate(input)
     ? showRole
     : isJobFieldPubliclyVisible(visibility, 'jobTitle');
-  const showClient = hasCustomLinkedInTemplate(input)
+  const showCompany = hasCustomLinkedInTemplate(input)
     ? showRole
-    : isJobFieldPubliclyVisible(visibility, 'client', input.showClientNamePublicly !== false);
+    : isJobFieldPubliclyVisible(visibility, 'companyName', input.showClientNamePublicly !== false);
   const title = showTitle ? String(input.jobTitle || '').trim() : '';
-  const company = showClient ? String(input.companyName || '').trim() : '';
+  const company = showCompany ? String(input.companyName || '').trim() : '';
   const header =
     title && company
       ? `We're hiring: ${title} at ${company}!`

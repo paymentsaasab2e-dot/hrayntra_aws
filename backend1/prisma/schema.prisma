@@ -914,6 +914,8 @@ model Job {
   hqHideClientName         Boolean?
   /// Per-field public visibility mirrored from Phase 2 CRM.
   publicFieldVisibility    Json?
+  /// Snapshot of the posting company / organization name mirrored from Phase 2.
+  postingCompanyName       String?
   aboutCompany             String?
   recruiterProfile         Json?
 

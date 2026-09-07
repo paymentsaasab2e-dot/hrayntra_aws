@@ -25,6 +25,7 @@ import {
   YAxis,
 } from 'recharts';
 import { SummaryCard } from '../../../components/ui/SummaryCard';
+import { PH2_KPI_ROW_CLASS, PH2_TABLE_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
 import type { ReportsSummary } from '../types';
 import {
   clientHealthBadge,
@@ -60,7 +61,7 @@ export function ExecutiveDashboardSection({ summary }: SectionProps) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className={PH2_KPI_ROW_CLASS}>
         <SummaryCard label="Open Jobs" count={formatNumber(kpis.totalOpenJobs)} color="blue" icon={<Briefcase size={16} />} />
         <SummaryCard label="Candidates" count={formatNumber(kpis.activeCandidates)} color="purple" icon={<Users size={16} />} />
         <SummaryCard label="Interviews" count={formatNumber(kpis.interviews)} color="orange" icon={<Calendar size={16} />} />
@@ -219,8 +220,8 @@ export function ClientAnalyticsSection({ summary }: SectionProps) {
   return (
     <div className="space-y-5">
       <ReportCard title="Top Clients">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-xs">
+        <div className="ph2-table-body-scroll min-h-0 min-w-0 overflow-x-auto overflow-y-auto">
+          <table className={`${PH2_TABLE_CLASS} text-xs`}>
             <thead>
               <tr className="border-b border-indigo-100/60 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2">Client</th>
@@ -519,7 +520,7 @@ export function ActivityAnalyticsSection({ summary }: SectionProps) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className={PH2_KPI_ROW_CLASS}>
         <SummaryCard label="Calls" count={formatNumber(kpis.callsMade)} color="blue" icon={<Phone size={16} />} />
         <SummaryCard label="Emails" count={formatNumber(kpis.emailsSent)} color="cyan" icon={<Mail size={16} />} />
         <SummaryCard label="Tasks Done" count={formatNumber(kpis.tasksCompleted)} color="green" icon={<CheckCircle2 size={16} />} />

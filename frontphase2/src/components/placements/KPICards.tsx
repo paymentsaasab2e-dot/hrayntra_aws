@@ -5,6 +5,7 @@ import { CalendarDays, CheckCircle2, DollarSign, Users, UserRoundCheck } from 'l
 import type { PlacementStats } from '../../types/placement';
 import { formatCurrency } from '../../utils/placements';
 import { SummaryCard, type SummaryCardColor } from '../ui/SummaryCard';
+import { PH2_KPI_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
 
 interface KPICardsProps {
   stats: PlacementStats;
@@ -52,7 +53,7 @@ const cards: Array<{
 
 export function KPICards({ stats }: KPICardsProps) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+    <div className={PH2_KPI_ROW_CLASS}>
       {cards.map((card) => {
         const raw = stats[card.key];
         const count =

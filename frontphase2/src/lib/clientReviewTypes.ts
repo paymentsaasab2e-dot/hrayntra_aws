@@ -1,5 +1,6 @@
 import type { CVEditorData } from './cvEditorMapping';
 import type { ClientReviewSection } from './clientPresentationSections';
+import type { ClientTrackerOptions } from './clientTrackerOptions';
 
 export interface CvWorkEntry {
   title?: string;
@@ -53,6 +54,16 @@ export interface ClientReviewData {
   sharedResumeUrl?: string | null;
   activeMatchId?: string;
   batchCandidates?: ClientReviewBatchRow[];
+  trackerOptions?: ClientTrackerOptions;
+  matchScore?: number | null;
+  recruiterNotes?: string;
+  pipelineStages?: Array<{ id: string; name: string }>;
+  candidateFiles?: Array<{
+    id: string;
+    fileName: string;
+    fileType: string;
+    fileUrl: string;
+  }>;
 }
 
 export interface ClientReviewBatchRow {
@@ -61,6 +72,7 @@ export interface ClientReviewBatchRow {
   designation?: string;
   experience?: number | null;
   jobTitle?: string;
+  matchScore?: number | null;
   detail: ClientReviewData;
 }
 
@@ -84,21 +96,31 @@ export const TAG_OPTIONS_BY_TYPE: Record<string, string[]> = {
   GENERAL: ['Interested', 'Need Clarification', 'Hold', 'Rejected', 'Proceed to Next Round'],
 };
 
+export const CLIENT_PIPELINE_STAGE_CHOICES: Array<{ id: string; name: string }> = [
+  { id: 'APPLIED', name: 'Applied' },
+  { id: 'SCREENING', name: 'Screening' },
+  { id: 'SUBMITTED_TO_CLIENT', name: 'Submit to Client' },
+  { id: 'INTERVIEW', name: 'Interviewing' },
+  { id: 'OFFER', name: 'Offer' },
+  { id: 'HIRED', name: 'Hired' },
+  { id: 'REJECTED', name: 'Rejected' },
+];
+
 export const PURPOSE_COPY: Record<string, { title: string; body: string }> = {
   INITIAL_REVIEW: {
-    title: 'Initial Candidate Review',
-    body: 'The recruiter is asking for your go-ahead before scheduling an interview with this candidate.',
+    title: 'Initial review',
+    body: 'Confirm if this candidate should move to interview.',
   },
   INTERIM_REVIEW: {
-    title: 'Mid-cycle Candidate Review',
-    body: 'Please review the latest interview feedback and confirm whether to proceed to the next round.',
+    title: 'Progress review',
+    body: 'Review the latest feedback and confirm next steps.',
   },
   OFFER_CONFIRMATION: {
-    title: 'Offer Confirmation',
-    body: 'Final hand-off — please attach the signed offer letter and confirm the candidate is being placed.',
+    title: 'Offer confirmation',
+    body: 'Attach the signed offer letter and confirm placement.',
   },
   GENERAL: {
-    title: 'Candidate Review',
-    body: 'Please review the candidate details and share your decision with the recruiter.',
+    title: 'Candidate review',
+    body: 'Review this candidate and share your decision.',
   },
 };

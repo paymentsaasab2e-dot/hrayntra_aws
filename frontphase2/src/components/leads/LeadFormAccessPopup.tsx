@@ -144,8 +144,10 @@ export function LeadFormAccessPopup({ isOpen, onClose }: LeadFormAccessPopupProp
 
 export function LeadFormAccessButton({
   disabled,
+  className,
 }: {
   disabled?: boolean;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -154,7 +156,10 @@ export function LeadFormAccessButton({
         type="button"
         disabled={disabled}
         onClick={() => setOpen(true)}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-300 bg-white text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+        className={
+          className ||
+          'inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-300 bg-white text-blue-800 hover:bg-blue-50 disabled:opacity-50'
+        }
         title="People with access"
         aria-label="People with access"
       >

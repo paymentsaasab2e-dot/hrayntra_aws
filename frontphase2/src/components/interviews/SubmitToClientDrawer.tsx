@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { Loader2, Plus, Save, Send, X } from 'lucide-react';
 import { ClientCvSelectionPanel } from './ClientCvSelectionPanel';
 import { ResumePreviewModal } from '../candidates/ResumePreviewModal';
@@ -1401,25 +1402,15 @@ export function SubmitToClientDrawer({
     <AnimatePresence>
       {isOpen ? (
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => void requestClose()}
-            className="fixed inset-0 z-[155] bg-slate-900/45"
-            data-drawer-skip-dirty="true"
-          />
-          <motion.aside
-            ref={panelRef}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[160] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
-          >
+        <DetailsModalShell
+          panelRef={panelRef}
+          variant="main"
+          onBackdropClick={() => void requestClose()}
+          dialogTitleId="submit-to-client-title"
+        >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-[#111827]">Submit to Client</h2>
+                <h2 id="submit-to-client-title" className="text-lg font-semibold text-[#111827]">Submit to Client</h2>
                 {isBulkMode ? (
                   <p className="text-sm text-[#6B7280]">
                     {bulkCandidates.length} candidate{bulkCandidates.length === 1 ? '' : 's'} ·{' '}
@@ -1773,7 +1764,7 @@ export function SubmitToClientDrawer({
                 </button>
               ) : null}
             </div>
-          </motion.aside>
+        </DetailsModalShell>
         </>
       ) : null}
     </AnimatePresence>

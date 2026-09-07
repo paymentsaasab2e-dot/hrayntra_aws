@@ -13,7 +13,7 @@ import { EditRoleDrawer } from '../EditRoleDrawer';
 import { RoleMembersDrawer } from '../RoleMembersDrawer';
 import { RoleDetailDrawer } from '../RoleDetailDrawer';
 import { mergePermissionMaps, RBAC_CATALOG_TOTAL, formatModuleLabel } from '../permissionCatalog';
-import { PH2_TABLE_CARD_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
+import { PH2_TABLE_CARD_CLASS, PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
 
 // Color mapping for role colors
@@ -191,8 +191,7 @@ export const RolesTab: React.FC = () => {
         />
       </div>
       <div className={PH2_TABLE_CARD_CLASS}>
-        <div className="overflow-hidden">
-          <div className="no-scrollbar overflow-x-auto">
+        <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
             {isLoading ? (
               <TableSkeleton rows={6} columns={5} className="border-0 shadow-none rounded-none" />
             ) : roles.length === 0 ? (
@@ -211,7 +210,7 @@ export const RolesTab: React.FC = () => {
                 <p className="text-sm font-medium text-slate-500">No roles match your search</p>
               </div>
             ) : (
-              <table className="w-full min-w-[720px] text-left">
+              <table className={PH2_TABLE_CLASS}>
                 <thead>
                   <tr className={ROLES_TABLE_HEAD_ROW}>
                     <th className={ROLES_TH}>Role</th>
@@ -349,7 +348,6 @@ export const RolesTab: React.FC = () => {
                 </tbody>
               </table>
             )}
-          </div>
         </div>
       </div>
 

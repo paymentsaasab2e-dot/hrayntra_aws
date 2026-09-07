@@ -89,6 +89,7 @@ import type { JobPreScreenAssessmentLink } from '@/lib/preScreenAssessmentTypes'
 import { buildJobContactPersonOptions } from '@/lib/jobClientContacts';
 import {
   DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY,
+  isJobFieldPubliclyVisible,
   type JobPublicFieldVisibility,
 } from '@/lib/jobPublicFieldVisibility';
 import { buildCandidatePortalApplyUrlPreview, buildLinkedInJobPost, replaceApplyUrlInSocialPostText, stripHtml } from '@/lib/jobSocialPost';
@@ -97,6 +98,7 @@ import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import {
   getStoredTenantCompanyName,
   resolveAddJobWorkspaceLabel,
+  resolveJobPostingCompanyChooser,
   useOrgWorkspace,
 } from '@/lib/org/useOrgWorkspace';
 
@@ -253,6 +255,8 @@ type WizardDraft = {
   aboutCompany: string;
   videoMediaLink: string;
   forecastRevenue: string;
+  postingOrgUnitId: string;
+  postingCompanyName: string;
 };
 
 const EMPTY_DRAFT: WizardDraft = {
@@ -291,6 +295,8 @@ const EMPTY_DRAFT: WizardDraft = {
   aboutCompany: '',
   videoMediaLink: '',
   forecastRevenue: '',
+  postingOrgUnitId: '',
+  postingCompanyName: '',
 };
 
 const JOB_AI_WIZARD_OAUTH_DRAFT_KEY = 'job_ai_wizard_oauth_draft';
@@ -349,6 +355,61 @@ function toList(value: string): string[] {
     .split(/\r?\n/)
     .map((item) => item.replace(/^[-•]\s*/, '').trim())
     .filter(Boolean);
+}
+
+function htmlToPlainPreview(html: string, max = 140): string {
+  const text = String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max).trim()}…` : text;
+}
+
+function ReviewAccordionSection({
+  title,
+  subtitle,
+  icon: Icon,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-[#E8F6FC]/50"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#2098C8]/10 text-[#2098C8]">
+          <Icon className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-slate-900">{title}</span>
+          {subtitle ? (
+            <span className="mt-0.5 block truncate text-xs text-slate-500">{subtitle}</span>
+          ) : null}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open ? <div className="border-t border-slate-100 px-4 py-4">{children}</div> : null}
+    </div>
+  );
 }
 
 function mapJobType(value: string): CreateJobData['type'] {
@@ -417,6 +478,8 @@ function draftToJobDetailsForm(draft: WizardDraft): CreateJobDetailsFormData {
     jobTitle: draft.jobTitle,
     priority: draft.priority,
     companyId: draft.clientId,
+    postingOrgUnitId: draft.postingOrgUnitId,
+    postingCompanyName: draft.postingCompanyName,
     showClientNamePublicly: draft.showClientNamePublicly,
     publicFieldVisibility: draft.publicFieldVisibility,
     contactPersonId: draft.contactPersonId,
@@ -461,6 +524,8 @@ function applyJobDetailsPatch(
     priority: merged.priority,
     clientId: merged.companyId,
     clientName: client?.companyName || draft.clientName,
+    postingOrgUnitId: merged.postingOrgUnitId || '',
+    postingCompanyName: merged.postingCompanyName || '',
     showClientNamePublicly: merged.showClientNamePublicly,
     publicFieldVisibility: merged.publicFieldVisibility,
     contactPersonId: merged.contactPersonId,
@@ -522,6 +587,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     orgUnitName,
     orgUnitId,
     homeIsOrgCompany,
+    companies: orgCompanies,
+    canSwitchCompanies,
   } = useOrgWorkspace();
   const [step, setStep] = useState<WizardStep>('client');
   const [draft, setDraft] = useState<WizardDraft>({
@@ -549,6 +616,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     status: 'processing' | 'ready' | 'error';
     error?: string;
   } | null>(null);
+  const [reviewJdOpen, setReviewJdOpen] = useState(false);
+  const [reviewDetailsOpen, setReviewDetailsOpen] = useState(true);
   const jdFileInputRef = useRef<HTMLInputElement | null>(null);
   const [publishFlowStep, setPublishFlowStep] = useState<PublishFlowStep>(null);
   const [preScreenAssessments, setPreScreenAssessments] = useState<JobPreScreenAssessmentLink[]>([]);
@@ -663,6 +732,12 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   }, [isOpen, applyLinkedInTemplate]);
 
   useEffect(() => {
+    if (step !== 'review') return;
+    setReviewJdOpen(false);
+    setReviewDetailsOpen(true);
+  }, [step]);
+
+  useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
     void apiListLinkedInPostTemplates()
@@ -713,7 +788,10 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       if (socialResult.status === 'fulfilled') {
         const response = socialResult.value;
         const nextConnections: SocialPlatformConnection = {
-          linkedin: Boolean(response.data?.linkedin?.connected),
+          linkedin: Boolean(
+            response.data?.linkedin?.connected ||
+              (response.data?.linkedin?.accounts || []).some((account) => account.connected !== false),
+          ),
           x_twitter: Boolean(response.data?.twitter?.connected),
           facebook: Boolean(response.data?.facebook?.connected),
           instagram: false,
@@ -733,7 +811,10 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         setSelectedDistributionPlatforms((prev) => {
           const next = { ...prev };
           for (const platformId of SOCIAL_AUTH_PLATFORM_IDS) {
-            if (!nextConnections[platformId as keyof SocialPlatformConnection]) {
+            const connected = nextConnections[platformId as keyof SocialPlatformConnection];
+            if (connected && !isComingSoonPlatform(platformId)) {
+              next[platformId] = true;
+            } else if (!connected || isComingSoonPlatform(platformId)) {
               delete next[platformId];
             }
           }
@@ -968,6 +1049,43 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const workspaceOwnerHeading = jobWorkspaceLabel.useOrganizationLabel
     ? 'Organization'
     : 'Company';
+  const postingChooser = useMemo(
+    () =>
+      resolveJobPostingCompanyChooser({
+        companies: orgCompanies,
+        orgUnitId,
+        orgUnitName,
+        hasCompanies,
+        homeIsOrgCompany,
+        canSwitchCompanies,
+        tenantCompanyName: ownCompanyClient?.companyName || getStoredTenantCompanyName(),
+      }),
+    [
+      orgCompanies,
+      orgUnitId,
+      orgUnitName,
+      hasCompanies,
+      homeIsOrgCompany,
+      canSwitchCompanies,
+      ownCompanyClient,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!postingChooser.defaultName) return;
+    setDraft((prev) => {
+      if (String(prev.postingCompanyName || '').trim()) return prev;
+      const fromId = postingChooser.options.find(
+        (option) => option.id && option.id === String(prev.postingOrgUnitId || '').trim(),
+      );
+      return {
+        ...prev,
+        postingOrgUnitId: fromId?.id || prev.postingOrgUnitId || postingChooser.defaultId,
+        postingCompanyName: fromId?.name || postingChooser.defaultName,
+      };
+    });
+  }, [isOpen, postingChooser.defaultId, postingChooser.defaultName]);
 
   const patchJobDetailsForm = useCallback(
     (
@@ -1312,7 +1430,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const linkedInPostInputBase = useMemo(
     () => ({
       jobTitle: draft.jobTitle.trim(),
-      companyName: draft.clientName,
+      companyName: draft.postingCompanyName || draft.clientName,
       contactPersonName: draft.contactPersonName,
       numberOfOpenings: draft.numberOfOpenings,
       priority: draft.priority,
@@ -1606,6 +1724,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         hiringManager: draft.contactPersonName.trim() || undefined,
         hiringManagerId: draft.contactPersonId || undefined,
         aboutCompany: (draft.aboutCompany || '').trim() || null,
+        postingCompanyName: (draft.postingCompanyName || '').trim() || null,
+        orgUnitId: draft.postingOrgUnitId || (postingChooser.canChoose ? null : undefined),
         showClientNamePublicly: draft.showClientNamePublicly,
         publicFieldVisibility: draft.publicFieldVisibility,
         forecastRevenue: draft.forecastRevenue.trim() || undefined,
@@ -1708,7 +1828,13 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             applyUrl = '';
           }
 
-          const companyName = draft.showClientNamePublicly ? draft.clientName || '' : '';
+          const companyName = isJobFieldPubliclyVisible(
+            draft.publicFieldVisibility,
+            'companyName',
+            draft.showClientNamePublicly,
+          )
+            ? draft.postingCompanyName || draft.clientName || ''
+            : '';
           const locationLine =
             locationParts.join(', ') || draft.locationQuery.trim() || '';
           const plainDescription = stripHtml(descriptionHtml || draft.jobDescriptionHtml || '')
@@ -2669,22 +2795,19 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                   Review and edit every field extracted from the JD, then continue to publish.
                 </p>
 
-                <div className={`${sectionClass} space-y-6`}>
-                  <div className="flex items-start gap-3 border-b border-slate-100 pb-4">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2098C8]/10 text-[#2098C8]">
-                      <Briefcase className="h-5 w-5" />
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">Complete job form</p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        Description, role info, and requirements — edit anything before saving
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="mb-3 text-sm font-bold text-slate-900">Job Description</h3>
-
+                <div className="space-y-3">
+                  <ReviewAccordionSection
+                    title="Job Description"
+                    subtitle={
+                      reviewJdOpen
+                        ? 'Edit the full posting below'
+                        : htmlToPlainPreview(draft.jobDescriptionHtml) ||
+                          'Click to view and edit the full description'
+                    }
+                    icon={FileText}
+                    open={reviewJdOpen}
+                    onToggle={() => setReviewJdOpen((open) => !open)}
+                  >
                     {jdAttachment?.status === 'ready' ? (
                       <p className="mb-3 text-xs text-emerald-700">
                         Filled from {jdAttachment.file.name}. You can still edit the text below.
@@ -2701,11 +2824,17 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       value={draft.jobDescriptionHtml}
                       onChange={(html) => patchDraft({ jobDescriptionHtml: html })}
                       placeholder="Job description…"
-                      minHeight={220}
+                      minHeight={320}
                     />
-                  </div>
+                  </ReviewAccordionSection>
 
-                  <div className="border-t border-slate-100 pt-2">
+                  <ReviewAccordionSection
+                    title="Role details"
+                    subtitle="Title, client, location, pay, and requirements"
+                    icon={Briefcase}
+                    open={reviewDetailsOpen}
+                    onToggle={() => setReviewDetailsOpen((open) => !open)}
+                  >
                     <CreateJobDetailsForm
                       formData={jobDetailsFormData}
                       setFormData={patchJobDetailsForm}
@@ -2723,8 +2852,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       onRemoveSkill={removeSkill}
                       ownCompanyDisplayName={ownCompanyDisplayName}
                       workspaceOwnerHeading={workspaceOwnerHeading}
+                      postingCompanyOptions={postingChooser.options}
+                      canChoosePostingCompany={postingChooser.canChoose}
+                      postingCompanyFieldLabel={postingChooser.fieldLabel}
                     />
-                  </div>
+                  </ReviewAccordionSection>
                 </div>
               </motion.div>
             ) : null}
@@ -2884,7 +3016,15 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             : selectedLinkedInPreviewAccount?.accountEmail || 'Posting to your LinkedIn feed'
         }
         jobTitle={draft.jobTitle}
-        company={draft.showClientNamePublicly ? draft.clientName : ''}
+        company={
+          isJobFieldPubliclyVisible(
+            draft.publicFieldVisibility,
+            'companyName',
+            draft.showClientNamePublicly,
+          )
+            ? draft.postingCompanyName || draft.clientName
+            : ''
+        }
         applyUrl={previewApplyUrl}
         location={[draft.city, draft.state, draft.country].filter(Boolean).join(', ') || draft.locationQuery}
         postingTo={linkedInPostingToLabel}

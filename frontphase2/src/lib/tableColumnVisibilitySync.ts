@@ -2,7 +2,7 @@
 
 import {
   apiGetTableColumnVisibility,
-  apiSetTableColumnModuleVisibility,
+  apiSetTableColumnVisibility,
 } from './api';
 
 export const TABLE_COLUMNS_CACHE_EVENT = 'hrayntra:table-columns-cache';
@@ -14,7 +14,10 @@ let memoryTenant: string | null = null;
 /** Tenant for which memoryCache was hydrated from the API (not only localStorage). */
 let serverHydratedTenant: string | null = null;
 let loadPromise: Promise<ColumnsMap> | null = null;
-const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Bumped on every local persist so in-flight GETs cannot wipe user choices. */
+let cacheRevision = 0;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveChain: Promise<void> = Promise.resolve();
 
 function readTenantScope(): string {
   if (typeof window === 'undefined') return 'none';
@@ -29,6 +32,15 @@ function localCacheKey(tenantScope: string): string {
   return `tenantColumnsServerCache:${tenantScope}`;
 }
 
+function cloneMap(columns: ColumnsMap): ColumnsMap {
+  const out: ColumnsMap = {};
+  for (const [key, value] of Object.entries(columns)) {
+    if (!Array.isArray(value)) continue;
+    out[key] = value.map((item) => String(item)).filter(Boolean);
+  }
+  return out;
+}
+
 function readLocalCache(tenantScope: string): ColumnsMap {
   if (typeof window === 'undefined') return {};
   try {
@@ -36,12 +48,7 @@ function readLocalCache(tenantScope: string): ColumnsMap {
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const out: ColumnsMap = {};
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!Array.isArray(value)) continue;
-      out[key] = value.map((item) => String(item)).filter(Boolean);
-    }
-    return out;
+    return cloneMap(parsed as Record<string, unknown> as ColumnsMap);
   } catch {
     return {};
   }
@@ -65,16 +72,27 @@ function ensureCacheForTenant(tenantScope: string): ColumnsMap {
 
 function publishCache(tenantScope: string, columns: ColumnsMap, fromServer = false) {
   memoryTenant = tenantScope;
-  memoryCache = columns;
+  memoryCache = cloneMap(columns);
   if (fromServer) serverHydratedTenant = tenantScope;
-  writeLocalCache(tenantScope, columns);
+  writeLocalCache(tenantScope, memoryCache);
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent(TABLE_COLUMNS_CACHE_EVENT, {
-        detail: { tenantScope, columns },
+        detail: { tenantScope, columns: memoryCache, revision: cacheRevision },
       }),
     );
   }
+}
+
+/** Server wins for known modules; keep local-only modules that are not on the server yet. */
+function mergeServerWithLocalOnlyKeys(server: ColumnsMap, local: ColumnsMap): ColumnsMap {
+  const merged = cloneMap(server);
+  for (const [key, ids] of Object.entries(local)) {
+    if (!Object.prototype.hasOwnProperty.call(merged, key)) {
+      merged[key] = [...ids];
+    }
+  }
+  return merged;
 }
 
 export function getCachedTableColumnModule(
@@ -89,6 +107,7 @@ export function getCachedTableColumnModule(
 /**
  * Load full tenant map from API (shared promise across hooks).
  * Falls back to local cache when offline.
+ * In-flight responses are ignored after the user changes columns locally.
  */
 export async function loadTenantTableColumns(
   force = false,
@@ -106,6 +125,7 @@ export async function loadTenantTableColumns(
   if (loadPromise) return loadPromise;
 
   const local = ensureCacheForTenant(tenantScope);
+  const revisionAtStart = cacheRevision;
 
   loadPromise = (async () => {
     try {
@@ -114,13 +134,16 @@ export async function loadTenantTableColumns(
         res.data?.columns && typeof res.data.columns === 'object'
           ? (res.data.columns as ColumnsMap)
           : {};
-      const normalized: ColumnsMap = {};
-      for (const [key, value] of Object.entries(columns)) {
-        if (!Array.isArray(value)) continue;
-        normalized[key] = value.map((item) => String(item)).filter(Boolean);
+      const normalized = cloneMap(columns);
+
+      // User changed columns while this GET was in flight — keep local choices.
+      if (revisionAtStart !== cacheRevision) {
+        return memoryCache ?? local;
       }
-      publishCache(tenantScope, normalized, true);
-      return normalized;
+
+      const merged = mergeServerWithLocalOnlyKeys(normalized, memoryCache ?? local);
+      publishCache(tenantScope, merged, true);
+      return merged;
     } catch {
       return memoryCache ?? local;
     } finally {
@@ -131,8 +154,25 @@ export async function loadTenantTableColumns(
   return loadPromise;
 }
 
+function flushTenantTableColumns(tenantScope: string, snapshot: ColumnsMap, revision: number) {
+  saveChain = saveChain
+    .then(async () => {
+      if (revision !== cacheRevision || readTenantScope() !== tenantScope) return;
+      const latest = cloneMap(memoryCache && memoryTenant === tenantScope ? memoryCache : snapshot);
+      try {
+        await apiSetTableColumnVisibility(latest);
+        if (revision !== cacheRevision || readTenantScope() !== tenantScope) return;
+        serverHydratedTenant = tenantScope;
+      } catch {
+        // Keep local cache; next change or reload can retry.
+      }
+    })
+    .catch(() => undefined);
+}
+
 /**
- * Update one module in memory + local cache immediately, then debounce API save.
+ * Update one module in memory + local cache immediately, then debounce a
+ * full-map API save so concurrent page hooks cannot overwrite each other.
  */
 export function persistTenantTableColumnModule(
   moduleKey: string,
@@ -140,27 +180,17 @@ export function persistTenantTableColumnModule(
   options?: { debounceMs?: number },
 ) {
   const tenantScope = readTenantScope();
+  cacheRevision += 1;
+  const revision = cacheRevision;
   const map = { ...ensureCacheForTenant(tenantScope), [moduleKey]: [...visibleIds] };
   publishCache(tenantScope, map, serverHydratedTenant === tenantScope);
 
   const debounceMs = options?.debounceMs ?? 400;
-  const existing = saveTimers.get(moduleKey);
-  if (existing) clearTimeout(existing);
-
-  const timer = setTimeout(() => {
-    saveTimers.delete(moduleKey);
-    void apiSetTableColumnModuleVisibility(moduleKey, visibleIds)
-      .then((res) => {
-        const columns = res.data?.columns;
-        if (columns && typeof columns === 'object') {
-          publishCache(tenantScope, columns as ColumnsMap, true);
-        }
-      })
-      .catch(() => {
-        // Keep local cache; next login can retry.
-      });
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    flushTenantTableColumns(tenantScope, map, revision);
   }, debounceMs);
-  saveTimers.set(moduleKey, timer);
 }
 
 export function clearTenantTableColumnsMemory() {
@@ -168,4 +198,9 @@ export function clearTenantTableColumnsMemory() {
   memoryTenant = null;
   serverHydratedTenant = null;
   loadPromise = null;
+  cacheRevision += 1;
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
 }

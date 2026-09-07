@@ -142,8 +142,8 @@ export function HqReportRecordsTable({
         <p className="px-5 py-10 text-center text-sm text-slate-500">{empty}</p>
       ) : (
         <>
-          <div className="max-h-[32rem] overflow-auto">
-            <table className="min-w-full text-left text-sm">
+          <div className="ph2-table-body-scroll max-h-[32rem] min-h-0 min-w-0 overflow-x-auto overflow-y-auto">
+            <table className="w-max min-w-full text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
                 <tr>
                   {columns.map((col) => (

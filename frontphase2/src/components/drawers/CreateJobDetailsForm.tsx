@@ -56,10 +56,13 @@ export interface CreateJobDetailsFormData {
   videoMediaLink: string;
   forecastRevenue: string;
   managerId: string;
+  assignedToId?: string;
   assignedToName?: string;
   assignedToCompanyId?: string;
   aboutCompany: string;
   publicFieldVisibility: JobPublicFieldVisibility;
+  postingOrgUnitId?: string;
+  postingCompanyName?: string;
 }
 
 type ContactOption = JobContactPersonOption;
@@ -90,6 +93,9 @@ interface CreateJobDetailsFormProps {
   useLineManagerPicker?: boolean;
   lineManagerOptions?: BackendUser[];
   loadingLineManagers?: boolean;
+  postingCompanyOptions?: { id: string; name: string }[];
+  canChoosePostingCompany?: boolean;
+  postingCompanyFieldLabel?: string;
 }
 
 const inputClass =
@@ -252,6 +258,9 @@ export function CreateJobDetailsForm({
   useLineManagerPicker = false,
   lineManagerOptions = [],
   loadingLineManagers = false,
+  postingCompanyOptions = [],
+  canChoosePostingCompany = false,
+  postingCompanyFieldLabel = 'Company name',
 }: CreateJobDetailsFormProps) {
   const assignable = useAssignableMembers(true, 'Jobs', {
     initialCompanyId: formData.assignedToCompanyId,
@@ -440,7 +449,54 @@ export function CreateJobDetailsForm({
         </select>
       </div>
 
-      {hideCompanyField ? (
+      {canChoosePostingCompany && postingCompanyOptions.length > 1 ? (
+        <DropdownField
+          label={postingCompanyFieldLabel || 'Company name'}
+          required
+          placeholder="Select company"
+          valueLabel={formData.postingCompanyName || undefined}
+          openKey="postingCompany"
+          dropdownsOpen={dropdownsOpen}
+          setDropdownsOpen={setDropdownsOpen}
+        >
+          {postingCompanyOptions.map((option) => (
+            <li key={option.id || option.name}>
+              <button
+                type="button"
+                onClick={() => {
+                  patchForm({
+                    postingOrgUnitId: option.id,
+                    postingCompanyName: option.name,
+                  });
+                  setDropdownsOpen((prev) => ({ ...prev, postingCompany: false }));
+                }}
+                className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                  formData.postingOrgUnitId === option.id && formData.postingCompanyName === option.name
+                    ? 'bg-blue-50 text-blue-700 font-medium'
+                    : 'text-slate-700'
+                }`}
+              >
+                {option.name}
+              </button>
+            </li>
+          ))}
+        </DropdownField>
+      ) : !hideCompanyField && (formData.postingCompanyName || postingCompanyOptions[0]?.name) ? (
+        <div>
+          <FieldLabelRow label={postingCompanyFieldLabel || 'Company name'} required />
+          <input
+            type="text"
+            readOnly
+            value={formData.postingCompanyName || postingCompanyOptions[0]?.name || ''}
+            className={`${inputClass} bg-slate-50 text-slate-800`}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            This name is shown on Phase 1, LinkedIn, and the public job page.
+          </p>
+        </div>
+      ) : null}
+
+      {hideCompanyField && !canChoosePostingCompany ? (
         <div className="rounded-xl border border-indigo-100/80 bg-indigo-50/40 px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700/70">
             {workspaceOwnerHeading || 'Company'}

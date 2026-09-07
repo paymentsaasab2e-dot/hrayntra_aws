@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
   Plus,
@@ -20,7 +20,6 @@ import {
   Inbox,
   Loader2,
   RefreshCcw,
-  Link2,
   Share2,
   Sparkles,
   Lock,
@@ -55,6 +54,7 @@ import { isLeadSource, LEAD_SOURCE_OPTIONS } from '../../components/drawers/Lead
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import { ShareLeadFormMemberModal } from '../../components/leads/ShareLeadFormMemberModal';
 import { LeadFormAccessButton } from '../../components/leads/LeadFormAccessPopup';
+import { DrawerLinkActions } from '../../components/drawers/DrawerLinkActions';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import PaginationAll from '../../components/PaginationAll';
 import type { Lead, LeadStatus, Priority } from './types';
@@ -87,6 +87,7 @@ import { canInitiateSentRequest } from '../../lib/sentRequestStatus';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { PH2_KPI_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 import { TableBrandAvatar } from '../../components/ui/TableBrandAvatar';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestError } from '../../lib/appDialog';
@@ -98,9 +99,6 @@ import {
   useTenantScopedStringArray,
 } from '../../hooks/usePersistedColumnVisibility';
 import { LEAD_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
-
-// Force CSR — every interactive bit on this tab is client-driven.
-export const dynamic = 'force-dynamic';
 
 const LEADS_FILTER_SELECT =
   'h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
@@ -545,7 +543,6 @@ export default function RecruitmentAgencyDashboard() {
   const [createLeadMode, setCreateLeadMode] = useState<'ai' | 'manual'>('manual');
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [publicLeadFormLink, setPublicLeadFormLink] = useState('');
-  const [publicLeadFormTenant, setPublicLeadFormTenant] = useState('');
   const [publicLeadFormLinkLoading, setPublicLeadFormLinkLoading] = useState(false);
   const [shareLeadFormMemberOpen, setShareLeadFormMemberOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -629,7 +626,6 @@ export default function RecruitmentAgencyDashboard() {
   useEffect(() => {
     if (!canCreateLead || !isAuthenticated) {
       setPublicLeadFormLink('');
-      setPublicLeadFormTenant('');
       return;
     }
     let cancelled = false;
@@ -641,13 +637,11 @@ export default function RecruitmentAgencyDashboard() {
             (res as { data?: { formUrl?: string; tenantDbName?: string | null } })?.data ?? res;
           const data = payload as { formUrl?: string; tenantDbName?: string | null };
           setPublicLeadFormLink(data.formUrl || '');
-          setPublicLeadFormTenant(String(data.tenantDbName || '').trim());
         }
       })
       .catch(() => {
         if (!cancelled) {
           setPublicLeadFormLink('');
-          setPublicLeadFormTenant('');
         }
       })
       .finally(() => {
@@ -659,11 +653,13 @@ export default function RecruitmentAgencyDashboard() {
   }, [canCreateLead, isAuthenticated]);
 
   useEffect(() => {
-    setSelectedDynamicColumnLabels((previous) =>
-      previous.filter((label) =>
-        availableDynamicColumnLabels.some((option) => option.toLowerCase() === label.toLowerCase())
-      )
-    );
+    if (availableDynamicColumnLabels.length === 0) return;
+    setSelectedDynamicColumnLabels((previous) => {
+      const next = previous.filter((label) =>
+        availableDynamicColumnLabels.some((option) => option.toLowerCase() === label.toLowerCase()),
+      );
+      return next.length === previous.length ? previous : next;
+    });
   }, [availableDynamicColumnLabels, setSelectedDynamicColumnLabels]);
 
   useEffect(() => {
@@ -1215,70 +1211,6 @@ export default function RecruitmentAgencyDashboard() {
   }, [adjustLeadMetricCounts, leads, selectedLeadId]);
 
   const allVisibleSelected = filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.includes(lead.id));
-
-  /** Wide leads table: primary scroll hides its bar; synced dock shows a visible bar at the bottom of the view. */
-  const leadsTableScrollRef = useRef<HTMLDivElement>(null);
-  const leadsHScrollDockRef = useRef<HTMLDivElement>(null);
-  const leadsHScrollProgrammatic = useRef(false);
-  const [leadsHScrollSpanPx, setLeadsHScrollSpanPx] = useState(0);
-
-  const measureLeadsHorizontalScroll = useCallback(() => {
-    const el = leadsTableScrollRef.current;
-    if (!el) {
-      setLeadsHScrollSpanPx(0);
-      return;
-    }
-    const sw = el.scrollWidth;
-    const cw = el.clientWidth;
-    const needs = sw > cw + 1;
-    setLeadsHScrollSpanPx(needs ? sw : 0);
-    const dock = leadsHScrollDockRef.current;
-    if (dock && needs) {
-      leadsHScrollProgrammatic.current = true;
-      dock.scrollLeft = el.scrollLeft;
-      leadsHScrollProgrammatic.current = false;
-    }
-  }, []);
-
-  useLayoutEffect(() => {
-    measureLeadsHorizontalScroll();
-  }, [measureLeadsHorizontalScroll, loading, error, filteredLeads, currentPage]);
-
-  useEffect(() => {
-    const el = leadsTableScrollRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      measureLeadsHorizontalScroll();
-    });
-    ro.observe(el);
-    window.addEventListener('resize', measureLeadsHorizontalScroll);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measureLeadsHorizontalScroll);
-    };
-  }, [measureLeadsHorizontalScroll]);
-
-  const onLeadsTableHorizontalScroll = useCallback(() => {
-    if (leadsHScrollProgrammatic.current) return;
-    const el = leadsTableScrollRef.current;
-    const dock = leadsHScrollDockRef.current;
-    if (!el || !dock || leadsHScrollSpanPx <= 0) return;
-    if (Math.abs(el.scrollLeft - dock.scrollLeft) < 1) return;
-    leadsHScrollProgrammatic.current = true;
-    dock.scrollLeft = el.scrollLeft;
-    leadsHScrollProgrammatic.current = false;
-  }, [leadsHScrollSpanPx]);
-
-  const onLeadsHScrollDockScroll = useCallback(() => {
-    if (leadsHScrollProgrammatic.current) return;
-    const el = leadsTableScrollRef.current;
-    const dock = leadsHScrollDockRef.current;
-    if (!el || !dock || leadsHScrollSpanPx <= 0) return;
-    if (Math.abs(el.scrollLeft - dock.scrollLeft) < 1) return;
-    leadsHScrollProgrammatic.current = true;
-    el.scrollLeft = dock.scrollLeft;
-    leadsHScrollProgrammatic.current = false;
-  }, [leadsHScrollSpanPx]);
 
   const openExportModal = async () => {
     setExportLeadsLoading(true);
@@ -1948,14 +1880,14 @@ export default function RecruitmentAgencyDashboard() {
   }, []);
 
   return (
-    <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
+    <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full min-w-0 max-w-full flex-col overflow-hidden text-slate-900">
       <Toaster
         position="top-right"
         richColors
         style={{ top: '5rem' }}
       />
       {/* Main Content — viewport-locked so only the table body scrolls */}
-      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
         <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
           <div className="flex items-center gap-2.5 sm:gap-3">
@@ -1967,6 +1899,30 @@ export default function RecruitmentAgencyDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {canCreateLead ? (
+              <>
+                <DrawerLinkActions
+                  url={publicLeadFormLink}
+                  shareTitle="Lead form"
+                  size="md"
+                  menuAlign="right"
+                />
+                <button
+                  type="button"
+                  disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
+                  onClick={() => setShareLeadFormMemberOpen(true)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white shadow-[0_4px_14px_-4px_rgba(37,99,235,0.35)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Create a member and email this lead form"
+                >
+                  <Share2 size={16} strokeWidth={2.25} />
+                  Send to member
+                </button>
+                <LeadFormAccessButton
+                  disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </>
+            ) : null}
             {(canDeleteLead || canUpdateLead) && (
               <button
                 type="button"
@@ -2070,56 +2026,10 @@ export default function RecruitmentAgencyDashboard() {
           </div>
         </header>
 
-        {canCreateLead && (
-          <div className="shrink-0 border-b border-blue-100/80 bg-blue-50/60 px-3 py-2.5 sm:px-5 lg:px-6">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="flex min-w-0 items-center gap-2">
-                <Link2 size={14} className="shrink-0 text-blue-600" />
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold text-blue-900">
-                    Public lead form link
-                  </p>
-                  <p className="truncate text-[10px] text-blue-800/80">
-                    Share creates a member first, then emails this link
-                    {publicLeadFormTenant ? (
-                      <>
-                        {' '}
-                        · <span className="font-mono">{publicLeadFormTenant}</span>
-                      </>
-                    ) : null}
-                  </p>
-                </div>
-              </div>
-              <input
-                readOnly
-                value={
-                  publicLeadFormLinkLoading
-                    ? 'Loading link…'
-                    : publicLeadFormLink || 'Link unavailable'
-                }
-                className="h-8 min-w-0 flex-1 truncate rounded-md border border-blue-200 bg-white px-2 font-mono text-[11px] text-slate-700"
-                aria-label="Public lead form URL"
-              />
-              <div className="flex shrink-0 gap-1.5">
-                <button
-                  type="button"
-                  disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
-                  onClick={() => setShareLeadFormMemberOpen(true)}
-                  className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  <Share2 size={12} />
-                  Share
-                </button>
-                <LeadFormAccessButton disabled={!publicLeadFormLink || publicLeadFormLinkLoading} />
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Content: stats + filters stay put; table body scrolls inside its panel */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-          {/* Summary Cards — show skeleton mirrors while the first fetch resolves. */}
-          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-3 py-2 sm:px-5 sm:py-4 lg:px-6">
+          {/* Summary Cards — stay in one row and shrink on compact screens. */}
+          <div className={PH2_KPI_ROW_CLASS}>
             {loading ? (
               (['blue', 'yellow', 'purple', 'green', 'gray'] as SummaryCardColor[]).map((c, i) => (
                 <SummaryCardSkeleton key={i} color={c} />
@@ -2171,8 +2081,8 @@ export default function RecruitmentAgencyDashboard() {
           </div>
 
           {/* Table Controls + scrollable rows */}
-          <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-            <div className="flex shrink-0 items-center gap-2 overflow-x-auto ph2-invisible-scrollbar border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
+          <div className="mb-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-2.5 sm:p-4">
               <div className="relative min-w-[14rem] max-w-md shrink-0 grow basis-[14rem] sm:basis-[18rem]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                 <input 
@@ -2330,19 +2240,15 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             ) : null}
 
-            {/* Leads Table — vertical scroll stays inside this panel; horizontal bar docks below */}
+            {/* Leads Table — vertical + horizontal scroll stay inside this panel */}
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div
-                ref={leadsTableScrollRef}
-                className="ph2-table-body-scroll min-h-0 flex-1 overflow-auto"
-                onScroll={onLeadsTableHorizontalScroll}
-              >
+              <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
                 {loading && <TableSkeleton rows={8} columns={6} />}
                 {error && !loading && (
                   <div className="p-10 text-center text-sm text-rose-600 font-medium">Error: {error}</div>
                 )}
                 {!loading && !error && (
-                  <table id="leads-main-table" className="w-full min-w-[760px] text-left" aria-label="Leads">
+                  <table id="leads-main-table" className="w-max min-w-full text-left" aria-label="Leads">
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
                         <th className="px-3 sm:px-4 py-2 w-10 first:pl-4">
@@ -2770,21 +2676,6 @@ export default function RecruitmentAgencyDashboard() {
                   </table>
                 )}
               </div>
-              {leadsHScrollSpanPx > 0 && !loading && !error && (
-                <div className="leads-hscroll-dock-wrap z-20 shrink-0 border-t border-indigo-100/60 bg-gradient-to-b from-white via-white to-indigo-50/30 shadow-[0_-10px_24px_-12px_rgba(49,46,129,0.14)]">
-                  <div
-                    ref={leadsHScrollDockRef}
-                    role="region"
-                    aria-label="Horizontal scroll for leads table"
-                    aria-controls="leads-main-table"
-                    tabIndex={0}
-                    className="leads-hscroll-dock overflow-x-auto overflow-y-hidden px-1 pb-1 pt-0.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/35"
-                    onScroll={onLeadsHScrollDockScroll}
-                  >
-                    <div className="h-2.5 min-h-[10px]" style={{ width: leadsHScrollSpanPx }} aria-hidden />
-                  </div>
-                </div>
-              )}
             </div>
             {!loading && !error && (
               <div className="mt-0 w-full shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">

@@ -49,6 +49,68 @@ export function resolveAddJobWorkspaceLabel(opts: {
   };
 }
 
+export type JobPostingCompanyOption = { id: string; name: string };
+
+/** Who is posting this job: locked company/org name, or Super Admin dropdown of all orgs. */
+export function resolveJobPostingCompanyChooser(opts: {
+  companies: OrgCompanyOption[];
+  orgUnitId: string;
+  orgUnitName: string;
+  hasCompanies: boolean;
+  homeIsOrgCompany: boolean;
+  canSwitchCompanies: boolean;
+  tenantCompanyName: string;
+}): {
+  options: JobPostingCompanyOption[];
+  canChoose: boolean;
+  defaultId: string;
+  defaultName: string;
+  fieldLabel: string;
+} {
+  const tenantName = String(opts.tenantCompanyName || '').trim();
+  const orgOptions = (Array.isArray(opts.companies) ? opts.companies : [])
+    .map((company) => ({
+      id: String(company?.id || '').trim(),
+      name: String(company?.name || '').trim(),
+    }))
+    .filter((company) => company.id && company.name);
+
+  if (opts.canSwitchCompanies && orgOptions.length > 0) {
+    const options = [...orgOptions];
+    if (tenantName && !options.some((row) => row.name.toLowerCase() === tenantName.toLowerCase())) {
+      options.unshift({ id: '', name: tenantName });
+    }
+    const active =
+      options.find((row) => row.id && row.id === String(opts.orgUnitId || '').trim()) || options[0];
+    return {
+      options,
+      canChoose: options.length > 1,
+      defaultId: active?.id || '',
+      defaultName: active?.name || tenantName,
+      fieldLabel: opts.hasCompanies ? 'Organization name' : 'Company name',
+    };
+  }
+
+  const label = resolveAddJobWorkspaceLabel({
+    hasCompanies: opts.hasCompanies,
+    orgUnitName: opts.orgUnitName,
+    orgUnitId: opts.orgUnitId,
+    homeIsOrgCompany: opts.homeIsOrgCompany,
+    companyName: tenantName,
+  });
+  const id =
+    opts.hasCompanies && (opts.homeIsOrgCompany || String(opts.orgUnitId || '').trim())
+      ? String(opts.orgUnitId || '').trim()
+      : '';
+  return {
+    options: [{ id, name: label.displayName }],
+    canChoose: false,
+    defaultId: id,
+    defaultName: label.displayName,
+    fieldLabel: label.useOrganizationLabel ? 'Organization name' : 'Company name',
+  };
+}
+
 export function useOrgWorkspace() {
   const pathname = usePathname();
   const side = orgSideFromPathname(pathname);

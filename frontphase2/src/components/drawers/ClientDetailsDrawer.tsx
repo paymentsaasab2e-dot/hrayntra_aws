@@ -58,6 +58,7 @@ import { type LocationSelection } from '../LocationAutocomplete';
 import { CscLocationFields } from '../location/CscLocationFields';
 import { LeadLocationFields } from '../location/LeadLocationFields';
 import { AddLeadFieldLabel } from './drawerFormUi';
+import { DrawerLinkActions, splitDisplayUrls } from './DrawerLinkActions';
 import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsField';
 import { AgreementDocumentUpload } from '../documents/AgreementDocumentUpload';
 import { AgreementTermsSection } from '../agreements/AgreementTermsSection';
@@ -232,6 +233,7 @@ import {
 import { inferLocationFromCityName } from '../../lib/cscData';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import { DetailsModalShell } from './DetailsModalShell';
 import { DrawerTabBar } from './DrawerTabBar';
 import {
   DrawerFieldLabel,
@@ -378,16 +380,27 @@ const FieldRow = ({
   href?: boolean;
   blankWhenEmpty?: boolean;
   multiline?: boolean;
-}) => (
-  <div className="min-w-0">
-    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-    <p
-      className={`mt-0.5 text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer' : ''} ${multiline ? 'whitespace-pre-line' : ''} ${!multiline ? 'break-words' : ''}`}
-    >
-      {cleanDisplayText(value, blankWhenEmpty ? '' : '—')}
-    </p>
-  </div>
-);
+}) => {
+  const urls = href ? splitDisplayUrls(value) : [];
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
+      {urls.length ? (
+        <div className="mt-1 flex flex-col gap-1.5">
+          {urls.map((url) => (
+            <DrawerLinkActions key={url} url={url} shareTitle={label} />
+          ))}
+        </div>
+      ) : (
+        <p
+          className={`mt-0.5 text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer' : ''} ${multiline ? 'whitespace-pre-line' : ''} ${!multiline ? 'break-words' : ''}`}
+        >
+          {cleanDisplayText(value, blankWhenEmpty ? '' : '—')}
+        </p>
+      )}
+    </div>
+  );
+};
 
 function resolvePrimaryAssignedToId(form: {
   assignedToId?: string;
@@ -1055,7 +1068,7 @@ export function ClientDetailsDrawer({
   createClientOverride,
   updateClientOverride,
   onCreateTenant,
-  stackClassName = 'z-50',
+  stackClassName: _stackClassName = 'z-50',
 }: ClientDetailsDrawerProps) {
   const drawerIsOpen = Boolean(client) || propIsAddMode;
   const clientAiGate = useAiCoinGate('ai.client_chat');
@@ -4145,42 +4158,15 @@ export function ClientDetailsDrawer({
   );
 
   const drawerTree = (
-    <AnimatePresence mode="wait">
+    <AnimatePresence>
       {(client || isAddMode) && (
         <>
-          <motion.div
-            key="backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => void requestClientDrawerClose()}
-            className={`fixed inset-0 ${isAddMode && addClientAiFlowStage === 'chat' ? 'z-[500]' : stackClassName} bg-slate-950/55 backdrop-blur-md pointer-events-auto`}
-            data-drawer-skip-dirty="true"
-          />
-          <div
-            className={`pointer-events-none fixed inset-0 ${
-              isAddMode && addClientAiFlowStage === 'chat' ? 'z-[501]' : stackClassName
-            } flex flex-col items-center justify-center gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-6`}
+          <DetailsModalShell
+            panelRef={clientDrawerPanelRef}
+            variant="main"
+            onBackdropClick={() => void requestClientDrawerClose()}
+            dialogTitleId="client-detail-modal-title"
           >
-            <motion.div
-              key="panel"
-              ref={clientDrawerPanelRef}
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="client-detail-modal-title"
-              className={`pointer-events-auto relative flex h-[min(92vh,920px)] w-full ${
-                isAddMode && addClientAiFlowStage === 'chat' ? 'max-w-5xl' : 'max-w-6xl'
-              } flex-col overflow-hidden ${
-                isAddMode && addClientAiFlowStage
-                  ? 'rounded-[28px] border-0 bg-white shadow-[0_40px_120px_-24px_rgba(15,23,42,0.45)] ring-1 ring-white/70'
-                  : 'rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5'
-              }`}
-            >
             {/* Sticky Header */}
             <div
               className={`shrink-0 ${
@@ -8170,8 +8156,7 @@ export function ClientDetailsDrawer({
             </div>
               </>
             )}
-          </motion.div>
-          </div>
+            </DetailsModalShell>
         </>
       )}
     </AnimatePresence>

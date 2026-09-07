@@ -140,7 +140,7 @@ export function ContactsTable({
             <div className="text-sm text-slate-400">Try adjusting your filters or add a new contact</div>
           </div>
         ) : (
-          <table className="w-full min-w-[760px] text-left">
+          <table className="w-max min-w-full text-left">
             <thead className="sticky top-0 z-10">
               <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-white to-indigo-50/30 backdrop-blur-sm">
                 <th className="px-3 py-2.5 sm:px-4 w-12">

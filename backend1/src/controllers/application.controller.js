@@ -1676,9 +1676,7 @@ async function createApplication(req, res) {
         applicationId: application.id,
         jobId: job.id,
         jobTitle: application.job.title || null,
-        companyName: shouldShowClientNamePublicly(application.job)
-          ? application.job.company?.name || application.job.client?.companyName || null
-          : null,
+        companyName: resolvePublicCompanyName(application.job, null),
         status: application.status,
         kind: 'application_submitted',
         channel: 'activity',

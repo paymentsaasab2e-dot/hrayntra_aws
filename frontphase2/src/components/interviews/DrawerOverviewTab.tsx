@@ -1,7 +1,8 @@
 import React from 'react';
-import { CalendarDays, Clock3, Link as LinkIcon, MapPin } from 'lucide-react';
+import { CalendarDays, Clock3, MapPin } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
 import { formatTimezoneDisplay, resolveIanaFromTimezoneValue } from '../../utils/inferTimezone';
+import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 
 interface DrawerOverviewTabProps {
   interview: Interview;
@@ -42,15 +43,9 @@ export function DrawerOverviewTab({ interview }: DrawerOverviewTabProps) {
             {interview.date} at {interview.time} ({timezoneLabel})
           </div>
           {interview.meetingLink ? (
-            <a
-              href={interview.meetingLink}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 text-[#2563EB] underline-offset-2 hover:underline"
-            >
-              <LinkIcon className="size-4" />
-              {interview.meetingLink}
-            </a>
+            <div className="flex items-center gap-2">
+              <DrawerLinkActions url={interview.meetingLink} shareTitle="Interview meeting link" />
+            </div>
           ) : null}
           {interview.location ? (
             <div className="flex items-center gap-2">

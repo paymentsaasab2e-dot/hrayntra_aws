@@ -14,7 +14,9 @@ import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
   HQ_TABLE_CARD_CLASS,
+  HQ_TABLE_CLASS,
   HQ_TOOLBAR_ROW_CLASS,
+  HQ_KPI_ROW_CLASS,
 } from '@/components/hq/HqModulePageLayout';
 import { HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import { formatBillingCycleLabel } from '@/components/hq/hqPackagePresentation';
@@ -304,7 +306,7 @@ export default function HqBillingPage() {
 
       {tab === 'employer' ? (
         <>
-          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 sm:gap-3">
+          <div className={HQ_KPI_ROW_CLASS}>
             <HqStatCard label="Tenants" value={overview?.employer.totalTenants ?? 0} active />
             <HqStatCard label="On a plan" value={overview?.employer.tenantsOnPlan ?? 0} />
             <HqStatCard label="Transactions" value={overview?.employer.totalTransactions ?? 0} />
@@ -357,7 +359,7 @@ export default function HqBillingPage() {
 
             <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
               {employerView === 'transactions' ? (
-                <table className="min-w-full text-left">
+                <table className={HQ_TABLE_CLASS}>
                   <thead>
                     <tr>
                       <th>Tenant</th>
@@ -410,7 +412,7 @@ export default function HqBillingPage() {
                   </tbody>
                 </table>
               ) : employerView === 'cycles' ? (
-                <table className="min-w-full text-left">
+                <table className={HQ_TABLE_CLASS}>
                   <thead>
                     <tr>
                       <th>Tenant</th>
@@ -474,7 +476,7 @@ export default function HqBillingPage() {
                   </tbody>
                 </table>
               ) : (
-                <table className="min-w-full text-left">
+                <table className={HQ_TABLE_CLASS}>
                   <thead>
                     <tr>
                       <th>Organization</th>
@@ -530,7 +532,7 @@ export default function HqBillingPage() {
         </>
       ) : (
         <>
-          <div className="mb-5 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 sm:gap-3">
+          <div className={HQ_KPI_ROW_CLASS}>
             <HqStatCard label="Transactions" value={overview?.candidate.totalTransactions ?? 0} active />
             <HqStatCard label="Purchases" value={overview?.candidate.totalPurchases ?? 0} />
             <HqStatCard label="Spends" value={overview?.candidate.totalSpends ?? 0} />
@@ -558,7 +560,7 @@ export default function HqBillingPage() {
             </div>
 
             <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
-              <table className="min-w-full text-left">
+              <table className={HQ_TABLE_CLASS}>
                 <thead>
                   <tr>
                     <th>Candidate</th>

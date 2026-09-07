@@ -2,9 +2,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
 import { Building2, Coins, Loader2, UserRound } from 'lucide-react';
 import { DrawerCloseButton } from '../drawers/DrawerCloseButton';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import {
   apiHqGetCandidateBillingLedger,
   apiHqGetEmployerBillingLedger,
@@ -232,19 +233,10 @@ export function HqBillingEntityDrawer({ open, kind, entityKey, onClose }: Props)
     <AnimatePresence>
       {open ? (
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[120] bg-slate-900/40 backdrop-blur-[1px]"
-            onClick={onClose}
-          />
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-            className="fixed inset-y-0 right-0 z-[121] flex w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl"
+          <DetailsModalShell
+            variant="main"
+            onBackdropClick={onClose}
+            dialogTitleId="hq-billing-entity-title"
           >
             <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
               <div className="flex items-start gap-3">
@@ -252,7 +244,7 @@ export function HqBillingEntityDrawer({ open, kind, entityKey, onClose }: Props)
                   {kind === 'candidate' ? <UserRound className="h-5 w-5" /> : <Building2 className="h-5 w-5" />}
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+                  <h2 id="hq-billing-entity-title" className="text-lg font-bold text-slate-900">{title}</h2>
                   <p className="text-sm text-slate-500">{subtitle}</p>
                 </div>
               </div>
@@ -337,7 +329,7 @@ export function HqBillingEntityDrawer({ open, kind, entityKey, onClose }: Props)
                 </>
               ) : null}
             </div>
-          </motion.aside>
+          </DetailsModalShell>
         </>
       ) : null}
     </AnimatePresence>,

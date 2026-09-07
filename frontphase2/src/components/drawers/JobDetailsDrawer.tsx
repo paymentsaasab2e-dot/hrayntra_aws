@@ -18,7 +18,8 @@ import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
 import { DetailsModalShell } from './DetailsModalShell';
 import { DrawerTabBar } from './DrawerTabBar';
-import { requestError, requestInfo } from '../../lib/appDialog';
+import { requestCornerAlert, requestError, requestInfo } from '../../lib/appDialog';
+import { ApiRequestError } from '../../lib/apiNetworkErrors';
 import {
   isInterviewPipelineStage,
   isOfferPipelineStage,
@@ -70,6 +71,7 @@ import {
   ClipboardList,
   MessageSquare,
   Search,
+  Building2,
 } from 'lucide-react';
 import {
   apiCreateMatch,
@@ -83,7 +85,13 @@ import {
   apiRemoveJobStatus,
   apiGetPipelineStages,
   apiMoveCandidateStage,
+  apiParseCandidateResume,
+  apiCreateCandidateFromDrawer,
+  apiUploadCandidateResumeFile,
+  apiAddCandidateToPipeline,
   type BackendInterviewListItem,
+  type AddCandidatePayload,
+  type ImportedProfileData,
 } from '../../lib/api';
 import {
   DEFAULT_JOB_STATUS_OPTIONS,
@@ -98,7 +106,6 @@ import {
 import { useDrawerPortalDropdownPosition } from './drawerFormUi';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import AddCandidateDrawer from '../candidates/AddCandidateDrawer';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import type { Placement } from '../../types/placement';
 import {
@@ -122,9 +129,12 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { NotesService } from '../NotesService';
 import {
   apiGetJobActivities,
+  apiGetJobClientRemarks,
   apiUpdateJob,
   apiResetJobPipelineToOrgTemplate,
   type BackendActivity,
+  type JobClientRemarkCandidate,
+  type JobClientRemarksPayload,
   getCachedOrgRecruitmentMode,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
@@ -143,6 +153,20 @@ import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
+import { JobClientRemarksTab } from '../jobs/JobClientRemarksTab';
+import { InterviewDetailHost } from '../interviews/InterviewDetailHost';
+import { TableColumnsMenu } from '../table/TableColumnsMenu';
+import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
+import {
+  CANDIDATE_TABLE_COLUMNS,
+  MATCH_TABLE_COLUMNS,
+} from '../../lib/tableColumns/moduleTableColumns';
+import PaginationAll from '../PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
+import { PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
+import { extractApiData } from '../../lib/mapCandidateProfile';
+import { BULK_CV_ACCEPT_INPUT } from '../../lib/bulkCvFileTypes';
+import { normalizeCandidateEmailInput } from '../../lib/candidateEmailValidation';
 import {
   DrawerSectionCard,
   DRAWER_FORM_SCROLL_BG,
@@ -171,6 +195,80 @@ function formatJobSalaryRange(job: {
   if (hasMin) return `${currency}${job.minSalary}`;
   if (hasMax) return `${currency}${job.maxSalary}`;
   return job.salaryRange || '';
+}
+
+const MAX_JOB_CV_FILE_BYTES = 25 * 1024 * 1024;
+
+function identityFromParsedCv(parsed: ImportedProfileData, file: File) {
+  let firstName = String(parsed.firstName || '').trim();
+  let lastName = String(parsed.lastName || '').trim();
+  if (!firstName || !lastName) {
+    const base = String(file.name || '')
+      .replace(/\.[^.]+$/, '')
+      .replace(/^[0-9_,\-\s]+/, '')
+      .replace(/(^|\s)(cv|resume)\b/gi, ' ')
+      .replace(/[_,\-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const tokens = base.split(' ').filter(Boolean);
+    if (!firstName) firstName = tokens.shift() || 'Unknown';
+    if (!lastName) lastName = tokens.join(' ') || 'Candidate';
+  }
+  const email =
+    normalizeCandidateEmailInput(parsed.email, { firstName, lastName }) || null;
+  return { firstName, lastName, email };
+}
+
+function payloadFromParsedJobCv(
+  parsed: ImportedProfileData,
+  file: File,
+  jobId: string,
+  recruiterId?: string,
+): AddCandidatePayload {
+  const identity = identityFromParsedCv(parsed, file);
+  const location =
+    String(parsed.location || '').trim() ||
+    [parsed.city, parsed.country].filter(Boolean).join(', ') ||
+    undefined;
+  const skills = Array.isArray(parsed.skills) ? parsed.skills.slice(0, 20) : undefined;
+  return {
+    firstName: identity.firstName,
+    lastName: identity.lastName,
+    email: identity.email,
+    phone: parsed.phone ? String(parsed.phone).trim() : undefined,
+    currentCompany: parsed.currentCompany || undefined,
+    designation: parsed.currentDesignation || parsed.designation || undefined,
+    currentDesignation: parsed.currentDesignation || parsed.designation || undefined,
+    experience:
+      parsed.experience === '' || parsed.experience == null ? 0 : Number(parsed.experience) || 0,
+    location,
+    linkedinUrl: parsed.linkedinUrl || undefined,
+    jobId,
+    stage: 'Applied',
+    recruiterId: recruiterId || undefined,
+    source: 'Resume',
+    priority: parsed.priority || 'Medium',
+    tags: ['New'],
+    skills,
+    expectedSalary: parsed.expectedSalary == null ? undefined : Number(parsed.expectedSalary),
+    currentSalary: parsed.currentSalary == null ? undefined : Number(parsed.currentSalary),
+    currency: parsed.currency || undefined,
+    portfolioUrl: parsed.portfolioUrl || undefined,
+    education: String(parsed.education || '').trim() || undefined,
+    certifications: Array.isArray(parsed.certifications) ? parsed.certifications : undefined,
+    languages: Array.isArray(parsed.languages) ? parsed.languages : undefined,
+    notes: parsed.summary || undefined,
+    cvSummary: parsed.summary || undefined,
+    cvEducationEntries: Array.isArray(parsed.educationEntries) ? parsed.educationEntries : undefined,
+    cvWorkExperienceEntries: Array.isArray(parsed.workExperienceEntries)
+      ? parsed.workExperienceEntries
+      : undefined,
+    city: parsed.city || undefined,
+    country: parsed.country || undefined,
+    preferredLocation: location,
+    resume: parsed.resumeUrl || undefined,
+    duplicateAction: 'create',
+  };
 }
 
 export type JobDrawerStatus = string;
@@ -267,6 +365,43 @@ function formatInterviewListStatus(status: string): string {
   if (normalized === 'NO_SHOW') return 'No show';
   if (normalized === 'RESCHEDULED') return 'Rescheduled';
   return 'Scheduled';
+}
+
+function interviewListStatusBadgeClass(statusLabel: string): string {
+  switch (statusLabel) {
+    case 'Completed':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    case 'Cancelled':
+      return 'bg-red-50 text-red-700 border-red-200';
+    case 'No show':
+      return 'bg-slate-100 text-slate-600 border-slate-200';
+    case 'Rescheduled':
+      return 'bg-orange-50 text-orange-700 border-orange-200';
+    default:
+      return 'bg-blue-50 text-blue-700 border-blue-200';
+  }
+}
+
+function formatInterviewTypeLabel(item: BackendInterviewListItem): string {
+  const type = String(item.type || '')
+    .trim()
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  const mode = String(item.mode || '')
+    .trim()
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  if (type && mode) return `${type} · ${mode}`;
+  return type || mode || 'Interview';
+}
+
+function panelNamesFromInterview(item: BackendInterviewListItem): string {
+  const names = (item.panel || [])
+    .map((member) => String(member.user?.name || '').trim())
+    .filter(Boolean);
+  return names.length ? names.join(', ') : '—';
 }
 
 function formatPlacementStatusLabel(status: string): string {
@@ -472,13 +607,15 @@ export interface JobDetailsDrawerProps {
   onStatusUpdated?: (jobId: string, status: string) => void;
   /** When true, show Upload CV on the Candidates tab */
   canAddCandidate?: boolean;
+  /** `main` fills the page beside the sidenav. `modal` is a centered overlay. */
+  layout?: 'main' | 'modal';
 }
 
 const TAB_CONFIG = [
   { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
   { id: 'assessments' as const, label: 'Assessments', icon: ClipboardList },
   { id: 'candidates' as const, label: 'Candidates', icon: Users },
-  { id: 'ai-matches' as const, label: 'AI Matches', icon: Sparkles },
+  { id: 'client' as const, label: 'Client', icon: Building2 },
   { id: 'pipeline' as const, label: 'Pipeline', icon: GitBranch },
   { id: 'analytics' as const, label: 'Analytics', icon: BarChart2 },
   { id: 'assignment' as const, label: 'Assignment', icon: UserCog },
@@ -717,6 +854,45 @@ const JobDrawerStatusDropdown = ({
   );
 };
 
+type JobCandidateMatchMode = 'applied' | 'ai';
+
+function JobCandidateMatchModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: JobCandidateMatchMode;
+  onChange: (mode: JobCandidateMatchMode) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-2xl border border-[#E5E7EB] bg-white p-1">
+      <button
+        type="button"
+        onClick={() => onChange('applied')}
+        className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition ${
+          mode === 'applied'
+            ? 'bg-[#2563EB] text-white shadow-sm'
+            : 'text-slate-600 hover:bg-slate-50'
+        }`}
+      >
+        <Users size={16} />
+        AI Applied Matches
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('ai')}
+        className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition ${
+          mode === 'ai'
+            ? 'bg-[#2563EB] text-white shadow-sm'
+            : 'text-slate-600 hover:bg-slate-50'
+        }`}
+      >
+        <Sparkles size={16} />
+        AI Matches
+      </button>
+    </div>
+  );
+}
+
 interface JobDrawerAiMatchesTabProps {
   job: JobForDrawer;
   aiMatchCandidates: MatchCandidate[];
@@ -735,6 +911,8 @@ interface JobDrawerAiMatchesTabProps {
   onToggleAnalysis: (candidateId: string) => void;
   onViewProfile: (candidateId: string) => void;
   onOpenSubmit: (candidateId: string) => void;
+  isColumnVisible?: (columnId: string) => boolean;
+  columnsMenu?: React.ReactNode;
 }
 
 function JobDrawerAiMatchesTab({
@@ -755,13 +933,29 @@ function JobDrawerAiMatchesTab({
   onToggleAnalysis,
   onViewProfile,
   onOpenSubmit,
+  isColumnVisible,
+  columnsMenu,
 }: JobDrawerAiMatchesTabProps) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
+  const totalPages = Math.max(1, Math.ceil(sortedAiMatchCandidates.length / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const pagedCandidates = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return sortedAiMatchCandidates.slice(start, start + pageSize);
+  }, [sortedAiMatchCandidates, safePage, pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [job?.id, pageSize, sortedAiMatchCandidates.length]);
+
   return (
     <DrawerSectionCard
       title="AI Matches"
       subtitle={`4-pass AI pipeline for ${job.title}`}
       icon={Sparkles}
       accent="violet"
+      headerRight={columnsMenu}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -771,7 +965,7 @@ function JobDrawerAiMatchesTab({
             </p>
           ) : (
             <p className="text-xs text-slate-500">
-              Open this tab to run AI matching, or click Run AI Matches to refresh scores.
+              Switch to AI Matches to run the 4-pass pipeline, or click Run AI Matches to refresh scores.
             </p>
           )}
         </div>
@@ -804,29 +998,61 @@ function JobDrawerAiMatchesTab({
           <p className="text-sm text-slate-500">No AI matches yet. Run the pipeline to score candidates.</p>
         </div>
       ) : (
-        <div className="no-scrollbar -mx-1 overflow-x-auto">
-          <MatchCandidateTable
-            candidates={sortedAiMatchCandidates}
-            activeView="internal"
-            selectedCandidates={aiMatchSelectedIds}
-            savedMatches={aiSavedMatches}
-            expandedAnalysis={aiExpandedAnalysis}
-            showMatchScore
-            onToggleSelect={onToggleSelect}
-            onToggleSelectAll={onToggleSelectAll}
-            onToggleSave={onToggleSave}
-            onToggleAnalysis={onToggleAnalysis}
-            onViewProfile={onViewProfile}
-            onOpenPipeline={() => {
-              void requestInfo('Use the Pipeline tab or Matches page to add candidates to the pipeline.');
-            }}
-            onOpenSubmit={onOpenSubmit}
-            onOpenReject={() => {
-              void requestInfo('Use the Matches page to reject AI match rows.');
-            }}
-            onRateMatch={() => undefined}
-          />
-        </div>
+        <>
+          <div className="no-scrollbar -mx-1 overflow-x-auto">
+            <MatchCandidateTable
+              candidates={pagedCandidates}
+              activeView="internal"
+              selectedCandidates={aiMatchSelectedIds}
+              savedMatches={aiSavedMatches}
+              expandedAnalysis={aiExpandedAnalysis}
+              showMatchScore
+              isColumnVisible={isColumnVisible}
+              onToggleSelect={onToggleSelect}
+              onToggleSelectAll={() => {
+                const pageIds = pagedCandidates.map((row) => row.id);
+                const allPageSelected =
+                  pageIds.length > 0 && pageIds.every((id) => aiMatchSelectedIds.includes(id));
+                if (allPageSelected) {
+                  pageIds.forEach((id) => {
+                    if (aiMatchSelectedIds.includes(id)) onToggleSelect(id);
+                  });
+                  return;
+                }
+                pageIds.forEach((id) => {
+                  if (!aiMatchSelectedIds.includes(id)) onToggleSelect(id);
+                });
+              }}
+              onToggleSave={onToggleSave}
+              onToggleAnalysis={onToggleAnalysis}
+              onViewProfile={onViewProfile}
+              onOpenPipeline={() => {
+                void requestInfo('Use the Pipeline tab or Matches page to add candidates to the pipeline.');
+              }}
+              onOpenSubmit={onOpenSubmit}
+              onOpenReject={() => {
+                void requestInfo('Use the Matches page to reject AI match rows.');
+              }}
+              onRateMatch={() => undefined}
+            />
+          </div>
+          <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
+            <PaginationAll
+              initialPage={safePage}
+              totalPages={totalPages}
+              totalCount={sortedAiMatchCandidates.length}
+              pageSize={pageSize}
+              pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+              onPageSizeChange={(n) => {
+                if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                setPageSize(n as TablePageSize);
+                setPage(1);
+              }}
+              itemLabel="matches"
+              onPageChange={setPage}
+            />
+          </div>
+        </>
       )}
     </DrawerSectionCard>
   );
@@ -856,6 +1082,7 @@ export function JobDetailsDrawer({
   onJobCandidatesChange,
   onStatusUpdated,
   canAddCandidate = false,
+  layout = 'main',
 }: JobDetailsDrawerProps) {
   usePageDrawerLifecycle(isOpen);
   const jobCandidates = orEmpty(jobCandidatesProp);
@@ -918,8 +1145,24 @@ export function JobDetailsDrawer({
   const [activeTab, setActiveTab] = useState<(typeof TAB_CONFIG)[number]['id']>('overview');
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [displayJobCandidates, setDisplayJobCandidates] = useState<JobCandidateItem[]>(jobCandidates);
+  const [clientRemarkCandidates, setClientRemarkCandidates] = useState<JobClientRemarkCandidate[]>([]);
+  const [clientRemarksClientName, setClientRemarksClientName] = useState('');
+  const [clientRemarksCount, setClientRemarksCount] = useState(0);
+  const [loadingClientRemarks, setLoadingClientRemarks] = useState(false);
+  const [clientRemarksError, setClientRemarksError] = useState('');
   const [appliedPipelineRunning, setAppliedPipelineRunning] = useState(false);
   const [appliedCandidatesLoading, setAppliedCandidatesLoading] = useState(false);
+  const [candidateMatchMode, setCandidateMatchMode] = useState<JobCandidateMatchMode>('applied');
+  const candidateColumnVisibility = usePersistedColumnVisibility(
+    'candidates.visibleColumns',
+    CANDIDATE_TABLE_COLUMNS,
+  );
+  const matchColumnVisibility = usePersistedColumnVisibility(
+    'matches.visibleColumns',
+    MATCH_TABLE_COLUMNS,
+  );
+  const [candidatesPage, setCandidatesPage] = useState(1);
+  const [candidatesPageSize, setCandidatesPageSize] = useState<TablePageSize>(10);
   const prevCandidatesTabJobIdRef = useRef<string | null>(null);
   const wasOnCandidatesTabRef = useRef(false);
   const [showMatchScores, setShowMatchScores] = useState(false);
@@ -956,6 +1199,8 @@ export function JobDetailsDrawer({
   const [aiExpandedAnalysis, setAiExpandedAnalysis] = useState<string | null>(null);
   const prevAiTabJobIdRef = useRef<string | null>(null);
   const prevOnAiTabRef = useRef(false);
+  const [uploadingJobCv, setUploadingJobCv] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setSubmitClientRowId(null);
@@ -980,6 +1225,26 @@ export function JobDetailsDrawer({
     () => displayJobCandidates.map((row) => mapJobCandidateToTableRow(row, job?.title, job?.id)),
     [displayJobCandidates, job?.id, job?.title],
   );
+
+  const candidatesTotalPages = Math.max(
+    1,
+    Math.ceil(jobTableCandidates.length / candidatesPageSize),
+  );
+  const safeCandidatesPage = Math.min(Math.max(candidatesPage, 1), candidatesTotalPages);
+  const pagedJobTableCandidates = useMemo(() => {
+    const start = (safeCandidatesPage - 1) * candidatesPageSize;
+    return jobTableCandidates.slice(start, start + candidatesPageSize);
+  }, [jobTableCandidates, safeCandidatesPage, candidatesPageSize]);
+
+  useEffect(() => {
+    setCandidatesPage(1);
+  }, [job?.id, candidatesPageSize]);
+
+  useEffect(() => {
+    if (candidatesPage > candidatesTotalPages) {
+      setCandidatesPage(candidatesTotalPages);
+    }
+  }, [candidatesPage, candidatesTotalPages]);
 
   const pipelineJobOptions = useMemo((): CandidatePipelineJobOption[] => {
     if (!job?.id) return [];
@@ -1191,6 +1456,111 @@ export function JobDetailsDrawer({
     [job?.id, job?.applications, jobCandidates, onJobCandidatesChange, recruiterFallbackForJob],
   );
 
+  const handleJobCvFileSelected = useCallback(
+    async (file: File | undefined) => {
+      if (!file || !job?.id) return;
+      if (file.size > MAX_JOB_CV_FILE_BYTES) {
+        void requestError('Resume must be 25MB or smaller.');
+        return;
+      }
+      setUploadingJobCv(true);
+      try {
+        const parsedRes = await apiParseCandidateResume(file);
+        const parsed = parsedRes.data || {};
+        let recruiterId = '';
+        try {
+          const raw = localStorage.getItem('currentUser');
+          if (raw) {
+            const user = JSON.parse(raw) as { id?: string; _id?: string };
+            recruiterId = String(user.id || user._id || '').trim();
+          }
+        } catch {
+          recruiterId = '';
+        }
+
+        const finishSuccess = async (displayName?: string) => {
+          const message = displayName
+            ? `Candidate created successfully: ${displayName}`
+            : 'Candidate created successfully';
+          toast.success(message);
+          void requestCornerAlert(message, { tone: 'success', priority: 'high' });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+          }
+          await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+        };
+
+        const attachResume = async (candidateId: string) => {
+          const resumeAlreadyRemote = /^https?:\/\//i.test(String(parsed.resumeUrl || '').trim());
+          if (!candidateId || resumeAlreadyRemote) return;
+          try {
+            await apiUploadCandidateResumeFile(candidateId, file);
+          } catch (uploadError) {
+            console.error('Resume upload failed after candidate creation:', uploadError);
+          }
+        };
+
+        const addExistingToJob = async (candidateId: string, displayName?: string) => {
+          const pipelinePayload = {
+            candidateId,
+            jobId: job.id,
+            stage: 'Applied',
+            recruiterId: recruiterId || undefined,
+            priority: 'Medium' as const,
+          };
+          if (onAddToPipeline) {
+            await onAddToPipeline(pipelinePayload);
+          } else {
+            await apiAddCandidateToPipeline(candidateId, {
+              jobId: job.id,
+              stage: 'Applied',
+              recruiterId: recruiterId || undefined,
+              priority: 'Medium',
+            });
+          }
+          await attachResume(candidateId);
+          await finishSuccess(displayName);
+        };
+
+        const payload = payloadFromParsedJobCv(parsed, file, job.id, recruiterId || undefined);
+        try {
+          const createdRes = await apiCreateCandidateFromDrawer(payload);
+          const created = createdRes.data || {};
+          const candidateId = String(created.id || (created as { _id?: string })._id || '').trim();
+          await attachResume(candidateId);
+          const displayName = [created.firstName || payload.firstName, created.lastName || payload.lastName]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          await finishSuccess(displayName);
+        } catch (createError) {
+          // Existing candidate: assign them to this job instead of opening Add Candidate.
+          if (createError instanceof ApiRequestError && createError.status === 409) {
+            const dupData = (createError.data || {}) as {
+              existingCandidate?: { _id?: string; id?: string; name?: string };
+            };
+            const existing = dupData.existingCandidate;
+            const existingId = String(existing?._id || existing?.id || '').trim();
+            if (existingId) {
+              await addExistingToJob(existingId, existing?.name || undefined);
+              return;
+            }
+          }
+          throw createError;
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Could not create the candidate from this CV.';
+        toast.error(message);
+        void requestError(message);
+      } finally {
+        setUploadingJobCv(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    },
+    [job?.id, onAddToPipeline, refreshAppliedJobCandidates],
+  );
+
   useEffect(() => {
     if (!isOpen || !job?.id) return;
     const onCandidatesChanged = () => {
@@ -1276,30 +1646,6 @@ export function JobDetailsDrawer({
       refreshAppliedJobCandidates,
     ],
   );
-
-  const handleRunAppliedMatches = useCallback(async () => {
-    if (!job?.id) return;
-    try {
-      const merged = await refreshAppliedJobCandidates({ runPipeline: true, refresh: true });
-      const scored = merged.filter((row) => parseJobCandidateScore(row.score) > 0);
-      const top = [...scored].sort(
-        (a, b) => parseJobCandidateScore(b.score) - parseJobCandidateScore(a.score),
-      )[0];
-      if (top && parseJobCandidateScore(top.score) > 0) {
-        void requestInfo(
-          `Applied matching complete — ${merged.length} candidate(s). Top: ${top.candidateName} (${parseJobCandidateScore(top.score)}%).`,
-        );
-      } else if (merged.length) {
-        void requestInfo(
-          `${merged.length} job-linked candidate(s). Run AI Applied Matches to refresh scores.`,
-        );
-      } else {
-        void requestInfo('No candidates applied, assigned, or in the pipeline for this job yet.');
-      }
-    } catch {
-      // errors surfaced in refreshAppliedJobCandidates
-    }
-  }, [job?.id, refreshAppliedJobCandidates]);
 
   useEffect(() => {
     if (!isOpen || activeTab !== 'candidates' || !job?.id) {
@@ -1440,7 +1786,7 @@ export function JobDetailsDrawer({
       prevOnAiTabRef.current = false;
       return;
     }
-    if (activeTab !== 'ai-matches') {
+    if (activeTab !== 'candidates' || candidateMatchMode !== 'ai') {
       prevOnAiTabRef.current = false;
       return;
     }
@@ -1451,7 +1797,7 @@ export function JobDetailsDrawer({
     if (switchedToAi || jobChanged) {
       void refreshAiMatches();
     }
-  }, [activeTab, refreshAiMatches, isOpen, job?.id]);
+  }, [activeTab, candidateMatchMode, refreshAiMatches, isOpen, job?.id]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1462,6 +1808,7 @@ export function JobDetailsDrawer({
       setAiExpandedAnalysis(null);
       prevAiTabJobIdRef.current = null;
       prevOnAiTabRef.current = false;
+      setCandidateMatchMode('applied');
     }
   }, [isOpen]);
 
@@ -1473,6 +1820,7 @@ export function JobDetailsDrawer({
     setAiExpandedAnalysis(null);
     prevAiTabJobIdRef.current = null;
     prevOnAiTabRef.current = false;
+    setCandidateMatchMode('applied');
   }, [job?.id]);
 
   useEffect(() => {
@@ -1490,6 +1838,8 @@ export function JobDetailsDrawer({
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'All' | 'Jobs' | 'Candidates' | 'Interviews' | 'Notes' | 'Files'>('All');
   const [jobInterviews, setJobInterviews] = useState<BackendInterviewListItem[]>([]);
+  const [selectedJobInterview, setSelectedJobInterview] = useState<BackendInterviewListItem | null>(null);
+  const [jobInterviewDetailOpen, setJobInterviewDetailOpen] = useState(false);
   const [jobPlacements, setJobPlacements] = useState<Placement[]>([]);
   const [loadingJobInterviews, setLoadingJobInterviews] = useState(false);
   const [loadingJobPlacements, setLoadingJobPlacements] = useState(false);
@@ -1503,42 +1853,18 @@ export function JobDetailsDrawer({
   const [savingJobStatus, setSavingJobStatus] = useState(false);
   const [deletingJobStatus, setDeletingJobStatus] = useState(false);
   const [updatingJobStatus, setUpdatingJobStatus] = useState(false);
-  const [uploadCvDrawerOpen, setUploadCvDrawerOpen] = useState(false);
-  const [uploadCvCurrentUser, setUploadCvCurrentUser] = useState<{
-    _id?: string;
-    id?: string;
-    name?: string;
-    email?: string;
-    role?: string;
-  } | null>(null);
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
   const [applyLinkLoading, setApplyLinkLoading] = useState(false);
   const [applyLinkCopied, setApplyLinkCopied] = useState(false);
   const [applyShareOpen, setApplyShareOpen] = useState(false);
   const applyShareRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setShowStatusChange(false);
     setShowAddJobStatusInput(false);
     setNewJobStatusValue('');
     setLocalJobStatus(job?.status || 'Active');
-    setUploadCvDrawerOpen(false);
   }, [job?.id, job?.status]);
-
-  useEffect(() => {
-    if (!isOpen || !canAddCandidate) return;
-    try {
-      const raw = localStorage.getItem('currentUser');
-      if (!raw) {
-        setUploadCvCurrentUser(null);
-        return;
-      }
-      setUploadCvCurrentUser(JSON.parse(raw));
-    } catch {
-      setUploadCvCurrentUser(null);
-    }
-  }, [isOpen, canAddCandidate]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1763,9 +2089,42 @@ export function JobDetailsDrawer({
   }, [job?.id, activeTab]);
 
   useEffect(() => {
+    if (!isOpen || !job?.id) {
+      setClientRemarkCandidates([]);
+      setClientRemarksCount(0);
+      setClientRemarksError('');
+      setLoadingClientRemarks(false);
+      return;
+    }
+
+    const load = startAsyncLoad(setLoadingClientRemarks);
+    setClientRemarksError('');
+    void (async () => {
+      try {
+        const response = await apiGetJobClientRemarks(job.id);
+        if (!load.isActive()) return;
+        const data = extractApiData<JobClientRemarksPayload>(response);
+        setClientRemarkCandidates(Array.isArray(data?.candidates) ? data.candidates : []);
+        setClientRemarksCount(Number(data?.remarkCount || 0));
+        setClientRemarksClientName(String(data?.clientName || job.client || 'Client'));
+      } catch (error: unknown) {
+        if (!load.isActive()) return;
+        setClientRemarksError(error instanceof Error ? error.message : 'Unable to load client remarks');
+        setClientRemarkCandidates([]);
+        setClientRemarksCount(0);
+      } finally {
+        load.finish();
+      }
+    })();
+    return () => load.abort();
+  }, [isOpen, job?.id, job?.client, activeTab === 'client']);
+
+  useEffect(() => {
     setJobInterviews([]);
     setJobPlacements([]);
     setSupportingRecruiterNames('—');
+    setSelectedJobInterview(null);
+    setJobInterviewDetailOpen(false);
   }, [job?.id]);
 
   useEffect(() => {
@@ -1827,6 +2186,17 @@ export function JobDetailsDrawer({
       load.abort();
     };
   }, [activeTab, isOpen, job?.id]);
+
+  const refreshJobInterviews = useCallback(() => {
+    if (!job?.id) return;
+    void apiGetInterviews({ jobId: job.id, page: 1, limit: 100 })
+      .then((response) => {
+        setJobInterviews(unwrapApiList<BackendInterviewListItem>(response.data));
+      })
+      .catch(() => {
+        /* keep current rows */
+      });
+  }, [job?.id]);
 
   useEffect(() => {
     if (!isOpen || !job?.id || activeTab !== 'placements') {
@@ -1976,6 +2346,7 @@ export function JobDetailsDrawer({
         size="lg"
         zIndexClass="z-50"
         dialogTitleId="job-detail-modal-title"
+        variant={layout === 'main' ? 'main' : 'centered'}
       >
         {/* Header */}
         <div className="relative shrink-0 overflow-hidden border-b border-indigo-100/60 bg-gradient-to-br from-white via-indigo-50/45 to-violet-50/35 px-5 pb-4 pt-5 sm:px-6">
@@ -1987,33 +2358,27 @@ export function JobDetailsDrawer({
             <div className="min-w-0 flex-1">
               {job ? (
                 <>
-                  <div className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white shadow-md shadow-indigo-500/25">
-                    <Briefcase className="h-3 w-3 text-indigo-100" />
-                    Job details
-                  </div>
                   <h2
                     id="job-detail-modal-title"
-                    className="mt-2.5 truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl"
+                    className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl"
                   >
                     {job.title}
                   </h2>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-slate-600">
-                    <span className="inline-flex items-center gap-1.5">
+                  <div className="mt-2 flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto text-sm text-slate-600 [scrollbar-width:thin]">
+                    <span className="inline-flex shrink-0 items-center gap-1.5">
                       <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
                         <Briefcase size={12} />
                       </span>
                       {job.client}
                     </span>
-                    <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-flex shrink-0 items-center gap-1.5">
                       <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
                         <MapPin size={12} />
                       </span>
                       {job.location}
                     </span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     {job.employmentType && (
-                      <span className="rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
+                      <span className="shrink-0 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
                         {job.employmentType}
                       </span>
                     )}
@@ -2021,51 +2386,49 @@ export function JobDetailsDrawer({
                       <button
                         type="button"
                         onClick={() => setShowStatusChange(true)}
-                        className={`inline-block rounded-full border px-2.5 py-1 text-[11px] font-bold transition-opacity hover:opacity-80 ${statusStyleFor(localJobStatus || job.status)}`}
+                        className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-opacity hover:opacity-80 ${statusStyleFor(localJobStatus || job.status)}`}
                         title="Change status"
                       >
                         {localJobStatus || job.status}
                       </button>
                     ) : (
-                      <div className="flex min-w-[12rem] flex-col gap-2">
-                        <div className="flex items-center gap-2">
-                          <JobDrawerStatusDropdown
-                            value={localJobStatus || job.status}
-                            options={drawerStatusOptions}
-                            deleting={deletingJobStatus || updatingJobStatus}
-                            onSelect={(status) => {
-                              void applyJobStatusChange(status);
-                            }}
-                            onDelete={(status) => {
-                              void deleteJobStatusOption(status);
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowAddJobStatusInput((prev) => !prev);
-                              setNewJobStatusValue('');
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-800"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Add status
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowStatusChange(false);
-                              setShowAddJobStatusInput(false);
-                              setNewJobStatusValue('');
-                              setLocalJobStatus(job.status);
-                            }}
-                            className="text-[11px] font-semibold text-slate-500 hover:text-slate-700"
-                          >
-                            Cancel
-                          </button>
-                        </div>
+                      <div className="flex min-w-[12rem] shrink-0 items-center gap-2">
+                        <JobDrawerStatusDropdown
+                          value={localJobStatus || job.status}
+                          options={drawerStatusOptions}
+                          deleting={deletingJobStatus || updatingJobStatus}
+                          onSelect={(status) => {
+                            void applyJobStatusChange(status);
+                          }}
+                          onDelete={(status) => {
+                            void deleteJobStatusOption(status);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddJobStatusInput((prev) => !prev);
+                            setNewJobStatusValue('');
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-800"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Add status
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowStatusChange(false);
+                            setShowAddJobStatusInput(false);
+                            setNewJobStatusValue('');
+                            setLocalJobStatus(job.status);
+                          }}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                        >
+                          Cancel
+                        </button>
                         {showAddJobStatusInput ? (
-                          <div className="flex items-center gap-2">
+                          <>
                             <input
                               value={newJobStatusValue}
                               onChange={(e) => setNewJobStatusValue(e.target.value)}
@@ -2081,23 +2444,23 @@ export function JobDetailsDrawer({
                             >
                               {savingJobStatus ? 'Adding…' : 'Add'}
                             </button>
-                          </div>
+                          </>
                         ) : null}
                       </div>
                     )}
                     {job.jobLocationType && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
                         <UserCheck size={12} />
                         {job.jobLocationType}
                       </span>
                     )}
                     {job.salaryRange && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
                         <DollarSign size={12} />
                         {job.salaryRange}
                       </span>
                     )}
-                    <span className="rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
+                    <span className="shrink-0 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
                       {formatDateDMY(job.postedDate ?? job.createdDate) || '—'}
                     </span>
                   </div>
@@ -2237,7 +2600,9 @@ export function JobDetailsDrawer({
           <>
             <DrawerTabBar
               ariaLabel="Job sections"
-              tabs={TABS_VISIBLE_IN_BAR}
+              tabs={TABS_VISIBLE_IN_BAR.map((tab) =>
+                tab.id === 'client' ? { ...tab, badge: clientRemarksCount || undefined } : tab,
+              )}
               activeId={activeTab}
               onChange={setActiveTab}
             />
@@ -2261,39 +2626,57 @@ export function JobDetailsDrawer({
               )}
 
               {activeTab === 'candidates' && (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <JobCandidateMatchModeToggle
+                      mode={candidateMatchMode}
+                      onChange={setCandidateMatchMode}
+                    />
+                    {candidateMatchMode === 'applied' && canAddCandidate && job?.id ? (
+                      <>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept={BULK_CV_ACCEPT_INPUT}
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            void handleJobCvFileSelected(file);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingJobCv}
+                          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          title="Upload a CV to create a candidate and assign them to this job"
+                        >
+                          {uploadingJobCv ? (
+                            <Loader2 size={16} className="animate-spin" strokeWidth={2.25} />
+                          ) : (
+                            <Upload size={16} strokeWidth={2.25} />
+                          )}
+                          {uploadingJobCv ? 'Creating candidate…' : 'Upload CV'}
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+
+                  {candidateMatchMode === 'applied' ? (
                 <DrawerSectionCard
                   title="Candidates"
-                  subtitle="Applied, assigned, or in this job's pipeline — scores from AI Applied Matches"
                   icon={Users}
                   accent="indigo"
+                  headerRight={
+                    <TableColumnsMenu
+                      columns={CANDIDATE_TABLE_COLUMNS}
+                      isVisible={candidateColumnVisibility.isVisible}
+                      onToggle={candidateColumnVisibility.toggle}
+                      onReset={candidateColumnVisibility.resetToDefault}
+                      unlockedVisibleCount={candidateColumnVisibility.unlockedVisibleCount}
+                    />
+                  }
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-                    {canAddCandidate && job?.id ? (
-                      <button
-                        type="button"
-                        onClick={() => setUploadCvDrawerOpen(true)}
-                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50"
-                        title="Upload a CV to create a candidate and assign them to this job"
-                      >
-                        <Upload size={16} strokeWidth={2.25} />
-                        Upload CV
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void handleRunAppliedMatches()}
-                      disabled={!job?.id || appliedPipelineRunning || appliedCandidatesLoading}
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                      title="Score tenant candidates assigned or applied to this job"
-                    >
-                      <Users
-                        size={16}
-                        className={appliedPipelineRunning ? 'animate-spin' : ''}
-                        strokeWidth={2.25}
-                      />
-                      {appliedPipelineRunning ? 'Running applied matches…' : 'Run AI Applied Matches'}
-                    </button>
-                  </div>
                   {selectedCandidateIds.length > 0 && job?.id ? (
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2.5">
                       <p className="text-sm font-semibold text-indigo-900">
@@ -2336,17 +2719,23 @@ export function JobDetailsDrawer({
                       {canAddCandidate && job?.id ? (
                         <button
                           type="button"
-                          onClick={() => setUploadCvDrawerOpen(true)}
-                          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingJobCv}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <Upload size={16} />
-                          Upload CV to add a candidate
+                          {uploadingJobCv ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : (
+                            <Upload size={16} />
+                          )}
+                          {uploadingJobCv ? 'Creating candidate…' : 'Upload CV to add a candidate'}
                         </button>
                       ) : null}
                     </div>
                   ) : (
+                    <>
                     <CandidateTable
-                        candidates={jobTableCandidates}
+                        candidates={pagedJobTableCandidates}
                         showMatchScore={showMatchScores}
                         selectedIds={selectedCandidateIds}
                         onToggleSelect={(id) =>
@@ -2355,11 +2744,15 @@ export function JobDetailsDrawer({
                           )
                         }
                         onToggleSelectAll={() =>
-                          setSelectedCandidateIds((prev) =>
-                            prev.length === jobTableCandidates.length
-                              ? []
-                              : jobTableCandidates.map((row) => row.id),
-                          )
+                          setSelectedCandidateIds((prev) => {
+                            const pageIds = pagedJobTableCandidates.map((row) => row.id);
+                            const allPageSelected =
+                              pageIds.length > 0 && pageIds.every((id) => prev.includes(id));
+                            if (allPageSelected) {
+                              return prev.filter((id) => !pageIds.includes(id));
+                            }
+                            return [...new Set([...prev, ...pageIds])];
+                          })
                         }
                         onViewProfile={onViewCandidateProfile}
                         onEditCandidate={onEditCandidate}
@@ -2392,11 +2785,28 @@ export function JobDetailsDrawer({
                         }
                         submittingToClientCandidateId={submitClientRowId}
                         labeledSubmitToClient
+                        isColumnVisible={candidateColumnVisibility.isVisible}
                       />
+                    <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
+                      <PaginationAll
+                        initialPage={safeCandidatesPage}
+                        totalPages={candidatesTotalPages}
+                        totalCount={jobTableCandidates.length}
+                        pageSize={candidatesPageSize}
+                        pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                        onPageSizeChange={(n) => {
+                          if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                          setCandidatesPageSize(n as TablePageSize);
+                          setCandidatesPage(1);
+                        }}
+                        itemLabel="candidates"
+                        onPageChange={setCandidatesPage}
+                      />
+                    </div>
+                    </>
                   )}
                 </DrawerSectionCard>
-              )}
-              {activeTab === 'ai-matches' && (
+                  ) : job ? (
                 <JobDrawerAiMatchesTab
                   job={job}
                   aiMatchCandidates={aiMatchCandidates}
@@ -2470,7 +2880,67 @@ export function JobDetailsDrawer({
                       });
                     })();
                   }}
+                  isColumnVisible={matchColumnVisibility.isVisible}
+                  columnsMenu={
+                    <TableColumnsMenu
+                      columns={MATCH_TABLE_COLUMNS}
+                      isVisible={matchColumnVisibility.isVisible}
+                      onToggle={matchColumnVisibility.toggle}
+                      onReset={matchColumnVisibility.resetToDefault}
+                      unlockedVisibleCount={matchColumnVisibility.unlockedVisibleCount}
+                    />
+                  }
                 />
+                  ) : null}
+                </div>
+              )}
+              {activeTab === 'client' && (
+                <DrawerSectionCard
+                  title="Client"
+                  subtitle={`Submitted candidates for ${clientRemarksClientName || job.client || 'the client'}. Click a name to see comments and uploads.`}
+                  icon={Building2}
+                  accent="violet"
+                >
+                  <JobClientRemarksTab
+                    loading={loadingClientRemarks}
+                    error={clientRemarksError}
+                    clientName={clientRemarksClientName || job.client}
+                    candidates={clientRemarkCandidates}
+                    onViewCandidate={
+                      onViewCandidateProfile
+                        ? (candidateId) => {
+                            const fromJob = displayJobCandidates.find((row) => row.id === candidateId);
+                            if (fromJob) {
+                              onViewCandidateProfile(
+                                mapJobCandidateToTableRow(fromJob, job.title, job.id),
+                              );
+                              return;
+                            }
+                            const fromRemarks = clientRemarkCandidates.find(
+                              (row) => row.candidateId === candidateId,
+                            );
+                            onViewCandidateProfile(
+                              mapJobCandidateToTableRow(
+                                {
+                                  id: candidateId,
+                                  candidateName: fromRemarks?.candidateName || 'Candidate',
+                                  email: fromRemarks?.email || undefined,
+                                  avatar: fromRemarks?.avatar || null,
+                                  currentStage: '',
+                                  score: '',
+                                  recruiter: '',
+                                  interviewStatus: '',
+                                  lastActivity: '',
+                                },
+                                job.title,
+                                job.id,
+                              ),
+                            );
+                          }
+                        : undefined
+                    }
+                  />
+                </DrawerSectionCard>
               )}
 
               {activeTab === 'pipeline' && (
@@ -2797,55 +3267,115 @@ export function JobDetailsDrawer({
                   icon={Calendar}
                   accent="amber"
                 >
-                    <div className={DRAWER_LIST_SHELL}>
-                      {loadingJobInterviews ? (
-                        <div className="flex items-center justify-center gap-2 p-8 text-sm text-slate-500">
-                          <Loader2 size={18} className="animate-spin text-indigo-500" />
-                          Loading interviews…
-                        </div>
-                      ) : jobInterviews.length === 0 ? (
-                        <div className="p-8 text-center">
-                          <Calendar size={32} className="mx-auto text-slate-300 mb-3" />
-                          <p className="text-sm text-slate-500">No interviews scheduled for this job yet.</p>
-                        </div>
-                      ) : (
-                        jobInterviews.map((item) => {
-                          const statusLabel = formatInterviewListStatus(item.status);
-                          const isCompleted = statusLabel === 'Completed';
-                          return (
-                            <div
-                              key={item.id}
-                              className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-indigo-50/50"
-                            >
-                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 ring-2 ring-white shadow-sm shadow-indigo-500/10">
-                                <Calendar size={16} />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-slate-900">{candidateNameFromInterview(item)}</p>
-                                <p className="text-[11px] text-slate-500">
-                                  {formatInterviewDateInTimezone(item.scheduledAt, item.timezone)} ·{' '}
-                                  {formatInterviewTimeInTimezone(item.scheduledAt, item.timezone)}
-                                  {item.timezone
-                                    ? ` · ${formatTimezoneDisplay(resolveIanaFromTimezoneValue(item.timezone))}`
-                                    : ''}{' '}
-                                  · {item.type || item.mode || 'Interview'}
-                                </p>
-                              </div>
-                              <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                                {item.round || 'Screening'}
-                              </span>
-                              <span
-                                className={`text-[11px] font-medium px-2 py-0.5 rounded ${
-                                  isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                                }`}
+                  <div className={DRAWER_TABLE_SHELL}>
+                    <div className={DRAWER_TABLE_SCROLL}>
+                      <table className="w-full min-w-[780px] border-collapse text-left">
+                        <thead>
+                          <tr className={DRAWER_TABLE_HEAD_ROW}>
+                            <th className={`${DRAWER_TABLE_TH} first:pl-4 sm:first:pl-5`}>Candidate</th>
+                            <th className={DRAWER_TABLE_TH}>Date &amp; time</th>
+                            <th className={DRAWER_TABLE_TH}>Round</th>
+                            <th className={DRAWER_TABLE_TH}>Type</th>
+                            <th className={DRAWER_TABLE_TH}>Panel</th>
+                            <th className={`${DRAWER_TABLE_TH} sm:pr-5`}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className={DRAWER_TABLE_BODY}>
+                          {loadingJobInterviews ? (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className={`${DRAWER_TABLE_TD} py-12 text-center text-sm text-slate-500`}
                               >
-                                {statusLabel}
-                              </span>
-                            </div>
-                          );
-                        })
-                      )}
+                                <span className="inline-flex items-center gap-2">
+                                  <Loader2 size={16} className="animate-spin text-indigo-500" />
+                                  Loading interviews…
+                                </span>
+                              </td>
+                            </tr>
+                          ) : jobInterviews.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className={`${DRAWER_TABLE_TD} py-12 text-center text-sm text-slate-500`}
+                              >
+                                No interviews scheduled for this job yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            jobInterviews.map((item) => {
+                              const statusLabel = formatInterviewListStatus(item.status);
+                              const candidateEmail = String(item.candidate?.email || '').trim();
+                              const timezoneLabel = item.timezone
+                                ? formatTimezoneDisplay(resolveIanaFromTimezoneValue(item.timezone))
+                                : '';
+                              return (
+                                <tr
+                                  key={item.id}
+                                  className={`${DRAWER_TABLE_TR} cursor-pointer`}
+                                  onClick={() => {
+                                    setSelectedJobInterview(item);
+                                    setJobInterviewDetailOpen(true);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      setSelectedJobInterview(item);
+                                      setJobInterviewDetailOpen(true);
+                                    }
+                                  }}
+                                  tabIndex={0}
+                                  role="button"
+                                  aria-label={`Open interview for ${candidateNameFromInterview(item)}`}
+                                >
+                                  <td className={`${DRAWER_TABLE_TD} first:pl-4 sm:first:pl-5`}>
+                                    <p className="max-w-[200px] truncate text-sm font-semibold text-slate-900">
+                                      {candidateNameFromInterview(item)}
+                                    </p>
+                                    {candidateEmail ? (
+                                      <p className="max-w-[200px] truncate text-[11px] text-slate-500">
+                                        {candidateEmail}
+                                      </p>
+                                    ) : null}
+                                  </td>
+                                  <td className={DRAWER_TABLE_TD}>
+                                    <p className="text-sm font-medium text-slate-800">
+                                      {formatInterviewDateInTimezone(item.scheduledAt, item.timezone)}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500">
+                                      {formatInterviewTimeInTimezone(item.scheduledAt, item.timezone)}
+                                      {timezoneLabel ? ` · ${timezoneLabel}` : ''}
+                                      {item.duration ? ` · ${item.duration} min` : ''}
+                                    </p>
+                                  </td>
+                                  <td className={DRAWER_TABLE_TD}>
+                                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                                      {item.round || 'Screening'}
+                                    </span>
+                                  </td>
+                                  <td className={`${DRAWER_TABLE_TD} text-sm text-slate-700`}>
+                                    {formatInterviewTypeLabel(item)}
+                                  </td>
+                                  <td className={`${DRAWER_TABLE_TD} max-w-[180px]`}>
+                                    <p className="truncate text-sm text-slate-600" title={panelNamesFromInterview(item)}>
+                                      {panelNamesFromInterview(item)}
+                                    </p>
+                                  </td>
+                                  <td className={`${DRAWER_TABLE_TD} sm:pr-5`}>
+                                    <span
+                                      className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${interviewListStatusBadgeClass(statusLabel)}`}
+                                    >
+                                      {statusLabel}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
                     </div>
+                  </div>
                 </DrawerSectionCard>
               )}
               {activeTab === 'placements' && (
@@ -3360,30 +3890,6 @@ export function JobDetailsDrawer({
       }
     />
 
-    {canAddCandidate && job?.id ? (
-      <AddCandidateDrawer
-        isOpen={uploadCvDrawerOpen}
-        onClose={() => setUploadCvDrawerOpen(false)}
-        onSuccess={async () => {
-          setUploadCvDrawerOpen(false);
-          toast.success('Candidate created from CV and assigned to this job.');
-          await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
-        }}
-        currentUser={
-          uploadCvCurrentUser || {
-            _id: '',
-            name: 'You',
-            email: '',
-            role: 'RECRUITER',
-          }
-        }
-        initialTab="resume"
-        defaultJobId={job.id}
-        lockJobSelection
-        showMethodTabs={false}
-      />
-    ) : null}
-
     {submitCandidatePickerOpen ? (
       <DetailsModalShell
         size="sm"
@@ -3509,6 +4015,16 @@ export function JobDetailsDrawer({
     ) : null}
 
     {submitToClientModal}
+    <InterviewDetailHost
+      interviewItem={selectedJobInterview}
+      isOpen={jobInterviewDetailOpen}
+      onClose={() => {
+        setJobInterviewDetailOpen(false);
+        setSelectedJobInterview(null);
+      }}
+      onChanged={refreshJobInterviews}
+      zIndexClass="z-[120]"
+    />
     </>
   );
 }

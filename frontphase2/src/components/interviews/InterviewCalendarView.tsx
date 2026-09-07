@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  ExternalLink,
   MapPin,
   MonitorPlay,
   Phone,
@@ -16,7 +15,7 @@ import {
 } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
 import { formatDateDMY } from '../../utils/dateDisplay';
-import { formatTimezoneDisplay, resolveIanaFromTimezoneValue } from '../../utils/inferTimezone';
+import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 
 interface InterviewCalendarViewProps {
   interviews: Interview[];
@@ -270,15 +269,12 @@ export function InterviewCalendarView({ interviews, onSelectInterview }: Intervi
                 ) : null}
 
                 {selectedInterview.meetingLink ? (
-                  <a
-                    href={selectedInterview.meetingLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mb-4 inline-flex items-center gap-2 rounded-xl bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8]"
-                  >
-                    <ExternalLink className="size-4" />
-                    Open meeting link
-                  </a>
+                  <div className="mb-4">
+                    <DrawerLinkActions
+                      url={selectedInterview.meetingLink}
+                      shareTitle="Interview meeting link"
+                    />
+                  </div>
                 ) : null}
 
                 <div className="rounded-2xl border border-[#E5E7EB] bg-[#FAFAFB] p-4">

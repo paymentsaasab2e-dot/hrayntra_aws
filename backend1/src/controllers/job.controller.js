@@ -1,7 +1,7 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 const { runJobMatchingPipeline: runJobMatchingPipelinePhase1 } = require('../services/job-matching-pipeline-phase1.service');
-const { formatPortalJob, hydrateJobsPublicProfileFields, shouldShowClientNamePublicly } = require('../utils/formatPortalJob.util');
+const { formatPortalJob, hydrateJobsPublicProfileFields, shouldShowClientNamePublicly, resolvePublicCompanyName } = require('../utils/formatPortalJob.util');
 const { normalizeContentLocale } = require('../services/contentTranslation.service');
 const { localizePortalJob, localizePortalJobs } = require('../utils/localizePortalJob.util');
 const {
@@ -18,7 +18,7 @@ const cache = {
   lastFetched: 0,
   TTL: 300000, // 5 minutes
   /** Bump when job list payload shape changes so old cache entries cannot hide new fields (e.g. screening questions). */
-  version: 8,
+  version: 9,
 };
 
 function invalidateJobsListCache() {
@@ -659,9 +659,7 @@ async function recommendJobs(req, res) {
     const dbFormatted = jobs.map((job) => ({
       id: job.id,
       title: job.title,
-      company: shouldShowClientNamePublicly(job)
-        ? job.company?.name || job.client?.companyName || null
-        : null,
+      company: resolvePublicCompanyName(job, null),
       location: job.location,
       type: job.type || job.employmentType || 'Full-time',
       logo: jobListingThumbnail(job) || '',

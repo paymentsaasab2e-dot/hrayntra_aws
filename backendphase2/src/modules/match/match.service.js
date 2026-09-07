@@ -13,10 +13,15 @@ import { createRequire } from 'module';
 import {
   createClientReviewToken,
   normalizeSubmissionType,
+  toClientReviewUrl,
 } from '../../services/interview.service.js';
 import {
   buildCvSubmissionSnapshot,
 } from '../../utils/cvSubmissionSnapshot.js';
+import {
+  mergeCvSubmissionExtraData,
+  normalizeClientTrackerOptions,
+} from '../../utils/clientTrackerOptions.js';
 import { AI_MATCH_AUTHOR_WHERE, MANUAL_MATCH_AUTHOR_WHERE } from './matchQueryHelpers.js';
 import { notifyMatchSubmittedToClient } from '../setting/alert-notify.helpers.js';
 import { moveCandidateToSubmittedToClient } from '../stage/candidateStage.service.js';
@@ -37,7 +42,13 @@ function normalizeMatchScore(score) {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-const buildClientReviewUrl = (match, submissionType, cvShareMode = null, batchMatchIds = null) => {
+const buildClientReviewUrl = async (
+  match,
+  submissionType,
+  cvShareMode = null,
+  batchMatchIds = null,
+  trackerOptions = null,
+) => {
   const normalizedBatch = Array.isArray(batchMatchIds)
     ? Array.from(new Set(batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)))
     : [];
@@ -49,9 +60,32 @@ const buildClientReviewUrl = (match, submissionType, cvShareMode = null, batchMa
     submissionType,
     cvShareMode,
     batchMatchIds: normalizedBatch.length > 1 ? normalizedBatch : undefined,
+    trackerOptions,
   });
-  return `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
+  return toClientReviewUrl(token, {
+    matchId: match.id,
+    candidateId: match.candidateId,
+  });
 };
+
+async function persistClientTrackerOptionsOnCandidates(candidateIds, trackerOptions) {
+  const ids = Array.from(new Set((candidateIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (!ids.length) return;
+  const candidates = await prisma.candidate.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, extraData: true },
+  });
+  await Promise.all(
+    candidates.map((row) =>
+      prisma.candidate.update({
+        where: { id: row.id },
+        data: {
+          extraData: mergeCvSubmissionExtraData(row.extraData, { trackerOptions }),
+        },
+      }),
+    ),
+  );
+}
 
 const require = createRequire(import.meta.url);
 
@@ -1041,7 +1075,11 @@ export const matchService = {
     }
 
     const message = String(data?.message || '').trim();
-    const notifyClient = Boolean(data?.notifyClient);
+    // Strict true only — preview link generation must never email the client.
+    // previewOnly is set by the Client preview link modal (copy/share + Gmail/Outlook compose).
+    const previewOnly = data?.previewOnly === true || data?.previewOnly === 'true';
+    const notifyClient =
+      !previewOnly && (data?.notifyClient === true || data?.notifyClient === 'true');
     const recipients = notifyClient ? getClientRecipients(match.job.client, data?.toEmail) : [];
 
     if (notifyClient && !recipients.length) {
@@ -1067,12 +1105,16 @@ export const matchService = {
       ? data.batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)
       : [];
     const normalizedBatchMatchIds = Array.from(new Set(batchMatchIds));
+    const trackerOptions = normalizeClientTrackerOptions(data?.trackerOptions, {
+      useNewDefaults: true,
+    });
 
-    const reviewUrl = buildClientReviewUrl(
+    const reviewUrl = await buildClientReviewUrl(
       match,
       submissionType,
       cvShareMode || 'edited',
       normalizedBatchMatchIds.length > 1 ? normalizedBatchMatchIds : null,
+      trackerOptions,
     );
     console.info(
       `[match.submit] client-review url for ${env.NODE_ENV}: ${reviewUrl} (FRONTEND_URL=${env.FRONTEND_URL})`,
@@ -1105,6 +1147,7 @@ export const matchService = {
             cvSubmission: {
               ...existingSubmission,
               ...(cvShareMode ? { shareMode: cvShareMode, snapshot } : {}),
+              trackerOptions,
               updatedAt: new Date().toISOString(),
               reviewUrl,
             },
@@ -1156,6 +1199,12 @@ export const matchService = {
 
     let emailSent = false;
     let emailError = null;
+
+    if (previewOnly) {
+      console.info(
+        `[match.submit] previewOnly=true — skipping client email for match ${id} (link-only flow)`,
+      );
+    }
 
     if (notifyClient) {
       const purposeLine = MATCH_SUBMISSION_PURPOSES[submissionType] || MATCH_SUBMISSION_PURPOSES.GENERAL;
@@ -1286,16 +1335,19 @@ export const matchService = {
     }
 
     try {
-      const candidateName =
-        `${match.candidate?.firstName || ''} ${match.candidate?.lastName || ''}`.trim() ||
-        'Candidate';
-      await notifyMatchSubmittedToClient({
-        match,
-        userId,
-        candidateName,
-        jobTitle: match.job?.title,
-        clientName: match.job?.client?.companyName,
-      });
+      // Preview-link flow: no outbound mail at all (client or recruiter alert email).
+      if (!previewOnly) {
+        const candidateName =
+          `${match.candidate?.firstName || ''} ${match.candidate?.lastName || ''}`.trim() ||
+          'Candidate';
+        await notifyMatchSubmittedToClient({
+          match,
+          userId,
+          candidateName,
+          jobTitle: match.job?.title,
+          clientName: match.job?.client?.companyName,
+        });
+      }
     } catch (alertErr) {
       console.warn('[match.submitToClient] alert failed:', alertErr?.message || alertErr);
     }
@@ -1320,7 +1372,36 @@ export const matchService = {
       reviewUrl,
       emailSent,
       emailError,
+      trackerOptions,
     };
+  },
+
+  async updateClientTracker(id, data) {
+    const match = await prisma.match.findUnique({
+      where: { id },
+      select: { id: true, candidateId: true },
+    });
+    if (!match) {
+      throw new Error('Match not found');
+    }
+
+    const trackerOptions = normalizeClientTrackerOptions(data?.trackerOptions, {
+      useNewDefaults: true,
+    });
+    const batchMatchIds = Array.isArray(data?.batchMatchIds)
+      ? data.batchMatchIds.map((row) => String(row || '').trim()).filter(Boolean)
+      : [];
+    const matchIds = Array.from(new Set([id, ...batchMatchIds]));
+    const matches = await prisma.match.findMany({
+      where: { id: { in: matchIds } },
+      select: { candidateId: true },
+    });
+    await persistClientTrackerOptionsOnCandidates(
+      matches.map((row) => row.candidateId),
+      trackerOptions,
+    );
+
+    return { matchId: id, trackerOptions };
   },
 
   async reject(id, data, userId) {
@@ -1514,11 +1595,13 @@ export const matchService = {
     // one of them. We pick the first link as `portalUrl` so older email
     // templates still have a meaningful CTA target.
     const submissionType = normalizeSubmissionType(data?.submissionType) || 'GENERAL';
-    const reviewLinks = matches.map((item) => ({
-      candidateId: item.candidateId,
-      candidateName: `${item.candidate?.firstName || ''} ${item.candidate?.lastName || ''}`.trim() || 'Candidate',
-      url: buildClientReviewUrl(item, submissionType),
-    }));
+    const reviewLinks = await Promise.all(
+      matches.map(async (item) => ({
+        candidateId: item.candidateId,
+        candidateName: `${item.candidate?.firstName || ''} ${item.candidate?.lastName || ''}`.trim() || 'Candidate',
+        url: await buildClientReviewUrl(item, submissionType),
+      })),
+    );
 
     const purposeLine =
       MATCH_SUBMISSION_PURPOSES[submissionType] || MATCH_SUBMISSION_PURPOSES.GENERAL;

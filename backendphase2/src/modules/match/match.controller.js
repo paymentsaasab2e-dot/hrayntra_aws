@@ -71,6 +71,15 @@ export const matchController = {
     }
   },
 
+  async updateClientTracker(req, res) {
+    try {
+      const result = await matchService.updateClientTracker(req.params.id, req.body);
+      sendResponse(res, 200, 'Client preview options updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async reject(req, res) {
     try {
       const match = await matchService.reject(req.params.id, req.body, req.user.id);

@@ -41,6 +41,7 @@ const JOB_FEED_PROJECTION = {
   postedDate: 1,
   createdAt: 1,
   updatedAt: 1,
+  postingCompanyName: 1,
   showClientNamePublicly: 1,
   hqHideClientName: 1,
   publicFieldVisibility: 1,

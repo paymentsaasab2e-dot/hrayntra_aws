@@ -17,6 +17,7 @@ import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
+import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 
 interface ContactDetailDrawerProps {
   contact: BackendContact | null;
@@ -57,6 +58,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
           <DetailsModalShell
             onBackdropClick={onClose}
             size="lg"
+            variant="main"
             zIndexClass="z-[100]"
             dialogTitleId="contact-detail-modal-title"
           >
@@ -126,14 +128,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
                 {contact.linkedinUrl && (
                   <div className="flex items-center gap-3 text-sm">
                     <Linkedin size={16} className="text-gray-400" />
-                    <a
-                      href={contact.linkedinUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
-                    >
-                      LinkedIn Profile
-                    </a>
+                    <DrawerLinkActions url={contact.linkedinUrl} shareTitle="LinkedIn profile" />
                   </div>
                 )}
                 {contact.owner && (

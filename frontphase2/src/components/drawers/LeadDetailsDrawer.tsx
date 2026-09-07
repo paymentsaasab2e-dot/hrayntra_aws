@@ -178,6 +178,7 @@ import { isInternalLeadOtherDetailLabel, withPreservedInternalOtherDetails } fro
 import { LeadOccasionFields } from '../forms/LeadOccasionFields';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import { DetailsModalShell } from './DetailsModalShell';
 import { DrawerTabBar } from './DrawerTabBar';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import {
@@ -189,6 +190,7 @@ import {
   ADD_LEAD_INPUT_WITH_ICON,
   useDrawerPortalDropdownPosition,
 } from './drawerFormUi';
+import { DrawerLinkActions, splitDisplayUrls } from './DrawerLinkActions';
 import { LeadSourceFields, formatLeadSourceDisplay } from './LeadSourceFields';
 import type { LocationSelection } from '../LocationAutocomplete';
 import { LeadLocationFields } from '../location/LeadLocationFields';
@@ -827,9 +829,7 @@ function LeadDetailsPanelShell({
   onBeginResize,
   children,
   dialogTitleId = 'lead-details-modal-title',
-  size = 'md',
-  sidePanel = null,
-  modernAi = false,
+  onBackdropClick,
 }: {
   mode: 'modal' | 'drawer';
   panelRef: React.RefObject<HTMLDivElement | null>;
@@ -840,33 +840,18 @@ function LeadDetailsPanelShell({
   size?: 'md' | 'lg';
   sidePanel?: React.ReactNode;
   modernAi?: boolean;
+  onBackdropClick?: () => void;
 }) {
   if (mode === 'modal') {
-    const modalMaxWidth = size === 'lg' ? 'max-w-6xl' : 'max-w-4xl';
-    const modalHeight = size === 'lg' ? 'h-[min(92vh,920px)]' : 'h-[min(90vh,880px)]';
     return (
-      <div className="pointer-events-none fixed inset-0 z-[501] flex flex-col items-center justify-center gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-6 lg:flex-row lg:overflow-hidden">
-        {sidePanel}
-        <motion.div
-          key={size === 'lg' ? 'lead-detail-modal' : 'add-lead-modal'}
-          ref={panelRef}
-          initial={{ opacity: 0, scale: 0.96, y: 12 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: 12 }}
-          transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-          className={`pointer-events-auto relative flex ${modalHeight} w-full ${modalMaxWidth} flex-col overflow-hidden ${
-            modernAi
-              ? 'rounded-[28px] border-0 bg-white shadow-[0_40px_120px_-24px_rgba(15,23,42,0.45)] ring-1 ring-white/70'
-              : 'rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5'
-          }`}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={dialogTitleId}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {children}
-        </motion.div>
-      </div>
+      <DetailsModalShell
+        panelRef={panelRef}
+        variant="main"
+        dialogTitleId={dialogTitleId}
+        onBackdropClick={onBackdropClick}
+      >
+        {children}
+      </DetailsModalShell>
     );
   }
 
@@ -912,20 +897,29 @@ const FieldRow = ({
   value: string;
   href?: boolean;
   multiline?: boolean;
-}) => (
-  <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100 last:border-0">
-    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-    {value ? (
-      <p
-        className={`text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer' : ''} ${multiline ? 'whitespace-pre-line' : 'truncate'}`}
-      >
-        {value}
-      </p>
-    ) : (
-      <div className="h-5" />
-    )}
-  </div>
-);
+}) => {
+  const urls = href ? splitDisplayUrls(value) : [];
+  return (
+    <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100 last:border-0">
+      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
+      {urls.length ? (
+        <div className="flex flex-col gap-1.5">
+          {urls.map((url) => (
+            <DrawerLinkActions key={url} url={url} shareTitle={label} />
+          ))}
+        </div>
+      ) : value ? (
+        <p
+          className={`text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer' : ''} ${multiline ? 'whitespace-pre-line' : 'truncate'}`}
+        >
+          {value}
+        </p>
+      ) : (
+        <div className="h-5" />
+      )}
+    </div>
+  );
+};
 
 const FieldRowDateTime = ({ label, value }: { label: string; value: string | null | undefined }) => {
   const parts = splitDateTimeForDisplay(value);
@@ -968,24 +962,20 @@ function OverviewField({
   multiline?: boolean;
 }) {
   const displayValue = cleanDisplayText(value, '');
+  const urls = href ? splitDisplayUrls(displayValue) : [];
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3.5 py-3">
       <AddLeadFieldLabel label={label} icon={icon} iconClassName={iconClassName} required={required} />
-      {displayValue ? (
-        href ? (
-          <a
-            href={/^https?:\/\//i.test(displayValue) ? displayValue : `https://${displayValue}`}
-            target="_blank"
-            rel="noreferrer"
-            className="break-all text-sm font-semibold text-indigo-600 hover:underline"
-          >
-            {displayValue}
-          </a>
-        ) : (
-          <p className={`text-sm font-semibold text-slate-900 ${multiline ? 'whitespace-pre-line' : ''}`}>
-            {displayValue}
-          </p>
-        )
+      {urls.length ? (
+        <div className="mt-1 flex flex-col gap-1.5">
+          {urls.map((url) => (
+            <DrawerLinkActions key={url} url={url} shareTitle={label} />
+          ))}
+        </div>
+      ) : displayValue ? (
+        <p className={`text-sm font-semibold text-slate-900 ${multiline ? 'whitespace-pre-line' : ''}`}>
+          {displayValue}
+        </p>
       ) : (
         <p className="text-sm text-slate-400">—</p>
       )}
@@ -3284,24 +3274,13 @@ export function LeadDetailsDrawer({
     <AnimatePresence>
       {(lead || addLeadMode) && (
         <>
-          <motion.div
-            key="backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => void handleLeadDrawerClose()}
-            className="fixed inset-0 z-[500] pointer-events-auto bg-slate-950/55 backdrop-blur-md"
-            data-drawer-skip-dirty="true"
-          />
           <LeadDetailsPanelShell
             mode="modal"
-            size={addLeadMode && addLeadAiFlowStage === 'chat' ? 'lg' : addLeadMode ? 'md' : 'lg'}
-            modernAi={Boolean(addLeadMode && addLeadAiFlowStage)}
             dialogTitleId={addLeadMode ? 'add-lead-modal-title' : 'lead-detail-modal-title'}
             panelRef={leadDrawerPanelRef}
             drawerWidth={addLeadDrawerWidth}
             onBeginResize={beginAddLeadDrawerResize}
-            sidePanel={null}
+            onBackdropClick={() => void handleLeadDrawerClose()}
           >
           <div className="relative flex h-full min-h-0 flex-col">
           {/* Header */}
@@ -3526,16 +3505,13 @@ export function LeadDetailsDrawer({
                     .
                   </p>
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      readOnly
-                      value={
-                        publicLeadFormLinkLoading
-                          ? 'Loading link…'
-                          : publicLeadFormLink || 'Link unavailable'
-                      }
-                      className="h-8 min-w-0 flex-1 truncate rounded-md border border-blue-200 bg-white px-2 font-mono text-[11px] text-slate-700"
-                      aria-label="Public lead form URL"
-                    />
+                    {publicLeadFormLinkLoading ? (
+                      <p className="text-[11px] text-blue-800/80">Loading link…</p>
+                    ) : publicLeadFormLink ? (
+                      <DrawerLinkActions url={publicLeadFormLink} shareTitle="Lead form" />
+                    ) : (
+                      <p className="text-[11px] text-blue-800/80">Link unavailable</p>
+                    )}
                     <div className="flex shrink-0 gap-1.5">
                       <button
                         type="button"
@@ -3544,7 +3520,7 @@ export function LeadDetailsDrawer({
                         className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                       >
                         <Share2 className="h-3.5 w-3.5" />
-                        Share
+                        Send to member
                       </button>
                       <LeadFormAccessButton disabled={!publicLeadFormLink || publicLeadFormLinkLoading} />
                     </div>

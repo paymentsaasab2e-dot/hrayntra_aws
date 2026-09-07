@@ -2,6 +2,7 @@ export const JOB_PUBLIC_VISIBILITY_FIELDS = [
   'nationality',
   'jobTitle',
   'client',
+  'companyName',
   'contactPerson',
   'openings',
   'location',
@@ -35,6 +36,7 @@ export const JOB_PUBLIC_VISIBILITY_FIELD_LABELS: Record<JobPublicVisibilityField
   nationality: 'Nationality',
   jobTitle: 'Job Title',
   client: 'Client Name',
+  companyName: 'Company Name',
   contactPerson: 'Contact Person',
   openings: 'Number of Openings',
   location: 'Location',
@@ -66,6 +68,9 @@ export function parseJobPublicFieldVisibility(raw: unknown): JobPublicFieldVisib
     if (source[key] === false) merged[key] = false;
     else if (source[key] === true) merged[key] = true;
   }
+  if (source.companyName === undefined) {
+    merged.companyName = merged.client !== false;
+  }
   return merged;
 }
 
@@ -74,6 +79,11 @@ export function isJobFieldPubliclyVisible(
   field: JobPublicVisibilityField,
   legacyShowClient?: boolean,
 ): boolean {
+  if (field === 'companyName') {
+    if (visibility?.companyName === false) return false;
+    if (visibility?.companyName === true) return true;
+    return isJobFieldPubliclyVisible(visibility, 'client', legacyShowClient);
+  }
   if (field === 'client') {
     if (legacyShowClient === false) return false;
     if (visibility?.client === false) return false;
@@ -175,7 +185,7 @@ export function redactPublicJobPayload<T extends Record<string, unknown>>(
     out.title = null;
     out.jobTitle = null;
   }
-  if (!show('client')) {
+  if (!show('companyName')) {
     out.company = null;
     out.companyLogo = null;
   }

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
 import {
   Activity,
   Coins,
@@ -20,8 +20,8 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
-  ExternalLink,
 } from 'lucide-react';
+import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 import {
   apiHqSetTenantCoins,
   apiHqUpdateTenantModules,
@@ -47,6 +47,7 @@ import {
 } from './hqPackagePresentation';
 import { formatDateDMY } from '@/utils/dateDisplay';
 import { DrawerCloseButton } from '../drawers/DrawerCloseButton';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { HqPrimaryButton, HqSecondaryButton, HQ_SELECT_CLASS } from './hqUi';
 import { requestConfirm, requestSuccess } from '@/lib/appDialog';
@@ -347,29 +348,11 @@ export function HqTenantDetailDrawer({
     <AnimatePresence>
       {open && tenant ? (
         <>
-          <motion.div
-            key="tenant-detail-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 z-[500] bg-slate-900/45 backdrop-blur-[2px] pointer-events-auto"
-          />
-          <div className="pointer-events-none fixed inset-0 z-[501] flex items-center justify-center p-3 sm:p-6">
-            <motion.div
-              key="tenant-detail-panel"
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="tenant-detail-title"
-              className={`pointer-events-auto relative flex h-[min(92vh,940px)] w-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl ring-1 ring-slate-900/5 ${
-                activeTab === 'analytics' ? 'max-w-6xl' : 'max-w-4xl'
-              }`}
-            >
+          <DetailsModalShell
+            variant="main"
+            onBackdropClick={onClose}
+            dialogTitleId="tenant-detail-title"
+          >
               <div className="shrink-0 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/95 via-indigo-50/50 to-white px-5 py-4 sm:px-6">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -566,30 +549,9 @@ export function HqTenantDetailDrawer({
                           {tenant.jobsApiUrl ? (
                             <div className="space-y-1.5">
                               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                Open this in the browser
+                                Jobs API link
                               </p>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <code className="min-w-0 flex-1 break-all rounded-lg border border-sky-100 bg-white px-3 py-2 font-mono text-[11px] text-slate-600">
-                                  {tenant.jobsApiUrl}
-                                </code>
-                                <button
-                                  type="button"
-                                  onClick={() => void copyText(tenant.jobsApiUrl || '', 'Jobs link')}
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                                  title="Copy jobs link"
-                                >
-                                  <Copy className="h-3.5 w-3.5" />
-                                </button>
-                                <a
-                                  href={tenant.jobsApiUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-50"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                  Open
-                                </a>
-                              </div>
+                              <DrawerLinkActions url={tenant.jobsApiUrl} shareTitle="Jobs API link" />
                             </div>
                           ) : null}
                           <div className="flex flex-wrap gap-2">
@@ -1081,8 +1043,7 @@ export function HqTenantDetailDrawer({
                   Close
                 </HqSecondaryButton>
               </div>
-            </motion.div>
-          </div>
+            </DetailsModalShell>
         </>
       ) : null}
     </AnimatePresence>

@@ -14,6 +14,7 @@ const JOB_VISIBILITY_FIELDS = [
   'nationality',
   'jobTitle',
   'client',
+  'companyName',
   'contactPerson',
   'openings',
   'location',
@@ -57,6 +58,9 @@ function normalizeJobVisibilityDefaults(raw) {
   const showClientNamePublicly =
     source.showClientNamePublicly === false || publicFieldVisibility.client === false ? false : true;
   publicFieldVisibility.client = showClientNamePublicly;
+  if (nested.companyName === undefined) {
+    publicFieldVisibility.companyName = showClientNamePublicly;
+  }
   return {
     publicFieldVisibility,
     showClientNamePublicly,

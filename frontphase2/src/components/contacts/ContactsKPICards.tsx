@@ -3,6 +3,7 @@
 import React from 'react';
 import { Users, UserCheck, Building2, Briefcase } from 'lucide-react';
 import type { ContactStats } from '../../lib/api';
+import { PH2_KPI_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
 
 interface ContactsKPICardsProps {
   stats: ContactStats;
@@ -53,21 +54,21 @@ export function ContactsKPICards({ stats }: ContactsKPICardsProps) {
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+    <div className={PH2_KPI_ROW_CLASS}>
       {cards.map((card) => {
         const Icon = card.icon;
         return (
           <div
             key={card.id}
-            className={`rounded-xl border p-5 shadow-ph2-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-ph2-card-hover ${card.panel} ${card.ring}`}
+            className={`min-w-0 overflow-hidden rounded-lg border p-1.5 shadow-ph2-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-ph2-card-hover sm:rounded-xl sm:p-3 lg:p-4 ${card.panel} ${card.ring}`}
           >
-            <div className="flex items-center gap-4">
-              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${card.iconWrap}`}>
-                <Icon size={22} strokeWidth={2.1} />
+            <div className="flex items-center gap-2 sm:gap-4">
+              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10 sm:rounded-xl ${card.iconWrap}`}>
+                <Icon className="h-3.5 w-3.5 sm:h-5 sm:w-5" strokeWidth={2.1} />
               </div>
               <div className="min-w-0">
-                <div className={`text-2xl font-bold tabular-nums ${card.text}`}>{card.value}</div>
-                <div className={`text-xs font-semibold uppercase tracking-wider mt-0.5 opacity-80 ${card.text}`}>
+                <div className={`break-all text-sm font-bold tabular-nums sm:text-2xl ${card.text}`}>{card.value}</div>
+                <div className={`mt-0.5 break-words text-[8px] font-semibold uppercase tracking-wider opacity-80 sm:text-xs ${card.text}`}>
                   {card.label}
                 </div>
               </div>

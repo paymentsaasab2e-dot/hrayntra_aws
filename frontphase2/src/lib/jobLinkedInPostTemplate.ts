@@ -52,7 +52,7 @@ export const LINKEDIN_SECTION_TO_VISIBILITY: Record<
   LinkedInPostSectionKey,
   Array<keyof JobPublicFieldVisibility>
 > = {
-  role: ['jobTitle', 'client'],
+  role: ['jobTitle', 'client', 'companyName'],
   location: ['location'],
   openings: ['openings'],
   priority: ['priority'],
