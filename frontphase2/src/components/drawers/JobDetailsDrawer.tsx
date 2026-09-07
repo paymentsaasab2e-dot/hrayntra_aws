@@ -1857,7 +1857,12 @@ export function JobDetailsDrawer({
   const [applyLinkLoading, setApplyLinkLoading] = useState(false);
   const [applyLinkCopied, setApplyLinkCopied] = useState(false);
   const [applyShareOpen, setApplyShareOpen] = useState(false);
-  const applyShareRef = useRef<HTMLDivElement>(null);
+  const closeApplyShare = useCallback(() => setApplyShareOpen(false), []);
+  const {
+    triggerRef: applyShareTriggerRef,
+    menuRef: applyShareMenuRef,
+    menuPosition: applyShareMenuPosition,
+  } = useDrawerPortalDropdownPosition(applyShareOpen, false, closeApplyShare);
 
   useEffect(() => {
     setShowStatusChange(false);
@@ -1960,17 +1965,6 @@ export function JobDetailsDrawer({
       setDeletingJobStatus(false);
     }
   };
-
-  useEffect(() => {
-    if (!applyShareOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!applyShareRef.current?.contains(event.target as Node)) {
-        setApplyShareOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [applyShareOpen]);
 
   useEffect(() => {
     setApplyShareOpen(false);
@@ -2348,12 +2342,11 @@ export function JobDetailsDrawer({
         dialogTitleId="job-detail-modal-title"
         variant={layout === 'main' ? 'main' : 'centered'}
       >
-        {/* Header */}
-        <div className="relative shrink-0 overflow-hidden border-b border-indigo-100/60 bg-gradient-to-br from-white via-indigo-50/45 to-violet-50/35 px-5 pb-4 pt-5 sm:px-6">
-          <div
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(99,102,241,0.12),_transparent_55%)]"
-            aria-hidden
-          />
+        {/* Header — overflow visible so apply-link menu can sit above the tab bar */}
+        <div className="relative z-20 shrink-0 border-b border-indigo-100/60 bg-gradient-to-br from-white via-indigo-50/45 to-violet-50/35 px-5 pb-4 pt-5 sm:px-6">
+          <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(99,102,241,0.12),_transparent_55%)]" />
+          </div>
           <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               {job ? (
@@ -2483,8 +2476,9 @@ export function JobDetailsDrawer({
                 </button>
               ) : null}
               {job?.id ? (
-                <div className="relative" ref={applyShareRef}>
+                <div className="relative">
                   <button
+                    ref={applyShareTriggerRef}
                     type="button"
                     onClick={() => {
                       if (applyLinkLoading || !applyUrl) return;
@@ -2507,71 +2501,87 @@ export function JobDetailsDrawer({
                       <Link2 size={16} strokeWidth={2.25} />
                     )}
                   </button>
-                  {applyShareOpen && applyUrl ? (
-                    <div className="absolute right-0 z-30 mt-2 w-44 overflow-hidden rounded-xl border border-indigo-100 bg-white py-1 shadow-xl shadow-indigo-500/10">
-                      <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-400">
-                        Apply link
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(applyUrl).then(() => {
-                            setApplyLinkCopied(true);
-                            setApplyShareOpen(false);
-                            window.setTimeout(() => setApplyLinkCopied(false), 2000);
-                            requestInfo('Apply link copied');
-                          });
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
-                      >
-                        <Copy size={14} />
-                        {applyLinkCopied ? 'Copied' : 'Copy'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setApplyShareOpen(false);
-                          void shareApplyLink();
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
-                      >
-                        <Share2 size={14} />
-                        Share
-                      </button>
-                      {(
-                        [
-                          { id: 'whatsapp', label: 'WhatsApp' },
-                          { id: 'linkedin', label: 'LinkedIn' },
-                          { id: 'x', label: 'X / Twitter' },
-                          { id: 'facebook', label: 'Facebook' },
-                          { id: 'telegram', label: 'Telegram' },
-                          { id: 'email', label: 'Email' },
-                        ] as const
-                      ).map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            openApplyShareTarget(item.id);
-                            setApplyShareOpen(false);
+                  {applyShareOpen && applyUrl && applyShareMenuPosition && typeof document !== 'undefined'
+                    ? createPortal(
+                        <div
+                          ref={applyShareMenuRef}
+                          className="fixed z-[1200] max-h-72 w-44 overflow-y-auto rounded-xl border border-indigo-100 bg-white py-1 shadow-xl shadow-indigo-500/10"
+                          style={{
+                            width: 176,
+                            left: Math.max(
+                              8,
+                              applyShareMenuPosition.left + applyShareMenuPosition.width - 176,
+                            ),
+                            ...(applyShareMenuPosition.placement === 'top'
+                              ? { bottom: applyShareMenuPosition.bottom }
+                              : { top: applyShareMenuPosition.top }),
                           }}
-                          className="flex w-full px-3 py-2 pl-9 text-left text-xs font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-900"
                         >
-                          {item.label}
-                        </button>
-                      ))}
-                      <a
-                        href={applyUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => setApplyShareOpen(false)}
-                        className="flex w-full items-center gap-2 border-t border-indigo-50 px-3 py-2 text-left text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
-                      >
-                        <ExternalLink size={14} />
-                        Open
-                      </a>
-                    </div>
-                  ) : null}
+                          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-400">
+                            Apply link
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(applyUrl).then(() => {
+                                setApplyLinkCopied(true);
+                                setApplyShareOpen(false);
+                                window.setTimeout(() => setApplyLinkCopied(false), 2000);
+                                requestInfo('Apply link copied');
+                              });
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
+                          >
+                            <Copy size={14} />
+                            {applyLinkCopied ? 'Copied' : 'Copy'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplyShareOpen(false);
+                              void shareApplyLink();
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
+                          >
+                            <Share2 size={14} />
+                            Share
+                          </button>
+                          {(
+                            [
+                              { id: 'whatsapp', label: 'WhatsApp' },
+                              { id: 'linkedin', label: 'LinkedIn' },
+                              { id: 'x', label: 'X / Twitter' },
+                              { id: 'facebook', label: 'Facebook' },
+                              { id: 'telegram', label: 'Telegram' },
+                              { id: 'email', label: 'Email' },
+                            ] as const
+                          ).map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                openApplyShareTarget(item.id);
+                                setApplyShareOpen(false);
+                              }}
+                              className="flex w-full px-3 py-2 pl-9 text-left text-xs font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-900"
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                          <a
+                            href={applyUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => setApplyShareOpen(false)}
+                            className="flex w-full items-center gap-2 border-t border-indigo-50 px-3 py-2 text-left text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                          >
+                            <ExternalLink size={14} />
+                            Open
+                          </a>
+                        </div>,
+                        document.body,
+                      )
+                    : null}
                 </div>
               ) : null}
               {job && (
