@@ -10,6 +10,7 @@ import { TableSkeleton } from '../ui/Skeleton';
 import type { Interview } from '../../types/interview.types';
 import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { DRAWER_FORM_CONTENT_CLASS } from '../drawers/drawerFormUi';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 
 type InterviewJobCandidatesModalProps = {
   isOpen: boolean;
@@ -82,12 +83,15 @@ export function InterviewJobCandidatesModal({
   onPageChange,
   emptyAction,
 }: InterviewJobCandidatesModalProps) {
+  usePageDrawerLifecycle(isOpen);
+
   return (
     <AnimatePresence>
       {isOpen ? (
         <DetailsModalShell
           onBackdropClick={onClose}
           size="lg"
+          variant="main"
           zIndexClass="z-[90]"
           dialogTitleId="interview-job-candidates-modal-title"
         >
@@ -109,9 +113,6 @@ export function InterviewJobCandidatesModal({
                   {jobTitle}
                 </h2>
                 {jobClient ? <p className="mt-1 text-sm text-slate-500">{jobClient}</p> : null}
-                <p className="mt-1 text-xs text-slate-500">
-                  Candidates currently in interview for this job, grouped by round.
-                </p>
               </div>
               <button
                 type="button"

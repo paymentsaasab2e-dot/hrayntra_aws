@@ -5,6 +5,7 @@
  */
 
 import { inferIanaFromCountryStateCity } from '../lib/cscTimezone';
+import { getAllTimezones as getCountriesAndTimezones } from 'countries-and-timezones';
 
 export type LocationTimezoneInput = {
   country?: string;
@@ -513,8 +514,8 @@ export function inferTimezoneDisplay(input: LocationTimezoneInput): string {
 
 export type TimezoneSelectOption = { label: string; value: string };
 
-/** Curated IANA zones for manual client timezone selection. */
-const CLIENT_TIMEZONE_IANA: string[] = [
+/** Last-resort curated list if the runtime cannot enumerate IANA zones. */
+const FALLBACK_TIMEZONE_IANA: string[] = [
   'UTC',
   'Asia/Kolkata',
   'Asia/Dubai',
@@ -561,7 +562,7 @@ const CLIENT_TIMEZONE_IANA: string[] = [
   'America/Vancouver',
   'America/Mexico_City',
   'America/Sao_Paulo',
-  'America/Buenos_Aires',
+  'America/Argentina/Buenos_Aires',
   'America/Bogota',
   'Pacific/Auckland',
   'Australia/Sydney',
@@ -570,16 +571,116 @@ const CLIENT_TIMEZONE_IANA: string[] = [
   'Australia/Perth',
 ];
 
+/** Map legacy ICU aliases to modern IANA ids used across the app. */
+const IANA_ALIAS_TO_CANONICAL: Record<string, string> = {
+  'Asia/Calcutta': 'Asia/Kolkata',
+  'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+  'Asia/Katmandu': 'Asia/Kathmandu',
+  'Asia/Rangoon': 'Asia/Yangon',
+  'Europe/Kiev': 'Europe/Kyiv',
+  'America/Godthab': 'America/Nuuk',
+  'America/Buenos_Aires': 'America/Argentina/Buenos_Aires',
+  'America/Indianapolis': 'America/Indiana/Indianapolis',
+};
+
+function canonicalizeIanaZone(zone: string): string {
+  const raw = String(zone || '').trim();
+  if (!raw) return '';
+  return IANA_ALIAS_TO_CANONICAL[raw] || raw;
+}
+
+function zoneIsAcceptedByIntl(zone: string): boolean {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Full IANA timezone list for selects (Intl first, then package fallback). */
+export function getAllIanaTimeZones(): string[] {
+  const set = new Set<string>();
+
+  const addZones = (zones: string[]) => {
+    for (const zone of zones) {
+      const canonical = canonicalizeIanaZone(zone);
+      if (!canonical) continue;
+      if (zoneIsAcceptedByIntl(canonical)) set.add(canonical);
+      else if (zoneIsAcceptedByIntl(zone)) set.add(zone);
+    }
+  };
+
+  try {
+    if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
+      const zones = Intl.supportedValuesOf('timeZone');
+      if (Array.isArray(zones) && zones.length > 0) addZones(zones);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  if (set.size === 0) {
+    try {
+      addZones(Object.keys(getCountriesAndTimezones() || {}));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (set.size === 0) addZones(FALLBACK_TIMEZONE_IANA);
+
+  // Always keep app defaults present when the runtime accepts them.
+  addZones(['UTC', 'Asia/Kolkata', ...FALLBACK_TIMEZONE_IANA]);
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+const CLIENT_TIMEZONE_IANA: string[] = getAllIanaTimeZones();
+
+/**
+ * Unique select label including the zone path so abbreviations that share an
+ * offset (e.g. EST) do not collide across cities.
+ */
+export function formatTimezoneSelectLabel(ianaTimeZone: string): string {
+  const iana = String(ianaTimeZone || '').trim();
+  if (!iana) return '';
+  if (iana === 'UTC' || iana === 'Etc/UTC') return 'UTC';
+
+  const path = iana.replace(/_/g, ' ');
+  try {
+    const now = new Date();
+    const short =
+      new Intl.DateTimeFormat('en-US', { timeZone: iana, timeZoneName: 'short' })
+        .formatToParts(now)
+        .find((p) => p.type === 'timeZoneName')?.value ?? '';
+    const offset =
+      new Intl.DateTimeFormat('en-US', { timeZone: iana, timeZoneName: 'longOffset' })
+        .formatToParts(now)
+        .find((p) => p.type === 'timeZoneName')?.value ?? '';
+    const offsetLabel = offset ? offset.replace(/^GMT/i, 'UTC') : '';
+    const abbr = short && !/^gmt/i.test(short) ? short : '';
+    if (abbr && offsetLabel) return `${path} — ${abbr} (${offsetLabel})`;
+    if (offsetLabel) return `${path} (${offsetLabel})`;
+    if (abbr) return `${path} — ${abbr}`;
+    return path;
+  } catch {
+    return path;
+  }
+}
+
 export const CLIENT_TIMEZONE_OPTIONS: TimezoneSelectOption[] = CLIENT_TIMEZONE_IANA.map((iana) => {
-  const label = formatTimezoneDisplay(iana);
+  const label = formatTimezoneSelectLabel(iana);
   return { label, value: label };
 })
   .filter((opt, index, list) => list.findIndex((o) => o.value === opt.value) === index)
   .sort((a, b) => a.label.localeCompare(b.label));
 
-const TIMEZONE_LABEL_TO_IANA = new Map(
-  CLIENT_TIMEZONE_IANA.map((iana) => [formatTimezoneDisplay(iana), iana]),
-);
+const TIMEZONE_LABEL_TO_IANA = new Map<string, string>();
+for (const iana of CLIENT_TIMEZONE_IANA) {
+  TIMEZONE_LABEL_TO_IANA.set(formatTimezoneDisplay(iana), iana);
+  TIMEZONE_LABEL_TO_IANA.set(formatTimezoneSelectLabel(iana), iana);
+}
 
 export const DEFAULT_INTERVIEW_TIMEZONE = 'Asia/Kolkata';
 
@@ -602,6 +703,8 @@ export function resolveIanaFromTimezoneValue(
 ): string {
   const raw = String(value || '').trim();
   if (!raw) return fallback;
+  const canonical = canonicalizeIanaZone(raw);
+  if (isValidIanaTimeZone(canonical)) return canonical;
   if (isValidIanaTimeZone(raw)) return raw;
   const fromLabel = TIMEZONE_LABEL_TO_IANA.get(raw);
   if (fromLabel) return fromLabel;
@@ -622,7 +725,7 @@ export function buildClientTimezoneSelectOptions(currentValue?: string): Timezon
 /** Interview timezone select — option values are IANA ids so scheduling math stays correct. */
 export function buildIanaTimezoneSelectOptions(currentValue?: string): TimezoneSelectOption[] {
   const options = CLIENT_TIMEZONE_IANA.map((iana) => ({
-    label: formatTimezoneDisplay(iana),
+    label: formatTimezoneSelectLabel(iana),
     value: iana,
   }))
     .filter((opt, index, list) => list.findIndex((o) => o.value === opt.value) === index)
@@ -632,7 +735,7 @@ export function buildIanaTimezoneSelectOptions(currentValue?: string): TimezoneS
   if (!current) return options;
   const iana = isValidIanaTimeZone(current) ? current : resolveIanaFromTimezoneValue(current);
   if (!options.some((opt) => opt.value === iana)) {
-    return [{ label: formatTimezoneDisplay(iana) || iana, value: iana }, ...options];
+    return [{ label: formatTimezoneSelectLabel(iana) || iana, value: iana }, ...options];
   }
   return options;
 }

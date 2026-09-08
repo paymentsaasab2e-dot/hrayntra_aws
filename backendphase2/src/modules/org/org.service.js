@@ -32,6 +32,26 @@ export const ACTIVE_ORG_COMPANY_WHERE = {
   parentId: { not: null },
 };
 
+/** Walk site → L2 company so site members see company-stamped clients/jobs. */
+async function resolveCompanyIdFromOrgUnitId(orgUnitId) {
+  let currentId = oid(orgUnitId);
+  const seen = new Set();
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId);
+    const unit = await prisma.orgUnit.findUnique({
+      where: { id: currentId },
+      select: { id: true, parentId: true, levelOrder: true, isLeaf: true, status: true, name: true },
+    });
+    if (!unit) return null;
+    const active = String(unit.status || 'active').toLowerCase() === 'active';
+    if (active && Number(unit.levelOrder) === 2 && unit.isLeaf === false) {
+      return { id: String(unit.id), name: unit.name || null };
+    }
+    currentId = unit.parentId ? String(unit.parentId) : '';
+  }
+  return null;
+}
+
 function mapUnit(row, extra = {}) {
   if (!row) return null;
   return {
@@ -352,8 +372,18 @@ export async function resolveViewerOrgScope(req) {
     pinToHomeCompany || (!canSwitchCompanies && (isCompanyScopedHead || Boolean(homeId)));
 
   let scopeUnitId = null;
-  if (forced && homeId) scopeUnitId = homeId;
-  else if (requested) scopeUnitId = requested;
+  let scopeUnitName = homeOrgUnitName;
+  if (forced && homeId) {
+    scopeUnitId = homeId;
+    // Site / branch members must see company-stamped recruitment/CRM clients.
+    const company = await resolveCompanyIdFromOrgUnitId(homeId);
+    if (company?.id) {
+      scopeUnitId = company.id;
+      scopeUnitName = company.name || homeOrgUnitName;
+    }
+  } else if (requested) {
+    scopeUnitId = requested;
+  }
 
   const isTenantWide = Boolean(
     canSwitchCompanies && selectedAllForSide && !scopeUnitId && !pinToHomeCompany,
@@ -392,7 +422,7 @@ export async function resolveViewerOrgScope(req) {
     hierarchyPurpose: purpose,
     orgUnitId: scopeUnitId,
     homeOrgUnitId: homeId || null,
-    homeOrgUnitName,
+    homeOrgUnitName: scopeUnitName || homeOrgUnitName,
     homeIsOrgCompany,
     unitIds,
     memberIds,

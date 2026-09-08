@@ -23,22 +23,13 @@ import {
   type ScheduledAnalysisSettings,
 } from '@/lib/api';
 import { SettingsPageHero, SettingsPanel } from './SettingsPageHero';
+import { buildIanaTimezoneSelectOptions } from '@/utils/inferTimezone';
 
 const DEFAULT_SCHEDULED_ANALYSIS: ScheduledAnalysisSettings = {
   enabled: true,
   time: '10:00',
   timezone: 'Asia/Kolkata',
 };
-
-const TIMEZONE_OPTIONS = [
-  'Asia/Kolkata',
-  'Asia/Dubai',
-  'Asia/Singapore',
-  'Europe/London',
-  'America/New_York',
-  'America/Los_Angeles',
-  'UTC',
-];
 
 function ScheduledAnalysisCard({
   schedule,
@@ -49,6 +40,11 @@ function ScheduledAnalysisCard({
   saving: boolean;
   onChange: (next: ScheduledAnalysisSettings) => void;
 }) {
+  const timezoneOptions = useMemo(
+    () => buildIanaTimezoneSelectOptions(schedule.timezone),
+    [schedule.timezone],
+  );
+
   return (
     <SettingsPanel
       title="Automatic daily Analyze"
@@ -89,14 +85,11 @@ function ScheduledAnalysisCard({
             onChange={(e) => onChange({ ...schedule, timezone: e.target.value })}
             className="mt-1.5 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {TIMEZONE_OPTIONS.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
+            {timezoneOptions.map((tz) => (
+              <option key={tz.value} value={tz.value}>
+                {tz.label}
               </option>
             ))}
-            {!TIMEZONE_OPTIONS.includes(schedule.timezone) ? (
-              <option value={schedule.timezone}>{schedule.timezone}</option>
-            ) : null}
           </select>
         </label>
       </div>

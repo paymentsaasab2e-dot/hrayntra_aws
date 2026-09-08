@@ -744,10 +744,9 @@ export const clientService = {
     scopedWhere = await applyMemberClientScope(scopedWhere, req, {
       listMode: recruitmentOnly ? 'recruitment' : 'crm',
     });
-    scopedWhere = await mergeOrgCompanyListScope(scopedWhere, req, {
-      assignedToIdField: 'assignedToId',
-      createdByField: 'createdById',
-    });
+    // Org company scope is already applied inside applyMemberClientScope.
+    // Do not merge again here — a second pass without includeAllUntagged
+    // would hide Super Admin–created recruitment clients from company members.
 
     if (ids) {
       const idList = String(ids)

@@ -832,15 +832,6 @@ export default function InterviewsPage() {
     !error &&
     listTotalCount > 0;
 
-  const jobContextHeader = (
-    <div className="border-b border-indigo-100/60 px-4 py-2.5 sm:px-5">
-      <p className="text-xs font-semibold text-slate-700">Jobs currently under interview</p>
-      <p className="text-[11px] text-slate-500">
-        Click a job to open candidates currently interviewing for that role.
-      </p>
-    </div>
-  );
-
   const renderListTableBody = () => {
     if (loading) {
       return <TableSkeleton rows={8} columns={6} />;
@@ -962,7 +953,6 @@ export default function InterviewsPage() {
               {view === 'list' ? (
                 <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
-                    {jobContextHeader}
                     <div className={PH2_TOOLBAR_ROW_CLASS}>
                       <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div className="relative w-full lg:max-w-md lg:flex-1">
@@ -1136,7 +1126,6 @@ export default function InterviewsPage() {
             ) : (
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
-                    {jobContextHeader}
                     <div className={PH2_TOOLBAR_ROW_CLASS}>
                       <p className="max-w-xl text-xs text-slate-600">
                         Calendar view — switch to list for search, filters, and row actions.

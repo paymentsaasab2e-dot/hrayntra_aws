@@ -76,7 +76,7 @@ export function DetailsModalShell({
           aria-modal="true"
           aria-labelledby={dialogTitleId}
           onClick={(e) => e.stopPropagation()}
-          className={`pointer-events-auto fixed z-[36] flex h-full min-h-0 flex-col overflow-hidden border-l border-indigo-100/70 bg-white shadow-[-18px_0_40px_-24px_rgba(15,23,42,0.28)] ${panelClassName}`.trim()}
+          className={`pointer-events-auto fixed z-[36] flex min-h-0 flex-col overflow-hidden border-l border-indigo-100/70 bg-white shadow-[-18px_0_40px_-24px_rgba(15,23,42,0.28)] ${panelClassName}`.trim()}
           style={mainInset}
         >
           {children}
