@@ -1,4 +1,6 @@
 export const APP_DIALOG_EVENT = 'app:dialog';
+/** Clears pending corner/modal dialogs (e.g. on tenant switch / logout). */
+export const APP_DIALOG_FLUSH_EVENT = 'app:dialog-flush';
 
 /** Branded title for in-app confirm / alert dialogs (replaces native browser prompts). */
 export const SYSTEM_ALERT_TITLE = 'HRYANTRA';
@@ -64,6 +66,12 @@ function requestDialog(kind: AppDialogKind, message: unknown, options: AppDialog
 
     window.dispatchEvent(new CustomEvent<AppDialogRequestDetail>(APP_DIALOG_EVENT, { detail }));
   });
+}
+
+/** Drop any queued / active app dialogs and resolve them as cancelled. */
+export function flushAppDialogs() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(APP_DIALOG_FLUSH_EVENT));
 }
 
 export async function requestAlert(message: unknown, options: AppDialogOptions = {}): Promise<void> {

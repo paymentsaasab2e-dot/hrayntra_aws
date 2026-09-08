@@ -1,7 +1,14 @@
+import { getTenantDbName } from '@/lib/api';
+
 const STORAGE_PREFIX = 'hryantra.drawer-engine.dismissed.';
 
+function currentScopePrefix() {
+  const tenant = String(getTenantDbName() || '').trim() || 'no-tenant';
+  return `${tenant}::`;
+}
+
 function key(scope: string) {
-  return `${STORAGE_PREFIX}${scope}`;
+  return `${STORAGE_PREFIX}${currentScopePrefix()}${scope}`;
 }
 
 export function wasDrawerAlertDismissed(scope: string): boolean {

@@ -90,7 +90,7 @@ import {
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
-import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
+import { normalizeJobSalaryCurrency, parseJobSalaryMoneyNumber } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '../../lib/jobVisibilityUserDefaults';
 import { filterClientsForAddJob } from '../../lib/recruitmentClients';
@@ -589,15 +589,26 @@ function parseSalaryHint(raw: string, contextText = ''): { currency: string; min
     };
   }
 
-  const currencyMatch = text.match(/\b(INR|USD|EUR|GBP|AED|SAR|CAD|AUD)\b/i);
+  const currencyMatch = text.match(/\b(INR|USD|EUR|GBP|AED|SAR|CAD|AUD|XAF|XOF|CFA|UGX|NGN|KES)\b/i);
   const currency = normalizeJobSalaryCurrency(currencyMatch?.[1] || '');
-  const range = text.match(/(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)/i);
+  const range = text.match(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:to|-|–)\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)/i);
   if (range) {
-    return { currency, min: range[1], max: range[2] };
+    const min = parseJobSalaryMoneyNumber(range[1]);
+    const max = parseJobSalaryMoneyNumber(range[2]);
+    return {
+      currency,
+      min: Number.isFinite(min) ? String(min) : range[1].replace(/,/g, ''),
+      max: Number.isFinite(max) ? String(max) : range[2].replace(/,/g, ''),
+    };
   }
-  const single = text.match(/(\d+(?:\.\d+)?)/);
+  const single = text.match(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*(k|lpa|lakh|l)?\b/i);
   if (single) {
-    return { currency, min: single[1], max: '' };
+    const parsed = parseJobSalaryMoneyNumber(`${single[1]}${single[2] || ''}`);
+    return {
+      currency,
+      min: Number.isFinite(parsed) ? String(parsed) : single[1].replace(/,/g, ''),
+      max: '',
+    };
   }
   return { currency, min: '', max: '' };
 }
@@ -3302,21 +3313,15 @@ export function CreateJobDrawer({
       // Map UI form values to API payload
       const parsedMinExp = parseInt(String(formData.minExperience).replace(/\D/g, ''), 10);
       const parsedMaxExp = parseInt(String(formData.maxExperience).replace(/\D/g, ''), 10);
-      const parseMoneyNumber = (value: string): number => {
-        const text = String(value || '').trim();
-        if (!text) return NaN;
-        const match = text.match(/(\d+(?:\.\d+)?)/);
-        return match ? Number(match[1]) : NaN;
-      };
       const payMin = formData.payRangeMin !== ''
-        ? parseMoneyNumber(formData.payRangeMin)
+        ? parseJobSalaryMoneyNumber(formData.payRangeMin)
         : formData.minSalary !== ''
-          ? parseMoneyNumber(formData.minSalary)
+          ? parseJobSalaryMoneyNumber(formData.minSalary)
           : NaN;
       const payMax = formData.payRangeMax !== ''
-        ? parseMoneyNumber(formData.payRangeMax)
+        ? parseJobSalaryMoneyNumber(formData.payRangeMax)
         : formData.maxSalary !== ''
-          ? parseMoneyNumber(formData.maxSalary)
+          ? parseJobSalaryMoneyNumber(formData.maxSalary)
           : NaN;
 
       const locationParts = [formData.city, formData.state, formData.country].map((v) => v?.trim()).filter(Boolean);

@@ -1,4 +1,5 @@
-import { requestCornerAlert, requestCornerConfirm } from '@/lib/appDialog';
+import { requestCornerAlert, requestCornerConfirm, flushAppDialogs } from '@/lib/appDialog';
+import { getTenantDbName } from '@/lib/api';
 import { hasDrawerIssues } from './analyze';
 import {
   dismissDrawerAlert,
@@ -26,15 +27,29 @@ function formatWhen(iso: string) {
   });
 }
 
+function currentTenantKey() {
+  return String(getTenantDbName() || '').trim();
+}
+
+function stillSameTenant(expected: string) {
+  return Boolean(expected) && currentTenantKey() === expected;
+}
+
 /**
  * Show each drawer issue as its own corner popup, one by one.
  * Feeds the Phase 2 behavior engine.
+ * Aborts if the active tenant changes mid-sequence (prevents cross-tenant leaks).
  */
 export async function alertDrawerAnalysis(
   result: DrawerAnalysisResult | null | undefined,
   options?: { force?: boolean },
 ): Promise<DrawerAlertAction> {
   if (!hasDrawerIssues(result) || !result) {
+    return { action: 'later', focus: null };
+  }
+
+  const tenantAtStart = currentTenantKey();
+  if (!tenantAtStart) {
     return { action: 'later', focus: null };
   }
 
@@ -52,8 +67,11 @@ export async function alertDrawerAnalysis(
 
   trackDrawerIntelligenceEvent({ result, action: 'alert_shown' });
 
-  // 1) Each missing mandatory field — corner, one by one
   for (const field of result.missingFields) {
+    if (!stillSameTenant(tenantAtStart)) {
+      flushAppDialogs();
+      return { action: 'later', focus };
+    }
     await requestCornerAlert(`${result.entityName}: ${field.message}`, {
       tone: 'warning',
       title: `Missing · ${field.label}`,
@@ -62,8 +80,11 @@ export async function alertDrawerAnalysis(
     });
   }
 
-  // 2) Each overdue meeting/follow-up — corner, one by one
   for (const meeting of result.overdueMeetings) {
+    if (!stillSameTenant(tenantAtStart)) {
+      flushAppDialogs();
+      return { action: 'later', focus };
+    }
     await requestCornerAlert(`${meeting.title}\nDue ${formatWhen(meeting.at)}`, {
       tone: 'error',
       title: meeting.kind === 'meeting' ? 'Overdue meeting' : 'Overdue follow-up',
@@ -72,7 +93,11 @@ export async function alertDrawerAnalysis(
     });
   }
 
-  // 3) Final action prompt in the corner
+  if (!stillSameTenant(tenantAtStart)) {
+    flushAppDialogs();
+    return { action: 'later', focus };
+  }
+
   const hasOverdue = result.overdueMeetings.length > 0;
   const confirmed = await requestCornerConfirm(
     hasOverdue
@@ -85,6 +110,11 @@ export async function alertDrawerAnalysis(
       cancelLabel: 'Later',
     },
   );
+
+  if (!stillSameTenant(tenantAtStart)) {
+    flushAppDialogs();
+    return { action: 'later', focus };
+  }
 
   if (!confirmed) {
     dismissDrawerAlert(scope);
@@ -102,7 +132,10 @@ export async function alertTenantOverdueScan(
   tenantKey: string,
 ): Promise<boolean> {
   if (!scan.overdueMeetings.length) return false;
-  const scope = tenantOverdueAlertScope(tenantKey);
+  const expectedTenant = String(tenantKey || currentTenantKey() || '').trim();
+  if (!expectedTenant || !stillSameTenant(expectedTenant)) return false;
+
+  const scope = tenantOverdueAlertScope(expectedTenant);
   if (wasDrawerAlertDismissed(scope)) return false;
 
   await requestCornerAlert(
@@ -118,6 +151,10 @@ export async function alertTenantOverdueScan(
   );
 
   for (const meeting of scan.overdueMeetings.slice(0, 12)) {
+    if (!stillSameTenant(expectedTenant)) {
+      flushAppDialogs();
+      return false;
+    }
     await requestCornerAlert(
       `[${meeting.entityKind}] ${meeting.title}\nDue ${formatWhen(meeting.at)}`,
       {
@@ -129,6 +166,11 @@ export async function alertTenantOverdueScan(
     );
   }
 
+  if (!stillSameTenant(expectedTenant)) {
+    flushAppDialogs();
+    return false;
+  }
+
   const confirmed = await requestCornerConfirm('Open records to complete these now?', {
     tone: 'warning',
     title: 'Review overdue items',
@@ -136,13 +178,24 @@ export async function alertTenantOverdueScan(
     cancelLabel: 'Dismiss today',
   });
 
+  if (!stillSameTenant(expectedTenant)) {
+    flushAppDialogs();
+    return false;
+  }
+
   dismissDrawerAlert(scope);
   return confirmed;
 }
 
 export async function alertMissingFieldsOnly(messages: string[]) {
   if (!messages.length) return;
+  const tenantAtStart = currentTenantKey();
+  if (!tenantAtStart) return;
   for (const message of messages) {
+    if (!stillSameTenant(tenantAtStart)) {
+      flushAppDialogs();
+      return;
+    }
     await requestCornerAlert(message, {
       tone: 'warning',
       title: 'Missing mandatory field',

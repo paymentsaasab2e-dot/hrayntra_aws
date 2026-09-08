@@ -648,23 +648,25 @@ export default function InterviewsPage() {
     if (isInterviewCompleted(interview)) return;
     setScheduleNextRoundFrom(null);
     setEditInterview(interview);
+    // Open the edit popup before closing the detail drawer so the click that
+    // triggered Edit cannot hit a new backdrop and instantly dismiss it.
+    openScheduleModal();
     drawer.closeDrawer();
-    window.setTimeout(() => openScheduleModal(), 260);
   };
 
   const openRejectFlow = (interview: Interview) => {
     if (isInterviewCompleted(interview)) return;
     setRejectInterview(interview);
+    setRejectModalOpen(true);
     drawer.closeDrawer();
-    window.setTimeout(() => setRejectModalOpen(true), 260);
   };
 
   const openScheduleNextRoundFlow = (interview: Interview, opts?: { requireCompleted?: boolean }) => {
     if (opts?.requireCompleted !== false && !isInterviewCompleted(interview)) return;
     setEditInterview(null);
     setScheduleNextRoundFrom(interview);
+    openScheduleModal();
     drawer.closeDrawer();
-    window.setTimeout(() => openScheduleModal(), 260);
   };
 
   /** From job candidates table: move R1 candidate into next round when the job already has that round. */

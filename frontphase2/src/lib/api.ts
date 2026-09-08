@@ -293,15 +293,30 @@ function attachOrgSideHeader(headers: Record<string, string>) {
 export function syncTenantDbName(value: string | null | undefined) {
   if (typeof window === 'undefined') return;
 
+  const previous = String(localStorage.getItem('tenantDbName') || '').trim();
   const normalized = String(value || '').trim();
   if (!normalized) {
     localStorage.removeItem('tenantDbName');
     document.cookie = `tenantDbName=; Path=/; Max-Age=0; SameSite=Lax`;
-    return;
+  } else {
+    localStorage.setItem('tenantDbName', normalized);
+    document.cookie = `tenantDbName=${encodeURIComponent(normalized)}; Path=/; SameSite=Lax`;
   }
 
-  localStorage.setItem('tenantDbName', normalized);
-  document.cookie = `tenantDbName=${encodeURIComponent(normalized)}; Path=/; SameSite=Lax`;
+  if (previous !== normalized) {
+    try {
+      // Lazy imports avoid circular deps with intelligence / dialog modules.
+      void import('./phase2-intelligence').then((m) => m.clearTenantIntelligenceCache?.());
+      void import('./appDialog').then((m) => m.flushAppDialogs?.());
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(
+      new CustomEvent('hryantra:tenant-changed', {
+        detail: { previous, next: normalized || null },
+      }),
+    );
+  }
 }
 
 export function syncAuthCookie(name: string, value: string | null) {

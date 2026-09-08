@@ -39,13 +39,14 @@ export function canViewAllAssignments(req) {
 }
 
 /**
- * Legacy tenant-wide company access. Super Admin still has this.
- * Other roles now pick companies under Switch companies (CRM / Recruitment).
+ * Legacy tick only. Super Admin still sees every company.
+ * Other roles must use switch_companies + CRM/Recruitment org picks — this
+ * permission alone never unlocks other organizations.
  */
 export function canViewAllCompanies(req) {
   if (isSuperAdminOwnWork(req)) return false;
   if (isSuperAdminUser(req) || req?.userWithPermissions?.isSuperAdmin) return true;
-  return hasPermission(req, 'view_all_companies');
+  return false;
 }
 
 /** CRM Clients list — org-wide (does not unlock Recruitment Clients). */

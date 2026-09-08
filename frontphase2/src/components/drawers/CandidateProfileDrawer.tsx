@@ -683,6 +683,31 @@ export interface ScheduleInterviewCandidateOption {
   assignedClientId?: string | null;
 }
 
+function inferPlatformFromMeetingLink(url: string): 'Google Meet' | 'Zoom' | null {
+  const value = String(url || '').trim().toLowerCase();
+  if (!value) return null;
+  if (value.includes('meet.google.com') || value.includes('google.com/meet')) return 'Google Meet';
+  if (value.includes('zoom.us') || value.includes('zoom.com')) return 'Zoom';
+  return null;
+}
+
+/** Normalize stored / mapped interview mode so video does not flip to in-person. */
+function normalizePopupInterviewMode(
+  interview: Pick<CandidateScheduledInterview, 'mode' | 'meetingLink' | 'platform' | 'phoneNumber'>,
+): 'video' | 'in-person' | 'phone' {
+  const raw = String(interview.mode || '').trim().toLowerCase();
+  if (raw === 'phone' || raw === 'phonecall') return 'phone';
+  if (raw === 'video' || raw === 'online' || raw === 'videocall') return 'video';
+  if (raw === 'in-person' || raw === 'inperson' || raw === 'offline' || raw === 'onsite') {
+    // Meeting link / platform means this is still a video interview even if mode was mis-saved.
+    if (interview.meetingLink || interview.platform) return 'video';
+    return 'in-person';
+  }
+  if (interview.phoneNumber && !interview.meetingLink) return 'phone';
+  if (interview.meetingLink || interview.platform) return 'video';
+  return 'video';
+}
+
 function mapInterviewListItemToScheduled(
   item: BackendInterviewListItem,
   roundIndex: number,
@@ -702,9 +727,9 @@ function mapInterviewListItemToScheduled(
     duration: item.duration ? `${item.duration} mins` : '1 hour',
     timezone,
     mode:
-      item.mode === 'OFFLINE'
+      String(item.mode || '').toUpperCase() === 'OFFLINE' && !item.meetingLink && !item.platform
         ? 'in-person'
-        : item.type === 'PHONE'
+        : String(item.type || '').toUpperCase() === 'PHONE'
           ? 'phone'
           : 'video',
     platform:
@@ -792,6 +817,8 @@ export function ScheduleInterviewModal({
   const [meetingPlatform, setMeetingPlatform] = useState<'Google Meet' | 'Zoom' | null>(null);
   const [meetingLink, setMeetingLink] = useState('');
   const [generatingMeetingLink, setGeneratingMeetingLink] = useState(false);
+  const hydratedEditInterviewIdRef = useRef<string | null>(null);
+  const ignoreBackdropCloseUntilRef = useRef(0);
   const [location, setLocation] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [interviewerSearch, setInterviewerSearch] = useState('');
@@ -912,6 +939,17 @@ export function ScheduleInterviewModal({
   }, [interviewers, isStandaloneMode, lineManagerOptions, teamMemberOptions]);
 
   const loadingPanelMembers = isStandaloneMode && (loadingLineManagers || loadingTeamMembers);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // Ignore the same pointer gesture that opened this modal (backdrop click-through).
+    ignoreBackdropCloseUntilRef.current = Date.now() + 450;
+  }, [isOpen]);
+
+  const requestModalClose = () => {
+    if (Date.now() < ignoreBackdropCloseUntilRef.current) return;
+    onClose();
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -1272,16 +1310,31 @@ export function ScheduleInterviewModal({
   ]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      hydratedEditInterviewIdRef.current = null;
+      return;
+    }
     if (!editInterview) return;
+
+    const editId = String(editInterview.id || '');
+    // Only seed the form when the modal opens (or a different interview is loaded).
+    // Re-running on every new object identity was resetting Video Call → In Person
+    // while the user edited other fields.
+    if (hydratedEditInterviewIdRef.current === editId) return;
+    hydratedEditInterviewIdRef.current = editId;
+
     setInterviewType(editInterview.type || '');
     setRoundNumber(editInterview.round || 1);
     setDate(editInterview.date || '');
     setTime(editInterview.time || '');
     setDuration(editInterview.duration || '');
     setTimezone(resolveIanaFromTimezoneValue(editInterview.timezone));
-    setMode((editInterview.mode as any) || '');
-    setMeetingPlatform(editInterview.platform || null);
+    setMode(normalizePopupInterviewMode(editInterview));
+    setMeetingPlatform(
+      editInterview.platform ||
+        inferPlatformFromMeetingLink(editInterview.meetingLink || '') ||
+        null,
+    );
     setMeetingLink(editInterview.meetingLink || '');
     setLocation(editInterview.location || '');
     setPhoneNumber(editInterview.phoneNumber || candidate?.phone || '');
@@ -1418,7 +1471,9 @@ export function ScheduleInterviewModal({
     if (!selectedJobId) {
       nextErrors.linkedJob = 'Linked job is required';
     }
-    if (mode === 'video' && !meetingPlatform) nextErrors.modeField = 'Select Google Meet or Zoom';
+    if (mode === 'video' && !meetingPlatform) {
+      nextErrors.modeField = 'Select Google Meet or Zoom';
+    }
     if (mode === 'video' && !meetingLink.trim()) nextErrors.modeField = 'Meeting link is required';
     if (mode === 'in-person' && !location.trim()) nextErrors.modeField = 'Location is required';
     if (mode === 'phone' && !phoneNumber.trim()) nextErrors.modeField = 'Phone number is required';
@@ -1437,17 +1492,19 @@ export function ScheduleInterviewModal({
 
   const handleGenerateMeetingLink = async (platform: 'Google Meet' | 'Zoom') => {
     if (!candidate) return;
+    setMeetingPlatform(platform);
+    setErrors((prev) => ({ ...prev, modeField: undefined }));
+
     if (!date || !time || !duration) {
       setErrors((prev) => ({
         ...prev,
-        modeField: 'Select date, time, and duration before generating the meeting link',
+        modeField: 'Select date, time, and duration, then click again to generate — or paste a link below',
       }));
       return;
     }
 
     try {
       setGeneratingMeetingLink(true);
-      setMeetingPlatform(platform);
       const response = await apiGenerateCandidateInterviewMeetingLink(candidate.id, {
         jobId: selectedJobId || candidate.assignedJobId || null,
         date,
@@ -1462,10 +1519,11 @@ export function ScheduleInterviewModal({
       setMeetingLink(response.meetingLink || '');
       setErrors((prev) => ({ ...prev, modeField: undefined }));
     } catch (error: any) {
-      setMeetingLink('');
       setErrors((prev) => ({
         ...prev,
-        modeField: error?.message || 'Unable to generate meeting link',
+        modeField:
+          error?.message ||
+          'Could not generate a link. Paste your meeting URL in the field below.',
       }));
     } finally {
       setGeneratingMeetingLink(false);
@@ -1580,13 +1638,21 @@ export function ScheduleInterviewModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={requestModalClose}
+            onMouseDown={(event) => {
+              // Block the opening click from dismissing via backdrop.
+              if (Date.now() < ignoreBackdropCloseUntilRef.current) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+            }}
           />
           <motion.div
             className="fixed inset-x-0 bottom-0 top-14 z-[160] md:inset-0 md:flex md:items-center md:justify-center md:p-4"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="flex h-full w-full flex-col rounded-t-3xl border border-slate-200 bg-white shadow-2xl md:h-auto md:max-h-[90vh] md:max-w-[560px] md:rounded-3xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -1727,9 +1793,6 @@ export function ScheduleInterviewModal({
                             timezone,
                           ).map((s) => s.label);
                           setTime((prev) => (prev && allowed.includes(prev) ? prev : ''));
-                          if (mode === 'video') {
-                            setMeetingLink('');
-                          }
                           setErrors((prev) => ({ ...prev, date: undefined }));
                         }}
                         className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
@@ -1762,9 +1825,6 @@ export function ScheduleInterviewModal({
                                 type="button"
                                 onClick={() => {
                                   setTime(slot);
-                                  if (mode === 'video') {
-                                    setMeetingLink('');
-                                  }
                                   setTimeOpen(false);
                                   setErrors((prev) => ({ ...prev, time: undefined }));
                                 }}
@@ -1805,9 +1865,6 @@ export function ScheduleInterviewModal({
                                 type="button"
                                 onClick={() => {
                                   setDuration(option);
-                                  if (mode === 'video') {
-                                    setMeetingLink('');
-                                  }
                                   setDurationOpen(false);
                                   setErrors((prev) => ({ ...prev, duration: undefined }));
                                 }}
@@ -1843,9 +1900,6 @@ export function ScheduleInterviewModal({
                             nextTimezone,
                           ).map((s) => s.label);
                           setTime((prev) => (prev && allowed.includes(prev) ? prev : ''));
-                          if (mode === 'video') {
-                            setMeetingLink('');
-                          }
                           setErrors((prev) => ({ ...prev, timezone: undefined }));
                         }}
                       />
@@ -1915,16 +1969,32 @@ export function ScheduleInterviewModal({
                               <span className="mt-1 block text-xs text-slate-500">
                                 {generatingMeetingLink && meetingPlatform === platform
                                   ? 'Generating valid link...'
-                                  : `Generate a live ${platform} meeting link`}
+                                  : `Click to generate a ${platform} link when connected`}
                               </span>
                             </button>
                           ))}
                         </div>
-                        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                          {meetingLink ? (
-                            <DrawerLinkActions url={meetingLink} shareTitle="Interview meeting link" />
+                        <div className="mt-3 space-y-2">
+                          <input
+                            value={meetingLink}
+                            onChange={(e) => {
+                              const next = e.target.value;
+                              setMeetingLink(next);
+                              const inferred = inferPlatformFromMeetingLink(next);
+                              if (inferred) setMeetingPlatform(inferred);
+                              setErrors((prev) => ({ ...prev, modeField: undefined }));
+                            }}
+                            placeholder="Meeting link appears here after generate — or paste a Meet / Zoom URL"
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                          />
+                          {meetingLink.trim() ? (
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                              <DrawerLinkActions url={meetingLink.trim()} shareTitle="Interview meeting link" />
+                            </div>
                           ) : (
-                            <span className="text-sm text-slate-500">Choose Google Meet or Zoom to generate the meeting link.</span>
+                            <p className="text-xs text-slate-500">
+                              Connected accounts generate a link on click. You can also paste a link here.
+                            </p>
                           )}
                         </div>
                         {errors.modeField ? <p className="mt-1 text-xs text-red-600">{errors.modeField}</p> : null}

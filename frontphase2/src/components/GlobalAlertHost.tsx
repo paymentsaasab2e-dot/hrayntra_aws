@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 import {
   APP_DIALOG_EVENT,
+  APP_DIALOG_FLUSH_EVENT,
   type AppDialogKind,
   type AppDialogPlacement,
   type AppDialogTone,
@@ -13,6 +14,8 @@ import {
   SYSTEM_ALERT_TITLE,
 } from '../lib/appDialog';
 import { isEmployerPublicAuthPath } from '../lib/sessionAuth';
+import { getTenantDbName } from '../lib/api';
+import { useUser } from '../hooks/useUser';
 
 type DialogRequest = {
   kind: AppDialogKind;
@@ -88,10 +91,36 @@ function toDialogRequest(detail: AppDialogRequestDetail): DialogRequest {
 export function GlobalAlertHost() {
   const pathname = usePathname();
   const isAuthRoute = isEmployerPublicAuthPath(pathname);
+  const { user } = useUser();
+  const [tenantDbName, setTenantDbName] = useState(() => getTenantDbName());
+  const sessionKey = `${tenantDbName || ''}::${user?.id || ''}`;
   const [cornerQueue, setCornerQueue] = useState<DialogRequest[]>([]);
   const [modalQueue, setModalQueue] = useState<DialogRequest[]>([]);
   const activeCorner = useMemo(() => cornerQueue[0] || null, [cornerQueue]);
   const activeModal = useMemo(() => modalQueue[0] || null, [modalQueue]);
+
+  useEffect(() => {
+    const sync = () => setTenantDbName(getTenantDbName());
+    window.addEventListener('hryantra:tenant-changed', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('hryantra:tenant-changed', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
+  const flushQueues = useCallback(() => {
+    setCornerQueue((prev) => {
+      if (!prev.length) return prev;
+      prev.forEach((item) => item.resolve(false));
+      return [];
+    });
+    setModalQueue((prev) => {
+      if (!prev.length) return prev;
+      prev.forEach((item) => item.resolve(false));
+      return [];
+    });
+  }, []);
 
   const closeCorner = useCallback((result: boolean) => {
     setCornerQueue((prev) => {
@@ -135,27 +164,29 @@ export function GlobalAlertHost() {
       setModalQueue((prev) => (detail.priority === 'high' ? [request, ...prev] : [...prev, request]));
     };
 
+    const handleFlush = () => {
+      flushQueues();
+    };
+
     window.addEventListener(APP_DIALOG_EVENT, handleRequest as EventListener);
+    window.addEventListener(APP_DIALOG_FLUSH_EVENT, handleFlush);
 
     return () => {
       window.alert = originalAlert;
       window.removeEventListener(APP_DIALOG_EVENT, handleRequest as EventListener);
+      window.removeEventListener(APP_DIALOG_FLUSH_EVENT, handleFlush);
     };
-  }, []);
+  }, [flushQueues]);
 
   useEffect(() => {
     if (!isAuthRoute) return;
-    setCornerQueue((prev) => {
-      if (!prev.length) return prev;
-      prev.forEach((item) => item.resolve(false));
-      return [];
-    });
-    setModalQueue((prev) => {
-      if (!prev.length) return prev;
-      prev.forEach((item) => item.resolve(false));
-      return [];
-    });
-  }, [isAuthRoute]);
+    flushQueues();
+  }, [isAuthRoute, flushQueues]);
+
+  // Drop queued CRM alerts when the signed-in user or tenant workspace changes.
+  useEffect(() => {
+    flushQueues();
+  }, [sessionKey, flushQueues]);
 
   useEffect(() => {
     if (!activeCorner) return;

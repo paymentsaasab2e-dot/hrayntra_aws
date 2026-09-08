@@ -16,15 +16,30 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'leads_read', module: 'Leads', description: 'Leads page' },
   { permissionName: 'leads_update', module: 'Leads', description: 'Leads page — update' },
   { permissionName: 'leads_delete', module: 'Leads', description: 'Leads page — delete' },
-  { permissionName: 'view_all_leads', module: 'Leads', description: 'Leads page — all records in the organization' },
+  {
+    permissionName: 'view_all_leads',
+    module: 'Leads',
+    description:
+      'Leads page — all leads in your current company / organization (not other companies; use Organization — switch companies for those)',
+  },
   { permissionName: 'convert_lead', module: 'Leads', description: 'Leads page — convert a lead into a client' },
 
   // Clients
   { permissionName: 'clients_create', module: 'Clients', description: 'CRM Clients — create' },
-  { permissionName: 'clients_read', module: 'Clients', description: 'CRM Clients — my assigned / organization members' },
+  {
+    permissionName: 'clients_read',
+    module: 'Clients',
+    description:
+      'CRM Clients — my assigned / organization members in your current company (default home org only)',
+  },
   { permissionName: 'clients_update', module: 'Clients', description: 'CRM Clients — update' },
   { permissionName: 'clients_delete', module: 'Clients', description: 'CRM Clients — delete' },
-  { permissionName: 'view_all_clients', module: 'Clients', description: 'CRM Clients — all company CRM clients' },
+  {
+    permissionName: 'view_all_clients',
+    module: 'Clients',
+    description:
+      'CRM Clients — all CRM clients in your current company (does not unlock other companies; tick Organization — switch companies separately)',
+  },
   { permissionName: 'clients_handoff', module: 'Clients', description: 'CRM Clients — hand off to another department' },
 
   // Contacts
@@ -46,10 +61,20 @@ export const DEFAULT_PERMISSIONS = [
   // ══ Recruitment ════════════════════════════════════════════════════════
   // Recruitment Clients (separate from CRM Clients — no CRM dependency)
   { permissionName: 'recruitment_clients_create', module: 'Recruitment Clients', description: 'Recruitment Clients — create (independent of CRM Clients)' },
-  { permissionName: 'recruitment_clients_read', module: 'Recruitment Clients', description: 'Recruitment Clients — my assigned / organization members' },
+  {
+    permissionName: 'recruitment_clients_read',
+    module: 'Recruitment Clients',
+    description:
+      'Recruitment Clients — my assigned / organization members in your current company (default home org only)',
+  },
   { permissionName: 'recruitment_clients_update', module: 'Recruitment Clients', description: 'Recruitment Clients — update' },
   { permissionName: 'recruitment_clients_delete', module: 'Recruitment Clients', description: 'Recruitment Clients — delete' },
-  { permissionName: 'view_all_recruitment_clients', module: 'Recruitment Clients', description: 'Recruitment Clients — all company recruitment clients' },
+  {
+    permissionName: 'view_all_recruitment_clients',
+    module: 'Recruitment Clients',
+    description:
+      'Recruitment Clients — all recruitment clients in your current company (does not unlock other companies; tick Organization — switch companies separately)',
+  },
 
   // Jobs
   { permissionName: 'jobs_create', module: 'Jobs', description: 'Jobs page — create' },
@@ -57,7 +82,12 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'jobs_update', module: 'Jobs', description: 'Jobs page — update' },
   { permissionName: 'jobs_delete', module: 'Jobs', description: 'Jobs page — delete' },
   { permissionName: 'assign_job', module: 'Jobs', description: 'Jobs page — assign to recruiters' },
-  { permissionName: 'view_all_jobs', module: 'Jobs', description: 'Jobs page — all records in the organization' },
+  {
+    permissionName: 'view_all_jobs',
+    module: 'Jobs',
+    description:
+      'Jobs page — all jobs in your current company / organization (not other companies without Switch companies)',
+  },
   { permissionName: 'publish_job', module: 'Jobs', description: 'Jobs page — publish to the portal and social channels' },
 
   // Candidates
@@ -65,7 +95,12 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'candidates_read', module: 'Candidates', description: 'Candidates page' },
   { permissionName: 'candidates_update', module: 'Candidates', description: 'Candidates page — update' },
   { permissionName: 'candidates_delete', module: 'Candidates', description: 'Candidates page — delete' },
-  { permissionName: 'view_all_candidates', module: 'Candidates', description: 'Candidates page — all records in the organization' },
+  {
+    permissionName: 'view_all_candidates',
+    module: 'Candidates',
+    description:
+      'Candidates page — all candidates in your current company / organization (not other companies without Switch companies)',
+  },
   { permissionName: 'view_assigned_candidates', module: 'Candidates', description: 'Candidates page — assigned records only' },
   { permissionName: 'move_pipeline', module: 'Candidates', description: 'Pipeline page — move candidates' },
   { permissionName: 'submit_candidate', module: 'Candidates', description: 'Candidates page — submit to Jobs' },
@@ -121,7 +156,12 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'requests_read', module: 'Request', description: 'Requests' },
   { permissionName: 'requests_update', module: 'Request', description: 'Requests — update' },
   { permissionName: 'requests_delete', module: 'Request', description: 'Requests — delete' },
-  { permissionName: 'view_all_requests', module: 'Request', description: 'Requests — all records in the organization' },
+  {
+    permissionName: 'view_all_requests',
+    module: 'Request',
+    description:
+      'Requests — all records in your current company / organization (not other companies without Switch companies)',
+  },
   { permissionName: 'approve_requests', module: 'Request', description: 'Requests — Approvals' },
 
   // ══ Insights & Finance ═════════════════════════════════════════════════
@@ -163,18 +203,23 @@ export const DEFAULT_PERMISSIONS = [
 
   // Organization
   { permissionName: 'org_structure', module: 'Organization', description: 'Open Organization — edit the company tree (HQ, companies, sites)' },
-  { permissionName: 'node_org_structure', module: 'Organization', description: 'Organization — manage sites and people under your own company' },
+  {
+    permissionName: 'node_org_structure',
+    module: 'Organization',
+    description:
+      'Organization — manage sites and people under your own company only (Person A in Org A stays in Org A)',
+  },
   {
     permissionName: 'switch_companies',
     module: 'Organization',
     description:
-      'Show the company switcher. After ticking this, choose CRM and/or Recruitment organizations below — the role then has full access of those companies. Super Admin has this by default.',
+      'Required to see other companies’ data. Shows the company switcher. After ticking this, choose CRM and/or Recruitment organizations below — only then can the role open those companies. Super Admin has this by default. Module “view all” ticks alone never unlock other orgs.',
   },
   {
     permissionName: 'view_all_companies',
     module: 'Organization',
     description:
-      'Retired — use Switch companies, then pick CRM and Recruitment organizations. Kept for Super Admin and existing roles until they are saved again.',
+      'Retired — does not grant access. Use Organization — switch companies, then pick CRM and Recruitment organizations.',
   },
 
   // Company page (public tenant profile)
@@ -204,7 +249,7 @@ export const DEFAULT_PERMISSIONS = [
     permissionName: 'dash_full_scope',
     module: 'System',
     description:
-      'Dashboard level: Whole tenant — see all companies on allowed CRM/Recruitment tabs. Super Admin already has this.',
+      'Dashboard level: Whole tenant — only with Organization — switch companies (and org picks / All). Without switch, this stays at your own company. Super Admin already has tenant-wide dashboards.',
   },
   {
     permissionName: 'dash_mine_approvals',
@@ -320,7 +365,9 @@ export const DEFAULT_ROLE_PERMISSION_PRESETS = {
         n !== 'dash_dept_scope' &&
         n !== 'dash_company_scope' &&
         n !== 'view_cross_company_members' &&
-        n !== 'view_all_companies',
+        n !== 'view_all_companies' &&
+        // Other companies require an explicit Switch companies + org picks grant.
+        n !== 'switch_companies',
     ),
   ),
   'Senior Recruiter': withEveryoneDefaults([

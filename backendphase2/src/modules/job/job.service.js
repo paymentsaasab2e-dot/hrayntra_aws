@@ -248,9 +248,12 @@ function normalizeSalaryCurrencyCode(raw) {
   const trimmed = String(raw || '').trim();
   if (!trimmed) return undefined;
   const upper = trimmed.toUpperCase();
+  // Informal African label — map before generic 3-letter pass-through.
+  if (upper === 'CFA') return 'XAF';
   // Any ISO-4217 style code wins over label heuristics (XAF, UGX, etc. must stay XAF, not INR).
   if (/^[A-Z]{3}$/.test(upper)) return upper;
   const lower = trimmed.toLowerCase();
+  if (lower.includes('cfa')) return 'XAF';
   if (lower.includes('rupee') || lower.includes('₹')) return 'INR';
   if (lower.includes('dollar') || lower.includes('$') || lower.includes('usd')) return 'USD';
   if (lower.includes('euro') || lower.includes('€') || lower.includes('eur')) return 'EUR';
@@ -270,7 +273,15 @@ function normalizeSalaryData(salary) {
 
   const toNum = (v) => {
     if (v === undefined || v === null || v === '') return undefined;
-    const n = Number(v);
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    // Strip thousands separators so "100,000" does not become 100.
+    const cleaned = String(v).trim().replace(/,/g, '');
+    const kMatch = cleaned.match(/^([\d.]+)\s*k$/i);
+    if (kMatch) {
+      const n = Number(kMatch[1]) * 1000;
+      return Number.isFinite(n) ? Math.round(n) : undefined;
+    }
+    const n = Number(cleaned.replace(/[^\d.-]/g, ''));
     return Number.isFinite(n) ? n : undefined;
   };
 

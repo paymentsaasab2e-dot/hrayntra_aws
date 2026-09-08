@@ -13,9 +13,20 @@ import {
 } from './types';
 
 const CACHE_TTL_MS = 90_000;
-let cache: TenantIntelligenceCache | null = null;
-let cacheAt = 0;
+
+type ScopedCache = {
+  key: string;
+  cache: TenantIntelligenceCache;
+  cacheAt: number;
+};
+
+let scoped: ScopedCache | null = null;
+let inflightKey: string | null = null;
 let inflight: Promise<TenantIntelligenceCache | null> | null = null;
+
+function intelligenceScopeKey(tenantDbName?: string | null, userId?: string | null) {
+  return `${String(tenantDbName || getTenantDbName() || '').trim()}::${String(userId || '').trim()}`;
+}
 
 function unwrapList<T>(payload: unknown): T[] {
   if (Array.isArray(payload)) return payload as T[];
@@ -85,9 +96,16 @@ export function mergeIntelligenceIntoCrmSnapshot(
   };
 }
 
+export function clearTenantIntelligenceCache() {
+  scoped = null;
+  inflight = null;
+  inflightKey = null;
+}
+
 /**
  * Shared Phase 2 intelligence refresh:
  * drawer completeness + overdue meetings → behavior CRM snapshot.
+ * Cache is keyed by tenant + user so workspaces never share CRM alerts.
  */
 export async function refreshTenantIntelligence(options?: {
   force?: boolean;
@@ -95,18 +113,39 @@ export async function refreshTenantIntelligence(options?: {
   tenantDbName?: string | null;
   baseCrm?: Omit<TenantCrmSnapshot, 'updatedAt'> | null;
 }): Promise<TenantIntelligenceCache | null> {
-  const now = Date.now();
-  if (!options?.force && cache && now - cacheAt < CACHE_TTL_MS) {
-    return cache;
+  const tenantDbName = options?.tenantDbName || getTenantDbName();
+  const userId = options?.userId || null;
+  if (!tenantDbName || !userId) {
+    clearTenantIntelligenceCache();
+    return null;
   }
-  if (inflight) return inflight;
 
+  const scopeKey = intelligenceScopeKey(tenantDbName, userId);
+  const now = Date.now();
+
+  if (
+    !options?.force &&
+    scoped &&
+    scoped.key === scopeKey &&
+    now - scoped.cacheAt < CACHE_TTL_MS
+  ) {
+    return scoped.cache;
+  }
+
+  if (inflight && inflightKey === scopeKey) return inflight;
+
+  inflightKey = scopeKey;
   inflight = (async () => {
     try {
       const [leadsRes, clientsRes] = await Promise.all([
         apiGetLeads({ limit: 100, page: 1 }),
         apiGetClients({ limit: 100, page: 1 }),
       ]);
+
+      // Tenant/user may have changed while the request was in flight.
+      if (intelligenceScopeKey(getTenantDbName(), userId) !== scopeKey) {
+        return null;
+      }
 
       const leads = unwrapList<Record<string, unknown>>(leadsRes?.data ?? leadsRes);
       const clients = unwrapList<Record<string, unknown>>(clientsRes?.data ?? clientsRes);
@@ -119,32 +158,39 @@ export async function refreshTenantIntelligence(options?: {
         .filter((a): a is DrawerAnalysisResult => Boolean(a));
 
       const snapshot = buildSnapshot(leadAnalyses, clientAnalyses);
-      cache = { snapshot, leadAnalyses, clientAnalyses };
-      cacheAt = Date.now();
+      const nextCache: TenantIntelligenceCache = { snapshot, leadAnalyses, clientAnalyses };
+      scoped = { key: scopeKey, cache: nextCache, cacheAt: Date.now() };
 
-      const tenantDbName = options?.tenantDbName || getTenantDbName();
-      const userId = options?.userId;
-      if (tenantDbName && userId) {
-        const merged = mergeIntelligenceIntoCrmSnapshot(options?.baseCrm || null, snapshot);
-        syncTenantCrmSnapshot(tenantDbName, userId, merged);
-      }
+      const merged = mergeIntelligenceIntoCrmSnapshot(options?.baseCrm || null, snapshot);
+      syncTenantCrmSnapshot(tenantDbName, userId, merged);
 
-      publish(cache);
-      return cache;
+      publish(nextCache);
+      return nextCache;
     } catch {
-      return cache;
+      return scoped?.key === scopeKey ? scoped.cache : null;
     } finally {
-      inflight = null;
+      if (inflightKey === scopeKey) {
+        inflight = null;
+        inflightKey = null;
+      }
     }
   })();
 
   return inflight;
 }
 
-export function getCachedTenantIntelligence(): TenantIntelligenceCache | null {
-  if (!cache) return null;
-  if (Date.now() - cacheAt > CACHE_TTL_MS * 2) return null;
-  return cache;
+export function getCachedTenantIntelligence(
+  tenantDbName?: string | null,
+  userId?: string | null,
+): TenantIntelligenceCache | null {
+  if (!scoped) return null;
+  if (Date.now() - scoped.cacheAt > CACHE_TTL_MS * 2) return null;
+  const tenant = String(tenantDbName || getTenantDbName() || '').trim();
+  if (!tenant || !scoped.key.startsWith(`${tenant}::`)) return null;
+  if (userId) {
+    if (scoped.key !== intelligenceScopeKey(tenant, userId)) return null;
+  }
+  return scoped.cache;
 }
 
 export { trackDrawerIntelligenceEvent } from '@/lib/tenant-drawer-engine/track';
